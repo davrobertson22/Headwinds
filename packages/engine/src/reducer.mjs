@@ -1,16 +1,31 @@
+// @tailwinds/engine/src/reducer
+// ----------------------------------------------------------------------------
+// THE canonical, pure, framework-free game reducer + freshState + reconcileState.
+// This is the single source of truth for the game "tick", extracted verbatim from
+// the solo app's GameContext.jsx (which is the authoritative, current logic). Both
+// consume it:
+//   • Tailwinds (solo)        — src/store/GameContext.jsx imports it; its React
+//                               provider wraps it in useReducer + localStorage.
+//   • Headwinds (multiplayer) — the server imports it as the authoritative tick.
+// No React, no DOM, no localStorage — keep it that way.
+
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, routeDistanceKm,
   CLASS_FARE_MULTIPLIERS, maxFrequency, effectiveRangeKm, weekToGameDate,
-  routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute,
+  routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
+  routeStops, routeLegs, routeSegments, routeSegmentKey,
+  routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
+  MAX_ROUTE_STOPS,
   loyaltyTier, loyaltyEnrollPull,
-} from '../utils/simulation.js';
-import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield } from '../utils/market.js';
-import { fleetWeeklyDepreciation } from '../utils/financeProjection.js';
-import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES } from '../data/aircraft.js';
-import { getAirport } from '../data/airports.js';
-import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget } from '../data/labor.js';
-import { checkRouteRestrictions } from '../data/airportRestrictions.js';
+  isRouteActive, routeActiveMonths,
+} from './utils/simulation.js';
+import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield } from './utils/market.js';
+import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
+import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES } from './data/aircraft.js';
+import { getAirport } from './data/airports.js';
+import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget } from './data/labor.js';
+import { checkRouteRestrictions } from './data/airportRestrictions.js';
 import {
   COMPETITOR_AIRLINES,
   initializeCompetitorRoutes,
@@ -21,25 +36,26 @@ import {
   HUB_TIERS,
   HUB_MIN_GATES,
   HUB_TIER_COUNT,
-} from '../models/demand.js';
-import { rollEvents, tickEvents, rollMechanicalFailures } from '../data/events.js';
-import { tickEncroachment } from '../models/encroachment.js';
+} from './models/demand.js';
+import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
+import { tickEncroachment } from './models/encroachment.js';
 import {
   tickFuelPrice,
   effectiveFuelMultiplier,
   hedgeLockedPrice,
   absoluteWeek,
   HEDGE_DURATIONS,
-} from '../utils/fuel.js';
+} from './utils/fuel.js';
 import {
   getAlliance,
   CODESHARE_WEEKLY_FEE_BY_TIER,
   CODESHARE_DURATION_WEEKS,
   MAX_CODESHARE_AGREEMENTS,
-} from '../data/alliances.js';
-import { routeLaunchCost, DEPRECIATION_YEARS } from '../data/overhead.js';
-import { normalizeCateringLevel } from '../data/catering.js';
-import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective } from '../data/objectives.js';
+} from './data/alliances.js';
+import { routeLaunchCost, DEPRECIATION_YEARS } from './data/overhead.js';
+import { normalizeCateringLevel } from './data/catering.js';
+import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective } from './data/objectives.js';
+
 
 // ─────────────────────────────────────────────
 // STATE SHAPE
@@ -52,6 +68,7 @@ function freshState() {
     airlineName: '',
     logoId: 'horizon',
     logoColor: '#f5a623',
+    customLogo: null,   // data URL of a user-uploaded logo (overrides logoId when set)
     hub: '',
     homeCountry: '',  // ISO country code of starting hub — hubs restricted to this country
     cash: STARTING_CASH,
@@ -62,7 +79,7 @@ function freshState() {
     year: 1,
     fleet: [],         // { id, typeId, name, status, ageWeeks, config, ownershipType, fuelMod, rangeMod, maintMod, engineId, engineLabel, hasWingtips }
     pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }
-    routes: [],      // { id, origin, destination, aircraftId, weeklyFrequency, hub } — price lives in routePricing
+    routes: [],      // { id, origin, destination, stops:[origin,...,destination], aircraftId, weeklyFrequency, hub } — price lives in routePricing; stops carries intermediate tag-flight airports (single-leg routes have stops=[origin,destination])
     routePricing: {},// { [pairKey]: { economy, premiumEconomy, businessClass, firstClass } } — one price set per O&D pair
     routeCatering: {},// { [pairKey]: cateringLevel } — one catering level per O&D pair
     cargoRoutes: [], // { id, origin, destination, aircraftId, yieldPrice ($/tonne-km), weeklyFrequency, weeksOpen, hub, cargo:true }
@@ -170,6 +187,7 @@ function reducer(state, action) {
         airlineName: action.airlineName,
         logoId:      action.logoId    ?? 'horizon',
         logoColor:   action.logoColor ?? '#f5a623',
+        customLogo:  action.customLogo ?? null,
         hub:         action.hub,
         homeCountry: getAirport(action.hub)?.country ?? '',
         gates:       { [action.hub]: 1 },
@@ -429,6 +447,20 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_BRANDING': {
+      // Update airline name / logo / accent colour mid-game. Only fields that
+      // are provided are changed; customLogo may be explicitly set to null to
+      // clear an uploaded image and fall back to the chosen preset.
+      const next = { ...state };
+      if (typeof action.airlineName === 'string' && action.airlineName.trim()) {
+        next.airlineName = action.airlineName.trim();
+      }
+      if (typeof action.logoId === 'string')   next.logoId    = action.logoId;
+      if (typeof action.logoColor === 'string') next.logoColor = action.logoColor;
+      if ('customLogo' in action)              next.customLogo = action.customLogo ?? null;
+      return next;
+    }
+
     case 'ADD_ROUTE': {
       const aircraft = state.fleet.find(a => a.id === action.aircraftId);
       const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
@@ -444,6 +476,16 @@ function reducer(state, action) {
 
       const dist = routeDistanceKm(action.origin, action.destination);
 
+      // ── Seasonal window ──────────────────────────────────────────────────────
+      // action.season = { months:[1..12] } | null (year-round). Block-hour and slot
+      // checks below run PER MONTH so a route that's dormant part of the year can
+      // share an aircraft / gate slot with a counter-seasonal route.
+      const newSeason = (Array.isArray(action.season?.months) && action.season.months.length > 0)
+        ? { months: [...action.season.months].sort((a, b) => a - b) }
+        : null;
+      const newRouteLike = { origin: action.origin, destination: action.destination, season: newSeason };
+      const newMonths = routeActiveMonths(newRouteLike);
+
       // ── Range check (engine/wingtip rangeMod + cabin-payload bonus) ─────────
       const effectiveRange = effectiveRangeKm(aircraft, type);
       if (dist > effectiveRange) return state;
@@ -452,20 +494,26 @@ function reducer(state, action) {
       // Pass the TOTAL proposed weekly frequency on this city-pair (existing + new) and
       // the player's routes, so perimeter exemption-slot and per-route frequency caps
       // (e.g. DCA's 5 beyond-perimeter slots, each ≤7/wk) can be evaluated.
+      // Frequency caps bind per-week, so for a seasonal route only count existing
+      // routes that operate in the SAME month(s) — use the worst (peak) month.
       const pairKey = [action.origin, action.destination].sort().join('-');
-      const existingPairFreq = state.routes
-        .filter(r => [r.origin, r.destination].sort().join('-') === pairKey)
-        .reduce((s, r) => s + r.weeklyFrequency, 0);
-      const proposedPairFreq = existingPairFreq + weeklyFrequency;
+      const pairRoutes = state.routes
+        .filter(r => [r.origin, r.destination].sort().join('-') === pairKey);
+      const peakPairFreq = Math.max(0, ...newMonths.map(m =>
+        pairRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) => s + r.weeklyFrequency, 0)));
+      const proposedPairFreq = peakPairFreq + weeklyFrequency;
       if (checkRouteRestrictions(action.origin, action.destination, dist, proposedPairFreq, type.category,
             { routes: state.routes, excludeKey: pairKey })) return state;
 
-      // ── Block-hours check: cumulative across ALL routes on this aircraft ───────
-      const existingBlockHrs = state.routes
-        .filter(r => r.aircraftId === action.aircraftId)
-        .reduce((sum, r) => sum + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0);
+      // ── Block-hours check: per-month peak across routes on this aircraft ───────
+      // Two routes that never share a month can both use the full block-hour budget.
+      const acRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
       const newBlockHrs = weeklyBlockHours(dist, weeklyFrequency, type);
-      if (existingBlockHrs + newBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return state;
+      const peakBlockHrs = Math.max(0, ...newMonths.map(m =>
+        newBlockHrs + acRoutes
+          .filter(r => isRouteActive(r, m))
+          .reduce((sum, r) => sum + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0)));
+      if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return state;
 
       // ── Network-connectivity check: a plane that has already flown can only ───
       // extend its network from airports it already serves — no teleporting.
@@ -481,16 +529,22 @@ function reducer(state, action) {
       if (!(gates[action.origin] > 0))      return state;  // no gate at origin
       if (!(gates[action.destination] > 0)) return state;  // no gate at destination
 
-      // Slot availability (each freq unit = 1 departure/wk at each endpoint)
-      const slotsAt = (code) => state.routes
-        .filter(r => r.origin === code || r.destination === code)
-        .reduce((s, r) => s + r.weeklyFrequency, 0);
-      if (slotsAt(action.origin)      + weeklyFrequency > gates[action.origin]      * SLOTS_PER_GATE) return state;
-      if (slotsAt(action.destination) + weeklyFrequency > gates[action.destination] * SLOTS_PER_GATE) return state;
+      // Slot availability (each freq unit = 1 departure/wk at each endpoint), checked
+      // per-month so a dormant route's slots are free for a counter-seasonal route.
+      const peakSlotsAt = (code) => Math.max(0, ...newMonths.map(m => state.routes
+        .filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
+        .reduce((s, r) => s + r.weeklyFrequency, 0)));
+      if (peakSlotsAt(action.origin)      + weeklyFrequency > gates[action.origin]      * SLOTS_PER_GATE) return state;
+      if (peakSlotsAt(action.destination) + weeklyFrequency > gates[action.destination] * SLOTS_PER_GATE) return state;
 
-      // ── Consolidate: if this aircraft already flies this exact route, merge ──
+      // ── Consolidate: merge only when the same aircraft flies the same O&D with
+      // the SAME season window (different windows must stay separate routes). ──
+      const sameSeason = (r) => {
+        const a = routeActiveMonths(r), b = newMonths;
+        return a.length === b.length && a.every((m, i) => m === b[i]);
+      };
       const existingRoute = state.routes.find(r =>
-        r.aircraftId === action.aircraftId &&
+        r.aircraftId === action.aircraftId && sameSeason(r) &&
         ((r.origin === action.origin && r.destination === action.destination) ||
          (r.origin === action.destination && r.destination === action.origin))
       );
@@ -514,11 +568,18 @@ function reducer(state, action) {
         id:              uid(),
         origin:          action.origin,
         destination:     action.destination,
+        stops:           [action.origin, action.destination],
         aircraftId:      action.aircraftId,
         weeklyFrequency: weeklyFrequency,
         weeksOpen:       0,
         launchCost,
         hub:             state.hub,
+        // Seasonal flights: null = year-round. seasonState tracks dormant↔active so
+        // ADVANCE_WEEK only charges the reactivation fee when a season resumes.
+        season:          newSeason,
+        seasonState:     newSeason
+          ? (isRouteActive({ season: newSeason }, weekToGameDate(state.week).monthIndex) ? 'active' : 'dormant')
+          : 'active',
       };
       const updatedFleet = state.fleet.map(a =>
         a.id === action.aircraftId ? { ...a, status: 'assigned' } : a
@@ -540,6 +601,130 @@ function reducer(state, action) {
         routePricing:  newRoutePricing,
         routeCatering: newRouteCatering,
         fleet:         updatedFleet,
+      };
+    }
+
+    // ─── Tag (multi-stop) passenger routes ──────────────────────────────────────
+    // One aircraft flying A→B→C(→…). Mirrors ADD_ROUTE's guards but applies them
+    // per LEG (range, restrictions, block hours) and per STOP (gates, slots), and
+    // stores directional per-segment fares on the route (route.segmentPrices).
+    case 'ADD_TAG_ROUTE': {
+      const aircraft = state.fleet.find(a => a.id === action.aircraftId);
+      const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+      if (!aircraft || !type) return state;
+      if (type.freighter) return state;   // freighters fly cargo routes only
+
+      // Stop list: need 3–MAX_ROUTE_STOPS distinct airports (use ADD_ROUTE for a
+      // single leg; the cap is the gameplay limit on intermediate stops).
+      const stops = (Array.isArray(action.stops) ? action.stops : []).filter(Boolean);
+      if (stops.length < 3 || stops.length > MAX_ROUTE_STOPS) return state;
+      if (new Set(stops).size !== stops.length) return state;   // no repeated airports
+
+      const proto = { stops, origin: stops[0], destination: stops[stops.length - 1] };
+      const legs  = routeLegs(proto);
+      for (const l of legs) {
+        if (l.from === l.to) return state;
+        if (!getAirport(l.from) || !getAirport(l.to)) return state;
+      }
+
+      const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
+
+      // ── Range: the LONGEST leg must be reachable (a stop extends total reach) ──
+      if (routeMaxLegKm(proto) > effectiveRangeKm(aircraft, type)) return state;
+
+      // ── Regulatory restrictions: evaluate EACH leg independently ──
+      const legPairFreq = (pk) => state.routes.reduce((s, r) =>
+        routeLegs(r).some(rl => routePairKey(rl.from, rl.to) === pk) ? s + (r.weeklyFrequency ?? 0) : s, 0);
+      for (const l of legs) {
+        const pk = routePairKey(l.from, l.to);
+        if (checkRouteRestrictions(l.from, l.to, routeDistanceKm(l.from, l.to),
+              legPairFreq(pk) + weeklyFrequency, type.category,
+              { routes: state.routes, excludeKey: pk })) return state;
+      }
+
+      // ── Block hours: cumulative across this aircraft's routes, legs-aware ──
+      const existingBlockHrs = state.routes
+        .filter(r => r.aircraftId === action.aircraftId)
+        .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+      if (existingBlockHrs + routeBlockHours(proto, type, weeklyFrequency) > MAX_WEEKLY_BLOCK_HOURS) return state;
+
+      // ── Connectivity: a plane already flying can only extend from a served stop ──
+      const aircraftRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
+      if (aircraftRoutes.length > 0) {
+        const served = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
+        if (!stops.some(c => served.has(c))) return state;
+      }
+
+      // ── Gates + slots at EVERY stop (interior stops see two departures/cycle) ──
+      const gates = state.gates ?? {};
+      const incidentCount = (r, code) =>
+        routeLegs(r).reduce((n, l) => n + (l.from === code ? 1 : 0) + (l.to === code ? 1 : 0), 0);
+      const slotsUsedAt = (code) =>
+        state.routes.reduce((s, r) => s + incidentCount(r, code) * (r.weeklyFrequency ?? 0), 0);
+      const addIncident = {};
+      for (const l of legs) {
+        addIncident[l.from] = (addIncident[l.from] ?? 0) + 1;
+        addIncident[l.to]   = (addIncident[l.to]   ?? 0) + 1;
+      }
+      for (const code of stops) {
+        if (!(gates[code] > 0)) return state;   // no gate at this stop
+        if (slotsUsedAt(code) + addIncident[code] * weeklyFrequency > gates[code] * SLOTS_PER_GATE) return state;
+      }
+
+      // ── Launch cost (priced on total ground distance covered) ──
+      const totalDist  = legs.reduce((s, l) => s + routeDistanceKm(l.from, l.to), 0);
+      const launchCost = routeLaunchCost(totalDist);
+      if (state.cash < launchCost) return state;
+
+      // ── Default directional per-segment fares (player can edit via SET_SEGMENT_PRICE) ──
+      const segmentPrices = {};
+      for (const seg of routeSegments(proto)) {
+        const key = routeSegmentKey(seg.from, seg.to);
+        const eco = Math.max(1, Math.round(routeReferencePrice(seg.from, seg.to)));
+        segmentPrices[key] = action.segmentPrices?.[key] ?? defaultClassPrices(eco);
+      }
+
+      const newRoute = {
+        id:              uid(),
+        origin:          stops[0],
+        destination:     stops[stops.length - 1],
+        stops:           [...stops],
+        aircraftId:      action.aircraftId,
+        weeklyFrequency,
+        weeksOpen:       0,
+        launchCost,
+        hub:             state.hub,
+        segmentPrices,
+        cateringLevel:   normalizeCateringLevel(action.cateringLevel ?? state.defaultCateringLevel),
+      };
+      const updatedFleet = state.fleet.map(a =>
+        a.id === action.aircraftId ? { ...a, status: 'assigned' } : a
+      );
+      return {
+        ...state,
+        cash:   state.cash - launchCost,
+        routes: [...state.routes, newRoute],
+        fleet:  updatedFleet,
+      };
+    }
+
+    // Update one directional segment fare on a tag route.
+    case 'SET_SEGMENT_PRICE': {
+      const { routeId, from, to, classPrices } = action;
+      const key = routeSegmentKey(from, to);
+      return {
+        ...state,
+        routes: state.routes.map(r => {
+          if (r.id !== routeId || !r.segmentPrices?.[key]) return r;
+          const eco = Math.max(1, Math.round(Number(classPrices?.economy) || r.segmentPrices[key].economy || 1));
+          return {
+            ...r,
+            segmentPrices: {
+              ...r.segmentPrices,
+              [key]: { ...r.segmentPrices[key], ...classPrices, economy: eco },
+            },
+          };
+        }),
       };
     }
 
@@ -790,7 +975,7 @@ function reducer(state, action) {
       const tpTarget = state.routes.find(r => r.id === action.routeId);
       if (!tpTarget) return state;
       // Clamp to [1, cap]: the upper bound (PRICE_CAP_MULTIPLE × reference) stops
-      // exploiting the demand curve's flat tail with absurd fares.
+      // players exploiting the demand curve's flat tail with absurd fares.
       const tpRefP = mktReferencePrice(tpTarget.origin, tpTarget.destination);
       const price  = clampClassPrice(action.ticketPrice, tpRefP, 'economy');
       const tpKey  = routePairKey(tpTarget.origin, tpTarget.destination);
@@ -806,8 +991,8 @@ function reducer(state, action) {
       // action: { routeId, updates: { economy?, premiumEconomy?, businessClass?, firstClass? } }
       const cpTarget = state.routes.find(r => r.id === action.routeId);
       if (!cpTarget) return state;
-      // Sanitize each provided fare and clamp to its per-class ceiling
-      // (PRICE_CAP_MULTIPLE × that class's reference fare).
+      // Sanitize each provided fare to a positive integer and clamp to its
+      // per-class ceiling (PRICE_CAP_MULTIPLE × that class's reference fare).
       const cpRefP = mktReferencePrice(cpTarget.origin, cpTarget.destination);
       const cleanUpdates = {};
       for (const [k, v] of Object.entries(action.updates ?? {})) {
@@ -1199,11 +1384,37 @@ function reducer(state, action) {
       const gameMonth = weekToGameDate(state.week).monthIndex;
       const gameDate  = { week: state.week, month: gameMonth };
 
+      // ── Seasonal flights: dormant↔active transitions ─────────────────────────
+      // A seasonal route resuming service this month pays a reactivation fee of
+      // 1/3 of its launch cost. Going dormant is free. seasonState is tracked per
+      // route so the fee is charged once per season, not every week it operates.
+      let seasonalReactivationCost = 0;
+      const seasonalReactivations  = [];
+      const seasonAdjustedRoutes = state.routes.map(r => {
+        if (!r.season) return r;
+        const shouldBeActive = isRouteActive(r, gameMonth);
+        const prevState = r.seasonState ?? (shouldBeActive ? 'active' : 'dormant');
+        if (shouldBeActive && prevState === 'dormant') {
+          const fee = Math.round(routeLaunchCost(routeDistanceKm(r.origin, r.destination)) / 3);
+          seasonalReactivationCost += fee;
+          seasonalReactivations.push({ origin: r.origin, destination: r.destination, fee });
+          return { ...r, seasonState: 'active' };
+        }
+        if (!shouldBeActive && prevState === 'active') {
+          return { ...r, seasonState: 'dormant' };
+        }
+        return { ...r, seasonState: prevState };
+      });
+
       // ── Route encroachment: AI carriers contest the player's fat routes ──────
       // Decided from the PRIOR week's outcome (load factor + fares), gated by airline
       // size, then injected into this week's demand model so they split passengers.
       const { encroachments: updatedEncroachments, events: encroachEvents } = tickEncroachment({
-        routes:       state.routes.map(r => hydrateRoute(r, state.routePricing, state.routeCatering)),
+        // Dormant seasonal routes aren't in the market this month, so AI carriers
+        // shouldn't contest them or count their (idle) frequency on the pair.
+        routes:       state.routes
+          .filter(r => isRouteActive(r, gameMonth))
+          .map(r => hydrateRoute(r, state.routePricing, state.routeCatering)),
         routePricing: state.routePricing,
         lastReport:   state.lastReport,
         marketCap:    state.marketCap ?? 0,
@@ -1222,6 +1433,7 @@ function reducer(state, action) {
       const currentLoyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0, effInvestment: 0 };
       const targetInvestment = currentLoyalty.weeklyInvestment ?? 0;
       const prevEff          = currentLoyalty.effInvestment ?? targetInvestment;
+      // Ease ~18%/week toward the set budget (≈63% of a change felt after 5 weeks).
       const effInvestment    = Math.round(prevEff + (targetInvestment - prevEff) * 0.18);
 
       const loyaltyWeeklyPax = report.totalPassengers ?? 0;
@@ -1298,6 +1510,16 @@ function reducer(state, action) {
           duration: 4000,
         })),
       ];
+      if (seasonalReactivations.length > 0) {
+        const list = seasonalReactivations.map(r => `${r.origin}–${r.destination}`).join(', ');
+        newToasts.push({
+          type:    'info',
+          title:   `🗓 Seasonal route${seasonalReactivations.length > 1 ? 's' : ''} resumed`,
+          message: `${list} back in service. Reactivation fee: ${seasonalReactivationCost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`,
+          icon:    '🗓',
+          duration: 7000,
+        });
+      }
       const agedFleet = tickedFleet.map(a => {
         const aged = { ...a, ageWeeks: (a.ageWeeks ?? 0) + agingRate };
         if (failedIds.has(a.id)) {
@@ -1422,10 +1644,13 @@ function reducer(state, action) {
       // leveraged airlines and turned debt into a tax shelter).
       const CORPORATE_TAX_RATE = 0.21;
       const weeklyDepreciation = fleetWeeklyDepreciation(state.fleet);
-      const taxableIncome   = adjustedCashDelta - weeklyDepreciation - totalLoanInterest - leaseRedeliveryCost;
+      // Seasonal reactivation fees are a deductible operating expense, treated like
+      // lease redelivery: they reduce the tax base and flow through the weekly P&L
+      // (so the debrief shows them as a cost line and cash reconciles exactly).
+      const taxableIncome   = adjustedCashDelta - weeklyDepreciation - totalLoanInterest - leaseRedeliveryCost - seasonalReactivationCost;
       const corporateTax    = Math.round(Math.max(0, taxableIncome) * CORPORATE_TAX_RATE);
-      // Cash movement is unchanged in form: operating cash − full loan payment − tax.
-      const preTaxProfit    = adjustedCashDelta - totalLoanPayments - leaseRedeliveryCost;
+      // Cash movement: operating cash − full loan payment − reactivation fees − tax.
+      const preTaxProfit    = adjustedCashDelta - totalLoanPayments - leaseRedeliveryCost - seasonalReactivationCost;
       const newCash = state.cash + preTaxProfit - corporateTax;
       let newWeek = state.week + 1;
       let newYear = state.year;
@@ -1544,9 +1769,10 @@ function reducer(state, action) {
         loanPayments:       totalLoanPayments,
         loanInterest:       totalLoanInterest,
         leaseRedelivery:    leaseRedeliveryCost,
+        seasonalReactivation: seasonalReactivationCost,
         corporateTax:       corporateTax,
         depreciation:       weeklyDepreciation,
-        totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost,
+        totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost,
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
         fuelIndex:          currentFuelIndex,
@@ -1572,6 +1798,8 @@ function reducer(state, action) {
         financialHistory: newHistory,
         lastReport:       report,
         weekProfit:       preTaxProfit - corporateTax,
+        cash:             newCash,
+        marketCap:        newMarketCap,
         year:             newYear,
         week:             newWeek,
       };
@@ -1653,8 +1881,8 @@ function reducer(state, action) {
       const finalFleet = [...agedFleet, ...deliveredAircraft];
       // Drop routes whose aircraft lease expired this week, and age weeksOpen on survivors
       const survivingRoutes = expiredLeaseIds.size > 0
-        ? state.routes.filter(r => !expiredLeaseIds.has(r.aircraftId))
-        : state.routes;
+        ? seasonAdjustedRoutes.filter(r => !expiredLeaseIds.has(r.aircraftId))
+        : seasonAdjustedRoutes;
       const finalRoutes = survivingRoutes.map(r => ({
         ...r,
         weeksOpen: (r.weeksOpen ?? 0) + 1,
@@ -1679,7 +1907,14 @@ function reducer(state, action) {
         cargoRoutes:       finalCargoRoutes,
         pendingOrders:     remainingOrders,
         financialHistory:  newHistory,
-        lastReport:        { ...report, cashDelta: preTaxProfit - corporateTax, loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+        lastReport:        { ...report, cashDelta: preTaxProfit - corporateTax,
+          // Effective revenue includes the world-event demand adjustment that the
+          // headline net already reflects; "all-in" cost folds loan payments,
+          // lease redelivery, seasonal reactivation fees and corporate tax on top of
+          // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
+          revenueEffective: Math.round(report.totalRevenue + eventDemandAdj),
+          totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax,
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         loans:             updatedLoans,
@@ -1809,13 +2044,6 @@ function reducer(state, action) {
 }
 
 // Exported for headless simulation/testing harnesses (no React required to use it).
-export { reducer as gameReducer, freshState };
-
-// ─────────────────────────────────────────────
-// CONTEXT + PROVIDER
-// ─────────────────────────────────────────────
-
-const SAVE_KEY = 'bbae_save_v2'; // bump version to avoid old-format conflicts
 
 /**
  * Reconcile a loaded save to fix any ID-collision corruption.
@@ -1906,9 +2134,15 @@ function reconcileState(parsed) {
       routeCatering[key] = normalizeCateringLevel(r.cateringLevel);
     }
   }
-  const normalizedRoutes = migratedRoutes.map(
-    ({ ticketPrice, classPrices, cateringLevel, ...rest }) => rest
-  );
+  const normalizedRoutes = migratedRoutes.map((rIn) => {
+    // Strip legacy price/catering fields (single-leg routes keep these in
+    // routePricing/routeCatering by pair) and guarantee a well-formed stops[].
+    // Tag routes price per-segment on the route itself, so they retain their own
+    // segmentPrices (in ...rest) AND their per-route cateringLevel.
+    const { ticketPrice, classPrices, cateringLevel, ...rest } = rIn;
+    const base = rest.segmentPrices ? { ...rest, cateringLevel } : rest;
+    return normalizeRouteStops(base);
+  });
 
   return {
     ...parsed,
@@ -1949,3 +2183,6 @@ function reconcileState(parsed) {
     })(),
   };
 }
+
+
+export { reducer as gameReducer, freshState, reconcileState };

@@ -62,6 +62,25 @@ working once you formalize workspaces.
 - ✅ Guardrails green: golden master `✓ PARITY OK`; cargo/multistop/multistop-edge
   tests pass; server demo runs the authoritative tick through the moved engine.
 
+**Done (reducer extraction commit — see git log):**
+
+- ✅ Extracted the canonical reducer to `packages/engine/src/reducer.mjs`
+  (`gameReducer` + `freshState` + `reconcileState`), taken **verbatim** from
+  `GameContext.jsx` — confirmed byte-identical via `diff` against the pre-change
+  file, so solo behavior is unchanged.
+- ✅ `GameContext.jsx` shrank from ~2,200 lines to ~50: it now imports the reducer
+  from the engine and is purely the React binding (provider + localStorage + hook).
+- ✅ **Fixed a latent drift bug.** The old `src/store/_engine.generated.mjs` (what
+  the server/golden-master ran) had fallen behind `GameContext.jsx` — it was missing
+  the `ADD_TAG_ROUTE`, `SET_BRANDING`, `SET_SEGMENT_PRICE` actions plus seasonal /
+  multi-stop route logic. The golden master only said "PARITY OK" because its
+  baseline was generated *from* that stale file. The stale copy is now **deleted**;
+  `harness.mjs`, `packages/engine/reducer.mjs`, and the solo app all import the one
+  canonical module. The golden-master baseline was regenerated (`--update`) because
+  the server now runs the newer, correct logic; the scenario's economic summary is
+  unchanged — only the state *shape* gained the newer fields (e.g. `customLogo`,
+  route `stops`).
+
 **Remaining Phase 0 work:**
 
 1. **Verify on macOS** (can't run in the Cloud sandbox — npm registry is blocked and
@@ -71,12 +90,7 @@ working once you formalize workspaces.
 2. **Formalize npm workspaces** — add `"workspaces": ["packages/*", "apps/*"]` to the
    root `package.json` and `npm install`, so `@tailwinds/engine` resolves without the
    manual `node_modules/@tailwinds/engine` symlink.
-3. **Extract the reducer** out of `GameContext.jsx` into `packages/engine` as the
-   single source of truth, and have the solo app's React provider import it from
-   there. Today `reducer.mjs` is still a facade over the React-free
-   `src/store/_engine.generated.mjs`; this is the last piece that hasn't physically
-   moved.
-4. *(Optional, gradual)* repoint solo-app imports from the `src/` shims to
+3. *(Optional, gradual)* repoint solo-app imports from the `src/` shims to
    `@tailwinds/engine` directly, then delete the shims.
 
 **Run the guardrails after every step — they must stay green:**

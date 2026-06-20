@@ -15,7 +15,7 @@
 // pre-compiled (JSX/React stripped). This file is the pure logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { gameReducer } from '../../src/store/_engine.generated.mjs';
+import { gameReducer } from '../../packages/engine/src/reducer.mjs';
 import { AIRPORTS } from '../../src/data/airports.js';
 import { getAircraftType } from '../../src/data/aircraft.js';
 import { baseCityPairDemand } from '../../src/utils/market.js';
