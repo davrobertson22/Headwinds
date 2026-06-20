@@ -1,0 +1,24 @@
+code,name,city,country,lat,lon,population,leisure
+HBA,Hobart,Hobart,AU,-42.84,147.51,0.24,0
+LST,Launceston,Launceston,AU,-41.55,147.21,0.09,0
+TSV,Townsville,Townsville,AU,-19.25,146.77,0.18,0
+MCY,Sunshine Coast,Maroochydore,AU,-26.60,153.09,0.35,1
+NTL,Newcastle,Newcastle,AU,-32.79,151.83,0.5,0
+ASP,Alice Springs,Alice Springs,AU,-23.81,133.90,0.03,1
+AYQ,Ayers Rock Connellan,Uluru,AU,-25.19,130.98,0.001,1
+BME,Broome Intl,Broome,AU,-17.95,122.23,0.02,1
+HTI,Hamilton Island,Whitsundays,AU,-20.36,148.95,0.001,1
+ZQN,Queenstown,Queenstown,NZ,-45.02,168.74,0.05,1
+DUD,Dunedin,Dunedin,NZ,-45.93,170.20,0.13,0
+HLZ,Hamilton,Hamilton,NZ,-37.87,175.33,0.18,0
+NPE,Hawke's Bay,Napier,NZ,-39.47,176.87,0.07,0
+LAE,Nadzab,Lae,PG,-6.57,146.73,0.2,0
+RAB,Tokua,Rabaul,PG,-4.34,152.38,0.1,0
+MAG,Madang,Madang,PG,-5.21,145.79,0.05,0
+SUV,Nausori,Suva,FJ,-18.04,178.56,0.18,0
+ROR,Roman Tmetuchl Intl,Koror,PW,7.37,134.54,0.01,1
+SPN,Saipan Intl,Saipan,MP,15.12,145.73,0.05,1
+BOB,Bora Bora,Bora Bora,PF,-16.44,-151.75,0.01,1
+RAR,Rarotonga Intl,Rarotonga,CK,-21.20,-159.81,0.01,1
+TBU,Fua'amotu Intl,Nuku'alofa,TO,-21.24,-175.15,0.025,1
+HIR,Honiara Intl,Honiara,SB,-9.43,160.05,0.085,0

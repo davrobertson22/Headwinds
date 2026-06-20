@@ -1,0 +1,30 @@
+code,name,city,country,lat,lon,population,leisure
+GPA,Araxos,Patras,GR,38.15,21.42,0.3,0
+SMI,Samos,Samos,GR,37.69,26.91,0.04,1
+EFL,Kefalonia,Kefalonia,GR,38.12,20.50,0.04,1
+PVK,Aktion,Preveza,GR,38.93,20.77,0.06,1
+KLX,Kalamata,Kalamata,GR,37.07,22.03,0.07,1
+JSI,Skiathos,Skiathos,GR,39.18,23.50,0.01,1
+SDR,Seve Ballesteros,Santander,ES,43.43,-3.82,0.3,0
+MJV,Region de Murcia,Murcia,ES,37.80,-0.81,0.6,0
+EAS,San Sebastian,San Sebastian,ES,43.36,-1.79,0.3,0
+LEI,Almeria,Almeria,ES,36.84,-2.37,0.2,1
+SPC,La Palma,La Palma,ES,28.63,-17.76,0.08,1
+TPS,Vincenzo Florio,Trapani,IT,37.91,12.49,0.07,1
+RMI,Federico Fellini,Rimini,IT,44.02,12.61,0.15,1
+PEG,San Francesco,Perugia,IT,43.10,12.51,0.16,0
+HAU,Haugesund Karmoy,Haugesund,NO,59.34,5.21,0.1,0
+MOL,Molde Aro,Molde,NO,62.74,7.26,0.06,0
+EVE,Harstad/Narvik Evenes,Harstad,NO,68.49,16.68,0.05,0
+INV,Inverness,Inverness,GB,57.54,-4.05,0.07,0
+ABZ,Aberdeen Dyce,Aberdeen,GB,57.20,-2.20,0.5,0
+KOI,Kirkwall,Kirkwall,GB,58.96,-2.90,0.02,1
+LSI,Sumburgh,Shetland,GB,59.88,-1.30,0.02,1
+ORK,Cork,Cork,IE,51.84,-8.49,0.3,0
+NOC,Ireland West Knock,Knock,IE,53.91,-8.82,0.05,0
+RNS,Rennes Saint-Jacques,Rennes,FR,48.07,-1.73,0.7,0
+BES,Brest Bretagne,Brest,FR,48.45,-4.42,0.3,0
+BIQ,Biarritz Pays Basque,Biarritz,FR,43.47,-1.53,0.3,1
+CFE,Clermont-Ferrand Auvergne,Clermont-Ferrand,FR,45.79,3.17,0.5,0
+AJA,Ajaccio Napoleon,Ajaccio,FR,41.92,8.80,0.08,1
+BIA,Bastia Poretta,Bastia,FR,42.55,9.48,0.06,1

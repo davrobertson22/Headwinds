@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# macOS system files
+.DS_Store
+.fuse_hidden*
+.AppleDouble
+.LSOverride
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Vite
+*.local
+
+# Scratch / temp preview scripts
+_logo_preview.mjs

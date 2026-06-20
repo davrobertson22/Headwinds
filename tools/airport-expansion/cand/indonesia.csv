@@ -1,0 +1,34 @@
+code,name,city,country,lat,lon,population,leisure
+LBJ,Komodo,Labuan Bajo,ID,-8.49,119.89,0.06,1
+MOF,Frans Seda,Maumere,ID,-8.64,122.24,0.1,0
+ENE,H. Hasan Aroeboesman,Ende,ID,-8.85,121.66,0.09,0
+BUW,Betoambari,Bau-Bau,ID,-5.49,122.57,0.15,0
+KDI,Haluoleo,Kendari,ID,-4.08,122.42,0.4,0
+PLW,Mutiara SIS Al-Jufri,Palu,ID,-0.92,119.91,0.4,0
+LUW,Syukuran Aminuddin,Luwuk,ID,-1.04,122.77,0.1,0
+GTO,Djalaluddin,Gorontalo,ID,0.64,122.85,0.4,0
+TTE,Sultan Babullah,Ternate,ID,0.83,127.38,0.2,1
+MKW,Rendani,Manokwari,ID,-0.89,134.05,0.16,0
+SOQ,Domine Eduard Osok,Sorong,ID,-0.93,131.12,0.25,1
+WMX,Wamena,Wamena,ID,-4.10,138.95,0.1,0
+MKQ,Mopah,Merauke,ID,-8.52,140.42,0.2,0
+NBX,Douw Aturure,Nabire,ID,-3.37,135.50,0.1,0
+TMC,Tambolaka,Sumba,ID,-9.41,119.24,0.1,1
+WGP,Umbu Mehang Kunda,Waingapu,ID,-9.67,120.30,0.06,0
+MJU,Tampa Padang,Mamuju,ID,-2.58,119.03,0.3,0
+PSU,Iskandar,Pangkalan Bun,ID,-2.71,111.67,0.2,0
+TJQ,H.A.S. Hanandjoeddin,Belitung,ID,-2.75,107.75,0.3,1
+PGK,Depati Amir,Pangkal Pinang,ID,-2.16,106.14,0.4,1
+DJB,Sultan Thaha,Jambi,ID,-1.64,103.64,0.6,0
+BKS,Fatmawati Soekarno,Bengkulu,ID,-3.86,102.34,0.4,0
+DTB,Sisingamangaraja,Silangit,ID,2.26,98.99,0.1,1
+GNS,Binaka,Gunungsitoli,ID,1.17,97.70,0.13,1
+BTJ,Sultan Iskandar Muda,Banda Aceh,ID,5.52,95.42,0.3,0
+BMU,Sultan M. Salahuddin,Bima,ID,-8.54,118.69,0.15,0
+TRK,Juwata,Tarakan,ID,3.33,117.57,0.24,0
+BEJ,Kalimarau,Berau,ID,2.16,117.43,0.13,1
+AAP,APT Pranoto,Samarinda,ID,-0.37,117.25,0.85,0
+MLG,Abdul Rachman Saleh,Malang,ID,-7.93,112.71,0.9,1
+BWX,Banyuwangi,Banyuwangi,ID,-8.31,114.34,0.3,1
+CBN,Kertajati,Cirebon,ID,-6.76,108.54,0.4,0
+SBG,Maimun Saleh,Sabang,ID,5.87,95.34,0.04,1

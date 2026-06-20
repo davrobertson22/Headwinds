@@ -1,0 +1,27 @@
+code,name,city,country,lat,lon,population,leisure
+BUR,Hollywood Burbank,Burbank,US,34.20,-118.36,13.2,0
+SNA,John Wayne Orange County,Santa Ana,US,33.68,-117.87,3.2,0
+ONT,Ontario Intl,Ontario,US,34.06,-117.60,4.6,0
+AZA,Phoenix-Mesa Gateway,Mesa,US,33.31,-111.66,4.9,0
+SFB,Orlando Sanford Intl,Sanford,US,28.78,-81.24,2.6,1
+PHF,Newport News/Williamsburg,Newport News,US,37.13,-76.49,1.7,0
+PVD,T.F. Green,Providence,US,41.73,-71.42,1.6,0
+PVU,Provo Municipal,Provo,US,40.22,-111.72,0.7,0
+MHT,Manchester-Boston Regional,Manchester,US,42.93,-71.44,0.42,0
+ORH,Worcester Regional,Worcester,US,42.27,-71.87,0.5,0
+LAN,Capital Region Intl,Lansing,US,42.78,-84.59,0.46,0
+GRK,Killeen-Fort Hood,Killeen,US,31.07,-97.83,0.45,0
+BRO,Brownsville/South Padre,Brownsville,US,25.91,-97.43,0.42,0
+MBS,MBS Intl,Saginaw,US,43.53,-84.08,0.4,0
+APF,Naples Municipal,Naples,US,26.15,-81.77,0.4,1
+LBE,Arnold Palmer Regional,Latrobe,US,40.28,-79.40,0.3,0
+SBP,San Luis Obispo Co. Regional,San Luis Obispo,US,35.24,-120.64,0.28,0
+CMI,University of Illinois Willard,Champaign,US,40.04,-88.28,0.23,0
+IAG,Niagara Falls Intl,Niagara Falls,US,43.10,-78.95,0.2,1
+PGD,Punta Gorda,Punta Gorda,US,26.92,-81.99,0.18,1
+SPS,Wichita Falls Regional,Wichita Falls,US,33.99,-98.49,0.15,0
+SAF,Santa Fe Regional,Santa Fe,US,35.62,-106.09,0.15,1
+FLG,Flagstaff Pulliam,Flagstaff,US,35.14,-111.67,0.14,1
+BQK,Brunswick Golden Isles,Brunswick,US,31.26,-81.47,0.1,1
+HIB,Range Regional,Hibbing,US,47.39,-92.84,0.08,0
+HHH,Hilton Head,Hilton Head,US,32.22,-80.70,0.05,1

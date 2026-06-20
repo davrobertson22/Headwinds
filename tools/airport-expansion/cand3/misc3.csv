@@ -1,0 +1,19 @@
+code,name,city,country,lat,lon,population,leisure
+NSK,Alykel,Norilsk,RU,69.31,87.33,0.18,0
+BTK,Bratsk,Bratsk,RU,56.37,101.70,0.23,0
+CEE,Cherepovets,Cherepovets,RU,59.27,38.02,0.3,0
+KYZ,Kyzyl,Kyzyl,RU,51.67,94.40,0.12,0
+NER,Chulman Neryungri,Neryungri,RU,56.91,124.91,0.06,0
+NOJ,Noyabrsk,Noyabrsk,RU,63.18,75.27,0.1,0
+ESL,Elista,Elista,RU,46.37,44.33,0.1,0
+RGK,Gorno-Altaysk,Gorno-Altaysk,RU,51.97,85.83,0.06,1
+DYR,Ugolny,Anadyr,RU,64.73,177.74,0.015,0
+VKT,Vorkuta,Vorkuta,RU,67.49,63.99,0.06,0
+DIU,Diu,Diu,IN,20.71,70.92,0.05,1
+PBD,Porbandar,Porbandar,IN,21.65,69.66,0.2,0
+TEZ,Tezpur,Tezpur,IN,26.71,92.78,0.1,0
+RUP,Rupsi,Dhubri,IN,26.14,89.95,0.1,0
+TJS,Tanjung Selor,Tanjung Selor,ID,2.84,117.37,0.1,0
+KTG,Rahadi Oesman,Ketapang,ID,-1.82,109.96,0.13,0
+ARD,Mali,Alor,ID,-8.13,124.60,0.06,0
+SUP,Trunojoyo,Sumenep,ID,-7.02,113.89,0.1,0

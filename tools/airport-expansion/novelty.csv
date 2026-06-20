@@ -1,0 +1,45 @@
+code,name,city,country,lat,lon,population,leisure
+LUA,Tenzing-Hillary,Lukla,NP,27.69,86.73,0.005,1
+PBH,Paro Intl,Paro,BT,27.40,89.42,0.10,1
+TGU,Toncontin,Tegucigalpa,HN,14.06,-87.22,1.4,0
+SAB,Juancho Yrausquin,Saba,BQ,17.64,-63.22,0.002,1
+SBH,Gustaf III,Gustavia,BL,17.90,-62.84,0.01,1
+SXM,Princess Juliana,Philipsburg,SX,18.04,-63.11,0.04,1
+GIB,Gibraltar Intl,Gibraltar,GI,36.15,-5.35,0.03,1
+BRR,Barra,Barra,GB,57.02,-7.44,0.001,1
+CVF,Courchevel Altiport,Courchevel,FR,45.40,6.63,0.002,1
+INN,Innsbruck,Innsbruck,AT,47.26,11.34,0.30,1
+GIS,Gisborne,Gisborne,NZ,-38.66,177.98,0.05,0
+DCY,Daocheng Yading,Daocheng,CN,29.32,100.05,0.03,1
+BPX,Qamdo Bamda,Qamdo,CN,30.55,97.11,0.06,0
+LPB,El Alto Intl,La Paz,BO,-16.51,-68.19,1.8,0
+IXL,Kushok Bakula Rimpochee,Leh,IN,34.13,77.54,0.03,1
+TEX,Telluride Regional,Telluride,US,37.95,-107.90,0.002,1
+IPC,Mataveri,Easter Island,CL,-27.16,-109.42,0.008,1
+HLE,St Helena,Jamestown,SH,-15.96,-5.65,0.004,1
+LYR,Svalbard Longyear,Longyearbyen,NO,78.25,15.46,0.002,1
+USH,Malvinas Argentinas,Ushuaia,AR,-54.84,-68.30,0.08,1
+PPG,Pago Pago Intl,Pago Pago,AS,-14.33,-170.71,0.05,1
+NLK,Norfolk Island,Burnt Pine,NF,-29.04,167.94,0.002,1
+TRW,Bonriki Intl,Tarawa,KI,1.38,173.15,0.06,0
+FUN,Funafuti Intl,Funafuti,TV,-8.52,179.20,0.006,0
+INU,Nauru Intl,Yaren,NR,-0.55,166.92,0.01,0
+DIL,Presidente Nicolau Lobato,Dili,TL,-8.55,125.53,0.28,0
+GOH,Nuuk Intl,Nuuk,GL,64.19,-51.68,0.019,0
+SFJ,Kangerlussuaq,Kangerlussuaq,GL,67.01,-50.71,0.001,1
+SDU,Santos Dumont,Rio de Janeiro,BR,-22.91,-43.16,13.6,0
+CGH,Congonhas,Sao Paulo,BR,-23.63,-46.66,22.4,0
+FAE,Vagar,Sorvagur,FO,62.06,-7.27,0.05,1
+JNU,Juneau Intl,Juneau,US,58.35,-134.58,0.03,1
+FSP,St-Pierre Pointe Blanche,St-Pierre,PM,46.76,-56.17,0.006,0
+HGU,Mount Hagen Kagamuga,Mount Hagen,PG,-5.83,144.30,0.03,0
+AXA,Clayton J Lloyd,The Valley,AI,18.20,-63.06,0.01,1
+VQS,Antonio Rivera,Vieques,US,18.13,-65.49,0.009,1
+RUN,Roland Garros,Saint-Denis,RE,-20.89,55.51,0.85,1
+KIV,Chisinau Intl,Chisinau,MD,46.93,28.93,0.7,0
+ASB,Ashgabat Intl,Ashgabat,TM,37.99,58.36,1.0,0
+THE,Easter,Thimphu,BT,27.40,89.42,0.1,1
+WDH,Hosea Kutako Intl,Windhoek,NA,-22.48,17.47,0.43,0
+MNK,Maumere,Maumere,ID,-8.64,122.24,0.07,1
+LXA,Lhasa Gonggar,Lhasa,CN,29.30,90.91,0.9,1
+KTM,Tribhuvan Intl,Kathmandu,NP,27.70,85.36,2.6,0

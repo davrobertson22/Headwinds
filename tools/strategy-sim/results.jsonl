@@ -1,0 +1,11 @@
+{"strategy":"lean","startSeed":1000,"count":100,"s2":100,"s5":100,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"hub","startSeed":1000,"count":50,"s2":48,"s5":48,"wins":0,"bank":2,"deathWeeks":[10,12]}
+{"strategy":"hub","startSeed":1050,"count":50,"s2":47,"s5":47,"wins":0,"bank":3,"deathWeeks":[9,14,9]}
+{"strategy":"aggressive","startSeed":1000,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"aggressive","startSeed":1025,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"aggressive","startSeed":1050,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"aggressive","startSeed":1075,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"acquire","startSeed":1000,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"acquire","startSeed":1025,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"acquire","startSeed":1050,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}
+{"strategy":"acquire","startSeed":1075,"count":25,"s2":25,"s5":25,"wins":0,"bank":0,"deathWeeks":[]}

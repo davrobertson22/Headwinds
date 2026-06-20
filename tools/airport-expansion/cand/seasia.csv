@@ -1,0 +1,39 @@
+code,name,city,country,lat,lon,population,leisure
+PPS,Puerto Princesa Intl,Puerto Princesa,PH,9.74,118.76,0.3,1
+TAG,Bohol-Panglao Intl,Tagbilaran,PH,9.56,123.78,0.1,1
+DGT,Sibulan,Dumaguete,PH,9.33,123.30,0.13,0
+TAC,Daniel Z. Romualdez,Tacloban,PH,11.23,125.03,0.25,0
+BCD,Bacolod-Silay,Bacolod,PH,10.78,123.01,0.6,0
+CGY,Laguindingan,Cagayan de Oro,PH,8.61,124.46,0.7,0
+GES,General Santos Intl,General Santos,PH,6.06,125.10,0.7,0
+ZAM,Zamboanga Intl,Zamboanga,PH,6.92,122.06,0.9,0
+BXU,Bancasi,Butuan,PH,8.95,125.48,0.37,0
+LGP,Bicol Intl,Legazpi,PH,13.16,123.74,0.2,1
+TUG,Tuguegarao,Tuguegarao,PH,17.64,121.73,0.17,0
+BAG,Loakan,Baguio,PH,16.38,120.62,0.35,1
+LAO,Laoag Intl,Laoag,PH,18.18,120.53,0.11,1
+MPH,Godofredo P. Ramos,Caticlan,PH,11.92,121.95,0.03,1
+KLO,Kalibo Intl,Kalibo,PH,11.68,122.38,0.08,1
+USU,Francisco B. Reyes,Busuanga,PH,12.12,120.10,0.02,1
+ENI,El Nido,El Nido,PH,11.20,119.42,0.04,1
+IAO,Sayak,Siargao,PH,9.86,126.01,0.02,1
+RXS,Roxas,Roxas,PH,11.60,122.75,0.17,0
+USM,Samui,Koh Samui,TH,9.55,100.06,0.06,1
+CEI,Chiang Rai Intl,Chiang Rai,TH,19.95,99.88,0.2,1
+HDY,Hat Yai Intl,Hat Yai,TH,6.93,100.39,0.35,0
+UTH,Udon Thani Intl,Udon Thani,TH,17.38,102.79,0.4,0
+KKC,Khon Kaen,Khon Kaen,TH,16.46,102.78,0.4,0
+UBP,Ubon Ratchathani,Ubon Ratchathani,TH,15.25,104.87,0.3,0
+KBV,Krabi Intl,Krabi,TH,8.10,98.99,0.1,1
+URT,Surat Thani Intl,Surat Thani,TH,9.13,99.14,0.2,0
+NYU,Nyaung U,Bagan,MM,21.18,94.93,0.05,1
+HEH,Heho,Inle,MM,20.75,96.79,0.05,1
+NYT,Naypyidaw Intl,Naypyidaw,MM,19.62,96.20,1.0,0
+AKY,Sittwe,Sittwe,MM,20.13,92.87,0.18,0
+BTU,Bintulu,Bintulu,MY,3.12,113.02,0.2,0
+KUA,Sultan Ahmad Shah,Kuantan,MY,3.78,103.21,0.6,0
+SAI,Siem Reap-Angkor Intl,Siem Reap,KH,13.32,104.21,0.2,1
+KOS,Sihanoukville Intl,Sihanoukville,KH,10.58,103.64,0.15,1
+LPQ,Luang Prabang Intl,Luang Prabang,LA,19.90,102.16,0.08,1
+PKZ,Pakse Intl,Pakse,LA,15.13,105.78,0.09,0
+VDO,Van Don Intl,Ha Long,VN,21.12,107.41,0.2,1

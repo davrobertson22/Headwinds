@@ -1,0 +1,14 @@
+{
+  "name": "@headwinds/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Headwinds multiplayer game server — authoritative weekly tick over the shared @tailwinds/engine.",
+  "scripts": {
+    "demo": "node demo.mjs",
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "@tailwinds/engine": "*"
+  }
+}

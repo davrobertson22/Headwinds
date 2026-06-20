@@ -1,0 +1,100 @@
+code,name,city,country,lat,lon,population,leisure
+SJP,Prof. Eribelto Manoel Reino,Sao Jose do Rio Preto,BR,-20.82,-49.40,0.5,0
+MGF,Silvio Name Junior,Maringa,BR,-23.48,-52.01,0.43,0
+CXJ,Hugo Cantergiani,Caxias do Sul,BR,-29.20,-51.19,0.51,0
+CPV,Joao Suassuna,Campina Grande,BR,-7.27,-35.90,0.42,0
+JDO,Orlando Bezerra,Juazeiro do Norte,BR,-7.22,-39.27,0.27,0
+IOS,Jorge Amado,Ilheus,BR,-14.82,-39.03,0.18,1
+PNZ,Senador Nilo Coelho,Petrolina,BR,-9.36,-40.57,0.36,0
+BPS,Porto Seguro,Porto Seguro,BR,-16.44,-39.08,0.15,1
+VDC,Glauber Rocha,Vitoria da Conquista,BR,-14.86,-40.86,0.34,0
+MOC,Mario Ribeiro,Montes Claros,BR,-16.71,-43.82,0.41,0
+IPN,Usiminas,Ipatinga,BR,-19.47,-42.49,0.3,0
+CAC,Coronel Adalberto Mendes,Cascavel,BR,-25.00,-53.50,0.33,0
+CZS,Cruzeiro do Sul,Cruzeiro do Sul,BR,-7.60,-72.77,0.09,0
+TBT,Tabatinga,Tabatinga,BR,-4.25,-69.94,0.06,0
+STM,Santarem,Santarem,BR,-2.42,-54.79,0.3,0
+MAB,Joao Correa,Maraba,BR,-5.37,-49.14,0.28,0
+IMP,Prefeito Renato Moreira,Imperatriz,BR,-5.53,-47.46,0.26,0
+OPS,Presidente Joao Figueiredo,Sinop,BR,-11.88,-55.59,0.14,0
+FEN,Fernando de Noronha,Fernando de Noronha,BR,-3.85,-32.42,0.003,1
+CFB,Cabo Frio Intl,Cabo Frio,BR,-22.92,-42.07,0.23,1
+MLM,Gen. Francisco Mujica,Morelia,MX,19.85,-101.03,1.0,0
+ZCL,Gen. Leobardo Ruiz,Zacatecas,MX,22.90,-102.69,0.4,0
+DGO,Guadalupe Victoria,Durango,MX,24.12,-104.53,0.65,0
+TAM,Gen. Francisco J. Mina,Tampico,MX,22.29,-97.87,0.9,0
+REX,Gen. Lucio Blanco,Reynosa,MX,26.01,-98.23,0.9,0
+PBC,Hermanos Serdan,Puebla,MX,19.16,-98.37,3.2,0
+TLC,Lic. Adolfo Lopez Mateos,Toluca,MX,19.34,-99.57,2.2,0
+CEN,Ciudad Obregon,Ciudad Obregon,MX,27.39,-109.83,0.4,0
+LMM,Valle del Fuerte,Los Mochis,MX,25.69,-109.08,0.4,0
+ZLO,Playa de Oro,Manzanillo,MX,19.14,-104.56,0.18,1
+PXM,Puerto Escondido,Puerto Escondido,MX,15.87,-97.09,0.05,1
+TAP,Tapachula Intl,Tapachula,MX,14.79,-92.37,0.35,0
+CTM,Chetumal Intl,Chetumal,MX,18.50,-88.33,0.17,0
+TPQ,Amado Nervo,Tepic,MX,21.42,-104.84,0.4,0
+AXM,El Eden,Armenia,CO,4.45,-75.77,0.3,0
+PSO,Antonio Narino,Pasto,CO,1.40,-77.29,0.35,0
+NVA,Benito Salas,Neiva,CO,2.95,-75.29,0.36,0
+IBE,Perales,Ibague,CO,4.42,-75.13,0.53,0
+MTR,Los Garzones,Monteria,CO,8.82,-75.83,0.49,0
+VUP,Alfonso Lopez Pumarejo,Valledupar,CO,10.44,-73.25,0.49,0
+VVC,La Vanguardia,Villavicencio,CO,4.17,-73.61,0.55,0
+LET,Alfredo Vasquez Cobo,Leticia,CO,-4.19,-69.94,0.05,1
+ADZ,Gustavo Rojas Pinilla,San Andres,CO,12.58,-81.71,0.06,1
+PPN,Guillermo Leon Valencia,Popayan,CO,2.45,-76.61,0.32,0
+TRU,Capitan Carlos Martinez,Trujillo,PE,-8.08,-79.11,1.0,0
+CIX,Capitan Quinones,Chiclayo,PE,-6.79,-79.83,0.6,0
+PEM,Padre Aldamiz,Puerto Maldonado,PE,-12.62,-69.23,0.08,1
+TCQ,Coronel Carlos Ciriani,Tacna,PE,-18.05,-70.27,0.3,0
+CJA,Mayor Armando Revoredo,Cajamarca,PE,-7.14,-78.49,0.28,0
+TPP,Cadete FAP Guillermo,Tarapoto,PE,-6.51,-76.37,0.18,0
+JUL,Inca Manco Capac,Juliaca,PE,-15.47,-70.16,0.27,0
+ROS,Islas Malvinas,Rosario,AR,-32.90,-60.78,1.3,0
+TUC,Teniente Benjamin Matienzo,Tucuman,AR,-26.84,-65.10,0.9,0
+NQN,Presidente Peron,Neuquen,AR,-38.95,-68.16,0.34,0
+FTE,Comandante Tola,El Calafate,AR,-50.28,-72.05,0.02,1
+RGL,Piloto Civil N. Fernandez,Rio Gallegos,AR,-51.61,-69.31,0.1,0
+REL,Almirante Zar,Trelew,AR,-43.21,-65.27,0.1,1
+CRD,Gen. E. Mosconi,Comodoro Rivadavia,AR,-45.78,-67.47,0.2,0
+PSS,Libertador San Martin,Posadas,AR,-27.39,-55.97,0.35,0
+CNQ,Camba Punta,Corrientes,AR,-27.45,-58.76,0.4,0
+RES,Resistencia Intl,Resistencia,AR,-27.45,-59.06,0.4,0
+JUJ,Gobernador Horacio Guzman,Jujuy,AR,-24.39,-65.10,0.3,0
+MDQ,Astor Piazzolla,Mar del Plata,AR,-37.93,-57.57,0.6,1
+BHI,Comandante Espora,Bahia Blanca,AR,-38.72,-62.17,0.3,0
+ANF,Andres Sabella,Antofagasta,CL,-23.44,-70.45,0.4,0
+CJC,El Loa,Calama,CL,-22.50,-68.90,0.18,0
+IQQ,Diego Aracena,Iquique,CL,-20.54,-70.18,0.3,1
+ARI,Chacalluta,Arica,CL,-18.35,-70.34,0.25,0
+LSC,La Florida,La Serena,CL,-29.92,-71.20,0.4,1
+CCP,Carriel Sur,Concepcion,CL,-36.77,-73.06,1.0,0
+ZAL,Pichoy,Valdivia,CL,-39.65,-73.09,0.18,0
+PMC,El Tepual,Puerto Montt,CL,-41.44,-73.09,0.25,1
+BBA,Balmaceda,Balmaceda,CL,-45.92,-71.69,0.06,1
+VVI,Viru Viru Intl,Santa Cruz,BO,-17.64,-63.14,1.7,0
+CBB,Jorge Wilstermann,Cochabamba,BO,-17.42,-66.18,0.9,0
+SRE,Juana Azurduy,Sucre,BO,-19.01,-65.29,0.3,0
+UYU,Joya Andina,Uyuni,BO,-20.45,-66.85,0.03,1
+CUE,Mariscal Lamar,Cuenca,EC,-2.89,-78.98,0.4,0
+GPS,Seymour,Galapagos,EC,-0.45,-90.27,0.03,1
+MEC,Eloy Alfaro,Manta,EC,-0.95,-80.68,0.26,1
+MAR,La Chinita Intl,Maracaibo,VE,10.56,-71.73,2.3,0
+VLN,Arturo Michelena,Valencia,VE,10.15,-67.93,1.8,0
+BLA,Gen. Jose Antonio Anzoategui,Barcelona,VE,10.11,-64.69,0.9,0
+PMV,Del Caribe,Porlamar,VE,10.91,-63.97,0.4,1
+BRM,Jacinto Lara,Barquisimeto,VE,10.04,-69.36,1.1,0
+PZO,Manuel Carlos Piar,Puerto Ordaz,VE,8.29,-62.76,0.9,0
+SAP,Ramon Villeda Morales,San Pedro Sula,HN,15.45,-87.92,0.9,0
+RTB,Juan Manuel Galvez,Roatan,HN,16.32,-86.52,0.05,1
+LIR,Daniel Oduber Quiros,Liberia,CR,10.59,-85.54,0.06,1
+DAV,Enrique Malek,David,PA,8.39,-82.43,0.15,0
+FRS,Mundo Maya,Flores,GT,16.91,-89.87,0.06,1
+VRA,Juan Gualberto Gomez,Varadero,CU,23.03,-81.44,0.04,1
+HOG,Frank Pais,Holguin,CU,20.79,-76.32,0.35,0
+SCU,Antonio Maceo,Santiago de Cuba,CU,19.97,-75.84,0.5,0
+PUJ,Punta Cana Intl,Punta Cana,DO,18.57,-68.36,0.05,1
+POP,Gregorio Luperon,Puerto Plata,DO,19.76,-70.57,0.15,1
+STI,Cibao Intl,Santiago,DO,19.41,-70.60,0.7,0
+MBJ,Sangster Intl,Montego Bay,JM,18.50,-77.91,0.11,1
+FPO,Grand Bahama Intl,Freeport,BS,26.56,-78.70,0.05,1

@@ -1,0 +1,88 @@
+code,name,city,country,lat,lon,population,leisure
+LCK,Rickenbacker Intl,Columbus,US,39.81,-82.93,2.1,0
+YNG,Youngstown-Warren,Youngstown,US,41.26,-80.67,0.5,0
+CRW,West Virginia Intl Yeager,Charleston,US,38.37,-81.59,0.25,0
+MCN,Middle Georgia Regional,Macon,US,32.69,-83.65,0.23,0
+LEB,Lebanon Municipal,Lebanon,US,43.63,-72.30,0.21,0
+BWG,Bowling Green-Warren County,Bowling Green,US,36.96,-86.42,0.18,0
+PIB,Hattiesburg-Laurel Regional,Hattiesburg,US,31.47,-89.34,0.17,0
+PGV,Pitt-Greenville,Greenville,US,35.64,-77.39,0.17,0
+VRB,Vero Beach Regional,Vero Beach,US,27.66,-80.42,0.16,1
+VIS,Visalia Municipal,Visalia,US,36.32,-119.39,0.14,0
+MSL,Northwest Alabama Regional,Muscle Shoals,US,34.74,-87.61,0.15,0
+IFP,Laughlin/Bullhead Intl,Bullhead City,US,35.16,-114.56,0.15,1
+JST,John Murtha Johnstown-Cambria,Johnstown,US,40.32,-78.83,0.13,0
+JBR,Jonesboro Municipal,Jonesboro,US,35.83,-90.65,0.13,0
+FMN,Four Corners Regional,Farmington,US,36.74,-108.23,0.12,0
+OWB,Owensboro-Daviess County,Owensboro,US,37.74,-87.17,0.12,0
+EAT,Pangborn Memorial,Wenatchee,US,47.40,-120.21,0.12,0
+BKW,Raleigh County Memorial,Beckley,US,37.79,-81.12,0.11,0
+ART,Watertown Intl,Watertown,US,43.99,-76.02,0.11,0
+OGS,Ogdensburg Intl,Ogdensburg,US,44.68,-75.47,0.11,0
+DEC,Decatur Airport,Decatur,US,39.83,-88.87,0.105,0
+CIC,Chico Municipal,Chico,US,39.79,-121.86,0.11,0
+DDC,Dodge City Regional,Dodge City,US,37.76,-99.97,0.027,0
+PUW,Pullman-Moscow Regional,Pullman,US,46.74,-117.11,0.08,0
+PBG,Plattsburgh Intl,Plattsburgh,US,44.65,-73.47,0.08,0
+SWO,Stillwater Regional,Stillwater,US,36.16,-97.09,0.08,0
+HOB,Lea County Regional,Hobbs,US,32.69,-103.22,0.05,0
+ROW,Roswell Air Center,Roswell,US,33.30,-104.53,0.05,0
+GCC,Gillette-Campbell County,Gillette,US,44.35,-105.54,0.05,0
+LAR,Laramie Regional,Laramie,US,41.31,-105.67,0.05,0
+EKO,Elko Regional,Elko,US,40.82,-115.79,0.05,0
+CDC,Cedar City Regional,Cedar City,US,37.70,-113.10,0.06,0
+LWS,Lewiston-Nez Perce County,Lewiston,US,46.37,-117.02,0.06,0
+ALW,Walla Walla Regional,Walla Walla,US,46.10,-118.29,0.06,0
+AUG,Augusta State,Augusta,US,44.32,-69.80,0.06,0
+RUT,Rutland-Southern Vermont,Rutland,US,43.53,-72.95,0.06,1
+MWA,Veterans Williamson County,Marion,US,37.75,-89.01,0.06,0
+EAR,Kearney Regional,Kearney,US,40.73,-99.01,0.034,0
+OFK,Norfolk Regional,Norfolk,US,41.99,-97.43,0.025,0
+HYS,Hays Regional,Hays,US,38.84,-99.27,0.021,0
+BRL,Southeast Iowa Regional,Burlington,US,40.78,-91.13,0.025,0
+FOD,Fort Dodge Regional,Fort Dodge,US,42.55,-94.19,0.024,0
+OTM,Ottumwa Regional,Ottumwa,US,41.11,-92.45,0.025,0
+UIN,Quincy Regional,Quincy,US,39.94,-91.19,0.04,0
+GLH,Mid Delta Regional,Greenville,US,33.48,-90.99,0.04,0
+HRO,Boone County Regional,Harrison,US,36.26,-93.15,0.04,1
+AOO,Altoona-Blair County,Altoona,US,40.30,-78.32,0.04,0
+BFD,Bradford Regional,Bradford,US,41.80,-78.64,0.04,0
+SLK,Adirondack Regional,Saranac Lake,US,44.39,-74.21,0.04,1
+APN,Alpena County Regional,Alpena,US,45.08,-83.56,0.029,0
+CMX,Houghton County Memorial,Hancock,US,47.17,-88.49,0.043,0
+PQI,Presque Isle Intl,Presque Isle,US,46.69,-68.04,0.04,0
+RKD,Knox County Regional,Rockland,US,44.06,-69.10,0.04,1
+LMT,Crater Lake-Klamath Regional,Klamath Falls,US,42.16,-121.73,0.04,1
+PDT,Eastern Oregon Regional,Pendleton,US,45.70,-118.84,0.03,0
+OTH,Southwest Oregon Regional,North Bend,US,43.42,-124.25,0.03,1
+ALS,San Luis Valley Regional,Alamosa,US,37.43,-105.87,0.02,0
+CEZ,Cortez Municipal,Cortez,US,37.30,-108.63,0.03,1
+SHR,Sheridan County,Sheridan,US,44.77,-106.98,0.03,0
+SOW,Show Low Regional,Show Low,US,34.27,-110.01,0.02,1
+ATY,Watertown Regional,Watertown,US,44.91,-97.15,0.02,0
+DVL,Devils Lake Regional,Devils Lake,US,48.11,-98.91,0.007,0
+GGW,Wokal Field Glasgow,Glasgow,US,48.21,-106.61,0.003,0
+OLF,L.M. Clayton,Wolf Point,US,48.09,-105.57,0.003,0
+SDY,Sidney-Richland,Sidney,US,47.71,-104.19,0.006,0
+GDV,Dawson Community,Glendive,US,47.14,-104.81,0.004,0
+MCK,McCook Ben Nelson Regional,McCook,US,40.21,-100.59,0.007,0
+LBL,Liberal Mid-America,Liberal,US,37.04,-100.96,0.02,0
+SPW,Spencer Municipal,Spencer,US,43.17,-95.20,0.011,0
+PLN,Pellston Regional,Pellston,US,45.57,-84.80,0.005,1
+CIU,Chippewa County Intl,Sault Ste Marie,US,46.25,-84.47,0.014,0
+BHB,Hancock County-Bar Harbor,Bar Harbor,US,44.45,-68.36,0.005,1
+LWB,Greenbrier Valley,Lewisburg,US,37.86,-80.40,0.03,1
+ENA,Kenai Municipal,Kenai,US,60.57,-151.24,0.06,0
+VDZ,Valdez,Valdez,US,61.13,-146.25,0.004,1
+DUT,Unalaska,Dutch Harbor,US,53.90,-166.54,0.005,0
+CDB,Cold Bay,Cold Bay,US,55.21,-162.72,0.001,0
+GST,Gustavus,Gustavus,US,58.42,-135.70,0.001,1
+SGY,Skagway,Skagway,US,59.46,-135.32,0.001,1
+HNS,Haines,Haines,US,59.24,-135.52,0.002,1
+SCC,Deadhorse,Deadhorse,US,70.19,-148.46,0.002,0
+UNK,Unalakleet,Unalakleet,US,63.89,-160.80,0.001,0
+GAL,Edward G. Pitka Sr,Galena,US,64.74,-156.94,0.001,0
+MCG,McGrath,McGrath,US,62.95,-155.61,0.0004,0
+ANI,Aniak,Aniak,US,61.58,-159.54,0.0005,0
+SDP,Sand Point,Sand Point,US,55.32,-160.52,0.001,0
+KSM,St Marys,St Marys,US,62.06,-163.30,0.0006,0

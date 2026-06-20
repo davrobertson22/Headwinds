@@ -1,0 +1,603 @@
+code,name,city,country,lat,lon,population,leisure,visitors,gateway
+XUZ,Xuzhou Guanyin,Xuzhou,CN,34.06,117.56,9.0,0,0,0
+JJN,Quanzhou Jinjiang,Quanzhou,CN,24.80,118.59,8.7,0,0,0
+NNY,Nanyang Jiangying,Nanyang,CN,32.98,112.61,9.7,0,0,0
+KOW,Ganzhou Huangjin,Ganzhou,CN,25.85,114.78,8.9,0,0,0
+CGQ,Changchun Longjia,Changchun,CN,43.99,125.68,4.5,0,0,0
+HET,Hohhot Baita,Hohhot,CN,40.85,111.82,3.4,0,0,0
+LYI,Linyi Qiyang,Linyi,CN,35.05,118.41,5.0,0,0,0
+KWL,Guilin Liangjiang,Guilin,CN,25.22,110.04,5.0,1,1.5,0
+LZH,Liuzhou Bailian,Liuzhou,CN,24.21,109.39,4.2,0,0,0
+BHY,Beihai Fucheng,Beihai,CN,21.54,109.29,1.8,1,0.5,0
+HUZ,Huizhou Pingtan,Huizhou,CN,23.05,114.60,6.0,0,0,0
+MXZ,Meixian,Meizhou,CN,24.35,116.13,4.0,0,0,0
+CZX,Changzhou Benniu,Changzhou,CN,31.92,119.78,5.3,0,0,0
+YNZ,Yancheng Nanyang,Yancheng,CN,33.43,120.20,7.2,0,0,0
+LYG,Lianyungang Baitabu,Lianyungang,CN,34.57,119.25,4.6,0,0,0
+HIA,Huai'an Lianshui,Huai'an,CN,33.79,119.13,4.6,0,0,0
+WHU,Wuhu Xuanzhou,Wuhu,CN,31.39,118.41,3.7,0,0,0
+AQG,Anqing Tianzhushan,Anqing,CN,30.58,117.05,4.5,0,0,0
+TXN,Huangshan Tunxi,Huangshan,CN,29.73,118.26,1.4,1,2.0,0
+HSN,Zhoushan Putuoshan,Zhoushan,CN,29.93,122.36,1.2,1,1.0,0
+HYN,Taizhou Luqiao,Taizhou,CN,28.56,121.43,6.6,0,0,0
+JUZ,Quzhou,Quzhou,CN,28.97,118.90,2.3,0,0,0
+YIH,Yichang Sanxia,Yichang,CN,30.56,111.48,4.0,0,0,0
+XFN,Xiangyang Liuji,Xiangyang,CN,32.15,112.29,5.3,0,0,0
+HJJ,Huaihua Zhijiang,Huaihua,CN,27.44,109.70,4.6,0,0,0
+DAT,Datong Yungang,Datong,CN,40.06,113.48,3.4,0,0,0
+LFQ,Linfen Qiaoli,Linfen,CN,36.13,111.64,4.3,0,0,0
+YCU,Yuncheng Zhangxiao,Yuncheng,CN,35.12,111.03,4.8,0,0,0
+DSN,Ordos Ejin Horo,Ordos,CN,39.49,109.86,2.2,0,0,0
+CIF,Chifeng Yulong,Chifeng,CN,42.24,118.91,4.3,0,0,0
+TGO,Tongliao,Tongliao,CN,43.56,122.20,2.8,0,0,0
+HLD,Hailar Dongshan,Hulunbuir,CN,49.20,119.83,0.3,1,0.4,0
+DNH,Dunhuang Mogao,Dunhuang,CN,40.16,94.81,0.19,1,1.0,0
+JNG,Jining Da'an,Jining,CN,35.29,116.35,8.0,0,0,0
+WEF,Weifang Nanyuan,Weifang,CN,36.65,119.12,9.4,0,0,0
+DOY,Dongying Shengli,Dongying,CN,37.51,118.79,2.2,0,0,0
+KRL,Korla Licheng,Korla,CN,41.70,86.13,0.6,0,0,0
+YIN,Yining,Yining,CN,43.96,81.33,0.5,0,0,0
+AKU,Aksu Hongqipo,Aksu,CN,41.26,80.29,0.6,0,0,0
+HTN,Hotan,Hotan,CN,37.04,79.86,1.1,0,0,0
+KRY,Karamay,Karamay,CN,45.62,84.95,0.4,0,0,0
+DIG,Diqing Shangri-La,Shangri-La,CN,27.79,99.68,0.15,1,1.0,0
+DLU,Dali,Dali,CN,25.65,100.32,0.7,1,1.5,0
+LUM,Mangshi Dehong,Mangshi,CN,24.40,98.53,0.6,1,0.3,0
+SYM,Simao Pu'er,Pu'er,CN,22.79,100.96,0.7,0,0,0
+ZAT,Zhaotong,Zhaotong,CN,27.32,103.75,5.3,0,0,0
+XIC,Xichang Qingshan,Xichang,CN,27.99,102.18,0.95,0,0,0
+JZH,Jiuzhaigou Huanglong,Jiuzhaigou,CN,32.85,103.68,0.08,1,1.2,0
+LZO,Luzhou Yunlong,Luzhou,CN,28.85,105.40,4.3,0,0,0
+NAO,Nanchong Gaoping,Nanchong,CN,30.79,106.16,5.6,0,0,0
+WXN,Wanzhou Wuqiao,Wanzhou,CN,30.84,108.41,1.6,0,0,0
+BFJ,Bijie Feixiong,Bijie,CN,27.27,105.47,6.9,0,0,0
+TEN,Tongren Fenghuang,Tongren,CN,27.88,109.31,3.1,0,0,0
+LPF,Liupanshui Yuezhao,Liupanshui,CN,26.61,104.98,3.0,0,0,0
+AEB,Baise Youjiang,Baise,CN,23.72,106.96,3.6,0,0,0
+WUZ,Wuzhou Xijiang,Wuzhou,CN,23.40,111.25,2.8,0,0,0
+ENY,Yan'an Nanniwan,Yan'an,CN,36.37,109.55,2.3,0,0,0
+UYN,Yulin Yuyang,Yulin,CN,38.27,109.59,3.6,0,0,0
+HZG,Hanzhong Chenggu,Hanzhong,CN,33.07,107.01,3.2,0,0,0
+ZHY,Zhongwei Shapotou,Zhongwei,CN,37.57,105.15,1.1,0,0,0
+IQN,Qingyang Xifeng,Qingyang,CN,35.80,107.60,2.2,0,0,0
+GOQ,Golmud,Golmud,CN,36.40,94.79,0.2,0,0,0
+RKZ,Shigatse Peace,Shigatse,CN,29.35,89.31,0.8,1,0.5,0
+LZY,Nyingchi Mainling,Nyingchi,CN,29.30,94.34,0.24,1,0.5,0
+JIL,Jilin Ertaizi,Jilin,CN,44.00,126.40,3.6,0,0,0
+YNJ,Yanji Chaoyangchuan,Yanji,CN,42.88,129.45,0.7,0,0,0
+MDG,Mudanjiang Hailang,Mudanjiang,CN,44.52,129.57,2.3,0,0,0
+NDG,Qiqihar Sanjiazi,Qiqihar,CN,47.24,123.92,5.3,0,0,0
+JMU,Jiamusi Dongjiao,Jiamusi,CN,46.84,130.46,2.3,0,0,0
+HEK,Heihe Aihui,Heihe,CN,50.17,127.31,1.3,0,0,0
+DDG,Dandong Langtou,Dandong,CN,40.02,124.29,2.2,0,0,0
+YYK,Yingkou Lanqi,Yingkou,CN,40.54,122.36,2.3,0,0,0
+JNZ,Jinzhou Bay,Jinzhou,CN,40.93,121.06,2.9,0,0,0
+JDZ,Jingdezhen Luojia,Jingdezhen,CN,29.34,117.18,1.6,1,0.5,0
+JIU,Jiujiang Lushan,Jiujiang,CN,29.48,115.80,4.6,0,0,0
+JGS,Ji'an Jinggangshan,Ji'an,CN,26.86,114.74,4.5,0,0,0
+WUS,Wuyishan,Wuyishan,CN,27.70,118.00,0.26,1,1.0,0
+LCX,Longyan Guanzhishan,Longyan,CN,25.67,116.75,2.7,0,0,0
+BPE,Qinhuangdao Beidaihe,Qinhuangdao,CN,39.67,119.06,3.1,1,0.8,0
+CDE,Chengde Puning,Chengde,CN,40.94,118.07,3.4,1,1.0,0
+FUG,Fuyang Xiguan,Fuyang,CN,32.88,115.73,8.2,0,0,0
+BFU,Bengbu,Bengbu,CN,32.85,117.32,3.3,0,0,0
+YTY,Yangzhou Taizhou,Yangzhou,CN,32.56,119.72,4.5,0,0,0
+DAX,Dazhou Heshi,Dazhou,CN,31.13,107.43,5.4,0,0,0
+KNU,Kanpur Chakeri,Kanpur,IN,26.40,80.41,3.0,0,0,0
+IXE,Mangalore Intl,Mangalore,IN,12.96,74.89,0.6,0,0,0
+MYQ,Mysuru,Mysuru,IN,12.23,76.66,1.0,1,0.5,0
+IXU,Aurangabad,Aurangabad,IN,19.86,75.40,1.2,0,0,0
+JLR,Jabalpur Dumna,Jabalpur,IN,23.18,80.05,1.3,0,0,0
+GWL,Gwalior Rajmata,Gwalior,IN,26.29,78.23,1.1,0,0,0
+SXR,Srinagar Intl,Srinagar,IN,33.99,74.77,1.5,1,1.0,0
+JDH,Jodhpur,Jodhpur,IN,26.25,73.05,1.1,1,0.5,0
+ISK,Nashik Ozar,Nashik,IN,20.12,73.91,1.6,0,0,0
+HBX,Hubli,Hubli-Dharwad,IN,15.36,75.08,1.0,0,0,0
+IXD,Prayagraj,Prayagraj,IN,25.44,81.74,1.2,1,0.5,0
+GOP,Gorakhpur,Gorakhpur,IN,26.74,83.45,0.7,0,0,0
+DED,Dehradun Jolly Grant,Dehradun,IN,30.19,78.18,0.8,1,0.8,0
+IMF,Imphal Bir Tikendrajit,Imphal,IN,24.76,93.90,1.0,0,0,0
+IXA,Agartala Maharaja Bir,Agartala,IN,23.89,91.24,0.5,0,0,0
+IXS,Silchar Kumbhirgram,Silchar,IN,24.91,92.98,0.2,0,0,0
+AJL,Aizawl Lengpui,Aizawl,IN,23.84,92.62,0.3,0,0,0
+DMU,Dimapur,Dimapur,IN,25.88,93.77,0.4,0,0,0
+SHL,Shillong Umroi,Shillong,IN,25.70,91.98,0.6,1,0.4,0
+CNN,Kannur Intl,Kannur,IN,11.92,75.55,1.6,0,0,0
+TIR,Tirupati,Tirupati,IN,13.63,79.54,0.5,1,1.5,0
+GAY,Gaya Bodhgaya,Gaya,IN,24.74,84.95,0.5,1,1.0,0
+RJA,Rajahmundry,Rajahmundry,IN,17.11,81.82,0.5,0,0,0
+TCR,Tuticorin,Thoothukudi,IN,8.72,78.03,0.5,0,0,0
+SXV,Salem,Salem,IN,11.78,78.07,0.9,0,0,0
+JGA,Jamnagar,Jamnagar,IN,22.47,70.01,0.7,0,0,0
+PBD,Porbandar,Porbandar,IN,21.65,69.66,0.3,0,0,0
+BHJ,Bhuj Rudra Mata,Bhuj,IN,23.29,69.67,0.2,0,0,0
+DIU,Diu,Diu,IN,20.71,70.92,0.05,1,0.5,0
+LUH,Ludhiana Sahnewal,Ludhiana,IN,30.85,75.95,1.7,0,0,0
+BUP,Bathinda,Bathinda,IN,30.27,74.76,0.3,0,0,0
+JSA,Jaisalmer,Jaisalmer,IN,26.89,70.86,0.08,1,0.7,0
+BKB,Bikaner Nal,Bikaner,IN,28.07,73.21,0.7,0,0,0
+DHM,Kangra Dharamshala,Dharamshala,IN,32.16,76.26,0.1,1,0.6,0
+KUU,Kullu Manali,Kullu,IN,31.88,77.15,0.1,1,0.6,0
+DBR,Darbhanga,Darbhanga,IN,26.19,85.92,0.4,0,0,0
+IXW,Jamshedpur Sonari,Jamshedpur,IN,22.81,86.17,1.6,0,0,0
+NDC,Nanded,Nanded,IN,19.18,77.32,0.6,0,0,0
+KLH,Kolhapur,Kolhapur,IN,16.66,74.29,0.6,0,0,0
+SSE,Solapur,Solapur,IN,17.63,75.93,1.0,0,0,0
+TEZ,Tezpur,Tezpur,IN,26.71,92.78,0.1,0,0,0
+PYB,Jeypore,Jeypore,IN,18.88,82.55,0.1,0,0,0
+RPR,Bilaspur,Bilaspur,IN,21.99,82.11,0.8,0,0,0
+JOG,Yogyakarta Intl,Yogyakarta,ID,-7.90,110.05,4.0,1,2.0,0
+SOC,Adisumarmo,Surakarta,ID,-7.52,110.76,2.5,0,0,0
+MLG,Abdul Rachman Saleh,Malang,ID,-7.93,112.71,2.5,0,0,0
+LBJ,Komodo,Labuan Bajo,ID,-8.49,119.89,0.06,1,1.0,0
+SOQ,Domine Eduard Osok,Sorong,ID,-0.89,131.29,0.25,0,0,0
+TTE,Sultan Babullah,Ternate,ID,0.83,127.38,0.2,0,0,0
+KDI,Haluoleo,Kendari,ID,-4.08,122.42,0.4,0,0,0
+PLW,Mutiara SIS Al-Jufri,Palu,ID,-0.92,119.91,0.4,0,0,0
+BIK,Frans Kaisiepo,Biak,ID,-1.19,136.11,0.13,0,0,0
+TIM,Mozes Kilangin,Timika,ID,-4.53,136.89,0.3,0,0,0
+DJB,Sultan Thaha,Jambi,ID,-1.64,103.64,0.6,0,0,0
+BTJ,Sultan Iskandar Muda,Banda Aceh,ID,5.52,95.42,0.3,0,0,0
+PGK,Depati Amir,Pangkal Pinang,ID,-2.16,106.14,0.2,0,0,0
+TJQ,H.A.S. Hanandjoeddin,Tanjung Pandan,ID,-2.74,107.75,0.3,1,0.5,0
+DTB,Sisingamangaraja Silangit,Siborong-Borong,ID,2.26,98.99,0.1,1,0.6,0
+BKS,Fatmawati Soekarno,Bengkulu,ID,-3.86,102.34,0.4,0,0,0
+WGP,Umbu Mehang Kunda,Waingapu,ID,-9.67,120.30,0.07,1,0.3,0
+ENE,H. Hasan Aroeboesman,Ende,ID,-8.85,121.66,0.09,0,0,0
+MKQ,Mopah,Merauke,ID,-8.52,140.42,0.2,0,0,0
+BCD,Bacolod-Silay,Bacolod,PH,10.78,123.01,0.8,0,0,0
+DGT,Sibulan,Dumaguete,PH,9.33,123.30,0.4,0,0,0
+GES,General Santos Intl,General Santos,PH,6.06,125.10,0.7,0,0,0
+TAC,Daniel Z. Romualdez,Tacloban,PH,11.23,125.03,0.25,0,0,0
+LGP,Bicol Intl,Legazpi,PH,13.16,123.74,0.2,1,0.5,0
+USU,Francisco Reyes,Coron,PH,12.12,120.10,0.05,1,0.8,0
+CBO,Awang,Cotabato,PH,7.17,124.21,0.3,0,0,0
+BXU,Bancasi,Butuan,PH,8.95,125.48,0.4,0,0,0
+LAO,Laoag Intl,Laoag,PH,18.18,120.53,0.1,1,0.3,0
+RXS,Roxas,Roxas,PH,11.60,122.75,0.2,0,0,0
+VII,Vinh,Vinh,VN,18.74,105.67,0.5,0,0,0
+VDH,Dong Hoi,Dong Hoi,VN,17.52,106.59,0.16,1,0.4,0
+DLI,Lien Khuong,Dalat,VN,11.75,108.37,0.4,1,1.0,0
+PXU,Pleiku,Pleiku,VN,14.00,108.02,0.25,0,0,0
+VCL,Chu Lai,Tam Ky,VN,15.40,108.71,0.3,0,0,0
+TBB,Tuy Hoa,Tuy Hoa,VN,13.05,109.33,0.2,0,0,0
+VKG,Rach Gia,Rach Gia,VN,9.96,105.13,0.23,0,0,0
+DIN,Dien Bien Phu,Dien Bien Phu,VN,21.39,103.01,0.08,0,0,0
+CEI,Chiang Rai Mae Fah Luang,Chiang Rai,TH,19.95,99.88,0.2,1,1.0,0
+KKC,Khon Kaen,Khon Kaen,TH,16.47,102.78,0.5,0,0,0
+UTH,Udon Thani,Udon Thani,TH,17.39,102.79,0.4,0,0,0
+PHS,Phitsanulok,Phitsanulok,TH,16.78,100.28,0.3,0,0,0
+BFV,Buriram,Buriram,TH,15.23,103.25,0.3,0,0,0
+TST,Trang,Trang,TH,7.51,99.62,0.2,0,0,0
+KMQ,Komatsu,Kanazawa,JP,36.39,136.41,0.7,0,0,0
+OKJ,Okayama Momotaro,Okayama,JP,34.76,133.86,0.7,0,0,0
+HKD,Hakodate,Hakodate,JP,41.77,140.82,0.25,1,0.8,0
+KUH,Kushiro Tancho,Kushiro,JP,43.04,144.19,0.17,0,0,0
+OBO,Tokachi-Obihiro,Obihiro,JP,42.73,143.22,0.16,0,0,0
+YGJ,Yonago Kitaro,Yonago,JP,35.49,133.24,0.4,0,0,0
+UBJ,Yamaguchi Ube,Ube,JP,33.93,131.28,0.5,0,0,0
+TKS,Tokushima Awaodori,Tokushima,JP,34.13,134.61,0.5,0,0,0
+KPO,Pohang Gyeongju,Pohang,KR,35.99,129.42,0.5,0,0,0
+HIN,Sacheon,Jinju,KR,35.09,128.07,0.5,0,0,0
+KUV,Gunsan,Gunsan,KR,35.90,126.62,0.4,0,0,0
+YNY,Yangyang Intl,Sokcho,KR,38.06,128.67,0.2,1,0.5,0
+LGK,Langkawi Intl,Langkawi,MY,6.33,99.73,0.1,1,1.0,0
+SBW,Sibu,Sibu,MY,2.26,111.99,0.3,0,0,0
+BTU,Bintulu,Bintulu,MY,3.12,113.02,0.2,0,0,0
+AOR,Sultan Abdul Halim,Alor Setar,MY,6.19,100.40,0.4,0,0,0
+ZYL,Osmani Intl,Sylhet,BD,24.96,91.87,0.5,0,0,0
+CXB,Cox's Bazar,Cox's Bazar,BD,21.45,91.96,0.2,1,1.0,0
+JSR,Jessore,Jessore,BD,23.18,89.16,0.3,0,0,0
+RJH,Shah Makhdum,Rajshahi,BD,24.44,88.62,0.9,0,0,0
+SPD,Saidpur,Saidpur,BD,25.76,88.91,0.2,0,0,0
+HRI,Mattala Rajapaksa,Hambantota,LK,6.28,81.12,0.1,1,0.3,0
+JAF,Jaffna,Jaffna,LK,9.79,80.07,0.6,0,0,0
+PKR,Pokhara Intl,Pokhara,NP,28.20,83.98,0.4,1,1.5,0.3
+BWA,Gautam Buddha Intl,Bhairahawa,NP,27.51,83.42,0.3,1,0.5,0
+BIR,Biratnagar,Biratnagar,NP,26.48,87.26,0.3,0,0,0
+NYU,Nyaung U Bagan,Bagan,MM,21.18,94.93,0.05,1,0.8,0
+HEH,Heho,Heho,MM,20.75,96.79,0.1,1,0.6,0
+KOS,Sihanoukville,Sihanoukville,KH,10.58,103.64,0.16,1,0.7,0
+PKZ,Pakse,Pakse,LA,15.13,105.78,0.09,0,0,0
+RMQ,Taichung,Taichung,TW,24.26,120.62,2.8,0,0,0
+TTT,Taitung,Taitung,TW,22.76,121.10,0.2,1,0.4,0
+MZG,Penghu Magong,Magong,TW,23.57,119.63,0.1,1,0.6,0
+HUN,Hualien,Hualien,TW,24.02,121.62,0.32,1,0.8,0
+KRR,Pashkovsky,Krasnodar,RU,45.03,39.17,1.1,0,0,0
+KUF,Kurumoch,Samara,RU,53.51,50.16,1.2,0,0,0
+GOJ,Strigino,Nizhny Novgorod,RU,56.23,43.78,1.3,0,0,0
+VVO,Knevichi,Vladivostok,RU,43.40,132.15,0.6,0,0,0
+KHV,Novy,Khabarovsk,RU,48.53,135.19,0.6,0,0,0
+CEK,Balandino,Chelyabinsk,RU,55.31,61.50,1.2,0,0,0
+PEE,Bolshoye Savino,Perm,RU,57.91,56.02,1.0,0,0,0
+VOZ,Chertovitskoye,Voronezh,RU,51.81,39.23,1.0,0,0,0
+KGD,Khrabrovo,Kaliningrad,RU,54.89,20.59,0.5,0,0,0
+ASF,Narimanovo,Astrakhan,RU,46.28,48.01,0.5,0,0,0
+REN,Orenburg Tsentralny,Orenburg,RU,51.80,55.46,0.55,0,0,0
+TOF,Bogashevo,Tomsk,RU,56.38,85.21,0.57,0,0,0
+UUD,Mukhino,Ulan-Ude,RU,51.81,107.44,0.43,0,0,0
+YKS,Yakutsk,Yakutsk,RU,62.09,129.77,0.32,0,0,0
+PKC,Yelizovo,Petropavlovsk-Kamchatsky,RU,53.17,158.45,0.18,1,0.4,0
+UUS,Khomutovo,Yuzhno-Sakhalinsk,RU,46.89,142.72,0.2,0,0,0
+MMK,Murmansk,Murmansk,RU,68.78,32.75,0.3,0,0,0
+ARH,Talagi,Arkhangelsk,RU,64.60,40.72,0.35,0,0,0
+HTA,Kadala,Chita,RU,52.03,113.31,0.35,0,0,0
+MCX,Uytash,Makhachkala,RU,42.82,47.65,0.7,0,0,0
+RTW,Gagarin,Saratov,RU,51.71,46.17,0.83,0,0,0
+ULY,Barataevka,Ulyanovsk,RU,54.27,48.23,0.62,0,0,0
+NUX,Novy Urengoy,Novy Urengoy,RU,66.07,76.52,0.12,0,0,0
+SGC,Surgut,Surgut,RU,61.34,73.40,0.38,0,0,0
+BQS,Ignatyevo,Blagoveshchensk,RU,50.43,127.41,0.22,0,0,0
+ADA,Adana Sakirpasa,Adana,TR,36.98,35.28,2.2,0,0,0
+ASR,Kayseri Erkilet,Kayseri,TR,38.77,35.49,1.4,0,0,0
+GNY,Sanliurfa GAP,Sanliurfa,TR,37.45,38.90,1.5,0,0,0
+DIY,Diyarbakir,Diyarbakir,TR,37.89,40.20,1.1,0,0,0
+NAV,Nevsehir Kapadokya,Nevsehir,TR,38.77,34.53,0.3,1,1.2,0
+DNZ,Denizli Cardak,Denizli,TR,37.79,29.70,1.0,1,0.8,0
+EZS,Elazig,Elazig,TR,38.61,39.29,0.6,0,0,0
+BAL,Batman,Batman,TR,37.93,41.12,0.6,0,0,0
+FMO,Munster Osnabruck,Munster,DE,52.13,7.68,1.5,0,0,0
+FMM,Memmingen Allgau,Memmingen,DE,47.99,10.24,0.5,0,0,0
+PAD,Paderborn Lippstadt,Paderborn,DE,51.61,8.62,0.9,0,0,0
+ERF,Erfurt-Weimar,Erfurt,DE,50.98,10.96,0.8,0,0,0
+FKB,Karlsruhe Baden-Baden,Karlsruhe,DE,48.78,8.08,1.1,0,0,0
+BES,Brest Bretagne,Brest,FR,48.45,-4.42,0.4,0,0,0
+RNS,Rennes Saint-Jacques,Rennes,FR,48.07,-1.73,0.7,0,0,0
+CFE,Clermont-Ferrand Auvergne,Clermont-Ferrand,FR,45.79,3.17,0.5,0,0,0
+BIQ,Biarritz Pays Basque,Biarritz,FR,43.47,-1.52,0.3,1,0.6,0
+LDE,Tarbes-Lourdes-Pyrenees,Lourdes,FR,43.18,-0.01,0.25,1,1.0,0
+BIA,Bastia Poretta,Bastia,FR,42.55,9.48,0.15,1,0.8,0
+FNI,Nimes Garons,Nimes,FR,43.76,4.42,0.4,0,0,0
+TRN,Turin Caselle,Turin,IT,45.20,7.65,1.8,0,0,0
+GOA,Genoa Cristoforo Colombo,Genoa,IT,44.41,8.84,0.8,0,0,0
+OLB,Olbia Costa Smeralda,Olbia,IT,40.90,9.52,0.16,1,1.5,0
+AHO,Alghero Riviera del Corallo,Alghero,IT,40.63,8.29,0.13,1,0.7,0
+BDS,Brindisi Salento,Brindisi,IT,40.66,17.95,0.4,1,0.5,0
+SUF,Lamezia Terme,Lamezia Terme,IT,38.91,16.24,0.7,0,0,0
+REG,Reggio Calabria,Reggio Calabria,IT,38.07,15.65,0.5,0,0,0
+TPS,Trapani Birgi,Trapani,IT,37.91,12.49,0.4,1,0.5,0
+SCQ,Santiago de Compostela,Santiago de Compostela,ES,42.90,-8.42,0.5,1,0.8,0
+OVD,Asturias,Oviedo,ES,43.56,-6.03,0.8,0,0,0
+ZAZ,Zaragoza,Zaragoza,ES,41.66,-1.04,0.9,0,0,0
+GRX,Granada-Jaen,Granada,ES,37.19,-3.78,0.6,1,0.8,0
+XRY,Jerez,Jerez,ES,36.74,-6.06,0.5,1,0.5,0
+MAH,Menorca,Mahon,ES,39.86,4.22,0.09,1,1.2,0
+FUE,Fuerteventura,Puerto del Rosario,ES,28.45,-13.86,0.12,1,1.5,0
+INV,Inverness,Inverness,GB,57.54,-4.05,0.07,1,0.5,0
+NWI,Norwich,Norwich,GB,52.68,1.28,0.2,0,0,0
+EXT,Exeter,Exeter,GB,50.73,-3.41,0.13,0,0,0
+BHD,Belfast City,Belfast,GB,54.62,-5.87,0.6,0,0,0
+ORK,Cork,Cork,IE,51.84,-8.49,0.4,0,0,0
+NOC,Ireland West Knock,Charlestown,IE,53.91,-8.82,0.05,1,0.4,0
+WRO,Copernicus Wroclaw,Wroclaw,PL,51.10,16.89,0.9,0,0,0
+POZ,Poznan-Lawica,Poznan,PL,52.42,16.83,0.8,0,0,0
+KTW,Katowice,Katowice,PL,50.47,19.08,2.7,0,0,0
+RZE,Rzeszow-Jasionka,Rzeszow,PL,50.11,22.02,0.4,0,0,0
+SZZ,Szczecin-Goleniow,Szczecin,PL,53.58,14.90,0.5,0,0,0
+ODS,Odesa Intl,Odesa,UA,46.43,30.68,1.0,0,0,0
+LWO,Lviv Danylo Halytskyi,Lviv,UA,49.81,23.96,0.8,0,0,0
+HRK,Kharkiv,Kharkiv,UA,49.92,36.29,1.4,0,0,0
+DNK,Dnipro,Dnipro,UA,48.36,35.10,1.0,0,0,0
+CLJ,Cluj-Napoca,Cluj-Napoca,RO,46.79,23.69,0.8,0,0,0
+TSR,Timisoara Traian Vuia,Timisoara,RO,45.81,21.34,0.7,0,0,0
+IAS,Iasi,Iasi,RO,47.18,27.62,0.5,0,0,0
+SBZ,Sibiu,Sibiu,RO,45.79,24.09,0.4,1,0.4,0
+ZAD,Zadar,Zadar,HR,44.11,15.35,0.13,1,0.8,0
+PUY,Pula,Pula,HR,44.89,13.92,0.09,1,0.7,0
+RJK,Rijeka,Rijeka,HR,45.22,14.57,0.18,1,0.5,0
+SJJ,Sarajevo,Sarajevo,BA,43.82,18.33,0.6,0,0,0
+OMO,Mostar,Mostar,BA,43.28,17.85,0.11,1,0.4,0
+TGD,Podgorica,Podgorica,ME,42.36,19.25,0.19,0,0,0
+TIV,Tivat,Tivat,ME,42.40,18.72,0.04,1,0.9,0
+SKP,Skopje Intl,Skopje,MK,41.96,21.62,0.6,0,0,0
+OHD,Ohrid St Paul,Ohrid,MK,41.18,20.74,0.06,1,0.5,0
+PRN,Pristina Intl,Pristina,RS,42.57,21.04,0.6,0,0,0
+TIA,Tirana Nene Tereza,Tirana,AL,41.41,19.72,0.9,0,0,0
+VAR,Varna,Varna,BG,43.23,27.83,0.4,1,0.6,0
+BOJ,Burgas,Burgas,BG,42.57,27.52,0.25,1,1.0,0
+PDV,Plovdiv,Plovdiv,BG,42.07,24.85,0.4,0,0,0
+JTR,Santorini Thira,Santorini,GR,36.40,25.48,0.02,1,2.0,0
+JMK,Mykonos,Mykonos,GR,37.44,25.35,0.01,1,1.5,0
+RHO,Rhodes Diagoras,Rhodes,GR,36.41,28.09,0.12,1,2.0,0
+HER,Heraklion Kazantzakis,Heraklion,GR,35.34,25.18,0.21,1,2.5,0
+CFU,Corfu Kapodistrias,Corfu,GR,39.60,19.91,0.1,1,1.5,0
+KGS,Kos Hippocrates,Kos,GR,36.79,27.09,0.03,1,1.2,0
+BGO,Bergen Flesland,Bergen,NO,60.29,5.22,0.42,0,0,0
+TRD,Trondheim Vaernes,Trondheim,NO,63.46,10.92,0.28,0,0,0
+SVG,Stavanger Sola,Stavanger,NO,58.88,5.64,0.3,0,0,0
+TOS,Tromso,Tromso,NO,69.68,18.92,0.08,1,0.6,0
+GOT,Gothenburg Landvetter,Gothenburg,SE,57.66,12.28,1.0,0,0,0
+MMX,Malmo,Malmo,SE,55.54,13.37,0.7,0,0,0
+LLA,Lulea,Lulea,SE,65.54,22.12,0.08,0,0,0
+OUL,Oulu,Oulu,FI,64.93,25.37,0.21,0,0,0
+RVN,Rovaniemi,Rovaniemi,FI,66.56,25.83,0.06,1,1.0,0
+TKU,Turku,Turku,FI,60.51,22.26,0.33,0,0,0
+KUN,Kaunas,Kaunas,LT,54.96,24.08,0.4,0,0,0
+AEY,Akureyri,Akureyri,IS,65.66,18.07,0.02,1,0.4,0
+PDL,Joao Paulo II,Ponta Delgada,PT,37.74,-25.70,0.14,1,0.8,0
+EIN,Eindhoven,Eindhoven,NL,51.45,5.37,0.78,0,0,0
+SZG,Salzburg,Salzburg,AT,47.79,13.00,0.4,1,1.0,0
+GRZ,Graz,Graz,AT,46.99,15.44,0.36,0,0,0
+BRQ,Brno-Turany,Brno,CZ,49.15,16.69,0.4,0,0,0
+KSC,Kosice,Kosice,SK,48.66,21.24,0.24,0,0,0
+CRL,Brussels South Charleroi,Charleroi,BE,50.46,4.45,0.2,0,0,0
+THR,Mehrabad Intl,Tehran,IR,35.69,51.31,9.0,0,0,0
+SYZ,Shiraz Dastgheib,Shiraz,IR,29.54,52.59,1.7,0,0,0
+IFN,Isfahan Shahid Beheshti,Isfahan,IR,32.75,51.86,2.2,0,0,0
+TBZ,Tabriz Intl,Tabriz,IR,38.13,46.24,1.6,0,0,0
+AWZ,Ahvaz Intl,Ahvaz,IR,31.34,48.76,1.3,0,0,0
+BND,Bandar Abbas Intl,Bandar Abbas,IR,27.22,56.38,0.7,0,0,0
+KER,Kerman,Kerman,IR,30.27,56.95,0.8,0,0,0
+KSH,Kermanshah,Kermanshah,IR,34.35,47.16,0.95,0,0,0
+RAS,Rasht,Rasht,IR,37.32,49.62,0.7,0,0,0
+OMH,Urmia,Urmia,IR,37.67,45.07,0.7,0,0,0
+KIH,Kish Intl,Kish,IR,26.53,53.98,0.04,1,1.0,0
+ABD,Abadan Intl,Abadan,IR,30.37,48.23,0.4,0,0,0
+ULH,Prince Abdul Majeed AlUla,AlUla,SA,26.48,38.00,0.06,1,1.0,0
+AJF,Al-Jawf,Sakaka,SA,29.79,40.10,0.5,0,0,0
+EAM,Najran,Najran,SA,17.61,44.42,0.4,0,0,0
+SHW,Sharurah,Sharurah,SA,17.47,47.12,0.1,0,0,0
+BHH,Bisha,Bisha,SA,19.98,42.62,0.2,0,0,0
+RAE,Arar,Arar,SA,30.91,41.14,0.2,0,0,0
+AQI,Hafr Al-Batin,Hafr Al-Batin,SA,27.84,45.53,0.4,0,0,0
+WAE,Wadi al-Dawasir,Wadi al-Dawasir,SA,20.50,45.20,0.1,0,0,0
+ISU,Sulaymaniyah Intl,Sulaymaniyah,IQ,35.56,45.32,1.0,0,0,0
+XNH,Mosul Intl,Mosul,IQ,36.31,43.15,1.7,0,0,0
+PEW,Bacha Khan Intl,Peshawar,PK,33.99,71.51,2.0,0,0,0
+MUX,Multan Intl,Multan,PK,30.20,71.42,2.0,0,0,0
+LYP,Faisalabad Intl,Faisalabad,PK,31.36,72.99,3.6,0,0,0
+UET,Quetta Intl,Quetta,PK,30.25,66.94,1.1,0,0,0
+SKZ,Sukkur,Sukkur,PK,27.72,68.79,0.5,0,0,0
+GWD,Gwadar Intl,Gwadar,PK,25.23,62.33,0.1,0,0,0
+RYK,Shaikh Zayed,Rahim Yar Khan,PK,28.38,70.28,0.4,0,0,0
+BHV,Bahawalpur,Bahawalpur,PK,29.35,71.72,0.8,0,0,0
+GIL,Gilgit,Gilgit,PK,35.92,74.33,0.2,1,0.5,0
+KDU,Skardu Intl,Skardu,PK,35.34,75.54,0.06,1,0.6,0
+KGF,Sary-Arka,Karaganda,KZ,49.67,73.33,0.5,0,0,0
+AKX,Aktobe,Aktobe,KZ,50.25,57.21,0.5,0,0,0
+PWQ,Pavlodar,Pavlodar,KZ,52.20,77.07,0.35,0,0,0
+KZO,Kyzylorda,Kyzylorda,KZ,44.71,65.59,0.3,0,0,0
+URA,Uralsk Ak Zhol,Uralsk,KZ,51.15,51.54,0.3,0,0,0
+BHK,Bukhara Intl,Bukhara,UZ,39.78,64.48,0.3,1,0.6,0
+UGC,Urgench,Urgench,UZ,41.58,60.64,0.2,1,0.6,0
+NMA,Namangan,Namangan,UZ,40.98,71.56,0.65,0,0,0
+NCU,Nukus,Nukus,UZ,42.49,59.62,0.3,0,0,0
+OSS,Osh,Osh,KG,40.61,72.79,0.3,0,0,0
+LBD,Khujand,Khujand,TJ,40.21,69.69,0.2,0,0,0
+KRW,Turkmenbashi,Turkmenbashi,TM,40.06,53.01,0.07,1,0.3,0
+KVD,Ganja Intl,Ganja,AZ,40.74,46.32,0.3,0,0,0
+BUS,Batumi Intl,Batumi,GE,41.61,41.60,0.16,1,1.0,0
+KUT,Kutaisi David Agmashenebeli,Kutaisi,GE,42.18,42.48,0.15,0,0,0
+LWN,Gyumri Shirak,Gyumri,AM,40.75,43.86,0.12,0,0,0
+RKT,Ras Al Khaimah Intl,Ras Al Khaimah,AE,25.61,55.94,0.4,0,0,0
+AAN,Al Ain Intl,Al Ain,AE,24.26,55.61,0.77,0,0,0
+DQM,Duqm Intl,Duqm,OM,19.50,57.63,0.05,0,0,0
+ETM,Ramon,Eilat,IL,30.78,35.01,0.07,1,1.0,0
+ADE,Aden Intl,Aden,YE,12.83,45.03,1.0,0,0,0
+KBL,Hamid Karzai Intl,Kabul,AF,34.57,69.21,4.6,0,0,0
+HEA,Herat Intl,Herat,AF,34.21,62.23,0.6,0,0,0
+MZR,Mazar-i-Sharif Intl,Mazar-i-Sharif,AF,36.71,67.21,0.7,0,0,0
+ALP,Aleppo Intl,Aleppo,SY,36.18,37.22,2.1,0,0,0
+SLZ,Marechal Cunha Machado,Sao Luis,BR,-2.59,-44.23,1.6,0,0,0
+RBR,Placido de Castro,Rio Branco,BR,-9.87,-67.89,0.4,0,0,0
+BVB,Atlas Brasil Cantanhede,Boa Vista,BR,2.84,-60.69,0.4,0,0,0
+MCP,Alberto Alcolumbre,Macapa,BR,0.05,-51.07,0.5,0,0,0
+STM,Santarem Maestro Wilson,Santarem,BR,-2.42,-54.79,0.3,0,0,0
+PNZ,Senador Nilo Coelho,Petrolina,BR,-9.36,-40.57,0.4,0,0,0
+BPS,Porto Seguro,Porto Seguro,BR,-16.44,-39.08,0.15,1,1.0,0
+IOS,Bahia-Jorge Amado,Ilheus,BR,-14.82,-39.03,0.18,1,0.6,0
+JDO,Orlando Bezerra,Juazeiro do Norte,BR,-7.22,-39.27,0.27,0,0,0
+RAO,Leite Lopes,Ribeirao Preto,BR,-21.13,-47.77,0.7,0,0,0
+BAQ,Ernesto Cortissoz,Barranquilla,CO,10.89,-74.78,1.3,0,0,0
+SMR,Simon Bolivar,Santa Marta,CO,11.12,-74.23,0.5,1,1.0,0
+ADZ,Gustavo Rojas Pinilla,San Andres,CO,12.58,-81.71,0.06,1,1.0,0
+PEI,Matecana,Pereira,CO,4.81,-75.74,0.5,0,0,0
+AXM,El Eden,Armenia,CO,4.45,-75.77,0.3,1,0.4,0
+TRU,Carlos Martinez de Pinillos,Trujillo,PE,-8.08,-79.11,0.9,0,0,0
+PIU,Capitan Concha,Piura,PE,-5.21,-80.62,0.6,0,0,0
+JUL,Inca Manco Capac,Juliaca,PE,-15.47,-70.16,0.3,1,0.8,0
+TPP,Cadete Guevara,Tarapoto,PE,-6.51,-76.37,0.2,0,0,0
+MDZ,El Plumerillo,Mendoza,AR,-32.83,-68.79,1.0,0,0,0
+BRC,Bariloche,San Carlos de Bariloche,AR,-41.15,-71.16,0.13,1,1.2,0
+SLA,Martin Miguel de Guemes,Salta,AR,-24.86,-65.49,0.6,1,0.5,0
+AEP,Aeroparque Jorge Newbery,Buenos Aires,AR,-34.56,-58.42,15.0,0,0,0
+FTE,El Calafate,El Calafate,AR,-50.28,-72.05,0.03,1,1.0,0
+ANF,Andres Sabella,Antofagasta,CL,-23.44,-70.45,0.4,0,0,0
+PUQ,Pdte Carlos Ibanez,Punta Arenas,CL,-53.00,-70.85,0.13,1,0.6,0
+CCP,Carriel Sur,Concepcion,CL,-36.77,-73.06,1.0,0,0,0
+ZCO,La Araucania,Temuco,CL,-38.93,-72.65,0.4,0,0,0
+CBB,Jorge Wilstermann,Cochabamba,BO,-17.42,-66.18,1.2,0,0,0
+CUE,Mariscal Lamar,Cuenca,EC,-2.89,-78.98,0.6,0,0,0
+NJC,Nizhnevartovsk,Nizhnevartovsk,RU,60.95,76.48,0.28,0,0,0
+NOZ,Spichenkovo,Novokuznetsk,RU,53.81,86.88,0.55,0,0,0
+GDX,Sokol,Magadan,RU,59.91,150.72,0.09,0,0,0
+DYR,Ugolny,Anadyr,RU,64.73,177.74,0.015,0,0,0
+ESL,Elista,Elista,RU,46.37,44.33,0.1,0,0,0
+EGO,Belgorod,Belgorod,RU,50.64,36.59,0.39,0,0,0
+PEZ,Penza,Penza,RU,53.11,45.02,0.52,0,0,0
+IJK,Izhevsk,Izhevsk,RU,56.83,53.46,0.65,0,0,0
+CEE,Cherepovets,Cherepovets,RU,59.27,38.02,0.31,0,0,0
+NYM,Nadym,Nadym,RU,65.48,72.70,0.045,0,0,0
+DRS,Dresden,Dresden,DE,51.13,13.77,0.56,0,0,0
+LEJ,Leipzig Halle,Leipzig,DE,51.42,12.22,0.6,0,0,0
+DTM,Dortmund,Dortmund,DE,51.52,7.61,0.59,0,0,0
+NRN,Weeze Niederrhein,Weeze,DE,51.60,6.14,0.3,0,0,0
+TLN,Toulon-Hyeres,Toulon,FR,43.10,6.15,0.6,1,0.5,0
+MPL,Montpellier Mediterranee,Montpellier,FR,43.58,3.96,0.6,0,0,0
+GNB,Grenoble Alpes-Isere,Grenoble,FR,45.36,5.33,0.5,1,0.8,0
+LIG,Limoges,Limoges,FR,45.86,1.18,0.2,0,0,0
+PIS,Poitiers-Biard,Poitiers,FR,46.59,0.31,0.13,0,0,0
+DOL,Deauville-Normandie,Deauville,FR,49.36,0.15,0.05,1,0.5,0
+RMI,Federico Fellini,Rimini,IT,44.02,12.61,0.15,1,0.8,0
+PEG,Perugia San Francesco,Perugia,IT,43.10,12.51,0.16,1,0.4,0
+TRS,Trieste,Trieste,IT,45.83,13.47,0.2,0,0,0
+CUF,Cuneo Levaldigi,Cuneo,IT,44.55,7.62,0.06,0,0,0
+VBS,Brescia Montichiari,Brescia,IT,45.43,10.33,0.2,0,0,0
+AOI,Ancona Falconara,Ancona,IT,43.62,13.36,0.1,0,0,0
+LEI,Almeria,Almeria,ES,36.84,-2.37,0.2,1,0.5,0
+SDR,Santander,Santander,ES,43.43,-3.82,0.29,0,0,0
+ACE,Lanzarote,Arrecife,ES,28.95,-13.61,0.15,1,1.8,0
+SPC,La Palma,Santa Cruz de la Palma,ES,28.63,-17.76,0.08,1,0.4,0
+LCG,A Coruna,A Coruna,ES,43.30,-8.38,0.37,0,0,0
+VGO,Vigo,Vigo,ES,42.23,-8.63,0.3,0,0,0
+RMU,Region de Murcia,Murcia,ES,37.80,-1.13,0.6,1,0.5,0
+LBA,Leeds Bradford,Leeds,GB,53.87,-1.66,1.9,0,0,0
+ABZ,Aberdeen,Aberdeen,GB,57.20,-2.20,0.2,0,0,0
+CWL,Cardiff,Cardiff,GB,51.40,-3.34,0.49,0,0,0
+EMA,East Midlands,Nottingham,GB,52.83,-1.33,1.0,0,0,0
+KIR,Kerry,Killarney,IE,52.18,-9.52,0.07,1,0.4,0
+OSR,Ostrava Leos Janacek,Ostrava,CZ,49.70,18.11,0.3,0,0,0
+DEB,Debrecen,Debrecen,HU,47.49,21.62,0.2,0,0,0
+TAT,Poprad-Tatry,Poprad,SK,49.07,20.24,0.05,1,0.6,0
+PLQ,Palanga,Palanga,LT,55.97,21.09,0.07,1,0.4,0
+LUZ,Lublin,Lublin,PL,51.24,22.71,0.34,0,0,0
+BOO,Bodo,Bodo,NO,67.27,14.37,0.05,0,0,0
+EVE,Harstad Narvik,Harstad,NO,68.49,16.68,0.04,0,0,0
+KRN,Kiruna,Kiruna,SE,67.82,20.34,0.02,1,0.4,0
+UME,Umea,Umea,SE,63.79,20.28,0.13,0,0,0
+VBY,Visby,Visby,SE,57.66,18.35,0.03,1,0.6,0
+KUO,Kuopio,Kuopio,FI,63.01,27.80,0.12,0,0,0
+AAL,Aalborg,Aalborg,DK,57.09,9.85,0.22,0,0,0
+BLL,Billund,Billund,DK,55.74,9.15,0.1,1,0.8,0
+IVL,Ivalo,Ivalo,FI,68.61,27.41,0.01,1,0.5,0
+CHQ,Chania,Chania,GR,35.53,24.15,0.08,1,1.5,0
+ZTH,Zakynthos,Zakynthos,GR,37.75,20.88,0.04,1,1.0,0
+EFL,Kefalonia,Kefalonia,GR,38.12,20.50,0.04,1,0.6,0
+SKG,Thessaloniki Makedonia,Thessaloniki,GR,40.52,22.97,1.0,0,0,0
+PFO,Paphos Intl,Paphos,CY,34.72,32.49,0.09,1,1.5,0
+LJU,Ljubljana Joze Pucnik,Ljubljana,SI,46.22,14.46,0.3,0,0,0
+INI,Nis Constantine,Nis,RS,43.34,21.85,0.26,0,0,0
+PZI,Panzhihua Bao'anying,Panzhihua,CN,26.54,101.80,1.2,0,0,0
+YBP,Yibin Wuliangye,Yibin,CN,28.86,104.53,4.6,0,0,0
+CGD,Changde Taohuayuan,Changde,CN,28.92,111.64,5.3,0,0,0
+RIZ,Rizhao Shanzihe,Rizhao,CN,35.40,119.32,3.0,0,0,0
+HDG,Handan,Handan,CN,36.52,114.43,9.4,0,0,0
+AKA,Ankang Wulipu,Ankang,CN,32.71,108.93,2.6,0,0,0
+KCA,Kuqa Qiuci,Kuqa,CN,41.68,82.91,0.5,0,0,0
+HMI,Hami,Hami,CN,42.84,93.67,0.6,0,0,0
+KJI,Kanas,Burqin,CN,48.22,86.99,0.06,1,0.6,0
+NLT,Nalati,Xinyuan,CN,43.43,83.38,0.3,1,0.5,0
+BSD,Baoshan Yunrui,Baoshan,CN,25.05,99.17,2.5,0,0,0
+GHN,Guanghan,Deyang,CN,30.99,104.33,3.5,0,0,0
+ACX,Xingyi Wanfenglin,Xingyi,CN,25.09,104.96,3.5,0,0,0
+KGT,Kangding,Kangding,CN,30.16,101.74,0.13,1,0.5,0
+BAR,Qionghai Bo'ao,Qionghai,CN,19.14,110.45,0.5,1,0.8,0
+CIH,Changzhi Wangcun,Changzhi,CN,36.25,113.13,3.2,0,0,0
+HZH,Liping,Qiandongnan,CN,26.32,109.15,3.5,0,0,0
+REW,Rewa,Rewa,IN,24.50,81.22,0.4,0,0,0
+BEK,Bareilly,Bareilly,IN,28.42,79.45,1.0,0,0,0
+AGX,Agatti,Agatti,IN,10.82,72.18,0.01,1,0.5,0
+CDP,Kadapa,Kadapa,IN,14.51,78.77,0.5,0,0,0
+BEP,Bellary,Bellary,IN,15.16,76.88,0.4,0,0,0
+TJV,Thanjavur,Thanjavur,IN,10.72,79.10,0.3,0,0,0
+JRG,Jharsuguda,Jharsuguda,IN,21.91,84.05,0.3,0,0,0
+KJB,Kurnool Orvakal,Kurnool,IN,15.71,78.21,0.5,0,0,0
+RUP,Rupsi,Dhubri,IN,26.14,89.91,0.2,0,0,0
+SAG,Sangli,Sangli,IN,16.92,74.62,0.5,0,0,0
+GTO,Jalaluddin,Gorontalo,ID,0.64,122.85,0.4,0,0,0
+LUW,Syukuran Aminuddin,Luwuk,ID,-1.04,122.77,0.1,0,0,0
+MKW,Rendani,Manokwari,ID,-0.89,134.05,0.15,0,0,0
+PSU,Iskandar,Pangkalan Bun,ID,-2.71,111.67,0.2,0,0,0
+TTR,Pongtiku Toraja,Tana Toraja,ID,-3.04,119.82,0.5,1,0.5,0
+TMC,Tambolaka,Sumba,ID,-9.41,119.24,0.1,1,0.4,0
+RTG,Frans Sales Lega,Ruteng,ID,-8.60,120.48,0.1,0,0,0
+NBX,Douw Aturure,Nabire,ID,-3.37,135.50,0.1,0,0,0
+TUG,Tuguegarao,Tuguegarao,PH,17.64,121.73,0.4,0,0,0
+SUG,Surigao,Surigao,PH,9.76,125.48,0.17,0,0,0
+OZC,Labo Ozamiz,Ozamiz,PH,8.18,123.84,0.13,0,0,0
+MBT,Moises Espinosa,Masbate,PH,12.37,123.63,0.1,0,0,0
+WNP,Naga,Naga,PH,13.58,123.27,0.2,0,0,0
+THD,Tho Xuan,Thanh Hoa,VN,19.90,105.47,3.6,0,0,0
+CAH,Ca Mau,Ca Mau,VN,9.18,105.18,0.23,0,0,0
+NAK,Nakhon Ratchasima,Nakhon Ratchasima,TH,14.95,102.31,2.6,0,0,0
+ROI,Roi Et,Roi Et,TH,16.12,103.77,1.3,0,0,0
+OKD,Okadama,Sapporo,JP,43.12,141.38,2.6,0,0,0
+FKS,Fukushima,Fukushima,JP,37.23,140.43,0.29,0,0,0
+MMB,Memanbetsu,Abashiri,JP,43.88,144.16,0.1,1,0.4,0
+ZAH,Zahedan,Zahedan,IR,29.48,60.91,0.6,0,0,0
+BUZ,Bushehr,Bushehr,IR,28.94,50.83,0.6,0,0,0
+HDM,Hamadan,Hamadan,IR,34.87,48.55,0.7,0,0,0
+GBT,Gorgan,Gorgan,IR,36.91,54.40,0.5,0,0,0
+ZBR,Konarak Chabahar,Chabahar,IR,25.44,60.38,0.1,1,0.5,0
+SDG,Sanandaj,Sanandaj,IR,35.25,47.01,0.5,0,0,0
+KHD,Khorramabad,Khorramabad,IR,33.44,48.28,0.4,0,0,0
+EJH,Al Wajh,Al Wajh,SA,26.20,36.48,0.05,1,0.3,0
+URY,Gurayat,Gurayat,SA,31.41,37.28,0.15,0,0,0
+ABT,Al-Baha,Al-Baha,SA,20.30,41.63,0.1,1,0.3,0
+TUK,Turbat,Turbat,PK,25.99,63.03,0.2,0,0,0
+SDT,Saidu Sharif,Swat,PK,34.81,72.35,0.2,1,0.4,0
+DEA,Dera Ghazi Khan,Dera Ghazi Khan,PK,29.96,70.49,0.5,0,0,0
+CJL,Chitral,Chitral,PK,35.89,71.80,0.05,1,0.4,0
+PPK,Petropavl,Petropavl,KZ,54.77,69.18,0.22,0,0,0
+AZN,Andizhan,Andijan,UZ,40.73,72.29,0.45,0,0,0
+TMJ,Termez,Termez,UZ,37.29,67.31,0.18,0,0,0
+NAJ,Nakhchivan,Nakhchivan,AZ,39.19,45.46,0.09,0,0,0
+UND,Kunduz,Kunduz,AF,36.67,68.91,0.37,0,0,0
+FJR,Fujairah Intl,Fujairah,AE,25.11,56.32,0.13,0,0,0
+KHS,Khasab,Khasab,OM,26.17,56.24,0.02,1,0.3,0
+SAH,Sanaa Intl,Sanaa,YE,15.48,44.22,3.0,0,0,0
+LRH,La Rochelle-Ile de Re,La Rochelle,FR,46.18,-1.20,0.13,1,0.5,0
+UIP,Quimper Cornouaille,Quimper,FR,47.97,-4.17,0.08,0,0,0
+CCF,Carcassonne,Carcassonne,FR,43.22,2.31,0.05,1,0.6,0
+BVA,Paris Beauvais,Beauvais,FR,49.45,2.11,0.1,0,0,0
+FDH,Friedrichshafen,Friedrichshafen,DE,47.67,9.51,0.06,1,0.4,0
+SCN,Saarbrucken,Saarbrucken,DE,49.21,7.11,0.18,0,0,0
+RLG,Rostock-Laage,Rostock,DE,53.92,12.28,0.2,0,0,0
+PSR,Abruzzo,Pescara,IT,42.43,14.18,0.36,0,0,0
+CIY,Comiso,Comiso,IT,36.99,14.61,0.2,0,0,0
+PMF,Parma,Parma,IT,44.82,10.30,0.2,0,0,0
+BZO,Bolzano,Bolzano,IT,46.46,11.33,0.11,1,0.5,0
+VLL,Valladolid,Valladolid,ES,41.71,-4.85,0.4,0,0,0
+EAS,San Sebastian,San Sebastian,ES,43.36,-1.79,0.4,1,0.6,0
+BJZ,Badajoz,Badajoz,ES,38.89,-6.82,0.15,0,0,0
+NQY,Cornwall Newquay,Newquay,GB,50.44,-4.99,0.1,1,0.5,0
+BOH,Bournemouth,Bournemouth,GB,50.78,-1.84,0.4,1,0.4,0
+MME,Teesside,Durham,GB,54.51,-1.43,0.5,0,0,0
+SEN,London Southend,Southend,GB,51.57,0.70,0.18,0,0,0
+TER,Lajes,Terceira,PT,38.76,-27.09,0.05,1,0.4,0
+HOR,Horta,Horta,PT,38.52,-28.72,0.01,1,0.3,0
+SMI,Samos,Samos,GR,37.69,26.91,0.03,1,0.6,0
+KVA,Kavala Megas Alexandros,Kavala,GR,40.91,24.62,0.13,1,0.5,0
+PVK,Aktion Preveza,Preveza,GR,38.93,20.77,0.05,1,0.7,0
+JSI,Skiathos,Skiathos,GR,39.18,23.50,0.01,1,0.8,0
+GPA,Patras Araxos,Patras,GR,38.15,21.42,0.2,0,0,0
+BCM,Bacau,Bacau,RO,46.52,26.91,0.15,0,0,0
+CRA,Craiova,Craiova,RO,44.32,23.89,0.27,0,0,0
+OSI,Osijek,Osijek,HR,45.46,18.81,0.1,0,0,0
+SZY,Olsztyn-Mazury,Olsztyn,PL,53.48,20.94,0.17,0,0,0
+LPX,Liepaja,Liepaja,LV,56.52,21.10,0.07,0,0,0
+KSU,Kristiansund Kvernberget,Kristiansund,NO,63.11,7.82,0.05,0,0,0
+ALF,Alta,Alta,NO,69.98,23.37,0.02,1,0.4,0
+OSD,Ostersund Are,Ostersund,SE,63.19,14.50,0.05,1,0.5,0
+JOE,Joensuu,Joensuu,FI,62.66,29.61,0.08,0,0,0
+AVA,Anshun Huangguoshu,Anshun,CN,26.26,105.87,2.5,1,0.5,0
+AAT,Altay,Altay,CN,47.75,88.08,0.2,1,0.4,0
+TVS,Tangshan Sannvhe,Tangshan,CN,39.72,118.00,7.7,0,0,0
+WNH,Wenshan Puzhehei,Wenshan,CN,23.55,104.32,3.5,0,0,0
+NLH,Ninglang Lugu Lake,Lijiang,CN,27.54,100.76,0.25,1,0.6,0
+SLV,Shimla,Shimla,IN,31.08,77.07,0.2,1,0.6,0
+PGH,Pantnagar,Pantnagar,IN,29.03,79.47,0.3,0,0,0
+ZER,Ziro,Ziro,IN,27.59,93.83,0.05,0,0,0
+BUW,Betoambari,Bau-Bau,ID,-5.49,122.57,0.16,0,0,0
+FKQ,Fakfak Torea,Fakfak,ID,-2.92,132.27,0.04,0,0,0
+CGM,Camiguin,Mambajao,PH,9.25,124.71,0.09,1,0.5,0
+SJI,San Jose Mindoro,San Jose,PH,12.36,121.05,0.14,0,0,0
+RDZ,Rodez Aveyron,Rodez,FR,44.41,2.48,0.06,0,0,0
+EGC,Bergerac Dordogne,Bergerac,FR,44.83,0.52,0.06,1,0.4,0
+LRT,Lorient Bretagne Sud,Lorient,FR,47.76,-3.44,0.2,0,0,0
+KSF,Kassel,Kassel,DE,51.41,9.38,0.2,0,0,0
+QSR,Salerno Costa d'Amalfi,Salerno,IT,40.62,14.91,0.5,1,0.6,0
+FRL,Forli,Forli,IT,44.19,12.07,0.12,0,0,0
+VIT,Vitoria,Vitoria-Gasteiz,ES,42.88,-2.72,0.25,0,0,0
+LEN,Leon,Leon,ES,42.59,-5.66,0.13,0,0,0
+AOK,Karpathos,Karpathos,GR,35.42,27.15,0.01,1,0.5,0
+MLO,Milos,Milos,GR,36.70,24.48,0.005,1,0.5,0
+HAU,Haugesund Karmoy,Haugesund,NO,59.35,5.21,0.06,0,0,0
+MOL,Molde Aro,Molde,NO,62.74,7.26,0.03,1,0.4,0
+PXO,Porto Santo,Porto Santo,PT,33.07,-16.35,0.005,1,0.4,0
+KKN,Kirkenes Hoybuktmoen,Kirkenes,NO,69.73,29.89,0.01,1,0.3,0
+VXO,Vaxjo Smaland,Vaxjo,SE,56.93,14.73,0.07,0,0,0
+RGS,Burgos,Burgos,ES,42.36,-3.62,0.18,0,0,0
+EBA,Marina di Campo Elba,Elba,IT,42.76,10.24,0.03,1,0.5,0
+JNX,Naxos,Naxos,GR,37.08,25.37,0.02,1,0.6,0
+AUR,Aurillac,Aurillac,FR,44.90,2.42,0.03,0,0,0

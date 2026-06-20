@@ -1,0 +1,83 @@
+code,name,city,country,lat,lon,population,leisure
+KOW,Huangjin,Ganzhou,CN,25.85,114.78,8.9,0
+SQD,Sanqingshan,Shangrao,CN,28.39,117.96,6.5,0
+YIC,Mingyueshan,Yichun,CN,27.80,114.31,5.1,0
+HCJ,Jinchengjiang,Hechi,CN,24.99,107.70,3.4,0
+SQJ,Shaxian,Sanming,CN,26.43,117.83,2.5,0
+GYU,Liupanshan,Guyuan,CN,36.07,106.22,1.2,0
+DBC,Changan,Baicheng,CN,45.50,123.02,1.5,0
+WUA,Wuhai,Wuhai,CN,39.79,106.80,0.5,0
+AAT,Altay,Altay,CN,47.75,88.08,0.2,0
+TLQ,Jiaohe,Turpan,CN,43.03,89.10,0.6,1
+NLT,Nalati,Xinyuan,CN,43.43,83.38,0.1,1
+GXH,Xiahe,Gannan,CN,34.81,102.64,0.7,1
+OHE,Gulian,Mohe,CN,52.91,122.43,0.08,1
+GOP,Gorakhpur,Gorakhpur,IN,26.74,83.45,0.7,0
+BEK,Bareilly,Bareilly,IN,28.42,79.45,1.0,0
+CNN,Kannur Intl,Kannur,IN,11.92,75.55,1.6,0
+CDP,Kadapa,Kadapa,IN,14.51,78.77,0.5,0
+KJB,Kurnool Orvakal,Kurnool,IN,15.71,78.06,0.5,0
+PAB,Bilaspur,Bilaspur,IN,22.10,82.11,0.4,0
+AIP,Adampur,Jalandhar,IN,31.43,75.76,0.9,0
+BUP,Bathinda,Bathinda,IN,30.27,74.76,0.3,0
+SLV,Shimla,Shimla,IN,31.08,77.07,0.2,1
+KSN,Kostanay,Kostanay,KZ,53.21,63.55,0.24,0
+PPK,Petropavl,Petropavl,KZ,54.78,69.18,0.22,0
+PLX,Semey,Semey,KZ,50.35,80.23,0.32,0
+TMJ,Termez,Termez,UZ,37.29,67.31,0.18,0
+KSQ,Karshi,Karshi,UZ,38.83,65.92,0.28,0
+CRZ,Turkmenabat,Turkmenabat,TM,39.08,63.61,0.25,0
+MYP,Mary,Mary,TM,37.62,61.90,0.12,0
+KRW,Turkmenbashi,Turkmenbashi,TM,40.06,53.01,0.07,1
+NAJ,Nakhchivan,Nakhchivan,AZ,39.19,45.45,0.1,0
+LWN,Shirak,Gyumri,AM,40.75,43.86,0.12,0
+HVD,Khovd,Khovd,MN,47.95,91.62,0.1,0
+DLZ,Gurvan Saikhan,Dalanzadgad,MN,43.59,104.42,0.04,1
+ADU,Ardabil,Ardabil,IR,38.33,48.42,0.5,0
+GBT,Gorgan,Gorgan,IR,36.91,54.40,0.35,0
+HDM,Hamadan,Hamadan,IR,34.87,48.55,0.55,0
+SDG,Sanandaj,Sanandaj,IR,35.25,47.01,0.4,0
+KHD,Khorramabad,Khorramabad,IR,33.44,48.28,0.37,0
+ABD,Abadan,Abadan,IR,30.37,48.23,0.3,0
+XBJ,Birjand,Birjand,IR,32.90,59.27,0.2,0
+GSM,Qeshm Intl,Qeshm,IR,26.75,55.90,0.1,1
+EAM,Najran,Najran,SA,17.61,44.42,0.4,0
+ABT,Al Baha,Al Baha,SA,20.30,41.63,0.1,0
+ULH,Prince Abdul Majeed,Al Ula,SA,26.62,38.00,0.05,1
+TAI,Taiz Intl,Taiz,YE,13.69,44.14,0.6,0
+HOD,Hodeidah Intl,Hodeidah,YE,14.75,42.98,0.5,0
+RIY,Riyan,Mukalla,YE,14.66,49.38,0.3,0
+SCT,Socotra,Socotra,YE,12.63,54.01,0.04,1
+LTK,Bassel Al-Assad,Latakia,SY,35.40,35.95,0.4,1
+EZS,Elazig,Elazig,TR,38.61,39.29,0.6,0
+BAL,Batman,Batman,TR,37.93,41.12,0.4,0
+KCM,Kahramanmaras,Kahramanmaras,TR,37.54,36.95,0.6,0
+VAS,Sivas Nuri Demirag,Sivas,TR,39.81,36.90,0.6,0
+GZP,Gazipasa-Alanya,Alanya,TR,36.30,32.30,0.1,1
+VDH,Dong Hoi,Dong Hoi,VN,17.52,106.59,0.12,0
+PXU,Pleiku,Pleiku,VN,14.00,108.02,0.25,0
+BMV,Buon Ma Thuot,Buon Ma Thuot,VN,12.67,108.12,0.35,0
+THD,Tho Xuan,Thanh Hoa,VN,19.90,105.47,0.35,0
+VCS,Con Dao,Con Dao,VN,8.73,106.63,0.005,1
+NST,Nakhon Si Thammarat,Nakhon Si Thammarat,TH,8.54,99.94,0.4,0
+PHS,Phitsanulok,Phitsanulok,TH,16.78,100.28,0.3,0
+BFV,Buri Ram,Buri Ram,TH,15.23,103.25,0.4,0
+HHQ,Hua Hin,Hua Hin,TH,12.62,99.95,0.05,1
+MGZ,Myeik,Myeik,MM,12.44,98.62,0.28,0
+SNW,Thandwe,Ngapali,MM,18.46,94.30,0.05,1
+LBU,Labuan,Labuan,MY,5.30,115.25,0.1,0
+MZV,Mulu,Mulu,MY,4.05,114.81,0.01,1
+ZVK,Savannakhet,Savannakhet,LA,16.56,104.76,0.12,0
+CBO,Cotabato Awang,Cotabato,PH,7.17,124.21,0.3,0
+CGM,Camiguin,Camiguin,PH,9.25,124.71,0.02,1
+BSO,Basco,Batanes,PH,20.45,121.98,0.02,1
+CYZ,Cauayan,Cauayan,PH,16.93,121.75,0.13,0
+PKY,Tjilik Riwut,Palangkaraya,ID,-2.23,113.94,0.27,0
+TNJ,Raja Haji Fisabilillah,Tanjung Pinang,ID,0.92,104.53,0.2,0
+DUM,Pinang Kampai,Dumai,ID,1.61,101.43,0.3,0
+NTX,Ranai,Natuna,ID,3.91,108.39,0.08,0
+SQG,Tebelian,Sintang,ID,0.06,111.47,0.06,0
+OTI,Pitu,Morotai,ID,2.05,128.32,0.05,1
+LUV,Karel Sadsuitubun,Langgur,ID,-5.66,132.73,0.05,1
+TTR,Buntu Kunik,Toraja,ID,-3.10,119.83,0.02,1
+SWQ,Sultan Kaharuddin,Sumbawa Besar,ID,-8.49,117.41,0.06,0

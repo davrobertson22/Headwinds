@@ -1,0 +1,74 @@
+code,name,city,country,lat,lon,population,leisure
+MCI,Kansas City Intl,Kansas City,US,39.30,-94.71,2.2,0
+PHF,Newport News/Williamsburg,Newport News,US,37.13,-76.49,1.7,0
+PVD,T.F. Green,Providence,US,41.73,-71.42,1.6,0
+BDL,Bradley Intl,Hartford,US,41.94,-72.68,1.2,0
+SFB,Orlando Sanford Intl,Sanford,US,28.78,-81.24,2.6,1
+AZA,Phoenix-Mesa Gateway,Mesa,US,33.31,-111.66,4.9,0
+PVU,Provo,Provo,US,40.22,-111.72,0.7,0
+STS,Charles M. Schulz Sonoma,Santa Rosa,US,38.51,-122.81,0.49,0
+MHT,Manchester-Boston Regional,Manchester,US,42.93,-71.44,0.42,0
+ORH,Worcester Regional,Worcester,US,42.27,-71.87,0.5,0
+LAN,Capital Region Intl,Lansing,US,42.78,-84.59,0.46,0
+MBS,MBS Intl,Saginaw,US,43.53,-84.08,0.4,0
+GRK,Killeen-Fort Hood,Killeen,US,31.07,-97.83,0.45,0
+PSP,Palm Springs Intl,Palm Springs,US,33.83,-116.51,0.47,1
+BRO,Brownsville/South Padre,Brownsville,US,25.91,-97.43,0.42,0
+MGM,Montgomery Regional,Montgomery,US,32.30,-86.39,0.4,0
+FAY,Fayetteville Regional,Fayetteville,US,34.99,-78.88,0.4,0
+BPT,Jack Brooks Regional,Beaumont,US,29.95,-94.02,0.4,0
+TTN,Trenton-Mercer,Trenton,US,40.28,-74.81,0.4,0
+PIA,General Wayne A. Downing Peoria,Peoria,US,40.66,-89.69,0.37,0
+RFD,Chicago Rockford Intl,Rockford,US,42.20,-89.10,0.34,0
+LBE,Arnold Palmer Regional,Latrobe,US,40.28,-79.40,0.3,0
+CSG,Columbus Metropolitan,Columbus,US,32.52,-84.94,0.3,0
+LRD,Laredo Intl,Laredo,US,27.54,-99.46,0.26,0
+CLL,Easterwood Field,College Station,US,30.59,-96.36,0.25,0
+CMI,University of Illinois Willard,Champaign,US,40.04,-88.28,0.23,0
+MFR,Rogue Valley Intl-Medford,Medford,US,42.37,-122.87,0.22,0
+ECP,Northwest Florida Beaches,Panama City Beach,US,30.36,-85.80,0.2,1
+SBP,San Luis Obispo Co. Regional,San Luis Obispo,US,35.24,-120.64,0.28,0
+LCH,Lake Charles Regional,Lake Charles,US,30.13,-93.22,0.2,0
+IAG,Niagara Falls Intl,Niagara Falls,US,43.10,-78.95,0.2,1
+BMI,Central Illinois Regional,Bloomington,US,40.48,-88.92,0.19,0
+RDD,Redding Regional,Redding,US,40.51,-122.29,0.18,0
+COU,Columbia Regional,Columbia,US,38.82,-92.22,0.18,0
+SGU,St George Regional,St George,US,37.04,-113.51,0.18,0
+PGD,Punta Gorda,Punta Gorda,US,26.92,-81.99,0.18,1
+ABI,Abilene Regional,Abilene,US,32.41,-99.68,0.17,0
+APF,Naples Municipal,Naples,US,26.15,-81.77,0.4,1
+FLO,Florence Regional,Florence,US,34.19,-79.72,0.2,0
+SPS,Wichita Falls Regional,Wichita Falls,US,33.99,-98.49,0.15,0
+AEX,Alexandria Intl,Alexandria,US,31.33,-92.55,0.15,0
+BGR,Bangor Intl,Bangor,US,44.81,-68.83,0.15,0
+SAF,Santa Fe Regional,Santa Fe,US,35.62,-106.09,0.15,1
+ABY,Southwest Georgia Regional,Albany,US,31.54,-84.19,0.15,0
+DHN,Dothan Regional,Dothan,US,31.32,-85.45,0.15,0
+ACV,California Redwood Coast,Arcata,US,40.98,-124.11,0.13,0
+FLG,Flagstaff Pulliam,Flagstaff,US,35.14,-111.67,0.14,1
+BZN,Bozeman Yellowstone Intl,Bozeman,US,45.78,-111.15,0.12,1
+MEI,Key Field,Meridian,US,32.33,-88.75,0.1,0
+CYS,Cheyenne Regional,Cheyenne,US,41.16,-104.81,0.1,0
+HYA,Cape Cod Gateway,Hyannis,US,41.67,-70.28,0.2,1
+BQK,Brunswick Golden Isles,Brunswick,US,31.26,-81.47,0.1,1
+HIB,Range Regional,Hibbing,US,47.39,-92.84,0.08,0
+SAW,Sawyer Intl,Marquette,US,46.35,-87.40,0.07,0
+BET,Bethel,Bethel,US,60.78,-161.84,0.06,0
+BRD,Brainerd Lakes Regional,Brainerd,US,46.40,-94.13,0.06,1
+BJI,Bemidji Regional,Bemidji,US,47.51,-94.93,0.05,0
+BFF,Western Nebraska Regional,Scottsbluff,US,41.87,-103.60,0.04,0
+EYW,Key West Intl,Key West,US,24.55,-81.76,0.03,1
+SUN,Friedman Memorial,Sun Valley,US,43.50,-114.30,0.03,1
+HDN,Yampa Valley,Hayden,US,40.48,-107.22,0.03,1
+ACK,Nantucket Memorial,Nantucket,US,41.25,-70.06,0.02,1
+MVY,Martha's Vineyard,Martha's Vineyard,US,41.39,-70.61,0.02,1
+GUC,Gunnison-Crested Butte,Gunnison,US,38.53,-106.93,0.02,1
+ADQ,Kodiak,Kodiak,US,57.75,-152.49,0.013,0
+HHH,Hilton Head,Hilton Head,US,32.22,-80.70,0.05,1
+MKK,Molokai,Molokai,US,21.15,-157.10,0.007,1
+LNY,Lanai,Lanai,US,20.79,-156.95,0.003,1
+MMH,Mammoth Yosemite,Mammoth Lakes,US,37.62,-118.84,0.01,1
+GCN,Grand Canyon National Park,Grand Canyon,US,35.95,-112.15,0.001,1
+BRW,Wiley Post-Will Rogers,Utqiagvik,US,71.28,-156.77,0.005,0
+AKN,King Salmon,King Salmon,US,58.68,-156.65,0.002,0
+DLG,Dillingham,Dillingham,US,59.04,-158.50,0.005,0

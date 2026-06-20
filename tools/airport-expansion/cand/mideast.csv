@@ -1,0 +1,52 @@
+code,name,city,country,lat,lon,population,leisure
+SYZ,Shahid Dastghaib Intl,Shiraz,IR,29.54,52.59,1.9,0
+IFN,Shahid Beheshti Intl,Isfahan,IR,32.75,51.86,2.2,0
+TBZ,Tabriz Intl,Tabriz,IR,38.13,46.24,1.7,0
+AWZ,Ahvaz Intl,Ahvaz,IR,31.34,48.76,1.3,0
+KER,Kerman,Kerman,IR,30.27,56.95,0.8,0
+BND,Bandar Abbas Intl,Bandar Abbas,IR,27.22,56.38,0.7,0
+KIH,Kish Intl,Kish Island,IR,26.53,53.98,0.04,1
+RAS,Rasht,Rasht,IR,37.32,49.61,0.7,0
+ZAH,Zahedan Intl,Zahedan,IR,29.48,60.91,0.7,0
+OMH,Urmia,Urmia,IR,37.67,45.07,0.7,0
+BUZ,Bushehr,Bushehr,IR,28.94,50.83,0.3,0
+KSH,Kermanshah,Kermanshah,IR,34.35,47.16,0.95,0
+AZD,Shahid Sadooghi,Yazd,IR,31.90,54.28,0.6,0
+BSR,Basra Intl,Basra,IQ,30.55,47.66,1.4,0
+EBL,Erbil Intl,Erbil,IQ,36.24,43.96,1.0,0
+ISU,Sulaymaniyah Intl,Sulaymaniyah,IQ,35.56,45.32,0.9,0
+NJF,Al Najaf Intl,Najaf,IQ,31.99,44.40,1.0,1
+ELQ,Prince Naif bin Abdulaziz,Buraidah,SA,26.30,43.77,0.7,0
+HAS,Hail Intl,Hail,SA,27.44,41.69,0.4,0
+GIZ,Jazan Intl,Jazan,SA,16.90,42.59,0.4,0
+TUU,Tabuk,Tabuk,SA,28.37,36.62,0.6,0
+AHB,Abha Intl,Abha,SA,18.24,42.66,1.1,1
+TIF,Taif Intl,Taif,SA,21.48,40.54,0.7,0
+YNB,Yanbu,Yanbu,SA,24.14,38.06,0.3,0
+SAH,Sanaa Intl,Sanaa,YE,15.48,44.22,2.5,0
+ADE,Aden Intl,Aden,YE,12.83,45.03,0.9,0
+SLL,Salalah,Salalah,OM,17.04,54.09,0.3,1
+SOH,Sohar,Sohar,OM,24.39,56.63,0.2,0
+AQJ,King Hussein Intl,Aqaba,JO,29.61,35.02,0.15,1
+ETM,Ramon,Eilat,IL,29.72,35.01,0.05,1
+ALP,Aleppo Intl,Aleppo,SY,36.18,37.22,2.0,0
+ADA,Adana Sakirpasa,Adana,TR,36.98,35.28,1.8,0
+GZT,Oguzeli Intl,Gaziantep,TR,36.95,37.48,2.0,0
+TZX,Trabzon,Trabzon,TR,40.99,39.79,0.8,1
+KYA,Konya,Konya,TR,37.98,32.56,1.4,0
+DIY,Diyarbakir,Diyarbakir,TR,37.89,40.20,1.1,0
+VAN,Ferit Melen,Van,TR,38.47,43.33,0.5,0
+ERZ,Erzurum,Erzurum,TR,39.95,41.17,0.4,1
+MLX,Malatya,Malatya,TR,38.43,38.09,0.8,0
+ASR,Erkilet Intl,Kayseri,TR,38.77,35.49,1.4,0
+SZF,Carsamba,Samsun,TR,41.25,36.57,0.7,0
+DNZ,Cardak,Denizli,TR,37.79,29.70,0.6,1
+BJV,Milas-Bodrum,Bodrum,TR,37.25,27.66,0.18,1
+DLM,Dalaman,Dalaman,TR,36.71,28.79,0.1,1
+HTY,Hatay,Hatay,TR,36.36,36.28,1.6,0
+NAV,Nevsehir Kapadokya,Cappadocia,TR,38.77,34.53,0.3,1
+GNY,Sanliurfa GAP,Sanliurfa,TR,37.45,38.90,2.0,0
+OGU,Ordu-Giresun,Ordu,TR,40.97,38.08,0.7,0
+KSY,Kars Harakani,Kars,TR,40.56,43.11,0.08,1
+AAN,Al Ain Intl,Al Ain,AE,24.26,55.61,0.77,0
+RKT,Ras Al Khaimah Intl,Ras Al Khaimah,AE,25.61,55.94,0.4,0

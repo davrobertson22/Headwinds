@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Style Preview — Tailwinds - Airline Manager</title>
+  <link rel="stylesheet" href="./src/index.css" />
+  <style>
+    .preview-grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    @media (max-width: 900px){ .preview-grid{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="topbar-logo"><span class="topbar-logo-icon">✈</span> Tailwinds - Airline Manager</div>
+      <div class="topbar-sep"></div>
+      <div class="topbar-airline">Skyline Atlantic</div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-kpis">
+        <div class="topbar-kpi"><span class="topbar-kpi-label">WEEK</span><span class="topbar-kpi-value">37 / 2026</span></div>
+        <div class="topbar-kpi-divider"></div>
+        <div class="topbar-kpi"><span class="topbar-kpi-label">CASH</span><span class="topbar-cash">$48.2M</span></div>
+      </div>
+      <button class="btn-advance">Next Week › <span style="font-size:11px;opacity:.7;margin-left:4px">42m</span></button>
+      <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px">New Game</button>
+    </div>
+
+    <!-- Nav -->
+    <div class="nav-tabs">
+      <button class="nav-tab active">Dashboard</button>
+      <button class="nav-tab">Map</button>
+      <button class="nav-tab">Route Planner</button>
+      <button class="nav-tab">Routes</button>
+      <button class="nav-tab">Fleet</button>
+      <button class="nav-tab">Market</button>
+      <button class="nav-tab">Gates</button>
+      <button class="nav-tab">Hubs</button>
+      <button class="nav-tab">Operations</button>
+      <button class="nav-tab">Finance</button>
+    </div>
+
+    <!-- Content -->
+    <div class="main-content">
+      <div class="report-banner">
+        <div class="report-item"><span class="report-item-label">Weekly Profit</span><span class="report-item-value" style="color:var(--green)">+$3.4M</span></div>
+        <div class="report-item"><span class="report-item-label">Load Factor</span><span class="report-item-value">82%</span></div>
+        <div class="report-item"><span class="report-item-label">On-Time</span><span class="report-item-value">91%</span></div>
+        <div class="report-item"><span class="report-item-label">Reputation</span><span class="report-item-value" style="color:var(--accent-bright)">A−</span></div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-label">Revenue</div><div class="stat-value blue">$12.8M</div><div class="mini-bar"><div class="mini-bar-fill" style="width:78%"></div></div></div>
+        <div class="stat-box"><div class="stat-label">Profit</div><div class="stat-value green">+$3.4M</div><div class="mini-bar"><div class="mini-bar-fill" style="width:42%"></div></div></div>
+        <div class="stat-box"><div class="stat-label">Fleet</div><div class="stat-value">24</div></div>
+        <div class="stat-box"><div class="stat-label">Routes</div><div class="stat-value purple">61</div></div>
+        <div class="stat-box"><div class="stat-label">Fuel Cost</div><div class="stat-value yellow">$2.1M</div></div>
+      </div>
+
+      <div class="preview-grid">
+        <div class="card">
+          <div class="card-title">Top Routes</div>
+          <table>
+            <thead><tr><th>Route</th><th>Load</th><th>Profit</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>JFK → LHR</td><td>94%</td><td style="color:var(--green)">+$640K</td><td><span class="badge badge-green">Strong</span></td></tr>
+              <tr><td>LAX → NRT</td><td>88%</td><td style="color:var(--green)">+$410K</td><td><span class="badge badge-blue">Stable</span></td></tr>
+              <tr><td>ORD → CDG</td><td>71%</td><td style="color:var(--yellow)">+$95K</td><td><span class="badge badge-yellow">Watch</span></td></tr>
+              <tr><td>MIA → GRU</td><td>58%</td><td style="color:var(--red)">−$72K</td><td><span class="badge badge-red">Loss</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">New Aircraft Order</div>
+          <div class="form-group">
+            <label class="form-label">Aircraft Type</label>
+            <select class="form-select"><option>Boeing 787-9 Dreamliner</option><option>Airbus A350-900</option></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity</label>
+            <input class="form-input" value="3" />
+          </div>
+          <div style="display:flex; gap:10px; margin-top:18px;">
+            <button class="btn btn-primary">Confirm Order</button>
+            <button class="btn btn-ghost">Cancel</button>
+            <button class="btn btn-danger">Scrap</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-title" style="margin-top:8px">Marketplace</div>
+      <div class="aircraft-market-grid">
+        <div class="aircraft-market-card">
+          <div class="aircraft-photo-wrap">
+            <div class="aircraft-photo-placeholder" style="background:linear-gradient(135deg,#15202f,#0a1019)"><span style="font-size:40px">🛩</span></div>
+            <div class="aircraft-photo-overlay"><span class="aircraft-cat-badge badge-blue">Narrow Body</span></div>
+          </div>
+          <div class="aircraft-market-body">
+            <div style="font-weight:700;font-size:15px">Airbus A320neo</div>
+            <div class="aircraft-stat-row">
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Seats</span><span class="aircraft-stat-pill-value">180</span></div>
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Range</span><span class="aircraft-stat-pill-value">3500nm</span></div>
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Speed</span><span class="aircraft-stat-pill-value">450kt</span></div>
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Fuel</span><span class="aircraft-stat-pill-value">Low</span></div>
+            </div>
+            <div class="aircraft-lease-footer">
+              <div><div class="stat-label">Lease / wk</div><div style="font-weight:800;font-size:17px">$220K</div></div>
+              <button class="btn btn-primary aircraft-lease-btn">Lease</button>
+            </div>
+          </div>
+        </div>
+        <div class="aircraft-market-card">
+          <div class="aircraft-photo-wrap">
+            <div class="aircraft-photo-placeholder" style="background:linear-gradient(135deg,#1d2c3e,#0a1019)"><span style="font-size:40px">✈️</span></div>
+            <div class="aircraft-photo-overlay"><span class="aircraft-cat-badge badge-yellow">Wide Body</span></div>
+          </div>
+          <div class="aircraft-market-body">
+            <div style="font-weight:700;font-size:15px">Boeing 787-9</div>
+            <div class="aircraft-stat-row">
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Seats</span><span class="aircraft-stat-pill-value">296</span></div>
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Range</span><span class="aircraft-stat-pill-value">7635nm</span></div>
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Speed</span><span class="aircraft-stat-pill-value">488kt</span></div>
+              <div class="aircraft-stat-pill"><span class="aircraft-stat-pill-label">Fuel</span><span class="aircraft-stat-pill-value">Med</span></div>
+            </div>
+            <div class="aircraft-lease-footer">
+              <div><div class="stat-label">Lease / wk</div><div style="font-weight:800;font-size:17px">$610K</div></div>
+              <button class="btn btn-primary aircraft-lease-btn">Lease</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

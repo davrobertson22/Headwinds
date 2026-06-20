@@ -1,0 +1,47 @@
+code,name,city,country,lat,lon,population,leisure
+PEW,Bacha Khan Intl,Peshawar,PK,33.99,71.51,2.3,0
+UET,Quetta Intl,Quetta,PK,30.25,66.94,1.1,0
+MUX,Multan Intl,Multan,PK,30.20,71.42,2.0,0
+LYP,Faisalabad Intl,Faisalabad,PK,31.36,72.99,3.6,0
+SKZ,Sukkur,Sukkur,PK,27.72,68.79,0.5,0
+RYK,Shaikh Zayed Intl,Rahim Yar Khan,PK,28.38,70.28,0.4,0
+BHV,Bahawalpur,Bahawalpur,PK,29.35,71.72,0.8,0
+GIL,Gilgit,Gilgit,PK,35.92,74.33,0.2,1
+KDU,Skardu Intl,Skardu,PK,35.34,75.54,0.1,1
+ZYL,Osmani Intl,Sylhet,BD,24.96,91.87,0.5,0
+CXB,Cox's Bazar,Cox's Bazar,BD,21.45,91.96,0.2,1
+JSR,Jessore,Jessore,BD,23.18,89.16,0.3,0
+RJH,Shah Makhdum,Rajshahi,BD,24.44,88.62,0.45,0
+SPD,Saidpur,Saidpur,BD,25.76,88.91,0.2,0
+PKR,Pokhara Intl,Pokhara,NP,28.20,83.98,0.4,1
+BWA,Gautam Buddha Intl,Bhairahawa,NP,27.51,83.42,0.1,1
+BIR,Biratnagar,Biratnagar,NP,26.48,87.26,0.24,0
+HRI,Mattala Rajapaksa Intl,Hambantota,LK,6.28,81.12,0.1,1
+JAF,Jaffna Intl,Jaffna,LK,9.79,80.07,0.3,0
+KBL,Hamid Karzai Intl,Kabul,AF,34.57,69.21,4.6,0
+KDH,Kandahar Intl,Kandahar,AF,31.51,65.85,0.6,0
+HEA,Herat Intl,Herat,AF,34.21,62.23,0.6,0
+MZR,Mazar-i-Sharif Intl,Mazar-i-Sharif,AF,36.71,67.21,0.5,0
+GAN,Gan Intl,Gan,MV,-0.69,73.16,0.02,1
+CIT,Shymkent Intl,Shymkent,KZ,42.36,69.48,1.1,0
+GUW,Atyrau,Atyrau,KZ,47.12,51.82,0.3,0
+AKX,Aktobe,Aktobe,KZ,50.25,57.21,0.5,0
+SCO,Aktau,Aktau,KZ,43.86,51.09,0.2,0
+KGF,Sary-Arka,Karaganda,KZ,49.67,73.33,0.5,0
+PWQ,Pavlodar,Pavlodar,KZ,52.19,77.07,0.35,0
+UKK,Oskemen,Ust-Kamenogorsk,KZ,50.04,82.49,0.35,0
+KZO,Kyzylorda,Kyzylorda,KZ,44.71,65.59,0.3,0
+DMB,Taraz,Taraz,KZ,42.85,71.30,0.36,0
+URA,Uralsk,Uralsk,KZ,51.15,51.54,0.3,0
+SKD,Samarkand Intl,Samarkand,UZ,39.70,66.98,0.55,1
+BHK,Bukhara Intl,Bukhara,UZ,39.78,64.48,0.28,1
+UGC,Urgench,Urgench,UZ,41.58,60.64,0.18,1
+NMA,Namangan,Namangan,UZ,40.98,71.56,0.65,0
+FEG,Fergana,Fergana,UZ,40.36,71.74,0.3,0
+NCU,Nukus,Nukus,UZ,42.49,59.62,0.3,0
+AZN,Andizhan,Andijan,UZ,40.73,72.29,0.45,0
+OSS,Osh,Osh,KG,40.61,72.79,0.3,0
+LBD,Khujand,Khujand,TJ,40.22,69.69,0.18,0
+GNJ,Ganja,Ganja,AZ,40.74,46.32,0.33,0
+BUS,Batumi Intl,Batumi,GE,41.61,41.60,0.17,1
+KUT,Kutaisi Intl,Kutaisi,GE,42.18,42.48,0.15,0

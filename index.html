@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      Skip the static landing for anyone who already has a session (including
+      mid-signup). Runs in <head> before the body is parsed/painted, and hides
+      via CSS so the landing is never rendered for returning visitors — no flash.
+      Brand-new visitors (no save) still see the landing as the front door.
+    -->
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('bbae_save_v2')) {
+            document.documentElement.setAttribute('data-skip-landing', '1');
+          }
+        } catch (e) { /* show landing on any error */ }
+      })();
+    </script>
+    <style>
+      html[data-skip-landing="1"] #seo-landing { display: none !important; }
+    </style>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+
+    <!-- PWA: installable / standalone support (additive — desktop unaffected) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#18181b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Tailwinds" />
+    <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <title>Tailwinds — Free Browser Airline Management Game</title>
+    <meta name="description" content="Build and manage your own airline empire in Tailwinds — the free browser strategy game. Lease aircraft, open routes, manage hubs, crush competitors, and grow from a regional carrier to a global airline." />
+    <meta name="keywords" content="airline management game, browser strategy game, airline simulator, free online game, airline tycoon, flight management game" />
+    <link rel="canonical" href="https://www.tailwindsairlinegame.com" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Tailwinds — Free Browser Airline Management Game" />
+    <meta property="og:description" content="Build and manage your own airline empire. Lease aircraft, open routes, and grow from a regional carrier to a global airline. Free to play in your browser." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.tailwindsairlinegame.com" />
+    <meta property="og:image" content="https://www.tailwindsairlinegame.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="Tailwinds" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Tailwinds — Free Browser Airline Management Game" />
+    <meta name="twitter:description" content="Build and manage your own airline empire. Free to play in your browser." />
+    <meta name="twitter:image" content="https://www.tailwindsairlinegame.com/og-image.png" />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Tailwinds",
+      "alternateName": "Tailwinds Airline Management Game",
+      "description": "Build and manage your own airline empire in this free browser strategy game. Lease aircraft, open routes, manage hubs, form alliances, and crush competitors as you grow from a regional carrier to a global airline.",
+      "genre": ["Strategy", "Simulation", "Management", "Tycoon"],
+      "gamePlatform": "Web Browser",
+      "applicationCategory": "Game",
+      "operatingSystem": "Any",
+      "url": "https://www.tailwindsairlinegame.com",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock"
+      },
+      "featureList": [
+        "Fleet management — lease and purchase aircraft",
+        "Route planning and network building",
+        "Hub management",
+        "Competitor AI",
+        "Alliance system",
+        "Loyalty program",
+        "Financial management",
+        "Reputation system",
+        "Real airport data"
+      ]
+    }
+    </script>
+
+    <!-- Google AdSense -->
+    <meta name="google-adsense-account" content="ca-pub-5123198950074938">
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5123198950074938" crossorigin="anonymous"></script>
+    <!-- H5 Games Ads — Ad Placement API (interstitials between weeks) -->
+    <script>
+      window.adsbygoogle = window.adsbygoogle || [];
+      window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+      // Preload interstitials so they're ready when a week advances.
+      window.adConfig({
+        preloadAdBreaks: 'on',
+        sound: 'off',
+        onReady: function () {}
+      });
+    </script>
+  </head>
+  <body>
+
+    <!-- Static SEO landing page — hidden by React on mount, indexed by crawlers -->
+    <div id="seo-landing" style="font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; background: #1b1b1f; color: #ededee; min-height: 100vh; padding: 0; margin: 0;">
+
+      <header style="max-width: 1040px; margin: 0 auto; padding: 56px 24px 40px; display: flex; flex-wrap: wrap; gap: 48px; align-items: center;">
+
+        <!-- Hero copy -->
+        <div style="flex: 1 1 380px; min-width: 300px;">
+          <h1 style="font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 2.9rem; font-weight: 700; letter-spacing: -.5px; margin: 0 0 14px; color: #ededee; line-height: 1.05;"><img src="/tailwinds-mark-color.png" alt="" width="56" height="44" style="vertical-align:-10px;margin-right:12px;object-fit:contain;" />Build your own airline empire</h1>
+          <p style="font-size: 1.25rem; color: #c7c7cd; margin: 0 0 22px; max-width: 540px; line-height: 1.5;">Start with $10M in the bank. Buy your first plane, open routes, build hubs, out-fly your rivals, and grow from a regional carrier into a global airline.</p>
+
+          <!-- Trust row -->
+          <div style="display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 0 0 26px;">
+            <span style="display:inline-flex; align-items:center; gap:6px; color:#9a9aa2; font-size:0.92rem;">&#x2713; 100% free</span>
+            <span style="display:inline-flex; align-items:center; gap:6px; color:#9a9aa2; font-size:0.92rem;">&#x2713; No sign-up</span>
+            <span style="display:inline-flex; align-items:center; gap:6px; color:#9a9aa2; font-size:0.92rem;">&#x2713; No download</span>
+            <span style="display:inline-flex; align-items:center; gap:6px; color:#9a9aa2; font-size:0.92rem;">&#x2713; Plays in your browser</span>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+            <a href="#" onclick="document.getElementById('seo-landing').style.display='none'; return false;" style="display: inline-block; background: #c79a4b; color: #20180a; font-weight: 700; font-size: 1.15rem; padding: 15px 36px; border-radius: 8px; text-decoration: none; box-shadow: 0 2px 6px rgba(0,0,0,.35);">Play Free Now &#x2192;</a>
+            <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 9px; background: #5865F2; color: #fff; font-weight: 700; font-size: 1.05rem; padding: 14px 26px; border-radius: 8px; text-decoration: none; box-shadow: 0 6px 20px -4px rgba(88,101,242,.55);"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Join our Discord</a>
+          </div>
+
+          <!-- Scale cues -->
+          <div style="display: flex; flex-wrap: wrap; gap: 28px; margin: 34px 0 0;">
+            <div><div style="font-size:1.5rem; font-weight:800; color:#ededee;">1,500+</div><div style="font-size:0.82rem; color:#6e6f76; text-transform:uppercase; letter-spacing:.5px;">Real airports</div></div>
+            <div><div style="font-size:1.5rem; font-weight:800; color:#ededee;">100+</div><div style="font-size:0.82rem; color:#6e6f76; text-transform:uppercase; letter-spacing:.5px;">Real aircraft</div></div>
+            <div><div style="font-size:1.5rem; font-weight:800; color:#ededee;">200+</div><div style="font-size:0.82rem; color:#6e6f76; text-transform:uppercase; letter-spacing:.5px;">Countries</div></div>
+          </div>
+        </div>
+
+        <!-- Hero visual: real screenshot if /hero.png exists, else in-game mockup -->
+        <div style="flex: 1 1 420px; min-width: 300px;">
+          <img src="/hero.png" alt="Tailwinds gameplay — route map and airline dashboard" onerror="this.style.display='none'; document.getElementById('hero-mock').style.display='block';" style="width: 100%; border-radius: 12px; border: 1px solid #3a3b40; box-shadow: 0 18px 50px -12px rgba(0,0,0,.7);" />
+          <div id="hero-mock" style="display:none; border-radius: 12px; border: 1px solid #3a3b40; overflow: hidden; box-shadow: 0 18px 50px -12px rgba(0,0,0,.7); background:#26262d;">
+            <!-- faux browser/app chrome -->
+            <div style="display:flex; align-items:center; gap:6px; padding:9px 12px; background:#141416; border-bottom:1px solid #26262d;">
+              <span style="width:10px;height:10px;border-radius:50%;background:#ef4444;"></span>
+              <span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;"></span>
+              <span style="width:10px;height:10px;border-radius:50%;background:#22c55e;"></span>
+              <span style="margin-left:10px; color:#6e6f76; font-size:11px; display:inline-flex; align-items:center; gap:5px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6e6f76" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>Tailwinds — Airline Manager</span>
+            </div>
+            <!-- KPI strip -->
+            <div style="display:flex; gap:8px; padding:12px;">
+              <div style="flex:1; background:#2f3037; border:1px solid #26262d; border-radius:8px; padding:8px 10px;"><div style="font-size:9px;color:#6e6f76;text-transform:uppercase;letter-spacing:.5px;">Cash</div><div style="font-size:15px;font-weight:800;color:#6cbf9a;">$8.4M</div></div>
+              <div style="flex:1; background:#2f3037; border:1px solid #26262d; border-radius:8px; padding:8px 10px;"><div style="font-size:9px;color:#6e6f76;text-transform:uppercase;letter-spacing:.5px;">Routes</div><div style="font-size:15px;font-weight:800;color:#c79a4b;">14</div></div>
+              <div style="flex:1; background:#2f3037; border:1px solid #26262d; border-radius:8px; padding:8px 10px;"><div style="font-size:9px;color:#6e6f76;text-transform:uppercase;letter-spacing:.5px;">Load</div><div style="font-size:15px;font-weight:800;color:#ededee;">82%</div></div>
+            </div>
+            <!-- route map -->
+            <svg viewBox="0 0 460 230" style="display:block; width:100%; background:radial-gradient(circle at 50% 40%, #2f3037, #141416);">
+              <g fill="none" stroke="#c79a4b" stroke-width="1.6" opacity="0.85">
+                <path d="M120,150 Q200,40 320,90" />
+                <path d="M120,150 Q160,90 250,70" />
+                <path d="M120,150 Q230,180 360,150" />
+                <path d="M320,90 Q360,120 360,150" />
+                <path d="M250,70 Q300,60 320,90" />
+              </g>
+              <g fill="#9a9aa2" opacity="0.5">
+                <circle cx="60" cy="60" r="2"/><circle cx="180" cy="40" r="2"/><circle cx="410" cy="70" r="2"/>
+                <circle cx="80" cy="200" r="2"/><circle cx="280" cy="200" r="2"/><circle cx="420" cy="190" r="2"/>
+              </g>
+              <g>
+                <circle cx="120" cy="150" r="6" fill="#c79a4b"/><circle cx="120" cy="150" r="11" fill="none" stroke="#c79a4b" stroke-width="1.5" opacity="0.5"/>
+                <circle cx="320" cy="90" r="5" fill="#6cbf9a"/>
+                <circle cx="250" cy="70" r="4" fill="#ededee"/>
+                <circle cx="360" cy="150" r="4" fill="#ededee"/>
+              </g>
+              <text x="120" y="172" fill="#c7c7cd" font-size="9" font-family="system-ui" text-anchor="middle">JFK</text>
+              <text x="332" y="86" fill="#c7c7cd" font-size="9" font-family="system-ui">LHR</text>
+            </svg>
+          </div>
+        </div>
+      </header>
+
+      <section style="max-width: 900px; margin: 0 auto; padding: 0 24px 60px;">
+        <h2 style="font-size: 1.6rem; font-weight: 700; margin: 0 0 28px; color: #ededee;">Everything you need to run an airline</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px;">
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>Fleet Management</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Lease or purchase aircraft — narrowbody, widebody, regional jets. Match your fleet to your routes for maximum profit.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>Route Planning</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Open routes between hundreds of real airports. Balance demand, competition, and operating costs to find the most profitable connections.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>Hub Strategy</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Build connecting hubs at major airports to unlock network advantages and fill seats through codeshares and passenger flow.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Alliances</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Join or form airline alliances to share routes, boost load factors, and unlock international markets.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Competition</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Go head-to-head with computer-controlled competitors. Undercut fares, steal market share, and defend your best routes.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Finance &amp; Reputation</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Manage cash flow, take on debt, and grow your brand reputation. Don't go bankrupt — but don't play it too safe either.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 11v2"/><path d="M13 17v2"/></svg>Loyalty Program</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Build a frequent flyer program to drive repeat bookings and keep passengers loyal to your airline over competitors.</p>
+          </div>
+
+          <div style="background: #26262d; border-radius: 10px; padding: 24px;">
+            <h3 style="margin: 0 0 8px; color: #c79a4b; font-size: 1.05rem;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c79a4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>Operations</h3>
+            <p style="margin: 0; color: #9a9aa2; font-size: 0.95rem;">Manage gate assignments, maintenance, and turnaround times. Operational efficiency is the difference between profit and loss.</p>
+          </div>
+
+        </div>
+      </section>
+
+      <section style="background: #26262d; padding: 60px 24px;">
+        <div style="max-width: 900px; margin: 0 auto;">
+          <h2 style="font-size: 1.6rem; font-weight: 700; margin: 0 0 16px; color: #ededee;">How to play</h2>
+          <p style="color: #9a9aa2; font-size: 1rem; line-height: 1.7; max-width: 700px; margin: 0 0 16px;">Start by naming your airline and choosing a home airport. You'll have a small budget to lease your first aircraft and open a few routes. Each week passes automatically — revenue comes in, costs go out, and your airline grows (or struggles).</p>
+          <p style="color: #9a9aa2; font-size: 1rem; line-height: 1.7; max-width: 700px; margin: 0 0 32px;">As you grow, you'll unlock larger aircraft, expand to more airports, build hubs, manage competitor pressure, and invest in your brand. The goal: build the world's best airline without going bankrupt.</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+            <a href="#" onclick="document.getElementById('seo-landing').style.display='none'; return false;" style="display: inline-block; background: #c79a4b; color: #20180a; font-weight: 700; font-size: 1.05rem; padding: 12px 28px; border-radius: 8px; text-decoration: none;">Start Playing — It's Free &#x2192;</a>
+            <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; background: transparent; color: #fff; font-weight: 700; font-size: 1.05rem; padding: 12px 24px; border-radius: 8px; text-decoration: none; border: 1px solid #5865F2;"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Join the Community</a>
+          </div>
+        </div>
+      </section>
+
+      <footer style="max-width: 900px; margin: 0 auto; padding: 32px 24px; color: #6e6f76; font-size: 0.85rem;">
+        <p style="margin: 0 0 10px;">Tailwinds is a free browser-based airline management and strategy game. No download required. Play on any device.</p>
+        <p style="margin: 0 0 16px;">Join the community on <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer" style="color: #d3ad63; text-decoration: none; font-weight: 600;">Discord</a> — share strategies, report bugs, and help shape the game.</p>
+        <p style="margin: 0; padding-top: 16px; border-top: 1px solid #3a3b40; color: #6e6f76; font-size: 0.8rem; line-height: 1.6;">AI was used in the development of this game. While core mechanics were designed by humans, much of the coding and scaling of designs were done through the use of LLMs.</p>
+      </footer>
+    </div>
+
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+code,name,city,country,lat,lon,population,leisure
+IBA,Ibadan,Ibadan,NG,7.36,3.97,3.6,0
+BCU,Bauchi Sani Abacha,Bauchi,NG,10.48,9.74,0.5,0
+DKA,Katsina,Katsina,NG,12.93,7.65,0.4,0
+MDI,Makurdi,Makurdi,NG,7.70,8.61,0.3,0
+BKY,Kavumu,Bukavu,CD,-2.31,28.81,1.1,0
+KND,Kindu,Kindu,CD,-2.92,25.92,0.3,0
+NHF,Nyala,Nyala,SD,12.05,24.96,0.5,0
+EBD,El Obeid,El Obeid,SD,13.15,30.23,0.4,0
+SVP,Kuito,Kuito,AO,-12.40,16.95,0.4,0
+VHC,Saurimo,Saurimo,AO,-9.69,20.43,0.2,0
+MYW,Mtwara,Mtwara,TZ,-10.34,40.18,0.2,0
+RCB,Richards Bay,Richards Bay,ZA,-28.74,32.09,0.2,0
+KMU,Kismayo,Kismayo,SO,-0.38,42.46,0.2,0
+LAQ,Beida Intl,Beida,LY,32.79,21.96,0.25,0
+MZI,Mopti Ambodedjo,Mopti,ML,14.51,-4.08,0.12,0
+MQQ,Moundou,Moundou,TD,8.62,16.07,0.14,0
+KIW,Southdowns,Kitwe,ZM,-12.90,28.15,0.5,0
+ZND,Zinder,Zinder,NE,13.78,8.98,0.3,0
+GAQ,Gao,Gao,ML,16.25,-0.01,0.1,0
+MOQ,Morondava,Morondava,MG,-20.28,44.32,0.06,1
+HWN,Hwange Nat. Park,Hwange,ZW,-18.63,27.02,0.02,1
+BFX,Bafoussam,Bafoussam,CM,5.54,10.35,0.4,0

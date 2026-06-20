@@ -1,0 +1,1384 @@
+/* =============================================
+   Tailwinds - Airline Manager — Global Styles
+   Sleek modern aviation theme · minimal motion
+   ============================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Core surfaces — neutral charcoal, warm-grey layered (no blue tint) */
+  --bg:            #18181b;
+  --bg-elev:       #1d1d20;
+  --surface:       #212125;
+  --surface2:      #292a2e;
+  --surface3:      #34353a;
+  --border:        #3a3b40;
+  --border-subtle: #292a2e;
+  --border-strong: #4a4b51;
+
+  /* Text — neutral, not blue-white */
+  --text:        #ededee;
+  --text-muted:  #a2a2a8;
+  --text-dim:    #6e6f76;
+
+  /* Accent — muted brass (grounded, not neon tech-blue) */
+  --accent:       #c79a4b;
+  --accent-bright:#dcb568;
+  --accent-deep:  #9a762f;
+  --accent-dim:   #352b15;
+  --accent-glow:  rgba(0,0,0,0);   /* glow removed */
+
+  /* Status */
+  --green:       #4caf86;
+  --green-glow:  rgba(0,0,0,0);
+  --red:         #e06576;
+  --red-glow:    rgba(0,0,0,0);
+  --yellow:      #d9a441;
+  --purple:      #9d86d6;
+
+  --radius:      9px;
+  --radius-lg:   14px;
+  --radius-sm:   6px;
+  --font:        'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display:'Space Grotesk', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:   'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Elevation — flat, functional shadows only (no glow) */
+  --shadow-sm:   0 1px 2px rgba(0,0,0,.35);
+  --shadow:      0 6px 18px -8px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.35);
+  --shadow-lg:   0 18px 44px -14px rgba(0,0,0,.6);
+  --shadow-glow: var(--shadow);
+
+  /* Glass — near-solid, minimal blur */
+  --glass:       rgba(29,29,32,.94);
+  --speed:       .14s;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Flat neutral backdrop (ambient glow removed) */
+body {
+  background: var(--bg);
+  background-attachment: fixed;
+}
+
+/* Numbers align cleanly */
+.topbar-kpi-value, .topbar-cash, .stat-value, .report-item-value,
+td, th, .aircraft-stat-pill-value, .map-tip-val {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Scrollbars --- */
+* { scrollbar-width: thin; scrollbar-color: var(--surface3) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--surface3);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); background-clip: padding-box; }
+
+::selection { background: var(--accent-dim); color: var(--text); }
+
+/* --- Layout --- */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* --- Top Bar --- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px;
+  height: 58px;
+  background: var(--glass);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20;
+}
+
+.topbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--text);
+}
+
+.topbar-logo-icon {
+  font-size: 18px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbar-sep {
+  width: 1px;
+  height: 22px;
+  background: linear-gradient(180deg, transparent, var(--border-strong), transparent);
+  flex-shrink: 0;
+}
+
+.topbar-airline {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.topbar-spacer { flex: 1; }
+
+.topbar-kpis {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: linear-gradient(180deg, var(--surface2), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 4px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.topbar-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 16px;
+}
+
+.topbar-kpi-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  line-height: 1;
+  margin-bottom: 3px;
+}
+
+.topbar-kpi-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.topbar-kpi-divider {
+  width: 1px;
+  height: 26px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.topbar-cash {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--green);
+  line-height: 1;
+  text-shadow: 0 0 16px var(--green-glow);
+}
+
+.topbar-cash.negative { color: var(--red); text-shadow: 0 0 16px var(--red-glow); }
+
+.btn-advance {
+  background: var(--accent);
+  color: #20180a;
+  border: 1px solid var(--accent-deep);
+  border-radius: var(--radius);
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--speed), background var(--speed);
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+.btn-advance:hover { background: var(--accent-bright); }
+.btn-advance:active { transform: translateY(1px); }
+
+/* --- Nav tabs --- */
+.nav-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  position: relative;
+  z-index: 10;
+}
+.nav-tabs::-webkit-scrollbar { display: none; }
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 15px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color var(--speed), border-color var(--speed), background var(--speed);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  white-space: nowrap;
+}
+
+.nav-tab:hover { color: var(--text); background: rgba(255,255,255,.03); }
+.nav-tab.active {
+  color: var(--accent-bright);
+  border-bottom-color: var(--accent);
+  background: var(--accent-dim);
+}
+.nav-tab.active svg { filter: drop-shadow(0 0 6px var(--accent-glow)); }
+
+/* --- Main content --- */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 26px;
+}
+
+.app-footer {
+  flex-shrink: 0;
+  padding: 9px 26px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* When the footer sits at the end of the scrollable content (no longer pinned),
+   stretch it to the edges of the padded .main-content (26px) so it reads as a
+   full-width footer flush with the bottom of the page. */
+.app-footer-inline {
+  margin: 26px -26px -26px;
+}
+
+/* page fade — single, fast */
+.main-content > * { animation: page-in .18s ease-out; }
+@keyframes page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* --- Cards --- */
+.card {
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed), box-shadow var(--speed);
+}
+.card:hover { border-color: var(--border-strong); }
+
+.card-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent-deep));
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* --- Stat grid --- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-box {
+  position: relative;
+  background: linear-gradient(180deg, var(--surface2), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed), transform var(--speed);
+}
+.stat-box::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), transparent 70%);
+  opacity: .6;
+}
+.stat-box:hover { border-color: var(--border-strong); }
+
+.stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.stat-value {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -.5px;
+}
+
+.stat-value.green  { color: var(--green);  }
+.stat-value.red    { color: var(--red);    }
+.stat-value.blue   { color: var(--accent); }
+.stat-value.yellow { color: var(--yellow); }
+.stat-value.purple { color: var(--purple); }
+
+/* --- Tables --- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--text-dim);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.015);
+}
+
+td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+tr:last-child td { border-bottom: none; }
+tbody tr { transition: background var(--speed); }
+tr:hover td { background: rgba(62,166,255,.05); }
+
+/* --- Buttons --- */
+.btn {
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 15px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter var(--speed), transform var(--speed), box-shadow var(--speed), background var(--speed);
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; filter: none; transform: none; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #20180a;
+  border-color: var(--accent-deep);
+  box-shadow: var(--shadow-sm);
+}
+.btn-danger {
+  background: var(--red);
+  color: #2a0d11;
+  border-color: #b24350;
+  box-shadow: var(--shadow-sm);
+}
+.btn-ghost {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--surface3); border-color: var(--border-strong); filter: none; }
+
+/* --- Forms --- */
+.form-group { margin-bottom: 14px; }
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form-input, .form-select {
+  width: 100%;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color var(--speed), box-shadow var(--speed);
+}
+
+.form-input:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.form-input::placeholder { color: var(--text-dim); }
+
+.form-select option { background: var(--surface2); }
+
+/* --- Badge --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .2px;
+  border: 1px solid transparent;
+}
+.badge-green  { background: rgba(56,211,159,.13);  color: var(--green);  border-color: rgba(56,211,159,.25); }
+.badge-red    { background: rgba(255,93,108,.13);   color: var(--red);    border-color: rgba(255,93,108,.25); }
+.badge-blue   { background: rgba(62,166,255,.13);   color: var(--accent-bright); border-color: rgba(62,166,255,.25); }
+.badge-yellow { background: rgba(255,180,61,.13);   color: var(--yellow); border-color: rgba(255,180,61,.25); }
+
+/* --- Setup screen --- */
+.setup-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background:
+    var(--bg);
+  padding: 24px;
+}
+
+.setup-card {
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 42px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: var(--shadow-lg);
+}
+
+.setup-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -.5px;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.setup-subtitle {
+  color: var(--text-muted);
+  margin-bottom: 32px;
+}
+
+/* --- Empty states --- */
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state-icon { font-size: 38px; margin-bottom: 12px; opacity: .8; }
+.empty-state-text { font-size: 14px; }
+
+/* --- Report banner --- */
+.report-banner {
+  background: linear-gradient(180deg, var(--surface2), var(--surface));
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 15px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  box-shadow: var(--shadow-sm);
+}
+
+.report-item { display: flex; flex-direction: column; gap: 3px; }
+.report-item-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.report-item-value { font-size: 16px; font-weight: 700; }
+
+/* --- Profit bar --- */
+.mini-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-elev);
+  overflow: hidden;
+  margin-top: 5px;
+}
+.mini-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent-bright));
+  transition: width .3s ease;
+}
+
+/* --- Toast + Debrief animations --- */
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes debrief-in {
+  from { opacity: 0; transform: scale(.97) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0); }
+}
+
+/* --- Bankrupt overlay --- */
+.bankrupt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5,8,14,.84);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.bankrupt-card {
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--red);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  text-align: center;
+  max-width: 400px;
+  box-shadow: var(--shadow-lg), 0 0 40px -10px var(--red-glow);
+}
+
+/* --- Fleet aircraft thumbnail --- */
+.fleet-thumb {
+  width: 80px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  display: block;
+  background: var(--surface2);
+}
+
+.fleet-thumb-placeholder {
+  width: 80px;
+  height: 46px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* =============================================
+   Marketplace — Category Tabs
+   ============================================= */
+
+.category-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.category-tab {
+  display: flex;
+  align-items: center;
+  padding: 8px 15px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--speed), border-color var(--speed), background var(--speed);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.category-tab:hover { color: var(--text); background: rgba(255,255,255,.03); }
+.category-tab.active {
+  color: var(--accent-bright);
+  border-bottom-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* =============================================
+   Marketplace — Aircraft Cards Grid
+   ============================================= */
+
+.aircraft-market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 16px;
+}
+
+.aircraft-market-card {
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed), box-shadow var(--speed), transform var(--speed);
+}
+
+.aircraft-market-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+/* Photo banner */
+.aircraft-photo-wrap {
+  position: relative;
+  height: 160px;
+  overflow: hidden;
+  background: var(--surface2);
+}
+
+.aircraft-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform .3s ease;
+}
+
+.aircraft-market-card:hover .aircraft-photo {
+  transform: scale(1.04);
+}
+
+.aircraft-photo-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.aircraft-photo-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 45%, rgba(7,11,20,.7));
+  pointer-events: none;
+}
+
+.aircraft-photo-overlay {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.aircraft-cat-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.12);
+}
+
+/* Card body */
+.aircraft-market-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 12px;
+}
+
+/* Stat pills */
+.aircraft-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.aircraft-stat-pill {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.aircraft-stat-pill-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.aircraft-stat-pill-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Lease footer */
+.aircraft-lease-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.aircraft-lease-btn {
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* =============================================
+   Leaflet map — theme overrides
+   ============================================= */
+
+/* Attribution control */
+.leaflet-control-attribution {
+  background: rgba(6,11,24,.75) !important;
+  color: #4d5c70 !important;
+  font-size: 10px !important;
+  backdrop-filter: blur(4px);
+  border-radius: 4px 0 0 0 !important;
+}
+.leaflet-control-attribution a { color: #6b7f95 !important; }
+
+/* Zoom buttons */
+.leaflet-control-zoom a {
+  background: rgba(14,22,35,.92) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: var(--surface2) !important;
+}
+
+/* Game tooltip (route hover + airport hover) */
+.leaflet-tooltip.game-tooltip {
+  background: var(--glass);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 0;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Remove default tooltip arrow */
+.leaflet-tooltip.game-tooltip::before { display: none !important; }
+
+/* Tooltip inner layout */
+.map-tip { padding: 11px 14px; }
+.map-tip-title {
+  font-weight: 800;
+  font-size: 14px;
+  margin-bottom: 2px;
+  letter-spacing: -.3px;
+}
+.map-tip-arrow { color: var(--accent); font-weight: 600; }
+.map-tip-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.map-tip-stats {
+  display: flex;
+  gap: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.map-tip-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.map-tip-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+.map-tip-val {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Airport code labels */
+.airport-label {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.airport-label span {
+  color: #6fb0f0;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.8);
+  letter-spacing: .05em;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Route lines — glow + animated flow */
+.route-glow {
+  filter: blur(2px);
+}
+.route-line {
+  cursor: pointer;
+  transition: stroke-width .15s ease, stroke-opacity .15s ease;
+}
+.route-line.flowing {
+  animation: route-flow 1.6s linear infinite;
+}
+@keyframes route-flow {
+  to { stroke-dashoffset: -52; }
+}
+
+.map-tip-hint {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: .02em;
+}
+
+/* Pulsing hub marker */
+.hub-marker {
+  background: none !important;
+  border: none !important;
+}
+.hub-marker .hub-pulse-core {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 11px; height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%;
+  background: #ffcf4d;
+  border: 2px solid #fff6d8;
+  box-shadow: 0 0 8px 2px rgba(255,207,77,.7);
+}
+.hub-marker .hub-pulse-ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 14px; height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,207,77,.8);
+  animation: hub-pulse 2.2s ease-out infinite;
+}
+@keyframes hub-pulse {
+  0%   { transform: scale(.6); opacity: .9; }
+  70%  { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Aircraft-count badge in route table */
+.ac-badge {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--surface3);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+/* Clear-focus button in map header */
+.map-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--accent-dim);
+  color: #cfe2ff;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.map-clear-btn:hover { background: var(--accent); color: #fff; }
+
+/* Respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ─────────────────────────────────────────────
+   Save / Load Modal
+───────────────────────────────────────────── */
+.saveload-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5,8,14,.80);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Must sit above Leaflet's map panes (z-index up to ~700) and
+     controls (~1000), or the route map paints over the modal on the
+     Map page. Keep this above any in-app chrome too. */
+  z-index: 2000;
+}
+
+.saveload-modal {
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 28px 24px;
+  width: min(560px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.saveload-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.saveload-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.saveload-close {
+  font-size: 14px;
+  padding: 4px 8px;
+}
+
+.saveload-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.save-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.save-slot {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  transition: border-color .15s;
+}
+
+.save-slot:hover { border-color: var(--accent); }
+.save-slot-empty { opacity: .65; }
+.save-slot-empty:hover { border-color: var(--border); opacity: 1; }
+
+.save-slot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.save-slot-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+}
+
+.save-slot-delete {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  transition: background .15s, color .15s;
+}
+.save-slot-delete:hover { background: var(--red-glow); color: var(--red); }
+
+.save-slot-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.save-slot-body-empty {
+  justify-content: center;
+  padding: 12px 0;
+  margin-bottom: 12px;
+}
+
+.save-slot-empty-text {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.save-slot-airline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+}
+
+.save-slot-airline-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.save-slot-hub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.save-slot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.save-slot-meta-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.save-slot-meta-label {
+  color: var(--text-dim);
+  min-width: 38px;
+  font-size: 11px;
+}
+
+.save-slot-date {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.save-slot-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.save-slot-btn {
+  font-size: 12px;
+  padding: 5px 14px;
+}
+
+.save-slot-empty-action {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 5px 0;
+}
+
+/* ─────────────────────────────────────────────
+   New Game confirm dialog
+───────────────────────────────────────────── */
+.confirm-modal {
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 28px 24px;
+  width: min(400px, 90vw);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.confirm-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.confirm-modal-body {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+  border: none;
+}
+.btn-danger:hover { background: #c0392b; }
+
+/* ── InfoTip — hover help on controls ─────────────────────────────── */
+.infotip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  cursor: help;
+  outline: none;
+}
+.infotip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  border-radius: 20px;
+  padding: 2px 7px;
+  transition: color .15s, border-color .15s, background .15s;
+  white-space: nowrap;
+}
+.infotip:hover .infotip-trigger,
+.infotip:focus .infotip-trigger {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.infotip-bubble {
+  position: absolute;
+  z-index: 9999;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: 260px;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.infotip:hover .infotip-bubble,
+.infotip:focus .infotip-bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+/* Bottom-side variant for tips near the top of the viewport */
+.infotip-bottom .infotip-bubble {
+  bottom: auto;
+  top: calc(100% + 8px);
+  transform: translateX(-50%) translateY(-4px);
+}
+.infotip-bottom:hover .infotip-bubble,
+.infotip-bottom:focus .infotip-bubble {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* =============================================================================
+   MOBILE BREAKPOINT  (≤ 640px)
+   -----------------------------------------------------------------------------
+   Everything below this comment is mobile-only and scoped inside the media
+   query, so it has ZERO effect on desktop viewports (>640px) — desktop renders
+   exactly as it did before this block existed. Never move a rule out of here to
+   "fix" desktop; add a desktop rule above instead.
+
+   Phase 2 scope: viewport correctness only (dvh, input zoom). Topbar, tables,
+   route map and tooltips are handled in their own later phases/blocks.
+   ============================================================================= */
+@media (max-width: 640px) {
+  /* Use dynamic viewport height so the mobile browser's address bar doesn't
+     clip the footer / bottom of the app (the classic 100vh mobile bug). */
+  .app-layout   { height: 100dvh; }
+  .setup-screen { min-height: 100dvh; }
+
+  /* iOS Safari auto-zooms when focusing an input whose font-size is < 16px.
+     Bump form controls to 16px on mobile to prevent that jump. Desktop keeps
+     its original 13px (this rule never applies above 640px). */
+  .form-input,
+  .form-select {
+    font-size: 16px;
+  }
+
+  /* ── Topbar (Phase 3) ──────────────────────────────────────────────────────
+     The desktop topbar packs a brand logo, airline name, date+cash KPIs, the
+     Next-Week button and 6 ghost buttons into 58px — far too much for a phone.
+     On mobile we drop the Tailwinds brand mark (the airline's own logo + name
+     still identify the game), hide the DATE KPI (Cash is what matters), and the
+     6 ghost buttons are replaced in JSX by a single "⋯" overflow menu. */
+  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar-logo { display: none; }          /* hide "Tailwinds - Airline Manager" brand */
+  .topbar-sep  { display: none; }
+  .topbar-airline {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Keep CASH, drop DATE + its divider to save width. */
+  .topbar-kpis .topbar-kpi:first-child,
+  .topbar-kpis .topbar-kpi-divider { display: none; }
+  .topbar-kpi   { padding: 4px 8px; }
+  .btn-advance  { padding: 8px 12px; font-size: 12px; }
+
+  /* Overflow menu (mobile-only elements, rendered by App.jsx when isMobile). */
+  .topbar-menu-wrap { position: relative; display: inline-flex; }
+  .topbar-menu-btn {
+    font-size: 18px;
+    line-height: 1;
+    padding: 6px 10px;
+  }
+  .topbar-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+  }
+  .topbar-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 31;
+    min-width: 190px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .topbar-menu > * {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 500;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .topbar-menu > * + * { border-top: 1px solid var(--border-subtle); }
+  .topbar-menu > *:active { background: var(--surface3); }
+  .topbar-menu-danger { color: var(--red); }
+
+  /* ── Page content + tables (Phase 4) ───────────────────────────────────────
+     Tighten the generous desktop page padding so cards get more width on a
+     phone. */
+  .main-content { padding: 12px; }
+
+  /* Wide data tables: rather than crushing columns into an unreadable mess on a
+     narrow screen, let each table scroll horizontally and keep its columns.
+     `display:block` turns the table into its own scroll container and
+     `white-space:nowrap` stops cells from wrapping so columns stay legible.
+     Scoped to mobile, so desktop tables are completely unaffected. */
+  .main-content table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  /* A touch more density so more of each row is visible before scrolling. */
+  .main-content th,
+  .main-content td { padding: 9px 10px; }
+
+  /* The disclaimer now lives at the end of the scrollable content on mobile
+     (rendered inside .main-content) rather than pinned. Pull it full-width to
+     the edges of the padded content area and give it a little breathing room. */
+  .app-footer-inline {
+    margin: 20px -12px -12px;
+  }
+}
+

@@ -1,0 +1,99 @@
+code,name,city,country,lat,lon,population,leisure
+KAN,Mallam Aminu Kano Intl,Kano,NG,12.05,8.52,4.1,0
+PHC,Port Harcourt Intl,Port Harcourt,NG,5.02,6.95,3.0,0
+ENU,Akanu Ibiam Intl,Enugu,NG,6.47,7.56,0.8,0
+KAD,Kaduna Intl,Kaduna,NG,10.70,7.32,1.6,0
+ILR,Ilorin Intl,Ilorin,NG,8.44,4.49,1.0,0
+MIU,Maiduguri Intl,Maiduguri,NG,11.86,13.08,1.2,0
+CBQ,Margaret Ekpo Intl,Calabar,NG,4.98,8.35,0.6,0
+BNI,Benin,Benin City,NG,6.32,5.60,1.7,0
+SKO,Sadiq Abubakar III,Sokoto,NG,12.92,5.21,0.7,0
+QUO,Akwa Ibom Intl,Uyo,NG,5.16,8.09,1.2,0
+QOW,Sam Mbakwe,Owerri,NG,5.43,7.21,0.9,0
+JOS,Yakubu Gowon,Jos,NG,9.64,8.87,0.9,0
+BJR,Bahir Dar,Bahir Dar,ET,11.61,37.32,0.4,0
+DIR,Aba Tenna Dejazmach,Dire Dawa,ET,9.62,41.85,0.5,0
+MQX,Alula Aba Nega,Mekelle,ET,13.47,39.53,0.5,0
+GDQ,Gondar,Gondar,ET,12.52,37.43,0.4,1
+JIM,Aba Segud,Jimma,ET,7.66,36.82,0.2,0
+LLI,Lalibela,Lalibela,ET,11.98,38.98,0.03,1
+AXU,Axum,Axum,ET,14.15,38.77,0.07,1
+JRO,Kilimanjaro Intl,Kilimanjaro,TZ,-3.43,37.07,1.0,1
+ZNZ,Abeid Amani Karume Intl,Zanzibar,TZ,-6.22,39.22,0.5,1
+MWZ,Mwanza,Mwanza,TZ,-2.44,32.93,1.2,0
+ARK,Arusha,Arusha,TZ,-3.37,36.63,0.6,1
+DOD,Dodoma,Dodoma,TZ,-6.17,35.75,0.4,0
+MBI,Songwe,Mbeya,TZ,-9.01,33.27,0.5,0
+MBA,Moi Intl,Mombasa,KE,-4.03,39.59,1.2,1
+KIS,Kisumu Intl,Kisumu,KE,-0.09,34.73,0.6,0
+ELD,Eldoret Intl,Eldoret,KE,0.40,35.24,0.4,0
+MYD,Malindi,Malindi,KE,-3.23,40.10,0.12,1
+FBM,Lubumbashi Intl,Lubumbashi,CD,-11.59,27.53,2.6,0
+FKI,Kisangani Bangoka,Kisangani,CD,0.49,25.34,1.2,0
+MJM,Mbuji-Mayi,Mbuji-Mayi,CD,-6.12,23.57,2.5,0
+KGA,Kananga,Kananga,CD,-5.90,22.47,1.5,0
+GOM,Goma Intl,Goma,CD,-1.67,29.24,0.7,0
+NOV,Albano Machado,Huambo,AO,-12.81,15.76,0.9,0
+BUG,Benguela,Benguela,AO,-12.61,13.40,0.6,0
+BEW,Beira,Beira,MZ,-19.80,34.91,0.5,0
+APL,Nampula,Nampula,MZ,-15.11,39.28,0.7,0
+POL,Pemba,Pemba,MZ,-12.99,40.52,0.2,1
+INH,Inhambane,Inhambane,MZ,-23.88,35.41,0.08,1
+UEL,Quelimane,Quelimane,MZ,-17.86,36.87,0.3,0
+NOS,Fascene,Nosy Be,MG,-13.31,48.31,0.08,1
+TMM,Toamasina,Toamasina,MG,-18.11,49.39,0.3,0
+DIE,Arrachart,Antsiranana,MG,-12.35,49.29,0.1,0
+MJN,Amborovy,Mahajanga,MG,-15.67,46.35,0.25,0
+FTU,Tolagnaro,Fort Dauphin,MG,-25.04,46.96,0.07,1
+ORN,Es Senia,Oran,DZ,35.62,-0.62,1.0,0
+CZL,Mohamed Boudiaf,Constantine,DZ,36.28,6.62,0.95,0
+AAE,Rabah Bitat,Annaba,DZ,36.82,7.81,0.6,0
+TMR,Aguenar,Tamanrasset,DZ,22.81,5.45,0.1,1
+GHA,Noumerat,Ghardaia,DZ,32.38,3.79,0.4,0
+AGA,Al Massira,Agadir,MA,30.32,-9.41,0.6,1
+FEZ,Fes-Saiss,Fes,MA,33.93,-4.98,1.1,1
+TNG,Ibn Battouta,Tangier,MA,35.73,-5.92,1.1,0
+OUD,Angads,Oujda,MA,34.79,-1.92,0.5,0
+ESU,Mogador,Essaouira,MA,31.40,-9.68,0.08,1
+RBA,Rabat-Sale,Rabat,MA,34.05,-6.75,1.9,0
+VIL,Dakhla,Dakhla,MA,23.72,-15.93,0.1,1
+EUN,Hassan I,Laayoune,MA,27.15,-13.22,0.2,0
+LXR,Luxor Intl,Luxor,EG,25.67,32.71,0.5,1
+ASW,Aswan Intl,Aswan,EG,23.96,32.82,0.3,1
+RMF,Marsa Alam Intl,Marsa Alam,EG,25.56,34.58,0.05,1
+HBE,Borg El Arab,Alexandria,EG,30.92,29.70,5.2,0
+PLZ,Chief Dawid Stuurman,Gqeberha,ZA,-33.98,25.61,1.2,0
+ELS,East London,East London,ZA,-33.04,27.83,0.8,0
+GRJ,George,George,ZA,-34.01,22.38,0.2,1
+BFN,Bram Fischer Intl,Bloemfontein,ZA,-29.09,26.30,0.6,0
+MQP,Kruger Mpumalanga,Mbombela,ZA,-25.38,31.10,0.7,1
+PTG,Polokwane Intl,Polokwane,ZA,-23.85,29.46,0.7,0
+KMS,Kumasi,Kumasi,GH,6.71,-1.59,2.6,0
+TML,Tamale,Tamale,GH,9.56,-0.86,0.6,0
+NSI,Yaounde Nsimalen,Yaounde,CM,3.72,11.55,4.0,0
+GOU,Garoua Intl,Garoua,CM,9.34,13.37,0.6,0
+MVR,Salak,Maroua,CM,10.45,14.26,0.4,0
+PZU,Port Sudan New Intl,Port Sudan,SD,19.43,37.23,0.5,0
+BEN,Benina Intl,Benghazi,LY,32.10,20.27,0.8,0
+MRA,Misrata Intl,Misrata,LY,32.33,15.06,0.4,0
+DJE,Djerba-Zarzis,Djerba,TN,33.87,10.78,0.16,1
+MIR,Monastir Habib Bourguiba,Monastir,TN,35.76,10.75,0.9,1
+SFA,Sfax-Thyna,Sfax,TN,34.72,10.69,0.6,0
+NLA,Simon Mwansa Kapwepwe,Ndola,ZM,-12.99,28.66,0.5,0
+LVI,Harry Mwanga Nkumbula,Livingstone,ZM,-17.82,25.82,0.2,1
+MFU,Mfuwe,Mfuwe,ZM,-13.26,31.94,0.02,1
+BUQ,Joshua Mqabuko Nkomo,Bulawayo,ZW,-20.02,28.62,0.7,0
+VFA,Victoria Falls,Victoria Falls,ZW,-18.10,25.84,0.05,1
+BLZ,Chileka Intl,Blantyre,MW,-15.68,34.97,0.8,0
+MUB,Maun,Maun,BW,-19.97,23.43,0.06,1
+WVB,Walvis Bay,Walvis Bay,NA,-22.98,14.65,0.1,1
+PNR,Pointe-Noire,Pointe-Noire,CG,-4.82,11.89,1.1,0
+POG,Port-Gentil,Port-Gentil,GA,-0.71,8.75,0.15,0
+MGQ,Aden Adde Intl,Mogadishu,SO,2.01,45.30,2.6,0
+HGA,Hargeisa Intl,Hargeisa,SO,9.52,44.09,1.2,0
+ASM,Asmara Intl,Asmara,ER,15.29,38.91,0.9,0
+BOY,Bobo Dioulasso,Bobo-Dioulasso,BF,11.16,-4.33,1.0,0
+PNR,Antonio Agostinho Neto,Pointe-Noire,CG,-4.82,11.89,1.1,0
+HAH,Prince Said Ibrahim,Moroni,KM,-11.53,43.27,0.15,0
+SID,Amilcar Cabral Intl,Sal,CV,16.74,-22.95,0.03,1
+BVC,Aristides Pereira Intl,Boa Vista,CV,16.14,-22.89,0.02,1

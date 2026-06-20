@@ -1,0 +1,27 @@
+verdict,tier,code,name,city,country,lat,lon,population,leisure,visitors,gateway,bestDemand,bestPartner,bestKm,nearestKm,nearest
+ADD,US,BUR,Hollywood Burbank,Burbank,US,34.2,-118.36,13.2,0,0,0,14863,LAX,29,29,LAX
+ADD,US,ONT,Ontario Intl,Ontario,US,34.06,-117.6,4.6,0,0,0,8630,LAX,75,57,LGB
+ADD,US,AZA,Phoenix-Mesa Gateway,Mesa,US,33.31,-111.66,4.9,0,0,0,7426,LAX,628,36,PHX
+ADD,US,SNA,John Wayne Orange County,Santa Ana,US,33.68,-117.87,3.2,0,0,0,7245,LAX,57,30,LGB
+ADD,US,PVD,T.F. Green,Providence,US,41.73,-71.42,1.6,0,0,0,6013,JFK,232,77,MVY
+ADD,US,SFB,Orlando Sanford Intl,Sanford,US,28.78,-81.24,2.6,1,0,0,5874,JFK,1483,40,MCO
+ADD,US,PHF,Newport News/Williamsburg,Newport News,US,37.13,-76.49,1.7,0,0,0,5758,JFK,455,49,ORF
+ADD,US,ORH,Worcester Regional,Worcester,US,42.27,-71.87,0.5,0,0,0,3350,JFK,241,72,BOS
+ADD,US,MHT,Manchester-Boston Regional,Manchester,US,42.93,-71.44,0.42,0,0,0,2991,JFK,320,72,BOS
+ADD,US,LAN,Capital Region Intl,Lansing,US,42.78,-84.59,0.46,0,0,0,2602,JFK,928,72,FNT
+ADD,US,PVU,Provo Municipal,Provo,US,40.22,-111.72,0.7,0,0,0,2581,LAX,915,67,SLC
+ADD,US,BRO,Brownsville/South Padre,Brownsville,US,25.91,-97.43,0.42,0,0,0,2552,MEX,739,42,HRL
+ADD,US,MBS,MBS Intl,Saginaw,US,43.53,-84.08,0.4,0,0,0,2439,JFK,908,68,FNT
+ADD,US,LBE,Arnold Palmer Regional,Latrobe,US,40.28,-79.4,0.3,0,0,0,2402,JFK,477,74,PIT
+ADD,US,GRK,Killeen-Fort Hood,Killeen,US,31.07,-97.83,0.45,0,0,0,2265,MEX,1299,46,GTU
+ADD,US,APF,Naples Municipal,Naples,US,26.15,-81.77,0.4,1,0,0,2151,JFK,1772,43,RSW
+ADD,US,IAG,Niagara Falls Intl,Niagara Falls,US,43.1,-78.95,0.2,1,0,0,2134,JFK,508,25,BUF
+ADD,US,SBP,San Luis Obispo Co. Regional,San Luis Obispo,US,35.24,-120.64,0.28,0,0,0,2003,LAX,251,41,SMX
+ADD,US,CMI,University of Illinois Willard,Champaign,US,40.04,-88.28,0.23,0,0,0,1696,JFK,1229,62,MTO
+ADD,US,PGD,Punta Gorda,Punta Gorda,US,26.92,-81.99,0.18,1,0,0,1467,JFK,1702,48,RSW
+ADD,US,FLG,Flagstaff Pulliam,Flagstaff,US,35.14,-111.67,0.14,1,0,0,1378,LAX,631,87,PRC
+ADD,US,SAF,Santa Fe Regional,Santa Fe,US,35.62,-106.09,0.15,1,0,0,1237,MEX,1926,33,LAM
+ADD,US,BQK,Brunswick Golden Isles,Brunswick,US,31.26,-81.47,0.1,1,0,0,1222,JFK,1251,88,JAX
+ADD,US,SPS,Wichita Falls Regional,Wichita Falls,US,33.99,-98.49,0.15,0,0,0,1209,MEX,1619,65,LAW
+ADD,US,HHH,Hilton Head,Hilton Head,US,32.22,-80.7,0.05,1,0,0,894,JFK,1122,48,SAV
+ADD,US,HIB,Range Regional,Hibbing,US,47.39,-92.84,0.08,0,0,0,892,JFK,1693,78,DLH

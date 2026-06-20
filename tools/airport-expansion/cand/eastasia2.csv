@@ -1,0 +1,26 @@
+code,name,city,country,lat,lon,population,leisure
+ISG,New Ishigaki,Ishigaki,JP,24.40,124.25,0.05,1
+MMY,Miyako,Miyako,JP,24.78,125.30,0.05,1
+KMI,Miyazaki,Miyazaki,JP,31.88,131.45,0.4,0
+KOJ,Kagoshima,Kagoshima,JP,31.80,130.72,0.6,0
+KMJ,Kumamoto Aso,Kumamoto,JP,32.84,130.86,0.7,0
+NGS,Nagasaki,Nagasaki,JP,32.92,129.91,0.4,0
+OIT,Oita,Oita,JP,33.48,131.74,0.47,0
+TAK,Takamatsu,Takamatsu,JP,34.21,134.02,0.42,0
+MYJ,Matsuyama,Matsuyama,JP,33.83,132.70,0.5,0
+KCZ,Kochi Ryoma,Kochi,JP,33.55,133.67,0.32,0
+OKJ,Okayama Momotaro,Okayama,JP,34.76,133.86,0.7,0
+KKJ,Kitakyushu,Kitakyushu,JP,33.84,131.03,0.95,0
+AOJ,Aomori,Aomori,JP,40.73,140.69,0.27,0
+AXT,Akita,Akita,JP,39.62,140.22,0.31,0
+AKJ,Asahikawa,Asahikawa,JP,43.67,142.45,0.33,1
+HKD,Hakodate,Hakodate,JP,41.77,140.82,0.25,1
+TOY,Toyama,Toyama,JP,36.65,137.19,0.42,0
+KMQ,Komatsu,Kanazawa,JP,36.39,136.41,0.7,0
+FSZ,Mt. Fuji Shizuoka,Shizuoka,JP,34.80,138.19,0.7,1
+TKS,Tokushima Awaodori,Tokushima,JP,34.13,134.61,0.26,0
+TAE,Daegu Intl,Daegu,KR,35.89,128.66,2.4,0
+KWJ,Gwangju,Gwangju,KR,35.13,126.81,1.5,0
+USN,Ulsan,Ulsan,KR,35.59,129.35,1.1,0
+CJJ,Cheongju Intl,Cheongju,KR,36.72,127.50,0.85,0
+KPO,Pohang Gyeongju,Pohang,KR,35.99,129.42,0.5,0

@@ -1,0 +1,62 @@
+code,name,city,country,lat,lon,population,leisure
+RAO,Leite Lopes,Ribeirao Preto,BR,-21.13,-47.77,0.71,0
+SJK,Sao Jose dos Campos,Sao Jose dos Campos,BR,-23.23,-45.86,0.7,0
+JDF,Francisco de Assis,Juiz de Fora,BR,-21.79,-43.39,0.57,0
+BAU,Bauru-Arealva,Bauru,BR,-22.16,-49.07,0.38,0
+UBA,Mario de Almeida,Uberaba,BR,-19.76,-47.96,0.34,0
+PET,Joao Simoes Lopes Neto,Pelotas,BR,-31.72,-52.33,0.34,0
+GVR,Coronel Altino Machado,Governador Valadares,BR,-18.90,-41.98,0.28,0
+RIA,Santa Maria,Santa Maria,BR,-29.71,-53.69,0.27,0
+ARU,Dario Guarita,Aracatuba,BR,-21.14,-50.42,0.2,0
+PPB,Adhemar de Barros,Presidente Prudente,BR,-22.18,-51.42,0.23,0
+PFB,Lauro Kurtz,Passo Fundo,BR,-28.24,-52.33,0.2,0
+MII,Frank Miloye,Marilia,BR,-22.20,-49.93,0.24,0
+ROO,Maestro Marinho Franco,Rondonopolis,BR,-16.59,-54.72,0.23,0
+DOU,Francisco de Matos Pereira,Dourados,BR,-22.20,-54.93,0.22,0
+URG,Rubem Berta,Uruguaiana,BR,-29.78,-57.04,0.13,0
+PIN,Julio Belem,Parintins,BR,-2.63,-56.78,0.11,0
+BVH,Brigadeiro Camarao,Vilhena,BR,-12.69,-60.10,0.1,0
+TFF,Tefe,Tefe,BR,-3.38,-64.72,0.06,0
+AFL,Piloto Osvaldo Marques,Alta Floresta,BR,-9.87,-56.10,0.05,0
+BYO,Bonito,Bonito,BR,-21.25,-56.45,0.02,1
+MAM,Servando Canales,Matamoros,MX,25.77,-97.53,0.5,0
+PAZ,El Tajin,Poza Rica,MX,20.60,-97.46,0.2,0
+MTT,Minatitlan,Minatitlan,MX,17.99,-94.58,0.2,0
+CME,Ciudad del Carmen,Ciudad del Carmen,MX,18.65,-91.80,0.2,0
+CLQ,Lic. Miguel de la Madrid,Colima,MX,19.28,-103.58,0.15,0
+LZC,Lazaro Cardenas,Lazaro Cardenas,MX,18.00,-102.22,0.18,0
+LCE,Goloson Intl,La Ceiba,HN,15.74,-86.85,0.2,0
+XPL,Palmerola Intl,Comayagua,HN,14.38,-87.62,0.15,0
+CTD,Enrique Malek,Chitre,PA,7.99,-80.41,0.1,0
+CMW,Ignacio Agramonte,Camaguey,CU,21.42,-77.85,0.32,0
+SNU,Abel Santamaria,Santa Clara,CU,22.49,-79.94,0.24,0
+CAP,Hugo Chavez Intl,Cap-Haitien,HT,19.73,-72.19,0.27,0
+BQN,Rafael Hernandez,Aguadilla,PR,18.49,-67.13,0.2,0
+PSE,Mercedita,Ponce,PR,18.01,-66.56,0.13,0
+LRM,Casa de Campo,La Romana,DO,18.45,-68.91,0.05,1
+PTP,Pointe-a-Pitre,Pointe-a-Pitre,GP,16.27,-61.53,0.38,1
+FDF,Martinique Aime Cesaire,Fort-de-France,MQ,14.59,-61.00,0.35,1
+GCM,Owen Roberts,Grand Cayman,KY,19.29,-81.36,0.07,1
+PLS,Providenciales,Providenciales,TC,21.77,-72.27,0.05,1
+ANU,V.C. Bird Intl,St John's,AG,17.14,-61.79,0.1,1
+UVF,Hewanorra Intl,Vieux Fort,LC,13.73,-60.95,0.18,1
+GND,Maurice Bishop Intl,St George's,GD,12.00,-61.79,0.11,1
+SKB,Robert L. Bradshaw,Basseterre,KN,17.31,-62.72,0.05,1
+DOM,Douglas-Charles,Dominica,DM,15.55,-61.30,0.07,1
+SVD,Argyle Intl,Kingstown,VC,13.16,-61.15,0.11,1
+EIS,Terrance B. Lettsome,Tortola,VG,18.44,-64.54,0.03,1
+BON,Flamingo Intl,Bonaire,BQ,12.13,-68.27,0.02,1
+TAB,A.N.R. Robinson,Tobago,TT,11.15,-60.83,0.06,1
+QBC,Quebec City Jean Lesage,Quebec City,CA,46.79,-71.39,0.8,0
+YQG,Windsor,Windsor,CA,42.28,-82.96,0.34,0
+YXE,Saskatoon,Saskatoon,CA,52.17,-106.70,0.32,0
+YQR,Regina,Regina,CA,50.43,-104.67,0.26,0
+YLW,Kelowna,Kelowna,CA,49.96,-119.38,0.22,0
+YYT,St John's Intl,St John's,CA,47.62,-52.75,0.21,0
+YSB,Sudbury,Sudbury,CA,46.63,-80.80,0.16,0
+YQM,Greater Moncton,Moncton,CA,46.11,-64.68,0.15,0
+YQT,Thunder Bay,Thunder Bay,CA,48.37,-89.32,0.12,0
+YXS,Prince George,Prince George,CA,53.88,-122.68,0.09,0
+YMM,Fort McMurray,Fort McMurray,CA,56.65,-111.22,0.07,0
+YXY,Erik Nielsen Whitehorse,Whitehorse,CA,60.71,-135.07,0.03,0
+YZF,Yellowknife,Yellowknife,CA,62.46,-114.44,0.02,0

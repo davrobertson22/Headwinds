@@ -1,0 +1,146 @@
+code,name,city,country,lat,lon,population,leisure
+TNA,Jinan Yaoqiang,Jinan,CN,36.86,117.22,9.2,0
+KWE,Guiyang Longdongbao,Guiyang,CN,26.54,106.80,6.0,0
+NNG,Nanning Wuxu,Nanning,CN,22.61,108.17,8.7,0
+KHN,Nanchang Changbei,Nanchang,CN,28.86,115.90,6.3,0
+HFE,Hefei Xinqiao,Hefei,CN,31.98,116.98,9.4,0
+TYN,Taiyuan Wusu,Taiyuan,CN,37.75,112.63,5.4,0
+SJW,Shijiazhuang Zhengding,Shijiazhuang,CN,38.28,114.70,11.0,0
+WUX,Sunan Shuofang,Wuxi,CN,31.49,120.43,7.5,0
+NTG,Nantong Xingdong,Nantong,CN,32.07,120.98,7.7,0
+YNT,Yantai Penglai,Yantai,CN,37.66,120.98,7.1,0
+SWA,Jieyang Chaoshan,Shantou,CN,23.55,116.50,5.6,0
+ZHA,Zhanjiang,Zhanjiang,CN,21.21,110.36,7.0,0
+DYG,Zhangjiajie Hehua,Zhangjiajie,CN,29.10,110.44,1.5,1
+LJG,Lijiang Sanyi,Lijiang,CN,26.68,100.25,1.3,1
+JHG,Xishuangbanna Gasa,Jinghong,CN,21.97,100.76,1.3,1
+PNQ,Pune,Pune,IN,18.58,73.92,7.4,0
+NAG,Nagpur Ambedkar,Nagpur,IN,21.09,79.05,2.9,0
+LKO,Lucknow Chaudhary Charan,Lucknow,IN,26.76,80.89,3.7,0
+PAT,Patna Jay Prakash,Patna,IN,25.59,85.09,2.5,0
+VTZ,Visakhapatnam,Visakhapatnam,IN,17.72,83.22,2.4,0
+CJB,Coimbatore,Coimbatore,IN,11.03,77.04,2.5,0
+IXC,Chandigarh,Chandigarh,IN,30.67,76.79,1.6,0
+IDR,Indore Devi Ahilyabai,Indore,IN,22.72,75.80,3.0,0
+BHO,Bhopal Raja Bhoj,Bhopal,IN,23.29,77.34,2.4,0
+VNS,Varanasi Lal Bahadur,Varanasi,IN,25.45,82.86,1.6,1
+ATQ,Amritsar Ram Dass,Amritsar,IN,31.71,74.80,1.6,1
+UDR,Udaipur Maharana Pratap,Udaipur,IN,24.62,73.90,0.9,1
+IXZ,Port Blair Savarkar,Port Blair,IN,11.64,92.73,0.4,1
+GAU,Guwahati Lokpriya,Guwahati,IN,26.11,91.59,1.1,0
+BBI,Bhubaneswar Biju Patnaik,Bhubaneswar,IN,20.24,85.82,1.2,0
+UPG,Sultan Hasanuddin,Makassar,ID,-5.06,119.55,1.7,0
+BPN,Sultan Aji Muhammad,Balikpapan,ID,-1.27,116.89,1.0,0
+PLM,Sultan Mahmud Badaruddin,Palembang,ID,-2.90,104.70,1.7,0
+PNK,Supadio,Pontianak,ID,-0.15,109.40,1.0,0
+BDO,Husein Sastranegara,Bandung,ID,-6.90,107.58,8.5,0
+SRG,Achmad Yani,Semarang,ID,-6.97,110.37,2.0,0
+BTH,Hang Nadim,Batam,ID,1.12,104.12,1.2,0
+MDC,Sam Ratulangi,Manado,ID,1.55,124.92,0.7,1
+LOP,Lombok Intl,Praya,ID,-8.76,116.28,0.9,1
+DJJ,Sentani,Jayapura,ID,-2.58,140.52,0.4,0
+KOE,El Tari,Kupang,ID,-10.17,123.67,0.5,0
+AMQ,Pattimura,Ambon,ID,-3.71,128.09,0.4,0
+CEB,Mactan-Cebu,Cebu,PH,10.31,123.98,3.0,0
+DVO,Francisco Bangoy,Davao,PH,7.13,125.65,1.8,0
+ILO,Iloilo,Iloilo,PH,10.83,122.49,1.0,0
+CRK,Clark Intl,Angeles,PH,15.19,120.56,2.4,0
+KLO,Kalibo Boracay,Kalibo,PH,11.68,122.38,0.5,1
+MPH,Caticlan Boracay,Malay,PH,11.92,121.95,0.2,1
+PPS,Puerto Princesa,Puerto Princesa,PH,9.74,118.76,0.3,1
+TAG,Bohol-Panglao,Tagbilaran,PH,9.66,123.85,0.4,1
+BCD,Bacolod-Silay,Bacolod,PH,10.78,123.01,0.8,0
+CGY,Laguindingan,Cagayan de Oro,PH,8.61,124.46,0.9,0
+ZAM,Zamboanga,Zamboanga,PH,6.92,122.06,1.0,0
+HPH,Cat Bi,Hai Phong,VN,20.82,106.72,2.1,0
+VCA,Can Tho,Can Tho,VN,10.09,105.71,1.6,0
+CXR,Cam Ranh,Nha Trang,VN,11.99,109.22,0.5,1
+PQC,Phu Quoc,Phu Quoc,VN,10.17,103.99,0.2,1
+USM,Samui,Koh Samui,TH,9.55,100.06,0.2,1
+KBV,Krabi,Krabi,TH,8.10,98.99,0.5,1
+URT,Surat Thani,Surat Thani,TH,9.13,99.14,1.0,0
+HDY,Hat Yai,Hat Yai,TH,6.93,100.39,0.8,0
+REP,Siem Reap Angkor,Siem Reap,KH,13.41,103.81,0.3,1
+LPQ,Luang Prabang,Luang Prabang,LA,19.90,102.16,0.1,1
+MDL,Mandalay,Mandalay,MM,21.70,95.98,1.7,0
+CWB,Afonso Pena,Curitiba,BR,-25.53,-49.18,3.7,0
+POA,Salgado Filho,Porto Alegre,BR,-29.99,-51.17,4.3,0
+REC,Guararapes,Recife,BR,-8.13,-34.92,4.1,0
+FOR,Pinto Martins,Fortaleza,BR,-3.78,-38.53,4.1,0
+SSA,Luis Eduardo Magalhaes,Salvador,BR,-12.91,-38.33,4.0,0
+BEL,Val de Cans,Belem,BR,-1.38,-48.48,2.5,0
+MAO,Eduardo Gomes,Manaus,BR,-3.04,-60.05,2.7,0
+GYN,Santa Genoveva,Goiania,BR,-16.63,-49.22,2.8,0
+FLN,Hercilio Luz,Florianopolis,BR,-27.67,-48.55,1.2,1
+NAT,Sao Goncalo,Natal,BR,-5.91,-35.25,1.6,1
+IGU,Foz do Iguacu,Foz do Iguacu,BR,-25.60,-54.49,0.4,1
+KAN,Mallam Aminu Kano,Kano,NG,12.05,8.52,4.0,0
+PHC,Port Harcourt,Port Harcourt,NG,5.02,6.95,3.0,0
+ABJ,Felix-Houphouet-Boigny,Abidjan,CI,5.26,-3.93,5.5,0
+DAR,Julius Nyerere,Dar es Salaam,TZ,-6.88,39.20,7.0,0
+EBB,Entebbe Intl,Kampala,UG,0.04,32.44,3.6,0
+KGL,Kigali Intl,Kigali,RW,-1.97,30.14,1.3,0
+LAD,Quatro de Fevereiro,Luanda,AO,-8.86,13.23,8.3,0
+LUN,Kenneth Kaunda,Lusaka,ZM,-15.33,28.45,3.3,0
+TNR,Ivato,Antananarivo,MG,-18.80,47.48,3.2,0
+RAK,Marrakesh Menara,Marrakesh,MA,31.61,-8.04,1.5,1
+ZNZ,Abeid Amani Karume,Zanzibar,TZ,-6.22,39.22,0.7,1
+JRO,Kilimanjaro,Arusha,TZ,-3.43,37.07,0.9,1
+MBA,Moi Intl,Mombasa,KE,-4.03,39.59,1.3,1
+TAS,Tashkent Intl,Tashkent,UZ,41.26,69.28,2.9,0
+SKD,Samarkand Intl,Samarkand,UZ,39.70,66.98,0.6,1
+GYD,Heydar Aliyev,Baku,AZ,40.47,50.05,2.3,0
+EVN,Zvartnots,Yerevan,AM,40.15,44.40,1.1,0
+TBS,Tbilisi Intl,Tbilisi,GE,41.67,44.95,1.2,0
+FRU,Manas,Bishkek,KG,43.06,74.48,1.1,0
+AYT,Antalya,Antalya,TR,36.90,30.79,2.5,1
+ADB,Izmir Adnan Menderes,Izmir,TR,38.29,27.16,4.4,0
+ESB,Ankara Esenboga,Ankara,TR,40.13,32.99,5.7,0
+DMM,King Fahd Intl,Dammam,SA,26.47,49.80,1.5,0
+MED,Prince Mohammad Madinah,Medina,SA,24.55,39.71,1.5,1
+EBL,Erbil Intl,Erbil,IQ,36.24,43.96,1.5,0
+BGW,Baghdad Intl,Baghdad,IQ,33.26,44.23,7.5,0
+MCT,Muscat Intl,Muscat,OM,23.59,58.28,1.6,0
+SLL,Salalah,Salalah,OM,17.04,54.09,0.4,1
+NAP,Naples Intl,Naples,IT,40.89,14.29,3.1,0
+CTA,Catania Fontanarossa,Catania,IT,37.47,15.07,1.0,1
+BLQ,Bologna Marconi,Bologna,IT,44.53,11.30,1.0,0
+PSA,Pisa Galilei,Pisa,IT,43.68,10.39,0.5,1
+OPO,Porto Sa Carneiro,Porto,PT,41.24,-8.68,1.7,0
+FAO,Faro,Faro,PT,37.01,-7.97,0.5,1
+AGP,Malaga Costa del Sol,Malaga,ES,36.67,-4.50,1.6,1
+PMI,Palma de Mallorca,Palma,ES,39.55,2.74,1.0,1
+VLC,Valencia,Valencia,ES,39.49,-0.48,1.6,0
+SVQ,Seville,Seville,ES,37.42,-5.89,1.5,1
+BIO,Bilbao,Bilbao,ES,43.30,-2.91,1.1,0
+LYS,Lyon-Saint Exupery,Lyon,FR,45.73,5.08,1.7,0
+NCE,Nice Cote d'Azur,Nice,FR,43.66,7.22,1.0,1
+MRS,Marseille Provence,Marseille,FR,43.44,5.21,1.6,0
+STR,Stuttgart,Stuttgart,DE,48.69,9.22,2.7,0
+CGN,Cologne Bonn,Cologne,DE,50.87,7.14,2.0,0
+KRK,Krakow John Paul II,Krakow,PL,50.08,19.79,1.0,1
+GDN,Gdansk Lech Walesa,Gdansk,PL,54.38,18.47,1.1,0
+SPU,Split,Split,HR,43.54,16.30,0.4,1
+DBV,Dubrovnik,Dubrovnik,HR,42.56,18.27,0.2,1
+SOF,Sofia,Sofia,BG,42.69,23.41,1.3,0
+RIX,Riga,Riga,LV,56.92,23.97,1.0,0
+TLL,Tallinn Lennart Meri,Tallinn,EE,59.41,24.83,0.6,0
+FNC,Madeira,Funchal,PT,32.69,-16.78,0.3,1
+SDQ,Las Americas,Santo Domingo,DO,18.43,-69.67,3.3,0
+PUJ,Punta Cana,Punta Cana,DO,18.57,-68.36,0.3,1
+HAV,Jose Marti,Havana,CU,22.99,-82.41,2.1,0
+MBJ,Sangster,Montego Bay,JM,18.50,-77.91,0.7,1
+NAS,Lynden Pindling,Nassau,BS,25.04,-77.47,0.3,1
+AUA,Queen Beatrix,Oranjestad,AW,12.50,-70.01,0.1,1
+CUR,Curacao Intl,Willemstad,CW,12.19,-68.96,0.2,1
+BGI,Grantley Adams,Bridgetown,BB,13.07,-59.49,0.3,1
+POS,Piarco,Port of Spain,TT,10.60,-61.34,0.5,0
+KIN,Norman Manley,Kingston,JM,17.94,-76.79,1.2,0
+GUM,Antonio B Won Pat,Hagatna,GU,13.48,144.80,0.2,1
+NAN,Nadi Intl,Nadi,FJ,-17.76,177.44,0.2,1
+PPT,Faaa Intl,Papeete,PF,-17.55,-149.61,0.2,1
+NOU,La Tontouta,Noumea,NC,-22.01,166.21,0.2,0
+POM,Jacksons Intl,Port Moresby,PG,-9.44,147.22,0.4,0
+RAR,Rarotonga,Avarua,CK,-21.20,-159.81,0.02,1
+VLI,Bauerfield,Port Vila,VU,-17.70,168.32,0.05,1
+APW,Faleolo,Apia,WS,-13.83,-172.01,0.04,1

@@ -1,0 +1,22 @@
+{
+  "fullHash": "237221687096d145e1091d7ea4bac33838b23f31180ad681ee92efdf999a09d4",
+  "projection": {
+    "week": 9,
+    "year": 2,
+    "phase": "bankrupt",
+    "cash": -30112461,
+    "marketCap": 500000,
+    "sharePrice": 0.005,
+    "awareness": 45.2,
+    "fuelIndex": 0.553,
+    "fleetCount": 1,
+    "routeCount": 1,
+    "competitorCount": 15,
+    "activeEvents": 1,
+    "report": {
+      "revenue": 1864
+    }
+  },
+  "capturedWith": "tools/golden-master/harness.mjs",
+  "seedScenario": "60w / JFK-LAX / a320ceo"
+}

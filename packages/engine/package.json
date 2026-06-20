@@ -1,0 +1,14 @@
+{
+  "name": "@tailwinds/engine",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared deterministic simulation engine + reference data for Tailwinds (solo) and Headwinds (multiplayer). Pure JS: no React, no DOM, no localStorage.",
+  "exports": {
+    ".": "./index.mjs",
+    "./reducer": "./reducer.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "reducer.mjs"
+  ]
+}
