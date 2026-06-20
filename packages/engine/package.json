@@ -9,6 +9,7 @@
   },
   "files": [
     "index.mjs",
-    "reducer.mjs"
+    "reducer.mjs",
+    "src"
   ]
 }
