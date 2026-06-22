@@ -232,3 +232,24 @@ export function weeklyFamilyBaseCost(fleet) {
   }
   return total;
 }
+
+// ─── Fleet-complexity surcharge ───────────────────────────────────────────────
+// Operating multiple aircraft families raises fixed pilot and maintenance
+// overhead: split pilot pools, more type ratings, more specialist tooling.
+// +2% per family beyond the first; a single-family fleet pays nothing.
+export const FLEET_COMPLEXITY_PCT_PER_EXTRA_FAMILY = 0.02;
+
+// The fixed-overhead labor groups the surcharge applies to (NOT cabin/ground,
+// and NOT the separate variable flight-duty pay).
+export const COMPLEXITY_AFFECTED_GROUPS = ['pilots', 'maintenanceTeam'];
+
+/**
+ * Overhead multiplier from fleet complexity: 1 + 2% per family beyond the first.
+ * @param {object[]} fleet - array of aircraft from game state
+ * @returns {number} >= 1 (1.00 single family, 1.02 two, 1.04 three, …)
+ */
+export function fleetComplexityMultiplier(fleet) {
+  const families = activeFamilies(fleet).size;
+  if (families <= 1) return 1;
+  return 1 + FLEET_COMPLEXITY_PCT_PER_EXTRA_FAMILY * (families - 1);
+}
