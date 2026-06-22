@@ -1,0 +1,133 @@
+// Headwinds — Phase 1 data model.
+// See HEADWINDS_PHASE1_SCOPE.md §4 and HEADWINDS_MULTIPLAYER_PLAN.md §3a/§8.
+//
+// Authoritative state lives HERE (Postgres), never in server memory. The big
+// per-airline save blob goes in Airline.state (JSONB) — the same JSON shape the
+// solo game already serializes — with cash/marketCap/week promoted to columns for
+// sorting and leaderboards.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (pgBouncer) — used by the running app
+  directUrl = env("DIRECT_URL") // direct connection — used by `prisma migrate`
+}
+
+enum WorldStatus {
+  LOBBY
+  RUNNING
+  ENDED
+  ARCHIVED
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum AirlineStatus {
+  ACTIVE
+  BANKRUPT
+  ABANDONED
+}
+
+model Account {
+  id          String    @id @default(cuid())
+  authUserId  String    @unique // Supabase auth user id (token `sub`)
+  email       String    @unique
+  displayName String
+  cosmetics   Json      @default("[]") // unlocked liveries/logos (meta-progression)
+  careerStats Json      @default("{}") // cross-season hall-of-fame stats
+  createdAt   DateTime  @default(now())
+  airlines    Airline[]
+}
+
+model World {
+  id          String      @id @default(cuid())
+  name        String
+  status      WorldStatus @default(LOBBY)
+  visibility  Visibility  @default(PUBLIC)
+  lengthYears Int // 50 | 100  (§3a)
+  weeksPerDay Int // 6 | 12 | 24 | 48  (§3a)
+  currentWeek Int         @default(1)
+  currentYear Int         @default(1)
+  maxPlayers  Int         @default(50)
+  joinCode    String?     @unique // for PRIVATE worlds
+  worldSeed   String // deterministic world generation
+  tickConfig  Json        @default("{}")
+  startedAt   DateTime?
+  endsAt      DateTime? // derived: startedAt + lengthYears*52/weeksPerDay days
+  createdAt   DateTime    @default(now())
+  endedAt     DateTime?
+  airlines    Airline[]
+  standings   Standing[]
+  ticks       TickLog[]
+  decisions   Decision[]
+
+  @@index([status, visibility])
+}
+
+model Airline {
+  id          String        @id @default(cuid())
+  worldId     String
+  accountId   String
+  name        String
+  hub         String
+  homeCountry String?
+  state       Json // ← the existing solo save blob (JSONB)
+  cash        BigInt        @default(0)
+  marketCap   BigInt        @default(0)
+  week        Int           @default(1)
+  status      AirlineStatus @default(ACTIVE)
+  joinedWeek  Int           @default(1)
+  createdAt   DateTime      @default(now())
+  world       World         @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  account     Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, accountId]) // one airline per account per world
+  @@index([worldId, cash])
+}
+
+// ── Phase-2-ready: created now, written when the tick lands ──────────────────
+
+model Decision {
+  id        String   @id @default(cuid())
+  worldId   String
+  airlineId String
+  week      Int
+  type      String // validated against the engine action allow-list
+  payload   Json
+  createdAt DateTime @default(now())
+  world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, week])
+}
+
+model TickLog {
+  id         String    @id @default(cuid())
+  worldId    String
+  week       Int
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  status     String // ok | error
+  error      String?
+  world      World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, week])
+}
+
+model Standing {
+  id        String   @id @default(cuid())
+  worldId   String
+  airlineId String
+  week      Int
+  rank      Int
+  score     BigInt
+  createdAt DateTime @default(now())
+  world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, week, rank])
+}

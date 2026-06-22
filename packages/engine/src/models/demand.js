@@ -490,11 +490,18 @@ export function computeMarketShare(market, offers) {
       adjustedBusinessDemand * bShare * priceChokeFactor(bizPrice, market.referencePrice * BUSINESS_PRICE_MULTIPLIER)
     );
 
-    // Cap at capacity
-    const leisureCapped  = leisurePax  > offer.economySeats;
+    // Cap at capacity. Business is seated first; leisure then fills the REMAINING
+    // physical seats (whole aircraft − business pax), not just the economy cabin.
+    // Capping leisure at the economy cabin alone leaves a route seat-bound below
+    // 100% with empty premium seats and freezes load against price. Competitor /
+    // legacy offers without `totalSeats` keep the original economy-cabin cap.
     const businessCapped = offer.businessPrice != null && businessPax > offer.businessSeats;
-    if (leisureCapped)  leisurePax  = offer.economySeats;
     if (businessCapped) businessPax = offer.businessSeats;
+    const leisureCap = offer.totalSeats != null
+      ? Math.max(0, offer.totalSeats - businessPax)
+      : offer.economySeats;
+    const leisureCapped  = leisurePax > leisureCap;
+    if (leisureCapped)  leisurePax  = leisureCap;
 
     const economyRevenue  = leisurePax  * offer.economyPrice;
     const businessRevenue = offer.businessPrice != null ? businessPax * offer.businessPrice : 0;
@@ -545,7 +552,14 @@ function _monopolyResult(market, offer) {
       * priceChokeFactor(offer.economyPrice, market.referencePrice)
   );
 
-  const leisurePax  = Math.min(leisureAdj,  offer.economySeats);
+  // Leisure fills every physical seat not taken by business pax (whole aircraft −
+  // business), not just the economy cabin — so a capacity-constrained route reaches
+  // 100% and load responds to price instead of freezing. Legacy offers without
+  // `totalSeats` keep the original economy-cabin cap.
+  const leisureCap  = offer.totalSeats != null
+    ? Math.max(0, offer.totalSeats - businessPax)
+    : offer.economySeats;
+  const leisurePax  = Math.min(leisureAdj, leisureCap);
 
   const economyRevenue  = leisurePax  * offer.economyPrice;
   const businessRevenue = businessPax * (offer.businessPrice ?? 0);

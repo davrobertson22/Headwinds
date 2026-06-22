@@ -1,0 +1,59 @@
+// Supabase auth: verify the bearer token on each request and map it to an Account.
+//
+// The browser signs in with Supabase (email / Google / Apple) and sends the
+// resulting access token as `Authorization: Bearer <token>`. We verify it with
+// Supabase, then upsert a local Account row keyed by the Supabase user id — so the
+// first authenticated request a new user makes "creates" their account.
+//
+// Phase-1 note: getUser() validates the token via Supabase (one network call per
+// request). That's fine for lobby traffic. A later optimization is to verify the
+// JWT locally with the project's JWT secret and cache the account lookup.
+import { createClient } from '@supabase/supabase-js';
+import { env } from './env.mjs';
+import { prisma } from './db.mjs';
+
+const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+function unauthorized(message) {
+  const e = new Error(message);
+  e.statusCode = 401;
+  return e;
+}
+
+function bearerToken(request) {
+  const h = request.headers.authorization || '';
+  const [scheme, token] = h.split(' ');
+  if (scheme !== 'Bearer' || !token) return null;
+  return token;
+}
+
+// Verify a Supabase token and return the matching local Account (creating it on
+// first sight). Throws 401 if the token is missing or invalid.
+export async function resolveAccount(request) {
+  const token = bearerToken(request);
+  if (!token) throw unauthorized('Missing Authorization: Bearer <token>');
+
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) throw unauthorized('Invalid or expired session');
+
+  const user = data.user;
+  const email = user.email ?? `${user.id}@no-email.local`;
+  const displayName =
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    email.split('@')[0];
+
+  return prisma.account.upsert({
+    where: { authUserId: user.id },
+    update: { email },
+    create: { authUserId: user.id, email, displayName },
+  });
+}
+
+// Fastify preHandler: require a valid session and attach request.account.
+// Usage: fastify.get('/me', { preHandler: requireAuth }, handler)
+export async function requireAuth(request) {
+  request.account = await resolveAccount(request);
+}

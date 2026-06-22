@@ -677,6 +677,9 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     seatsPerFlight:    type.seats,
     economySeats,
     businessSeats:     (config.businessClass ?? 0) * route.weeklyFrequency,
+    // Total physical capacity (all cabins) × frequency — the demand model caps
+    // leisure at totalSeats − business pax so the whole aircraft can fill.
+    totalSeats:        type.seats * route.weeklyFrequency,
     qualityScore,
     connectivityBonus,
   };
@@ -1396,6 +1399,7 @@ export function weeklyTick(state) {
       // Aggregate capacity across all aircraft in the group
       let totalEcoSeats = 0;
       let totalBizSeats = 0;
+      let totalPhysSeats = 0; // total physical capacity (all cabins) across the group
       let totalFreq     = 0;
       let totalQuality  = 0;
       let hasBusinessCabin = false;
@@ -1409,6 +1413,7 @@ export function weeklyTick(state) {
         const biz  = (cfg.businessClass ?? 0) * freq;
         totalEcoSeats += eco;
         totalBizSeats += biz;
+        totalPhysSeats += type.seats * freq;
         totalFreq     += freq;
         totalQuality  += computeQualityScore({
           onTimeRate:    laborEffects(labor).onTimeRate,
@@ -1437,6 +1442,7 @@ export function weeklyTick(state) {
         seatsPerFlight:    totalFreq > 0 ? Math.round((totalEcoSeats + totalBizSeats) / totalFreq) : 0,
         economySeats:      totalEcoSeats,
         businessSeats:     totalBizSeats,
+        totalSeats:        totalPhysSeats,
         qualityScore:      avgQuality,
         connectivityBonus: connBonus,
       };

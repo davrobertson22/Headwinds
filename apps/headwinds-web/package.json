@@ -1,0 +1,10 @@
+{
+  "name": "@headwinds/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headwinds multiplayer web client — PLACEHOLDER. Will submit decisions to @headwinds/server and render server-computed world state, reusing @tailwinds/engine for local UI preview.",
+  "dependencies": {
+    "@tailwinds/engine": "*"
+  }
+}
