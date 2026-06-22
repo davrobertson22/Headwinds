@@ -1371,7 +1371,10 @@ function reducer(state, action) {
         if (a.status !== 'grounded') return a;
         const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
         if (weeksLeft <= 0) {
-          const hasRoute = state.routes.some(r => r.aircraftId === a.id);
+          // Check BOTH passenger and cargo routes — a freighter finishing repairs
+          // must come back 'assigned' to its cargo route, not drop to 'idle'.
+          const hasRoute = state.routes.some(r => r.aircraftId === a.id)
+            || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
           return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 };
         }
         return { ...a, groundedWeeksLeft: weeksLeft };
