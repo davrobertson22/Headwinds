@@ -158,8 +158,42 @@ console.log('\n5. Defunding penalty');
   check('benefits gone by end while liability lingers', end.benefit < before.benefit * 0.25 && end.liability > 0);
 }
 
-// ─── 6. Enrollment pull halved ───────────────────────────────────────────────
-console.log('\n6. Enrollment pacing');
+// ─── 6. Airline shrinks — no permanent 100% penetration ─────────────────────
+console.log('\n6. Shrinking airline');
+{
+  // Build a mature Elite program at 100k pax/wk, then shrink to 25k pax/wk.
+  // Inactive members must lapse toward the 85% hard cap instead of pinning
+  // penetration at 100% forever.
+  const HARD_CAP_PEN = 0.85, EXCESS_LAPSE = 0.90;
+  let members = 0, maturity = 0;
+  const step = (pax, inv) => {
+    const tier = loyaltyTier(inv);
+    if (inv > 0) {
+      const ceiling  = tier.maxPenetration * pax * 4;
+      const headroom = ceiling > 0 ? Math.max(0, 1 - members / ceiling) : 0;
+      members  = Math.round(members * 0.996 + pax * loyaltyEnrollPull(inv) * headroom);
+      maturity = Math.min(1, maturity + (tier.maturityFactor ?? 1) / 80);
+    } else {
+      members = Math.round(members * (maturity > 0.4 ? 0.97 : 0.988));
+      maturity = Math.max(0, maturity - 1 / 20);
+    }
+    const hardCap = Math.round(pax * 4 * HARD_CAP_PEN);
+    if (hardCap > 0 && members > hardCap) members = Math.round(hardCap + (members - hardCap) * EXCESS_LAPSE);
+  };
+  for (let w = 0; w < 150; w++) step(100_000, 800_000);   // grow big at Elite
+  const bigMembers = members;
+  check('big-airline penetration below hard cap', loyaltyPenetration(bigMembers, 100_000) < 0.85);
+  for (let w = 0; w < 26; w++) step(25_000, 800_000);     // shrink to a quarter the pax
+  const penHalfYear = loyaltyPenetration(members, 25_000);
+  check('6 months after shrinking, penetration falling (<92%)', penHalfYear < 0.92, `pen=${penHalfYear.toFixed(3)}`);
+  for (let w = 0; w < 26; w++) step(25_000, 800_000);     // another 6 months
+  const penYear = loyaltyPenetration(members, 25_000);
+  check('1 year after shrinking, penetration ≤ 86%', penYear <= 0.86, `pen=${penYear.toFixed(3)}`);
+  check('inactive members actually lapsed', members < bigMembers * 0.55, `${bigMembers} → ${members}`);
+}
+
+// ─── 7. Enrollment pull halved ───────────────────────────────────────────────
+console.log('\n7. Enrollment pacing');
 {
   check('pull capped at 12%/wk', loyaltyEnrollPull(10_000_000) === 0.12);
   check('Gold pull is 10%/wk', Math.abs(loyaltyEnrollPull(400_000) - 0.10) < 1e-9);

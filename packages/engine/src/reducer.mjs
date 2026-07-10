@@ -9,7 +9,7 @@ import {
   routeStops, routeLegs, routeSegments, routeSegmentKey,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
   MAX_ROUTE_STOPS,
-  loyaltyTier, loyaltyEnrollPull,
+  loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
   isRouteActive, routeActiveMonths,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield } from './utils/market.js';
@@ -1687,7 +1687,9 @@ function reducer(state, action) {
       // Ease ~18%/week toward the set budget (≈63% of a change felt after 5 weeks).
       const effInvestment    = Math.round(prevEff + (targetInvestment - prevEff) * 0.18);
 
-      const loyaltyWeeklyPax = report.totalPassengers ?? 0;
+      // Smoothed passenger base (8-wk avg) so a dip or shrink doesn't fake-inflate
+      // penetration; falls back to this week's count for young/old saves.
+      const loyaltyWeeklyPax = loyaltyPaxBase(state) || (report.totalPassengers ?? 0);
       const prevMaturity     = currentLoyalty.maturity ?? 0;
       let newLoyaltyMembers  = currentLoyalty.members ?? 0;
       let newMaturity        = prevMaturity;
@@ -1711,6 +1713,13 @@ function reducer(state, action) {
         const lapseRate = prevMaturity > 0.4 ? 0.97 : 0.988;
         newLoyaltyMembers = Math.round(newLoyaltyMembers * lapseRate);
         newMaturity = Math.max(0, prevMaturity - 1 / 20);
+      }
+      // Members who no longer fly you lapse: the base can't exceed ~85% of a
+      // month's flyers. Shrink the airline and the excess bleeds off at
+      // ~10%/wk — no more "100% of pax are members" after cutting routes.
+      const loyaltyHardCap = Math.round(loyaltyWeeklyPax * 4 * 0.85);
+      if (loyaltyHardCap > 0 && newLoyaltyMembers > loyaltyHardCap) {
+        newLoyaltyMembers = Math.round(loyaltyHardCap + (newLoyaltyMembers - loyaltyHardCap) * 0.90);
       }
       // Outstanding points liability was advanced by the engine this week
       // (earn accrual minus redemptions/breakage) — persist the new stock.
@@ -2236,6 +2245,7 @@ function reducer(state, action) {
         year:        state.year,
         cash:        newCash,
         revenue:     report.totalRevenue,
+        passengers:  report.totalPassengers ?? 0,   // for the loyalty smoothed pax base
         leases:      report.totalLeases,
         maintenance: report.totalMaintenance,
         fuel:        report.totalFuel,

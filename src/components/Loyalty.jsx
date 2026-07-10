@@ -4,6 +4,7 @@ import { useGame } from '../store/GameContext.jsx';
 import {
   formatMoney,
   loyaltyPenetration,
+  loyaltyPaxBase,
   loyaltyTier,
   loyaltyEffectiveStrength,
   loyaltyDemandBoostPct,
@@ -47,7 +48,8 @@ export default function Loyalty() {
   const [draftInvestment, setDraftInvestment] = useState(loyalty.weeklyInvestment);
 
   const weeklyRevenue    = lastReport?.totalRevenue ?? 0;
-  const weeklyPassengers = lastReport?.totalPassengers ?? 0;
+  // Smoothed 8-week pax base — same figure the engine uses for penetration.
+  const weeklyPassengers = loyaltyPaxBase(state) || (lastReport?.totalPassengers ?? 0);
 
   const members    = loyalty.members ?? 0;
   const investment = loyalty.weeklyInvestment ?? 0;

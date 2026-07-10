@@ -1364,6 +1364,26 @@ export function loyaltyPenetration(members, weeklyPassengers) {
   return Math.min(1, (members ?? 0) / (weeklyPassengers * 4));
 }
 
+// Passenger base used for penetration & enrollment ceilings: an 8-week average
+// rather than last week's count, so a seasonal dip or route cut doesn't
+// instantly inflate penetration (members ÷ tiny pax week = fake 100%).
+// Falls back to last week's passengers for old saves without history data.
+export function loyaltyPaxBase(state) {
+  const hist = (state?.financialHistory ?? [])
+    .slice(-8)
+    .map(h => h?.passengers ?? 0)
+    .filter(v => v > 0);
+  const last = state?.lastReport?.totalPassengers ?? 0;
+  if (!hist.length) return last;
+  return Math.round(hist.reduce((s, v) => s + v, 0) / hist.length);
+}
+
+// Not every seat can hold a member — a monthly flyer base is at most ~85%
+// enrolled. Members beyond that (people who no longer fly you) lapse at
+// ~10%/wk of the excess: status expires when the flying stops.
+export const LOYALTY_HARD_CAP_PEN = 0.85;
+export const LOYALTY_EXCESS_LAPSE = 0.10;
+
 // Investment tier → program quality. Higher tiers unlock a higher achievable
 // penetration CEILING, richer rewards (generosity drives points earn), HIGHER
 // EFFECT CAPS (demandCap / sensCap — the reason Elite exists), and faster
@@ -1627,8 +1647,8 @@ export function weeklyTick(state) {
   // routes — where frequent flyers actually have a captive relationship — and
   // diluted on off-hub leisure routes where people buy on price regardless.
   const loyaltyMembers      = loyalty?.members ?? 0;
-  const loyaltyPaxBase      = state.lastReport?.totalPassengers ?? 0;
-  const loyaltyPenet        = loyaltyPenetration(loyaltyMembers, loyaltyPaxBase);
+  const loyaltyPaxSmoothed  = loyaltyPaxBase(state);
+  const loyaltyPenet        = loyaltyPenetration(loyaltyMembers, loyaltyPaxSmoothed);
   const loyaltyMaturity     = loyalty?.maturity ?? 0;
   const loyaltyStrength     = loyaltyEffectiveStrength(loyaltyPenet, loyaltyMaturity);
   const loyaltyTierNow      = loyaltyTier(loyalty?.effInvestment ?? loyalty?.weeklyInvestment ?? 0);
