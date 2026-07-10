@@ -1,11 +1,16 @@
-// Headwinds web client — Phase 1: sign in → browse worlds → join → sit in the lobby.
-// Hash-based routing keeps it dependency-free: '#/' = world list, '#/w/<id>' = world.
-import { useState, useEffect, useCallback, useMemo } from 'react';
+// Headwinds web client — sign in → browse worlds → join → play.
+// Hash routes: '#/' world list · '#/w/<id>' world lobby · '#/w/<id>/play' the
+// full Tailwinds game UI running on server-authoritative state.
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { hydrateRoute } from '../../../packages/engine/src/utils/simulation.js';
+
+// Lazy: the full game UI (and its CSS) loads only when a player opens a world —
+// it's the whole solo app, no need to ship it to the lobby.
+const GamePlayScreen = lazy(() => import('./GamePlayScreen.jsx'));
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +38,8 @@ function useRoute() {
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
-  const m = hash.match(/^#\/w\/([\w-]+)/);
+  const m = hash.match(/^#\/w\/([\w-]+)(\/play)?/);
+  if (m && m[2]) return { screen: 'play', worldId: m[1] };
   return m ? { screen: 'world', worldId: m[1] } : { screen: 'worlds' };
 }
 
@@ -526,7 +532,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         {mine && (
           <div className="mine">
             <p>Flying as <strong>{mine.name}</strong> ({mine.hub}) — {fmtMoney(mine.cash)}</p>
-            <button className="btn danger small" onClick={leave}>Abandon airline</button>
+            <div className="row">
+              <button className="btn primary" onClick={() => goTo(`/w/${world.id}/play`)}>▶ Open the game</button>
+              <button className="btn danger small" onClick={leave}>Abandon airline</button>
+            </div>
           </div>
         )}
       </div>
@@ -598,9 +607,15 @@ export default function App() {
       {!ready ? <p className="muted">Loading…</p> : (
         <>
           {!session && <SignIn />}
-          {route.screen === 'worlds'
-            ? <WorldsScreen token={token} me={me} />
-            : <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
+          {route.screen === 'worlds' && <WorldsScreen token={token} me={me} />}
+          {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
+          {route.screen === 'play' && (
+            token
+              ? <Suspense fallback={<p className="muted">Loading the game…</p>}>
+                  <GamePlayScreen worldId={route.worldId} token={token} />
+                </Suspense>
+              : <p className="muted">Sign in to play.</p>
+          )}
         </>
       )}
 

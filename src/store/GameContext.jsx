@@ -13,6 +13,18 @@ export { reducer as gameReducer, freshState, reconcileState };
 const GameContext = createContext(null);
 const SAVE_KEY = 'bbae_save_v2'; // bump version to avoid old-format conflicts
 
+// Routes hydrated with their per-pair price so every consumer can keep reading
+// route.classPrices / route.ticketPrice unchanged (the reducer stores the
+// normalized form — price only in state.routePricing).
+function hydratedValue(state, dispatch) {
+  return {
+    state: {
+      ...state,
+      routes: (state.routes ?? []).map((r) => hydrateRoute(r, state.routePricing, state.routeCatering)),
+    },
+    dispatch,
+  };
+}
 
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, null, () => {
@@ -27,17 +39,22 @@ export function GameProvider({ children }) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
   }, [state]);
 
-  // Expose routes already hydrated with their per-pair price, so every consumer can
-  // keep reading route.classPrices / route.ticketPrice unchanged. The reducer stores
-  // (and persists) the normalized form — price only in state.routePricing.
-  const value = useMemo(() => ({
-    state: {
-      ...state,
-      routes: (state.routes ?? []).map(r => hydrateRoute(r, state.routePricing, state.routeCatering)),
-    },
-    dispatch,
-  }), [state]);
+  const value = useMemo(() => hydratedValue(state, dispatch), [state]);
 
+  return (
+    <GameContext.Provider value={value}>
+      {children}
+    </GameContext.Provider>
+  );
+}
+
+// ── Multiplayer (Headwinds) binding ───────────────────────────────────────────
+// The SAME context, but state and dispatch are supplied by the caller — the
+// Headwinds web client passes server-authoritative state and a dispatch that
+// submits validated intents to the API. Every screen that calls useGame() works
+// unchanged on top of it. No localStorage: the server owns persistence.
+export function RemoteGameProvider({ state, dispatch, children }) {
+  const value = useMemo(() => hydratedValue(state, dispatch), [state, dispatch]);
   return (
     <GameContext.Provider value={value}>
       {children}
