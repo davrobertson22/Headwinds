@@ -1,0 +1,90 @@
+/* Headwinds web — dark theme in the same family as the Tailwinds game UI. */
+:root {
+  --bg: #0b0e13;
+  --panel: #141a23;
+  --panel-2: #1b2330;
+  --line: #263143;
+  --text: #e8edf4;
+  --muted: #8b98ab;
+  --gold: #e3b341;
+  --green: #3fb96b;
+  --red: #e05c5c;
+  --blue: #5c9de0;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+.shell { max-width: 880px; margin: 0 auto; padding: 16px 16px 48px; }
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px;
+}
+.brand { font-weight: 800; letter-spacing: 2px; color: var(--gold); text-decoration: none; }
+h2, h3 { margin: 8px 0; }
+a { color: var(--blue); }
+code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px; margin: 12px 0;
+}
+.card.narrow { max-width: 420px; margin: 32px auto; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.error { color: var(--red); margin: 8px 0 0; }
+
+.row { display: flex; gap: 8px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.divider { text-align: center; color: var(--muted); margin: 12px 0; font-size: 13px; }
+
+input, select {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; font: inherit;
+}
+input:focus, select:focus { outline: 1px solid var(--gold); }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.hub-input { width: 130px; }
+
+.btn {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;
+}
+.btn:hover { border-color: var(--gold); }
+.btn.primary { background: var(--gold); color: #1a1405; border-color: var(--gold); font-weight: 600; }
+.btn.danger { border-color: var(--red); color: var(--red); }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.btn.wide { width: 100%; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.airline-chip { text-align: left; }
+
+.list-head { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+
+table.worlds { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+table.worlds th {
+  text-align: left; color: var(--muted); font-size: 12px; text-transform: uppercase;
+  letter-spacing: 1px; padding: 6px 8px; border-bottom: 1px solid var(--line);
+}
+table.worlds td { padding: 8px; border-bottom: 1px solid var(--line); }
+tr.me-row td { background: rgba(227, 179, 65, 0.07); }
+
+.chip {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px; text-transform: uppercase;
+  letter-spacing: 1px; border: 1px solid var(--line);
+}
+.chip-lobby { color: var(--gold); border-color: var(--gold); }
+.chip-running, .chip-active { color: var(--green); border-color: var(--green); }
+.chip-ended, .chip-archived, .chip-abandoned { color: var(--muted); }
+.chip-bankrupt { color: var(--red); border-color: var(--red); }
+
+.world-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.progress {
+  height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden;
+  margin-top: 8px; max-width: 420px;
+}
+.progress div { height: 100%; background: var(--gold); }
+.join-code { color: var(--gold); font-weight: 700; letter-spacing: 2px; }
+.mine { text-align: right; }
+
+footer { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 12px; }

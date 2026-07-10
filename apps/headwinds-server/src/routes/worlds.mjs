@@ -1,5 +1,5 @@
 // /worlds — browse, view, create, join, and leave worlds.
-import { requireAuth } from '../auth.mjs';
+import { requireAuth, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import {
@@ -51,8 +51,20 @@ export default async function worldRoutes(fastify) {
       orderBy: { marketCap: 'desc' },
       take: 100,
     });
+
+    // Optional auth: members of a private world get its join code back (so the
+    // creator can re-find it to share); everyone else never sees it.
+    let isMember = false;
+    try {
+      const account = await resolveAccount(request);
+      isMember = airlines.some((a) => a.accountId === account.id);
+    } catch { /* anonymous viewer */ }
+
     return {
-      world: serializeWorld(world, { playerCount: world._count.airlines }),
+      world: serializeWorld(world, {
+        playerCount: world._count.airlines,
+        includeJoinCode: isMember,
+      }),
       standings: airlines.map((a, i) => ({ rank: i + 1, ...serializeAirline(a) })),
     };
   });
@@ -75,7 +87,9 @@ export default async function worldRoutes(fastify) {
     },
   }, async (request, reply) => {
     const world = await createWorld(prisma, request.body);
-    return reply.code(201).send({ world: serializeWorld(world, { playerCount: 0 }) });
+    return reply.code(201).send({
+      world: serializeWorld(world, { playerCount: 0, includeJoinCode: true }),
+    });
   });
 
   // ── Join a world (creates your airline) ───────────────────────────────────

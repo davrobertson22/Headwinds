@@ -89,7 +89,7 @@ export function worldProgress(world) {
 const toNum = (v) => (v == null ? v : Number(v));
 
 // Plain-JSON view of a world for API responses (BigInt-safe, with derivations).
-export function serializeWorld(world, { playerCount } = {}) {
+export function serializeWorld(world, { playerCount, includeJoinCode = false } = {}) {
   return {
     id: world.id,
     name: world.name,
@@ -101,7 +101,9 @@ export function serializeWorld(world, { playerCount } = {}) {
     progress: worldProgress(world),
     maxPlayers: world.maxPlayers,
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
-    joinCode: world.visibility === 'PRIVATE' ? world.joinCode : undefined,
+    // Never leak a private world's join code to non-members: only the create
+    // response, /me, and member views of /worlds/:id opt in.
+    joinCode: includeJoinCode && world.visibility === 'PRIVATE' ? world.joinCode : undefined,
     startedAt: world.startedAt,
     endsAt: world.endsAt,
     createdAt: world.createdAt,
@@ -109,7 +111,7 @@ export function serializeWorld(world, { playerCount } = {}) {
 }
 
 // Plain-JSON view of an airline (BigInt cash/marketCap → Number).
-export function serializeAirline(a, { world } = {}) {
+export function serializeAirline(a, { world, includeJoinCode = false } = {}) {
   return {
     id: a.id,
     worldId: a.worldId,
@@ -120,6 +122,6 @@ export function serializeAirline(a, { world } = {}) {
     week: a.week,
     status: a.status,
     joinedWeek: a.joinedWeek,
-    world: world ? serializeWorld(world) : undefined,
+    world: world ? serializeWorld(world, { includeJoinCode }) : undefined,
   };
 }

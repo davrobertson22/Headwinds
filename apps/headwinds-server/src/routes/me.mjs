@@ -17,7 +17,9 @@ export default async function meRoutes(fastify) {
         email: account.email,
         displayName: account.displayName,
       },
-      airlines: airlines.map((a) => serializeAirline(a, { world: a.world })),
+      // Your own worlds include their join code — you're a member.
+      airlines: airlines.map((a) =>
+        serializeAirline(a, { world: a.world, includeJoinCode: true })),
     };
   });
 }

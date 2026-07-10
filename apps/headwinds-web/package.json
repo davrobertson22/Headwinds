@@ -1,10 +1,22 @@
 {
   "name": "@headwinds/web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Headwinds multiplayer web client — PLACEHOLDER. Will submit decisions to @headwinds/server and render server-computed world state, reusing @tailwinds/engine for local UI preview.",
+  "description": "Headwinds multiplayer web client — sign in, browse worlds, join a lobby. Talks to @headwinds/server; Phase 2 adds gameplay (decision submission + server-computed state).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "@tailwinds/engine": "*"
+    "@supabase/supabase-js": "^2.47.10",
+    "@tailwinds/engine": "*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
   }
 }
