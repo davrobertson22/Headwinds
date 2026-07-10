@@ -15,11 +15,15 @@ State lives in **Postgres** (via Prisma); auth is **Supabase**. See
 
 ---
 
-## Phase 1 status
+## Status
 
-Done: accounts, the world data model, the lobby API (list / view / create / join /
-leave worlds), and the staggered world spawner. **Not yet:** the gameplay tick
-(Phase 2). The legacy zero-infra in-memory demo (`demo.mjs`, `src/store.mjs`,
+Phase 1 done: accounts, the world data model, the lobby API, the staggered spawner.
+Phase 2 done: the authoritative weekly tick — the worker advances every RUNNING
+world on its pace schedule (compare-and-set on the world clock for idempotency,
+capped catch-up after downtime, TickLog + weekly Standing snapshots) — and the
+gameplay decisions API (`POST /worlds/:id/decisions`): allow-listed intents run
+through the shared engine reducer; `GET /worlds/:id/airline` returns your
+authoritative state. **Not yet:** cross-player demand coupling (Phase 3). The legacy zero-infra in-memory demo (`demo.mjs`, `src/store.mjs`,
 `src/world.mjs`) is kept as a runnable illustration and is independent of the DB.
 
 ---

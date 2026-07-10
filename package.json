@@ -15,11 +15,12 @@
     "test:route-config": "node --import ./tools/_register-loader.mjs tools/route-config-test.mjs",
     "test:bulk-pricing": "node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs",
     "test:web": "node --import ./tools/_register-loader.mjs tools/headwinds-web-smoke-test.mjs",
+    "test:tick": "node tools/headwinds-tick-test.mjs",
     "web:dev": "npm run dev -w @headwinds/web",
     "web:build": "npm run build -w @headwinds/web",
     "server:dev": "npm run dev -w @headwinds/server",
     "worker:dev": "npm run worker -w @headwinds/server",
-    "test": "node tools/cargo-test.mjs && node tools/multistop-test.mjs && node tools/multistop-edge-test.mjs && node tools/reducer-tag-test.mjs && node tools/seasonal-test.mjs && node --import ./tools/_register-loader.mjs tools/ui-smoke-test.mjs && node --import ./tools/_register-loader.mjs tools/route-config-test.mjs && node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs && node --import ./tools/_register-loader.mjs tools/headwinds-web-smoke-test.mjs"
+    "test": "node tools/cargo-test.mjs && node tools/multistop-test.mjs && node tools/multistop-edge-test.mjs && node tools/reducer-tag-test.mjs && node tools/seasonal-test.mjs && node --import ./tools/_register-loader.mjs tools/ui-smoke-test.mjs && node --import ./tools/_register-loader.mjs tools/route-config-test.mjs && node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs && node --import ./tools/_register-loader.mjs tools/headwinds-web-smoke-test.mjs && node tools/headwinds-tick-test.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

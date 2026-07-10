@@ -12,12 +12,35 @@ import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 // Actions a client is allowed to submit. The server NEVER trusts the client to
 // compute results — it only accepts intents from this allow-list and re-runs
 // them through the authoritative reducer. (This is the anti-cheat boundary.)
-// ADVANCE_WEEK is intentionally NOT here: only the server's scheduler ticks time.
+//
+// This is every player action the reducer implements EXCEPT the four the server
+// reserves for itself: ADVANCE_WEEK (only the scheduler ticks time), START_GAME
+// (only join seeds a state), LOAD_STATE and RESET (state surgery — a client could
+// hand itself any save). Keep in sync with the reducer's `case` list when new
+// actions land in a Tailwinds sync.
 export const ALLOWED_PLAYER_ACTIONS = new Set([
-  'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETURN_LEASE',
-  'ADD_ROUTE', 'REMOVE_ROUTE', 'SET_ROUTE_PRICE', 'SET_ROUTE_FREQUENCY',
-  'SET_AIRCRAFT_CONFIG', 'ADD_GATE', 'UPGRADE_HUB',
-  'SET_MARKETING_BUDGET', 'SET_LOYALTY_INVESTMENT', 'TAKE_LOAN', 'REPAY_LOAN',
+  // Fleet
+  'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT',
+  'RENEW_LEASE', 'ORDER_AIRCRAFT', 'CANCEL_ORDER', 'RENAME_ORDER',
+  'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
+  // Routes — passenger, cargo, tag
+  'ADD_ROUTE', 'CLOSE_ROUTE', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',
+  'UPDATE_TICKET_PRICE', 'UPDATE_CLASS_PRICES', 'SET_SEGMENT_PRICE',
+  'BULK_ADJUST_PRICING', 'UPDATE_FREQUENCY', 'UPDATE_CARGO_FREQUENCY',
+  'UPDATE_CARGO_YIELD', 'SET_ROUTE_CATERING', 'SET_DEFAULT_CATERING',
+  // Airports, hubs, gates
+  'ADD_GATE', 'REMOVE_GATE', 'UPGRADE_HUB', 'DOWNGRADE_HUB',
+  'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
+  // Money & market
+  'TAKE_LOAN', 'REPAY_LOAN', 'BUY_HEDGE', 'ACQUIRE_COMPETITOR',
+  // Marketing, loyalty, branding
+  'SET_MARKETING_BUDGET', 'SET_TARGETED_MARKETING', 'SET_LOYALTY_INVESTMENT', 'SET_BRANDING',
+  // Labor
+  'SET_LABOR_PAY', 'SET_MAINTENANCE_BUDGET', 'RESOLVE_NEGOTIATION', 'SETTLE_STRIKE',
+  // Alliances & codeshares
+  'JOIN_ALLIANCE', 'LEAVE_ALLIANCE', 'SIGN_CODESHARE', 'CANCEL_CODESHARE',
+  // Client-side acknowledgements that live in state
+  'DISMISS_DEBRIEF', 'ACKNOWLEDGE_VICTORY', 'CLEAR_ERROR', 'CLEAR_TOASTS',
 ]);
 
 let _id = 0;

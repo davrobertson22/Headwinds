@@ -3,14 +3,15 @@
 //   npm run -w @headwinds/server dev     # local, auto-reload
 //   npm run -w @headwinds/server start   # production
 //
-// The authoritative weekly TICK is NOT here — it runs in the worker (Phase 2).
-// This service is the player-facing API: accounts + the world lobby (Phase 1).
+// The authoritative weekly TICK is NOT here — it runs in the worker. This service
+// is the player-facing API: accounts, the world lobby, and gameplay decisions.
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
 import meRoutes from './routes/me.mjs';
 import worldRoutes from './routes/worlds.mjs';
+import decisionRoutes from './routes/decisions.mjs';
 
 export function buildServer() {
   const app = Fastify({
@@ -31,6 +32,7 @@ export function buildServer() {
 
   app.register(meRoutes);
   app.register(worldRoutes);
+  app.register(decisionRoutes);
 
   return app;
 }

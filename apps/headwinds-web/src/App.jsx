@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
+import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
+import { hydrateRoute } from '../../../packages/engine/src/utils/simulation.js';
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
@@ -313,6 +315,170 @@ function WorldsScreen({ token, me }) {
   );
 }
 
+// ── Airline gameplay panel (Phase 2) ──────────────────────────────────────────
+// Reads the authoritative state blob from the server; submits decisions and
+// re-renders from the server's result. The engine runs HERE only for display
+// helpers (hydrateRoute) — never to compute outcomes.
+
+function AirlinePanel({ worldId, token }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  // forms
+  const [leaseType, setLeaseType] = useState('');
+  const [gateCode, setGateCode] = useState('');
+  const [rtAircraft, setRtAircraft] = useState('');
+  const [rtDest, setRtDest] = useState('');
+  const [rtFreq, setRtFreq] = useState(7);
+
+  const load = useCallback(() => {
+    api(`/worlds/${worldId}/airline`, { token }).then(setData).catch(setError);
+  }, [worldId, token]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 10000); // catch server ticks
+    return () => clearInterval(t);
+  }, [load]);
+
+  const decide = async (type, payload) => {
+    setBusy(true); setError(null);
+    try {
+      const res = await api(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload } });
+      setData((d) => ({ ...d, state: res.state }));
+      if (res.error) setError(new Error(res.error));
+    } catch (e) { setError(e); }
+    setBusy(false);
+  };
+
+  if (error && !data) return <ErrorNote error={error} />;
+  if (!data) return <p className="muted">Loading your airline…</p>;
+
+  const s = data.state;
+  const routes = (s.routes ?? []).map((r) => hydrateRoute(r, s.routePricing, s.routeCatering));
+  const report = (s.financialHistory ?? [])[s.financialHistory?.length - 1];
+  const idleAircraft = (s.fleet ?? []).filter((a) => a.status === 'idle');
+  const paxTypes = AIRCRAFT_TYPES.filter((t) => !t.freighter);
+  const acType = (id) => AIRCRAFT_TYPES.find((t) => t.id === id);
+
+  return (
+    <div className="card">
+      <div className="row wrap kpis">
+        <span><strong>Y{s.year ?? 1} W{s.week ?? 1}</strong> <span className="muted">(server clock)</span></span>
+        <span>Cash <strong>{fmtMoney(s.cash)}</strong></span>
+        <span>Fleet <strong>{s.fleet?.length ?? 0}</strong></span>
+        <span>Routes <strong>{routes.length}</strong></span>
+        {report && (
+          <span>Last week{' '}
+            <strong className={report.profit >= 0 ? 'pos' : 'neg'}>
+              {report.profit >= 0 ? '+' : ''}{fmtMoney(report.profit)}
+            </strong>
+            <span className="muted"> (rev {fmtMoney(report.revenue)})</span>
+          </span>
+        )}
+      </div>
+      <ErrorNote error={error} />
+
+      <h4>Fleet</h4>
+      {(s.fleet ?? []).length === 0 ? <p className="muted small">No aircraft yet — lease one below.</p> : (
+        <table className="worlds compact">
+          <tbody>
+            {s.fleet.map((a) => (
+              <tr key={a.id}>
+                <td>{a.name ?? a.typeId}</td>
+                <td className="muted">{acType(a.typeId)?.name ?? a.typeId}</td>
+                <td>{a.leased ? 'leased' : 'owned'}</td>
+                <td><StatusChip status={a.status ?? 'idle'} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="row wrap">
+        <select value={leaseType} onChange={(e) => setLeaseType(e.target.value)}>
+          <option value="">Lease an aircraft…</option>
+          {paxTypes.map((t) => (
+            <option key={t.id} value={t.id}>{t.name} · {t.seats} seats · {Math.round(t.range).toLocaleString()} km</option>
+          ))}
+        </select>
+        <button className="btn small" disabled={busy || !leaseType}
+          onClick={() => { decide('LEASE_AIRCRAFT', { typeId: leaseType }); setLeaseType(''); }}>
+          Lease
+        </button>
+      </div>
+
+      <h4>Routes</h4>
+      {routes.length === 0 ? <p className="muted small">No routes — add a gate at a destination, then open one.</p> : (
+        <table className="worlds compact">
+          <thead><tr><th>Route</th><th>Fare</th><th>Freq/wk</th><th /></tr></thead>
+          <tbody>
+            {routes.map((r) => (
+              <tr key={r.id}>
+                <td>{r.origin} → {r.destination}</td>
+                <td>
+                  <input type="number" className="inline-num" defaultValue={Math.round(r.ticketPrice ?? 0)}
+                    onBlur={(e) => {
+                      const p = Number(e.target.value);
+                      if (p > 0 && p !== Math.round(r.ticketPrice ?? 0)) decide('UPDATE_TICKET_PRICE', { routeId: r.id, price: p });
+                    }} />
+                </td>
+                <td>
+                  <input type="number" className="inline-num" defaultValue={r.weeklyFrequency}
+                    onBlur={(e) => {
+                      const f = Number(e.target.value);
+                      if (f > 0 && f !== r.weeklyFrequency) decide('UPDATE_FREQUENCY', { routeId: r.id, weeklyFrequency: f });
+                    }} />
+                </td>
+                <td><button className="btn danger small" disabled={busy}
+                  onClick={() => window.confirm(`Close ${r.origin}→${r.destination}?`) && decide('CLOSE_ROUTE', { routeId: r.id })}>
+                  Close
+                </button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="row wrap">
+        <select value={rtAircraft} onChange={(e) => setRtAircraft(e.target.value)}>
+          <option value="">Open route with…</option>
+          {idleAircraft.map((a) => <option key={a.id} value={a.id}>{a.name ?? acType(a.typeId)?.name}</option>)}
+        </select>
+        <input list="hub-airports" placeholder="Destination" className="hub-input"
+          value={rtDest} onChange={(e) => setRtDest(e.target.value)} />
+        <input type="number" min={1} max={50} className="inline-num" title="Flights per week"
+          value={rtFreq} onChange={(e) => setRtFreq(e.target.value)} />
+        <button className="btn small" disabled={busy || !rtAircraft || !rtDest}
+          onClick={() => {
+            decide('ADD_ROUTE', {
+              aircraftId: rtAircraft,
+              origin: s.hub,
+              destination: rtDest.toUpperCase(),
+              weeklyFrequency: Number(rtFreq),
+            });
+            setRtDest('');
+          }}>
+          Open route from {s.hub}
+        </button>
+      </div>
+      <p className="muted small">
+        Gates: {Object.entries(s.gates ?? {}).map(([c, n]) => `${c}×${n}`).join(', ') || 'none'} —
+        routes need a gate at both ends.
+      </p>
+      <div className="row wrap">
+        <input list="hub-airports" placeholder="Airport" className="hub-input"
+          value={gateCode} onChange={(e) => setGateCode(e.target.value)} />
+        <button className="btn small" disabled={busy || gateCode.length < 3}
+          onClick={() => { decide('ADD_GATE', { airportCode: gateCode.toUpperCase() }); setGateCode(''); }}>
+          Add gate
+        </button>
+      </div>
+      <p className="muted small">
+        This is the Phase-2 starter cockpit — the full Tailwinds UI moves over next.
+        The server tick advances your airline even while you're away.
+      </p>
+    </div>
+  );
+}
+
 // ── World detail / lobby ──────────────────────────────────────────────────────
 
 function WorldScreen({ worldId, token, me, refreshMe }) {
@@ -364,6 +530,8 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           </div>
         )}
       </div>
+
+      {mine && <AirlinePanel worldId={world.id} token={token} />}
 
       {canJoin && (
         <div className="card">
