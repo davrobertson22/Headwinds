@@ -592,6 +592,17 @@ export default function App() {
 
   const signOut = () => supabase?.auth.signOut();
 
+  // The game owns the whole viewport — no lobby shell around it.
+  if (route.screen === 'play') {
+    if (!ready) return null;
+    if (!session) return <div className="shell"><SignIn /></div>;
+    return (
+      <Suspense fallback={<div className="shell"><p className="muted">Loading the game…</p></div>}>
+        <GamePlayScreen worldId={route.worldId} token={token} />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="shell">
       <header>
@@ -609,13 +620,6 @@ export default function App() {
           {!session && <SignIn />}
           {route.screen === 'worlds' && <WorldsScreen token={token} me={me} />}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
-          {route.screen === 'play' && (
-            token
-              ? <Suspense fallback={<p className="muted">Loading the game…</p>}>
-                  <GamePlayScreen worldId={route.worldId} token={token} />
-                </Suspense>
-              : <p className="muted">Sign in to play.</p>
-          )}
         </>
       )}
 

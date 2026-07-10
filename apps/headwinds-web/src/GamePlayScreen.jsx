@@ -55,13 +55,13 @@ export default function GamePlayScreen({ worldId, token }) {
 
   if (error && !state) {
     return (
-      <div className="shell">
+      <div style={{ padding: 24 }}>
         <p className="error">{String(error.message || error)}</p>
         <a href={`#/w/${worldId}`}>← Back to world</a>
       </div>
     );
   }
-  if (!state) return <div className="shell"><p className="muted">Loading your airline…</p></div>;
+  if (!state) return <div style={{ padding: 24 }}><p className="muted">Loading your airline…</p></div>;
 
   return (
     <div className="hw-game">

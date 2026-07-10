@@ -97,8 +97,8 @@ h4 { margin: 14px 0 6px; color: var(--gold); }
 table.compact td { padding: 4px 8px; font-size: 14px; }
 .inline-num { width: 84px; padding: 4px 6px; }
 
-/* Full-game mount: the solo app brings its own index.css; keep our chrome thin. */
-.hw-game { margin: -16px; } /* let the game own the viewport inside .shell */
+/* Full-game mount: the solo app brings its own index.css and owns the viewport;
+   our only chrome is the thin bar above it. */
 .hw-gamebar {
   display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
   padding: 6px 14px; font-size: 13px;
