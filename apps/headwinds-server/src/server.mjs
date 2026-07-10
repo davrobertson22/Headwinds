@@ -12,6 +12,7 @@ import { prisma } from './db.mjs';
 import meRoutes from './routes/me.mjs';
 import worldRoutes from './routes/worlds.mjs';
 import decisionRoutes from './routes/decisions.mjs';
+import allianceRoutes from './routes/alliances.mjs';
 
 export function buildServer() {
   const app = Fastify({
@@ -33,6 +34,7 @@ export function buildServer() {
   app.register(meRoutes);
   app.register(worldRoutes);
   app.register(decisionRoutes);
+  app.register(allianceRoutes);
 
   return app;
 }

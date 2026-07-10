@@ -10,7 +10,7 @@
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs } from './worldConfig.mjs';
-import { buildRivalViews, withRivals } from './humanRivals.mjs';
+import { buildWorldRivalViews, withRivals } from './humanRivals.mjs';
 
 // Linear week index (1-based) of a world's clock.
 export const weekIndex = (world) =>
@@ -62,9 +62,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     });
 
     // Humans-only competition: rebuild every airline's view of its rivals from
-    // the OTHER players' current states, then tick. No AI airlines exist in
-    // Headwinds — your competition is the other humans in this world.
-    const rivalViews = buildRivalViews(airlines);
+    // the OTHER players' current states (plus the world's player-alliance
+    // graph), then tick. No AI airlines exist in Headwinds — your competition
+    // is the other humans in this world.
+    const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines });
 
     const results = [];
     for (const airline of airlines) {

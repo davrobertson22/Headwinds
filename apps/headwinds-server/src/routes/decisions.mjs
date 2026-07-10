@@ -10,15 +10,12 @@ import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { weekIndex } from '../lib/tickService.mjs';
-import { buildRivalViews, withRivals } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
 
 // Live rival view for one airline (fresh on every read — never stale-from-blob).
 async function rivalViewFor(airline) {
-  const airlines = await prisma.airline.findMany({
-    where: { worldId: airline.worldId, status: 'ACTIVE' },
-  });
-  return buildRivalViews(airlines).get(airline.id)
-    ?? { competitors: [], humanRivals: {} };
+  const views = await buildWorldRivalViews(prisma, airline.worldId);
+  return views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
 }
 
 function httpError(statusCode, message) {
@@ -85,6 +82,11 @@ export default async function decisionRoutes(fastify) {
     // AI carriers; in Headwinds every competitor is a real player.
     if (type === 'ACQUIRE_COMPETITOR') {
       throw httpError(403, 'Acquisitions are disabled in multiplayer — your rivals are real people.');
+    }
+    // Alliance membership is server-governed in Headwinds (create/join/approve
+    // in the world lobby) — the solo reducer actions would bypass the founder.
+    if (type === 'JOIN_ALLIANCE' || type === 'LEAVE_ALLIANCE') {
+      throw httpError(403, 'Alliances in Headwinds are managed from the world lobby, not in-game.');
     }
     // Defense in depth: a payload can't override the validated type.
     if ('type' in payload) delete payload.type;

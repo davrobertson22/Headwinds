@@ -44,10 +44,61 @@ function qualityOf(state) {
   return DEFAULT_QUALITY;
 }
 
+// ── Player alliances ──────────────────────────────────────────────────────────
+// Headwinds has no static AI blocs: alliances are founded and governed by
+// players (rows in the Alliance/AllianceMember tables — the DB is the ONLY
+// authority on membership; whatever a state blob says is overwritten here).
+// Every player alliance grants the same standard benefits, mirroring the solo
+// game's alliance economics.
+
+export const PLAYER_ALLIANCE_WEEKLY_FEE = 60_000;
+export const PLAYER_ALLIANCE_MAX_MEMBERS = 8;
+
+// Engine-shaped alliance definition for a player alliance. The `hw:` id
+// namespace never collides with the solo game's static alliance ids.
+export function playerAllianceDef(alliance, activeMemberCount = 0) {
+  return {
+    id: `hw:${alliance.id}`,
+    name: alliance.name,
+    color: '#38c9b4',
+    icon: '🤝',
+    tagline: 'Player alliance',
+    description: `A player-founded alliance (${activeMemberCount} member${activeMemberCount === 1 ? '' : 's'}). Members feed each other connecting traffic and share demand on contested routes.`,
+    memberIds: [],                     // membership is dynamic — never seeded
+    initiationFee: 0,                  // joining is governed by the founder, not cash
+    weeklyFee: PLAYER_ALLIANCE_WEEKLY_FEE,
+    demandBoostPct: 0.06,
+    qualityBonus: 4,
+    interlineFraction: 0.65,
+    requirements: { minRoutes: 0, minQuality: 0, allowedTiers: ['budget', 'legacy', 'premium'] },
+  };
+}
+
+// Load a world's alliance graph once: Map<airlineId, { membership, def }> for
+// ACTIVE members only (pending requests grant nothing).
+export async function loadAllianceMap(prisma, worldId) {
+  const alliances = await prisma.alliance.findMany({
+    where: { worldId },
+    include: { members: true },
+  });
+  const byAirline = new Map();
+  for (const alliance of alliances) {
+    const active = alliance.members.filter((m) => m.status === 'ACTIVE');
+    const def = playerAllianceDef(alliance, active.length);
+    for (const m of active) {
+      byAirline.set(m.airlineId, {
+        membership: { allianceId: def.id, weeklyFee: def.weeklyFee, role: m.role },
+        def,
+      });
+    }
+  }
+  return byAirline;
+}
+
 // One competitor-shaped object for a human rival (consumed by the Competition
 // tab, marketing voice, alliances, codeshares — everywhere state.competitors
 // flows in the engine).
-export function toHumanCompetitor(airlineRow) {
+export function toHumanCompetitor(airlineRow, { allianceId = null } = {}) {
   const s = airlineRow.state ?? {};
   const routes = {};
   for (const r of s.routes ?? []) {
@@ -77,7 +128,8 @@ export function toHumanCompetitor(airlineRow) {
     weeklyStats: profitHistory.length
       ? { weeklyProfit: profitHistory[profitHistory.length - 1] }
       : null,
-    allianceId: s.allianceMembership?.allianceId ?? null,
+    // DB-authoritative (player alliances); a stale blob value never leaks in.
+    allianceId,
     routes,
   };
 }
@@ -108,10 +160,15 @@ export function toRivalSpecs(airlineRow) {
 }
 
 // Build, for EVERY active airline in a world, the pair of views of everyone
-// else. Returns Map<airlineId, { competitors, humanRivals }>.
-export function buildRivalViews(airlines) {
+// else. Returns Map<airlineId, { competitors, humanRivals, alliance }>.
+// `allianceMap` (from loadAllianceMap) makes rivals carry their alliance ids
+// and each member's own view carry its membership + def.
+export function buildRivalViews(airlines, allianceMap = new Map()) {
   const active = airlines.filter((a) => a.status === 'ACTIVE');
-  const comps = new Map(active.map((a) => [a.id, toHumanCompetitor(a)]));
+  const comps = new Map(active.map((a) => [
+    a.id,
+    toHumanCompetitor(a, { allianceId: allianceMap.get(a.id)?.membership.allianceId ?? null }),
+  ]));
   const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a)]));
 
   const views = new Map();
@@ -125,12 +182,15 @@ export function buildRivalViews(airlines) {
         (humanRivals[key] ??= []).push(spec);
       }
     }
-    views.set(me.id, { competitors, humanRivals });
+    views.set(me.id, { competitors, humanRivals, alliance: allianceMap.get(me.id) ?? null });
   }
   return views;
 }
 
 // Inject a rival view into one airline's state blob (pure — returns a copy).
+// Alliance membership is DB-authoritative: it's set OR CLEARED on every
+// injection, so leaving an alliance takes effect next read/tick and the old
+// solo-style JOIN_ALLIANCE state can never linger.
 export function withRivals(state, view) {
   return {
     ...state,
@@ -138,5 +198,17 @@ export function withRivals(state, view) {
     competitors: view?.competitors ?? [],
     humanRivals: view?.humanRivals ?? {},
     encroachments: {},               // AI encroachment never exists in Headwinds
+    allianceMembership: view?.alliance?.membership ?? null,
+    allianceDef: view?.alliance?.def ?? null,
   };
+}
+
+// One-stop world view builder for API/tick call sites: loads active airlines
+// and the alliance graph, returns the per-airline view map.
+export async function buildWorldRivalViews(prisma, worldId, { airlines = null } = {}) {
+  const rows = airlines ?? await prisma.airline.findMany({
+    where: { worldId, status: 'ACTIVE' },
+  });
+  const allianceMap = await loadAllianceMap(prisma, worldId);
+  return buildRivalViews(rows, allianceMap);
 }

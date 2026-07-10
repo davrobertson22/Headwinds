@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
   buildRivalViews, withRivals, toHumanCompetitor, pairKeyOf,
+  playerAllianceDef,
 } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
 
@@ -139,6 +140,60 @@ await test('toHumanCompetitor carries every field the Competition tab reads', ()
   const key = pairKeyOf('JFK', 'BOS');
   assert.ok(c.routes[key], 'route map keyed by sorted pair');
   assert.ok(c.routes[key].frequency > 0 && c.routes[key].priceMultiplier > 0);
+});
+
+console.log('\n── player alliances (engine benefits) ───────────────────');
+
+// Alice and Bob found "Test Pact": both ACTIVE members via the alliance map.
+const pactDef = playerAllianceDef({ id: 'pact1', name: 'Test Pact' }, 2);
+const allianceMap = new Map([
+  ['a1', { membership: { allianceId: pactDef.id, weeklyFee: pactDef.weeklyFee, role: 'FOUNDER' }, def: pactDef }],
+  ['a2', { membership: { allianceId: pactDef.id, weeklyFee: pactDef.weeklyFee, role: 'MEMBER' }, def: pactDef }],
+]);
+
+await test('alliance map flows into views: rivals carry allianceId, own view carries membership + def', () => {
+  const views = buildRivalViews([alice, bob], allianceMap);
+  const va = views.get('a1');
+  assert.equal(va.competitors[0].allianceId, 'hw:pact1');
+  assert.equal(va.alliance.membership.allianceId, 'hw:pact1');
+  assert.equal(va.alliance.def.name, 'Test Pact');
+  const injected = withRivals(alice.state, va);
+  assert.equal(injected.allianceMembership.allianceId, 'hw:pact1');
+  assert.equal(injected.allianceDef.id, 'hw:pact1');
+});
+
+await test('leaving an alliance clears membership on the next injection (DB is authoritative)', () => {
+  const views = buildRivalViews([alice, bob]); // no alliance map — nobody is allied
+  const stale = { ...alice.state, allianceMembership: { allianceId: 'hw:pact1', weeklyFee: 60000 }, allianceDef: pactDef };
+  const injected = withRivals(stale, views.get('a1'));
+  assert.equal(injected.allianceMembership, null);
+  assert.equal(injected.allianceDef, null);
+});
+
+await test('the weekly alliance fee is charged through the injected def', () => {
+  const views = buildRivalViews([alice, bob], allianceMap);
+  const after = gameReducer(withRivals(alice.state, views.get('a1')), { type: 'ADVANCE_WEEK' });
+  assert.equal(after.lastReport?.totalAllianceFee, pactDef.weeklyFee,
+    `expected weekly fee ${pactDef.weeklyFee}, got ${after.lastReport?.totalAllianceFee}`);
+});
+
+await test('an allied rival on your pair hurts less than a hostile one (demand boost applies)', () => {
+  const hostileViews = buildRivalViews([alice, bob]);
+  const alliedViews = buildRivalViews([alice, bob], allianceMap);
+  const hostile = gameReducer(withRivals(alice.state, hostileViews.get('a1')), { type: 'ADVANCE_WEEK' });
+  const allied = gameReducer(withRivals(alice.state, alliedViews.get('a1')), { type: 'ADVANCE_WEEK' });
+  const hostileRev = hostile.lastReport?.totalRevenue ?? 0;
+  const alliedRev = allied.lastReport?.totalRevenue ?? 0;
+  assert.ok(alliedRev > hostileRev,
+    `allied route revenue (${alliedRev}) should beat hostile (${hostileRev}) via the +${pactDef.demandBoostPct * 100}% partner boost`);
+});
+
+await test('solo alliances unaffected: static defs still resolve without state.allianceDef', () => {
+  let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Solo Air', hub: 'LHR', enableObjectives: false });
+  s = gameReducer(s, { type: 'JOIN_ALLIANCE', allianceId: 'skybridge' });
+  assert.equal(s.allianceMembership?.allianceId, 'skybridge');
+  const after = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  assert.ok((after.lastReport?.totalAllianceFee ?? 0) > 0, 'static alliance weekly fee still charged');
 });
 
 Math.random = realRandom;

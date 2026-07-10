@@ -1,7 +1,7 @@
 // Headwinds web client — sign in → browse worlds → join → play.
 // Hash routes: '#/' world list · '#/w/<id>' world lobby · '#/w/<id>/play' the
 // full Tailwinds game UI running on server-authoritative state.
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } from 'react';
 import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
@@ -61,80 +61,6 @@ function ErrorNote({ error }) {
 
 // ── Sign in ───────────────────────────────────────────────────────────────────
 
-// Google Identity Services (GIS) client ID — a public identifier, not a secret.
-// GIS keeps the whole Google sign-in on OUR domain (popup + ID token), so the
-// consent screen says headwindsairlinegame.com instead of the Supabase project
-// URL that the redirect flow shows. The token is handed to Supabase via
-// signInWithIdToken.
-const GOOGLE_CLIENT_ID = import.meta.env?.VITE_GOOGLE_CLIENT_ID
-  ?? '13515979130-5jvkfgs69c6anqrpqibrj764vn1dgtn7.apps.googleusercontent.com';
-
-let gsiPromise = null;
-function loadGsi() {
-  if (!gsiPromise) {
-    gsiPromise = new Promise((resolve, reject) => {
-      if (window.google?.accounts?.id) return resolve(window.google.accounts.id);
-      const s = document.createElement('script');
-      s.src = 'https://accounts.google.com/gsi/client';
-      s.async = true;
-      s.onload = () => resolve(window.google.accounts.id);
-      s.onerror = () => reject(new Error('Could not load Google sign-in'));
-      document.head.appendChild(s);
-    });
-  }
-  return gsiPromise;
-}
-
-function GoogleSignInButton({ onError }) {
-  const ref = useRef(null);
-  const [fallback, setFallback] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        // Per Supabase docs: give Google the SHA-256 hash of a nonce and give
-        // Supabase the raw value — it verifies the token's nonce claim.
-        const nonce = crypto.randomUUID();
-        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nonce));
-        const hashedNonce = Array.from(new Uint8Array(digest))
-          .map((b) => b.toString(16).padStart(2, '0')).join('');
-        const gsi = await loadGsi();
-        if (cancelled || !ref.current) return;
-        gsi.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          nonce: hashedNonce,
-          callback: async ({ credential }) => {
-            const { error } = await supabase.auth.signInWithIdToken({
-              provider: 'google',
-              token: credential,
-              nonce,
-            });
-            if (error) onError(error);
-          },
-        });
-        gsi.renderButton(ref.current, { theme: 'outline', size: 'large', text: 'continue_with', width: 320 });
-      } catch {
-        if (!cancelled) setFallback(true); // GIS blocked (ad-blocker/offline) → redirect flow
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [onError]);
-
-  if (fallback) {
-    const google = async () => {
-      onError(null);
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: window.location.origin },
-      });
-      if (error) onError(error);
-    };
-    return <button className="btn primary wide" onClick={google}>Continue with Google</button>;
-  }
-  return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', minHeight: 44 }} />;
-}
-
 function SignIn() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
@@ -150,6 +76,15 @@ function SignIn() {
     );
   }
 
+  const google = async () => {
+    setError(null);
+    const { error: e } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    if (e) setError(e);
+  };
+
   const magicLink = async (ev) => {
     ev.preventDefault();
     setError(null);
@@ -164,7 +99,7 @@ function SignIn() {
     <div className="card narrow">
       <h2>Sign in to play</h2>
       <p className="muted">One account, all worlds. Your airline waits for you between sessions.</p>
-      <GoogleSignInButton onError={setError} />
+      <button className="btn primary wide" onClick={google}>Continue with Google</button>
       <div className="divider">or</div>
       {sent ? (
         <p>Check your email — we sent you a sign-in link.</p>
@@ -552,6 +487,136 @@ function AirlinePanel({ worldId, token }) {
   );
 }
 
+// ── Alliances (player-founded; founder approves join requests) ───────────────
+
+function AlliancePanel({ worldId, token, mine }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+
+  const load = useCallback(() => {
+    api(`/worlds/${worldId}/alliances`, token ? { token } : {})
+      .then(setData).catch(setError);
+  }, [worldId, token]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const act = async (path, body) => {
+    setBusy(true); setError(null);
+    try {
+      await api(path, { method: 'POST', token, ...(body ? { body } : {}) });
+      load();
+    } catch (e) { setError(e); }
+    setBusy(false);
+  };
+
+  if (!data) return null;
+  const { alliances, mine: membership, maxMembers, myAirlineId } = data;
+  const canAct = Boolean(token && mine); // signed in with an airline in this world
+
+  return (
+    <div className="card">
+      <div className="list-head" style={{ marginTop: 0 }}>
+        <h3 style={{ margin: 0 }}>Alliances</h3>
+        {canAct && !membership && !creating && (
+          <button className="btn small" onClick={() => setCreating(true)}>+ Found an alliance</button>
+        )}
+      </div>
+      <p className="muted small">
+        Player-founded blocs: members feed each other connecting traffic, get a demand boost on
+        routes where a partner also flies, and pay a weekly fee. Founders approve who joins
+        (max {maxMembers} members).
+      </p>
+      <ErrorNote error={error} />
+
+      {creating && (
+        <form className="row wrap" onSubmit={(e) => {
+          e.preventDefault();
+          act(`/worlds/${worldId}/alliances`, { name: name.trim() }).then(() => { setCreating(false); setName(''); });
+        }}>
+          <input required minLength={3} maxLength={40} placeholder="Alliance name"
+            value={name} onChange={(e) => setName(e.target.value)} />
+          <button className="btn primary small" disabled={busy} type="submit">Found it</button>
+          <button className="btn small" type="button" onClick={() => setCreating(false)}>Cancel</button>
+        </form>
+      )}
+
+      {alliances.length === 0 && !creating && (
+        <p className="muted small">No alliances in this world yet{canAct ? ' — found the first one.' : '.'}</p>
+      )}
+
+      {alliances.map((a) => {
+        const isMyAlliance = membership?.allianceId === a.id;
+        const iAmFounder = isMyAlliance && membership.role === 'FOUNDER' && membership.status === 'ACTIVE';
+        const iAmPendingHere = isMyAlliance && membership.status === 'PENDING';
+        return (
+          <div key={a.id} className="rival-detail" style={{ margin: '10px 0' }}>
+            <div className="row wrap">
+              <strong>🤝 {a.name}</strong>
+              <span className="muted small">{a.members.length}/{maxMembers} members</span>
+              {a.pendingCount > 0 && <span className="muted small">· {a.pendingCount} pending</span>}
+              <span style={{ marginLeft: 'auto' }} className="row">
+                {canAct && !membership && (
+                  <button className="btn small" disabled={busy || a.members.length >= maxMembers}
+                    onClick={() => act(`/worlds/${worldId}/alliances/${a.id}/join`)}>
+                    Request to join
+                  </button>
+                )}
+                {iAmPendingHere && (
+                  <button className="btn small" disabled={busy}
+                    onClick={() => act(`/worlds/${worldId}/alliances/${a.id}/leave`)}>
+                    Cancel request
+                  </button>
+                )}
+                {isMyAlliance && membership.status === 'ACTIVE' && (
+                  <button className="btn danger small" disabled={busy}
+                    onClick={() => window.confirm(`Leave ${a.name}?`) && act(`/worlds/${worldId}/alliances/${a.id}/leave`)}>
+                    Leave
+                  </button>
+                )}
+              </span>
+            </div>
+            <div className="small" style={{ marginTop: 6 }}>
+              {a.members.map((m) => (
+                <span key={m.airlineId} style={{ marginRight: 14 }}>
+                  {m.role === 'FOUNDER' ? '★ ' : ''}{m.name}
+                  {m.airlineId === myAirlineId ? <span className="muted"> (you)</span> : null}
+                  <span className="muted"> · {m.hub}</span>
+                </span>
+              ))}
+            </div>
+            {iAmFounder && a.pending?.length > 0 && (
+              <>
+                <h5>Join requests</h5>
+                {a.pending.map((p) => (
+                  <div className="rival-move row" key={p.airlineId}>
+                    <span>{p.name} <span className="muted">· {p.hub} · {fmtMoney(p.marketCap)}</span></span>
+                    <span className="row" style={{ marginLeft: 'auto' }}>
+                      <button className="btn small" disabled={busy}
+                        onClick={() => act(`/worlds/${worldId}/alliances/${a.id}/requests/${p.airlineId}`, { decision: 'accept' })}>
+                        Accept
+                      </button>
+                      <button className="btn danger small" disabled={busy}
+                        onClick={() => act(`/worlds/${worldId}/alliances/${a.id}/requests/${p.airlineId}`, { decision: 'reject' })}>
+                        Reject
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Rival detail (public profile, expanded from the standings table) ─────────
 
 const MOVE_LABELS = {
@@ -699,6 +764,8 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
 
       {mine && <AirlinePanel worldId={world.id} token={token} />}
 
+      <AlliancePanel worldId={world.id} token={token} mine={mine} />
+
       {canJoin && (
         <div className="card">
           <JoinForm
@@ -725,7 +792,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                   onClick={() => setOpenRival(openRival === a.id ? null : a.id)}
                 >
                   <td>{a.rank}</td>
-                  <td>{a.name}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}</td>
+                  <td>
+                    {a.name}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
+                    {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
+                  </td>
                   <td>{a.hub}</td>
                   <td>{a.routes}</td><td>{a.fleet}</td>
                   <td>{fmtMoney(a.cash)}</td><td>{fmtMoney(a.marketCap)}</td>

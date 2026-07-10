@@ -165,6 +165,16 @@ const MULTIPLAYER_PATCHES = [
   };`,
   },
   {
+    file: 'packages/engine/src/utils/simulation.js',
+    why: 'resolve player-founded alliance defs from state.allianceDef',
+    anchor: `  const allianceDef         = allianceMembership ? getAlliance(allianceMembership.allianceId) : null;`,
+    patched: `  // Multiplayer (Headwinds): player-founded alliances carry their definition in
+  // state.allianceDef (injected by the server, id namespace 'hw:'). Solo games
+  // resolve from the static ALLIANCES bank as always.
+  const allianceDef         = state.allianceDef
+    ?? (allianceMembership ? getAlliance(allianceMembership.allianceId) : null);`,
+  },
+  {
     file: 'packages/engine/src/reducer.mjs',
     why: 'skip AI route encroachment in multiplayer',
     anchor: `      // ── Route encroachment: AI carriers contest the player's fat routes ──────
@@ -239,9 +249,42 @@ MULTIPLAYER_PATCHES.push(
     patched: `            {remote ? 'Headwinds' : 'Tailwinds'} v{APP_VERSION} · build {BUILD_ID}`,
   },
 );
-// The onboarding tour is fully reworded for multiplayer. Rather than patch its
-// many hunks, keep the Headwinds copy authoritative: if a sync brings a NEW
-// Tailwinds tour that lacks the remote-aware fields, fail loudly below.
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'src/components/Alliances.jsx',
+    why: 'resolve player-founded alliance defs (state.allianceDef) + remote flag',
+    anchor: `export default function Alliances() {
+  const { state, dispatch } = useGame();
+  const { routes = [], competitors = [], allianceMembership, codeshareAgreements = [] } = state;
+
+  const servedAirports = buildServedAirports(routes);
+  const avgQuality     = playerAvgQuality(state);
+  const pTier          = playerTier(state);
+  const currentAlliance = allianceMembership ? getAlliance(allianceMembership.allianceId) : null;`,
+    patched: `export default function Alliances() {
+  const { state, dispatch, remote } = useGame();
+  const { routes = [], competitors = [], allianceMembership, codeshareAgreements = [] } = state;
+
+  const servedAirports = buildServedAirports(routes);
+  const avgQuality     = playerAvgQuality(state);
+  const pTier          = playerTier(state);
+  // Multiplayer (Headwinds): alliances are player-founded; the server injects
+  // the definition as state.allianceDef. Solo resolves from the static bank.
+  const currentAlliance = allianceMembership
+    ? (state.allianceDef ?? getAlliance(allianceMembership.allianceId))
+    : null;`,
+  },
+);
+// The Alliances tab's membership section and the onboarding tour are fully
+// reworked for multiplayer — too large to string-patch. Keep the Headwinds
+// copies authoritative: assert their multiplayer markers survive each sync and
+// fail loudly if a fresh Tailwinds copy wiped them (re-merge by hand).
+MULTIPLAYER_PATCHES.push({
+  file: 'src/components/Alliances.jsx',
+  why: 'multiplayer membership section (player alliances, lobby pointer)',
+  anchor: '__ALLIANCES_TAB_MUST_BE_REMOTE_AWARE__', // never matches — assert-only
+  patched: 'Create, join, or manage alliances from this world',
+});
 MULTIPLAYER_PATCHES.push({
   file: 'src/components/OnboardingTour.jsx',
   why: 'multiplayer-aware tour (remoteTitle/remoteBody steps + useGame)',

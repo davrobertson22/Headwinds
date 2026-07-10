@@ -69,6 +69,11 @@ function fakePrisma({ world, airlines }) {
     standing: {
       createMany: async ({ data }) => { db.standings.push(...data); return { count: data.length }; },
     },
+    // Player alliances: the tick's rival-view builder queries these; an empty
+    // world simply has none.
+    alliance: {
+      findMany: async () => [],
+    },
   };
 }
 

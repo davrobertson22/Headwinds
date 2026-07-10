@@ -75,13 +75,17 @@ function buildServedAirports(routes) {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function Alliances() {
-  const { state, dispatch } = useGame();
+  const { state, dispatch, remote } = useGame();
   const { routes = [], competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
   const servedAirports = buildServedAirports(routes);
   const avgQuality     = playerAvgQuality(state);
   const pTier          = playerTier(state);
-  const currentAlliance = allianceMembership ? getAlliance(allianceMembership.allianceId) : null;
+  // Multiplayer (Headwinds): alliances are player-founded; the server injects
+  // the definition as state.allianceDef. Solo resolves from the static bank.
+  const currentAlliance = allianceMembership
+    ? (state.allianceDef ?? getAlliance(allianceMembership.allianceId))
+    : null;
 
   // Weekly partnership revenue summary
   const allianceInterline = currentAlliance
@@ -132,6 +136,37 @@ export default function Alliances() {
 
       {/* ── Alliance membership ──────────────────────────────────────────── */}
       <SectionHeader>Alliance Membership</SectionHeader>
+      {remote ? (
+        // Multiplayer: alliances are founded and governed by PLAYERS in the
+        // world lobby — this tab shows your current alliance and its effects.
+        <div className="card" style={{ padding: '16px 18px', marginBottom: 28 }}>
+          {currentAlliance ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <Glyph e={currentAlliance.icon ?? '🤝'} size={22} />
+                <strong style={{ fontSize: 16, color: currentAlliance.color ?? 'var(--accent)' }}>
+                  {currentAlliance.name}
+                </strong>
+                {allianceMembership?.role === 'FOUNDER' && (
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)', border: '1px solid var(--border)', borderRadius: 10, padding: '1px 8px' }}>FOUNDER</span>
+                )}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
+                Fellow members: {allianceMembers(currentAlliance.id, competitors).map(c => c.name).join(', ') || 'just you so far'}
+                {' '}· +{Math.round((currentAlliance.demandBoostPct ?? 0) * 100)}% demand where a member also flies
+                {' '}· interline revenue from member networks · {formatMoney(currentAlliance.weeklyFee ?? 0)}/wk fee
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+              You're not in an alliance. In Headwinds, alliances are founded and run by real players.
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+            Create, join, or manage alliances from this world's lobby page (← World lobby, above the standings).
+          </div>
+        </div>
+      ) : (
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
@@ -153,6 +188,7 @@ export default function Alliances() {
           />
         ))}
       </div>
+      )}
 
       {/* ── Codeshare agreements ─────────────────────────────────────────── */}
       <SectionHeader>Bilateral Codeshare Agreements</SectionHeader>

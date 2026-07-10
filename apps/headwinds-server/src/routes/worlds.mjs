@@ -52,6 +52,16 @@ export default async function worldRoutes(fastify) {
       take: 100,
     });
 
+    // Alliance tags for the standings (ACTIVE memberships only).
+    const worldAlliances = await prisma.alliance.findMany({
+      where: { worldId: world.id },
+      include: { members: { where: { status: 'ACTIVE' } } },
+    });
+    const allianceNameByAirline = new Map();
+    for (const al of worldAlliances) {
+      for (const m of al.members) allianceNameByAirline.set(m.airlineId, al.name);
+    }
+
     // Optional auth: members of a private world get its join code back (so the
     // creator can re-find it to share); everyone else never sees it.
     let isMember = false;
@@ -71,6 +81,7 @@ export default async function worldRoutes(fastify) {
         // Public network-size signals for the rivals view.
         routes: a.state?.routes?.length ?? 0,
         fleet: a.state?.fleet?.length ?? 0,
+        alliance: allianceNameByAirline.get(a.id) ?? null,
       })),
     };
   });
@@ -129,7 +140,7 @@ export default async function worldRoutes(fastify) {
       fleetByType[a.typeId] = (fleetByType[a.typeId] ?? 0) + 1;
     }
 
-    const [rankHistory, recentDecisions] = await Promise.all([
+    const [rankHistory, recentDecisions, membership] = await Promise.all([
       prisma.standing.findMany({
         where: { worldId: airline.worldId, airlineId: airline.id },
         orderBy: { week: 'desc' },
@@ -141,12 +152,16 @@ export default async function worldRoutes(fastify) {
         orderBy: { createdAt: 'desc' },
         take: 60,
       }),
+      prisma.allianceMember.findUnique({
+        where: { airlineId: airline.id },
+        include: { alliance: true },
+      }),
     ]);
 
     return {
       airline: { ...serializeAirline(airline), routes: routes.length, fleet: (s.fleet ?? []).length },
       hubs: Object.keys(s.hubs ?? {}),
-      alliance: s.allianceMembership?.allianceId ?? null,
+      alliance: membership?.status === 'ACTIVE' ? membership.alliance.name : null,
       routeNetwork: routes,
       fleetByType,
       rankHistory: rankHistory.reverse(),

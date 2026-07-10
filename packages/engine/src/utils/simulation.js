@@ -1566,7 +1566,11 @@ export function weeklyTick(state) {
   // IDs of alliance and codeshare partners. Alliance membership is DYNAMIC:
   // carriers join/leave blocs over time, so partners are read from live
   // competitor state (allianceMembers) rather than the static founding list.
-  const allianceDef         = allianceMembership ? getAlliance(allianceMembership.allianceId) : null;
+  // Multiplayer (Headwinds): player-founded alliances carry their definition in
+  // state.allianceDef (injected by the server, id namespace 'hw:'). Solo games
+  // resolve from the static ALLIANCES bank as always.
+  const allianceDef         = state.allianceDef
+    ?? (allianceMembership ? getAlliance(allianceMembership.allianceId) : null);
   const alliancePartnerIds  = allianceDef ? allianceMembers(allianceDef.id, competitors).map(c => c.id) : [];
   const codesharePartnerIds = codeshareAgreements.map(a => a.competitorId);
   const allPartnerIds       = new Set([...alliancePartnerIds, ...codesharePartnerIds]);

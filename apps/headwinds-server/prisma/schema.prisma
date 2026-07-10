@@ -66,6 +66,7 @@ model World {
   standings   Standing[]
   ticks       TickLog[]
   decisions   Decision[]
+  alliances   Alliance[]
 
   @@index([status, visibility])
 }
@@ -117,6 +118,42 @@ model TickLog {
   world      World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
 
   @@index([worldId, week])
+}
+
+// ── Player alliances (Headwinds has no AI blocs — alliances are founded and ──
+// ── governed by players; founder approves join requests) ─────────────────────
+
+enum AllianceMemberStatus {
+  PENDING // asked to join, awaiting the founder
+  ACTIVE // full member — benefits apply
+}
+
+enum AllianceMemberRole {
+  FOUNDER
+  MEMBER
+}
+
+model Alliance {
+  id        String           @id @default(cuid())
+  worldId   String
+  name      String
+  createdAt DateTime         @default(now())
+  world     World            @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  members   AllianceMember[]
+
+  @@unique([worldId, name]) // alliance names are unique within a world
+}
+
+model AllianceMember {
+  id         String               @id @default(cuid())
+  allianceId String
+  airlineId  String               @unique // an airline belongs to at most ONE alliance (or has one pending request)
+  status     AllianceMemberStatus @default(PENDING)
+  role       AllianceMemberRole   @default(MEMBER)
+  createdAt  DateTime             @default(now())
+  alliance   Alliance             @relation(fields: [allianceId], references: [id], onDelete: Cascade)
+
+  @@index([allianceId, status])
 }
 
 model Standing {
