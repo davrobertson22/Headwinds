@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tailwinds Strategy Guide — Fleet, Routes, Hubs & Finance Tips</title>
+  <meta name="description" content="An in-depth strategy guide for Tailwinds, the free airline management game. Learn fleet planning, route economics, hub building, competition, alliances, loyalty programs, and how to manage cash and debt." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/strategy.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:42px 0 12px; }
+    h3 { font-size:1.1rem; margin:26px 0 8px; }
+    p { margin:0 0 16px; }
+    ul,ol { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    .tip { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:0 0 16px; }
+    .toc { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 32px; }
+    .toc ul { margin:8px 0 0; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--gold-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Tailwinds Strategy Guide</h1>
+    <p class="lede">Once you know the basics, winning at Tailwinds comes down to a handful of systems working together: your fleet, your route economics, your hubs, and your balance sheet. This guide breaks down how each one works and how good players use them.</p>
+
+    <p>This page is the overview. When you're ready to go deeper, each system has its own full guide: <a href="/hub-strategy.html">hub strategy</a>, <a href="/route-economics.html">route economics &amp; pricing</a>, <a href="/fleet-planning.html">fleet planning</a>, and <a href="/competition-and-alliances.html">competition &amp; alliances</a> — plus the <a href="/aircraft.html">aircraft guides</a> covering every plane in the game with real stats.</p>
+
+    <div class="toc">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#fleet">Fleet planning</a></li>
+        <li><a href="#routes">Route economics</a></li>
+        <li><a href="#hubs">Hub strategy</a></li>
+        <li><a href="#competition">Competition &amp; pricing</a></li>
+        <li><a href="#alliances">Alliances &amp; codeshares</a></li>
+        <li><a href="#loyalty">Loyalty &amp; reputation</a></li>
+        <li><a href="#finance">Cash, debt &amp; growth</a></li>
+      </ul>
+    </div>
+
+    <h2 id="fleet">Fleet planning</h2>
+    <p>Your fleet is a set of tools, and each aircraft type is good at one job. The mistake that sinks new airlines is buying an aircraft because it's impressive rather than because it fits a route. Build your route map first, then buy the metal that flies it efficiently.</p>
+    <h3>Match capacity and range to the mission</h3>
+    <p>Regional jets and turboprops shine on short, thin routes where a big jet would fly half-empty. Narrowbody jets are the workhorses of profitable airlines — they serve busy domestic corridors and short-haul international markets with the best balance of seat count and operating cost. Widebodies earn their keep only on dense, long-haul routes where you can consistently fill a large cabin. A widebody on a short hop loses money on every rotation; a regional jet on a transcontinental route can't even make the trip.</p>
+    <h3>Lease versus buy</h3>
+    <p>Early on, lease. Leasing preserves cash and keeps you flexible while you're still learning which markets work. Buying makes sense later, for aircraft you're certain you'll fly for a long time on proven routes — ownership lowers your per-flight cost but ties up capital and commits you to that aircraft. A healthy growing airline usually runs a mix: owned metal on core routes, leased aircraft for experiments and expansion.</p>
+    <h3>Keep the fleet simple</h3>
+    <p>Every additional aircraft type adds complexity and overhead. A fleet built around one or two families is cheaper to run and easier to schedule than a grab-bag of types. Standardize where you can.</p>
+
+    <h2 id="routes">Route economics</h2>
+    <p>A route makes money when revenue per flight exceeds the cost of operating it. That sounds obvious, but the levers are subtle. Revenue is driven by demand, your fare, and your load factor. Cost is driven by aircraft type, distance, and frequency.</p>
+    <h3>Read the load factor</h3>
+    <p>Load factor — the share of seats you sell — is your fastest signal. A route running consistently above 80% is either priced well or under-supplied: you can often raise the fare slightly or add frequency. A route stuck below 50% is over-supplied or over-priced, or simply isn't a market people want to fly. Don't let a chronic loser sit on your network out of pride; re-price it, downgauge to a smaller aircraft, or close it.</p>
+    <h3>Frequency builds loyalty</h3>
+    <p>Travelers prefer airlines that offer more departures, because more departures mean more convenient times. Adding a second or third daily flight to a strong route often lifts your share of the market more than the extra capacity would suggest. But frequency only works on routes with the demand to absorb it — pour capacity into a thin market and your load collapses.</p>
+    <h3>Think in networks, not single routes</h3>
+    <p>The best routes aren't always the ones that look most profitable in isolation. A route that feeds passengers into your hub, where they connect onward, can be worth more to your whole network than its standalone numbers show. This connecting value is the core idea behind hubs.</p>
+
+    <h2 id="hubs">Hub strategy</h2>
+    <p>A hub is an airport where you concentrate flights so passengers can connect from many origins to many destinations through a single point. The power of a hub is multiplicative: ten routes into a hub don't just serve ten cities, they serve the many city-pairs that can be built by connecting through it. That's how a mid-size airline serves markets too thin to fly nonstop.</p>
+    <h3>Choosing where to hub</h3>
+    <p>Good hubs have strong local demand (so flights are profitable even without connections), a central geography (so connections don't require long backtracks), and room to grow (so competitors can't choke you out). Your starting hub anchors your early game; a well-chosen second hub, added once the first is stable, roughly doubles the city-pairs you can serve.</p>
+    <h3>Banking your schedule</h3>
+    <p>Hubs work best when arrivals and departures are timed so connecting passengers don't wait long. Concentrating flights into waves — a bank of arrivals followed by a bank of departures — maximizes the connections each flight enables, at the cost of needing more gates and ground capacity during the peak.</p>
+
+    <h2 id="competition">Competition &amp; pricing</h2>
+    <p>You share the map with computer-controlled airlines, and they will move into your profitable routes. When a competitor enters a market, demand splits and fares come under pressure. You have a few responses, and choosing the right one is what separates good operators from reactive ones.</p>
+    <ul>
+      <li><strong>Defend</strong> a core route by matching or undercutting fares and adding frequency, accepting thinner margins to keep your share. Worth it for routes central to your hub.</li>
+      <li><strong>Differentiate</strong> by offering more departures or better connections so you win the passengers who value convenience even at a similar price.</li>
+      <li><strong>Redeploy</strong> when a route isn't worth a price war — move that aircraft to a market where you have an edge rather than bleeding both airlines dry.</li>
+    </ul>
+    <div class="tip">Price wars are mutually destructive. Sometimes the strongest move is to let a marginal route go and put your capacity where the competitor isn't.</div>
+
+    <h2 id="alliances">Alliances &amp; codeshares</h2>
+    <p>Joining or forming an alliance lets you share routes with partner airlines, extending your network into markets you don't fly yourself. Codeshares feed passengers between partners, lifting load factors on both sides and unlocking international city-pairs that would be unprofitable to serve alone. The trade-off is coordination and shared revenue — an alliance is most valuable when your partners' networks complement yours rather than overlap with them.</p>
+
+    <h2 id="loyalty">Loyalty &amp; reputation</h2>
+    <p>A loyalty program turns one-time passengers into repeat bookings. Frequent flyers choose your airline even when a competitor is marginally cheaper, which stabilizes your load factors and makes your revenue more predictable. Reputation works on a longer timescale: reliable operations, sensible pricing, and steady growth build a brand that attracts passengers and cushions you when you stumble. Both reward patience — they compound over many weeks rather than paying off immediately.</p>
+
+    <h2 id="finance">Cash, debt &amp; growth</h2>
+    <p>Cash is survival; debt is a tool. Used well, borrowing lets you seize an opportunity — a fleet of aircraft for a new hub, an expansion before a competitor moves in — that you couldn't fund from cash flow alone. Used badly, debt magnifies a downturn and can push you into bankruptcy when a few routes sour at once.</p>
+    <h3>Rules of thumb</h3>
+    <ol>
+      <li><strong>Always keep a cash cushion.</strong> Enough to survive several losing weeks without panic-selling aircraft or closing good routes.</li>
+      <li><strong>Borrow against proven cash flow, not hope.</strong> Fund expansion with debt only when your existing network reliably services it.</li>
+      <li><strong>Grow in steps you can digest.</strong> Add capacity, let it mature to healthy load factors, bank the profit, then add more. Lumpy over-expansion is the most common cause of failure.</li>
+      <li><strong>Cut losers quickly.</strong> Emotion keeps unprofitable routes alive. The simulation rewards discipline — redeploy capacity to where it earns.</li>
+    </ol>
+
+    <p>Put these together and a clear playbook emerges: a simple, well-matched fleet flying a network of profitable routes anchored on strong hubs, defended intelligently against competitors, extended through alliances, deepened by loyalty, and funded by a balance sheet with room to breathe. Master that and you'll grow from a regional carrier into a global airline.</p>
+
+    <a class="cta" href="/">Put It Into Practice — Play Now →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

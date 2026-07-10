@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import AirportDetail from './AirportDetail.jsx';
 import { AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName } from '../data/airports.js';
-import { SLOTS_PER_GATE } from '../utils/simulation.js';
+import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
 
@@ -27,7 +27,7 @@ function TierBadge({ tier }) {
 
 export default function Airports() {
   const { state, dispatch } = useGame();
-  const { gates = {}, routes, cash, hubs = {} } = state;
+  const { gates = {}, routes, cargoRoutes = [], cash, hubs = {} } = state;
   const [search, setSearch]                       = useState('');
   const [regionFilter, setRegionFilter]           = useState(null); // null = show picker
   const [myGatesRegion, setMyGatesRegion]         = useState(null); // null = All
@@ -41,7 +41,8 @@ export default function Airports() {
   function slotsUsedAt(code) {
     return routes
       .filter(r => r.origin === code || r.destination === code)
-      .reduce((s, r) => s + r.weeklyFrequency, 0);
+      .reduce((s, r) => s + r.weeklyFrequency, 0)
+      + cargoSlotsUsedAt(code, cargoRoutes);
   }
 
   const myGateEntries = Object.entries(gates)

@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Regional Jet Guide — Tailwinds Airline Management Game</title>
+  <meta name="description" content="Every regional jet in Tailwinds compared: seats, range, lease cost, fuel burn, and per-seat economics. Build profitable thin routes and hub feed." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/aircraft-regional-jets.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:860px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:40px 0 12px; }
+    h3 { font-size:1.15rem; margin:0 0 6px; font-family:'Space Grotesk',sans-serif; }
+    p { margin:0 0 16px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    table.stats { width:100%; border-collapse:collapse; font-size:0.88rem; margin:0 0 28px; }
+    table.stats th, table.stats td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    table.stats th:first-child, table.stats td:first-child { text-align:left; white-space:normal; }
+    table.stats th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--bg); }
+    .tablewrap { overflow-x:auto; margin:0 0 28px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 18px; }
+    .card .meta { color:var(--muted); font-size:0.85rem; margin:0 0 10px; }
+    .card img { width:100%; max-width:480px; border-radius:8px; display:block; margin:10px 0 12px; }
+    .card .specs { display:flex; flex-wrap:wrap; gap:8px 22px; font-size:0.88rem; color:var(--muted); margin:0 0 10px; }
+    .card .specs b { color:var(--text); font-weight:600; }
+    .note { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:10px 0 0; font-size:0.92rem; }
+    .crumbs { font-size:0.85rem; color:var(--muted); margin:0 0 20px; }
+    .crumbs a { color:var(--muted); }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <p class="crumbs"><a href="/">Home</a> › <a href="/aircraft.html">Aircraft</a> › Regional Jet Guide</p>
+    <h1>Regional Jet Guide</h1>
+    <p class="lede">Every regional jet in Tailwinds compared: seats, range, lease cost, fuel burn, and per-seat economics. Build profitable thin routes and hub feed.</p>
+
+      <p>Regional jets solve a specific problem: routes with real demand, but not enough of it to fill a 150-seat narrow-body. In Tailwinds that describes a huge share of the map — secondary cities, short cross-border hops, and above all <em>hub feed</em>, the short flights that funnel connecting passengers into your hub for onward long-haul travel.</p>
+      <p>Per-seat costs run higher than larger jets; that is the price of right-sizing. A regional jet is not competing with an A320 on cost per seat — it is competing with the empty seats the A320 would fly on a thin route. Judged that way, the category is one of the most reliably profitable in the game.</p>
+      <h2>How to choose</h2>
+      <p>The E-Jet and CRJ families cover the 70–130 seat band; the E2 generation offers materially better burn for a higher lease. At the small end, 50-seaters only make sense on very thin or very short missions where nothing bigger could break even. As always: pick the seat count the route can fill, not the one with the prettiest efficiency number.</p>
+<h2>All 26 aircraft at a glance</h2>
+<p>Figures are the game's actual values. Fuel cost assumes the base fuel price of $1.20/litre — the live market price in your save drifts between roughly half and nearly double that, which is why <a href="/route-economics.html">fuel hedging</a> matters.</p>
+    <div class="tablewrap"><table class="stats">
+      <thead><tr><th>Aircraft</th><th>Seats</th><th>Range</th><th>Lease/wk</th><th>Price</th><th>Fuel/100km</th><th>Fuel/seat-km</th></tr></thead>
+      <tbody>
+      <tr>
+        <td><a href="#do328jet">Dornier 328JET</a></td>
+        <td>34</td>
+        <td>1,665 km</td>
+        <td>$14K</td>
+        <td>$7M</td>
+        <td>234 L</td>
+        <td>8.27¢</td>
+      </tr>
+      <tr>
+        <td><a href="#erj135">Embraer ERJ-135</a></td>
+        <td>37</td>
+        <td>3,241 km</td>
+        <td>$13K</td>
+        <td>$6M</td>
+        <td>138 L</td>
+        <td>4.46¢</td>
+      </tr>
+      <tr>
+        <td><a href="#yak40">Yakovlev Yak-40</a></td>
+        <td>40</td>
+        <td>1,800 km</td>
+        <td>$7K</td>
+        <td>$3M</td>
+        <td>280 L</td>
+        <td>8.38¢</td>
+      </tr>
+      <tr>
+        <td><a href="#erj145">Embraer ERJ-145</a></td>
+        <td>50</td>
+        <td>2,870 km</td>
+        <td>$17K</td>
+        <td>$8M</td>
+        <td>175 L</td>
+        <td>4.20¢</td>
+      </tr>
+      <tr>
+        <td><a href="#crj200">CRJ-200</a></td>
+        <td>52</td>
+        <td>3,048 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>165 L</td>
+        <td>3.80¢</td>
+      </tr>
+      <tr>
+        <td><a href="#crj700">CRJ-700</a></td>
+        <td>78</td>
+        <td>3,716 km</td>
+        <td>$26K</td>
+        <td>$12M</td>
+        <td>220 L</td>
+        <td>3.38¢</td>
+      </tr>
+      <tr>
+        <td><a href="#erj170">Embraer ERJ-170</a></td>
+        <td>80</td>
+        <td>3,735 km</td>
+        <td>$30K</td>
+        <td>$18M</td>
+        <td>207 L</td>
+        <td>3.10¢</td>
+      </tr>
+      <tr>
+        <td><a href="#fokker70">Fokker 70</a></td>
+        <td>85</td>
+        <td>4,074 km</td>
+        <td>$15K</td>
+        <td>$7M</td>
+        <td>224 L</td>
+        <td>3.16¢</td>
+      </tr>
+      <tr>
+        <td><a href="#f28">Fokker F28 Fellowship</a></td>
+        <td>85</td>
+        <td>2,700 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>389 L</td>
+        <td>5.49¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e175">Embraer E175</a></td>
+        <td>88</td>
+        <td>3,735 km</td>
+        <td>$52K</td>
+        <td>$30M</td>
+        <td>232 L</td>
+        <td>3.16¢</td>
+      </tr>
+      <tr>
+        <td><a href="#an148">Antonov An-148-100B</a></td>
+        <td>89</td>
+        <td>5,100 km</td>
+        <td>$28K</td>
+        <td>$18M</td>
+        <td>251 L</td>
+        <td>3.38¢</td>
+      </tr>
+      <tr>
+        <td><a href="#crj900">CRJ-900</a></td>
+        <td>90</td>
+        <td>2,876 km</td>
+        <td>$38K</td>
+        <td>$18M</td>
+        <td>250 L</td>
+        <td>3.33¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e175e2">Embraer E175-E2</a></td>
+        <td>90</td>
+        <td>3,735 km</td>
+        <td>$61K</td>
+        <td>$35M</td>
+        <td>221 L</td>
+        <td>2.94¢</td>
+      </tr>
+      <tr>
+        <td><a href="#spacejet">Mitsubishi SpaceJet M90</a></td>
+        <td>92</td>
+        <td>3,770 km</td>
+        <td>$69K</td>
+        <td>$40M</td>
+        <td>235 L</td>
+        <td>3.06¢</td>
+      </tr>
+      <tr>
+        <td><a href="#tu134">Tupolev Tu-134</a></td>
+        <td>96</td>
+        <td>3,000 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>453 L</td>
+        <td>5.67¢</td>
+      </tr>
+      <tr>
+        <td><a href="#arj21">COMAC ARJ21-700</a></td>
+        <td>97</td>
+        <td>3,700 km</td>
+        <td>$66K</td>
+        <td>$38M</td>
+        <td>256 L</td>
+        <td>3.16¢</td>
+      </tr>
+      <tr>
+        <td><a href="#crj1000">CRJ-1000</a></td>
+        <td>104</td>
+        <td>3,004 km</td>
+        <td>$44K</td>
+        <td>$22M</td>
+        <td>281 L</td>
+        <td>3.25¢</td>
+      </tr>
+      <tr>
+        <td><a href="#ssj100">Sukhoi Superjet 100</a></td>
+        <td>108</td>
+        <td>4,578 km</td>
+        <td>$49K</td>
+        <td>$28M</td>
+        <td>264 L</td>
+        <td>2.93¢</td>
+      </tr>
+      <tr>
+        <td><a href="#sj100new">Sukhoi Superjet SJ-100</a></td>
+        <td>108</td>
+        <td>3,000 km</td>
+        <td>$66K</td>
+        <td>$38M</td>
+        <td>294 L</td>
+        <td>3.27¢</td>
+      </tr>
+      <tr>
+        <td><a href="#avrorj85">Avro RJ85</a></td>
+        <td>112</td>
+        <td>3,300 km</td>
+        <td>$17K</td>
+        <td>$8M</td>
+        <td>274 L</td>
+        <td>2.93¢</td>
+      </tr>
+      <tr>
+        <td><a href="#bae146200">BAe 146-200</a></td>
+        <td>112</td>
+        <td>3,650 km</td>
+        <td>$15K</td>
+        <td>$7M</td>
+        <td>288 L</td>
+        <td>3.08¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e190">Embraer E190</a></td>
+        <td>114</td>
+        <td>4,537 km</td>
+        <td>$48K</td>
+        <td>$24M</td>
+        <td>293 L</td>
+        <td>3.08¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e190e2">Embraer E190-E2</a></td>
+        <td>114</td>
+        <td>4,537 km</td>
+        <td>$69K</td>
+        <td>$40M</td>
+        <td>275 L</td>
+        <td>2.89¢</td>
+      </tr>
+      <tr>
+        <td><a href="#fokker100">Fokker 100</a></td>
+        <td>122</td>
+        <td>3,170 km</td>
+        <td>$19K</td>
+        <td>$9M</td>
+        <td>267 L</td>
+        <td>2.63¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e195">Embraer E195</a></td>
+        <td>124</td>
+        <td>4,260 km</td>
+        <td>$52K</td>
+        <td>$26M</td>
+        <td>302 L</td>
+        <td>2.92¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e195e2">Embraer E195-E2</a></td>
+        <td>146</td>
+        <td>4,800 km</td>
+        <td>$78K</td>
+        <td>$45M</td>
+        <td>324 L</td>
+        <td>2.66¢</td>
+      </tr>
+      </tbody>
+    </table></div>
+<h2>Type-by-type notes</h2>
+    <div class="card" id="do328jet">
+      <h3>Dornier 328JET</h3>
+      <p class="meta">Dornier · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>34</b></span>
+        <span>Range <b>1,665 km</b></span>
+        <span>Lease <b>$14K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>234 L/100km</b> (≈ $2.81/km)</span>
+        <span>Maintenance <b>$12K/wk</b></span>
+      </div>
+      <p>Jet-powered 328 — one of the smallest regional jets ever in airline service.</p>
+      <p class="note">Fuel efficiency: <b>#25 of 26</b> in its class (8.27¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$412</b> per seat.</p>
+    </div>
+    <div class="card" id="erj135">
+      <h3>Embraer ERJ-135</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>37</b></span>
+        <span>Range <b>3,241 km</b></span>
+        <span>Lease <b>$13K/wk</b></span>
+        <span>Buy <b>$6M</b></span>
+        <span>Fuel <b>138 L/100km</b> (≈ $1.65/km)</span>
+        <span>Maintenance <b>$14K/wk</b></span>
+      </div>
+      <p>Smallest ERJ family member. Good for very thin jet routes.</p>
+      <p class="note">Fuel efficiency: <b>#22 of 26</b> in its class (4.46¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$338</b> per seat.</p>
+    </div>
+    <div class="card" id="yak40">
+      <h3>Yakovlev Yak-40</h3>
+      <p class="meta">Yakovlev · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>40</b></span>
+        <span>Range <b>1,800 km</b></span>
+        <span>Lease <b>$7K/wk</b></span>
+        <span>Buy <b>$3M</b></span>
+        <span>Fuel <b>280 L/100km</b> (≈ $3.35/km)</span>
+        <span>Maintenance <b>$14K/wk</b></span>
+      </div>
+      <p>Tiny three-engine regional jet that opened jet service to small Soviet towns.</p>
+      <p class="note">Fuel efficiency: <b>#26 of 26</b> in its class (8.38¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$163</b> per seat.</p>
+    </div>
+    <div class="card" id="erj145">
+      <h3>Embraer ERJ-145</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>50</b></span>
+        <span>Range <b>2,870 km</b></span>
+        <span>Lease <b>$17K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>175 L/100km</b> (≈ $2.10/km)</span>
+        <span>Maintenance <b>$18K/wk</b></span>
+      </div>
+      <p>Small regional jet, good for thin routes that need jet speed.</p>
+      <p class="note">Fuel efficiency: <b>#21 of 26</b> in its class (4.20¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$340</b> per seat.</p>
+    </div>
+    <div class="card" id="crj200">
+      <h3>CRJ-200</h3>
+      <p class="meta">Bombardier · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>52</b></span>
+        <span>Range <b>3,048 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>165 L/100km</b> (≈ $1.97/km)</span>
+        <span>Maintenance <b>$17K/wk</b></span>
+      </div>
+      <p>The backbone of North American regionals. Low capacity but ubiquitous.</p>
+      <p class="note">Fuel efficiency: <b>#20 of 26</b> in its class (3.80¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$202</b> per seat.</p>
+    </div>
+    <div class="card" id="crj700">
+      <h3>CRJ-700</h3>
+      <p class="meta">Bombardier · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>78</b></span>
+        <span>Range <b>3,716 km</b></span>
+        <span>Lease <b>$26K/wk</b></span>
+        <span>Buy <b>$12M</b></span>
+        <span>Fuel <b>220 L/100km</b> (≈ $2.64/km)</span>
+        <span>Maintenance <b>$24K/wk</b></span>
+      </div>
+      <p>Stretched CRJ with better economics per seat than the -200.</p>
+      <p class="note">Fuel efficiency: <b>#18 of 26</b> in its class (3.38¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$327</b> per seat.</p>
+    </div>
+    <div class="card" id="erj170">
+      <h3>Embraer ERJ-170</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>80</b></span>
+        <span>Range <b>3,735 km</b></span>
+        <span>Lease <b>$30K/wk</b></span>
+        <span>Buy <b>$18M</b></span>
+        <span>Fuel <b>207 L/100km</b> (≈ $2.48/km)</span>
+        <span>Maintenance <b>$22K/wk</b></span>
+      </div>
+      <p>First of the E-jet family. Comfortable twin-aisle-style interior.</p>
+      <p class="note">Fuel efficiency: <b>#11 of 26</b> in its class (3.10¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$375</b> per seat.</p>
+    </div>
+    <div class="card" id="fokker70">
+      <h3>Fokker 70</h3>
+      <p class="meta">Fokker · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>85</b></span>
+        <span>Range <b>4,074 km</b></span>
+        <span>Lease <b>$15K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>224 L/100km</b> (≈ $2.68/km)</span>
+        <span>Maintenance <b>$23K/wk</b></span>
+      </div>
+      <p>Short-body Fokker 100. Fuel-efficient and popular in European regionals.</p>
+      <p class="note">Fuel efficiency: <b>#12 of 26</b> in its class (3.16¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$176</b> per seat.</p>
+    </div>
+    <div class="card" id="f28">
+      <h3>Fokker F28 Fellowship</h3>
+      <p class="meta">Fokker · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>85</b></span>
+        <span>Range <b>2,700 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>389 L/100km</b> (≈ $4.67/km)</span>
+        <span>Maintenance <b>$22K/wk</b></span>
+      </div>
+      <p>Dutch short-haul jet with built-in airstairs — forerunner of the Fokker 70/100.</p>
+      <p class="note">Fuel efficiency: <b>#23 of 26</b> in its class (5.49¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$124</b> per seat.</p>
+    </div>
+    <div class="card" id="e175">
+      <h3>Embraer E175</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>88</b></span>
+        <span>Range <b>3,735 km</b></span>
+        <span>Lease <b>$52K/wk</b></span>
+        <span>Buy <b>$30M</b></span>
+        <span>Fuel <b>232 L/100km</b> (≈ $2.78/km)</span>
+        <span>Maintenance <b>$26K/wk</b></span>
+      </div>
+      <p>Versatile E-jet. Great range-to-size ratio for regional networks.</p>
+      <p class="note">Fuel efficiency: <b>#13 of 26</b> in its class (3.16¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$591</b> per seat.</p>
+    </div>
+    <div class="card" id="an148">
+      <h3>Antonov An-148-100B</h3>
+      <p class="meta">Antonov · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>89</b></span>
+        <span>Range <b>5,100 km</b></span>
+        <span>Lease <b>$28K/wk</b></span>
+        <span>Buy <b>$18M</b></span>
+        <span>Fuel <b>251 L/100km</b> (≈ $3.01/km)</span>
+        <span>Maintenance <b>$24K/wk</b></span>
+      </div>
+      <p>Ukrainian regional jet with exceptional range for its class. Suited to CIS networks.</p>
+      <p class="note">Fuel efficiency: <b>#19 of 26</b> in its class (3.38¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$315</b> per seat.</p>
+    </div>
+    <div class="card" id="crj900">
+      <h3>CRJ-900</h3>
+      <p class="meta">Bombardier · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>90</b></span>
+        <span>Range <b>2,876 km</b></span>
+        <span>Lease <b>$38K/wk</b></span>
+        <span>Buy <b>$18M</b></span>
+        <span>Fuel <b>250 L/100km</b> (≈ $3.00/km)</span>
+        <span>Maintenance <b>$29K/wk</b></span>
+      </div>
+      <p>Popular regional jet bridging the gap between turboprops and mainline aircraft.</p>
+      <p class="note">Fuel efficiency: <b>#17 of 26</b> in its class (3.33¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$422</b> per seat.</p>
+    </div>
+    <div class="card" id="e175e2">
+      <h3>Embraer E175-E2</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>90</b></span>
+        <span>Range <b>3,735 km</b></span>
+        <span>Lease <b>$61K/wk</b></span>
+        <span>Buy <b>$35M</b></span>
+        <span>Fuel <b>221 L/100km</b> (≈ $2.65/km)</span>
+        <span>Maintenance <b>$25K/wk</b></span>
+      </div>
+      <p>Next-gen E175 with improved fuel burn. Better economics than the original.</p>
+      <p class="note">Fuel efficiency: <b>#7 of 26</b> in its class (2.94¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$672</b> per seat.</p>
+    </div>
+    <div class="card" id="spacejet">
+      <h3>Mitsubishi SpaceJet M90</h3>
+      <p class="meta">Mitsubishi · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>92</b></span>
+        <span>Range <b>3,770 km</b></span>
+        <span>Lease <b>$69K/wk</b></span>
+        <span>Buy <b>$40M</b></span>
+        <span>Fuel <b>235 L/100km</b> (≈ $2.81/km)</span>
+        <span>Maintenance <b>$26K/wk</b></span>
+      </div>
+      <p>Japan's regional jet entry with modern technology and efficient design.</p>
+      <p class="note">Fuel efficiency: <b>#8 of 26</b> in its class (3.06¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$750</b> per seat.</p>
+    </div>
+    <div class="card" id="tu134">
+      <h3>Tupolev Tu-134</h3>
+      <p class="meta">Tupolev · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>96</b></span>
+        <span>Range <b>3,000 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>453 L/100km</b> (≈ $5.44/km)</span>
+        <span>Maintenance <b>$26K/wk</b></span>
+      </div>
+      <p>Soviet short-haul jet, glass-nosed navigator station and all. A Cold War regional staple.</p>
+      <p class="note">Fuel efficiency: <b>#24 of 26</b> in its class (5.67¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$89</b> per seat.</p>
+    </div>
+    <div class="card" id="arj21">
+      <h3>COMAC ARJ21-700</h3>
+      <p class="meta">COMAC · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>97</b></span>
+        <span>Range <b>3,700 km</b></span>
+        <span>Lease <b>$66K/wk</b></span>
+        <span>Buy <b>$38M</b></span>
+        <span>Fuel <b>256 L/100km</b> (≈ $3.07/km)</span>
+        <span>Maintenance <b>$29K/wk</b></span>
+      </div>
+      <p>China's first domestically produced regional jet. Growing presence on domestic routes.</p>
+      <p class="note">Fuel efficiency: <b>#14 of 26</b> in its class (3.16¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$680</b> per seat.</p>
+    </div>
+    <div class="card" id="crj1000">
+      <h3>CRJ-1000</h3>
+      <p class="meta">Bombardier · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>104</b></span>
+        <span>Range <b>3,004 km</b></span>
+        <span>Lease <b>$44K/wk</b></span>
+        <span>Buy <b>$22M</b></span>
+        <span>Fuel <b>281 L/100km</b> (≈ $3.38/km)</span>
+        <span>Maintenance <b>$33K/wk</b></span>
+      </div>
+      <p>Largest CRJ. High seat count in the regional jet class.</p>
+      <p class="note">Fuel efficiency: <b>#15 of 26</b> in its class (3.25¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$423</b> per seat.</p>
+    </div>
+    <div class="card" id="ssj100">
+      <h3>Sukhoi Superjet 100</h3>
+      <p class="meta">Sukhoi · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>108</b></span>
+        <span>Range <b>4,578 km</b></span>
+        <span>Lease <b>$49K/wk</b></span>
+        <span>Buy <b>$28M</b></span>
+        <span>Fuel <b>264 L/100km</b> (≈ $3.17/km)</span>
+        <span>Maintenance <b>$31K/wk</b></span>
+      </div>
+      <p>Russian regional jet with competitive specs. Strong presence in CIS markets.</p>
+      <p class="note">Fuel efficiency: <b>#6 of 26</b> in its class (2.93¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$449</b> per seat.</p>
+    </div>
+    <div class="card" id="sj100new">
+      <h3>Sukhoi Superjet SJ-100</h3>
+      <p class="meta">Sukhoi · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>108</b></span>
+        <span>Range <b>3,000 km</b></span>
+        <span>Lease <b>$66K/wk</b></span>
+        <span>Buy <b>$38M</b></span>
+        <span>Fuel <b>294 L/100km</b> (≈ $3.53/km)</span>
+        <span>Maintenance <b>$24K/wk</b></span>
+      </div>
+      <p>Import-substituted update of the Superjet 100 with Russian systems and engines.</p>
+      <p class="note">Fuel efficiency: <b>#16 of 26</b> in its class (3.27¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$611</b> per seat.</p>
+    </div>
+    <div class="card" id="avrorj85">
+      <h3>Avro RJ85</h3>
+      <p class="meta">British Aerospace · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>112</b></span>
+        <span>Range <b>3,300 km</b></span>
+        <span>Lease <b>$17K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>274 L/100km</b> (≈ $3.28/km)</span>
+        <span>Maintenance <b>$26K/wk</b></span>
+      </div>
+      <p>Upgraded BAe 146 with FADEC engines. Quieter and more reliable than its predecessor.</p>
+      <p class="note">Fuel efficiency: <b>#5 of 26</b> in its class (2.93¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$152</b> per seat.</p>
+    </div>
+    <div class="card" id="bae146200">
+      <h3>BAe 146-200</h3>
+      <p class="meta">British Aerospace · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>112</b></span>
+        <span>Range <b>3,650 km</b></span>
+        <span>Lease <b>$15K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>288 L/100km</b> (≈ $3.45/km)</span>
+        <span>Maintenance <b>$26K/wk</b></span>
+      </div>
+      <p>Quiet quad-jet with exceptional short-field performance. Perfect for city airports.</p>
+      <p class="note">Fuel efficiency: <b>#9 of 26</b> in its class (3.08¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$134</b> per seat.</p>
+    </div>
+    <div class="card" id="e190">
+      <h3>Embraer E190</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>114</b></span>
+        <span>Range <b>4,537 km</b></span>
+        <span>Lease <b>$48K/wk</b></span>
+        <span>Buy <b>$24M</b></span>
+        <span>Fuel <b>293 L/100km</b> (≈ $3.52/km)</span>
+        <span>Maintenance <b>$33K/wk</b></span>
+      </div>
+      <p>Larger E-jet with solid range, perfect for medium-thin routes.</p>
+      <p class="note">Fuel efficiency: <b>#10 of 26</b> in its class (3.08¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$421</b> per seat.</p>
+    </div>
+    <div class="card" id="e190e2">
+      <h3>Embraer E190-E2</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>114</b></span>
+        <span>Range <b>4,537 km</b></span>
+        <span>Lease <b>$69K/wk</b></span>
+        <span>Buy <b>$40M</b></span>
+        <span>Fuel <b>275 L/100km</b> (≈ $3.30/km)</span>
+        <span>Maintenance <b>$34K/wk</b></span>
+      </div>
+      <p>Re-engined E190 with 17% better fuel burn. Best-in-class regional economics.</p>
+      <p class="note">Fuel efficiency: <b>#3 of 26</b> in its class (2.89¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$605</b> per seat.</p>
+    </div>
+    <div class="card" id="fokker100">
+      <h3>Fokker 100</h3>
+      <p class="meta">Fokker · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>122</b></span>
+        <span>Range <b>3,170 km</b></span>
+        <span>Lease <b>$19K/wk</b></span>
+        <span>Buy <b>$9M</b></span>
+        <span>Fuel <b>267 L/100km</b> (≈ $3.20/km)</span>
+        <span>Maintenance <b>$28K/wk</b></span>
+      </div>
+      <p>Dutch narrow-body workhorse. Still flying on many regional routes worldwide.</p>
+      <p class="note">Fuel efficiency: <b>#1 of 26</b> in its class (2.63¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$156</b> per seat.</p>
+    </div>
+    <div class="card" id="e195">
+      <h3>Embraer E195</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>124</b></span>
+        <span>Range <b>4,260 km</b></span>
+        <span>Lease <b>$52K/wk</b></span>
+        <span>Buy <b>$26M</b></span>
+        <span>Fuel <b>302 L/100km</b> (≈ $3.62/km)</span>
+        <span>Maintenance <b>$37K/wk</b></span>
+      </div>
+      <p>Largest of the original E-jet family. Bridges regional jets and narrow-bodies on medium-thin routes.</p>
+      <p class="note">Fuel efficiency: <b>#4 of 26</b> in its class (2.92¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$419</b> per seat.</p>
+    </div>
+    <div class="card" id="e195e2">
+      <h3>Embraer E195-E2</h3>
+      <p class="meta">Embraer · Regional Jet</p>
+      <div class="specs">
+        <span>Seats <b>146</b></span>
+        <span>Range <b>4,800 km</b></span>
+        <span>Lease <b>$78K/wk</b></span>
+        <span>Buy <b>$45M</b></span>
+        <span>Fuel <b>324 L/100km</b> (≈ $3.89/km)</span>
+        <span>Maintenance <b>$40K/wk</b></span>
+      </div>
+      <p>Next-gen E-jet with improved fuel efficiency. Bridges regional and narrow-body.</p>
+      <p class="note">Fuel efficiency: <b>#2 of 26</b> in its class (2.66¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$534</b> per seat.</p>
+    </div>
+    <a class="cta" href="/">Play Tailwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

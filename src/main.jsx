@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import { GameProvider } from './store/GameContext.jsx';
+import UpdatePrompt from './components/UpdatePrompt.jsx';
 import { Analytics } from '@vercel/analytics/react';
 import './index.css';
 
@@ -14,6 +15,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <GameProvider>
       <App />
     </GameProvider>
+    <UpdatePrompt />
     <Analytics />
   </React.StrictMode>
 );
@@ -26,7 +28,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // clear it from browsers that already registered it.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      // Nudge the browser to re-check for a new worker when the tab regains focus,
+      // so an open session doesn't sit indefinitely on a superseded build. The
+      // visible "new version available" banner is driven by UpdatePrompt, which
+      // detects a changed app-bundle hash even when sw.js itself is unchanged.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update().catch(() => {});
+      });
+    }).catch(() => {
       /* registration failure is non-fatal — the app still works normally */
     });
   });

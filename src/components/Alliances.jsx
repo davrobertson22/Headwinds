@@ -1,7 +1,7 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { formatMoney } from '../utils/simulation.js';
+import { formatMoney, routeQualityBreakdown } from '../utils/simulation.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import {
   ALLIANCES,
@@ -13,6 +13,7 @@ import {
   countAdjacentRoutes,
   checkAllianceEligibility,
   partnerInterlineRevenue,
+  allianceMembers,
 } from '../data/alliances.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -23,15 +24,34 @@ const TIER_META = {
   premium: { label: 'Premium', color: '#a78bfa'        },
 };
 
-/** Derive a rough quality score for the player (averaged across all routes / fleet). */
+/** Human-readable eligibility label for an alliance's allowed tiers.
+ *  No allowedTiers (or empty) means the bloc is open to everyone. */
+function allianceTierLabel(alliance) {
+  const tiers = alliance.requirements?.allowedTiers;
+  if (!tiers || tiers.length === 0) return 'all carriers';
+  return tiers.map(t => TIER_META[t]?.label ?? t).join(' / ') + ' carriers';
+}
+
+/** Player's average quality score across routes.
+ *  Prefers last week's engine results (routeResults[].qualityScore — real scores;
+ *  older saves lack the field, so entries without it are SKIPPED, not defaulted:
+ *  the old `?? 60` default meant this read exactly 60 forever). Falls back to a
+ *  live engine-accurate computation via routeQualityBreakdown. */
 function playerAvgQuality(state) {
-  // Use last week's route results if available
   const routeResults = state.lastReport?.routeResults;
   if (routeResults?.length) {
-    const scores = routeResults.map(r => r.qualityScore ?? 60).filter(Boolean);
+    const scores = routeResults.map(r => r.qualityScore).filter(v => v != null);
     if (scores.length) return Math.round(scores.reduce((s, v) => s + v, 0) / scores.length);
   }
-  return 60; // fallback
+  // Live fallback (week 1, or a save from before qualityScore was reported)
+  const live = (state.routes ?? [])
+    .map(r => {
+      const aircraft = (state.fleet ?? []).find(a => a.id === r.aircraftId);
+      return aircraft ? routeQualityBreakdown(r, aircraft, state)?.total : null;
+    })
+    .filter(v => v != null);
+  if (live.length) return Math.round(live.reduce((s, v) => s + v, 0) / live.length);
+  return 60; // no routes yet
 }
 
 /** The player's "tier" for alliance eligibility purposes. */
@@ -65,10 +85,8 @@ export default function Alliances() {
 
   // Weekly partnership revenue summary
   const allianceInterline = currentAlliance
-    ? currentAlliance.memberIds.reduce((sum, id) => {
-        const comp = competitors.find(c => c.id === id);
-        return comp ? sum + partnerInterlineRevenue(comp, servedAirports, currentAlliance.interlineFraction) : sum;
-      }, 0)
+    ? allianceMembers(currentAlliance.id, competitors).reduce((sum, comp) =>
+        sum + partnerInterlineRevenue(comp, servedAirports, currentAlliance.interlineFraction), 0)
     : 0;
 
   const codeshareInterline = codeshareAgreements.reduce((sum, a) => {
@@ -105,10 +123,10 @@ export default function Alliances() {
         />
         <SummaryKPI label="Codeshares" value={`${codeshareAgreements.length} / ${MAX_CODESHARE_AGREEMENTS}`} />
         <SummaryKPI
-          label="Product quality"
+          label="Quality"
           value={`${avgQuality}/100`}
           color={avgQuality >= 65 ? 'var(--green)' : avgQuality >= 50 ? 'var(--yellow)' : '#f87171'}
-          sub="seat + service score (≠ reputation)"
+          sub="avg across your routes — same score shown on route pages"
         />
       </div>
 
@@ -168,7 +186,7 @@ export default function Alliances() {
         competitors={competitors}
         codeshareAgreements={codeshareAgreements}
         servedAirports={servedAirports}
-        alliancePartnerIds={currentAlliance?.memberIds ?? []}
+        alliancePartnerIds={currentAlliance ? allianceMembers(currentAlliance.id, competitors).map(c => c.id) : []}
         state={state}
         dispatch={dispatch}
       />
@@ -184,9 +202,8 @@ function AllianceCard({
 }) {
   const [confirmLeave, setConfirmLeave] = useState(false);
 
-  const memberComps = alliance.memberIds
-    .map(id => competitors.find(c => c.id === id))
-    .filter(Boolean);
+  // Live membership — carriers join and leave blocs as the game evolves.
+  const memberComps = allianceMembers(alliance.id, competitors);
 
   const weeklyInterline = memberComps.reduce(
     (s, c) => s + partnerInterlineRevenue(c, servedAirports, alliance.interlineFraction),
@@ -279,9 +296,15 @@ function AllianceCard({
           {formatMoney(alliance.initiationFee)}
         </strong>
       </div>
-      <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
+      <div style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={{ color: 'var(--text-muted)' }}>Weekly dues</span>
         <strong>{formatMoney(alliance.weeklyFee)}/wk</strong>
+      </div>
+
+      {/* Who can join */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Glyph e="🎫" size={12} />
+        <span>Open to {allianceTierLabel(alliance)}</span>
       </div>
 
       {/* Eligibility / action */}

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Route Economics &amp; Pricing Guide — Tailwinds Airline Management Game</title>
+  <meta name="description" content="How route profit actually works in Tailwinds: demand, fares, load factor, cost per seat, fuel prices and hedging. Learn to read a route P&L and price to win." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/route-economics.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:40px 0 12px; }
+    h3 { font-size:1.1rem; margin:26px 0 8px; }
+    p { margin:0 0 16px; }
+    ul,ol { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    .tip { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:0 0 16px; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--gold-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Route Economics: Reading a P&amp;L and Pricing to Win</h1>
+    <p class="lede">Every decision in Tailwinds eventually shows up in a route's profit line. This guide breaks down where demand comes from, what each flight really costs, how to set fares, and how to protect yourself when fuel prices spike.</p>
+
+    <h2>Where demand comes from</h2>
+    <p>Tailwinds uses a gravity-style demand model: the bigger the populations at both ends of a route and the shorter the distance between them, the more people want to fly it. On top of raw population, three modifiers matter:</p>
+    <ul>
+      <li><strong>Tourism.</strong> Destinations with heavy visitor traffic generate demand far beyond their resident population — island resorts and tourist capitals behave much bigger than they look.</li>
+      <li><strong>Gateway effects.</strong> A country's primary international airport pulls demand from the whole nation, not just its metro area.</li>
+      <li><strong>Connections.</strong> Routes into your hub carry connecting passengers in addition to local traffic — see the <a href="/hub-strategy.html">hub strategy guide</a>. This is why the same city pair can be mediocre as an isolated route and excellent as a spoke.</li>
+    </ul>
+    <p>Demand is shared among every airline flying the pair, weighted by fares, frequency, quality, and reputation. You're never pricing in a vacuum — you're competing for a finite pool.</p>
+
+    <h2>What a flight actually costs</h2>
+    <p>Four cost lines hit every route, and they behave differently:</p>
+    <ul>
+      <li><strong>Lease (fixed weekly).</strong> Charged whether the aircraft flies full, empty, or not at all. This is why an idle aircraft is a slow leak and a half-used one is worse — the lease is spread over too few flights. Leasing costs roughly 8–12% of an aircraft's purchase price per year.</li>
+      <li><strong>Fuel (per km, variable).</strong> Each type burns a fixed number of litres per 100 km; your dollar cost is that burn times the world fuel price. Fuel is usually the biggest single cost on long routes.</li>
+      <li><strong>Crew (per km).</strong> Scales with distance and aircraft size. Small but never zero.</li>
+      <li><strong>Maintenance (weekly, age-based).</strong> Grows as airframes get older. A cheap old jet's lease saving is partly an illusion — some of it comes back as maintenance.</li>
+    </ul>
+    <p>Divide total weekly route cost by seats flown and you get <strong>cost per seat</strong> — the number your average fare must beat. Do this mentally before opening any route: seats × realistic load factor × fare vs. the four lines above. If the margin only works at 95% load, it doesn't work.</p>
+
+    <h2>Setting fares</h2>
+    <p>Fares steer demand share and yield simultaneously. Cut fares and you fill more seats at lower revenue each; raise them and you earn more per passenger but push travellers to competitors — or out of the market entirely. Practical rules:</p>
+    <ol>
+      <li><strong>Start near the suggested fare, then iterate weekly.</strong> The simulation gives you feedback every tick. Load factor above ~85% with no competitor? You're probably underpriced — nudge up. Load below ~60%? You're overpriced for the market or flying too much capacity.</li>
+      <li><strong>Price against the route's role.</strong> A spoke that exists to feed your long-haul can run thinner margins — its passengers earn again on the connecting flight. A standalone route must justify itself alone.</li>
+      <li><strong>Don't chase load factor for its own sake.</strong> 95% load at a loss-making fare is just a very popular way to lose money. Route profit is the score; load factor is a diagnostic.</li>
+      <li><strong>Mind quality effects.</strong> Cabin configuration, catering, reputation and loyalty shift how demand splits at a given fare. A better product lets you sustain a fare premium — see <a href="/competition-and-alliances.html">competition &amp; alliances</a>.</li>
+    </ol>
+    <div class="tip">Tip: when a route underperforms, try frequency and capacity changes before fare cuts. Swapping a half-empty narrow-body for a regional jet at the same fare often fixes the P&amp;L instantly — same revenue, much lower cost.</div>
+
+    <h2>Fuel prices and hedging</h2>
+    <p>The world fuel price in Tailwinds is not static. It follows a mean-reverting random walk around a base of $1.20/litre, drifting anywhere from roughly 0.55× in a glut to 1.90× in a crisis before being pulled back toward normal. A fuel spike can turn your whole long-haul network unprofitable for weeks — long, fuel-heavy routes are hit hardest.</p>
+    <p>Your defence is <strong>hedging</strong>: locking in today's price for a share of your fleet's fuel bill. Hedges come in three durations — 8, 13, or 26 weeks — at premiums of 3%, 6%, and 10% over the current market price, and in coverage bands of 25%, 50%, or 75% of consumption. Contracts stack up to 100% coverage.</p>
+    <ul>
+      <li><strong>Hedge when fuel is cheap, not when it's scary.</strong> The time to buy 26-week coverage is when the index is well below 1.0 and the premium locks in a bargain. Hedging at the top of a spike locks in pain.</li>
+      <li><strong>Size coverage to your exposure.</strong> A turboprop-heavy regional airline can shrug at fuel swings; a widebody long-haul network should rarely fly unhedged.</li>
+      <li><strong>Treat the premium as insurance.</strong> Hedges won't always pay off — that's fine. You're buying predictable costs, which is what lets you price routes with confidence.</li>
+    </ul>
+
+    <h2>Diagnosing a losing route</h2>
+    <p>Work down this checklist before killing a route:</p>
+    <ol>
+      <li><strong>Is the aircraft wrong?</strong> Oversized capacity is the most common cause. Check load factor first.</li>
+      <li><strong>Is the fare wrong?</strong> Compare your fare to cost per seat and to competitors on the pair.</li>
+      <li><strong>Is it new?</strong> Routes take weeks to mature as awareness and connections build. Judge trends, not single weeks.</li>
+      <li><strong>Is it strategic?</strong> A slightly negative spoke that feeds a very profitable trunk may be earning its keep invisibly.</li>
+      <li><strong>Is it just a bad market?</strong> Some pairs are too thin, too far, or too contested. Redeploying the aircraft to a better market is not failure — it's the job.</li>
+    </ol>
+
+    <h2>Further reading</h2>
+    <p>Aircraft choice drives most of the cost side — the <a href="/aircraft.html">aircraft guides</a> include per-seat fuel economics for every type in the game. The <a href="/fleet-planning.html">fleet planning guide</a> covers building a fleet that matches your route map, and <a href="/hub-strategy.html">hub strategy</a> explains the network effects behind route demand.</p>
+
+    <a class="cta" href="/">Play Tailwinds Now →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

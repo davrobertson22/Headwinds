@@ -27,6 +27,12 @@ import BrandingModal from './components/BrandingModal.jsx';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
 
+// Build stamp — injected by vite.config.js `define`. Guarded so non-Vite contexts
+// (e.g. node test harnesses that don't import App) never trip over the globals.
+const BUILD_ID = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '';
+
 // Show a full-screen interstitial every Nth week advance (never on the first).
 const AD_EVERY_N_WEEKS = 3;
 
@@ -374,8 +380,34 @@ function AppInner() {
             mobile) so it's reachable on scroll without permanently occupying
             screen space. */}
         <footer className="app-footer app-footer-inline">
+          <div style={{ marginBottom: 8 }}>
+            {[
+              ['How to Play', '/how-to-play.html'],
+              ['Strategy Guide', '/strategy.html'],
+              ['Glossary', '/glossary.html'],
+              ['Devlog', '/devlog.html'],
+              ['About', '/about.html'],
+              ['Privacy', '/privacy.html'],
+            ].map(([label, href]) => (
+              <a
+                key={href}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--accent)', textDecoration: 'none', marginRight: 16, fontSize: 12, fontWeight: 500 }}
+              >
+                {label}
+              </a>
+            ))}
+          </div>
           AI was used in the development of this game. While core mechanics were designed by humans,
           much of the coding and scaling of designs were done through the use of LLMs.
+          <div
+            title={BUILD_TIME ? `Built ${BUILD_TIME}` : undefined}
+            style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', letterSpacing: '.02em' }}
+          >
+            Tailwinds v{APP_VERSION} · build {BUILD_ID}
+          </div>
         </footer>
       </div>
 

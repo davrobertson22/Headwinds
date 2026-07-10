@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Freighter Aircraft Guide — Tailwinds Airline Management Game</title>
+  <meta name="description" content="Every cargo aircraft in Tailwinds compared: payload, range, lease cost and fuel burn. Build a profitable cargo network alongside your passenger airline." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/aircraft-freighters.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:860px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:40px 0 12px; }
+    h3 { font-size:1.15rem; margin:0 0 6px; font-family:'Space Grotesk',sans-serif; }
+    p { margin:0 0 16px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    table.stats { width:100%; border-collapse:collapse; font-size:0.88rem; margin:0 0 28px; }
+    table.stats th, table.stats td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    table.stats th:first-child, table.stats td:first-child { text-align:left; white-space:normal; }
+    table.stats th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--bg); }
+    .tablewrap { overflow-x:auto; margin:0 0 28px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 18px; }
+    .card .meta { color:var(--muted); font-size:0.85rem; margin:0 0 10px; }
+    .card img { width:100%; max-width:480px; border-radius:8px; display:block; margin:10px 0 12px; }
+    .card .specs { display:flex; flex-wrap:wrap; gap:8px 22px; font-size:0.88rem; color:var(--muted); margin:0 0 10px; }
+    .card .specs b { color:var(--text); font-weight:600; }
+    .note { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:10px 0 0; font-size:0.92rem; }
+    .crumbs { font-size:0.85rem; color:var(--muted); margin:0 0 20px; }
+    .crumbs a { color:var(--muted); }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <p class="crumbs"><a href="/">Home</a> › <a href="/aircraft.html">Aircraft</a> › Freighter Aircraft Guide</p>
+    <h1>Freighter Aircraft Guide</h1>
+    <p class="lede">Every cargo aircraft in Tailwinds compared: payload, range, lease cost and fuel burn. Build a profitable cargo network alongside your passenger airline.</p>
+
+      <p>Cargo is a different business with different rules. Freighters fly payload, not passengers: no catering, no loyalty points, no reputation dance — just tonnes, lanes, and yield. A well-built cargo network is steady, high-margin income that keeps earning even when passenger demand wobbles.</p>
+      <p>Because these aircraft carry no seats, the comparison metric changes: what matters is payload tonnes against trip cost over the lanes you actually fly. Small feeders move parcels into your hub; big intercontinental freighters move serious tonnage between major economies.</p>
+      <h2>How to choose</h2>
+      <p>Start small. A regional freighter on a short, proven lane teaches you cargo pricing at minimal risk. Converted passenger jets (BCF/P2F types) are the mid-market value play — cheap to lease, decent payload. Purpose-built giants like the 747F only pay off on dense long-haul trade lanes with tonnage to fill them, but when they work, nothing else comes close.</p>
+<h2>All 23 aircraft at a glance</h2>
+<p>Figures are the game's actual values. Fuel cost assumes the base fuel price of $1.20/litre — the live market price in your save drifts between roughly half and nearly double that, which is why <a href="/route-economics.html">fuel hedging</a> matters.</p>
+    <div class="tablewrap"><table class="stats">
+      <thead><tr><th>Aircraft</th><th>Payload</th><th>Range</th><th>Lease/wk</th><th>Price</th><th>Fuel/100km</th><th>Fuel/tonne-km</th></tr></thead>
+      <tbody>
+      <tr>
+        <td><a href="#atr72f">ATR 72-600F</a></td>
+        <td>9 t</td>
+        <td>1,500 km</td>
+        <td>$45K</td>
+        <td>$26M</td>
+        <td>119 L</td>
+        <td>15.8¢</td>
+      </tr>
+      <tr>
+        <td><a href="#e190f">Embraer E190F</a></td>
+        <td>13 t</td>
+        <td>4,500 km</td>
+        <td>$36K</td>
+        <td>$17M</td>
+        <td>285 L</td>
+        <td>26.3¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737300f">Boeing 737-300F</a></td>
+        <td>18 t</td>
+        <td>3,400 km</td>
+        <td>$17K</td>
+        <td>$8M</td>
+        <td>410 L</td>
+        <td>27.3¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737400f">Boeing 737-400F</a></td>
+        <td>20 t</td>
+        <td>3,500 km</td>
+        <td>$21K</td>
+        <td>$10M</td>
+        <td>400 L</td>
+        <td>24.0¢</td>
+      </tr>
+      <tr>
+        <td><a href="#an12">Antonov An-12</a></td>
+        <td>20 t</td>
+        <td>3,600 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>504 L</td>
+        <td>30.2¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737800bcf">Boeing 737-800BCF</a></td>
+        <td>23 t</td>
+        <td>3,750 km</td>
+        <td>$43K</td>
+        <td>$20M</td>
+        <td>381 L</td>
+        <td>19.9¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b727200f">Boeing 727-200F</a></td>
+        <td>26 t</td>
+        <td>3,500 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>600 L</td>
+        <td>27.7¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a321p2f">Airbus A321P2F</a></td>
+        <td>28 t</td>
+        <td>4,300 km</td>
+        <td>$70K</td>
+        <td>$32M</td>
+        <td>290 L</td>
+        <td>12.4¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b757200pf">Boeing 757-200PF</a></td>
+        <td>39 t</td>
+        <td>5,800 km</td>
+        <td>$34K</td>
+        <td>$16M</td>
+        <td>460 L</td>
+        <td>14.2¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b767200sf">Boeing 767-200SF</a></td>
+        <td>42 t</td>
+        <td>6,000 km</td>
+        <td>$38K</td>
+        <td>$18M</td>
+        <td>600 L</td>
+        <td>17.1¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b767300f">Boeing 767-300F</a></td>
+        <td>52 t</td>
+        <td>6,025 km</td>
+        <td>$175K</td>
+        <td>$110M</td>
+        <td>594 L</td>
+        <td>13.7¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dc873f">Douglas DC-8-73F</a></td>
+        <td>53 t</td>
+        <td>9,000 km</td>
+        <td>$13K</td>
+        <td>$6M</td>
+        <td>1026 L</td>
+        <td>23.2¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a300600f">Airbus A300-600F</a></td>
+        <td>54 t</td>
+        <td>7,400 km</td>
+        <td>$53K</td>
+        <td>$25M</td>
+        <td>790 L</td>
+        <td>17.6¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a330200f">Airbus A330-200F</a></td>
+        <td>70 t</td>
+        <td>7,400 km</td>
+        <td>$217K</td>
+        <td>$125M</td>
+        <td>625 L</td>
+        <td>10.7¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dc1030f">McDonnell Douglas DC-10-30F</a></td>
+        <td>78 t</td>
+        <td>5,900 km</td>
+        <td>$21K</td>
+        <td>$10M</td>
+        <td>978 L</td>
+        <td>15.0¢</td>
+      </tr>
+      <tr>
+        <td><a href="#md11f">McDonnell Douglas MD-11F</a></td>
+        <td>91 t</td>
+        <td>7,300 km</td>
+        <td>$64K</td>
+        <td>$30M</td>
+        <td>932 L</td>
+        <td>12.3¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b777f">Boeing 777F</a></td>
+        <td>102 t</td>
+        <td>9,200 km</td>
+        <td>$300K</td>
+        <td>$185M</td>
+        <td>781 L</td>
+        <td>9.2¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a350f">Airbus A350F</a></td>
+        <td>109 t</td>
+        <td>8,700 km</td>
+        <td>$360K</td>
+        <td>$210M</td>
+        <td>720 L</td>
+        <td>7.9¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b747400f">Boeing 747-400F</a></td>
+        <td>112 t</td>
+        <td>8,230 km</td>
+        <td>$85K</td>
+        <td>$40M</td>
+        <td>1150 L</td>
+        <td>12.3¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b7778f">Boeing 777-8F</a></td>
+        <td>112 t</td>
+        <td>8,200 km</td>
+        <td>$380K</td>
+        <td>$200M</td>
+        <td>770 L</td>
+        <td>8.3¢</td>
+      </tr>
+      <tr>
+        <td><a href="#an124">Antonov An-124-100 Ruslan</a></td>
+        <td>120 t</td>
+        <td>5,400 km</td>
+        <td>$254K</td>
+        <td>$120M</td>
+        <td>1568 L</td>
+        <td>15.7¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b7478f">Boeing 747-8F</a></td>
+        <td>137 t</td>
+        <td>8,130 km</td>
+        <td>$381K</td>
+        <td>$180M</td>
+        <td>1183 L</td>
+        <td>10.4¢</td>
+      </tr>
+      <tr>
+        <td><a href="#an225">Antonov An-225 Mriya</a></td>
+        <td>250 t</td>
+        <td>4,000 km</td>
+        <td>$635K</td>
+        <td>$300M</td>
+        <td>2183 L</td>
+        <td>10.5¢</td>
+      </tr>
+      </tbody>
+    </table></div>
+<h2>Type-by-type notes</h2>
+    <div class="card" id="atr72f">
+      <h3>ATR 72-600F</h3>
+      <p class="meta">ATR · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>9 tonnes</b></span>
+        <span>Range <b>1,500 km</b></span>
+        <span>Lease <b>$45K/wk</b></span>
+        <span>Buy <b>$26M</b></span>
+        <span>Fuel <b>119 L/100km</b> (≈ $1.43/km)</span>
+        <span>Maintenance <b>$14K/wk</b></span>
+      </div>
+      <p>Purpose-built regional freighter. Feeds parcels and express cargo into hubs on thin short-haul lanes where a widebody would never fill.</p>
+      <p class="note">Cargo efficiency: <b>#14 of 23</b> freighters (15.8¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$5,000</b>.</p>
+    </div>
+    <div class="card" id="e190f">
+      <h3>Embraer E190F</h3>
+      <p class="meta">Embraer · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>13 tonnes</b></span>
+        <span>Range <b>4,500 km</b></span>
+        <span>Lease <b>$36K/wk</b></span>
+        <span>Buy <b>$17M</b></span>
+        <span>Fuel <b>285 L/100km</b> (≈ $3.42/km)</span>
+        <span>Maintenance <b>$33K/wk</b></span>
+      </div>
+      <p>Regional jet converted to freight — fills the gap below narrowbody cargo aircraft.</p>
+      <p class="note">Cargo efficiency: <b>#20 of 23</b> freighters (26.3¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$2,769</b>.</p>
+    </div>
+    <div class="card" id="b737300f">
+      <h3>Boeing 737-300F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>18 tonnes</b></span>
+        <span>Range <b>3,400 km</b></span>
+        <span>Lease <b>$17K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>410 L/100km</b> (≈ $4.92/km)</span>
+        <span>Maintenance <b>$50K/wk</b></span>
+      </div>
+      <p>Earlier classic-737 freighter conversion for short-haul express networks.</p>
+      <p class="note">Cargo efficiency: <b>#21 of 23</b> freighters (27.3¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$944</b>.</p>
+    </div>
+    <div class="card" id="b737400f">
+      <h3>Boeing 737-400F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>20 tonnes</b></span>
+        <span>Range <b>3,500 km</b></span>
+        <span>Lease <b>$21K/wk</b></span>
+        <span>Buy <b>$10M</b></span>
+        <span>Fuel <b>400 L/100km</b> (≈ $4.80/km)</span>
+        <span>Maintenance <b>$52K/wk</b></span>
+      </div>
+      <p>Classic 737 converted to carry parcels — ubiquitous regional cargo hauler.</p>
+      <p class="note">Cargo efficiency: <b>#19 of 23</b> freighters (24.0¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$1,050</b>.</p>
+    </div>
+    <div class="card" id="an12">
+      <h3>Antonov An-12</h3>
+      <p class="meta">Antonov · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>20 tonnes</b></span>
+        <span>Range <b>3,600 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>504 L/100km</b> (≈ $6.05/km)</span>
+        <span>Maintenance <b>$40K/wk</b></span>
+      </div>
+      <p>Rugged Soviet turboprop freighter with a rear ramp for outsize and rough-field cargo.</p>
+      <p class="note">Cargo efficiency: <b>#23 of 23</b> freighters (30.2¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$425</b>.</p>
+    </div>
+    <div class="card" id="b737800bcf">
+      <h3>Boeing 737-800BCF</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>23 tonnes</b></span>
+        <span>Range <b>3,750 km</b></span>
+        <span>Lease <b>$43K/wk</b></span>
+        <span>Buy <b>$20M</b></span>
+        <span>Fuel <b>381 L/100km</b> (≈ $4.58/km)</span>
+        <span>Maintenance <b>$58K/wk</b></span>
+      </div>
+      <p>Passenger-to-freighter conversion of the best-selling 737-800. The workhorse of e-commerce and express networks on domestic and short regional cargo routes.</p>
+      <p class="note">Cargo efficiency: <b>#17 of 23</b> freighters (19.9¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$1,848</b>.</p>
+    </div>
+    <div class="card" id="b727200f">
+      <h3>Boeing 727-200F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>26 tonnes</b></span>
+        <span>Range <b>3,500 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>600 L/100km</b> (≈ $7.20/km)</span>
+        <span>Maintenance <b>$58K/wk</b></span>
+      </div>
+      <p>Tri-jet freighter that powered overnight express in the 1980s-90s.</p>
+      <p class="note">Cargo efficiency: <b>#22 of 23</b> freighters (27.7¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$327</b>.</p>
+    </div>
+    <div class="card" id="a321p2f">
+      <h3>Airbus A321P2F</h3>
+      <p class="meta">Airbus · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>28 tonnes</b></span>
+        <span>Range <b>4,300 km</b></span>
+        <span>Lease <b>$70K/wk</b></span>
+        <span>Buy <b>$32M</b></span>
+        <span>Fuel <b>290 L/100km</b> (≈ $3.48/km)</span>
+        <span>Maintenance <b>$50K/wk</b></span>
+      </div>
+      <p>Passenger-to-freighter A321 — efficient narrowbody capacity for e-commerce growth.</p>
+      <p class="note">Cargo efficiency: <b>#9 of 23</b> freighters (12.4¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$2,500</b>.</p>
+    </div>
+    <div class="card" id="b757200pf">
+      <h3>Boeing 757-200PF</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>39 tonnes</b></span>
+        <span>Range <b>5,800 km</b></span>
+        <span>Lease <b>$34K/wk</b></span>
+        <span>Buy <b>$16M</b></span>
+        <span>Fuel <b>460 L/100km</b> (≈ $5.52/km)</span>
+        <span>Maintenance <b>$85K/wk</b></span>
+      </div>
+      <p>Narrowbody express freighter — the backbone of integrators like UPS and FedEx.</p>
+      <p class="note">Cargo efficiency: <b>#11 of 23</b> freighters (14.2¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$872</b>.</p>
+    </div>
+    <div class="card" id="b767200sf">
+      <h3>Boeing 767-200SF</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>42 tonnes</b></span>
+        <span>Range <b>6,000 km</b></span>
+        <span>Lease <b>$38K/wk</b></span>
+        <span>Buy <b>$18M</b></span>
+        <span>Fuel <b>600 L/100km</b> (≈ $7.20/km)</span>
+        <span>Maintenance <b>$140K/wk</b></span>
+      </div>
+      <p>Special-freighter 767-200 conversion — a favorite of Amazon Air feeder fleets.</p>
+      <p class="note">Cargo efficiency: <b>#15 of 23</b> freighters (17.1¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$905</b>.</p>
+    </div>
+    <div class="card" id="b767300f">
+      <h3>Boeing 767-300F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>52 tonnes</b></span>
+        <span>Range <b>6,025 km</b></span>
+        <span>Lease <b>$175K/wk</b></span>
+        <span>Buy <b>$110M</b></span>
+        <span>Fuel <b>594 L/100km</b> (≈ $7.13/km)</span>
+        <span>Maintenance <b>$145K/wk</b></span>
+      </div>
+      <p>The backbone of express and mid-haul cargo. FedEx and UPS fly hundreds; ideal medium-widebody capacity for transcontinental and regional intercontinental freight.</p>
+      <p class="note">Cargo efficiency: <b>#10 of 23</b> freighters (13.7¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$3,365</b>.</p>
+    </div>
+    <div class="card" id="dc873f">
+      <h3>Douglas DC-8-73F</h3>
+      <p class="meta">Douglas · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>53 tonnes</b></span>
+        <span>Range <b>9,000 km</b></span>
+        <span>Lease <b>$13K/wk</b></span>
+        <span>Buy <b>$6M</b></span>
+        <span>Fuel <b>1026 L/100km</b> (≈ $12.31/km)</span>
+        <span>Maintenance <b>$80K/wk</b></span>
+      </div>
+      <p>Re-engined long-range DC-8 freighter, valued for trans-ocean cargo runs.</p>
+      <p class="note">Cargo efficiency: <b>#18 of 23</b> freighters (23.2¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$236</b>.</p>
+    </div>
+    <div class="card" id="a300600f">
+      <h3>Airbus A300-600F</h3>
+      <p class="meta">Airbus · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>54 tonnes</b></span>
+        <span>Range <b>7,400 km</b></span>
+        <span>Lease <b>$53K/wk</b></span>
+        <span>Buy <b>$25M</b></span>
+        <span>Fuel <b>790 L/100km</b> (≈ $9.48/km)</span>
+        <span>Maintenance <b>$140K/wk</b></span>
+      </div>
+      <p>Widebody freighter workhorse — FedEx's most numerous type for years.</p>
+      <p class="note">Cargo efficiency: <b>#16 of 23</b> freighters (17.6¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$981</b>.</p>
+    </div>
+    <div class="card" id="a330200f">
+      <h3>Airbus A330-200F</h3>
+      <p class="meta">Airbus · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>70 tonnes</b></span>
+        <span>Range <b>7,400 km</b></span>
+        <span>Lease <b>$217K/wk</b></span>
+        <span>Buy <b>$125M</b></span>
+        <span>Fuel <b>625 L/100km</b> (≈ $7.50/km)</span>
+        <span>Maintenance <b>$150K/wk</b></span>
+      </div>
+      <p>Modern purpose-built mid-size freighter. Better fuel economics than the 767F with more payload, suited to medium and long-haul cargo trunk routes.</p>
+      <p class="note">Cargo efficiency: <b>#6 of 23</b> freighters (10.7¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$3,093</b>.</p>
+    </div>
+    <div class="card" id="dc1030f">
+      <h3>McDonnell Douglas DC-10-30F</h3>
+      <p class="meta">McDonnell Douglas · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>78 tonnes</b></span>
+        <span>Range <b>5,900 km</b></span>
+        <span>Lease <b>$21K/wk</b></span>
+        <span>Buy <b>$10M</b></span>
+        <span>Fuel <b>978 L/100km</b> (≈ $11.73/km)</span>
+        <span>Maintenance <b>$150K/wk</b></span>
+      </div>
+      <p>Converted tri-jet freighter with long legs and a big main deck.</p>
+      <p class="note">Cargo efficiency: <b>#12 of 23</b> freighters (15.0¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$269</b>.</p>
+    </div>
+    <div class="card" id="md11f">
+      <h3>McDonnell Douglas MD-11F</h3>
+      <p class="meta">McDonnell Douglas · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>91 tonnes</b></span>
+        <span>Range <b>7,300 km</b></span>
+        <span>Lease <b>$64K/wk</b></span>
+        <span>Buy <b>$30M</b></span>
+        <span>Fuel <b>932 L/100km</b> (≈ $11.18/km)</span>
+        <span>Maintenance <b>$185K/wk</b></span>
+      </div>
+      <p>Tri-jet freighter prized by cargo carriers long after passenger MD-11s retired.</p>
+      <p class="note">Cargo efficiency: <b>#7 of 23</b> freighters (12.3¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$698</b>.</p>
+    </div>
+    <div class="card" id="b777f">
+      <h3>Boeing 777F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>102 tonnes</b></span>
+        <span>Range <b>9,200 km</b></span>
+        <span>Lease <b>$300K/wk</b></span>
+        <span>Buy <b>$185M</b></span>
+        <span>Fuel <b>781 L/100km</b> (≈ $9.38/km)</span>
+        <span>Maintenance <b>$220K/wk</b></span>
+      </div>
+      <p>The definitive modern long-haul freighter. Near-jumbo payload with twin-engine economics — the choice for ultra-long intercontinental cargo trunk routes.</p>
+      <p class="note">Cargo efficiency: <b>#3 of 23</b> freighters (9.2¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$2,941</b>.</p>
+    </div>
+    <div class="card" id="a350f">
+      <h3>Airbus A350F</h3>
+      <p class="meta">Airbus · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>109 tonnes</b></span>
+        <span>Range <b>8,700 km</b></span>
+        <span>Lease <b>$360K/wk</b></span>
+        <span>Buy <b>$210M</b></span>
+        <span>Fuel <b>720 L/100km</b> (≈ $8.64/km)</span>
+        <span>Maintenance <b>$250K/wk</b></span>
+      </div>
+      <p>Purpose-built widebody freighter on the A350 airframe — large main-deck door, efficient engines.</p>
+      <p class="note">Cargo efficiency: <b>#1 of 23</b> freighters (7.9¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$3,303</b>.</p>
+    </div>
+    <div class="card" id="b747400f">
+      <h3>Boeing 747-400F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>112 tonnes</b></span>
+        <span>Range <b>8,230 km</b></span>
+        <span>Lease <b>$85K/wk</b></span>
+        <span>Buy <b>$40M</b></span>
+        <span>Fuel <b>1150 L/100km</b> (≈ $13.80/km)</span>
+        <span>Maintenance <b>$320K/wk</b></span>
+      </div>
+      <p>The Queen of the cargo skies. Nose-loading door swallows outsize freight; maximum payload on the densest cargo corridors, at the cost of four thirsty engines.</p>
+      <p class="note">Cargo efficiency: <b>#8 of 23</b> freighters (12.3¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$754</b>.</p>
+    </div>
+    <div class="card" id="b7778f">
+      <h3>Boeing 777-8F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>112 tonnes</b></span>
+        <span>Range <b>8,200 km</b></span>
+        <span>Lease <b>$380K/wk</b></span>
+        <span>Buy <b>$200M</b></span>
+        <span>Fuel <b>770 L/100km</b> (≈ $9.24/km)</span>
+        <span>Maintenance <b>$250K/wk</b></span>
+      </div>
+      <p>Next-generation 777X freighter — the new flagship of the long-haul cargo fleet.</p>
+      <p class="note">Cargo efficiency: <b>#2 of 23</b> freighters (8.3¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$3,393</b>.</p>
+    </div>
+    <div class="card" id="an124">
+      <h3>Antonov An-124-100 Ruslan</h3>
+      <p class="meta">Antonov · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>120 tonnes</b></span>
+        <span>Range <b>5,400 km</b></span>
+        <span>Lease <b>$254K/wk</b></span>
+        <span>Buy <b>$120M</b></span>
+        <span>Fuel <b>1568 L/100km</b> (≈ $18.82/km)</span>
+        <span>Maintenance <b>$380K/wk</b></span>
+      </div>
+      <p>Soviet-era strategic heavylifter. Cheap to acquire and able to swallow outsize loads through its nose and tail doors, but four thirsty D-18T engines and a short max-payload range make it a specialist, not a trunk-route workhorse.</p>
+      <p class="note">Cargo efficiency: <b>#13 of 23</b> freighters (15.7¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$2,117</b>.</p>
+    </div>
+    <div class="card" id="b7478f">
+      <h3>Boeing 747-8F</h3>
+      <p class="meta">Boeing · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>137 tonnes</b></span>
+        <span>Range <b>8,130 km</b></span>
+        <span>Lease <b>$381K/wk</b></span>
+        <span>Buy <b>$180M</b></span>
+        <span>Fuel <b>1183 L/100km</b> (≈ $14.19/km)</span>
+        <span>Maintenance <b>$360K/wk</b></span>
+      </div>
+      <p>The largest production freighter in the world. GEnx engines and a stretched upper deck give it more payload than the -400F with markedly better fuel burn per tonne — the modern flagship of dedicated cargo fleets.</p>
+      <p class="note">Cargo efficiency: <b>#4 of 23</b> freighters (10.4¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$2,781</b>.</p>
+    </div>
+    <div class="card" id="an225">
+      <h3>Antonov An-225 Mriya</h3>
+      <p class="meta">Antonov · Freighter</p>
+      <div class="specs">
+        <span>Payload <b>250 tonnes</b></span>
+        <span>Range <b>4,000 km</b></span>
+        <span>Lease <b>$635K/wk</b></span>
+        <span>Buy <b>$300M</b></span>
+        <span>Fuel <b>2183 L/100km</b> (≈ $26.20/km)</span>
+        <span>Maintenance <b>$600K/wk</b></span>
+      </div>
+      <p>The legend. Six engines, the highest payload of any aircraft ever flown, and a cargo hold built to carry the Buran shuttle. A halo machine for ultra-heavy outsize loads — staggering capability, ruinous economics, and only ever viable on the densest special-cargo corridors.</p>
+      <p class="note">Cargo efficiency: <b>#5 of 23</b> freighters (10.5¢ per tonne-km at base fuel price). Weekly lease per payload tonne: <b>$2,538</b>.</p>
+    </div>
+    <a class="cta" href="/">Play Tailwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

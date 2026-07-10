@@ -4,13 +4,14 @@ import {
   formatMoney, formatPercent,
   simulateRoute, maintenanceMultiplier, blockTimeHours,
   CLASS_FARE_MULTIPLIERS,
-  weeklyBlockHours, routeDistanceKm, weekToGameDate,
+  weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
 import { getSeasonalProfile } from '../models/demand.js';
 import { LABOR_GROUPS, DEFAULT_LABOR_STATE, laborEffects } from '../data/labor.js';
-import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies } from '../data/families.js';
+import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies,
+         fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
   fuelIndexStatus, fuelIndexDelta, absoluteWeek,
   HEDGE_DURATIONS, HEDGE_COVERAGES,
@@ -19,7 +20,7 @@ import {
 } from '../utils/fuel.js';
 import {
   hqBracket,
-  marketingDemandMultiplier,
+  awarenessDemandMultiplier,
   weeklyCateringCost, weeklyLayoverCost, weeklyPassengerCompensation,
   GROUND_HANDLING_COST_PER_PAX,
   DISTRIBUTION_COST_PCT,
@@ -270,7 +271,9 @@ function ProfitWaterfall({ proj, report }) {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
         <span style={{ color: 'var(--text-dim)' }}>Revenue drivers:</span>
         <span>Awareness <strong>{(report.awarenessMultiplier ?? 1).toFixed(2)}×</strong></span>
-        <span>Marketing <strong>{(report.mktMultiplier ?? 1).toFixed(2)}×</strong></span>
+        {(report.totalTargetedSpend ?? 0) > 0 && (
+          <span>Campaign lift <strong>{formatMoney((report.routeResults ?? []).reduce((s, r) => s + (r.marketingLift ?? 0), 0))}</strong></span>
+        )}
         <span>Loyalty <strong>{(report.loyaltyMultiplier ?? 1).toFixed(2)}×</strong></span>
         {proj.globalDemandMult !== 1 && <span>Events <strong>{proj.globalDemandMult.toFixed(2)}×</strong></span>}
         {(report.totalConnecting ?? 0) > 0 && <span>Connecting feed <strong>{formatMoney(report.totalConnecting)}</strong></span>}
@@ -323,14 +326,15 @@ function PLStatement({ proj }) {
   // used, so per-route operating-cost detail rows reconcile to the report totals.
   // Per-route REVENUE for display uses the engine's boosted figure (proj.revById),
   // which includes connecting feed + awareness/marketing/loyalty/alliance lifts.
+  const avgUtilization = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
   const routeData = useMemo(() => routes.map(route => {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) return null;
-    const result = simulateRoute(route, aircraft, gd, labor, proj.fuelMultiplier);
+    const result = simulateRoute(route, aircraft, gd, labor, proj.fuelMultiplier, null, [], avgUtilization, state.satisfaction ?? null);
     if (!result) return null;
     const bookedRevenue = proj.revById[route.id] ?? result.revenue;
     return { route, aircraft, result, bookedRevenue };
-  }).filter(Boolean), [routes, fleet, state.week, proj]);
+  }).filter(Boolean), [routes, fleet, state.week, proj]);  // eslint-disable-line
 
   // Canonical cost buckets (from the engine report, not re-derived)
   const totFuel = report.totalFuel;
@@ -403,7 +407,6 @@ function PLStatement({ proj }) {
   // Marketing
   const marketingBudgetVal = report.totalMarketingSpend;
   const ytdMarketing  = ytd(financialHistory, 'marketing');
-  const mktMultiplier = report.mktMultiplier ?? 1;
 
   // Revenue — canonical, including connecting feed + partner O&D + all demand lifts.
   const totRev          = proj.effectiveRevenue;
@@ -416,7 +419,7 @@ function PLStatement({ proj }) {
   const cargoRoutesState = state.cargoRoutes ?? [];
 
   // Catering / layover / compensation — canonical totals; per-route detail for display.
-  const { onTimeRate } = laborEffects(labor);
+  const { onTimeRate } = laborEffects(labor, avgUtilization, state.satisfaction ?? null);
   const cateringByRoute = routeData.map(({ route, aircraft, result }) => {
     const type = getAircraftType(aircraft.typeId);
     const catering     = result.cateringCost     ?? weeklyCateringCost(result.classSummary ?? {});
@@ -1122,14 +1125,19 @@ function PLStatement({ proj }) {
               >
                 <SubSectionHeader label="Labor Overhead (fixed per aircraft)" />
                 {LABOR_GROUPS.map(g => {
-                  const gs   = labor[g.id] ?? { payMultiplier: 1.0, morale: 80 };
-                  const cost = fleet.length > 0 ? Math.round(g.baseWeeklyPerAircraft * gs.payMultiplier * fleet.length) : 0;
+                  const gs       = labor[g.id] ?? { payMultiplier: 1.0, morale: 80 };
+                  const complexityMult = fleetComplexityMultiplier(fleet);
+                  const famMult  = COMPLEXITY_AFFECTED_GROUPS.includes(g.id) ? complexityMult : 1.0;
+                  const cost = fleet.length > 0 ? Math.round(g.baseWeeklyPerAircraft * gs.payMultiplier * fleet.length * famMult) : 0;
                   return (
                     <tr key={g.id}>
                       <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
                         {g.emoji} {g.name}
                         <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-dim)' }}>
                           {gs.payMultiplier.toFixed(2)}× · morale {Math.round(gs.morale)}%
+                          {famMult > 1.0 && (
+                            <span style={{ color: 'var(--yellow)' }}> · +{Math.round((famMult - 1) * 100)}% fleet complexity</span>
+                          )}
                         </span>
                       </td>
                       {pw && <td />}
@@ -1186,7 +1194,7 @@ function PLStatement({ proj }) {
                     <td style={{ paddingLeft: 28, color: 'var(--text-muted)', fontSize: 13 }}>
                       Marketing &amp; advertising
                       <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-dim)' }}>
-                        demand lift: +{((mktMultiplier - 1) * 100).toFixed(1)}% across all routes
+                        builds brand awareness &amp; local campaigns — demand lift flows through awareness
                       </span>
                     </td>
                     {pw && <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 12 }}>{formatMoney(-(pw.marketing ?? 0))}</td>}
@@ -2136,18 +2144,20 @@ function UnitEconomics({ proj }) {
   const gd = currentGameDate(state);
   const labor = state.labor ?? DEFAULT_LABOR_STATE;
 
-  const routeData = useMemo(() => routes.map(route => {
+  const routeData = useMemo(() => {
+    const avgUtil = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
+    return routes.map(route => {
     const a    = fleet.find(x => x.id === route.aircraftId);
     const type = a ? getAircraftType(a.typeId) : null;
     if (!a || !type) return null;
     // Simulate with the engine's labor + fuel multiplier so costs match; use the
     // engine's BOOKED revenue (incl. connecting feed + demand lifts) for RASK/yield.
-    const raw = simulateRoute(route, a, gd, labor, proj.fuelMultiplier);
+    const raw = simulateRoute(route, a, gd, labor, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null);
     if (!raw) return null;
     const result = { ...raw, revenue: proj.revById[route.id] ?? raw.revenue };
     const ue = calcUnitEconomics(route, a, type, result, fleet, routes);
     return { route, aircraft: a, type, result, ue };
-  }).filter(Boolean), [routes, fleet, state.week, proj]);
+  }).filter(Boolean); }, [routes, fleet, state.week, proj]);  // eslint-disable-line
 
   const totASK    = routeData.reduce((s, r) => s + r.ue.ASK, 0);
   const totRPK    = routeData.reduce((s, r) => s + r.ue.RPK, 0);
@@ -2275,9 +2285,7 @@ function Forecast({ proj }) {
 
   // Demand multipliers shown in the "revenue multipliers applied" banner below.
   // (baseRevenue itself already bakes these in via the engine projection.)
-  const awarenessMultiplier = 0.4 + ((state.awareness ?? 5) / 100) * 0.6;
-  const lastRevEstimate = state.financialHistory?.at(-1)?.revenue ?? 1;
-  const mktMultiplier   = marketingDemandMultiplier(state.marketingBudget ?? 0, Math.max(lastRevEstimate, 1));
+  const awarenessMultiplier = awarenessDemandMultiplier(state.awareness ?? 5);
   const globalDemandMult = (state.activeEvents ?? []).reduce((m, ev) => {
     const fx = ev.effects ?? {};
     return fx.globalDemandMult ? m * fx.globalDemandMult : m;
@@ -2287,9 +2295,10 @@ function Forecast({ proj }) {
   const fuelMultiplier = state.fuelMultiplier ?? 1.0;
 
   const fcLaborState  = state.labor ?? DEFAULT_LABOR_STATE;
+  const fcAvgUtil     = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
   const routeData = routes.map(r => {
     const a = fleet.find(x => x.id === r.aircraftId);
-    return a ? simulateRoute(r, a, gd, fcLaborState, fuelMultiplier) : null;
+    return a ? simulateRoute(r, a, gd, fcLaborState, fuelMultiplier, null, [], fcAvgUtil, state.satisfaction ?? null) : null;
   }).filter(Boolean);
 
   // ── Canonical current-week baseline (same engine the other tabs use) ───────
@@ -2382,7 +2391,7 @@ function Forecast({ proj }) {
           <span><Glyph e="⚡" /> Revenue multipliers applied to this forecast:</span>
           {globalDemandMult !== 1 && <span>Events {globalDemandMult > 1 ? '+' : ''}{formatPercent(globalDemandMult - 1)}</span>}
           {awarenessMultiplier < 0.95 && <span>Awareness {formatPercent(awarenessMultiplier)} of max</span>}
-          {mktMultiplier > 1 && <span>Marketing +{formatPercent(mktMultiplier - 1)}</span>}
+          {awarenessMultiplier > 1 && <span>Awareness +{formatPercent(awarenessMultiplier - 1)}</span>}
           <span style={{ color: 'var(--text-dim)' }}>Events end when they expire — future weeks may differ.</span>
         </div>
       )}

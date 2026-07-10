@@ -503,6 +503,80 @@ export const EVENT_TEMPLATES = [
       };
     },
   },
+
+  // ── Quality / satisfaction shocks ─────────────────────────────────────────
+  // One-time hits to the earned passenger-satisfaction stat, applied when the
+  // event triggers (see ADVANCE_WEEK). The EWMA then recovers naturally, so a
+  // shock lingers for weeks — like a real service scandal or viral moment.
+
+  {
+    id: 'catering_scandal',
+    type: 'disruption',
+    name: 'Catering Contractor Meltdown',
+    icon: '🍽️',
+    description: 'Your catering contractor fails health inspections — meals pulled fleet-wide, passengers furious.',
+    color: '#ff5d6c',
+    probability: 0.015,
+    duration: [1, 2],
+    generate() {
+      const shock = -(5 + Math.floor(Math.random() * 3));   // −5…−7
+      return {
+        effects: { satisfactionShock: shock },
+        resolvedDesc: `Catering fiasco makes headlines — passenger satisfaction takes a ${Math.abs(shock)}-point hit.`,
+      };
+    },
+  },
+  {
+    id: 'baggage_meltdown',
+    type: 'disruption',
+    name: 'Baggage System Meltdown',
+    icon: '🧳',
+    description: 'A baggage-handling IT failure strands thousands of bags across your network.',
+    color: '#ff5d6c',
+    probability: 0.015,
+    duration: [1, 2],
+    generate() {
+      const shock = -(4 + Math.floor(Math.random() * 3));   // −4…−6
+      return {
+        effects: { satisfactionShock: shock },
+        resolvedDesc: `Mountains of lost luggage go viral — passenger satisfaction drops ${Math.abs(shock)} points.`,
+      };
+    },
+  },
+  {
+    id: 'viral_praise',
+    type: 'demand',
+    name: 'Viral Service Moment',
+    icon: '🌟',
+    description: 'A passenger video praising your crew’s service goes viral worldwide.',
+    color: '#38d39f',
+    probability: 0.015,
+    duration: [1, 2],
+    generate() {
+      const shock = 4 + Math.floor(Math.random() * 3);      // +4…+6
+      return {
+        effects: { satisfactionShock: shock },
+        resolvedDesc: `Feel-good crew story goes viral — passenger satisfaction jumps +${shock} points.`,
+      };
+    },
+  },
+  {
+    id: 'service_award',
+    type: 'demand',
+    name: 'Industry Service Award',
+    icon: '🏆',
+    description: 'Your airline wins a coveted industry award for passenger experience.',
+    color: '#38d39f',
+    probability: 0.01,
+    duration: [1, 2],
+    generate() {
+      const shock = 5 + Math.floor(Math.random() * 3);      // +5…+7
+      return {
+        effects: { satisfactionShock: shock },
+        resolvedDesc: `Award-winning service makes the trade press — passenger satisfaction up +${shock} points.`,
+      };
+    },
+  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -516,9 +590,64 @@ function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+// ── Event conflict logic ──────────────────────────────────────────────────────
+//
+// Each event is tagged with the "axis" it moves so contradictory events can
+// never run at the same time. Two axes are tracked:
+//
+//   demand  'up' | 'down'   — passenger appetite / sentiment
+//   scope   'global' | 'regional'
+//   fuel    'up' | 'down'   — jet-fuel cost direction
+//
+// Operational disruptions (weather, strikes, volcanic ash, IT outages, natural
+// disasters, political unrest) are capacity hits, NOT demand sentiment, so they
+// carry no axis and may co-occur with anything — including each other. That is
+// realistic: a holiday demand surge can coincide with a winter storm.
+export const EVENT_AXES = {
+  // Demand UP
+  travel_boom:       { demand: 'up',   scope: 'global'   },
+  holiday_surge:     { demand: 'up',   scope: 'global'   },
+  mega_conference:   { demand: 'up',   scope: 'global'   },
+  heatwave_escape:   { demand: 'up',   scope: 'global'   },
+  new_route_frenzy:  { demand: 'up',   scope: 'global'   },
+  competitor_crisis: { demand: 'up',   scope: 'global'   },
+  asia_boom:         { demand: 'up',   scope: 'regional' },
+  europe_surge:      { demand: 'up',   scope: 'regional' },
+  world_cup:         { demand: 'up',   scope: 'regional' },
+  tourism_campaign:  { demand: 'up',   scope: 'regional' },
+  // Demand DOWN
+  recession:         { demand: 'down', scope: 'global'   },
+  pandemic_scare:    { demand: 'down', scope: 'global'   },
+  fare_war:          { demand: 'down', scope: 'global'   },
+  us_slump:          { demand: 'down', scope: 'regional' },
+  currency_crisis:   { demand: 'down', scope: 'regional' },
+  // Fuel cost
+  fuel_spike:        { fuel: 'up'   },
+  fuel_drop:         { fuel: 'down' },
+};
+
+/**
+ * True if two event templates (by id) are logically contradictory and must
+ * not run simultaneously. Rules:
+ *   1. Opposite fuel-cost directions conflict.
+ *   2. Opposite demand directions conflict when EITHER event is global in
+ *      scope (a global swing can't coexist with the reverse anywhere; two
+ *      independent regional swings in different regions are fine).
+ */
+export function eventsConflict(idA, idB) {
+  const a = EVENT_AXES[idA];
+  const b = EVENT_AXES[idB];
+  if (!a || !b) return false;
+  if (a.fuel && b.fuel && a.fuel !== b.fuel) return true;
+  if (a.demand && b.demand && a.demand !== b.demand &&
+      (a.scope === 'global' || b.scope === 'global')) return true;
+  return false;
+}
+
 /**
  * Roll for new events this week. Returns an array of new event objects to add.
- * Won't add a second instance of an already-active event type.
+ * Won't add a second instance of an already-active event type, and won't add
+ * an event that logically contradicts a currently-active or newly-rolled one.
  */
 export function rollEvents(activeEvents = []) {
   const MAX_ACTIVE_EVENTS = 2;
@@ -530,6 +659,10 @@ export function rollEvents(activeEvents = []) {
     if (activeTypes.has(tmpl.id)) continue;          // already active
     if (Math.random() > tmpl.probability * EVENT_FREQUENCY) continue;  // didn't trigger
 
+    // Skip events that contradict something already active or just rolled.
+    const present = [...activeEvents.map(e => e.templateId), ...newEvents.map(e => e.templateId)];
+    if (present.some(id => eventsConflict(id, tmpl.id))) continue;
+
     const dur = randInt(tmpl.duration[0], tmpl.duration[1]);
     const { effects, resolvedDesc } = tmpl.generate();
 
@@ -540,6 +673,8 @@ export function rollEvents(activeEvents = []) {
     if (effects.fuelMult)         effects.fuelMult         = clampImpact(effects.fuelMult, cap);
     if (effects.globalDemandMult) effects.globalDemandMult = clampImpact(effects.globalDemandMult, cap);
     if (effects.regionDemandMult) effects.regionDemandMult = clampImpact(effects.regionDemandMult, cap);
+    // Satisfaction shocks are one-time point hits, not multipliers: cap at ±10.
+    if (effects.satisfactionShock) effects.satisfactionShock = Math.max(-10, Math.min(10, effects.satisfactionShock));
 
     newEvents.push({
       id:          `${tmpl.id}-${Date.now()}-${Math.random()}`,

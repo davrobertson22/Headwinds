@@ -22,6 +22,7 @@ const CAT_COLORS = {
   'Regional Jet': '#38d39f',
   'Narrow Body':  '#3ea6ff',
   'Wide Body':    '#a98bff',
+  'Double Deck':  '#7c5cff',
   'Supersonic':   '#f778ba',
   'Freighter':    '#e8833a',
 };
@@ -31,8 +32,14 @@ const CAT_ICONS = {
   'Regional Jet': '✈',
   'Narrow Body':  '✈',
   'Wide Body':    '🛫',
+  'Double Deck':  '🛬',
   'Supersonic':   '💨',
   'Freighter':    '📦',
+};
+
+// Display labels for category filter tabs (falls back to the raw category key).
+const CAT_LABELS = {
+  'Double Deck': 'Double Decker',
 };
 
 const DELIVERY_LEAD = {
@@ -40,6 +47,7 @@ const DELIVERY_LEAD = {
   'Narrow Body':  3,
   'Regional Jet': 2,
   'Turboprop':    1,
+  'Double Deck':  5,
   'Supersonic':   4,
   'Freighter':    4,
 };
@@ -72,110 +80,374 @@ function AircraftPhoto({ src, alt, category }) {
   );
 }
 
-// ── Pending orders bar ────────────────────────────────────────────────────────
+// ── Orders & Deliveries tab ───────────────────────────────────────────────────
 
-function PendingOrdersBar({ pendingOrders, year, week, onCancel }) {
-  if (!pendingOrders || pendingOrders.length === 0) return null;
+function deliveryDateLabel(absWeek) {
+  const year = Math.floor((absWeek - 1) / 52) + 1;
+  const wiy  = ((absWeek - 1) % 52) + 1;
+  const { monthName, weekInMonth } = weekToGameDate(wiy);
+  return `Wk ${weekInMonth} ${monthName} Y${year}`;
+}
 
-  const currentAbsWeek = absoluteWeek(year, week);
+const CABIN_CLASSES = [
+  { key: 'firstClass',     label: 'First',      color: '#a98bff' },
+  { key: 'businessClass',  label: 'Business',   color: '#3ea6ff' },
+  { key: 'premiumEconomy', label: 'Prem Econ',  color: '#38d39f' },
+  { key: 'economy',        label: 'Economy',    color: '#93a4ba' },
+];
+
+function statTile(label, value, sub) {
+  return (
+    <div style={{
+      flex: '1 1 140px', minWidth: 130,
+      background: 'var(--surface2)', border: '1px solid var(--border)',
+      borderRadius: 8, padding: '10px 14px',
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, marginTop: 3 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function DeliveryForecast({ pendingOrders, currentAbsWeek }) {
+  // Group orders by delivery week, soonest first
+  const groups = {};
+  for (const o of pendingOrders) {
+    (groups[o.deliverAbsWeek] ??= []).push(o);
+  }
+  const weeks = Object.keys(groups).map(Number).sort((a, b) => a - b);
 
   return (
     <div style={{
-      marginBottom: 20,
-      background: 'var(--surface2)',
-      border: '1px solid var(--border)',
-      borderRadius: 8,
-      overflow: 'hidden',
+      background: 'var(--surface2)', border: '1px solid var(--border)',
+      borderRadius: 8, overflow: 'hidden', marginBottom: 20,
     }}>
       <div style={{
-        padding: '10px 16px',
-        borderBottom: '1px solid var(--border)',
-        fontSize: 12,
-        fontWeight: 600,
-        color: 'var(--text-muted)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.07em',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
+        padding: '10px 16px', borderBottom: '1px solid var(--border)',
+        fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em',
+        display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <span><Glyph e="📦" /></span>
-        <span>On Order ({pendingOrders.length})</span>
+        <span><Glyph e="📅" /></span>
+        <span>Delivery Forecast</span>
       </div>
-      <div style={{ padding: '8px 8px 4px' }}>
-        {pendingOrders.map(order => {
-          const type          = getAircraftType(order.typeId);
-          const catColor      = CAT_COLORS[type?.category] || '#93a4ba';
-          const weeksLeft     = order.deliverAbsWeek - currentAbsWeek;
-          const deliverYear   = Math.floor((order.deliverAbsWeek - 1) / 52) + 1;
-          const _deliverWIY   = ((order.deliverAbsWeek - 1) % 52) + 1;
-          const { monthName: deliverMon, weekInMonth: deliverWIM } = weekToGameDate(_deliverWIY);
-          const lead          = DELIVERY_LEAD[type?.category] ?? 2;
-          const progress      = Math.max(0, Math.min(1, 1 - (weeksLeft / lead)));
-
+      <div style={{ padding: '10px 16px' }}>
+        {weeks.map((wk, i) => {
+          const weeksAway = wk - currentAbsWeek;
+          const arriving  = weeksAway <= 0;
           return (
-            <div key={order.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 8px',
-              marginBottom: 4,
-              borderRadius: 6,
-              background: 'var(--surface1)',
-            }}>
-              {/* Category dot */}
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: catColor, flexShrink: 0 }} />
-
-              {/* Name + type */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {order.name}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                  {type?.name}
-                  {order.engineLabel && ` · ${order.engineLabel}`}
-                  {order.hasWingtips && ' · Wingtips'}
-                  {' · '}
-                  <span style={{
-                    color: order.ownershipType === 'owned' ? 'var(--green)' : 'var(--accent)',
-                    fontWeight: 600,
-                  }}>
-                    {order.ownershipType === 'owned' ? 'Purchase' : 'Lease'}
+            <div key={wk} style={{ display: 'flex', gap: 14, position: 'relative' }}>
+              {/* Timeline column */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 12, flexShrink: 0 }}>
+                <div style={{
+                  width: 10, height: 10, borderRadius: '50%', marginTop: 5,
+                  background: arriving ? 'var(--green)' : 'var(--accent)',
+                  boxShadow: arriving ? '0 0 0 3px rgba(63,185,80,0.2)' : '0 0 0 3px rgba(56,139,253,0.15)',
+                  flexShrink: 0,
+                }} />
+                {i < weeks.length - 1 && (
+                  <div style={{ width: 2, flex: 1, background: 'var(--border)', marginTop: 2, marginBottom: 2 }} />
+                )}
+              </div>
+              {/* Week content */}
+              <div style={{ flex: 1, paddingBottom: i < weeks.length - 1 ? 14 : 2, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: arriving ? 'var(--green)' : 'var(--text)' }}>
+                    {arriving ? 'Arriving now' : `In ${weeksAway} week${weeksAway !== 1 ? 's' : ''}`}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{deliveryDateLabel(wk)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    · {groups[wk].length} aircraft
                   </span>
                 </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {groups[wk].map(o => {
+                    const t        = getAircraftType(o.typeId);
+                    const catColor = CAT_COLORS[t?.category] || '#93a4ba';
+                    return (
+                      <span key={o.id} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        fontSize: 11, padding: '3px 10px', borderRadius: 20,
+                        background: 'var(--surface1)', border: `1px solid ${catColor}40`,
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: catColor }} />
+                        <span style={{ fontWeight: 600 }}>{o.name}</span>
+                        <span style={{ color: o.ownershipType === 'owned' ? 'var(--green)' : 'var(--accent)', fontWeight: 600 }}>
+                          {o.ownershipType === 'owned' ? 'Buy' : 'Lease'}
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
-
-              {/* Progress bar + ETA */}
-              <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 90 }}>
-                <div style={{ fontSize: 11, color: weeksLeft <= 1 ? 'var(--green)' : 'var(--text-muted)', fontWeight: 600 }}>
-                  {weeksLeft <= 0 ? 'Arriving…' : `${weeksLeft}w left`}
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>
-                  Wk {deliverWIM} {deliverMon} Y{deliverYear}
-                </div>
-                <div style={{ height: 3, width: 80, background: 'var(--surface3)', borderRadius: 2, marginTop: 4, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${progress * 100}%`, background: catColor, borderRadius: 2, transition: 'width 0.3s' }} />
-                </div>
-              </div>
-
-              {/* Cancel button */}
-              <button
-                onClick={() => onCancel(order)}
-                style={{
-                  flexShrink: 0,
-                  padding: '3px 8px',
-                  fontSize: 11,
-                  borderRadius: 4,
-                  border: '1px solid rgba(248,81,73,0.3)',
-                  background: 'rgba(248,81,73,0.08)',
-                  color: 'var(--red)',
-                  cursor: 'pointer',
-                }}
-                title="Cancel order"
-              >
-                Cancel
-              </button>
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function OrderCard({ order, currentAbsWeek, onCancel, onRename }) {
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft]     = useState('');
+
+  function startRename() {
+    setNameDraft(order.name);
+    setEditingName(true);
+  }
+  function commitRename() {
+    const name = nameDraft.trim();
+    if (name && name !== order.name) onRename(order, name);
+    setEditingName(false);
+  }
+
+  const type      = getAircraftType(order.typeId);
+  const catColor  = CAT_COLORS[type?.category] || '#93a4ba';
+  const weeksLeft = order.deliverAbsWeek - currentAbsWeek;
+  const lead      = DELIVERY_LEAD[type?.category] ?? 2;
+  const progress  = Math.max(0, Math.min(1, 1 - (weeksLeft / lead)));
+  const isOwned   = order.ownershipType === 'owned';
+  const cfg       = order.config;
+  const totalSeats = cfg
+    ? CABIN_CLASSES.reduce((s, c) => s + (cfg[c.key] || 0), 0)
+    : null;
+
+  const labelStyle = { fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' };
+
+  return (
+    <div style={{
+      background: 'linear-gradient(180deg, var(--surface), var(--bg-elev))',
+      border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '12px 16px', borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: catColor, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editingName ? (
+            <input
+              autoFocus
+              value={nameDraft}
+              maxLength={40}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitRename();
+                if (e.key === 'Escape') setEditingName(false);
+              }}
+              style={{
+                fontWeight: 700, fontSize: 14, padding: '1px 6px', width: '100%',
+                background: 'var(--surface2)', color: 'var(--text)',
+                border: '1px solid var(--accent)', borderRadius: 5, outline: 'none',
+              }}
+            />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {order.name}
+              </span>
+              <button
+                onClick={startRename}
+                title="Rename aircraft"
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text-muted)', padding: '0 2px', flexShrink: 0,
+                  display: 'inline-flex', alignItems: 'center',
+                }}
+              >
+                <Glyph e="✏️" size={12} />
+              </button>
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+            {type?.manufacturer} {type?.name} · <span style={{ color: catColor }}>{CAT_LABELS[type?.category] || type?.category}</span>
+          </div>
+        </div>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0,
+          background: isOwned ? 'rgba(63,185,80,0.15)' : 'rgba(56,139,253,0.15)',
+          color: isOwned ? 'var(--green)' : 'var(--accent)',
+          border: `1px solid ${isOwned ? 'rgba(63,185,80,0.35)' : 'rgba(56,139,253,0.35)'}`,
+        }}>
+          {isOwned ? 'PURCHASE' : 'LEASE'}
+        </span>
+      </div>
+
+      <div style={{ padding: '12px 16px' }}>
+        {/* Configuration */}
+        <div style={labelStyle}>Configuration</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, marginBottom: 12 }}>
+          {order.engineLabel && (
+            <span style={{
+              fontSize: 11, padding: '2px 8px', borderRadius: 4,
+              background: 'rgba(163,113,247,0.12)', color: '#a98bff',
+              border: '1px solid rgba(163,113,247,0.3)',
+            }}>
+              <Glyph e="⚙" /> {order.engineLabel}
+            </span>
+          )}
+          <span style={{
+            fontSize: 11, padding: '2px 8px', borderRadius: 4,
+            background: order.hasWingtips ? 'rgba(56,211,159,0.12)' : 'var(--surface3)',
+            color: order.hasWingtips ? '#38d39f' : 'var(--text-dim)',
+            border: `1px solid ${order.hasWingtips ? 'rgba(56,211,159,0.3)' : 'var(--border)'}`,
+          }}>
+            {order.hasWingtips ? '✓ Wingtips' : 'No wingtips'}
+          </span>
+          {type?.freighter && (
+            <span style={{
+              fontSize: 11, padding: '2px 8px', borderRadius: 4,
+              background: 'rgba(232,131,58,0.12)', color: '#e8833a',
+              border: '1px solid rgba(232,131,58,0.3)',
+            }}>
+              <Glyph e="📦" /> {type.payloadTonnes}t payload
+            </span>
+          )}
+        </div>
+
+        {/* Cabin layout */}
+        {cfg && totalSeats > 0 && (
+          <>
+            <div style={labelStyle}>Cabin Layout · {totalSeats} seats</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6, marginBottom: 4 }}>
+              {CABIN_CLASSES.filter(c => (cfg[c.key] || 0) > 0).map(c => (
+                <div key={c.key} style={{
+                  flex: 1, textAlign: 'center', padding: '5px 4px', borderRadius: 6,
+                  background: 'var(--surface2)', border: `1px solid ${c.color}35`,
+                }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: c.color }}>{cfg[c.key]}</div>
+                  <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+            {/* Cabin mix bar */}
+            <div style={{ display: 'flex', height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 12 }}>
+              {CABIN_CLASSES.filter(c => (cfg[c.key] || 0) > 0).map(c => (
+                <div key={c.key} style={{ width: `${(cfg[c.key] / totalSeats) * 100}%`, background: c.color }} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Financials */}
+        <div style={{
+          display: 'flex', gap: 16, padding: '8px 0 10px',
+          borderTop: '1px solid var(--border-subtle)', marginTop: 2,
+        }}>
+          {isOwned ? (
+            <div>
+              <div style={labelStyle}>Purchase Price</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)', marginTop: 2 }}>
+                {formatMoney(order.totalPrice)}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <div style={labelStyle}>Weekly Lease</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginTop: 2 }}>
+                  {formatMoney(order.weeklyLease)}<span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-muted)' }}>/wk</span>
+                </div>
+              </div>
+              <div>
+                <div style={labelStyle}>Deposit Paid</div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>
+                  {formatMoney(order.leaseDeposit)}
+                </div>
+              </div>
+            </>
+          )}
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <div style={labelStyle}>Ordered</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+              Wk {order.orderedWeek} Y{order.orderedYear}
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery progress */}
+        <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
+            <span style={{ fontSize: 11, color: weeksLeft <= 1 ? 'var(--green)' : 'var(--text-muted)', fontWeight: 600 }}>
+              {weeksLeft <= 0 ? 'Arriving…' : `${weeksLeft} week${weeksLeft !== 1 ? 's' : ''} until delivery`}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{deliveryDateLabel(order.deliverAbsWeek)}</span>
+          </div>
+          <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${progress * 100}%`, background: catColor, borderRadius: 2, transition: 'width 0.3s' }} />
+          </div>
+          <button
+            onClick={() => onCancel(order)}
+            style={{
+              marginTop: 10, width: '100%', padding: '5px 8px', fontSize: 11,
+              borderRadius: 5, border: '1px solid rgba(248,81,73,0.3)',
+              background: 'rgba(248,81,73,0.08)', color: 'var(--red)', cursor: 'pointer',
+            }}
+          >
+            Cancel Order{isOwned && order.totalPrice > 0 ? ' (95% refund)' : ' (free)'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse }) {
+  const currentAbsWeek = absoluteWeek(year, week);
+
+  if (!pendingOrders || pendingOrders.length === 0) {
+    return (
+      <div style={{
+        textAlign: 'center', padding: '60px 20px',
+        background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 10,
+      }}>
+        <div style={{ fontSize: 40, opacity: 0.3, marginBottom: 10 }}><Glyph e="📦" /></div>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>No aircraft on order</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 16 }}>
+          Orders you place in the market will appear here with delivery forecasts.
+        </div>
+        <button className="btn btn-primary" onClick={onBrowse}>Browse Market →</button>
+      </div>
+    );
+  }
+
+  const sorted = [...pendingOrders].sort((a, b) => a.deliverAbsWeek - b.deliverAbsWeek);
+  const purchases      = sorted.filter(o => o.ownershipType === 'owned');
+  const leases         = sorted.filter(o => o.ownershipType !== 'owned');
+  const capitalSpent   = purchases.reduce((s, o) => s + (o.totalPrice || 0), 0);
+  const incomingLease  = leases.reduce((s, o) => s + (o.weeklyLease || 0), 0);
+  const nextDelivery   = sorted[0]?.deliverAbsWeek - currentAbsWeek;
+
+  return (
+    <div>
+      {/* Summary stats */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+        {statTile('On Order', sorted.length, `${purchases.length} purchase · ${leases.length} lease`)}
+        {statTile('Next Delivery', nextDelivery <= 0 ? 'Arriving' : `${nextDelivery}w`, deliveryDateLabel(sorted[0].deliverAbsWeek))}
+        {statTile('Capital Committed', formatMoney(capitalSpent), 'purchases (paid)')}
+        {statTile('Incoming Lease Costs', `${formatMoney(incomingLease)}/wk`, 'starts on delivery')}
+      </div>
+
+      {/* Delivery forecast timeline */}
+      <DeliveryForecast pendingOrders={sorted} currentAbsWeek={currentAbsWeek} />
+
+      {/* Order detail cards */}
+      <div style={{
+        fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10,
+      }}>
+        Order Details ({sorted.length})
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 16 }}>
+        {sorted.map(order => (
+          <OrderCard key={order.id} order={order} currentAbsWeek={currentAbsWeek} onCancel={onCancel} onRename={onRename} />
+        ))}
       </div>
     </div>
   );
@@ -187,6 +459,7 @@ export default function Marketplace() {
   const { state, dispatch } = useGame();
   const { cash, fleet, pendingOrders = [], year, week } = state;
 
+  const [view, setView]                     = useState('browse'); // 'browse' | 'orders'
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeMfr, setActiveMfr]           = useState('All');
 
@@ -236,14 +509,49 @@ export default function Marketplace() {
 
   return (
     <div>
-      {/* Pending orders */}
-      <PendingOrdersBar
-        pendingOrders={pendingOrders}
-        year={year}
-        week={week}
-        onCancel={handleCancelOrder}
-      />
+      {/* Subtabs: Browse Market / Orders & Deliveries */}
+      <div className="category-tabs" style={{ marginBottom: 20 }}>
+        <button
+          className={`category-tab ${view === 'browse' ? 'active' : ''}`}
+          style={{ fontSize: 13, padding: '9px 18px' }}
+          onClick={() => setView('browse')}
+        >
+          <span style={{ marginRight: 6, display: 'inline-flex' }}><Glyph e="🛒" size={14} /></span>
+          Browse Market
+        </button>
+        <button
+          className={`category-tab ${view === 'orders' ? 'active' : ''}`}
+          style={{ fontSize: 13, padding: '9px 18px' }}
+          onClick={() => setView('orders')}
+        >
+          <span style={{ marginRight: 6, display: 'inline-flex' }}><Glyph e="📦" size={14} /></span>
+          Orders &amp; Deliveries
+          {pendingOrders.length > 0 && (
+            <span style={{
+              marginLeft: 7, fontSize: 10, fontWeight: 700,
+              padding: '1px 7px', borderRadius: 10,
+              background: 'rgba(210,153,34,0.2)', color: 'var(--yellow)',
+              border: '1px solid rgba(210,153,34,0.4)',
+            }}>
+              {pendingOrders.length}
+            </span>
+          )}
+        </button>
+      </div>
 
+      {view === 'orders' && (
+        <OrdersTab
+          pendingOrders={pendingOrders}
+          year={year}
+          week={week}
+          onCancel={handleCancelOrder}
+          onRename={(order, name) => dispatch({ type: 'RENAME_ORDER', orderId: order.id, name })}
+          onBrowse={() => setView('browse')}
+        />
+      )}
+
+      {view === 'browse' && (
+      <>
       {/* Header + category filter */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 14 }}>
@@ -267,7 +575,7 @@ export default function Marketplace() {
                 onClick={() => { setActiveCategory(cat); setActiveMfr('All'); }}
               >
                 {cat !== 'All' && <span style={{ marginRight: 5, display: 'inline-flex' }}><Glyph e={CAT_ICONS[cat]} size={13} /></span>}
-                {cat}
+                {CAT_LABELS[cat] || cat}
               </button>
             );
           })}
@@ -344,7 +652,7 @@ export default function Marketplace() {
                     className="aircraft-cat-badge"
                     style={{ background: `${catColor}25`, color: catColor, border: `1px solid ${catColor}50` }}
                   >
-                    {type.category}
+                    {CAT_LABELS[type.category] || type.category}
                   </span>
                   {alreadyOwned > 0 && (
                     <span className="badge badge-blue" style={{ marginLeft: 6 }}>{alreadyOwned} in fleet</span>
@@ -509,6 +817,8 @@ export default function Marketplace() {
           );
         })}
       </div>
+      </>
+      )}
 
       {/* Checkout modal */}
       {checkout && (

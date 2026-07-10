@@ -30,7 +30,7 @@
  */
 
 import { baseCityPairDemand, referencePrice, routeDistance } from '../utils/market.js';
-import { getAirport, getAirportScores } from '../data/airports.js';
+import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -51,6 +51,15 @@ export const BUSINESS_PRICE_MULTIPLIER = 3.5;
  * Both use the same multiple so the choke reaches zero exactly at the input cap.
  */
 export const PRICE_CAP_MULTIPLE = 3;
+
+/**
+ * Competitive fare compression: each rival on a city pair drags the effective
+ * reference fare down (competition compresses yields, not just passenger
+ * splits). Applied inside computeMarketShare's competitive branch — symmetric
+ * for player and AI carriers.
+ */
+export const COMPETITIVE_FARE_COMPRESSION_PER_RIVAL = 0.05; // −5% per extra carrier
+export const COMPETITIVE_FARE_COMPRESSION_FLOOR    = 0.90;  // max −10%
 
 /**
  * Demand multiplier (0–1) that forces demand toward zero as a fare climbs from
@@ -82,9 +91,39 @@ export function priceChokeFactor(price, refForClass) {
  * A ratio of (refPrice / yourPrice) is raised to this power.
  */
 export const ELASTICITY = {
-  leisure: 1.8,   // raised from 1.5 — overpricing now meaningfully reduces demand
-  business: 0.6,
+  // Firm end of empirical airline elasticities. Leisure/economy demand runs
+  // ~-1.5 to -2.1 in the literature (short-haul leisure is the most elastic —
+  // travelers substitute driving, rail, or simply not going). At 2.0, pricing
+  // a monopoly route 25% over reference cuts leisure demand ~36%, so gouging
+  // costs revenue rather than printing it.
+  leisure: 2.0,    // was 1.8 (originally 1.5)
+  business: 0.7,   // was 0.6 — business is inelastic, but not immune (~-0.7)
+  connecting: 1.2, // was 1.0 — connecting pax have hub alternatives; less captive
 };
+
+/**
+ * Price-response multiplier (0–1) for CONNECTING passengers.
+ *
+ * Connecting pax used to ignore price entirely — they paid whatever fare was set,
+ * so an overpriced route still earned full feed revenue. They should be *less*
+ * price-sensitive than pure origin–destination leisure travelers (they've committed
+ * to your network for the connection and have fewer one-hop alternatives), but they
+ * are not captive: as the fare climbs toward the cap, connecting demand tapers and
+ * reaches zero at PRICE_CAP_MULTIPLE × reference — exactly like direct demand.
+ *
+ *   price ≤ reference        → 1
+ *   price ≥ cap × reference  → 0
+ *   in between               → (ref/price)^ELASTICITY.connecting × priceChokeFactor
+ *
+ * @param {number} price     the fare being charged ($)
+ * @param {number} refPrice  the route economy reference fare ($)
+ * @returns {number} 0–1
+ */
+export function connectingPriceFactor(price, refPrice) {
+  const ref = Math.max(refPrice, 1);
+  if (price <= ref) return 1;
+  return Math.pow(ref / price, ELASTICITY.connecting) * priceChokeFactor(price, ref);
+}
 
 /**
  * Utility weights used in competitive market-share model.
@@ -197,7 +236,7 @@ export const SEASONALITY = SEASONAL_PROFILES.generic;
  * @property {number}  leisureDemand      - price-sensitive segment (pax/week)
  * @property {number}  businessDemand     - quality/freq-sensitive segment (pax/week)
  * @property {number}  seasonalityFactor  - 0.8–1.3 multiplier for current month
- * @property {number}  maturityFactor     - 0–1, ramps to 1 over ~8 weeks on a new route
+ * @property {number}  maturityFactor     - 0–1, ramps to 1 over 26 weeks on a new route
  * @property {number}  referencePrice     - market equilibrium economy price ($)
  * @property {number}  distanceKm
  */
@@ -225,7 +264,10 @@ export const SEASONALITY = SEASONAL_PROFILES.generic;
  * Raw inputs used to compute an airline's qualityScore on a route.
  *
  * @property {number} onTimeRate         - 0–1 (1 = always on time). Starts at 0.85.
- * @property {'economy'|'premium'|'business'} serviceLevel - cabin tier
+ * @property {number} [cabinPoints]      - hard+soft product points from the cabin
+ *   config (see cabinQualityPoints). Preferred over legacy serviceLevel.
+ * @property {'economy'|'premium'|'business'} [serviceLevel] - legacy cabin tier,
+ *   used only when cabinPoints is not provided.
  * @property {number} fleetAgeYears      - average age of aircraft on route
  * @property {number} customerRating     - 0–5 stars (player-facing display metric)
  */
@@ -364,13 +406,68 @@ export function buildRouteMarket(origin, destination, gameDate, maturityFactor =
  * @param {QualityInputs} inputs
  * @returns {number}
  */
-export function computeQualityScore({ onTimeRate, serviceLevel, fleetAgeYears, customerRating }) {
+// ─── Cabin product quality points ─────────────────────────────────────────────
+// Hard product (seats) and soft product (service) each contribute their own
+// points to the quality score. `basic` is a deliberate LCC tradeoff: it saves
+// weekly cost (see *_QUALITY_COST_PER_ROUTE in simulation.js) at a quality
+// penalty; `standard` is the neutral baseline.
+
+export const SEAT_QUALITY_POINTS = {
+  basic:    -6,
+  standard:  0,
+  premium:  12,
+  luxury:   20,
+};
+
+export const SERVICE_QUALITY_POINTS = {
+  basic:    -5,
+  standard:  0,
+  premium:   8,
+  luxury:   14,
+};
+
+/** Combined quality points from a cabin config's seat + service settings. */
+export function cabinQualityPoints(config) {
+  return (SEAT_QUALITY_POINTS[config?.seatQuality ?? 'standard'] ?? 0)
+       + (SERVICE_QUALITY_POINTS[config?.serviceQuality ?? 'standard'] ?? 0);
+}
+
+/**
+ * Business travelers demand a credible product — even without airline
+ * competition they have alternatives (rail, another hub, a video call, not
+ * traveling). Capturable business demand scales with quality: ~0.88× at
+ * quality 30, 1.0× at the 65 baseline, ~1.12× at 100.
+ *
+ * Applied per-offer in monopoly markets and share-weighted across the market
+ * in competitive ones (an all-budget market shrinks its business pool), so
+ * quality pays business demand twice: a bigger pool AND a bigger slice.
+ */
+export function businessQualityCapture(qualityScore) {
+  const q = Math.max(0, Math.min(100, qualityScore ?? 65));
+  return Math.max(0.6, Math.min(1.15, 1 + (q - 65) * 0.0035));
+}
+
+/**
+ * High quality also stretches what business travelers consider a fair premium
+ * fare: the effective business reference price used for elasticity and the
+ * fare choke scales ~0.93× at quality 30 → 1.0× at 65 → ~1.07× at 100. A
+ * flagship product can hold a fatter business fare before demand collapses;
+ * a bare-bones one gets punished for premium pricing sooner.
+ */
+export function businessFareTolerance(qualityScore) {
+  const q = Math.max(0, Math.min(100, qualityScore ?? 65));
+  return Math.max(0.9, Math.min(1.1, 1 + (q - 65) * 0.002));
+}
+
+export function computeQualityScore({ onTimeRate, cabinPoints, serviceLevel, fleetAgeYears, customerRating }) {
   const onTimePoints    = onTimeRate * 30;          // max 30
-  const servicePts      = { economy: 0, premium: 12, business: 22 }[serviceLevel] ?? 0;
+  // Prefer explicit cabin points (seat + service); legacy serviceLevel fallback.
+  const productPts      = cabinPoints
+    ?? ({ economy: 0, premium: 12, business: 22 }[serviceLevel] ?? 0);
   const agePts          = Math.max(0, 20 - fleetAgeYears * 1.5); // max 20 (new a/c), 0 at ~13yr
   const ratingPts       = (customerRating / 5) * 28; // max 28
 
-  return Math.min(100, Math.round(onTimePoints + servicePts + agePts + ratingPts));
+  return Math.max(0, Math.min(100, Math.round(onTimePoints + productPts + agePts + ratingPts)));
 }
 
 /**
@@ -409,7 +506,12 @@ export function computeUtility(offer, market, segment) {
                    ? market.referencePrice * BUSINESS_PRICE_MULTIPLIER
                    : market.referencePrice;
 
-  const priceUtil   = -(price / refPrice) * w.price;
+  // priceSensitivityReduction (−0.2…+0.35, from loyalty program + reputation)
+  // scales how much price matters to THIS airline's passengers: loyal members
+  // and a trusted brand blunt undercutting rivals; a poor reputation makes
+  // passengers more price-driven.
+  const sens        = 1 - (offer.priceSensitivityReduction ?? 0);
+  const priceUtil   = -(price / refPrice) * w.price * sens;
   const qualityUtil = (offer.qualityScore / 100) * w.quality;
   const freqUtil    = Math.log1p(offer.weeklyFrequency) * w.frequency;
   const connUtil    = offer.connectivityBonus;
@@ -451,6 +553,19 @@ export function computeMarketShare(market, offers) {
   // across all carriers, so pricing above the reference price shrinks the pie rather
   // than just redistributing share.  Each airline's effective demand is:
   //   market.demand × elasticityFactor × softmaxShare
+  //
+  // Competitive fare compression: rivals lower what travelers consider a "normal"
+  // fare on the pair (real-world yields compress when a second carrier enters, on
+  // top of the passenger split). The elasticity/choke reference drifts down 5% per
+  // additional carrier, floored at −10% — so holding monopoly-era fares in a
+  // contested market shrinks demand instead of merely splitting it.
+  const fareCompression = Math.max(
+    COMPETITIVE_FARE_COMPRESSION_FLOOR,
+    1 - COMPETITIVE_FARE_COMPRESSION_PER_RIVAL * (offers.length - 1)
+  );
+  const compressedRef    = market.referencePrice * fareCompression;
+  const compressedBizRef = compressedRef * BUSINESS_PRICE_MULTIPLIER;
+
   const leisureUtils  = offers.map(o => computeUtility(o, market, 'leisure'));
   const businessUtils = offers.map(o => computeUtility(o, market, 'business'));
   const leisureShares  = softmax(leisureUtils);
@@ -463,14 +578,21 @@ export function computeMarketShare(market, offers) {
     return s + p * businessShares[i];
   }, 0);
 
-  // Elasticity factors: demand shrinks when average market price is above reference
-  const leisureElasticityFactor  = Math.pow(market.referencePrice / Math.max(avgLeisurePrice,  1), ELASTICITY.leisure);
+  // Elasticity factors: demand shrinks when average market price is above the
+  // (competition-compressed) reference
+  const leisureElasticityFactor  = Math.pow(compressedRef / Math.max(avgLeisurePrice,  1), ELASTICITY.leisure);
   const businessElasticityFactor = Math.pow(
-    (market.referencePrice * BUSINESS_PRICE_MULTIPLIER) / Math.max(avgBusinessPrice, 1),
+    compressedBizRef / Math.max(avgBusinessPrice, 1),
     ELASTICITY.business
   );
   const adjustedLeisureDemand  = Math.round(market.leisureDemand  * Math.min(1.5, leisureElasticityFactor));
-  const adjustedBusinessDemand = Math.round(market.businessDemand * Math.min(1.5, businessElasticityFactor));
+  // Business pool scales with the market's share-weighted quality: an
+  // all-budget pair loses business travelers to other modes entirely, while a
+  // premium-served market attracts extra (see businessQualityCapture).
+  const marketBizCapture = offers.reduce(
+    (s, o, i) => s + businessQualityCapture(o.qualityScore) * businessShares[i], 0);
+  const adjustedBusinessDemand = Math.round(
+    market.businessDemand * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
 
   return offers.map((offer, i) => {
     const lShare = leisureShares[i];
@@ -484,24 +606,25 @@ export function computeMarketShare(market, offers) {
       ? offer.businessPrice
       : offer.economyPrice * BUSINESS_PRICE_MULTIPLIER;
     let leisurePax  = Math.round(
-      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, market.referencePrice)
+      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef)
     );
+    // High quality stretches the tolerable business fare before the choke bites.
     let businessPax = Math.round(
-      adjustedBusinessDemand * bShare * priceChokeFactor(bizPrice, market.referencePrice * BUSINESS_PRICE_MULTIPLIER)
+      adjustedBusinessDemand * bShare
+      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore))
     );
 
-    // Cap at capacity. Business is seated first; leisure then fills the REMAINING
-    // physical seats (whole aircraft − business pax), not just the economy cabin.
-    // Capping leisure at the economy cabin alone leaves a route seat-bound below
-    // 100% with empty premium seats and freezes load against price. Competitor /
-    // legacy offers without `totalSeats` keep the original economy-cabin cap.
+    // Cap at capacity. Business is capped at its own cabin; leisure may then use
+    // ALL remaining physical seats (premium + economy), not just the economy cabin,
+    // so excess leisure demand fills spare seats instead of being discarded.
     const businessCapped = offer.businessPrice != null && businessPax > offer.businessSeats;
     if (businessCapped) businessPax = offer.businessSeats;
-    const leisureCap = offer.totalSeats != null
+    // Prefer true total capacity; fall back to economy-seat cap (never below it).
+    const leisureCapacity = offer.totalSeats != null
       ? Math.max(0, offer.totalSeats - businessPax)
       : offer.economySeats;
-    const leisureCapped  = leisurePax > leisureCap;
-    if (leisureCapped)  leisurePax  = leisureCap;
+    const leisureCapped  = leisurePax  > leisureCapacity;
+    if (leisureCapped)  leisurePax  = leisureCapacity;
 
     const economyRevenue  = leisurePax  * offer.economyPrice;
     const businessRevenue = offer.businessPrice != null ? businessPax * offer.businessPrice : 0;
@@ -526,12 +649,21 @@ export function computeMarketShare(market, offers) {
 function _monopolyResult(market, offer) {
   const noBusiness = offer.businessPrice == null;
 
+  // Loyalty/reputation blunt the elasticity exponent: less-price-sensitive
+  // passengers punish above-reference fares less (and reward discounts less).
+  const sens = 1 - (offer.priceSensitivityReduction ?? 0);
+
   // Compute business demand first so we can detect overflow before sizing leisure.
-  const businessRef = market.referencePrice * BUSINESS_PRICE_MULTIPLIER;
+  // Quality gates how much of the business pool is capturable at all — a shoddy
+  // product loses business travelers to other modes even without a rival airline —
+  // and stretches the fare business travelers will tolerate (businessFareTolerance).
+  const businessRef = market.referencePrice * BUSINESS_PRICE_MULTIPLIER
+    * businessFareTolerance(offer.qualityScore);
   const businessAdj = noBusiness
     ? 0
     : Math.round(market.businessDemand
-        * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business)
+        * businessQualityCapture(offer.qualityScore)
+        * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
         * priceChokeFactor(offer.businessPrice, businessRef));
   const businessPax = noBusiness ? 0 : Math.min(businessAdj, offer.businessSeats);
 
@@ -548,18 +680,22 @@ function _monopolyResult(market, offer) {
   // Demand with price elasticity applied
   const leisureAdj  = Math.round(
     leisurePool
-      * Math.pow(market.referencePrice / offer.economyPrice, ELASTICITY.leisure)
+      * Math.pow(market.referencePrice / offer.economyPrice, ELASTICITY.leisure * sens)
       * priceChokeFactor(offer.economyPrice, market.referencePrice)
   );
 
-  // Leisure fills every physical seat not taken by business pax (whole aircraft −
-  // business), not just the economy cabin — so a capacity-constrained route reaches
-  // 100% and load responds to price instead of freezing. Legacy offers without
-  // `totalSeats` keep the original economy-cabin cap.
-  const leisureCap  = offer.totalSeats != null
+  // Cap leisure at TOTAL physical capacity (minus business pax), not just the
+  // economy cabin. Leisure travelers also fill premium-economy/business seats via
+  // the cabin fan-out, and any excess should fill spare seats anywhere on the
+  // aircraft. Capping at economySeats alone froze load below 100% and made it
+  // insensitive to price whenever demand exceeded the economy cabin.
+  // If a caller didn't supply totalSeats, fall back to the economy-seat cap
+  // (the original pre-fix behavior) — never subtract business pax from it, or we'd
+  // cap BELOW the economy cabin and make load worse than before.
+  const leisureCapacity = offer.totalSeats != null
     ? Math.max(0, offer.totalSeats - businessPax)
     : offer.economySeats;
-  const leisurePax  = Math.min(leisureAdj, leisureCap);
+  const leisurePax  = Math.min(leisureAdj, leisureCapacity);
 
   const economyRevenue  = leisurePax  * offer.economyPrice;
   const businessRevenue = businessPax * (offer.businessPrice ?? 0);
@@ -649,25 +785,94 @@ export const COMPETITOR_AIRLINES = [
   { id: 'patagoniafirst',   name: 'Patagonia First',      homeHub: 'SCL', tier: 'premium', logoId: 'crown',   baseQualityScore: 76, cash: 48_000_000, weeklyStats: null, routes: {} },
   { id: 'oceaniaprestige',  name: 'Oceania Prestige',     homeHub: 'AKL', tier: 'premium', logoId: 'compass', baseQualityScore: 78, cash: 52_000_000, weeklyStats: null, routes: {} },
   { id: 'capediamonds',     name: 'Cape Diamonds',        homeHub: 'CPT', tier: 'premium', logoId: 'sapphire',baseQualityScore: 77, cash: 50_000_000, weeklyStats: null, routes: {} },
+
+  // ── Legacy (wave 3 — procedural starter networks) ─────────────────────────
+  { id: 'cascadia',         name: 'Cascadia Airways',     homeHub: 'SEA', tier: 'legacy',  logoId: 'arctic',  baseQualityScore: 66, cash: 36_000_000, weeklyStats: null, routes: {} },
+  { id: 'rockymountain',    name: 'Rocky Mountain Air',   homeHub: 'DEN', tier: 'legacy',  logoId: 'summit',  baseQualityScore: 64, cash: 34_000_000, weeklyStats: null, routes: {} },
+  { id: 'lonestar',         name: 'Lone Star Airlines',   homeHub: 'DFW', tier: 'legacy',  logoId: 'horizon', baseQualityScore: 65, cash: 38_000_000, weeklyStats: null, routes: {} },
+  { id: 'morningcalm',      name: 'Morning Calm Air',     homeHub: 'ICN', tier: 'legacy',  logoId: 'jade',    baseQualityScore: 70, cash: 46_000_000, weeklyStats: null, routes: {} },
+  { id: 'mandarinwings',    name: 'Mandarin Wings',       homeHub: 'PEK', tier: 'legacy',  logoId: 'compass', baseQualityScore: 66, cash: 44_000_000, weeklyStats: null, routes: {} },
+  { id: 'nusantara',        name: 'Nusantara Air',        homeHub: 'CGK', tier: 'legacy',  logoId: 'comet',   baseQualityScore: 62, cash: 30_000_000, weeklyStats: null, routes: {} },
+  { id: 'volgaair',         name: 'Volga Air',            homeHub: 'SVO', tier: 'legacy',  logoId: 'eagle',   baseQualityScore: 60, cash: 28_000_000, weeklyStats: null, routes: {} },
+  { id: 'pennine',          name: 'Pennine Airways',      homeHub: 'MAN', tier: 'legacy',  logoId: 'phoenix', baseQualityScore: 63, cash: 30_000_000, weeklyStats: null, routes: {} },
+
+  // ── Budget (wave 3) ────────────────────────────────────────────────────────
+  { id: 'fjordlow',         name: 'Fjord Low',            homeHub: 'OSL', tier: 'budget',  logoId: 'arctic',  baseQualityScore: 38, cash:  9_000_000, weeklyStats: null, routes: {} },
+  { id: 'vistulajet',       name: 'VistulaJet',           homeHub: 'WAW', tier: 'budget',  logoId: 'bolt',    baseQualityScore: 36, cash:  8_000_000, weeklyStats: null, routes: {} },
+  { id: 'tagusjet',         name: 'TagusJet',             homeHub: 'LIS', tier: 'budget',  logoId: 'prism',   baseQualityScore: 37, cash:  8_000_000, weeklyStats: null, routes: {} },
+  { id: 'redseaexpress',    name: 'Red Sea Express',      homeHub: 'JED', tier: 'budget',  logoId: 'phoenix', baseQualityScore: 35, cash:  9_000_000, weeklyStats: null, routes: {} },
+  { id: 'naijajet',         name: 'NaijaJet',             homeHub: 'LOS', tier: 'budget',  logoId: 'bolt',    baseQualityScore: 34, cash:  7_000_000, weeklyStats: null, routes: {} },
+  { id: 'saigonsky',        name: 'Saigon Sky',           homeHub: 'SGN', tier: 'budget',  logoId: 'prism',   baseQualityScore: 37, cash:  8_000_000, weeklyStats: null, routes: {} },
+  { id: 'islasol',          name: 'Isla Sol',             homeHub: 'CUN', tier: 'budget',  logoId: 'phoenix', baseQualityScore: 39, cash: 10_000_000, weeklyStats: null, routes: {} },
+
+  // ── Premium (wave 3) ───────────────────────────────────────────────────────
+  { id: 'kansairoyal',      name: 'Kansai Royal',         homeHub: 'KIX', tier: 'premium', logoId: 'crown',   baseQualityScore: 83, cash: 64_000_000, weeklyStats: null, routes: {} },
+  { id: 'bavariaprestige',  name: 'Bavaria Prestige',     homeHub: 'MUC', tier: 'premium', logoId: 'sapphire',baseQualityScore: 82, cash: 62_000_000, weeklyStats: null, routes: {} },
+  { id: 'levantluxe',       name: 'Levant Luxe',          homeHub: 'TLV', tier: 'premium', logoId: 'crown',   baseQualityScore: 78, cash: 50_000_000, weeklyStats: null, routes: {} },
+  { id: 'andesgold',        name: 'Andes Gold',           homeHub: 'LIM', tier: 'premium', logoId: 'summit',  baseQualityScore: 75, cash: 44_000_000, weeklyStats: null, routes: {} },
+  { id: 'abyssiniancrown',  name: 'Abyssinian Crown',     homeHub: 'ADD', tier: 'premium', logoId: 'crown',   baseQualityScore: 74, cash: 40_000_000, weeklyStats: null, routes: {} },
 ];
 
 // ─── Hub tiers ────────────────────────────────────────────────────────────────
 
 /**
- * Three-tier hub investment system.
+ * Hub designation system: Focus City (tier 0) + three hub tiers.
  *
  * captureRate:      fraction of the gateway pool the player captures (before network bonus)
  * qualityBonus:     quality-score points added to routes through this hub
  * weeklyInvestment: ongoing weekly cost in $ on top of gate fees
  * minGates:         gate requirement to reach this tier
+ * capex:            one-time construction cost to reach this tier
+ * buildWeeks:       construction time before the tier activates (0 = instant)
+ * routesRequired:   player routes touching the airport required to START the upgrade
+ * intlRequired:     international destinations served from the airport required
+ * tenureWeeks:      minimum weeks at the PREVIOUS tier before upgrading
+ * throughputRequired: min connecting pax/wk (4-week avg over this hub) — T3 only
+ * connPenalty:      logit utility penalty for own-metal connections over this hub
+ *                   (lower = better transfer product; undesignated airports don't
+ *                   monetize own-metal connections at all)
+ * stationDiscount:  discount on ground handling + catering cost at this endpoint
+ * layoverDiscount:  discount on crew layover cost (crews based here sleep at home)
+ * maintFactor:      multiplier on weekly aircraft maintenance for routes touching it
+ * gateRatioThreshold: routes-per-gate the hub handles before congestion sets in
  */
 export const HUB_TIERS = {
+  0: {
+    name: 'Focus City',
+    captureRate:      0.025,      // 10% of a Hub's external capture
+    qualityBonus:     3,
+    weeklyInvestment: 10_000,     // small dedicated team, priority gate block
+    minGates:         5,
+    capex:            1_000_000,
+    buildWeeks:       0,          // instant
+    routesRequired:   0,
+    intlRequired:     0,
+    tenureWeeks:      0,
+    throughputRequired: 0,
+    connPenalty:      0.48,       // self-connect-ish: long MCT, no transfer desk
+    stationDiscount:  0.04,
+    layoverDiscount:  0.08,
+    maintFactor:      1.0,
+    gateRatioThreshold: 1.2,
+    color:            '#4cc38a',   // var(--green)
+  },
   1: {
     name: 'Hub',
     captureRate:      0.25,
     qualityBonus:     5,
     weeklyInvestment: 25_000,     // dedicated agents, connection management, basic lounge
     minGates:         10,
+    capex:            5_000_000,
+    buildWeeks:       4,
+    routesRequired:   4,
+    intlRequired:     0,
+    tenureWeeks:      0,
+    throughputRequired: 0,
+    connPenalty:      0.38,
+    stationDiscount:  0.08,
+    layoverDiscount:  0.15,
+    maintFactor:      1.0,
+    gateRatioThreshold: 1.5,
     color:            '#3ea6ff',   // var(--accent)
   },
   2: {
@@ -676,6 +881,17 @@ export const HUB_TIERS = {
     qualityBonus:     12,
     weeklyInvestment: 150_000,    // full lounge, fast-connect baggage, connection desk staff
     minGates:         15,         // requires 5 more gates than tier-1 designation
+    capex:            25_000_000,
+    buildWeeks:       8,
+    routesRequired:   20,
+    intlRequired:     2,
+    tenureWeeks:      0,
+    throughputRequired: 0,
+    connPenalty:      0.32,
+    stationDiscount:  0.12,
+    layoverDiscount:  0.25,
+    maintFactor:      0.95,
+    gateRatioThreshold: 2.0,
     color:            '#ffb43d',   // var(--yellow)
   },
   3: {
@@ -684,12 +900,140 @@ export const HUB_TIERS = {
     qualityBonus:     20,
     weeklyInvestment: 500_000,    // premium lounges, dedicated transfer facilities, customs staff
     minGates:         20,
+    capex:            100_000_000,
+    buildWeeks:       16,
+    routesRequired:   50,
+    intlRequired:     6,
+    tenureWeeks:      26,         // must have been a Major Hub for half a year
+    throughputRequired: 1000,     // connecting pax/wk, 4-week average
+    connPenalty:      0.26,
+    stationDiscount:  0.16,
+    layoverDiscount:  0.35,
+    maintFactor:      0.92,
+    gateRatioThreshold: 2.5,
     color:            '#a98bff',   // var(--purple)
   },
 };
 
-export const HUB_TIER_COUNT = 3;
-export const HUB_MIN_GATES  = 10;   // minimum gates to designate any hub
+export const HUB_TIER_COUNT  = 3;
+export const HUB_MIN_GATES   = 10;   // minimum gates to designate a full hub
+export const FOCUS_MIN_GATES = 5;    // minimum gates to designate a focus city
+
+/**
+ * Gate-based hub congestion (replaces the old raw route-count curve).
+ * Below the tier's routes-per-gate threshold: 1.0 (no penalty). Above it,
+ * efficiency declines smoothly, floored at 0.55. Applies to CONNECTING capture
+ * only — direct O&D demand is unaffected. Buying gates relieves it.
+ *
+ * @param {number} routesAt  - player routes touching the airport
+ * @param {number} gatesAt   - player gates at the airport
+ * @param {number} tier      - hub tier 0–3
+ * @returns {number} 0.55–1.0
+ */
+/** Player routes touching an airport (tag-route stops included). */
+export function playerRoutesAtAirport(routes, code) {
+  let n = 0;
+  for (const r of routes ?? []) {
+    const stops = Array.isArray(r.stops) && r.stops.length >= 2 ? r.stops : [r.origin, r.destination];
+    if (stops.includes(code)) n++;
+  }
+  return n;
+}
+
+/** Distinct international destinations served nonstop-or-tag from an airport. */
+export function intlDestinationsFrom(routes, code) {
+  const homeCountry = getAirport(code)?.country;
+  const dests = new Set();
+  for (const r of routes ?? []) {
+    const stops = Array.isArray(r.stops) && r.stops.length >= 2 ? r.stops : [r.origin, r.destination];
+    if (!stops.includes(code)) continue;
+    for (const s of stops) {
+      if (s === code) continue;
+      const c = getAirport(s)?.country;
+      if (c && c !== homeCountry) dests.add(s);
+    }
+  }
+  return dests.size;
+}
+
+/**
+ * Prerequisite checklist for designating/upgrading to a hub tier.
+ * Shared by the GameContext reducers (enforcement) and HubManagement (display),
+ * so the player always sees exactly what the reducer will check.
+ *
+ * @param {object} snap  - { routes, gates, homeCountry, hubs, hubThroughput, cash, absWeek }
+ *                         hubThroughput: { [code]: number[] } — last weeks' connecting pax
+ * @param {string} code  - airport
+ * @param {number} targetTier - 0–3
+ * @returns {{ ok: boolean, checks: [{ id, label, met, current, required }] }}
+ */
+export function hubUpgradeChecklist(snap, code, targetTier) {
+  const tierDef = HUB_TIERS[targetTier];
+  if (!tierDef) return { ok: false, checks: [] };
+  const {
+    routes = [], gates = {}, homeCountry = null, hubs = {},
+    hubThroughput = {}, cash = 0, absWeek = 0,
+  } = snap;
+
+  const checks = [];
+  const add = (id, label, current, required, met) =>
+    checks.push({ id, label, current, required, met });
+
+  const gateCount = gates[code] ?? 0;
+  add('gates', `${tierDef.minGates} gates at ${code}`, gateCount, tierDef.minGates, gateCount >= tierDef.minGates);
+
+  add('capex', `${(tierDef.capex / 1e6).toFixed(0)}M construction budget`, cash, tierDef.capex, cash >= tierDef.capex);
+
+  if (tierDef.routesRequired > 0) {
+    const routesAt = playerRoutesAtAirport(routes, code);
+    add('routes', `${tierDef.routesRequired} routes at ${code}`, routesAt, tierDef.routesRequired, routesAt >= tierDef.routesRequired);
+  }
+
+  if (tierDef.intlRequired > 0) {
+    const intl = intlDestinationsFrom(routes, code);
+    add('intl', `${tierDef.intlRequired} international destinations from ${code}`, intl, tierDef.intlRequired, intl >= tierDef.intlRequired);
+  }
+
+  if (tierDef.tenureWeeks > 0) {
+    const since  = hubs[code]?.tierSince ?? absWeek;
+    const tenure = Math.max(0, absWeek - since);
+    add('tenure', `${tierDef.tenureWeeks} weeks as ${HUB_TIERS[targetTier - 1]?.name ?? 'previous tier'}`, tenure, tierDef.tenureWeeks, tenure >= tierDef.tenureWeeks);
+  }
+
+  if (tierDef.throughputRequired > 0) {
+    const hist = hubThroughput[code] ?? [];
+    const recent = hist.slice(-4);
+    const avg = recent.length >= 4
+      ? Math.round(recent.reduce((s, v) => s + v, 0) / recent.length)
+      : null;   // need 4 weeks of data
+    add('throughput', `${tierDef.throughputRequired} connecting pax/wk (4-wk avg)`, avg ?? 0, tierDef.throughputRequired, avg != null && avg >= tierDef.throughputRequired);
+  }
+
+  // Country rules: full hubs (tier ≥ 1) are home-country only; focus cities are
+  // allowed anywhere but max ONE per country outside the home country.
+  const apCountry = getAirport(code)?.country ?? null;
+  if (targetTier >= 1 && homeCountry) {
+    const ok = apCountry === homeCountry;
+    add('country', `Hub must be in ${homeCountry}`, apCountry ?? '—', homeCountry, ok);
+  }
+  if (targetTier === 0 && homeCountry && apCountry && apCountry !== homeCountry) {
+    const taken = Object.entries(hubs).some(([c, h]) =>
+      c !== code && h?.tier === 0 && getAirport(c)?.country === apCountry
+    );
+    add('foreignCap', `Max 1 focus city per foreign country (${apCountry})`, taken ? 1 : 0, 1, !taken);
+  }
+
+  return { ok: checks.every(c => c.met), checks };
+}
+
+export function hubCongestionFactor(routesAt, gatesAt, tier) {
+  if (!gatesAt || gatesAt <= 0) return 1.0;   // gates unknown (e.g. UI preview) — no penalty
+  const tierDef   = HUB_TIERS[tier] ?? HUB_TIERS[1];
+  const threshold = tierDef.gateRatioThreshold ?? 1.5;
+  const ratio     = (routesAt ?? 0) / gatesAt;
+  if (ratio <= threshold) return 1.0;
+  return Math.max(0.55, Math.pow(threshold / ratio, 0.6));
+}
 
 // ─── Connecting passengers ────────────────────────────────────────────────────
 
@@ -741,57 +1085,50 @@ function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, 
   weeklyFrequency = 7,
   distKm = 0,
   partnerHubCodes = [],
+  gatesHere = 0,
+  contestFactor = 1.0,
 } = {}) {
   const gwScore = AIRPORT_GATEWAY_SCORES[airportCode] ?? 0.20;
   const pool    = gwScore * BASE_GATEWAY_POOL;
 
   const hubInfo = hubs[airportCode]; // { tier } or undefined
 
-  if (hubInfo) {
-    // Connecting pax has two components:
+  if (hubInfo && hubInfo.tier != null) {
+    // EXTERNAL feed only: gateway/partner airlines routing pax through your hub
+    // onto this route. Boosted by long-haul (higher connecting fraction) and
+    // alliance/codeshare partners hubbing here.
     //
-    // 1. External feed — gateway/partner airlines routing pax through your hub to
-    //    this specific destination. Per-route, boosted by:
-    //      • long-haul routes (more pax need a connection on a 10,000 km journey than a 500 km hop)
-    //      • alliance/codeshare partners hubbing at this airport (their networks funnel pax to you)
+    // The old "internal feed" term (abstract pool × spoke count) is GONE —
+    // own-metal connecting revenue is now computed from real A→hub→C itineraries
+    // in network.js (computeOwnMetalODRevenue) and added by simulation.js.
+    // The external base rate is halved accordingly (0.15 → 0.075) so the
+    // residual pool only represents feed the itinerary model can't see.
     //
-    // 2. Internal feed — for each OTHER route at this hub, a fraction of those passengers
-    //    want to connect to/from this route. Scaled by frequency: high-frequency routes offer
-    //    more connection windows, so more pax successfully connect. Grows linearly with spoke count.
-    //
-    // 3. Congestion penalty — very large hubs (15+ routes) see diminishing returns from
-    //    gate competition, bag transfer delays, and longer connection walks.
+    // Congestion is gate-based (routes per gate vs the tier's threshold) and
+    // relieved by buying gates. Contest: competitors hubbing at the same
+    // airport siphon the external pool (contestFactor from network.js).
 
-    const tierDef     = HUB_TIERS[hubInfo.tier] ?? HUB_TIERS[1];
-    const otherRoutes = Math.max(0, playerRoutesHere - 1);
+    const tierDef = HUB_TIERS[hubInfo.tier] ?? HUB_TIERS[1];
 
-    // ── External ──────────────────────────────────────────────────────────────
     // Distance bonus: long-haul routes have a higher connecting fraction.
-    // Capped at +35% (roughly ~8,750 km; transatlantic/transpacific routes).
-    const distBonus = Math.min(0.35, distKm / 25000);
+    const distBonus = Math.min(0.35, distKm / 25000) / 2;
 
-    // Partner boost: each alliance/codeshare partner hubbing here adds 20% to
-    // external feed (their passengers route through your hub to your destinations).
-    // Capped at +60% so three or more partners give full benefit.
+    // Partner boost: each alliance/codeshare partner hubbing here adds 20%.
     const partnerCount  = partnerHubCodes.filter(c => c === airportCode).length;
     const partnerBoost  = Math.min(0.60, partnerCount * 0.20);
 
+    // Frequency multiplier: more departures = more usable connection windows
+    // for feed arriving from partners/gateway traffic.
+    const freqMult = Math.min(1.5, 0.4 + (Math.log1p(weeklyFrequency) / Math.log1p(7)) * 0.6);
+
+    const congestion = hubCongestionFactor(playerRoutesHere, gatesHere, hubInfo.tier);
+
     const externalPax = Math.round(
-      pool * tierDef.captureRate * (0.15 + distBonus) * (1 + partnerBoost)
+      pool * tierDef.captureRate * (0.075 + distBonus) * (1 + partnerBoost)
+      * freqMult * congestion * Math.max(0, Math.min(1, contestFactor))
     );
 
-    // ── Internal ──────────────────────────────────────────────────────────────
-    // Frequency multiplier: 1× at 7 flights/wk (baseline), 0.4× at 1/wk (poor
-    // connection windows), up to 1.5× at very high frequency.
-    const freqMult    = Math.min(1.5, 0.4 + (Math.log1p(weeklyFrequency) / Math.log1p(7)) * 0.6);
-    const internalPax = Math.round(pool * tierDef.captureRate * 0.06 * otherRoutes * freqMult);
-
-    // ── Congestion ────────────────────────────────────────────────────────────
-    // Soft cap above 15 routes: diminishing returns from overcrowding.
-    // At 20 routes ≈ 93% efficiency; at 30 ≈ 84%.
-    const congestion = playerRoutesHere > 15 ? Math.pow(15 / playerRoutesHere, 0.25) : 1.0;
-
-    const pax = Math.round((externalPax + internalPax) * congestion);
+    const pax = externalPax;
     return {
       pax,
       revenue:      Math.round(pax * ticketPrice),
@@ -799,12 +1136,13 @@ function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, 
       source:       'own-hub',
       tier:         hubInfo.tier,
       // ── breakdown for UI display ──
-      externalPax:  Math.round(externalPax * congestion),
-      internalPax:  Math.round(internalPax * congestion),
+      externalPax,
+      internalPax:  0,   // internal feed now comes from real itineraries (network.js)
       freqMult:     +freqMult.toFixed(2),
       distBonus:    +distBonus.toFixed(2),
       partnerBoost: +partnerBoost.toFixed(2),
       congestion:   +congestion.toFixed(2),
+      contestFactor: +Math.max(0, Math.min(1, contestFactor)).toFixed(2),
     };
   }
 
@@ -849,27 +1187,62 @@ export function computeConnectingDemand(
     ? (hubs ? { [hubs]: { tier: 1 } } : {})
     : (hubs ?? {});
 
-  const { weeklyFrequency = 7, partnerHubCodes = [] } = options;
+  const {
+    weeklyFrequency = 7,
+    partnerHubCodes = [],
+    gates = {},            // { [code]: gateCount } — for gate-based congestion
+    contestFactors = {},   // { [code]: 0–1 } — competitor hub contest (network.js)
+  } = options;
   // Compute distance once here and pass to both endpoints
   const distKm = routeDistance(origin, destination);
 
-  // Bug fix: connecting pax have no price elasticity in connectingAtEndpoint — they pay
-  // whatever ticketPrice is passed, regardless of how high. Cap the effective fare at
-  // 4× the market reference price so inflated ticket prices don't produce phantom
-  // revenue from connecting passengers who would never actually pay that fare.
-  // (Direct passengers are already handled by the elasticity model in computeMarketShare.)
-  const refPrice = referencePrice(origin, destination);
-  const cappedTicketPrice = Math.min(ticketPrice, refPrice * 4);
+  // Connecting passengers now respond to price. They are less elastic than pure O&D
+  // leisure travelers (see connectingPriceFactor), but an overpriced route still
+  // bleeds its feed: the factor tapers demand as the fare rises and hits zero at the
+  // price cap, mirroring direct demand. This replaces the old crude "cap the fare at
+  // 4× reference" revenue hack — the elasticity + choke do that job smoothly now, and
+  // pax counts (not just revenue) fall with price the way real connecting traffic does.
+  const refPrice    = referencePrice(origin, destination);
+  const priceFactor = connectingPriceFactor(ticketPrice, refPrice);
 
-  const endpointOpts = { weeklyFrequency, distKm, partnerHubCodes };
-  const originSide = connectingAtEndpoint(origin,      hubsMap, playerRoutesAtOrigin, cappedTicketPrice, endpointOpts);
-  const destSide   = connectingAtEndpoint(destination, hubsMap, playerRoutesAtDest,   cappedTicketPrice, endpointOpts);
+  const originSide = _scaleConnecting(
+    connectingAtEndpoint(origin, hubsMap, playerRoutesAtOrigin, ticketPrice, {
+      weeklyFrequency, distKm, partnerHubCodes,
+      gatesHere: gates[origin] ?? 0, contestFactor: contestFactors[origin] ?? 1.0,
+    }),
+    priceFactor
+  );
+  const destSide = _scaleConnecting(
+    connectingAtEndpoint(destination, hubsMap, playerRoutesAtDest, ticketPrice, {
+      weeklyFrequency, distKm, partnerHubCodes,
+      gatesHere: gates[destination] ?? 0, contestFactor: contestFactors[destination] ?? 1.0,
+    }),
+    priceFactor
+  );
   return {
     totalPax:     originSide.pax + destSide.pax,
     totalRevenue: originSide.revenue + destSide.revenue,
     origin:       originSide,
     destination:  destSide,
+    priceFactor:  +priceFactor.toFixed(3),
   };
+}
+
+/**
+ * Scale a connecting-endpoint result by a 0–1 price-response factor, keeping the
+ * UI breakdown fields (external/internal pax) consistent with the scaled totals.
+ * @param {object} side    result from connectingAtEndpoint
+ * @param {number} factor  0–1 price response
+ * @returns {object}
+ */
+function _scaleConnecting(side, factor) {
+  if (factor >= 1) return side;
+  const scaled = { ...side };
+  scaled.pax     = Math.round(side.pax     * factor);
+  scaled.revenue = Math.round(side.revenue * factor);
+  if (side.externalPax != null) scaled.externalPax = Math.round(side.externalPax * factor);
+  if (side.internalPax != null) scaled.internalPax = Math.round(side.internalPax * factor);
+  return scaled;
 }
 
 /**
@@ -1377,7 +1750,7 @@ function newTailId(airlineId) { return `${airlineId}-t${(++_tailSeq).toString(36
  * Build a tail for a competitor route. `aged` true gives a used airframe (start
  * of game); false gives a fresh delivery (mid-game expansion).
  */
-function makeCompetitorTail(airlineId, typeId, routeKey, aged) {
+export function makeCompetitorTail(airlineId, typeId, routeKey, aged) {
   return {
     id:       newTailId(airlineId),
     typeId,
@@ -1405,17 +1778,84 @@ export function buildCompetitorFleet(airline) {
   return { ...airline, routes, fleet };
 }
 
+// ─── Procedural starter networks ─────────────────────────────────────────────
+
+/** Per-tier default price multiplier (jittered per route in generateStarterRoutes). */
+export const TIER_PRICE_MULT = { budget: 0.76, legacy: 1.04, premium: 1.45 };
+
+/** Starting network size by tier for procedurally generated carriers. */
+const TIER_STARTER_ROUTES = { budget: 7, legacy: 6, premium: 5 };
+
+let _bigAirportCache = null;
+/** Mega + major airports — the candidate destination pool for AI route planning. */
+export function bigAirports() {
+  if (!_bigAirportCache) {
+    _bigAirportCache = AIRPORTS.filter(a => a.tier === 'mega' || a.tier === 'major');
+  }
+  return _bigAirportCache;
+}
+
+/**
+ * Generate a plausible starting network for a carrier with no scripted routes:
+ * the top-demand city pairs from its home hub that its tier's aircraft can fly,
+ * with distance-appropriate frequency and tier pricing. Short/medium routes are
+ * mildly preferred so young networks look regional-first, like real carriers.
+ *
+ * @param {CompetitorAirline} airline
+ * @param {number} [count]  routes to open (defaults by tier)
+ * @returns {object} routes map { routeKey: { frequency, priceMultiplier } }
+ */
+export function generateStarterRoutes(airline, count) {
+  const n   = count ?? TIER_STARTER_ROUTES[airline.tier] ?? 6;
+  const hub = airline.homeHub;
+  const priceBase = TIER_PRICE_MULT[airline.tier] ?? 1.0;
+
+  const scored = [];
+  for (const ap of bigAirports()) {
+    if (ap.code === hub) continue;
+    const dist = routeDistance(hub, ap.code);
+    if (!dist || dist < 300) continue;
+    if (!pickCompetitorAircraftType(dist, airline.tier)) continue;   // out of range
+    const demand = baseCityPairDemand(hub, ap.code);
+    if (!demand) continue;
+    // Prefer dense pairs; mild haircut for very long stage lengths.
+    scored.push({ code: ap.code, dist, demand, score: demand / (1 + dist / 9000) });
+  }
+  scored.sort((a, b) => b.score - a.score);
+
+  // Sample from the top of the list with light randomness so two carriers
+  // sharing a hub don't build identical networks.
+  const pool = scored.slice(0, Math.max(n * 2, 12));
+  for (let i = pool.length - 1; i > 0; i--) {
+    if (Math.random() < 0.35) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  }
+
+  const routes = {};
+  for (const cand of pool.slice(0, n)) {
+    const key   = [hub, cand.code].sort().join('-');
+    const seats = TIER_SEAT_TARGET[airline.tier] ?? 200;
+    const freq  = Math.max(3, Math.min(21, Math.round(cand.demand / (seats * 0.75))));
+    const priceMultiplier = +(priceBase * (0.97 + Math.random() * 0.06)).toFixed(3);
+    routes[key] = { frequency: freq, priceMultiplier };
+  }
+  return routes;
+}
+
 /**
  * Populate each competitor's `routes` map with their starting network, then
  * build their owned fleet. Mutates routes in place and attaches `fleet`.
+ * Carriers without a scripted default network get a procedural one.
  *
  * @param {CompetitorAirline[]} [competitors]  defaults to COMPETITOR_AIRLINES
  * @returns {CompetitorAirline[]}  carriers with routes + fleet populated
  */
 export function initializeCompetitorRoutes(competitors = COMPETITOR_AIRLINES) {
   return competitors.map(airline => {
-    const defaults = COMPETITOR_DEFAULT_ROUTES[airline.id];
-    if (defaults) Object.assign(airline.routes, defaults);
+    const defaults = COMPETITOR_DEFAULT_ROUTES[airline.id] ?? generateStarterRoutes(airline);
+    Object.assign(airline.routes, defaults);
     return buildCompetitorFleet(airline);
   });
 }
@@ -1953,13 +2393,13 @@ function sampleCompetitors(n = 15) {
 }
 
 /**
- * Sample 15 competitors, jitter their personalities, and initialize their routes.
+ * Sample N competitors, jitter their personalities, and initialize their routes.
  * Drop-in replacement for the old `initializeCompetitorRoutes(COMPETITOR_AIRLINES.map(...))`.
  *
- * @param {number} [count=15]
+ * @param {number} [count=25]
  * @returns {CompetitorAirline[]}
  */
-export function sampleAndInitializeCompetitors(count = 15) {
+export function sampleAndInitializeCompetitors(count = 25) {
   const sampled = sampleCompetitors(count).map(c => jitterCompetitor({ ...c, routes: {} }));
   return initializeCompetitorRoutes(sampled);
 }
@@ -1987,64 +2427,169 @@ const TIER_FIXED_PER_ROUTE = {
 };
 
 /**
+ * Per-departure airport cost per seat ($): landing fees, gate usage, and
+ * ground handling. Budget carriers use secondary airports and 25-minute
+ * turns; premium carriers pay for prime slots and lounges.
+ */
+const AIRPORT_COST_PER_SEAT = { budget: 11, legacy: 16, premium: 18 };
+
+/**
+ * Per-passenger service cost ($): catering, distribution/booking fees,
+ * loyalty accrual, compensation reserve. LCCs strip nearly all of it
+ * (no meals, direct web sales); premium carriers spend heavily.
+ */
+const PAX_SERVICE_COST = { budget: 10, legacy: 28, premium: 42 };
+
+/**
+ * Ancillary revenue per passenger ($): bags, seat selection, onboard sales.
+ * The LCC model earns a large chunk of its money here — it's what makes a
+ * 0.76× fare viable, mirroring real low-cost economics.
+ */
+const PAX_ANCILLARY_REVENUE = { budget: 13, legacy: 4, premium: 2 };
+
+/**
+ * Uplift on the raw fuel+crew per-km cost covering maintenance consumables,
+ * ownership/insurance, and dispatch — brings competitor unit costs in line
+ * with what the player actually pays, so route margins are airline-realistic
+ * (fat monopolies, thin contested lanes, losses on mistakes) instead of the
+ * old ~50%+ margins that let every carrier bank cash forever. Budget fleets
+ * fly one aircraft type at high utilisation → lower uplift.
+ */
+const OP_COST_UPLIFT = { budget: 1.42, legacy: 1.55, premium: 1.62 };
+
+/**
+ * Weekly corporate overhead: base + per-route admin (mildly super-linear, so
+ * sprawling networks carry real HQ drag like the player's overhead ladder).
+ */
+function competitorOverhead(routeCount) {
+  return 150_000 + 40_000 * Math.pow(routeCount, 1.15);
+}
+
+/**
+ * Build a map of pairKey → number of carriers serving that O&D (player included).
+ * Feeds demand-splitting in competitor economics: carriers sharing a city pair
+ * share its passenger pool instead of each pretending to fly a monopoly.
+ *
+ * @param {CompetitorAirline[]} competitors
+ * @param {Array<{origin:string,destination:string}>} [playerRoutes]
+ * @returns {Map<string, number>}
+ */
+export function buildPairIncumbents(competitors, playerRoutes = []) {
+  const counts = new Map();
+  const seenPlayer = new Set();
+  for (const r of playerRoutes) {
+    const key = [r.origin, r.destination].sort().join('-');
+    if (!seenPlayer.has(key)) { counts.set(key, 1); seenPlayer.add(key); }
+  }
+  for (const c of competitors) {
+    for (const key of Object.keys(c.routes ?? {})) {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Weekly P&L for ONE competitor route. Single source of truth for competitor
+ * economics — used by the aggregate stats below and by the adaptive AI when
+ * deciding which routes to cut or defend.
+ *
+ * Demand model: baseCityPairDemand × seasonality × price elasticity, SPLIT
+ * across all carriers serving the pair (a duopoly grows the market a little,
+ * but each carrier gets far less than the whole pool).
+ * Cost model: per-km op cost + per-seat airport fees + lease/maintenance.
+ *
+ * @param {CompetitorAirline} competitor
+ * @param {string} routeKey
+ * @param {object} cfg              route config { frequency, priceMultiplier, aircraftType?, tails? }
+ * @param {number} [month=1]
+ * @param {Map<string,number>|null} [pairCounts]  from buildPairIncumbents (null = monopoly)
+ * @returns {{ revenue, cost, profit, pax, flights, loadFactor }|null}
+ */
+export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, pairCounts = null) {
+  const ac      = TIER_AIRCRAFT[competitor.tier]        ?? TIER_AIRCRAFT.legacy;
+  const fixedPR = TIER_FIXED_PER_ROUTE[competitor.tier] ?? 200_000;
+
+  const [a, b] = routeKey.split('-');
+  const dist  = routeDistance(a, b);
+  const refP  = referencePrice(a, b);
+  const baseD = baseCityPairDemand(a, b);
+  if (!dist || !refP || !baseD) return null;
+
+  const type    = cfg.aircraftType ? getAircraftType(cfg.aircraftType) : null;
+  const seats   = type?.seats ?? ac.seats;
+  const opPerKm = type ? (fuelCostPerKm(type) + (type.crewCostPerKm ?? 0)) : ac.costPerKm;
+  const tails   = cfg.tails ?? 1;
+
+  const seasonal     = getSeasonalProfile(a, b)[month] ?? 1;
+  const price        = Math.round(refP * cfg.priceMultiplier);
+  const flightsPerWk = cfg.frequency * 2;                          // bidirectional
+  const capOneWay    = seats * cfg.frequency;
+  const priceRatio   = refP / Math.max(price, 1);
+
+  // Competition split: n carriers share a pool that expands mildly with entry
+  // (competition stimulates some demand), so each incumbent's slice shrinks
+  // fast as a pair gets crowded: 1 → 100%, 2 → ~54%, 3 → ~37%, 4 → ~29%.
+  const nCarriers = Math.max(1, pairCounts?.get(routeKey) ?? 1);
+  const shareOfPool = Math.pow(nCarriers, 0.15) / nCarriers;
+
+  const demandOneWay = Math.round(baseD * Math.pow(priceRatio, 1.3) * seasonal * shareOfPool);
+  const paxOneWay    = Math.min(demandOneWay, Math.round(capOneWay * 0.88)); // max 88% LF
+  const weeklyPax    = paxOneWay * 2;
+
+  const tier        = competitor.tier ?? 'legacy';
+  const revenue     = weeklyPax * (price + (PAX_ANCILLARY_REVENUE[tier] ?? 4));
+  const opCost      = dist * opPerKm * (OP_COST_UPLIFT[tier] ?? 1.55) * flightsPerWk;
+  const airportCost = seats * (AIRPORT_COST_PER_SEAT[tier] ?? 16) * flightsPerWk;
+  const paxCost     = weeklyPax * (PAX_SERVICE_COST[tier] ?? 28);
+  const fixed       = type ? tails * ((type.weeklyLease ?? 0) + (type.baseMaintenancePerWk ?? 0)) : fixedPR;
+  const cost        = Math.round(opCost + airportCost + paxCost + fixed);
+
+  return {
+    revenue:    Math.round(revenue),
+    cost,
+    profit:     Math.round(revenue) - cost,
+    pax:        weeklyPax,
+    flights:    flightsPerWk,
+    loadFactor: capOneWay > 0 ? paxOneWay / capOneWay : 0,
+  };
+}
+
+/**
  * Simulate one week of a competitor's entire network.
  * Returns aggregated flights, passengers, revenue, cost, and profit.
- *
- * Demand model: baseCityPairDemand × seasonality, adjusted for price elasticity.
- * Cost model: per-km op cost × distance × weekly flights + fixed lease per route.
+ * Includes corporate overhead on top of per-route costs.
  *
  * @param {CompetitorAirline} competitor
  * @param {number} [month=1]  current game month (1-12) for seasonality
+ * @param {Map<string,number>|null} [pairCounts]  from buildPairIncumbents;
+ *   when provided, demand splits across carriers sharing each pair.
  * @returns {{ weeklyFlights, weeklyPax, weeklyRevenue, weeklyCost, weeklyProfit }}
  */
-export function computeCompetitorWeeklyStats(competitor, month = 1) {
-  const ac       = TIER_AIRCRAFT[competitor.tier]      ?? TIER_AIRCRAFT.legacy;
-  const fixedPR  = TIER_FIXED_PER_ROUTE[competitor.tier] ?? 200_000;
-
+export function computeCompetitorWeeklyStats(competitor, month = 1, pairCounts = null) {
   let totalFlights = 0;
   let totalPax     = 0;
   let totalRevenue = 0;
-  let totalOpCost  = 0;
-  let fixedCosts   = 0;
+  let totalCost    = 0;
+  let routeCount   = 0;
 
   for (const [routeKey, cfg] of Object.entries(competitor.routes)) {
-    const [a, b] = routeKey.split('-');
-    const dist  = routeDistance(a, b);
-    const refP  = referencePrice(a, b);
-    const baseD = baseCityPairDemand(a, b);
-    if (!dist || !refP || !baseD) continue;
-
-    // Use the route's real assigned aircraft if present; else fall back to the
-    // tier-average so legacy saves without fleets still compute.
-    const type   = cfg.aircraftType ? getAircraftType(cfg.aircraftType) : null;
-    const seats  = type?.seats ?? ac.seats;
-    const opPerKm = type ? (fuelCostPerKm(type) + (type.crewCostPerKm ?? 0)) : ac.costPerKm;
-    const tails  = cfg.tails ?? 1;
-
-    const seasonal      = getSeasonalProfile(a, b)[month] ?? 1;
-    const price         = Math.round(refP * cfg.priceMultiplier);
-    const flightsPerWk  = cfg.frequency * 2;                          // bidirectional
-    const capOneWay     = seats * cfg.frequency;
-    const priceRatio    = refP / Math.max(price, 1);
-    const demandOneWay  = Math.round(baseD * Math.pow(priceRatio, 1.3) * seasonal);
-    const paxOneWay     = Math.min(demandOneWay, Math.round(capOneWay * 0.88)); // max 88% LF
-    const weeklyPax     = paxOneWay * 2;
-
-    totalFlights += flightsPerWk;
-    totalPax     += weeklyPax;
-    totalRevenue += weeklyPax * price;
-    totalOpCost  += dist * opPerKm * flightsPerWk;
-    // Fixed cost = per-tail weekly lease + maintenance (real fleet), else tier flat.
-    fixedCosts   += type ? tails * ((type.weeklyLease ?? 0) + (type.baseMaintenancePerWk ?? 0)) : fixedPR;
+    const p = computeCompetitorRoutePnL(competitor, routeKey, cfg, month, pairCounts);
+    if (!p) continue;
+    routeCount   += 1;
+    totalFlights += p.flights;
+    totalPax     += p.pax;
+    totalRevenue += p.revenue;
+    totalCost    += p.cost;
   }
 
-  const totalCost   = Math.round(totalOpCost + fixedCosts);
-  const weeklyProfit = Math.round(totalRevenue) - totalCost;
+  totalCost += Math.round(competitorOverhead(routeCount));
+  const weeklyProfit = totalRevenue - totalCost;
 
   return {
     weeklyFlights: totalFlights,
-    weeklyPax:     Math.round(totalPax),
-    weeklyRevenue: Math.round(totalRevenue),
+    weeklyPax:     totalPax,
+    weeklyRevenue: totalRevenue,
     weeklyCost:    totalCost,
     weeklyProfit,
   };
@@ -2084,8 +2629,14 @@ export function buildCompetitorOffer(competitor, market) {
     seatsPerFlight,
     economySeats:      seatsPerFlight  * config.frequency,
     businessSeats:     businessPerFlight * config.frequency,
-    qualityScore:      competitor.baseQualityScore,
-    connectivityBonus: computeConnectivityBonus(competitor.homeHub, market.origin, market.destination),
+    // Alliance members' offers read slightly better to passengers (network
+    // reach, lounges, miles) — keep in sync with ALLIANCE_OFFER_QUALITY_BONUS
+    // in competitorAI.js.
+    qualityScore:      competitor.baseQualityScore + (competitor.allianceId ? 3 : 0),
+    connectivityBonus: computeConnectivityBonus(competitor.homeHub, market.origin, market.destination)
+                       + (competitor.secondaryHub
+                          ? computeConnectivityBonus(competitor.secondaryHub, market.origin, market.destination)
+                          : 0),
   };
 }
 
@@ -2094,12 +2645,20 @@ export function buildCompetitorOffer(competitor, market) {
 /**
  * Ramp-up factor for a newly opened route.
  * Returns a 0–1 maturity multiplier based on weeks since route launch.
- * Reaches ~95% by week 8, full demand by week 12.
+ *
+ * Real-world route spool-up takes 6–18 months: schedules load into GDS,
+ * corporate contracts get signed, connecting itineraries appear, and local
+ * awareness builds. Modelled as a square-root ramp — fastest gains in the
+ * first weeks (the route becomes bookable), then a long tail to full demand.
+ *
+ * Launch: 30% of demand · ~65% by week 6 · ~79% by week 13 · 100% at week 26.
+ * New routes burn cash before they earn — opening one is an investment, not
+ * an instant profit source.
  *
  * @param {number} weeksOpen
  * @returns {number}
  */
 export function routeMaturityFactor(weeksOpen) {
-  if (weeksOpen >= 12) return 1;
-  return Math.min(1, 0.45 + (weeksOpen / 12) * 0.55);
+  if (weeksOpen >= 26) return 1;
+  return Math.min(1, 0.30 + 0.70 * Math.sqrt(weeksOpen / 26));
 }

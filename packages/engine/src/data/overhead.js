@@ -322,35 +322,142 @@ export function weeklyPassengerCompensation(passengers, onTimeRate, distKm) {
 }
 
 
-// ─── 9. Marketing ─────────────────────────────────────────────────────────────
+// ─── 9. Marketing (adstock model) ─────────────────────────────────────────────
 //
-// The player sets a weekly marketing spend.  It drives a demand multiplier
-// across all routes, with steeply diminishing returns.
+// Marketing no longer buys an instant demand multiplier. It works like real
+// advertising ("adstock"): spend builds a persistent AWARENESS stock (0–100)
+// that decays without upkeep, and demand lift derives ONLY from awareness.
+// Effects therefore LAG spend by weeks and PERSIST after it stops — cutting the
+// budget doesn't crater demand overnight, and a launch blitz has lasting value.
 //
-// Formula:  multiplier = 1 + MAX_BOOST × (1 − e^(−spend / SPEND_SCALE))
-//   where SPEND_SCALE = weeklyRevenue × REVENUE_SHARE_SCALE
-//
-// Calibration:
-//   spend = 1 % of revenue  →  +1 % demand
-//   spend = 5 % of revenue  →  +6 % demand
-//   spend = 10 % of revenue → +11 % demand
-//   spend = 20 % of revenue → +18 % demand (approaching cap)
-//   Absolute cap: +20 %
-// Airlines typically spend 2–5 % of revenue on marketing; you need ~10% to hit diminishing returns.
+// Two layers:
+//   1. BRAND spend  → global awareness stock  (slow build, slow decay)
+//   2. TARGETED spend per airport → local campaign stock (fast build, fast
+//      decay — tactical/promo advertising). Lifts only routes touching that
+//      airport.
 
-export const MARKETING_MAX_BOOST       = 0.20;   // hard cap on demand lift
-export const MARKETING_REVENUE_SHARE   = 0.15;   // controls the spend-to-benefit curve (higher = more spend needed)
+// ── Brand awareness ──────────────────────────────────────────────────────────
+
+export const AWARENESS_FLOOR       = 5;      // airline stays findable even with zero marketing
+export const AWARENESS_PARITY      = 65;     // awareness at which demand reach = 100%
+export const AWARENESS_MAX_LIFT    = 0.12;   // household name (100): +12% above parity
+export const AWARENESS_DECAY_RATE  = 0.01;   // 1%/wk of awareness above the floor fades
+export const MARKETING_MAX_GAIN    = 3.5;    // max awareness points/week from brand spend
+export const MARKETING_GAIN_SCALE  = 0.04;   // spend = 4% of revenue → ~63% of max gain
+// Equilibria (organic + decay included): no marketing settles ≈52 (reach ~89%);
+// sustained heavy spend settles ≈83 (reach ~106%). 100 is asymptotic — household
+// names are earned over years, not bought in a quarter.
 
 /**
- * Demand multiplier from marketing spend.
- * @param {number} weeklySpend   – player's chosen weekly marketing budget ($)
- * @param {number} weeklyRevenue – current total weekly revenue ($ — for scaling)
+ * Demand multiplier from brand awareness. Replaces the old separate
+ * awareness-penalty and instant-marketing-boost multipliers with one curve:
+ *   awareness 0   → 0.40  (unknown brand reaches 40% of potential demand)
+ *   awareness 65  → 1.00  (established carrier — parity)
+ *   awareness 100 → 1.12  (household name stimulates demand beyond parity)
+ * @param {number} awareness – 0–100 brand awareness stock
  */
-export function marketingDemandMultiplier(weeklySpend, weeklyRevenue) {
-  if (weeklySpend <= 0 || weeklyRevenue <= 0) return 1.0;
-  const scale = Math.max(weeklyRevenue * MARKETING_REVENUE_SHARE, 50_000);
-  const boost = MARKETING_MAX_BOOST * (1 - Math.exp(-weeklySpend / scale));
-  return 1 + boost;
+export function awarenessDemandMultiplier(awareness) {
+  const a = Math.max(0, Math.min(100, awareness ?? 0));
+  if (a <= AWARENESS_PARITY) return 0.4 + (a / AWARENESS_PARITY) * 0.6;
+  return 1 + ((a - AWARENESS_PARITY) / (100 - AWARENESS_PARITY)) * AWARENESS_MAX_LIFT;
+}
+
+/**
+ * Awareness points gained this week from brand marketing spend, BEFORE the
+ * diminishing (1 − awareness/100) factor applied by the caller. Scaled by
+ * airline size: moving a big carrier's national awareness costs more.
+ * @param {number} weeklySpend   – brand marketing budget ($/wk)
+ * @param {number} weeklyRevenue – for scaling spend effectiveness
+ */
+export function marketingAwarenessGain(weeklySpend, weeklyRevenue) {
+  if (weeklySpend <= 0) return 0;
+  const scale = Math.max((weeklyRevenue || 0) * MARKETING_GAIN_SCALE, 40_000);
+  return MARKETING_MAX_GAIN * (1 - Math.exp(-weeklySpend / scale));
+}
+
+// ── Targeted (per-airport) campaigns ─────────────────────────────────────────
+//
+// Campaign strength is a 0–100 stock per airport. It builds fast with spend
+// (scaled by metro size — saturating New York costs more than Boise) and
+// decays fast when unfunded (~25%/wk — tactical advertising fades in weeks,
+// unlike brand). Sustained spend settles at an equilibrium strength where
+// decay balances gain; the UI can show that steady-state boost.
+
+export const CAMPAIGN_MAX_BOOST   = 0.15;    // demand lift at strength 100 (asymptotic scaling constant)
+export const CAMPAIGN_DECAY_RATE  = 0.20;    // 20%/wk decay of campaign strength
+export const CAMPAIGN_MAX_GAIN    = 40;      // max strength points/week from spend
+export const CAMPAIGN_COST_PER_M  = 30_000;  // $/wk per million metro pop for ~63% of max gain
+// Max SUSTAINED strength ≈67 → boost ≈ +10%; realistic saturating spend lands +7–9%.
+
+/**
+ * Campaign strength points gained this week from targeted spend at one airport,
+ * BEFORE the (1 − strength/100) saturation factor applied by the caller.
+ * @param {number} weeklySpend – targeted spend at this airport ($/wk)
+ * @param {number} airportPopM – metro population in millions (effectivePop preferred)
+ */
+export function campaignStrengthGain(weeklySpend, airportPopM) {
+  if (weeklySpend <= 0) return 0;
+  const scale = Math.max(airportPopM ?? 1, 0.2) * CAMPAIGN_COST_PER_M;
+  return CAMPAIGN_MAX_GAIN * (1 - Math.exp(-weeklySpend / scale));
+}
+
+/**
+ * Demand boost (fraction) on routes touching an airport with the given
+ * campaign strength.
+ * @param {number} strength – 0–100 campaign strength stock
+ */
+export function campaignDemandBoostPct(strength) {
+  return CAMPAIGN_MAX_BOOST * Math.max(0, Math.min(100, strength ?? 0)) / 100;
+}
+
+/**
+ * Steady-state campaign strength if this spend is sustained indefinitely —
+ * where weekly decay equals weekly gain. For the UI ("sustained boost").
+ * Solves: DECAY × s = gain × sov × (1 − s/100).
+ * @param {number} [sovFactor=1] – share-of-voice factor scaling the gain
+ */
+export function campaignEquilibriumStrength(weeklySpend, airportPopM, sovFactor = 1) {
+  const g = campaignStrengthGain(weeklySpend, airportPopM) * Math.max(0, Math.min(1, sovFactor));
+  if (g <= 0) return 0;
+  return Math.min(100, g / (CAMPAIGN_DECAY_RATE + g / 100));
+}
+
+// ── Share of voice ───────────────────────────────────────────────────────────
+//
+// Advertising effectiveness is relative: what matters is your share of the
+// noise in a market, not absolute spend. Competitor marketing at an airport
+// (hub advertising, station presence, counter-blitzes) does two things:
+//   1. SLOWS your campaign build there — shareOfVoiceFactor scales your
+//      weekly strength gain.
+//   2. DRAGS demand on routes touching the airport — rivals are buying
+//      mindshare from the same passengers.
+
+export const SOV_COMPETITION_WEIGHT   = 0.6;    // how strongly rival $ dilute your gain
+export const COMPETITOR_MKT_MAX_DRAG  = 0.05;   // max demand drag from rival marketing
+
+/**
+ * 0–1 factor scaling the player's campaign-strength gain at an airport.
+ * 1 with no rival spend; 0.5 when rivals outspend you ~1.7:1.
+ */
+export function shareOfVoiceFactor(playerSpend, competitorSpend) {
+  const p = Math.max(0, playerSpend || 0);
+  if (p <= 0) return 0;
+  return p / (p + SOV_COMPETITION_WEIGHT * Math.max(0, competitorSpend || 0));
+}
+
+/**
+ * Demand drag (fraction) on routes touching an airport where competitors are
+ * marketing. Saturates with the market's ad-noise scale; countering with your
+ * own targeted spend reduces it.
+ * @param {number} competitorSpend – rival marketing $/wk at this airport
+ * @param {number} playerSpend    – player's targeted $/wk at this airport
+ * @param {number} airportPopM    – metro population in millions
+ */
+export function competitorPressureDrag(competitorSpend, playerSpend, airportPopM) {
+  const cs = Math.max(0, competitorSpend || 0);
+  if (cs <= 0) return 0;
+  const sat = Math.max(airportPopM ?? 1, 0.2) * CAMPAIGN_COST_PER_M;
+  return COMPETITOR_MKT_MAX_DRAG * cs / (cs + Math.max(0, playerSpend || 0) + sat);
 }
 
 

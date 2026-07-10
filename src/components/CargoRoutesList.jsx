@@ -37,7 +37,7 @@ export default function CargoRoutesList() {
         <div className="empty-state-icon"><Glyph e="📦" /></div>
         <div className="empty-state-text">No cargo routes yet.</div>
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-          Buy a freighter from the Market, then open a freight route from the Planner (switch it to <strong><Glyph e="📦" /> Freight</strong>).
+          Buy a freighter from the Market, then click <strong><Glyph e="📦" /> Open Freight Route</strong> above (or use the Route Planner in Freight mode).
         </div>
       </div>
     );
@@ -89,6 +89,16 @@ export default function CargoRoutesList() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700 }}>
                   <AirportLink code={route.origin} /> <span style={{ color: ACCENT }}>→</span> <AirportLink code={route.destination} />
                   <FreightBadge />
+                  {aircraft?.status === 'grounded' && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+                      background: 'rgba(248,81,73,0.15)', color: 'var(--red)',
+                      border: '1px solid rgba(248,81,73,0.3)',
+                      textTransform: 'uppercase', letterSpacing: '.04em',
+                    }} title="In repair — automatically resumes this route when fixed">
+                      <Glyph e="🔧" /> {aircraft.groundedWeeksLeft}w
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                   {aircraft ? `${aircraft.name}${aircraft.tailNumber ? ` · ${aircraft.tailNumber}` : ''}` : <GlyphLabel size={12} text="⚠ no freighter assigned" />}

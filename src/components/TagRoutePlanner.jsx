@@ -9,8 +9,10 @@ import {
   currentGameDate, effectiveRangeKm, defaultClassPrices,
   routeLegs, routeSegments, routeSegmentKey, routeMaxLegKm, routeBlockHours,
   routeLandingFee, routeStops, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, MAX_ROUTE_STOPS,
+  cargoSlotsUsedAt, fleetAvgUtilization,
 } from '../utils/simulation.js';
 import { ModeToggle } from './CargoRoutePlanner.jsx';
+import AddGateButton from './AddGateButton.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Region-grouped airport <select> (only airports with a gate) ───────────────
@@ -48,7 +50,7 @@ function StopSelect({ value, onChange, gates, placeholder }) {
 
 export default function TagRoutePlanner({ mode, setMode }) {
   const { state, dispatch } = useGame();
-  const { fleet, routes, gates = {}, hub, cash } = state;
+  const { fleet, routes, gates = {}, hub, cash, cargoRoutes = [] } = state;
   const gd = currentGameDate(state);
 
   // Ordered stops: a tag flight needs ≥3 (origin + ≥1 stop + destination).
@@ -107,7 +109,10 @@ export default function TagRoutePlanner({ mode, setMode }) {
 
   const preview = useMemo(() => {
     if (!route || !aircraft || !inRange) return null;
-    return simulateTagRoute(route, aircraft, gd, state.labor ?? null, 1.0);
+    // Include the prospective route in the utilization estimate so the preview
+    // reflects the schedule pressure this flight would add.
+    const avgUtil = fleetAvgUtilization(fleet, [...routes, ...cargoRoutes, { ...route, aircraftId: aircraft.id }]);
+    return simulateTagRoute(route, aircraft, gd, state.labor ?? null, 1.0, avgUtil, state.satisfaction ?? null);
   }, [route, aircraft, inRange, gd.month, state.labor]); // eslint-disable-line
 
   // ── Validation (mirrors the reducer; advisory only) ──
@@ -120,7 +125,8 @@ export default function TagRoutePlanner({ mode, setMode }) {
   const incident = {};
   for (const l of legs) { incident[l.from] = (incident[l.from] ?? 0) + 1; incident[l.to] = (incident[l.to] ?? 0) + 1; }
   const incidentCount = (r, code) => routeLegs(r).reduce((n, l) => n + (l.from === code ? 1 : 0) + (l.to === code ? 1 : 0), 0);
-  const slotsUsedAt = (code) => routes.reduce((s, r) => s + incidentCount(r, code) * (r.weeklyFrequency ?? 0), 0);
+  const slotsUsedAt = (code) => routes.reduce((s, r) => s + incidentCount(r, code) * (r.weeklyFrequency ?? 0), 0)
+    + cargoSlotsUsedAt(code, cargoRoutes);
   const gateProblem = ready ? validStops.find(c => !(gates[c] > 0)) : null;
   const slotProblem = ready ? validStops.find(c => slotsUsedAt(c) + (incident[c] ?? 0) * frequency > (gates[c] ?? 0) * SLOTS_PER_GATE) : null;
 
@@ -238,8 +244,8 @@ export default function TagRoutePlanner({ mode, setMode }) {
                 <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> {type.name} range {effRange.toLocaleString()} km &lt; longest leg {Math.round(maxLeg).toLocaleString()} km.</span>
               )}
               {!blockOk && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> Exceeds the {MAX_WEEKLY_BLOCK_HOURS}h/wk block-hour cap for this aircraft.</span>}
-              {gateProblem && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> No gate at {gateProblem} — acquire one in the Gates tab.</span>}
-              {slotProblem && <span style={{ color: 'var(--yellow)' }}><Glyph e="⚠" /> Not enough slots at {slotProblem} — add a gate there.</span>}
+              {gateProblem && <span style={{ color: 'var(--red)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}><Glyph e="⚠" /> No gate at {gateProblem}<AddGateButton code={gateProblem} /></span>}
+              {slotProblem && <span style={{ color: 'var(--yellow)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}><Glyph e="⚠" /> Not enough slots at {slotProblem}<AddGateButton code={slotProblem} /></span>}
               {!connectivityOk && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> {aircraft?.name} can only extend from an airport it already serves.</span>}
             </div>
           </div>

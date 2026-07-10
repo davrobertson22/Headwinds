@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Airline Glossary — Tailwinds Terms &amp; Definitions</title>
+  <meta name="description" content="A plain-English glossary of airline management terms used in Tailwinds — load factor, yield, RASM, CASM, hub, slot, block time, and more. Learn the vocabulary of running an airline." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/glossary.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 28px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:42px 0 6px; padding-top:12px; border-top:1px solid var(--line); }
+    p { margin:0 0 16px; }
+    .toc { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 22px; margin:0 0 12px; }
+    .toc-title { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:0.95rem; color:var(--text); margin:0 0 10px; }
+    .toc a { display:inline-block; color:var(--muted); text-decoration:none; font-size:0.9rem; margin:0 16px 6px 0; }
+    .toc a:hover { color:var(--gold-light); }
+    dl { margin:0; }
+    dt { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:1.08rem; color:var(--gold-light); margin:24px 0 4px; }
+    dd { margin:0 0 4px; }
+    dd .also { color:var(--muted); font-size:0.9rem; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:32px 0 0; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--gold-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Airline Glossary</h1>
+    <p class="lede">Running an airline comes with its own vocabulary. This glossary explains the terms you'll meet in Tailwinds — and in the real industry it's modelled on — in plain English, with a note on why each one matters to your decisions.</p>
+
+    <div class="toc">
+      <div class="toc-title">Jump to a section</div>
+      <a href="#network">Network &amp; operations</a>
+      <a href="#fleet">Fleet &amp; equipment</a>
+      <a href="#commercial">Commercial &amp; pricing</a>
+      <a href="#finance">Finance &amp; metrics</a>
+    </div>
+
+    <h2 id="network">Network &amp; operations</h2>
+    <dl>
+      <dt>Route</dt>
+      <dd>A scheduled service between two airports. Routes are the building blocks of your airline: each one has its own demand, competition, fare, and operating cost, and each either makes or loses money on its own. Your network is simply the sum of the routes you choose to fly.</dd>
+
+      <dt>Hub</dt>
+      <dd>An airport you build your network around, where many of your routes begin, end, or connect. A strong hub lets passengers flow from lots of small cities onto shared trunk routes, filling seats you couldn't fill point-to-point. Concentrating operations at a hub also lowers per-flight overhead, but it puts a lot of eggs in one basket.</dd>
+
+      <dt>Spoke</dt>
+      <dd>A smaller destination connected to a hub in a "hub-and-spoke" network. Spokes feed passengers into the hub, where they connect onward. The opposite model is <em>point-to-point</em>, flying passengers directly between two cities without a connection.</dd>
+
+      <dt>Point-to-point</dt>
+      <dd>A network style where routes connect two cities directly rather than routing traffic through a central hub. It's simpler and avoids connection hassle, but it only works where there's enough direct demand between the two cities to fill an aircraft.</dd>
+
+      <dt>Slot</dt>
+      <dd>Permission to take off or land at a congested airport in a specific time window. At the busiest airports, slots are scarce and valuable — you can't just add a flight because you want to. Slot limits are a real constraint on how much you can grow at a mega-hub.</dd>
+
+      <dt>Load factor</dt>
+      <dd>The percentage of available seats you actually sell. An 80% load factor means four of every five seats flew with a paying passenger. It's the single fastest read on a route's health: high load means your capacity and fare are well matched to demand; persistently low load means you're flying too many seats, charging too much, or serving a market that isn't there.</dd>
+
+      <dt>Frequency</dt>
+      <dd>How many times you fly a route in a given period — say, three flights a day versus one. Higher frequency makes a route more attractive to travellers (especially business travellers who value flexibility) and can win you share, but only add it when demand supports the extra seats.</dd>
+
+      <dt>Turnaround</dt>
+      <dd>The time an aircraft spends on the ground between flights — unloading, cleaning, boarding, and preparing to depart again. Fast, reliable turnarounds keep your aircraft in the air earning money; slow ones waste your most expensive asset.</dd>
+
+      <dt>Block time</dt>
+      <dd>The total time a flight takes from leaving the departure gate to arriving at the destination gate, including taxi time on the ground. Block time drives how many rotations an aircraft can fly in a day and feeds directly into crew and cost planning.</dd>
+
+      <dt>Codeshare</dt>
+      <dd>An arrangement where two airlines sell seats on the same flight under their own names. Codeshares let you offer destinations you don't fly yourself and feed extra passengers onto your aircraft — a low-cost way to widen your network.</dd>
+
+      <dt>Alliance</dt>
+      <dd>A partnership between airlines to coordinate routes, share passengers, and extend each other's reach. Joining or forming an alliance can lift load factors and open markets you couldn't serve alone, in exchange for cooperating rather than competing with your partners.</dd>
+    </dl>
+
+    <h2 id="fleet">Fleet &amp; equipment</h2>
+    <dl>
+      <dt>Fleet</dt>
+      <dd>The full set of aircraft your airline operates. Your fleet should follow your route map, not the other way round: the right fleet matches aircraft size and range to the missions you actually fly.</dd>
+
+      <dt>Narrowbody</dt>
+      <dd>A single-aisle jet, typically seating roughly 120–230 passengers. Narrowbodies are the workhorses of short- and medium-haul flying — efficient on busy domestic and regional routes where a widebody would be overkill.</dd>
+
+      <dt>Widebody</dt>
+      <dd>A twin-aisle jet with the capacity and range for long-haul and high-demand routes. Widebodies carry far more passengers (and cargo) but cost more to operate, so they only pay off on routes with the distance or the demand to fill them.</dd>
+
+      <dt>Regional jet / turboprop</dt>
+      <dd>Small aircraft — jets or propeller planes — built for short, thin routes with modest demand. They let you serve markets too small for a mainline jet and feed passengers into your hub, at a lower cost per flight but a higher cost per seat.</dd>
+
+      <dt>Range</dt>
+      <dd>The maximum distance an aircraft can fly on a full load. Buying more range than your routes need is wasted money; too little range and you simply can't serve the market. Match range to mission.</dd>
+
+      <dt>Capacity</dt>
+      <dd>The number of seats an aircraft offers. Capacity interacts with demand and fare: too many seats on a thin route drags your load factor down; too few on a busy route leaves money on the table.</dd>
+
+      <dt>Lease vs. purchase</dt>
+      <dd>Two ways to get an aircraft. Leasing spreads the cost into regular payments and keeps cash free for routes and expansion — usually the smart early-game choice. Purchasing ties up a lot of capital up front but avoids ongoing lease payments, which can be cheaper over the long run once you're established.</dd>
+
+      <dt>Utilisation</dt>
+      <dd>How many hours a day your aircraft actually spend flying. An aircraft parked at a gate still costs you money, so keeping utilisation high — through good scheduling and fast turnarounds — is one of the clearest levers on profitability.</dd>
+
+      <dt>Maintenance</dt>
+      <dd>The scheduled and unscheduled upkeep that keeps aircraft airworthy. Maintenance is an unavoidable operating cost, and a larger or more varied fleet costs more to keep flying — a reason to avoid collecting too many different aircraft types too early.</dd>
+
+      <dt>Fleet commonality</dt>
+      <dd>The advantage of operating fewer, similar aircraft types. A simple fleet shares crews, spare parts, and maintenance procedures, cutting overhead. Every extra aircraft family you add raises your training and maintenance costs, so there's a real penalty for a scattered fleet.</dd>
+    </dl>
+
+    <h2 id="commercial">Commercial &amp; pricing</h2>
+    <dl>
+      <dt>Fare</dt>
+      <dd>The price you charge a passenger for a seat. Setting fares is a balancing act: too high and your load factor collapses, too low and you fill the plane but don't cover your costs. Let load factor and route profit guide you rather than what "feels" fair.</dd>
+
+      <dt>Yield</dt>
+      <dd>The average revenue you earn per passenger per mile flown. Yield tells you how <em>richly</em> you're pricing, separate from how full your planes are. A route can have high load but low yield (full of cheap seats) or low load but high yield (few passengers paying a premium).</dd>
+
+      <dt>Demand</dt>
+      <dd>How many people want to travel a given route at a given price. Demand sets the ceiling on what a route can earn. Reading demand correctly — and matching capacity and fare to it — is the heart of route planning.</dd>
+
+      <dt>Market share</dt>
+      <dd>Your slice of the total passengers on a route or in a market, versus your competitors. When a rival moves onto your route, you compete for share through fare, frequency, and service — and defending your best markets is often smarter than chasing new ones.</dd>
+
+      <dt>Loyalty program</dt>
+      <dd>A frequent-flyer scheme that rewards repeat passengers and encourages them to keep choosing your airline over competitors. A good loyalty program lifts repeat bookings and makes your load factors steadier and less price-sensitive.</dd>
+
+      <dt>Reputation / brand</dt>
+      <dd>How travellers perceive your airline. A stronger brand wins passengers at the margin and lets you hold fares a little higher. Reputation is built slowly through reliable operations and eroded quickly by problems.</dd>
+
+      <dt>Cargo / freight</dt>
+      <dd>Revenue from carrying goods rather than passengers, either in the hold of a passenger flight or on a dedicated freighter. Cargo can turn an otherwise marginal route profitable and smooths out the ups and downs of passenger demand.</dd>
+    </dl>
+
+    <h2 id="finance">Finance &amp; metrics</h2>
+    <dl>
+      <dt>Cash</dt>
+      <dd>Your liquid money on hand — your runway. Cash is what keeps you alive: it pays leases, fuel, and staff while you wait for routes to mature. Never let it approach zero, and keep a cushion so one bad week doesn't end your run.</dd>
+
+      <dt>Operating cost</dt>
+      <dd>The recurring cost of running your flights — fuel, crew, maintenance, leases, fees, and overhead. A route is only worth flying if its revenue clears its operating cost with room to spare.</dd>
+
+      <dt>Route profit</dt>
+      <dd>Revenue minus operating cost for a single route. This is where the real decisions live: a network of many small, consistent winners beats one glamorous route that loses money on every flight.</dd>
+
+      <dt>CASM (cost per available seat mile)</dt>
+      <dd>What it costs you to fly one seat one mile, whether or not that seat is sold. CASM is the standard measure of an airline's cost efficiency — the lower it is, the more room you have to price competitively and still profit.</dd>
+
+      <dt>RASM (revenue per available seat mile)</dt>
+      <dd>The revenue you earn for each seat-mile of capacity you offer. Comparing RASM against CASM tells you, at a glance, whether a route or the whole airline is making money on the capacity it flies: RASM above CASM means you're in the black.</dd>
+
+      <dt>Break-even load factor</dt>
+      <dd>The percentage of seats you need to sell just to cover a flight's costs. Everything above the break-even load factor is profit; everything below is loss. Lower costs or higher fares pull the break-even point down and give you more margin for error.</dd>
+
+      <dt>Debt</dt>
+      <dd>Money you borrow to fund growth faster than cash alone allows. Used well, debt lets you seize opportunities and scale; used carelessly, its repayments become a fixed cost that can sink you in a downturn. Borrow against a plan, not a hope.</dd>
+
+      <dt>Bankruptcy</dt>
+      <dd>What happens when you run out of cash and can't meet your obligations — the end of a run. Avoiding bankruptcy is the one hard constraint of the game: you can grow slowly or boldly, but you cannot run out of money.</dd>
+
+      <dt>Fuel price</dt>
+      <dd>The cost of jet fuel, one of the largest and most variable operating costs an airline faces. When fuel rises, thin and long routes feel it first, and efficient aircraft and full planes matter more than ever.</dd>
+    </dl>
+
+    <a class="cta" href="/">Play Tailwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

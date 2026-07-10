@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Narrow-Body Aircraft Guide — Tailwinds Airline Management Game</title>
+  <meta name="description" content="Every narrow-body jet in Tailwinds compared: seats, range, lease cost, fuel burn, and per-seat economics. Find the right single-aisle workhorse for your airline." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/aircraft-narrow-body.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:860px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:40px 0 12px; }
+    h3 { font-size:1.15rem; margin:0 0 6px; font-family:'Space Grotesk',sans-serif; }
+    p { margin:0 0 16px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    table.stats { width:100%; border-collapse:collapse; font-size:0.88rem; margin:0 0 28px; }
+    table.stats th, table.stats td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    table.stats th:first-child, table.stats td:first-child { text-align:left; white-space:normal; }
+    table.stats th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--bg); }
+    .tablewrap { overflow-x:auto; margin:0 0 28px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 18px; }
+    .card .meta { color:var(--muted); font-size:0.85rem; margin:0 0 10px; }
+    .card img { width:100%; max-width:480px; border-radius:8px; display:block; margin:10px 0 12px; }
+    .card .specs { display:flex; flex-wrap:wrap; gap:8px 22px; font-size:0.88rem; color:var(--muted); margin:0 0 10px; }
+    .card .specs b { color:var(--text); font-weight:600; }
+    .note { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:10px 0 0; font-size:0.92rem; }
+    .crumbs { font-size:0.85rem; color:var(--muted); margin:0 0 20px; }
+    .crumbs a { color:var(--muted); }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <p class="crumbs"><a href="/">Home</a> › <a href="/aircraft.html">Aircraft</a> › Narrow-Body Aircraft Guide</p>
+    <h1>Narrow-Body Aircraft Guide</h1>
+    <p class="lede">Every narrow-body jet in Tailwinds compared: seats, range, lease cost, fuel burn, and per-seat economics. Find the right single-aisle workhorse for your airline.</p>
+
+      <p>Narrow-body jets are the backbone of almost every successful Tailwinds airline. They cover the busiest segment of the route map — short and medium-haul city pairs with strong, repeatable demand — and they do it with economics that widebodies simply cannot match on those stage lengths. If your airline only ever mastered one aircraft category, it should be this one.</p>
+      <p>The core trade-off inside the category is capacity versus cost. Smaller types like the A318 or 737-700 are cheap to lease and easy to fill, which makes them forgiving while you learn a market. Larger types like the A321neo or 737 MAX 10 carry far more passengers for only modestly higher trip cost — brilliant on proven routes, punishing on speculative ones. The table and per-type notes below use each aircraft's actual in-game numbers, including fuel cost per seat-kilometre, the single best measure of how cheaply a jet moves one passenger one kilometre.</p>
+      <h2>How to choose</h2>
+      <p>Match seats to demand first, then range to mission, and only then look at price. A jet that is 30% too big for its route flies half-empty and loses money regardless of how efficient it is on paper. New-generation types (neo, MAX, A220, E2) burn noticeably less fuel per seat than the classics they replaced, but lease for more — they reward busy networks that keep them in the air. Older classics are the value play for cash-strapped early airlines: higher burn, far lower weekly lease.</p>
+<h2>All 44 aircraft at a glance</h2>
+<p>Figures are the game's actual values. Fuel cost assumes the base fuel price of $1.20/litre — the live market price in your save drifts between roughly half and nearly double that, which is why <a href="/route-economics.html">fuel hedging</a> matters.</p>
+    <div class="tablewrap"><table class="stats">
+      <thead><tr><th>Aircraft</th><th>Seats</th><th>Range</th><th>Lease/wk</th><th>Price</th><th>Fuel/100km</th><th>Fuel/seat-km</th></tr></thead>
+      <tbody>
+      <tr>
+        <td><a href="#bac111">BAC One-Eleven 500</a></td>
+        <td>119</td>
+        <td>2,700 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>480 L</td>
+        <td>4.84¢</td>
+      </tr>
+      <tr>
+        <td><a href="#yak42">Yakovlev Yak-42</a></td>
+        <td>120</td>
+        <td>4,000 km</td>
+        <td>$15K</td>
+        <td>$7M</td>
+        <td>470 L</td>
+        <td>4.70¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a318">Airbus A318</a></td>
+        <td>132</td>
+        <td>6,800 km</td>
+        <td>$38K</td>
+        <td>$18M</td>
+        <td>301 L</td>
+        <td>2.74¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b717">Boeing 717-200</a></td>
+        <td>134</td>
+        <td>2,645 km</td>
+        <td>$28K</td>
+        <td>$13M</td>
+        <td>300 L</td>
+        <td>2.69¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a220100">Airbus A220-100</a></td>
+        <td>135</td>
+        <td>5,700 km</td>
+        <td>$66K</td>
+        <td>$38M</td>
+        <td>269 L</td>
+        <td>2.39¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737200">Boeing 737-200Adv</a></td>
+        <td>136</td>
+        <td>3,800 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>431 L</td>
+        <td>3.80¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dc950">Douglas DC-9-50</a></td>
+        <td>139</td>
+        <td>3,100 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>432 L</td>
+        <td>3.73¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737500">Boeing 737-500</a></td>
+        <td>140</td>
+        <td>5,200 km</td>
+        <td>$17K</td>
+        <td>$8M</td>
+        <td>350 L</td>
+        <td>3.00¢</td>
+      </tr>
+      <tr>
+        <td><a href="#caravelle">Sud Aviation Caravelle</a></td>
+        <td>140</td>
+        <td>3,300 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>540 L</td>
+        <td>4.63¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737300">Boeing 737-300</a></td>
+        <td>149</td>
+        <td>4,400 km</td>
+        <td>$17K</td>
+        <td>$8M</td>
+        <td>363 L</td>
+        <td>2.92¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737700">Boeing 737-700</a></td>
+        <td>149</td>
+        <td>6,370 km</td>
+        <td>$34K</td>
+        <td>$16M</td>
+        <td>341 L</td>
+        <td>2.75¢</td>
+      </tr>
+      <tr>
+        <td><a href="#cv990">Convair 990 Coronado</a></td>
+        <td>149</td>
+        <td>6,100 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>850 L</td>
+        <td>6.85¢</td>
+      </tr>
+      <tr>
+        <td><a href="#vc10">Vickers VC10</a></td>
+        <td>151</td>
+        <td>9,400 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>922 L</td>
+        <td>7.33¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a319ceo">Airbus A319ceo</a></td>
+        <td>156</td>
+        <td>6,900 km</td>
+        <td>$34K</td>
+        <td>$16M</td>
+        <td>337 L</td>
+        <td>2.59¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a220">Airbus A220-300</a></td>
+        <td>160</td>
+        <td>6,300 km</td>
+        <td>$67K</td>
+        <td>$42M</td>
+        <td>321 L</td>
+        <td>2.41¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a319neo">Airbus A319neo</a></td>
+        <td>160</td>
+        <td>6,850 km</td>
+        <td>$70K</td>
+        <td>$45M</td>
+        <td>337 L</td>
+        <td>2.53¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b720b">Boeing 720B</a></td>
+        <td>165</td>
+        <td>6,700 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>814 L</td>
+        <td>5.92¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737max7">Boeing 737 MAX 7</a></td>
+        <td>172</td>
+        <td>7,037 km</td>
+        <td>$78K</td>
+        <td>$50M</td>
+        <td>342 L</td>
+        <td>2.39¢</td>
+      </tr>
+      <tr>
+        <td><a href="#md90">McDonnell Douglas MD-90</a></td>
+        <td>172</td>
+        <td>3,800 km</td>
+        <td>$19K</td>
+        <td>$9M</td>
+        <td>422 L</td>
+        <td>2.94¢</td>
+      </tr>
+      <tr>
+        <td><a href="#md80">McDonnell Douglas MD-80</a></td>
+        <td>172</td>
+        <td>4,635 km</td>
+        <td>$15K</td>
+        <td>$7M</td>
+        <td>439 L</td>
+        <td>3.06¢</td>
+      </tr>
+      <tr>
+        <td><a href="#trident3b">Hawker Siddeley Trident 3B</a></td>
+        <td>180</td>
+        <td>2,700 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>657 L</td>
+        <td>4.38¢</td>
+      </tr>
+      <tr>
+        <td><a href="#tu154m">Tupolev Tu-154M</a></td>
+        <td>180</td>
+        <td>5,200 km</td>
+        <td>$17K</td>
+        <td>$8M</td>
+        <td>700 L</td>
+        <td>4.67¢</td>
+      </tr>
+      <tr>
+        <td><a href="#il62m">Ilyushin Il-62M</a></td>
+        <td>186</td>
+        <td>10,000 km</td>
+        <td>$15K</td>
+        <td>$7M</td>
+        <td>1000 L</td>
+        <td>6.45¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737400">Boeing 737-400</a></td>
+        <td>188</td>
+        <td>3,800 km</td>
+        <td>$19K</td>
+        <td>$9M</td>
+        <td>406 L</td>
+        <td>2.59¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b727200">Boeing 727-200Adv</a></td>
+        <td>189</td>
+        <td>4,820 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>594 L</td>
+        <td>3.77¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737800">Boeing 737-800</a></td>
+        <td>189</td>
+        <td>5,765 km</td>
+        <td>$59K</td>
+        <td>$28M</td>
+        <td>400 L</td>
+        <td>2.54¢</td>
+      </tr>
+      <tr>
+        <td><a href="#c919">COMAC C919</a></td>
+        <td>192</td>
+        <td>5,555 km</td>
+        <td>$130K</td>
+        <td>$75M</td>
+        <td>381 L</td>
+        <td>2.38¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a320neo">Airbus A320neo</a></td>
+        <td>194</td>
+        <td>6,300 km</td>
+        <td>$87K</td>
+        <td>$50M</td>
+        <td>388 L</td>
+        <td>2.40¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a320ceo">Airbus A320ceo</a></td>
+        <td>195</td>
+        <td>6,150 km</td>
+        <td>$59K</td>
+        <td>$28M</td>
+        <td>410 L</td>
+        <td>2.52¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737max8200">Boeing 737 MAX 8-200</a></td>
+        <td>200</td>
+        <td>6,570 km</td>
+        <td>$97K</td>
+        <td>$56M</td>
+        <td>320 L</td>
+        <td>1.92¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737max8">Boeing 737 MAX 8</a></td>
+        <td>210</td>
+        <td>6,570 km</td>
+        <td>$90K</td>
+        <td>$55M</td>
+        <td>382 L</td>
+        <td>2.18¢</td>
+      </tr>
+      <tr>
+        <td><a href="#tu204">Tupolev Tu-204-100</a></td>
+        <td>210</td>
+        <td>6,500 km</td>
+        <td>$64K</td>
+        <td>$30M</td>
+        <td>469 L</td>
+        <td>2.68¢</td>
+      </tr>
+      <tr>
+        <td><a href="#mc21300">Irkut MC-21-300</a></td>
+        <td>211</td>
+        <td>6,400 km</td>
+        <td>$85K</td>
+        <td>$50M</td>
+        <td>388 L</td>
+        <td>2.21¢</td>
+      </tr>
+      <tr>
+        <td><a href="#mc21310">Irkut MC-21-310</a></td>
+        <td>211</td>
+        <td>5,100 km</td>
+        <td>$78K</td>
+        <td>$50M</td>
+        <td>360 L</td>
+        <td>2.05¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b707320">Boeing 707-320B</a></td>
+        <td>219</td>
+        <td>10,650 km</td>
+        <td>$13K</td>
+        <td>$6M</td>
+        <td>950 L</td>
+        <td>5.20¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a321ceo">Airbus A321ceo</a></td>
+        <td>220</td>
+        <td>5,930 km</td>
+        <td>$72K</td>
+        <td>$34M</td>
+        <td>462 L</td>
+        <td>2.52¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737900er">Boeing 737-900ER</a></td>
+        <td>220</td>
+        <td>5,925 km</td>
+        <td>$64K</td>
+        <td>$30M</td>
+        <td>426 L</td>
+        <td>2.33¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737max9">Boeing 737 MAX 9</a></td>
+        <td>220</td>
+        <td>6,570 km</td>
+        <td>$94K</td>
+        <td>$58M</td>
+        <td>397 L</td>
+        <td>2.17¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b737max10">Boeing 737 MAX 10</a></td>
+        <td>230</td>
+        <td>6,110 km</td>
+        <td>$100K</td>
+        <td>$60M</td>
+        <td>415 L</td>
+        <td>2.17¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b757200">Boeing 757-200</a></td>
+        <td>239</td>
+        <td>7,222 km</td>
+        <td>$47K</td>
+        <td>$22M</td>
+        <td>476 L</td>
+        <td>2.39¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a321neo">Airbus A321neo</a></td>
+        <td>244</td>
+        <td>7,400 km</td>
+        <td>$107K</td>
+        <td>$58M</td>
+        <td>445 L</td>
+        <td>2.19¢</td>
+      </tr>
+      <tr>
+        <td><a href="#a321xlr">Airbus A321XLR</a></td>
+        <td>244</td>
+        <td>8,700 km</td>
+        <td>$126K</td>
+        <td>$65M</td>
+        <td>443 L</td>
+        <td>2.18¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dc863">Douglas DC-8-63</a></td>
+        <td>259</td>
+        <td>11,000 km</td>
+        <td>$13K</td>
+        <td>$6M</td>
+        <td>980 L</td>
+        <td>4.54¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b757300">Boeing 757-300</a></td>
+        <td>295</td>
+        <td>6,295 km</td>
+        <td>$59K</td>
+        <td>$28M</td>
+        <td>532 L</td>
+        <td>2.16¢</td>
+      </tr>
+      </tbody>
+    </table></div>
+<h2>Type-by-type notes</h2>
+    <div class="card" id="bac111">
+      <h3>BAC One-Eleven 500</h3>
+      <p class="meta">BAC · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>119</b></span>
+        <span>Range <b>2,700 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>480 L/100km</b> (≈ $5.76/km)</span>
+        <span>Maintenance <b>$30K/wk</b></span>
+      </div>
+      <p>British rear-engined short-haul jet, a 1960s rival to the DC-9.</p>
+      <p class="note">Fuel efficiency: <b>#39 of 44</b> in its class (4.84¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$88</b> per seat.</p>
+    </div>
+    <div class="card" id="yak42">
+      <h3>Yakovlev Yak-42</h3>
+      <p class="meta">Yakovlev · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>120</b></span>
+        <span>Range <b>4,000 km</b></span>
+        <span>Lease <b>$15K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>470 L/100km</b> (≈ $5.64/km)</span>
+        <span>Maintenance <b>$32K/wk</b></span>
+      </div>
+      <p>Soviet tri-jet for medium-density routes, rugged enough for unpaved regional fields.</p>
+      <p class="note">Fuel efficiency: <b>#38 of 44</b> in its class (4.70¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$125</b> per seat.</p>
+    </div>
+    <div class="card" id="a318">
+      <h3>Airbus A318</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>132</b></span>
+        <span>Range <b>6,800 km</b></span>
+        <span>Lease <b>$38K/wk</b></span>
+        <span>Buy <b>$18M</b></span>
+        <span>Fuel <b>301 L/100km</b> (≈ $3.61/km)</span>
+        <span>Maintenance <b>$39K/wk</b></span>
+      </div>
+      <p>Smallest A320 family member. Surprising range makes it usable on niche long routes.</p>
+      <p class="note">Fuel efficiency: <b>#25 of 44</b> in its class (2.74¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$288</b> per seat.</p>
+    </div>
+    <div class="card" id="b717">
+      <h3>Boeing 717-200</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>134</b></span>
+        <span>Range <b>2,645 km</b></span>
+        <span>Lease <b>$28K/wk</b></span>
+        <span>Buy <b>$13M</b></span>
+        <span>Fuel <b>300 L/100km</b> (≈ $3.60/km)</span>
+        <span>Maintenance <b>$40K/wk</b></span>
+      </div>
+      <p>Efficient 100-seat class jet. Popular with Delta and Hawaiian for short hops.</p>
+      <p class="note">Fuel efficiency: <b>#24 of 44</b> in its class (2.69¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$205</b> per seat.</p>
+    </div>
+    <div class="card" id="a220100">
+      <h3>Airbus A220-100</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>135</b></span>
+        <span>Range <b>5,700 km</b></span>
+        <span>Lease <b>$66K/wk</b></span>
+        <span>Buy <b>$38M</b></span>
+        <span>Fuel <b>269 L/100km</b> (≈ $3.23/km)</span>
+        <span>Maintenance <b>$38K/wk</b></span>
+      </div>
+      <p>Smaller A220 variant. Excellent economics on thin 100-seat routes.</p>
+      <p class="note">Fuel efficiency: <b>#14 of 44</b> in its class (2.39¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$489</b> per seat.</p>
+    </div>
+    <div class="card" id="b737200">
+      <h3>Boeing 737-200Adv</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>136</b></span>
+        <span>Range <b>3,800 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>431 L/100km</b> (≈ $5.17/km)</span>
+        <span>Maintenance <b>$45K/wk</b></span>
+      </div>
+      <p>The original 737. Very cheap on the second-hand market but thirsty and requires a flight engineer as a third crew member. Still flying on budget carriers worldwide.</p>
+      <p class="note">Fuel efficiency: <b>#33 of 44</b> in its class (3.80¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$77</b> per seat.</p>
+    </div>
+    <div class="card" id="dc950">
+      <h3>Douglas DC-9-50</h3>
+      <p class="meta">McDonnell Douglas · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>139</b></span>
+        <span>Range <b>3,100 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>432 L/100km</b> (≈ $5.18/km)</span>
+        <span>Maintenance <b>$45K/wk</b></span>
+      </div>
+      <p>Classic short-haul twin. Still economical on busy domestic routes.</p>
+      <p class="note">Fuel efficiency: <b>#31 of 44</b> in its class (3.73¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$76</b> per seat.</p>
+    </div>
+    <div class="card" id="b737500">
+      <h3>Boeing 737-500</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>140</b></span>
+        <span>Range <b>5,200 km</b></span>
+        <span>Lease <b>$17K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>350 L/100km</b> (≈ $4.20/km)</span>
+        <span>Maintenance <b>$45K/wk</b></span>
+      </div>
+      <p>Shorter Classic 737 with good range. Ideal for thinner medium-haul routes.</p>
+      <p class="note">Fuel efficiency: <b>#29 of 44</b> in its class (3.00¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$121</b> per seat.</p>
+    </div>
+    <div class="card" id="caravelle">
+      <h3>Sud Aviation Caravelle</h3>
+      <p class="meta">Sud Aviation · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>140</b></span>
+        <span>Range <b>3,300 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>540 L/100km</b> (≈ $6.48/km)</span>
+        <span>Maintenance <b>$33K/wk</b></span>
+      </div>
+      <p>Pioneering French short-haul jet — the first rear-engined airliner and a 1960s European staple.</p>
+      <p class="note">Fuel efficiency: <b>#36 of 44</b> in its class (4.63¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$61</b> per seat.</p>
+    </div>
+    <div class="card" id="b737300">
+      <h3>Boeing 737-300</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>149</b></span>
+        <span>Range <b>4,400 km</b></span>
+        <span>Lease <b>$17K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>363 L/100km</b> (≈ $4.35/km)</span>
+        <span>Maintenance <b>$48K/wk</b></span>
+      </div>
+      <p>Classic 737. Cheap to acquire but older fuel efficiency.</p>
+      <p class="note">Fuel efficiency: <b>#27 of 44</b> in its class (2.92¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$114</b> per seat.</p>
+    </div>
+    <div class="card" id="b737700">
+      <h3>Boeing 737-700</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>149</b></span>
+        <span>Range <b>6,370 km</b></span>
+        <span>Lease <b>$34K/wk</b></span>
+        <span>Buy <b>$16M</b></span>
+        <span>Fuel <b>341 L/100km</b> (≈ $4.09/km)</span>
+        <span>Maintenance <b>$45K/wk</b></span>
+      </div>
+      <p>Smaller Classic 737 variant, great for medium-haul routes with moderate demand.</p>
+      <p class="note">Fuel efficiency: <b>#26 of 44</b> in its class (2.75¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$228</b> per seat.</p>
+    </div>
+    <div class="card" id="cv990">
+      <h3>Convair 990 Coronado</h3>
+      <p class="meta">Convair · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>149</b></span>
+        <span>Range <b>6,100 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>850 L/100km</b> (≈ $10.20/km)</span>
+        <span>Maintenance <b>$50K/wk</b></span>
+      </div>
+      <p>The fastest subsonic airliner of its era — speed bought at the cost of thirsty economics.</p>
+      <p class="note">Fuel efficiency: <b>#43 of 44</b> in its class (6.85¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$57</b> per seat.</p>
+    </div>
+    <div class="card" id="vc10">
+      <h3>Vickers VC10</h3>
+      <p class="meta">Vickers · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>151</b></span>
+        <span>Range <b>9,400 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>922 L/100km</b> (≈ $11.06/km)</span>
+        <span>Maintenance <b>$65K/wk</b></span>
+      </div>
+      <p>Elegant four-engine British long-hauler designed for hot-and-high African routes.</p>
+      <p class="note">Fuel efficiency: <b>#44 of 44</b> in its class (7.33¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$70</b> per seat.</p>
+    </div>
+    <div class="card" id="a319ceo">
+      <h3>Airbus A319ceo</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>156</b></span>
+        <span>Range <b>6,900 km</b></span>
+        <span>Lease <b>$34K/wk</b></span>
+        <span>Buy <b>$16M</b></span>
+        <span>Fuel <b>337 L/100km</b> (≈ $4.04/km)</span>
+        <span>Maintenance <b>$45K/wk</b></span>
+      </div>
+      <p>Original-engine A319. Older fuel burn but very cheap on the second-hand market.</p>
+      <p class="note">Fuel efficiency: <b>#21 of 44</b> in its class (2.59¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$218</b> per seat.</p>
+    </div>
+    <div class="card" id="a220">
+      <h3>Airbus A220-300</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>160</b></span>
+        <span>Range <b>6,300 km</b></span>
+        <span>Lease <b>$67K/wk</b></span>
+        <span>Buy <b>$42M</b></span>
+        <span>Fuel <b>321 L/100km</b> (≈ $3.85/km)</span>
+        <span>Maintenance <b>$48K/wk</b></span>
+      </div>
+      <p>Modern, fuel-efficient narrow-body with excellent range for its size.</p>
+      <p class="note">Fuel efficiency: <b>#16 of 44</b> in its class (2.41¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$419</b> per seat.</p>
+    </div>
+    <div class="card" id="a319neo">
+      <h3>Airbus A319neo</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>160</b></span>
+        <span>Range <b>6,850 km</b></span>
+        <span>Lease <b>$70K/wk</b></span>
+        <span>Buy <b>$45M</b></span>
+        <span>Fuel <b>337 L/100km</b> (≈ $4.04/km)</span>
+        <span>Maintenance <b>$46K/wk</b></span>
+      </div>
+      <p>Smaller A320 family member with impressive range. Good for thinner routes.</p>
+      <p class="note">Fuel efficiency: <b>#19 of 44</b> in its class (2.53¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$438</b> per seat.</p>
+    </div>
+    <div class="card" id="b720b">
+      <h3>Boeing 720B</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>165</b></span>
+        <span>Range <b>6,700 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>814 L/100km</b> (≈ $9.76/km)</span>
+        <span>Maintenance <b>$56K/wk</b></span>
+      </div>
+      <p>A lighter, faster derivative of the 707 for shorter routes — Boeing's early jet-age stopgap.</p>
+      <p class="note">Fuel efficiency: <b>#41 of 44</b> in its class (5.92¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$52</b> per seat.</p>
+    </div>
+    <div class="card" id="b737max7">
+      <h3>Boeing 737 MAX 7</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>172</b></span>
+        <span>Range <b>7,037 km</b></span>
+        <span>Lease <b>$78K/wk</b></span>
+        <span>Buy <b>$50M</b></span>
+        <span>Fuel <b>342 L/100km</b> (≈ $4.11/km)</span>
+        <span>Maintenance <b>$52K/wk</b></span>
+      </div>
+      <p>Smallest MAX. Excellent range for its size, suited to thinner long-haul routes.</p>
+      <p class="note">Fuel efficiency: <b>#12 of 44</b> in its class (2.39¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$453</b> per seat.</p>
+    </div>
+    <div class="card" id="md90">
+      <h3>McDonnell Douglas MD-90</h3>
+      <p class="meta">McDonnell Douglas · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>172</b></span>
+        <span>Range <b>3,800 km</b></span>
+        <span>Lease <b>$19K/wk</b></span>
+        <span>Buy <b>$9M</b></span>
+        <span>Fuel <b>422 L/100km</b> (≈ $5.06/km)</span>
+        <span>Maintenance <b>$50K/wk</b></span>
+      </div>
+      <p>Quieter, cleaner MD-80 successor with IAE V2500 engines.</p>
+      <p class="note">Fuel efficiency: <b>#28 of 44</b> in its class (2.94¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$110</b> per seat.</p>
+    </div>
+    <div class="card" id="md80">
+      <h3>McDonnell Douglas MD-80</h3>
+      <p class="meta">McDonnell Douglas · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>172</b></span>
+        <span>Range <b>4,635 km</b></span>
+        <span>Lease <b>$15K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>439 L/100km</b> (≈ $5.27/km)</span>
+        <span>Maintenance <b>$52K/wk</b></span>
+      </div>
+      <p>Stretched DC-9 with rear-mounted engines. High fuel burn but very cheap to acquire.</p>
+      <p class="note">Fuel efficiency: <b>#30 of 44</b> in its class (3.06¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$87</b> per seat.</p>
+    </div>
+    <div class="card" id="trident3b">
+      <h3>Hawker Siddeley Trident 3B</h3>
+      <p class="meta">Hawker Siddeley · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>180</b></span>
+        <span>Range <b>2,700 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>657 L/100km</b> (≈ $7.89/km)</span>
+        <span>Maintenance <b>$42K/wk</b></span>
+      </div>
+      <p>British tri-jet built for dense short-haul; pioneered automatic landing.</p>
+      <p class="note">Fuel efficiency: <b>#34 of 44</b> in its class (4.38¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$47</b> per seat.</p>
+    </div>
+    <div class="card" id="tu154m">
+      <h3>Tupolev Tu-154M</h3>
+      <p class="meta">Tupolev · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>180</b></span>
+        <span>Range <b>5,200 km</b></span>
+        <span>Lease <b>$17K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>700 L/100km</b> (≈ $8.40/km)</span>
+        <span>Maintenance <b>$52K/wk</b></span>
+      </div>
+      <p>The workhorse tri-jet of the Eastern bloc — rugged, fast, and built for rough strips.</p>
+      <p class="note">Fuel efficiency: <b>#37 of 44</b> in its class (4.67¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$94</b> per seat.</p>
+    </div>
+    <div class="card" id="il62m">
+      <h3>Ilyushin Il-62M</h3>
+      <p class="meta">Ilyushin · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>186</b></span>
+        <span>Range <b>10,000 km</b></span>
+        <span>Lease <b>$15K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>1000 L/100km</b> (≈ $12.00/km)</span>
+        <span>Maintenance <b>$62K/wk</b></span>
+      </div>
+      <p>The USSR's flagship long-haul quad-jet, with a distinctive rear-mounted engine cluster.</p>
+      <p class="note">Fuel efficiency: <b>#42 of 44</b> in its class (6.45¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$81</b> per seat.</p>
+    </div>
+    <div class="card" id="b737400">
+      <h3>Boeing 737-400</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>188</b></span>
+        <span>Range <b>3,800 km</b></span>
+        <span>Lease <b>$19K/wk</b></span>
+        <span>Buy <b>$9M</b></span>
+        <span>Fuel <b>406 L/100km</b> (≈ $4.88/km)</span>
+        <span>Maintenance <b>$51K/wk</b></span>
+      </div>
+      <p>Stretched Classic 737. Wide second-hand market makes it accessible.</p>
+      <p class="note">Fuel efficiency: <b>#22 of 44</b> in its class (2.59¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$101</b> per seat.</p>
+    </div>
+    <div class="card" id="b727200">
+      <h3>Boeing 727-200Adv</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>189</b></span>
+        <span>Range <b>4,820 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>594 L/100km</b> (≈ $7.13/km)</span>
+        <span>Maintenance <b>$60K/wk</b></span>
+      </div>
+      <p>Tri-jet classic from the 70s. Thirsty but very cheap and recognizable.</p>
+      <p class="note">Fuel efficiency: <b>#32 of 44</b> in its class (3.77¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$56</b> per seat.</p>
+    </div>
+    <div class="card" id="b737800">
+      <h3>Boeing 737-800</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>189</b></span>
+        <span>Range <b>5,765 km</b></span>
+        <span>Lease <b>$59K/wk</b></span>
+        <span>Buy <b>$28M</b></span>
+        <span>Fuel <b>400 L/100km</b> (≈ $4.80/km)</span>
+        <span>Maintenance <b>$58K/wk</b></span>
+      </div>
+      <p>The world's most popular aircraft. Proven economics on short to medium routes.</p>
+      <p class="note">Fuel efficiency: <b>#20 of 44</b> in its class (2.54¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$312</b> per seat.</p>
+    </div>
+    <div class="card" id="c919">
+      <h3>COMAC C919</h3>
+      <p class="meta">COMAC · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>192</b></span>
+        <span>Range <b>5,555 km</b></span>
+        <span>Lease <b>$130K/wk</b></span>
+        <span>Buy <b>$75M</b></span>
+        <span>Fuel <b>381 L/100km</b> (≈ $4.57/km)</span>
+        <span>Maintenance <b>$55K/wk</b></span>
+      </div>
+      <p>China's domestic A320/737 rival. A strategic option for Asian routes.</p>
+      <p class="note">Fuel efficiency: <b>#11 of 44</b> in its class (2.38¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$677</b> per seat.</p>
+    </div>
+    <div class="card" id="a320neo">
+      <h3>Airbus A320neo</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>194</b></span>
+        <span>Range <b>6,300 km</b></span>
+        <span>Lease <b>$87K/wk</b></span>
+        <span>Buy <b>$50M</b></span>
+        <span>Fuel <b>388 L/100km</b> (≈ $4.66/km)</span>
+        <span>Maintenance <b>$59K/wk</b></span>
+      </div>
+      <p>Industry-leading narrow-body. Slightly better fuel economics than the 737.</p>
+      <p class="note">Fuel efficiency: <b>#15 of 44</b> in its class (2.40¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$448</b> per seat.</p>
+    </div>
+    <div class="card" id="a320ceo">
+      <h3>Airbus A320ceo</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>195</b></span>
+        <span>Range <b>6,150 km</b></span>
+        <span>Lease <b>$59K/wk</b></span>
+        <span>Buy <b>$28M</b></span>
+        <span>Fuel <b>410 L/100km</b> (≈ $4.91/km)</span>
+        <span>Maintenance <b>$58K/wk</b></span>
+      </div>
+      <p>The aircraft that defined modern short-haul. Enormous global fleet.</p>
+      <p class="note">Fuel efficiency: <b>#17 of 44</b> in its class (2.52¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$303</b> per seat.</p>
+    </div>
+    <div class="card" id="b737max8200">
+      <h3>Boeing 737 MAX 8-200</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>200</b></span>
+        <span>Range <b>6,570 km</b></span>
+        <span>Lease <b>$97K/wk</b></span>
+        <span>Buy <b>$56M</b></span>
+        <span>Fuel <b>320 L/100km</b> (≈ $3.84/km)</span>
+        <span>Maintenance <b>$56K/wk</b></span>
+      </div>
+      <p>High-density MAX 8 with an extra exit pair — the low-cost-carrier workhorse (think Ryanair).</p>
+      <p class="note">Fuel efficiency: <b>#1 of 44</b> in its class (1.92¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$485</b> per seat.</p>
+    </div>
+    <div class="card" id="b737max8">
+      <h3>Boeing 737 MAX 8</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>210</b></span>
+        <span>Range <b>6,570 km</b></span>
+        <span>Lease <b>$90K/wk</b></span>
+        <span>Buy <b>$55M</b></span>
+        <span>Fuel <b>382 L/100km</b> (≈ $4.58/km)</span>
+        <span>Maintenance <b>$62K/wk</b></span>
+      </div>
+      <p>Next-gen 737 with CFM LEAP engines. Best-in-class fuel burn for this size.</p>
+      <p class="note">Fuel efficiency: <b>#7 of 44</b> in its class (2.18¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$429</b> per seat.</p>
+    </div>
+    <div class="card" id="tu204">
+      <h3>Tupolev Tu-204-100</h3>
+      <p class="meta">Tupolev · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>210</b></span>
+        <span>Range <b>6,500 km</b></span>
+        <span>Lease <b>$64K/wk</b></span>
+        <span>Buy <b>$30M</b></span>
+        <span>Fuel <b>469 L/100km</b> (≈ $5.63/km)</span>
+        <span>Maintenance <b>$68K/wk</b></span>
+      </div>
+      <p>Soviet-era 737/A320 equivalent. High capacity but older fuel economics.</p>
+      <p class="note">Fuel efficiency: <b>#23 of 44</b> in its class (2.68¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$302</b> per seat.</p>
+    </div>
+    <div class="card" id="mc21300">
+      <h3>Irkut MC-21-300</h3>
+      <p class="meta">Irkut · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>211</b></span>
+        <span>Range <b>6,400 km</b></span>
+        <span>Lease <b>$85K/wk</b></span>
+        <span>Buy <b>$50M</b></span>
+        <span>Fuel <b>388 L/100km</b> (≈ $4.65/km)</span>
+        <span>Maintenance <b>$56K/wk</b></span>
+      </div>
+      <p>Russia's modern narrow-body with composite wings. Competitive specs at lower cost.</p>
+      <p class="note">Fuel efficiency: <b>#9 of 44</b> in its class (2.21¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$403</b> per seat.</p>
+    </div>
+    <div class="card" id="mc21310">
+      <h3>Irkut MC-21-310</h3>
+      <p class="meta">Irkut · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>211</b></span>
+        <span>Range <b>5,100 km</b></span>
+        <span>Lease <b>$78K/wk</b></span>
+        <span>Buy <b>$50M</b></span>
+        <span>Fuel <b>360 L/100km</b> (≈ $4.32/km)</span>
+        <span>Maintenance <b>$56K/wk</b></span>
+      </div>
+      <p>Russian composite-wing narrowbody with domestic PD-14 engines — an A321neo competitor.</p>
+      <p class="note">Fuel efficiency: <b>#2 of 44</b> in its class (2.05¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$370</b> per seat.</p>
+    </div>
+    <div class="card" id="b707320">
+      <h3>Boeing 707-320B</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>219</b></span>
+        <span>Range <b>10,650 km</b></span>
+        <span>Lease <b>$13K/wk</b></span>
+        <span>Buy <b>$6M</b></span>
+        <span>Fuel <b>950 L/100km</b> (≈ $11.39/km)</span>
+        <span>Maintenance <b>$68K/wk</b></span>
+      </div>
+      <p>The aircraft that launched the jet age. Remarkable intercontinental range for its era. Four thirsty JT3D engines and a required flight engineer, but available for a fraction of modern prices.</p>
+      <p class="note">Fuel efficiency: <b>#40 of 44</b> in its class (5.20¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$57</b> per seat.</p>
+    </div>
+    <div class="card" id="a321ceo">
+      <h3>Airbus A321ceo</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>220</b></span>
+        <span>Range <b>5,930 km</b></span>
+        <span>Lease <b>$72K/wk</b></span>
+        <span>Buy <b>$34M</b></span>
+        <span>Fuel <b>462 L/100km</b> (≈ $5.55/km)</span>
+        <span>Maintenance <b>$70K/wk</b></span>
+      </div>
+      <p>Classic-engine stretched A320. Highest-capacity narrow-body before the neo.</p>
+      <p class="note">Fuel efficiency: <b>#18 of 44</b> in its class (2.52¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$327</b> per seat.</p>
+    </div>
+    <div class="card" id="b737900er">
+      <h3>Boeing 737-900ER</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>220</b></span>
+        <span>Range <b>5,925 km</b></span>
+        <span>Lease <b>$64K/wk</b></span>
+        <span>Buy <b>$30M</b></span>
+        <span>Fuel <b>426 L/100km</b> (≈ $5.12/km)</span>
+        <span>Maintenance <b>$65K/wk</b></span>
+      </div>
+      <p>Largest classic 737 variant. High capacity for busy domestic trunk routes.</p>
+      <p class="note">Fuel efficiency: <b>#10 of 44</b> in its class (2.33¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$289</b> per seat.</p>
+    </div>
+    <div class="card" id="b737max9">
+      <h3>Boeing 737 MAX 9</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>220</b></span>
+        <span>Range <b>6,570 km</b></span>
+        <span>Lease <b>$94K/wk</b></span>
+        <span>Buy <b>$58M</b></span>
+        <span>Fuel <b>397 L/100km</b> (≈ $4.77/km)</span>
+        <span>Maintenance <b>$66K/wk</b></span>
+      </div>
+      <p>Mid-size MAX with high capacity and solid range.</p>
+      <p class="note">Fuel efficiency: <b>#5 of 44</b> in its class (2.17¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$427</b> per seat.</p>
+    </div>
+    <div class="card" id="b737max10">
+      <h3>Boeing 737 MAX 10</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>230</b></span>
+        <span>Range <b>6,110 km</b></span>
+        <span>Lease <b>$100K/wk</b></span>
+        <span>Buy <b>$60M</b></span>
+        <span>Fuel <b>415 L/100km</b> (≈ $4.98/km)</span>
+        <span>Maintenance <b>$70K/wk</b></span>
+      </div>
+      <p>Largest MAX variant. High capacity for busy short-to-medium routes.</p>
+      <p class="note">Fuel efficiency: <b>#4 of 44</b> in its class (2.17¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$435</b> per seat.</p>
+    </div>
+    <div class="card" id="b757200">
+      <h3>Boeing 757-200</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>239</b></span>
+        <span>Range <b>7,222 km</b></span>
+        <span>Lease <b>$47K/wk</b></span>
+        <span>Buy <b>$22M</b></span>
+        <span>Fuel <b>476 L/100km</b> (≈ $5.71/km)</span>
+        <span>Maintenance <b>$80K/wk</b></span>
+      </div>
+      <p>The "narrowbody widebody." Exceptional range enables thin transatlantic routes.</p>
+      <p class="note">Fuel efficiency: <b>#13 of 44</b> in its class (2.39¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$195</b> per seat.</p>
+    </div>
+    <div class="card" id="a321neo">
+      <h3>Airbus A321neo</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>244</b></span>
+        <span>Range <b>7,400 km</b></span>
+        <span>Lease <b>$107K/wk</b></span>
+        <span>Buy <b>$58M</b></span>
+        <span>Fuel <b>445 L/100km</b> (≈ $5.33/km)</span>
+        <span>Maintenance <b>$72K/wk</b></span>
+      </div>
+      <p>Stretched A320 with excellent range. Can serve transatlantic thin routes.</p>
+      <p class="note">Fuel efficiency: <b>#8 of 44</b> in its class (2.19¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$439</b> per seat.</p>
+    </div>
+    <div class="card" id="a321xlr">
+      <h3>Airbus A321XLR</h3>
+      <p class="meta">Airbus · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>244</b></span>
+        <span>Range <b>8,700 km</b></span>
+        <span>Lease <b>$126K/wk</b></span>
+        <span>Buy <b>$65M</b></span>
+        <span>Fuel <b>443 L/100km</b> (≈ $5.31/km)</span>
+        <span>Maintenance <b>$75K/wk</b></span>
+      </div>
+      <p>Game-changer. Near-intercontinental range in a narrow-body at a fraction of the cost.</p>
+      <p class="note">Fuel efficiency: <b>#6 of 44</b> in its class (2.18¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$516</b> per seat.</p>
+    </div>
+    <div class="card" id="dc863">
+      <h3>Douglas DC-8-63</h3>
+      <p class="meta">Douglas · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>259</b></span>
+        <span>Range <b>11,000 km</b></span>
+        <span>Lease <b>$13K/wk</b></span>
+        <span>Buy <b>$6M</b></span>
+        <span>Fuel <b>980 L/100km</b> (≈ $11.76/km)</span>
+        <span>Maintenance <b>$78K/wk</b></span>
+      </div>
+      <p>Stretched four-engine long-haul classic of the 1960s — the first jet to exceed Mach 1 in a (test) dive.</p>
+      <p class="note">Fuel efficiency: <b>#35 of 44</b> in its class (4.54¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$48</b> per seat.</p>
+    </div>
+    <div class="card" id="b757300">
+      <h3>Boeing 757-300</h3>
+      <p class="meta">Boeing · Narrow Body</p>
+      <div class="specs">
+        <span>Seats <b>295</b></span>
+        <span>Range <b>6,295 km</b></span>
+        <span>Lease <b>$59K/wk</b></span>
+        <span>Buy <b>$28M</b></span>
+        <span>Fuel <b>532 L/100km</b> (≈ $6.38/km)</span>
+        <span>Maintenance <b>$92K/wk</b></span>
+      </div>
+      <p>Stretched 757. Very high seat density in the narrow-body class.</p>
+      <p class="note">Fuel efficiency: <b>#3 of 44</b> in its class (2.16¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$200</b> per seat.</p>
+    </div>
+    <a class="cta" href="/">Play Tailwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

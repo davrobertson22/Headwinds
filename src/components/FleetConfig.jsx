@@ -1,5 +1,6 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { useState } from 'react';
+import CabinTemplatePicker from './CabinTemplatePicker.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import {
@@ -16,10 +17,10 @@ import {
 const QUALITY_LEVELS = { basic: 0, standard: 1, premium: 2, luxury: 3 };
 
 const QUALITY_OPTIONS = [
-  { value: 'basic',    label: 'Basic',    desc: 'Budget fittings, no frills.' },
+  { value: 'basic',    label: 'Basic',    desc: 'No frills. Saves weekly cost, costs quality points.' },
   { value: 'standard', label: 'Standard', desc: 'Comfortable and no-nonsense.' },
-  { value: 'premium',  label: 'Premium',  desc: 'Enhanced seats, better meals.' },
-  { value: 'luxury',   label: 'Luxury',   desc: 'Flagship product. Premium cost.' },
+  { value: 'premium',  label: 'Premium',  desc: 'Enhanced product. Boosts quality, adds weekly cost.' },
+  { value: 'luxury',   label: 'Luxury',   desc: 'Flagship product. Big quality boost, premium cost.' },
 ];
 
 /**
@@ -48,9 +49,16 @@ function calcReconfCost(current, next) {
   return Math.max(10_000, seatChanges * 2_500 + (seatQDiff + servQDiff) * 30_000);
 }
 
-export default function FleetConfig({ aircraftId, onClose }) {
+export default function FleetConfig({ aircraftId, aircraftIds = null, onClose }) {
   const { state, dispatch } = useGame();
-  const aircraft = state.fleet.find(a => a.id === aircraftId);
+
+  // Bulk mode: aircraftIds is an array of same-type aircraft; the layout chosen
+  // here is applied to all of them (each pays its own refit cost).
+  const targetIds = aircraftIds ?? (aircraftId ? [aircraftId] : []);
+  const targets   = state.fleet.filter(a => targetIds.includes(a.id));
+  const isBulk    = targets.length > 1;
+
+  const aircraft = targets[0];
   const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
 
   const maxSeats = type?.seats ?? 0;
@@ -62,6 +70,23 @@ export default function FleetConfig({ aircraftId, onClose }) {
   const [ecoSeats, setEcoSeats] = useState(current.economy    ?? maxSeats);
   const [seatQ,  setSeatQ]  = useState(current.seatQuality    ?? 'standard');
   const [servQ,  setServQ]  = useState(current.serviceQuality ?? 'standard');
+
+  // Apply a saved cabin template (economy clamped to remaining floor space)
+  function applyTemplate(cfg) {
+    const f = Math.max(0, cfg.firstClass ?? 0);
+    const b = Math.max(0, cfg.businessClass ?? 0);
+    const p = Math.max(0, cfg.premiumEconomy ?? 0);
+    const premUnits = f * CLASS_SPACE_MULTIPLIERS.firstClass
+                    + b * CLASS_SPACE_MULTIPLIERS.businessClass
+                    + p * CLASS_SPACE_MULTIPLIERS.premiumEconomy;
+    const maxE = Math.max(0, Math.floor(maxSeats - premUnits));
+    setFirst(f);
+    setBiz(b);
+    setPrem(p);
+    setEcoSeats(Math.min(Math.max(0, cfg.economy ?? 0), maxE));
+    setSeatQ(cfg.seatQuality ?? 'standard');
+    setServQ(cfg.serviceQuality ?? 'standard');
+  }
 
   // Premium classes take more floor space: First=2×, Business=1.5×, PremEco=1.25×.
   const premiumUnits = first * CLASS_SPACE_MULTIPLIERS.firstClass
@@ -81,19 +106,25 @@ export default function FleetConfig({ aircraftId, onClose }) {
   const rangeGainPct   = baseRangeKm > 0 ? Math.round((cfgRangeKm / baseRangeKm - 1) * 100) : 0;
   const spaceQualityBonus = configSpaceQualityBonus(previewConfig, type);
 
-  // Reconfiguration cost
+  // Reconfiguration cost — in bulk mode each aircraft pays its own refit cost
+  // (they may start from different current layouts).
   const nextConfig = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: servQ };
-  const reconfCost = calcReconfCost(current, nextConfig);
+  const perAircraftCosts = targets.map(a =>
+    calcReconfCost(a.config ?? defaultConfig(maxSeats), nextConfig)
+  );
+  const reconfCost = perAircraftCosts.reduce((s, c) => s + c, 0);
   const canAfford  = state.cash >= reconfCost;
   const noChange   = reconfCost === 0;
 
   function handleSave() {
     if (over || !canAfford) return;
-    dispatch({
-      type:       'CONFIGURE_AIRCRAFT',
-      aircraftId,
-      config:     nextConfig,
-      reconfCost,
+    targets.forEach((a, i) => {
+      dispatch({
+        type:       'CONFIGURE_AIRCRAFT',
+        aircraftId: a.id,
+        config:     nextConfig,
+        reconfCost: perAircraftCosts[i],
+      });
     });
     onClose();
   }
@@ -122,10 +153,17 @@ export default function FleetConfig({ aircraftId, onClose }) {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 700 }}>Configure {aircraft.name}</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 700 }}>
+              {isBulk ? `Configure ${targets.length} × ${type.name}` : `Configure ${aircraft.name}`}
+            </h2>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {type.name} · {maxSeats} total seats · Current cash: <strong style={{ color: 'var(--green)' }}>{formatMoney(state.cash)}</strong>
             </div>
+            {isBulk && (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, maxWidth: 420 }}>
+                Applying to: {targets.slice(0, 6).map(a => a.name).join(', ')}{targets.length > 6 ? `, +${targets.length - 6} more` : ''}
+              </div>
+            )}
           </div>
           <button className="btn btn-ghost" style={{ padding: '4px 10px', flexShrink: 0 }} onClick={onClose}><Glyph e="✕" /></button>
         </div>
@@ -137,6 +175,12 @@ export default function FleetConfig({ aircraftId, onClose }) {
             Set each cabin's seat count. Leaving floor space empty trades seats for more
             range and a roomier, higher-quality cabin. Each seat moved costs $2,500 to refit.
           </div>
+
+          <CabinTemplatePicker
+            typeId={aircraft.typeId}
+            currentConfig={nextConfig}
+            onApply={applyTemplate}
+          />
 
           <ClassInput
             label="First Class"
@@ -279,9 +323,10 @@ export default function FleetConfig({ aircraftId, onClose }) {
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
                   Reconfiguration cost: <span style={{ color: canAfford ? 'var(--accent)' : 'var(--red)' }}>{formatMoney(reconfCost)}</span>
+                  {isBulk && <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>across {targets.length} aircraft</span>}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Paid immediately. Aircraft is taken out of service for refitting.
+                  Paid immediately. Aircraft {isBulk ? 'are' : 'is'} taken out of service for refitting.
                 </div>
               </div>
               {!canAfford && (
@@ -299,7 +344,7 @@ export default function FleetConfig({ aircraftId, onClose }) {
             onClick={handleSave}
             disabled={over || (!noChange && !canAfford)}
           >
-            {noChange ? 'No Changes' : `Confirm Refit · ${formatMoney(reconfCost)}`}
+            {noChange ? 'No Changes' : `Confirm Refit${isBulk ? ` (${targets.length} aircraft)` : ''} · ${formatMoney(reconfCost)}`}
           </button>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         </div>

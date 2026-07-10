@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, weekToGameDate, formatGameDate } from '../utils/simulation.js';
+import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
@@ -19,17 +19,32 @@ export default function Dashboard() {
   }, 0);
 
   const gd = currentGameDate(state);
-  const routeResults = useMemo(() => routes.map(route => {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
-    const result   = aircraft ? simulateRoute(route, aircraft, gd) : null;
-    return { route, result };
-  }), [routes, fleet, state.week]);
 
   // Canonical projection — the SAME single-source-of-truth used by the Finance page,
   // so the Dashboard's revenue/profit always agree with Finance. Runs the real engine
   // (so cargo, all fixed costs, loan interest and tax are included) rather than a
   // home-grown estimate.
   const proj = useMemo(() => projectWeek(state), [state]);
+
+  // Per-route results read from the SAME engine projection the Routes and Finance
+  // screens use — never a standalone re-simulation. A bare simulateRoute() here
+  // ignored competitor encroachment, labor, the fuel-price multiplier and revenue
+  // lifts, so the Dashboard's "Top Routes" profit/revenue/load disagreed with every
+  // other screen and, because the memo only tracked state.week, froze (e.g. a load
+  // factor stuck at its old value) when the player changed fares mid-week. Prefer the
+  // engine's routeResult; fall back to a standalone sim only for routes the engine
+  // skips (grounded / dormant-seasonal), using the same labor + fuel the engine used.
+  const routeResults = useMemo(() => {
+    const rrById = {};
+    for (const rr of proj.report?.routeResults ?? []) rrById[rr.routeId] = rr;
+    const avgUtil = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
+    return routes.map(route => {
+      const aircraft = fleet.find(a => a.id === route.aircraftId);
+      const result = !aircraft ? null
+        : (rrById[route.id] ?? simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null));
+      return { route, result };
+    });
+  }, [routes, fleet, proj, gd, state.labor]);
 
   const projectedRevenue = proj.effectiveRevenue;   // all-in weekly revenue (incl. cargo)
   const projectedProfit  = proj.netCash;            // fully-loaded weekly cash bottom line
@@ -470,8 +485,15 @@ function FinancialChart({ history, currentWeek }) {
   const n = history.length;
   if (n < 2) return null;
 
-  const revenues = history.map(h => h.revenue ?? 0);
-  const costs    = history.map(h => (h.totalCost ?? ((h.leases ?? 0) + (h.maintenance ?? 0) + (h.fuel ?? 0) + (h.crew ?? 0) + (h.quality ?? 0) + (h.gates ?? 0))) ?? 0);
+  // The three series must reconcile so the chart reads profit = revenue − cost.
+  // Profit is the true after-tax cash delta, which folds in two things the raw
+  // revenue/cost fields exclude: active-event demand swings (added to revenue)
+  // and corporate tax (a cost). Fold them back in here so the lines add up.
+  const revenues = history.map(h => (h.revenue ?? 0) + (h.eventDemandAdj ?? 0) - (h.strikeLoss ?? 0));
+  const costs    = history.map(h => {
+    const base = h.totalCost ?? ((h.leases ?? 0) + (h.maintenance ?? 0) + (h.fuel ?? 0) + (h.crew ?? 0) + (h.quality ?? 0) + (h.gates ?? 0));
+    return (base ?? 0) + (h.corporateTax ?? 0);
+  });
   const profits  = history.map(h => h.profit ?? 0);
 
   const allVals = [...revenues, ...costs, ...profits];

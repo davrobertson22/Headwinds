@@ -76,8 +76,24 @@ function AircraftThumb({ type, size = 'sm' }) {
 // ─── Detail panel ─────────────────────────────────────────────────────────────
 
 function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
-  const { state } = useGame();
+  const { state, dispatch } = useGame();
   const { routes } = state;
+
+  // Inline rename
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft]     = useState('');
+
+  function startRename() {
+    setNameDraft(aircraft.name);
+    setEditingName(true);
+  }
+  function commitRename() {
+    const name = nameDraft.trim();
+    if (name && name !== aircraft.name) {
+      dispatch({ type: 'RENAME_AIRCRAFT', aircraftId: aircraft.id, name });
+    }
+    setEditingName(false);
+  }
 
   const type = getAircraftType(aircraft.typeId);
 
@@ -125,7 +141,40 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 700, fontSize: 20 }}>{aircraft.name}</span>
+                {editingName ? (
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    maxLength={40}
+                    onChange={e => setNameDraft(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') commitRename();
+                      if (e.key === 'Escape') setEditingName(false);
+                    }}
+                    style={{
+                      fontWeight: 700, fontSize: 20, padding: '2px 8px',
+                      background: 'var(--surface2)', color: 'var(--text)',
+                      border: '1px solid var(--accent)', borderRadius: 6,
+                      outline: 'none', minWidth: 0, width: 260, maxWidth: '100%',
+                    }}
+                  />
+                ) : (
+                  <>
+                    <span style={{ fontWeight: 700, fontSize: 20 }}>{aircraft.name}</span>
+                    <button
+                      onClick={startRename}
+                      title="Rename aircraft"
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-muted)', fontSize: 14, padding: '2px 4px',
+                        display: 'inline-flex', alignItems: 'center',
+                      }}
+                    >
+                      <Glyph e="✏️" size={14} />
+                    </button>
+                  </>
+                )}
                 {aircraft.tailNumber && (
                   <span style={{
                     fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
@@ -402,7 +451,7 @@ const CATEGORY_ORDER = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body']
 
 // ─── By Type view ─────────────────────────────────────────────────────────────
 
-function FleetByType({ fleet, routes }) {
+function FleetByType({ fleet, routes, cargoRoutes = [] }) {
   const gd = { year: 1, week: 1 }; // just for label purposes
   // Group by typeId
   const groups = {};
@@ -452,7 +501,7 @@ function FleetByType({ fleet, routes }) {
 
         // Avg utilisation
         const allBlockHrs = aircraft.map(a => {
-          const aRoutes = routes.filter(r => r.aircraftId === a.id);
+          const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
           return type
             ? aRoutes.reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0)
             : 0;
@@ -532,7 +581,7 @@ function FleetByType({ fleet, routes }) {
 
 // ─── By Category view ─────────────────────────────────────────────────────────
 
-function FleetByCategory({ fleet, routes }) {
+function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
   const categories = CATEGORY_ORDER.filter(cat =>
     fleet.some(a => getAircraftType(a.typeId)?.category === cat)
   );
@@ -605,7 +654,7 @@ function FleetByCategory({ fleet, routes }) {
         // Avg utilisation
         const avgBlock = catFleet.reduce((s, a) => {
           const t = getAircraftType(a.typeId);
-          const aRoutes = routes.filter(r => r.aircraftId === a.id);
+          const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
           const bh = t ? aRoutes.reduce((x, r) => x + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0) : 0;
           return s + bh;
         }, 0) / catFleet.length;
@@ -692,9 +741,11 @@ function FleetByCategory({ fleet, routes }) {
 
 export default function Fleet() {
   const { state, dispatch } = useGame();
-  const { fleet, routes, pendingOrders = [], year, week } = state;
+  const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week } = state;
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
+  const [checkedIds,    setCheckedIds]    = useState([]);   // bulk selection
+  const [bulkConfigIds, setBulkConfigIds] = useState(null); // array of ids → bulk configure modal
   const [search,        setSearch]        = useState('');
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
@@ -807,6 +858,86 @@ export default function Fleet() {
     return true;
   });
 
+  // ── Bulk selection ──────────────────────────────────────────────────────
+  const checkedAircraft   = fleet.filter(a => checkedIds.includes(a.id));
+  const allVisibleChecked = visibleFleet.length > 0 && visibleFleet.every(a => checkedIds.includes(a.id));
+  const checkedTypeIds    = [...new Set(checkedAircraft.map(a => a.typeId))];
+  const canBulkConfigure  = checkedAircraft.length > 0 && checkedTypeIds.length === 1;
+  const checkedOwned      = checkedAircraft.filter(a => a.ownershipType === 'owned');
+
+  function toggleChecked(id) {
+    setCheckedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
+  }
+
+  function toggleAllVisible() {
+    setCheckedIds(ids => allVisibleChecked
+      ? ids.filter(id => !visibleFleet.some(a => a.id === id))
+      : [...new Set([...ids, ...visibleFleet.map(a => a.id)])]);
+  }
+
+  function sellValue(a) {
+    const type      = getAircraftType(a.typeId);
+    const ageYears  = (a.ageWeeks ?? 0) / 52;
+    const remaining = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
+    const nav       = Math.round((type?.purchasePrice ?? 0) * remaining);
+    return nav - Math.round(nav * 0.05);
+  }
+
+  function handleBulkSell() {
+    if (checkedOwned.length === 0) return;
+    const proceeds   = checkedOwned.reduce((s, a) => s + sellValue(a), 0);
+    const routeCount = checkedOwned.reduce((s, a) =>
+      s + routes.filter(r => r.aircraftId === a.id).length
+        + cargoRoutes.filter(r => r.aircraftId === a.id).length, 0);
+    const names = checkedOwned.slice(0, 8).map(a => a.name).join(', ')
+                + (checkedOwned.length > 8 ? `, +${checkedOwned.length - 8} more` : '');
+
+    let msg = '';
+    if (routeCount > 0) msg += `These aircraft fly ${routeCount} route${routeCount > 1 ? 's' : ''} — selling will close all of them.\n\n`;
+    msg += `${names}\n\n`;
+    msg += `Net proceeds (after 5% fee): ${formatMoney(proceeds)}\n\n`;
+    msg += `Sell ${checkedOwned.length} owned aircraft?`;
+
+    if (window.confirm(msg)) {
+      for (const a of checkedOwned) dispatch({ type: 'SELL_AIRCRAFT', aircraftId: a.id });
+      setCheckedIds([]);
+      setSelectedId(null);
+    }
+  }
+
+  function handleBulkRetire() {
+    if (checkedAircraft.length === 0) return;
+    let totalPenalty = 0;
+    let routeCount   = 0;
+    for (const a of checkedAircraft) {
+      const type      = getAircraftType(a.typeId);
+      const weeksLeft = a.leaseRemainingWeeks ?? 0;
+      if (a.ownershipType === 'lease' && weeksLeft > 0) {
+        totalPenalty += Math.round((type?.weeklyLease ?? 0) * weeksLeft * 0.5);
+      }
+      routeCount += routes.filter(r => r.aircraftId === a.id).length
+                  + cargoRoutes.filter(r => r.aircraftId === a.id).length;
+    }
+    const leasedCount = checkedAircraft.filter(a => a.ownershipType !== 'owned').length;
+    const ownedCount  = checkedAircraft.length - leasedCount;
+    const names = checkedAircraft.slice(0, 8).map(a => a.name).join(', ')
+                + (checkedAircraft.length > 8 ? `, +${checkedAircraft.length - 8} more` : '');
+
+    let msg = '';
+    if (routeCount > 0) msg += `These aircraft fly ${routeCount} route${routeCount > 1 ? 's' : ''} — removing them will close all of them.\n\n`;
+    msg += `${names}\n\n`;
+    if (leasedCount > 0) msg += `${leasedCount} leased aircraft will be returned.\n`;
+    if (ownedCount  > 0) msg += `${ownedCount} owned aircraft will be retired (no sale proceeds — use Sell to get cash back).\n`;
+    if (totalPenalty > 0) msg += `\nTotal early lease termination penalties: ${formatMoney(totalPenalty)}\n`;
+    msg += `\nRemove ${checkedAircraft.length} aircraft from the fleet?`;
+
+    if (window.confirm(msg)) {
+      for (const a of checkedAircraft) dispatch({ type: 'RETIRE_AIRCRAFT', aircraftId: a.id });
+      setCheckedIds([]);
+      setSelectedId(null);
+    }
+  }
+
   const chipCounts = {
     all:      fleet.length,
     idle:     fleet.filter(a => a.status === 'idle').length,
@@ -864,7 +995,7 @@ export default function Fleet() {
           const count = aircraft.length;
           const avgAgeYrs = aircraft.reduce((s, a) => s + (a.ageWeeks ?? 0), 0) / count / 52;
           const allBH = aircraft.map(a => {
-            const aRoutes = routes.filter(r => r.aircraftId === a.id);
+            const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
             return type ? aRoutes.reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0) : 0;
           });
           const avgUtil = allBH.reduce((s, h) => s + h, 0) / count / MAX_WEEKLY_BLOCK_HOURS;
@@ -1084,19 +1215,95 @@ export default function Fleet() {
 
       {/* By Type view */}
       {viewMode === 'byType' && (
-        <FleetByType fleet={fleet} routes={routes} />
+        <FleetByType fleet={fleet} routes={routes} cargoRoutes={cargoRoutes} />
       )}
 
       {/* By Category view */}
       {viewMode === 'byCategory' && (
-        <FleetByCategory fleet={fleet} routes={routes} />
+        <FleetByCategory fleet={fleet} routes={routes} cargoRoutes={cargoRoutes} />
       )}
 
       {/* Aircraft list + detail panel */}
-      {viewMode === 'list' && <><div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {viewMode === 'list' && <>
+      {/* Bulk action bar */}
+      {checkedAircraft.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          padding: '10px 14px', marginBottom: 10, borderRadius: 8,
+          background: 'rgba(56,139,253,0.08)', border: '1px solid var(--accent-dim)',
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
+            {checkedAircraft.length} selected
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {checkedOwned.length} owned · {checkedAircraft.length - checkedOwned.length} leased
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn"
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: canBulkConfigure ? 'rgba(56,139,253,0.15)' : 'var(--surface3)',
+                color: canBulkConfigure ? 'var(--accent)' : 'var(--text-dim)',
+                border: `1px solid ${canBulkConfigure ? 'rgba(56,139,253,0.4)' : 'var(--border)'}`,
+                cursor: canBulkConfigure ? 'pointer' : 'not-allowed',
+              }}
+              disabled={!canBulkConfigure}
+              title={canBulkConfigure ? 'Apply one cabin layout to all selected aircraft' : 'Select aircraft of a single type to bulk-configure'}
+              onClick={() => canBulkConfigure && setBulkConfigIds(checkedAircraft.map(a => a.id))}
+            >
+              <Glyph e="⚙" /> Configure ({checkedAircraft.length})
+            </button>
+            <button
+              className="btn"
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: checkedOwned.length > 0 ? 'rgba(63,185,80,0.12)' : 'var(--surface3)',
+                color: checkedOwned.length > 0 ? 'var(--green)' : 'var(--text-dim)',
+                border: `1px solid ${checkedOwned.length > 0 ? 'rgba(63,185,80,0.35)' : 'var(--border)'}`,
+                cursor: checkedOwned.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+              disabled={checkedOwned.length === 0}
+              title={checkedOwned.length > 0 ? 'Sell all selected owned aircraft at NAV minus 5% fee' : 'Only owned aircraft can be sold'}
+              onClick={handleBulkSell}
+            >
+              Sell owned ({checkedOwned.length})
+            </button>
+            <button
+              className="btn"
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: 'rgba(248,81,73,0.08)', color: 'var(--red)',
+                border: '1px solid rgba(248,81,73,0.3)', cursor: 'pointer',
+              }}
+              title="Return leased / retire owned aircraft"
+              onClick={handleBulkRetire}
+            >
+              Return / Retire ({checkedAircraft.length})
+            </button>
+            <button
+              className="btn btn-ghost"
+              style={{ fontSize: 12, padding: '5px 10px' }}
+              onClick={() => setCheckedIds([])}
+            >
+              <Glyph e="✕" /> Clear
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <table>
           <thead>
             <tr>
+              <th style={{ width: 34, textAlign: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={allVisibleChecked}
+                  onChange={toggleAllVisible}
+                  title={allVisibleChecked ? 'Deselect all' : 'Select all visible'}
+                  style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+                />
+              </th>
               <th style={{ width: 88 }}></th>
               <th>Aircraft</th>
               <th>Type</th>
@@ -1109,7 +1316,7 @@ export default function Fleet() {
           </thead>
           <tbody>
             {visibleFleet.length === 0 ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 13 }}>
+              <tr><td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 13 }}>
                 No aircraft match — <button className="btn btn-ghost" style={{ fontSize: 12, display: 'inline' }} onClick={() => { setSearch(''); setFilterChip('all'); }}>clear filters</button>
               </td></tr>
             ) : null}
@@ -1123,10 +1330,12 @@ export default function Fleet() {
               const ageYrs = ageWks / 52;
               const ageColor = ageYrs < 5 ? 'var(--green)' : ageYrs < 12 ? 'var(--yellow)' : 'var(--red)';
 
-              // Block hours — sum across ALL routes for this aircraft
+              // Block hours — sum across ALL routes (passenger + cargo) for this aircraft
               const allRoutes = routes.filter(r => r.aircraftId === aircraft.id);
+              const allCargo  = cargoRoutes.filter(r => r.aircraftId === aircraft.id);
+              const assignedRoutes = [...allRoutes, ...allCargo];
               const blockHrs = type
-                ? allRoutes.reduce((s, r) => {
+                ? assignedRoutes.reduce((s, r) => {
                     const dist = routeDistanceKm(r.origin, r.destination);
                     return s + weeklyBlockHours(dist, r.weeklyFrequency, type);
                   }, 0)
@@ -1166,6 +1375,17 @@ export default function Fleet() {
                   }}
                   onClick={() => setSelectedId(isSelected ? null : aircraft.id)}
                 >
+                  <td
+                    style={{ textAlign: 'center', padding: '6px 4px' }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checkedIds.includes(aircraft.id)}
+                      onChange={() => toggleChecked(aircraft.id)}
+                      style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+                    />
+                  </td>
                   <td style={{ padding: '6px 8px 6px 12px' }}>
                     <AircraftThumb type={type} />
                   </td>
@@ -1203,10 +1423,14 @@ export default function Fleet() {
                         <span className="badge" style={{ background: 'rgba(248,81,73,.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.4)' }}>
                           <Glyph e="🔧" /> Grounded {aircraft.groundedWeeksLeft > 0 ? `(${aircraft.groundedWeeksLeft}w)` : ''}
                         </span>
-                      ) : allRoutes.length > 0 ? (
-                        allRoutes.length === 1
-                          ? <span className="badge badge-green">{allRoutes[0].origin}→{allRoutes[0].destination}</span>
-                          : <span className="badge badge-green">{allRoutes.length} routes</span>
+                      ) : assignedRoutes.length > 0 ? (
+                        assignedRoutes.length === 1 ? (
+                          allCargo.length === 1
+                            ? <span className="badge" style={{ background: 'rgba(232,131,58,.15)', color: '#e8833a', border: '1px solid rgba(232,131,58,.4)' }}><Glyph e="📦" /> {allCargo[0].origin}→{allCargo[0].destination}</span>
+                            : <span className="badge badge-green">{allRoutes[0].origin}→{allRoutes[0].destination}</span>
+                        ) : (
+                          <span className="badge badge-green">{assignedRoutes.length} routes</span>
+                        )
                       ) : (
                         <span className="badge badge-yellow">Idle</span>
                       )}
@@ -1261,6 +1485,14 @@ export default function Fleet() {
         <FleetConfig
           aircraftId={configuringId}
           onClose={() => setConfiguringId(null)}
+        />
+      )}
+
+      {/* Bulk FleetConfig modal */}
+      {bulkConfigIds && (
+        <FleetConfig
+          aircraftIds={bulkConfigIds}
+          onClose={() => { setBulkConfigIds(null); setCheckedIds([]); }}
         />
       )}
     </div>

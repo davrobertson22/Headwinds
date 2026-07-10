@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Turboprop Aircraft Guide — Tailwinds Airline Management Game</title>
+  <meta name="description" content="All turboprops in Tailwinds compared: seats, range, lease cost, fuel burn, and per-seat economics. The cheapest way to fly short, thin routes." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/aircraft-turboprops.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:860px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:40px 0 12px; }
+    h3 { font-size:1.15rem; margin:0 0 6px; font-family:'Space Grotesk',sans-serif; }
+    p { margin:0 0 16px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    table.stats { width:100%; border-collapse:collapse; font-size:0.88rem; margin:0 0 28px; }
+    table.stats th, table.stats td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+    table.stats th:first-child, table.stats td:first-child { text-align:left; white-space:normal; }
+    table.stats th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--bg); }
+    .tablewrap { overflow-x:auto; margin:0 0 28px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 18px; }
+    .card .meta { color:var(--muted); font-size:0.85rem; margin:0 0 10px; }
+    .card img { width:100%; max-width:480px; border-radius:8px; display:block; margin:10px 0 12px; }
+    .card .specs { display:flex; flex-wrap:wrap; gap:8px 22px; font-size:0.88rem; color:var(--muted); margin:0 0 10px; }
+    .card .specs b { color:var(--text); font-weight:600; }
+    .note { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:10px 0 0; font-size:0.92rem; }
+    .crumbs { font-size:0.85rem; color:var(--muted); margin:0 0 20px; }
+    .crumbs a { color:var(--muted); }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <p class="crumbs"><a href="/">Home</a> › <a href="/aircraft.html">Aircraft</a> › Turboprop Aircraft Guide</p>
+    <h1>Turboprop Aircraft Guide</h1>
+    <p class="lede">All turboprops in Tailwinds compared: seats, range, lease cost, fuel burn, and per-seat economics. The cheapest way to fly short, thin routes.</p>
+
+      <p>Turboprops are the most misunderstood aircraft in Tailwinds. New players skip them because they look slow and small; experienced players quietly build entire profitable sub-networks on them. Below roughly 800 kilometres, nothing else in the game touches their trip costs — the fuel table below makes the point better than any argument.</p>
+      <p>Their weekly leases are the lowest in the game, which also makes them the lowest-risk way to experiment. A failed turboprop route costs you pocket change; a failed widebody route can cost you the company.</p>
+      <h2>How to choose</h2>
+      <p>The ATR 72 and Q400 are the modern workhorses — the ATR cheaper to run, the Q400 faster and better over longer regional sectors. Smaller 19–40 seat types unlock genuinely tiny markets (island hops, mountain fields, remote communities) that no jet can serve economically. Range is rarely the constraint; matching seats to a thin market is the whole art.</p>
+<h2>All 32 aircraft at a glance</h2>
+<p>Figures are the game's actual values. Fuel cost assumes the base fuel price of $1.20/litre — the live market price in your save drifts between roughly half and nearly double that, which is why <a href="/route-economics.html">fuel hedging</a> matters.</p>
+    <div class="tablewrap"><table class="stats">
+      <thead><tr><th>Aircraft</th><th>Seats</th><th>Range</th><th>Lease/wk</th><th>Price</th><th>Fuel/100km</th><th>Fuel/seat-km</th></tr></thead>
+      <tbody>
+      <tr>
+        <td><a href="#bn2islander">Britten-Norman Islander</a></td>
+        <td>9</td>
+        <td>774 km</td>
+        <td>$4K</td>
+        <td>$2M</td>
+        <td>25 L</td>
+        <td>3.33¢</td>
+      </tr>
+      <tr>
+        <td><a href="#pc12">Pilatus PC-12 NGX</a></td>
+        <td>9</td>
+        <td>1,846 km</td>
+        <td>$9K</td>
+        <td>$5M</td>
+        <td>31 L</td>
+        <td>4.17¢</td>
+      </tr>
+      <tr>
+        <td><a href="#c208b">Cessna 208B Grand Caravan EX</a></td>
+        <td>14</td>
+        <td>1,982 km</td>
+        <td>$5K</td>
+        <td>$3M</td>
+        <td>34 L</td>
+        <td>2.87¢</td>
+      </tr>
+      <tr>
+        <td><a href="#l410">Let L-410 Turbolet</a></td>
+        <td>19</td>
+        <td>1,380 km</td>
+        <td>$14K</td>
+        <td>$8M</td>
+        <td>44 L</td>
+        <td>2.76¢</td>
+      </tr>
+      <tr>
+        <td><a href="#b1900d">Beechcraft 1900D</a></td>
+        <td>19</td>
+        <td>2,776 km</td>
+        <td>$9K</td>
+        <td>$5M</td>
+        <td>56 L</td>
+        <td>3.55¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dhc6">DHC-6 Twin Otter 400</a></td>
+        <td>19</td>
+        <td>1,705 km</td>
+        <td>$12K</td>
+        <td>$7M</td>
+        <td>50 L</td>
+        <td>3.16¢</td>
+      </tr>
+      <tr>
+        <td><a href="#do228">Dornier 228</a></td>
+        <td>19</td>
+        <td>1,110 km</td>
+        <td>$14K</td>
+        <td>$8M</td>
+        <td>42 L</td>
+        <td>2.65¢</td>
+      </tr>
+      <tr>
+        <td><a href="#js31">BAe Jetstream 31</a></td>
+        <td>19</td>
+        <td>1,260 km</td>
+        <td>$5K</td>
+        <td>$3M</td>
+        <td>40 L</td>
+        <td>2.53¢</td>
+      </tr>
+      <tr>
+        <td><a href="#c408">Cessna 408 SkyCourier</a></td>
+        <td>19</td>
+        <td>1,660 km</td>
+        <td>$11K</td>
+        <td>$6M</td>
+        <td>48 L</td>
+        <td>3.03¢</td>
+      </tr>
+      <tr>
+        <td><a href="#emb110">Embraer EMB-110 Bandeirante</a></td>
+        <td>21</td>
+        <td>1,900 km</td>
+        <td>$4K</td>
+        <td>$2M</td>
+        <td>44 L</td>
+        <td>2.51¢</td>
+      </tr>
+      <tr>
+        <td><a href="#js41">BAe Jetstream 41</a></td>
+        <td>29</td>
+        <td>1,433 km</td>
+        <td>$9K</td>
+        <td>$5M</td>
+        <td>62 L</td>
+        <td>2.57¢</td>
+      </tr>
+      <tr>
+        <td><a href="#emb120">Embraer EMB-120 Brasilia</a></td>
+        <td>30</td>
+        <td>1,750 km</td>
+        <td>$7K</td>
+        <td>$4M</td>
+        <td>70 L</td>
+        <td>2.80¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dc3">Douglas DC-3</a></td>
+        <td>32</td>
+        <td>2,400 km</td>
+        <td>$3K</td>
+        <td>$1.5M</td>
+        <td>94 L</td>
+        <td>3.52¢</td>
+      </tr>
+      <tr>
+        <td><a href="#do328">Dornier 328</a></td>
+        <td>33</td>
+        <td>1,850 km</td>
+        <td>$11K</td>
+        <td>$6M</td>
+        <td>95 L</td>
+        <td>3.45¢</td>
+      </tr>
+      <tr>
+        <td><a href="#saab340a">Saab 340A</a></td>
+        <td>34</td>
+        <td>1,430 km</td>
+        <td>$9K</td>
+        <td>$5M</td>
+        <td>66 L</td>
+        <td>2.33¢</td>
+      </tr>
+      <tr>
+        <td><a href="#saab340">Saab 340B</a></td>
+        <td>37</td>
+        <td>1,560 km</td>
+        <td>$9K</td>
+        <td>$5M</td>
+        <td>69 L</td>
+        <td>2.25¢</td>
+      </tr>
+      <tr>
+        <td><a href="#short360">Short 360</a></td>
+        <td>39</td>
+        <td>1,178 km</td>
+        <td>$7K</td>
+        <td>$4M</td>
+        <td>64 L</td>
+        <td>1.97¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dhc8100">De Havilland Dash 8-100</a></td>
+        <td>40</td>
+        <td>1,890 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>91 L</td>
+        <td>2.72¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dhc8200">De Havilland Dash 8-200</a></td>
+        <td>40</td>
+        <td>2,084 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>93 L</td>
+        <td>2.78¢</td>
+      </tr>
+      <tr>
+        <td><a href="#atr42">ATR 42-600</a></td>
+        <td>50</td>
+        <td>1,326 km</td>
+        <td>$35K</td>
+        <td>$20M</td>
+        <td>89 L</td>
+        <td>2.12¢</td>
+      </tr>
+      <tr>
+        <td><a href="#casacn235">CASA CN-235-300</a></td>
+        <td>51</td>
+        <td>4,355 km</td>
+        <td>$45K</td>
+        <td>$26M</td>
+        <td>85 L</td>
+        <td>2.01¢</td>
+      </tr>
+      <tr>
+        <td><a href="#f27">Fokker F27 Friendship</a></td>
+        <td>52</td>
+        <td>1,900 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>82 L</td>
+        <td>1.89¢</td>
+      </tr>
+      <tr>
+        <td><a href="#an24">Antonov An-24</a></td>
+        <td>52</td>
+        <td>2,400 km</td>
+        <td>$8K</td>
+        <td>$4M</td>
+        <td>132 L</td>
+        <td>3.03¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dash7">De Havilland Dash 7</a></td>
+        <td>54</td>
+        <td>1,300 km</td>
+        <td>$11K</td>
+        <td>$5M</td>
+        <td>143 L</td>
+        <td>3.18¢</td>
+      </tr>
+      <tr>
+        <td><a href="#dhc8300">Dash 8-300</a></td>
+        <td>56</td>
+        <td>1,558 km</td>
+        <td>$15K</td>
+        <td>$7M</td>
+        <td>110 L</td>
+        <td>2.36¢</td>
+      </tr>
+      <tr>
+        <td><a href="#cv580">Convair 580</a></td>
+        <td>56</td>
+        <td>2,900 km</td>
+        <td>$7K</td>
+        <td>$3M</td>
+        <td>110 L</td>
+        <td>2.36¢</td>
+      </tr>
+      <tr>
+        <td><a href="#saab2000">Saab 2000</a></td>
+        <td>58</td>
+        <td>2,868 km</td>
+        <td>$13K</td>
+        <td>$7M</td>
+        <td>98 L</td>
+        <td>2.03¢</td>
+      </tr>
+      <tr>
+        <td><a href="#ma60">Xian MA60</a></td>
+        <td>60</td>
+        <td>1,600 km</td>
+        <td>$24K</td>
+        <td>$14M</td>
+        <td>105 L</td>
+        <td>2.10¢</td>
+      </tr>
+      <tr>
+        <td><a href="#ma600">Xian MA600</a></td>
+        <td>60</td>
+        <td>1,600 km</td>
+        <td>$28K</td>
+        <td>$16M</td>
+        <td>102 L</td>
+        <td>2.04¢</td>
+      </tr>
+      <tr>
+        <td><a href="#atr72">ATR 72-600</a></td>
+        <td>78</td>
+        <td>1,528 km</td>
+        <td>$45K</td>
+        <td>$26M</td>
+        <td>123 L</td>
+        <td>1.89¢</td>
+      </tr>
+      <tr>
+        <td><a href="#q400">Dash 8 Q400</a></td>
+        <td>90</td>
+        <td>2,040 km</td>
+        <td>$38K</td>
+        <td>$22M</td>
+        <td>137 L</td>
+        <td>1.83¢</td>
+      </tr>
+      <tr>
+        <td><a href="#l188">Lockheed L-188 Electra</a></td>
+        <td>104</td>
+        <td>3,500 km</td>
+        <td>$9K</td>
+        <td>$4M</td>
+        <td>265 L</td>
+        <td>3.05¢</td>
+      </tr>
+      </tbody>
+    </table></div>
+<h2>Type-by-type notes</h2>
+    <div class="card" id="bn2islander">
+      <h3>Britten-Norman Islander</h3>
+      <p class="meta">Britten-Norman · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>9</b></span>
+        <span>Range <b>774 km</b></span>
+        <span>Lease <b>$4K/wk</b></span>
+        <span>Buy <b>$2M</b></span>
+        <span>Fuel <b>25 L/100km</b> (≈ $0.30/km)</span>
+        <span>Maintenance <b>$2K/wk</b></span>
+      </div>
+      <p>Tiny island-hopper. Operates from grass strips and short runways.</p>
+      <p class="note">Fuel efficiency: <b>#28 of 32</b> in its class (3.33¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$389</b> per seat.</p>
+    </div>
+    <div class="card" id="pc12">
+      <h3>Pilatus PC-12 NGX</h3>
+      <p class="meta">Pilatus · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>9</b></span>
+        <span>Range <b>1,846 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>31 L/100km</b> (≈ $0.38/km)</span>
+        <span>Maintenance <b>$2K/wk</b></span>
+      </div>
+      <p>Premium Swiss single-engine turboprop. Excellent short-field performance.</p>
+      <p class="note">Fuel efficiency: <b>#32 of 32</b> in its class (4.17¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$944</b> per seat.</p>
+    </div>
+    <div class="card" id="c208b">
+      <h3>Cessna 208B Grand Caravan EX</h3>
+      <p class="meta">Cessna · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>14</b></span>
+        <span>Range <b>1,982 km</b></span>
+        <span>Lease <b>$5K/wk</b></span>
+        <span>Buy <b>$3M</b></span>
+        <span>Fuel <b>34 L/100km</b> (≈ $0.40/km)</span>
+        <span>Maintenance <b>$2K/wk</b></span>
+      </div>
+      <p>Single-engine utility turboprop. Ideal for remote communities and island routes.</p>
+      <p class="note">Fuel efficiency: <b>#22 of 32</b> in its class (2.87¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$357</b> per seat.</p>
+    </div>
+    <div class="card" id="l410">
+      <h3>Let L-410 Turbolet</h3>
+      <p class="meta">Aircraft Industries · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>19</b></span>
+        <span>Range <b>1,380 km</b></span>
+        <span>Lease <b>$14K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>44 L/100km</b> (≈ $0.53/km)</span>
+        <span>Maintenance <b>$4K/wk</b></span>
+      </div>
+      <p>Czech twin-turboprop. Workhorse of Eastern European and African regional aviation.</p>
+      <p class="note">Fuel efficiency: <b>#19 of 32</b> in its class (2.76¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$737</b> per seat.</p>
+    </div>
+    <div class="card" id="b1900d">
+      <h3>Beechcraft 1900D</h3>
+      <p class="meta">Beechcraft · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>19</b></span>
+        <span>Range <b>2,776 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>56 L/100km</b> (≈ $0.67/km)</span>
+        <span>Maintenance <b>$5K/wk</b></span>
+      </div>
+      <p>Reliable 19-seat commuter with stand-up cabin. Popular in the US regionals.</p>
+      <p class="note">Fuel efficiency: <b>#31 of 32</b> in its class (3.55¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$447</b> per seat.</p>
+    </div>
+    <div class="card" id="dhc6">
+      <h3>DHC-6 Twin Otter 400</h3>
+      <p class="meta">Viking Air · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>19</b></span>
+        <span>Range <b>1,705 km</b></span>
+        <span>Lease <b>$12K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>50 L/100km</b> (≈ $0.60/km)</span>
+        <span>Maintenance <b>$4K/wk</b></span>
+      </div>
+      <p>STOL legend. Operates from water, ice, grass, and gravel runways worldwide.</p>
+      <p class="note">Fuel efficiency: <b>#26 of 32</b> in its class (3.16¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$632</b> per seat.</p>
+    </div>
+    <div class="card" id="do228">
+      <h3>Dornier 228</h3>
+      <p class="meta">Dornier · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>19</b></span>
+        <span>Range <b>1,110 km</b></span>
+        <span>Lease <b>$14K/wk</b></span>
+        <span>Buy <b>$8M</b></span>
+        <span>Fuel <b>42 L/100km</b> (≈ $0.50/km)</span>
+        <span>Maintenance <b>$4K/wk</b></span>
+      </div>
+      <p>Rugged STOL commuter with a distinctive boxy fuselage — popular for island and bush work.</p>
+      <p class="note">Fuel efficiency: <b>#17 of 32</b> in its class (2.65¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$737</b> per seat.</p>
+    </div>
+    <div class="card" id="js31">
+      <h3>BAe Jetstream 31</h3>
+      <p class="meta">British Aerospace · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>19</b></span>
+        <span>Range <b>1,260 km</b></span>
+        <span>Lease <b>$5K/wk</b></span>
+        <span>Buy <b>$3M</b></span>
+        <span>Fuel <b>40 L/100km</b> (≈ $0.48/km)</span>
+        <span>Maintenance <b>$3K/wk</b></span>
+      </div>
+      <p>19-seat British commuter twin — a fixture of 1980s feeder networks.</p>
+      <p class="note">Fuel efficiency: <b>#15 of 32</b> in its class (2.53¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$263</b> per seat.</p>
+    </div>
+    <div class="card" id="c408">
+      <h3>Cessna 408 SkyCourier</h3>
+      <p class="meta">Cessna · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>19</b></span>
+        <span>Range <b>1,660 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$6M</b></span>
+        <span>Fuel <b>48 L/100km</b> (≈ $0.58/km)</span>
+        <span>Maintenance <b>$4K/wk</b></span>
+      </div>
+      <p>New high-wing utility twin — 19 passengers or LD3-friendly freight for feeder operators.</p>
+      <p class="note">Fuel efficiency: <b>#23 of 32</b> in its class (3.03¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$553</b> per seat.</p>
+    </div>
+    <div class="card" id="emb110">
+      <h3>Embraer EMB-110 Bandeirante</h3>
+      <p class="meta">Embraer · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>21</b></span>
+        <span>Range <b>1,900 km</b></span>
+        <span>Lease <b>$4K/wk</b></span>
+        <span>Buy <b>$2M</b></span>
+        <span>Fuel <b>44 L/100km</b> (≈ $0.53/km)</span>
+        <span>Maintenance <b>$3K/wk</b></span>
+      </div>
+      <p>Embraer's first airliner — a no-frills 18-seat utility commuter twin.</p>
+      <p class="note">Fuel efficiency: <b>#14 of 32</b> in its class (2.51¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$190</b> per seat.</p>
+    </div>
+    <div class="card" id="js41">
+      <h3>BAe Jetstream 41</h3>
+      <p class="meta">British Aerospace · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>29</b></span>
+        <span>Range <b>1,433 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>62 L/100km</b> (≈ $0.74/km)</span>
+        <span>Maintenance <b>$5K/wk</b></span>
+      </div>
+      <p>Stretched Jetstream seating 29 — a step up into larger commuter markets.</p>
+      <p class="note">Fuel efficiency: <b>#16 of 32</b> in its class (2.57¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$293</b> per seat.</p>
+    </div>
+    <div class="card" id="emb120">
+      <h3>Embraer EMB-120 Brasilia</h3>
+      <p class="meta">Embraer · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>30</b></span>
+        <span>Range <b>1,750 km</b></span>
+        <span>Lease <b>$7K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>70 L/100km</b> (≈ $0.84/km)</span>
+        <span>Maintenance <b>$6K/wk</b></span>
+      </div>
+      <p>Sleek Brazilian 30-seat turboprop that built Embraer's regional reputation.</p>
+      <p class="note">Fuel efficiency: <b>#21 of 32</b> in its class (2.80¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$233</b> per seat.</p>
+    </div>
+    <div class="card" id="dc3">
+      <h3>Douglas DC-3</h3>
+      <p class="meta">Douglas · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>32</b></span>
+        <span>Range <b>2,400 km</b></span>
+        <span>Lease <b>$3K/wk</b></span>
+        <span>Buy <b>$1.5M</b></span>
+        <span>Fuel <b>94 L/100km</b> (≈ $1.13/km)</span>
+        <span>Maintenance <b>$6K/wk</b></span>
+      </div>
+      <p>The aircraft that made air travel mainstream. A 1930s piston legend still flying today on bush and heritage routes.</p>
+      <p class="note">Fuel efficiency: <b>#30 of 32</b> in its class (3.52¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$94</b> per seat.</p>
+    </div>
+    <div class="card" id="do328">
+      <h3>Dornier 328</h3>
+      <p class="meta">Dornier · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>33</b></span>
+        <span>Range <b>1,850 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$6M</b></span>
+        <span>Fuel <b>95 L/100km</b> (≈ $1.14/km)</span>
+        <span>Maintenance <b>$8K/wk</b></span>
+      </div>
+      <p>Fast, quiet German regional turboprop with a wide stand-up cabin for its size.</p>
+      <p class="note">Fuel efficiency: <b>#29 of 32</b> in its class (3.45¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$318</b> per seat.</p>
+    </div>
+    <div class="card" id="saab340a">
+      <h3>Saab 340A</h3>
+      <p class="meta">Saab · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>34</b></span>
+        <span>Range <b>1,430 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>66 L/100km</b> (≈ $0.79/km)</span>
+        <span>Maintenance <b>$6K/wk</b></span>
+      </div>
+      <p>Early-build Saab 340 — affordable 34-seat regional twin for thin routes.</p>
+      <p class="note">Fuel efficiency: <b>#11 of 32</b> in its class (2.33¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$250</b> per seat.</p>
+    </div>
+    <div class="card" id="saab340">
+      <h3>Saab 340B</h3>
+      <p class="meta">Saab · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>37</b></span>
+        <span>Range <b>1,560 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>69 L/100km</b> (≈ $0.83/km)</span>
+        <span>Maintenance <b>$7K/wk</b></span>
+      </div>
+      <p>Dependable Swedish regional. Widely used in North America and Scandinavia.</p>
+      <p class="note">Fuel efficiency: <b>#10 of 32</b> in its class (2.25¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$243</b> per seat.</p>
+    </div>
+    <div class="card" id="short360">
+      <h3>Short 360</h3>
+      <p class="meta">Short Brothers · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>39</b></span>
+        <span>Range <b>1,178 km</b></span>
+        <span>Lease <b>$7K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>64 L/100km</b> (≈ $0.77/km)</span>
+        <span>Maintenance <b>$6K/wk</b></span>
+      </div>
+      <p>Boxy but effective 36-seater. Low acquisition cost for thin UK/Irish routes.</p>
+      <p class="note">Fuel efficiency: <b>#4 of 32</b> in its class (1.97¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$179</b> per seat.</p>
+    </div>
+    <div class="card" id="dhc8100">
+      <h3>De Havilland Dash 8-100</h3>
+      <p class="meta">De Havilland Canada · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>40</b></span>
+        <span>Range <b>1,890 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>91 L/100km</b> (≈ $1.09/km)</span>
+        <span>Maintenance <b>$9K/wk</b></span>
+      </div>
+      <p>The original Dash 8 — STOL-capable 39-seat regional turboprop.</p>
+      <p class="note">Fuel efficiency: <b>#18 of 32</b> in its class (2.72¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$213</b> per seat.</p>
+    </div>
+    <div class="card" id="dhc8200">
+      <h3>De Havilland Dash 8-200</h3>
+      <p class="meta">De Havilland Canada · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>40</b></span>
+        <span>Range <b>2,084 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>93 L/100km</b> (≈ $1.11/km)</span>
+        <span>Maintenance <b>$10K/wk</b></span>
+      </div>
+      <p>Higher-powered Dash 8-100 with better speed and hot-and-high performance.</p>
+      <p class="note">Fuel efficiency: <b>#20 of 32</b> in its class (2.78¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$263</b> per seat.</p>
+    </div>
+    <div class="card" id="atr42">
+      <h3>ATR 42-600</h3>
+      <p class="meta">ATR · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>50</b></span>
+        <span>Range <b>1,326 km</b></span>
+        <span>Lease <b>$35K/wk</b></span>
+        <span>Buy <b>$20M</b></span>
+        <span>Fuel <b>89 L/100km</b> (≈ $1.06/km)</span>
+        <span>Maintenance <b>$9K/wk</b></span>
+      </div>
+      <p>Small regional turboprop. Ideal for thin short-haul routes under 1,300 km.</p>
+      <p class="note">Fuel efficiency: <b>#9 of 32</b> in its class (2.12¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$690</b> per seat.</p>
+    </div>
+    <div class="card" id="casacn235">
+      <h3>CASA CN-235-300</h3>
+      <p class="meta">Airbus/CASA · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>51</b></span>
+        <span>Range <b>4,355 km</b></span>
+        <span>Lease <b>$45K/wk</b></span>
+        <span>Buy <b>$26M</b></span>
+        <span>Fuel <b>85 L/100km</b> (≈ $1.02/km)</span>
+        <span>Maintenance <b>$8K/wk</b></span>
+      </div>
+      <p>Spanish STOL transport with impressive range. Popular in military and civil roles.</p>
+      <p class="note">Fuel efficiency: <b>#5 of 32</b> in its class (2.01¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$882</b> per seat.</p>
+    </div>
+    <div class="card" id="f27">
+      <h3>Fokker F27 Friendship</h3>
+      <p class="meta">Fokker · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>52</b></span>
+        <span>Range <b>1,900 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>82 L/100km</b> (≈ $0.98/km)</span>
+        <span>Maintenance <b>$8K/wk</b></span>
+      </div>
+      <p>Best-selling European turboprop of its generation — reliable workhorse of regional fleets.</p>
+      <p class="note">Fuel efficiency: <b>#3 of 32</b> in its class (1.89¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$173</b> per seat.</p>
+    </div>
+    <div class="card" id="an24">
+      <h3>Antonov An-24</h3>
+      <p class="meta">Antonov · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>52</b></span>
+        <span>Range <b>2,400 km</b></span>
+        <span>Lease <b>$8K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>132 L/100km</b> (≈ $1.58/km)</span>
+        <span>Maintenance <b>$9K/wk</b></span>
+      </div>
+      <p>Tough Soviet high-wing turboprop built to operate from gravel and ice strips.</p>
+      <p class="note">Fuel efficiency: <b>#24 of 32</b> in its class (3.03¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$154</b> per seat.</p>
+    </div>
+    <div class="card" id="dash7">
+      <h3>De Havilland Dash 7</h3>
+      <p class="meta">De Havilland Canada · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>54</b></span>
+        <span>Range <b>1,300 km</b></span>
+        <span>Lease <b>$11K/wk</b></span>
+        <span>Buy <b>$5M</b></span>
+        <span>Fuel <b>143 L/100km</b> (≈ $1.72/km)</span>
+        <span>Maintenance <b>$11K/wk</b></span>
+      </div>
+      <p>Four-engine STOL airliner able to use very short city-centre and mountain strips.</p>
+      <p class="note">Fuel efficiency: <b>#27 of 32</b> in its class (3.18¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$194</b> per seat.</p>
+    </div>
+    <div class="card" id="dhc8300">
+      <h3>Dash 8-300</h3>
+      <p class="meta">De Havilland Canada · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>56</b></span>
+        <span>Range <b>1,558 km</b></span>
+        <span>Lease <b>$15K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>110 L/100km</b> (≈ $1.32/km)</span>
+        <span>Maintenance <b>$11K/wk</b></span>
+      </div>
+      <p>The classic Dash 8 in its most popular variant. Cheap, reliable, and widely supported. A workhorse of thin short-haul routes worldwide.</p>
+      <p class="note">Fuel efficiency: <b>#12 of 32</b> in its class (2.36¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$268</b> per seat.</p>
+    </div>
+    <div class="card" id="cv580">
+      <h3>Convair 580</h3>
+      <p class="meta">Convair · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>56</b></span>
+        <span>Range <b>2,900 km</b></span>
+        <span>Lease <b>$7K/wk</b></span>
+        <span>Buy <b>$3M</b></span>
+        <span>Fuel <b>110 L/100km</b> (≈ $1.32/km)</span>
+        <span>Maintenance <b>$9K/wk</b></span>
+      </div>
+      <p>Turboprop conversion of the Convair 340/440 piston twins — a durable regional hauler.</p>
+      <p class="note">Fuel efficiency: <b>#13 of 32</b> in its class (2.36¢ per seat-km at base fuel price) — mid-pack on per-seat fuel efficiency. Weekly lease works out to <b>$116</b> per seat.</p>
+    </div>
+    <div class="card" id="saab2000">
+      <h3>Saab 2000</h3>
+      <p class="meta">Saab · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>58</b></span>
+        <span>Range <b>2,868 km</b></span>
+        <span>Lease <b>$13K/wk</b></span>
+        <span>Buy <b>$7M</b></span>
+        <span>Fuel <b>98 L/100km</b> (≈ $1.18/km)</span>
+        <span>Maintenance <b>$10K/wk</b></span>
+      </div>
+      <p>Fast 50-seat turboprop — nearly jet speed. Competes on thin short-haul routes.</p>
+      <p class="note">Fuel efficiency: <b>#6 of 32</b> in its class (2.03¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$224</b> per seat.</p>
+    </div>
+    <div class="card" id="ma60">
+      <h3>Xian MA60</h3>
+      <p class="meta">Xian · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>60</b></span>
+        <span>Range <b>1,600 km</b></span>
+        <span>Lease <b>$24K/wk</b></span>
+        <span>Buy <b>$14M</b></span>
+        <span>Fuel <b>105 L/100km</b> (≈ $1.26/km)</span>
+        <span>Maintenance <b>$10K/wk</b></span>
+      </div>
+      <p>Chinese 60-seat turboprop developed from the An-24 lineage for domestic regional routes.</p>
+      <p class="note">Fuel efficiency: <b>#8 of 32</b> in its class (2.10¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$400</b> per seat.</p>
+    </div>
+    <div class="card" id="ma600">
+      <h3>Xian MA600</h3>
+      <p class="meta">Xian · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>60</b></span>
+        <span>Range <b>1,600 km</b></span>
+        <span>Lease <b>$28K/wk</b></span>
+        <span>Buy <b>$16M</b></span>
+        <span>Fuel <b>102 L/100km</b> (≈ $1.22/km)</span>
+        <span>Maintenance <b>$10K/wk</b></span>
+      </div>
+      <p>Modernized MA60 with glass cockpit and updated systems.</p>
+      <p class="note">Fuel efficiency: <b>#7 of 32</b> in its class (2.04¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$458</b> per seat.</p>
+    </div>
+    <div class="card" id="atr72">
+      <h3>ATR 72-600</h3>
+      <p class="meta">ATR · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>78</b></span>
+        <span>Range <b>1,528 km</b></span>
+        <span>Lease <b>$45K/wk</b></span>
+        <span>Buy <b>$26M</b></span>
+        <span>Fuel <b>123 L/100km</b> (≈ $1.47/km)</span>
+        <span>Maintenance <b>$14K/wk</b></span>
+      </div>
+      <p>Workhorse turboprop. Excellent economics on short regional routes.</p>
+      <p class="note">Fuel efficiency: <b>#2 of 32</b> in its class (1.89¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$577</b> per seat.</p>
+    </div>
+    <div class="card" id="q400">
+      <h3>Dash 8 Q400</h3>
+      <p class="meta">De Havilland Canada · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>90</b></span>
+        <span>Range <b>2,040 km</b></span>
+        <span>Lease <b>$38K/wk</b></span>
+        <span>Buy <b>$22M</b></span>
+        <span>Fuel <b>137 L/100km</b> (≈ $1.65/km)</span>
+        <span>Maintenance <b>$17K/wk</b></span>
+      </div>
+      <p>Fast turboprop with longer range than ATR. Popular for inter-city routes.</p>
+      <p class="note">Fuel efficiency: <b>#1 of 32</b> in its class (1.83¢ per seat-km at base fuel price) — among the most fuel-efficient per seat. Weekly lease works out to <b>$422</b> per seat.</p>
+    </div>
+    <div class="card" id="l188">
+      <h3>Lockheed L-188 Electra</h3>
+      <p class="meta">Lockheed · Turboprop</p>
+      <div class="specs">
+        <span>Seats <b>104</b></span>
+        <span>Range <b>3,500 km</b></span>
+        <span>Lease <b>$9K/wk</b></span>
+        <span>Buy <b>$4M</b></span>
+        <span>Fuel <b>265 L/100km</b> (≈ $3.18/km)</span>
+        <span>Maintenance <b>$16K/wk</b></span>
+      </div>
+      <p>Fast American four-engine turboprop; airframe later spawned the P-3 Orion.</p>
+      <p class="note">Fuel efficiency: <b>#25 of 32</b> in its class (3.05¢ per seat-km at base fuel price) — toward the thirstier end per seat. Weekly lease works out to <b>$82</b> per seat.</p>
+    </div>
+    <a class="cta" href="/">Play Tailwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

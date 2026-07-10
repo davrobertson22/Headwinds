@@ -15,11 +15,11 @@
 // physically live in ./src/{utils,models,data}/ inside this package, and the old
 // src/ paths are thin re-export shims that forward here (kept so the solo app's
 // existing import sites work unchanged). The reducer (./reducer.mjs) is still a
-// facade over src/store/_engine.generated.mjs — extracting that is the remaining
-// Phase 0 step. The public surface below is unchanged.
+// canonical reducer physically lives at ./src/reducer.mjs (Phase 0 complete). The
+// public surface below is unchanged.
 
 // ── Authoritative reducer (the game "tick") ─────────────────────────────────
-export { gameReducer, freshState } from './reducer.mjs';
+export { gameReducer, freshState, reconcileState } from './reducer.mjs';
 
 // ── Core simulation ─────────────────────────────────────────────────────────
 export * as simulation from './src/utils/simulation.js';
@@ -43,3 +43,8 @@ export * as overhead            from './src/data/overhead.js';
 export * as objectives          from './src/data/objectives.js';
 export * as events              from './src/data/events.js';
 export * as airportRestrictions from './src/data/airportRestrictions.js';
+
+// ── Added in Tailwinds sync (Jul 2026) ──────────────────────────────────────
+export * as competitorAI   from './src/models/competitorAI.js';
+export * as reputation     from './src/models/reputation.js';
+export * as laborRelations from './src/data/laborRelations.js';

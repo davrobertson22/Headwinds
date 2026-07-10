@@ -2,13 +2,22 @@ import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
-import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE } from '../utils/simulation.js';
-import { computeQualityScore } from '../models/demand.js';
+import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, fleetAvgUtilization } from '../utils/simulation.js';
+import { computeQualityScore, cabinQualityPoints } from '../models/demand.js';
+import { laborEffects } from '../data/labor.js';
+import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
+import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
 import { getAircraftType } from '../data/aircraft.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 
 const ACQUISITION_PREMIUM = 1.25;
+
+/** Cost to acquire a carrier — fire-sale carriers go at a discount. */
+function acquisitionPrice(carrier) {
+  if (carrier.marketCap == null) return null;
+  return Math.round(carrier.marketCap * (carrier.fireSale ? FIRE_SALE_PREMIUM : ACQUISITION_PREMIUM));
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,22 +27,16 @@ const TIER_META = {
   premium: { label: 'Premium', color: '#a78bfa'         },
 };
 
-/** Map aircraft serviceQuality → quality model serviceLevel */
-function toServiceLevel(serviceQuality) {
-  if (serviceQuality === 'luxury')  return 'business';
-  if (serviceQuality === 'premium') return 'premium';
-  return 'economy';
-}
-
-/** Compute player's quality score for one route (uses assigned aircraft config). */
-function playerQuality(route, fleet) {
+/** Compute player's quality score for one route — same inputs the engine uses
+ *  (real on-time rate from morale + utilization, seat AND service cabin points). */
+function playerQuality(route, fleet, laborFx) {
   const aircraft = fleet.find(a => a.id === route.aircraftId);
   if (!aircraft) return null;
   return computeQualityScore({
-    onTimeRate:    0.85,
-    serviceLevel:  toServiceLevel(aircraft.config?.serviceQuality ?? 'standard'),
+    onTimeRate:    laborFx.onTimeRate,
+    cabinPoints:   cabinQualityPoints(aircraft.config),
     fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
-    customerRating: 3.5,
+    customerRating: laborFx.customerRating,
   });
 }
 
@@ -366,11 +369,16 @@ function StatLine({ label, value, color, prefix = '' }) {
 }
 
 function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
+  const { state } = useGame();
   const [a, b] = routeKey.split('-');
   const oAirport = getAirport(a);
   const dAirport = getAirport(b);
   const refP = referencePrice(a, b);
-  const pQual = playerQuality(playerRoute, fleet);
+  // Same labor + utilization inputs the engine feeds the demand model.
+  const laborFx = laborEffects(state.labor ?? null,
+    fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
+    state.satisfaction ?? null);
+  const pQual = playerQuality(playerRoute, fleet, laborFx);
 
   const cols = 1 + competitors.length; // you + N competitors
 
@@ -526,8 +534,11 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
 function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle, onAcquire }) {
   const tier   = TIER_META[carrier.tier] ?? { label: carrier.tier, color: 'var(--text-muted)' };
   const routes = Object.entries(carrier.routes).sort(([a], [b]) => a.localeCompare(b));
+  const arch     = carrier._archetype ? ARCHETYPES[carrier._archetype] : null;
+  const alliance = getAlliance(effectiveAllianceId(carrier));
+  const atWar    = carrier._fareWars && Object.keys(carrier._fareWars).length > 0;
 
-  const acquisitionCost = carrier.marketCap ? Math.round(carrier.marketCap * ACQUISITION_PREMIUM) : null;
+  const acquisitionCost = acquisitionPrice(carrier);
   const canAfford       = acquisitionCost !== null && playerCash >= acquisitionCost;
   const hasMarketCap    = carrier.marketCap != null;
 
@@ -540,9 +551,51 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
           padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)',
         }}
       >
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700 }}>{carrier.name}</span>
           <span style={{ fontSize: 11, color: tier.color, fontWeight: 600 }}>{tier.label}</span>
+          {arch && (
+            <span
+              title={arch.blurb}
+              style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600,
+                       padding: '1px 7px', borderRadius: 10, border: '1px solid var(--border)' }}
+            >
+              <GlyphLabel size={12} text={`${arch.icon} ${arch.label}`} />
+            </span>
+          )}
+          {carrier.fireSale && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171',
+                           padding: '1px 7px', borderRadius: 10,
+                           border: '1px solid rgba(248,113,113,0.5)', background: 'rgba(248,113,113,0.12)' }}>
+              <GlyphLabel size={12} text="💸 Fire sale" />
+            </span>
+          )}
+          {carrier.isStartup && (
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)',
+                           padding: '1px 7px', borderRadius: 10, border: '1px solid rgba(16,185,129,0.4)' }}>
+              <GlyphLabel size={12} text="🛫 Startup" />
+            </span>
+          )}
+          {atWar && (
+            <span
+              title="This carrier is waging a fare war on a route you share — it is pricing below cost to push you off."
+              style={{ fontSize: 11, fontWeight: 700, color: '#fb923c',
+                       padding: '1px 7px', borderRadius: 10,
+                       border: '1px solid rgba(251,146,60,0.5)', background: 'rgba(251,146,60,0.12)' }}>
+              <GlyphLabel size={12} text="🔥 Fare war" />
+            </span>
+          )}
+          {alliance && (
+            <span
+              title={alliance.name}
+              style={{ fontSize: 11, fontWeight: 600, color: alliance.color ?? 'var(--text-muted)',
+                       padding: '1px 7px', borderRadius: 10, border: '1px solid var(--border)' }}>
+              <GlyphLabel size={12} text={`${alliance.icon} ${alliance.name}`} />
+            </span>
+          )}
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            hub {carrier.homeHub}{carrier.secondaryHub ? ` +${carrier.secondaryHub}` : ''}
+          </span>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{routes.length} routes</span>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>· quality {carrier.baseQualityScore}/100</span>
           {hasMarketCap && (
@@ -636,7 +689,8 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
 // ─── Acquisition modal ────────────────────────────────────────────────────────
 
 function AcquisitionModal({ target, playerCash, onConfirm, onCancel }) {
-  const acquisitionCost = Math.round((target.marketCap ?? 0) * ACQUISITION_PREMIUM);
+  const premium         = target.fireSale ? FIRE_SALE_PREMIUM : ACQUISITION_PREMIUM;
+  const acquisitionCost = Math.round((target.marketCap ?? 0) * premium);
   const netCost         = acquisitionCost - (target.cash ?? 0);
   const canAfford       = playerCash >= acquisitionCost;
   const routeCount      = Object.keys(target.routes ?? {}).length;
@@ -678,9 +732,12 @@ function AcquisitionModal({ target, playerCash, onConfirm, onCancel }) {
         {/* Deal breakdown */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, marginBottom: 16 }}>
           <DealRow label="Market cap" value={formatMoney(target.marketCap ?? 0)} />
-          <DealRow label={`Acquisition premium (${Math.round((ACQUISITION_PREMIUM - 1) * 100)}%)`}
-                   value={`+${formatMoney(Math.round((target.marketCap ?? 0) * (ACQUISITION_PREMIUM - 1)))}`}
-                   color="var(--yellow)" />
+          <DealRow
+            label={target.fireSale
+              ? `Fire-sale discount (${Math.round((1 - premium) * 100)}%)`
+              : `Acquisition premium (${Math.round((premium - 1) * 100)}%)`}
+            value={`${premium >= 1 ? '+' : '−'}${formatMoney(Math.abs(Math.round((target.marketCap ?? 0) * (premium - 1))))}`}
+            color={target.fireSale ? 'var(--green)' : 'var(--yellow)'} />
           <DealRow label="Total acquisition cost" value={formatMoney(acquisitionCost)} bold />
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
           <DealRow label="You receive — their cash" value={`+${formatMoney(target.cash ?? 0)}`} color="var(--green)" />

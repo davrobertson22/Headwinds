@@ -1,14 +1,7 @@
-// @tailwinds/engine/src/reducer
-// ----------------------------------------------------------------------------
-// THE canonical, pure, framework-free game reducer + freshState + reconcileState.
-// This is the single source of truth for the game "tick", extracted verbatim from
-// the solo app's GameContext.jsx (which is the authoritative, current logic). Both
-// consume it:
-//   • Tailwinds (solo)        — src/store/GameContext.jsx imports it; its React
-//                               provider wraps it in useReducer + localStorage.
-//   • Headwinds (multiplayer) — the server imports it as the authoritative tick.
-// No React, no DOM, no localStorage — keep it that way.
-
+// @tailwinds/engine — canonical pure reducer (gameReducer + freshState + reconcileState).
+// Extracted from the solo app's src/store/GameContext.jsx (the authoritative logic),
+// with import paths rewritten for this package. No React/DOM/localStorage.
+// Regenerate by re-running the sync: copy GameContext.jsx minus the React binding.
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, routeDistanceKm,
@@ -25,18 +18,27 @@ import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES } from './data/aircraft.js';
 import { getAirport } from './data/airports.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget } from './data/labor.js';
+import {
+  DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
+  scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
+  counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
+  NEGOTIATION_RESPONSE_WEEKS, STRIKE_COOLDOWN_WEEKS,
+} from './data/laborRelations.js';
+import { LABOR_GROUP_MAP } from './data/labor.js';
 import { checkRouteRestrictions } from './data/airportRestrictions.js';
 import {
   COMPETITOR_AIRLINES,
   initializeCompetitorRoutes,
   sampleAndInitializeCompetitors,
-  tickCompetitorGrowth,
-  tickCompetitorPricing,
   computeCompetitorWeeklyStats,
+  buildPairIncumbents,
   HUB_TIERS,
   HUB_MIN_GATES,
   HUB_TIER_COUNT,
+  FOCUS_MIN_GATES,
+  hubUpgradeChecklist,
 } from './models/demand.js';
+import { tickCompetitorAI, retainedProfit, FIRE_SALE_PREMIUM, competitorMarketingSpend } from './models/competitorAI.js';
 import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
 import { tickEncroachment } from './models/encroachment.js';
 import {
@@ -52,10 +54,11 @@ import {
   CODESHARE_DURATION_WEEKS,
   MAX_CODESHARE_AGREEMENTS,
 } from './data/alliances.js';
-import { routeLaunchCost, DEPRECIATION_YEARS } from './data/overhead.js';
+import { routeLaunchCost, DEPRECIATION_YEARS,
+         marketingAwarenessGain, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
+         campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
 import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective } from './data/objectives.js';
-
 
 // ─────────────────────────────────────────────
 // STATE SHAPE
@@ -84,15 +87,22 @@ function freshState() {
     routeCatering: {},// { [pairKey]: cateringLevel } — one catering level per O&D pair
     cargoRoutes: [], // { id, origin, destination, aircraftId, yieldPrice ($/tonne-km), weeklyFrequency, weeksOpen, hub, cargo:true }
     gates:             {},    // { [airportCode]: gateCount } — each gate = 50 slots/wk
-    hubs:              {},    // { [airportCode]: { tier: 1|2|3 } } — designated hub airports
+    hubs:              {},    // { [airportCode]: { tier: 0|1|2|3, tierSince } } — 0 = focus city
+    hubConstruction:   {},    // { [airportCode]: { targetTier, weeksLeft, capex } } — upgrades in progress
+    hubThroughput:     {},    // { [airportCode]: number[] } — last 4 weeks connecting pax (T3 prereq)
     labor:             DEFAULT_LABOR_STATE,
+    laborRelations:    DEFAULT_LABOR_RELATIONS,  // union unrest, strikes, contract negotiations
     maintenanceBudget: DEFAULT_MAINTENANCE_BUDGET,
-    marketingBudget:   0,          // weekly marketing spend ($) — 0 = no active marketing
+    marketingBudget:   0,          // weekly BRAND marketing spend ($) — builds awareness (adstock), no instant boost
+    targetedMarketing: {},         // { [airportCode]: weeklySpend } — tactical campaigns per airport
+    campaignStrength:  {},         // { [airportCode]: 0-100 } — campaign stock, fast build/fast decay
     defaultCateringLevel: 'full',  // catering service level applied to newly-opened routes
     loyalty: {
       weeklyInvestment: 0,   // weekly $ spend on loyalty program (the set budget)
       effInvestment: 0,      // ramped "effective" budget — eases toward weeklyInvestment
       members: 0,            // current active members
+      maturity: 0,           // 0–1 program maturity — grows over ~18 months funded, gates all effects
+      pointsLiability: 0,    // $ value of outstanding unredeemed points (balance-sheet debt)
     },
     financialHistory: [],  // last 52 weeks of reports
     lastReport: null,
@@ -100,11 +110,12 @@ function freshState() {
     hedgeContracts: [],                       // active fuel hedge contracts
     loans: [],             // active loans: { id, principal, interestRate, termWeeks, weeklyPayment, weeksRemaining, totalInterestPaid, takenWeek }
     phase: 'setup',  // 'setup' | 'playing' | 'bankrupt'
-    competitors: sampleAndInitializeCompetitors(15),
+    competitors: sampleAndInitializeCompetitors(25),
     encroachments: {},           // { [pairKey]: entrant } — AI carriers contesting player routes
     allianceMembership:   null,  // { allianceId, joinedWeek, weeklyFee } | null
     codeshareAgreements:  [],    // [{ id, competitorId, competitorName, competitorTier, weeklyFee, signedWeek, weeksRemaining }]
     awareness: 5,                // 0–100: how well-known the airline is; gates demand
+    satisfaction: null,          // 0–100 earned passenger satisfaction (null until first tick initializes it)
     missedLoanPayments:       0,   // total weeks where loans were due and cash went negative
     consecutiveNegativeWeeks: 0,   // weeks in a row ending with negative cash (resets on recovery)
     bankruptcyReason:         null, // 'missed_loans' | 'consecutive_negative' | null
@@ -112,6 +123,7 @@ function freshState() {
     sharePrice:        STARTING_CASH * 1.5 / TOTAL_SHARES,  // player share price ($)
     objectives:        [],   // [{ id, completed, completedWeek, completedYear }]
     objectivesEnabled: true, // can be disabled at setup
+    cabinTemplates:    [],   // saved cabin configs: { id, name, typeId, config: { firstClass, businessClass, premiumEconomy, economy, seatQuality, serviceQuality } }
   };
 }
 
@@ -327,11 +339,15 @@ function reducer(state, action) {
         if (cashBalance < unitUpfrontCost) break;
 
         const serialNum = totalExisting + 1;
+        const customName = (action.name ?? '').trim();
+        const orderName = customName
+          ? (quantity > 1 ? `${customName} #${i + 1}` : customName)
+          : `${type.name} #${serialNum}`;
         const order = {
           id:            uid(),
           typeId:        action.typeId,
           ownershipType: action.ownershipType,
-          name:          action.name ?? `${type.name} #${serialNum}`,
+          name:          orderName,
           engineId:      engineOpt?.id    ?? null,
           engineLabel:   engineOpt?.label ?? null,
           hasWingtips:   action.hasWingtips ?? false,
@@ -372,6 +388,17 @@ function reducer(state, action) {
         ...state,
         cash:          state.cash + refund,
         pendingOrders: (state.pendingOrders ?? []).filter(o => o.id !== action.orderId),
+      };
+    }
+
+    case 'RENAME_ORDER': {
+      const name = (action.name ?? '').trim();
+      if (!name) return state;
+      return {
+        ...state,
+        pendingOrders: (state.pendingOrders ?? []).map(o =>
+          o.id === action.orderId ? { ...o, name } : o
+        ),
       };
     }
 
@@ -435,6 +462,34 @@ function reducer(state, action) {
         fleet: state.fleet.map(a =>
           a.id === action.aircraftId ? { ...a, config: action.config } : a
         ),
+      };
+    }
+
+    case 'SAVE_CABIN_TEMPLATE': {
+      // action: { name, typeId, config }
+      const name = (action.name ?? '').trim();
+      if (!name || !action.typeId || !action.config) return state;
+      const templates = state.cabinTemplates ?? [];
+      // Same name + same type overwrites the existing template
+      const existing = templates.find(t => t.typeId === action.typeId && t.name.toLowerCase() === name.toLowerCase());
+      const template = {
+        id:     existing?.id ?? uid(),
+        name,
+        typeId: action.typeId,
+        config: { ...action.config },
+      };
+      return {
+        ...state,
+        cabinTemplates: existing
+          ? templates.map(t => (t.id === existing.id ? template : t))
+          : [...templates, template],
+      };
+    }
+
+    case 'DELETE_CABIN_TEMPLATE': {
+      return {
+        ...state,
+        cabinTemplates: (state.cabinTemplates ?? []).filter(t => t.id !== action.templateId),
       };
     }
 
@@ -919,47 +974,86 @@ function reducer(state, action) {
     }
 
     // ── Hub management ────────────────────────────────────────────────────────
+    // Designations cost one-time capex and (except focus cities) take weeks to
+    // build. Prerequisites are validated by hubUpgradeChecklist (shared with the
+    // HubManagement UI, so the player sees exactly what's enforced here).
 
-    case 'DESIGNATE_HUB': {
-      const gateCount = (state.gates ?? {})[action.airportCode] ?? 0;
-      if (gateCount < HUB_MIN_GATES) return state;  // need 10 gates minimum
-      if ((state.hubs ?? {})[action.airportCode]) return state;  // already a hub
-      // Political restriction: hubs only permitted in home country
-      const airportCountry = getAirport(action.airportCode)?.country;
-      if (state.homeCountry && airportCountry !== state.homeCountry) return state;
+    case 'DESIGNATE_FOCUS_CITY': {
+      const code = action.airportCode;
+      if ((state.hubs ?? {})[code] || (state.hubConstruction ?? {})[code]) return state;
+      const snap = {
+        routes: state.routes, gates: state.gates ?? {}, homeCountry: state.homeCountry,
+        hubs: state.hubs ?? {}, hubThroughput: state.hubThroughput ?? {},
+        cash: state.cash, absWeek: absoluteWeek(state.year, state.week),
+      };
+      if (!hubUpgradeChecklist(snap, code, 0).ok) return state;
+      // Focus cities are instant (no construction period)
       return {
         ...state,
-        hubs: { ...(state.hubs ?? {}), [action.airportCode]: { tier: 1 } },
+        cash: state.cash - HUB_TIERS[0].capex,
+        hubs: { ...(state.hubs ?? {}), [code]: { tier: 0, tierSince: snap.absWeek } },
       };
     }
 
+    case 'DESIGNATE_HUB':
     case 'UPGRADE_HUB': {
-      const hubs        = state.hubs ?? {};
-      const hubInfo     = hubs[action.airportCode];
-      if (!hubInfo || hubInfo.tier >= HUB_TIER_COUNT) return state;
-      const newTier     = hubInfo.tier + 1;
-      const tierDef     = HUB_TIERS[newTier];
-      const gateCount   = (state.gates ?? {})[action.airportCode] ?? 0;
-      if (gateCount < tierDef.minGates) return state;
+      // One path for fresh hub designation (no entry → T1), focus-city promotion
+      // (T0 → T1), and tier upgrades (T1 → T2 → T3). Capex is charged up front;
+      // the tier activates when construction completes in ADVANCE_WEEK.
+      const code    = action.airportCode;
+      const hubs    = state.hubs ?? {};
+      const current = hubs[code]?.tier;   // undefined | 0..3
+      if ((state.hubConstruction ?? {})[code]) return state;        // already building
+      if (current != null && current >= HUB_TIER_COUNT) return state; // maxed out
+      const targetTier = current == null ? 1 : current + 1;
+      const snap = {
+        routes: state.routes, gates: state.gates ?? {}, homeCountry: state.homeCountry,
+        hubs, hubThroughput: state.hubThroughput ?? {},
+        cash: state.cash, absWeek: absoluteWeek(state.year, state.week),
+      };
+      if (!hubUpgradeChecklist(snap, code, targetTier).ok) return state;
+      const tierDef = HUB_TIERS[targetTier];
+      if ((tierDef.buildWeeks ?? 0) <= 0) {
+        return {
+          ...state,
+          cash: state.cash - tierDef.capex,
+          hubs: { ...hubs, [code]: { tier: targetTier, tierSince: snap.absWeek } },
+        };
+      }
       return {
         ...state,
-        hubs: { ...hubs, [action.airportCode]: { tier: newTier } },
+        cash: state.cash - tierDef.capex,
+        hubConstruction: {
+          ...(state.hubConstruction ?? {}),
+          [code]: { targetTier, weeksLeft: tierDef.buildWeeks, capex: tierDef.capex },
+        },
       };
     }
 
     case 'DOWNGRADE_HUB': {
+      const code = action.airportCode;
+      // Cancelling an in-progress construction refunds 50% of capex.
+      const construction = state.hubConstruction ?? {};
+      if (construction[code]) {
+        const { [code]: cancelled, ...rest } = construction;
+        return {
+          ...state,
+          cash: state.cash + Math.round((cancelled.capex ?? 0) * 0.5),
+          hubConstruction: rest,
+        };
+      }
       const hubs    = state.hubs ?? {};
-      const hubInfo = hubs[action.airportCode];
+      const hubInfo = hubs[code];
       if (!hubInfo) return state;
-      if (hubInfo.tier <= 1) {
-        // Remove hub designation entirely
+      if ((hubInfo.tier ?? 0) <= 0) {
+        // Remove focus-city designation entirely
         const newHubs = { ...hubs };
-        delete newHubs[action.airportCode];
+        delete newHubs[code];
         return { ...state, hubs: newHubs };
       }
       return {
         ...state,
-        hubs: { ...hubs, [action.airportCode]: { tier: hubInfo.tier - 1 } },
+        hubs: { ...hubs, [code]: { tier: hubInfo.tier - 1, tierSince: absoluteWeek(state.year, state.week) } },
       };
     }
 
@@ -1006,6 +1100,49 @@ function reducer(state, action) {
         ...state,
         routePricing: { ...state.routePricing, [cpKey]: { ...cpPrev, ...cleanUpdates } },
       };
+    }
+
+    // Bulk pricing: shift fares by a percentage across many routes at once.
+    // action: { routeIds: [...], pct: { economy?, premiumEconomy?, businessClass?, firstClass? } }
+    // Each pct value is a percentage delta (e.g. +10 raises that class's fare 10%,
+    // -5 cuts it 5%). Pricing belongs to the O&D pair, so we resolve the affected
+    // pairs from the route ids and adjust each pair's price set once (covering every
+    // aircraft on it). New fares are clamped to each class's [1, cap] range.
+    case 'BULK_ADJUST_PRICING': {
+      const bulkIds = new Set(action.routeIds ?? []);
+      const pct = action.pct ?? {};
+      // Only keep classes with a real, non-zero numeric adjustment.
+      const activePct = {};
+      for (const [k, v] of Object.entries(pct)) {
+        const n = Number(v);
+        if (!isNaN(n) && n !== 0) activePct[k] = n;
+      }
+      if (bulkIds.size === 0 || Object.keys(activePct).length === 0) return state;
+
+      // Resolve each affected O&D pair to a representative route (for origin/dest
+      // so we can compute the per-class ceiling) — dedupes multi-aircraft pairs.
+      const pairs = new Map(); // key -> { origin, destination }
+      for (const r of state.routes) {
+        if (!bulkIds.has(r.id)) continue;
+        const key = routePairKey(r.origin, r.destination);
+        if (!pairs.has(key)) pairs.set(key, { origin: r.origin, destination: r.destination });
+      }
+      if (pairs.size === 0) return state;
+
+      const nextPricing = { ...(state.routePricing ?? {}) };
+      for (const [key, { origin, destination }] of pairs) {
+        const refP = mktReferencePrice(origin, destination);
+        const prev = nextPricing[key] ?? defaultClassPrices(refP);
+        const updated = { ...prev };
+        for (const [cls, delta] of Object.entries(activePct)) {
+          const base = prev[cls] ?? defaultClassPrices(refP)[cls];
+          if (base == null) continue;
+          const raw = Math.round(base * (1 + delta / 100));
+          updated[cls] = clampClassPrice(raw, refP, cls);
+        }
+        nextPricing[key] = updated;
+      }
+      return { ...state, routePricing: nextPricing };
     }
 
     case 'UPDATE_FREQUENCY': {
@@ -1077,6 +1214,107 @@ function reducer(state, action) {
       };
     }
 
+    case 'RESOLVE_NEGOTIATION': {
+      // action: { response: 'accept' | 'counter' | 'refuse' }
+      // Answers the open union pay demand (state.laborRelations.negotiation).
+      const relations   = state.laborRelations ?? DEFAULT_LABOR_RELATIONS;
+      const negotiation = relations.negotiation;
+      if (!negotiation) return state;
+
+      const group      = negotiation.group;
+      const labor      = state.labor ?? DEFAULT_LABOR_STATE;
+      const groupState = labor[group] ?? { payMultiplier: 1.0, morale: 80 };
+      const absWk      = absoluteWeek(state.year, state.week);
+
+      let newPay   = groupState.payMultiplier;
+      let fx;                 // morale/unrest deltas
+      let soured   = false;   // sour talks bring the union back sooner
+      let outcome;            // 'accepted' | 'counterAccepted' | 'counterRejected' | 'refused'
+
+      if (action.response === 'accept') {
+        newPay  = negotiation.demandMultiplier;
+        fx      = NEGOTIATION_EFFECTS.accept;
+        outcome = 'accepted';
+      } else if (action.response === 'counter') {
+        // Midpoint offer. The union always pockets the raise; whether it
+        // ACCEPTS the deal (or stays angry) depends on current morale.
+        newPay = counterOfferMultiplier(groupState.payMultiplier, negotiation.demandMultiplier);
+        if (counterAccepted(groupState.morale)) {
+          fx      = NEGOTIATION_EFFECTS.counterAccepted;
+          outcome = 'counterAccepted';
+        } else {
+          fx      = NEGOTIATION_EFFECTS.counterRejected;
+          outcome = 'counterRejected';
+          soured  = true;
+        }
+      } else { // refuse
+        fx      = NEGOTIATION_EFFECTS.refuse;
+        outcome = 'refused';
+        soured  = true;
+      }
+
+      return {
+        ...state,
+        labor: {
+          ...labor,
+          [group]: {
+            ...groupState,
+            payMultiplier: Math.max(0.5, Math.min(2.0, newPay)),
+            morale: Math.max(5, Math.min(100, groupState.morale + fx.morale)),
+          },
+        },
+        laborRelations: {
+          ...relations,
+          negotiation: null,
+          unrest: {
+            ...relations.unrest,
+            [group]: Math.max(0, Math.min(100, (relations.unrest?.[group] ?? 0) + fx.unrest)),
+          },
+          nextNegotiationAbsWeek: {
+            ...(relations.nextNegotiationAbsWeek ?? {}),
+            [group]: scheduleNextNegotiation(absWk, soured),
+          },
+          lastOutcome: {
+            group, outcome,
+            newPay: Math.max(0.5, Math.min(2.0, newPay)),
+            demand: negotiation.demandMultiplier,
+            absWeek: absWk,
+          },
+        },
+      };
+    }
+
+    case 'SETTLE_STRIKE': {
+      // Capitulate to end an active walkout immediately: 15% raise for the
+      // striking group, morale boost, unrest reset, post-strike truce.
+      const relations = state.laborRelations ?? DEFAULT_LABOR_RELATIONS;
+      const strike    = relations.strike;
+      if (!strike) return state;
+
+      const group      = strike.group;
+      const labor      = state.labor ?? DEFAULT_LABOR_STATE;
+      const groupState = labor[group] ?? { payMultiplier: 1.0, morale: 80 };
+      const absWk      = absoluteWeek(state.year, state.week);
+
+      return {
+        ...state,
+        labor: {
+          ...labor,
+          [group]: {
+            ...groupState,
+            payMultiplier: settlementPayMultiplier(groupState.payMultiplier),
+            morale: Math.max(5, Math.min(100, groupState.morale + 10)),
+          },
+        },
+        laborRelations: {
+          ...relations,
+          strike: null,
+          strikeCooldownUntilAbsWeek: absWk + STRIKE_COOLDOWN_WEEKS,
+          unrest: { ...relations.unrest, [group]: 15 },
+        },
+      };
+    }
+
     case 'SET_MAINTENANCE_BUDGET': {
       return {
         ...state,
@@ -1085,11 +1323,20 @@ function reducer(state, action) {
     }
 
     case 'SET_MARKETING_BUDGET': {
-      // action: { amount } — weekly spend in dollars, 0 = no marketing
+      // action: { amount } — weekly brand spend in dollars, 0 = no marketing
       return {
         ...state,
         marketingBudget: Math.max(0, Math.round(action.amount)),
       };
+    }
+
+    case 'SET_TARGETED_MARKETING': {
+      // action: { airport, amount } — weekly targeted spend at one airport; 0 removes it.
+      const amount = Math.max(0, Math.round(action.amount || 0));
+      const next   = { ...(state.targetedMarketing ?? {}) };
+      if (amount > 0) next[action.airport] = amount;
+      else            delete next[action.airport];
+      return { ...state, targetedMarketing: next };
     }
 
     case 'RENEW_LEASE': {
@@ -1182,7 +1429,8 @@ function reducer(state, action) {
       // acquired for $0 (which would also hand the player their cash for free).
       const targetValue = target.marketCap
         ?? computeMarketCap(target.profitHistory ?? [], target.cash ?? 0, target.baseQualityScore ?? 50).marketCap;
-      const acquisitionCost = Math.round(targetValue * 1.25);
+      // Distressed carriers sell at a discount (fire sale) instead of a premium.
+      const acquisitionCost = Math.round(targetValue * (target.fireSale ? FIRE_SALE_PREMIUM : 1.25));
       if (state.cash < acquisitionCost) return state;  // can't afford — ignore
 
       // ── Inherit the competitor's REAL fleet ────────────────────────────────
@@ -1371,8 +1619,8 @@ function reducer(state, action) {
         if (a.status !== 'grounded') return a;
         const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
         if (weeksLeft <= 0) {
-          // Check BOTH passenger and cargo routes — a freighter finishing repairs
-          // must come back 'assigned' to its cargo route, not drop to 'idle'.
+          // Check BOTH passenger and cargo routes — a freighter still assigned to a
+          // cargo route must come back 'assigned' (auto-resume), not 'idle'.
           const hasRoute = state.routes.some(r => r.aircraftId === a.id)
             || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
           return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 };
@@ -1427,21 +1675,27 @@ function reducer(state, action) {
 
       const report = weeklyTick({ ...state, fleet: tickedFleetPre, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments });
 
-      // ── Loyalty program: grow/decay member base ──────────────────────────
+      // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the
-      // tier's penetration ceiling (you can't enrol people who already belong),
-      // so reaching a deep, mature program takes sustained investment in a high
-      // tier rather than being an instant win. A ramped "effective" budget gives
-      // the dial inertia so changing it isn't a light switch.
-      const currentLoyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0, effInvestment: 0 };
+      // tier's penetration ceiling (you can't enrol people who already belong).
+      // MATURITY compounds slowly (~18 months funded to reach 1.0) and gates
+      // all demand-side effects, so the program pays off long after sign-ups
+      // plateau. A ramped "effective" budget gives the dial inertia so changing
+      // it isn't a light switch.
+      const currentLoyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0, effInvestment: 0, maturity: 0, pointsLiability: 0 };
       const targetInvestment = currentLoyalty.weeklyInvestment ?? 0;
       const prevEff          = currentLoyalty.effInvestment ?? targetInvestment;
       // Ease ~18%/week toward the set budget (≈63% of a change felt after 5 weeks).
       const effInvestment    = Math.round(prevEff + (targetInvestment - prevEff) * 0.18);
 
       const loyaltyWeeklyPax = report.totalPassengers ?? 0;
+      const prevMaturity     = currentLoyalty.maturity ?? 0;
       let newLoyaltyMembers  = currentLoyalty.members ?? 0;
-      if (effInvestment > 0 && loyaltyWeeklyPax > 0) {
+      let newMaturity        = prevMaturity;
+      // Funding is judged on the SET budget (what's actually being paid), not
+      // the ramped effective budget — otherwise a cancelled program would keep
+      // enrolling and maturing for free while the ramp winds down.
+      if (targetInvestment > 0 && effInvestment > 0 && loyaltyWeeklyPax > 0) {
         const tier      = loyaltyTier(effInvestment);
         const enrollPull = loyaltyEnrollPull(effInvestment);
         const ceiling   = tier.maxPenetration * loyaltyWeeklyPax * 4;   // max members this tier sustains
@@ -1449,11 +1703,26 @@ function reducer(state, action) {
         const newEnrollments = Math.round(loyaltyWeeklyPax * enrollPull * headroom);
         // 0.4% weekly churn when funded — real frequent-flyer accounts are sticky.
         newLoyaltyMembers = Math.round(newLoyaltyMembers * 0.996 + newEnrollments);
+        // Maturity grows at the tier's pace (~80 funded weeks at Gold).
+        newMaturity = Math.min(1, prevMaturity + (tier.maturityFactor ?? 1) / 80);
       } else {
-        // Program unfunded: 1.2% weekly decay (gradual lapse, not a cliff).
-        newLoyaltyMembers = Math.round(newLoyaltyMembers * 0.988);
+        // Program unfunded: members lapse — and if the program was mature, the
+        // betrayal cuts deeper (status flyers defect to rivals fast). Maturity
+        // itself unwinds in ~20 weeks: trust is torn down 4× faster than built.
+        const lapseRate = prevMaturity > 0.4 ? 0.97 : 0.988;
+        newLoyaltyMembers = Math.round(newLoyaltyMembers * lapseRate);
+        newMaturity = Math.max(0, prevMaturity - 1 / 20);
       }
-      const updatedLoyalty = { ...currentLoyalty, members: Math.max(0, newLoyaltyMembers), effInvestment };
+      // Outstanding points liability was advanced by the engine this week
+      // (earn accrual minus redemptions/breakage) — persist the new stock.
+      const newPointsLiability = report.loyaltyLiability ?? currentLoyalty.pointsLiability ?? 0;
+      const updatedLoyalty = {
+        ...currentLoyalty,
+        members: Math.max(0, newLoyaltyMembers),
+        effInvestment,
+        maturity: newMaturity,
+        pointsLiability: newPointsLiability,
+      };
 
       // ── Awareness: grows from operations + marketing, decays without activity ──
       // Organic: passengers flying builds word-of-mouth. Marketing accelerates growth.
@@ -1461,17 +1730,51 @@ function reducer(state, action) {
       const currentAwareness = state.awareness ?? 5;
       const diminishingFactor = 1 - currentAwareness / 100;
       const organicGain   = Math.min(1.0, (report.totalPassengers ?? 0) / 1000) * diminishingFactor;
-      const mktGain       = Math.min(2.0, (state.marketingBudget ?? 0) / 25000) * diminishingFactor;
-      // Slow natural decay — stops at 5 (airline stays findable even without active marketing)
-      const awarenessDecay = state.routes.length === 0 ? 0.5 : 0.05;
-      const newAwareness   = Math.max(5, Math.min(100,
+      // Adstock: brand spend buys awareness points (revenue-scaled, diminishing),
+      // and awareness above the floor decays proportionally each week. Demand
+      // lift comes ONLY from this stock — see awarenessDemandMultiplier.
+      const mktGain = marketingAwarenessGain(state.marketingBudget ?? 0, report.totalRevenue ?? 0)
+        * diminishingFactor;
+      const awarenessDecay = state.routes.length === 0
+        ? Math.max(0.5, (currentAwareness - AWARENESS_FLOOR) * AWARENESS_DECAY_RATE)
+        : (currentAwareness - AWARENESS_FLOOR) * AWARENESS_DECAY_RATE;
+      const newAwareness   = Math.max(AWARENESS_FLOOR, Math.min(100,
         currentAwareness + organicGain + mktGain - awarenessDecay
       ));
+
+      // ── Targeted campaign stocks: fast build with spend, fast decay without ──
+      // Gain is scaled by SHARE OF VOICE: rival marketing at the same airport
+      // (hub ads, blitzes) makes your campaign build slower there.
+      const prevCampaigns   = state.campaignStrength ?? {};
+      const targetedSpend   = state.targetedMarketing ?? {};
+      const compMktVoice    = competitorMarketingSpend(state.competitors ?? []);
+      const campaignCodes   = new Set([...Object.keys(prevCampaigns), ...Object.keys(targetedSpend)]);
+      const newCampaigns    = {};
+      for (const code of campaignCodes) {
+        const prev  = prevCampaigns[code] ?? 0;
+        const popM  = (() => { const ap = getAirport(code); return ap?.effectivePop ?? ap?.population ?? 1; })();
+        const sov   = shareOfVoiceFactor(targetedSpend[code] ?? 0, compMktVoice[code] ?? 0);
+        const gain  = campaignStrengthGain(targetedSpend[code] ?? 0, popM) * sov * (1 - prev / 100);
+        const next  = prev * (1 - CAMPAIGN_DECAY_RATE) + gain;
+        if (next >= 0.5) newCampaigns[code] = Math.min(100, +next.toFixed(2));
+      }
 
       // Apply event demand multiplier as a line-item adjustment to the report.
       // (fuelMult is already baked into fuelMultiplier above, so no separate fuel adj needed.)
       const eventDemandAdj  = report.totalRevenue ? report.totalRevenue * (globalDemandMult - 1.0) : 0;
-      const adjustedCashDelta = report.cashDelta + eventDemandAdj;
+
+      // ── Strike in progress: cancelled flights forfeit a share of revenue ──
+      // The walkout that started in a previous week applies to THIS week's
+      // schedule. Applied as a line-item revenue loss (same pattern as
+      // eventDemandAdj) so cash still reconciles: fixed costs keep running
+      // while the picket line is up — that is the pain of a strike.
+      const relationsPrev = state.laborRelations ?? DEFAULT_LABOR_RELATIONS;
+      const activeStrike  = relationsPrev.strike && relationsPrev.strike.weeksLeft > 0
+        ? relationsPrev.strike : null;
+      const strikeRevenueLoss = activeStrike && report.totalRevenue
+        ? Math.round(report.totalRevenue * activeStrike.severity) : 0;
+
+      const adjustedCashDelta = report.cashDelta + eventDemandAdj - strikeRevenueLoss;
 
       // agingRate and tickedFleet were computed before weeklyTick above.
       const mainBudget = mainBudgetPre;
@@ -1597,6 +1900,20 @@ function reducer(state, action) {
             message: `${ev.name} sees your fares on ${ev.origin}–${ev.destination} and has launched a competing service. Expect to lose some traffic unless you respond on price or frequency.`,
             duration: 9000,
           });
+        } else if (ev.type === 'dormant') {
+          newToasts.push({
+            type: 'success', icon: '🏳️',
+            title: `${ev.name} backed off ${ev.origin}–${ev.destination}`,
+            message: `${ev.name} has stopped fighting you on price on ${ev.origin}–${ev.destination}. It's keeping a small presence there but no longer undercutting hard — raise fares too far and it'll come back swinging.`,
+            duration: 8000,
+          });
+        } else if (ev.type === 'reawaken') {
+          newToasts.push({
+            type: 'warning', icon: '🪧',
+            title: `${ev.name} is contesting ${ev.origin}–${ev.destination} again`,
+            message: `Your fares on ${ev.origin}–${ev.destination} got fat again and ${ev.name} has resumed aggressive pricing and frequency on the route.`,
+            duration: 9000,
+          });
         } else if (ev.type === 'exit') {
           newToasts.push({
             type: 'success', icon: '🏳️',
@@ -1614,6 +1931,107 @@ function reducer(state, action) {
         const target   = moraleTarget(g.payMultiplier);
         const newMorale = g.morale + (target - g.morale) * 0.12;
         updatedLabor[id] = { ...g, morale: Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10)) };
+      }
+
+      // ── Labor relations: unrest, strikes, contract negotiations ──────────
+      const relAbsWeek = absoluteWeek(state.year, state.week);
+      let updatedRelations = {
+        ...DEFAULT_LABOR_RELATIONS,
+        ...relationsPrev,
+        unrest: tickUnrest(updatedLabor, relationsPrev.unrest),
+        // Old saves: stagger each union's first contract demand.
+        nextNegotiationAbsWeek: relationsPrev.nextNegotiationAbsWeek
+          ?? scheduleFirstNegotiations(relAbsWeek),
+      };
+
+      // 1. Tick down an active strike; announce the end of the walkout.
+      if (activeStrike) {
+        const weeksLeft = activeStrike.weeksLeft - 1;
+        if (weeksLeft <= 0) {
+          const gName = LABOR_GROUP_MAP[activeStrike.group]?.name ?? activeStrike.group;
+          updatedRelations.strike = null;
+          updatedRelations.strikeCooldownUntilAbsWeek = relAbsWeek + STRIKE_COOLDOWN_WEEKS;
+          updatedRelations.unrest = { ...updatedRelations.unrest, [activeStrike.group]: 20 };
+          newToasts.push({
+            type: 'info', icon: '🤝',
+            title: `Strike over — ${gName} back at work`,
+            message: `The ${gName.toLowerCase()} walkout has ended after ${activeStrike.totalWeeks} week${activeStrike.totalWeeks !== 1 ? 's' : ''}. Unrest has eased for now — fix the pay dispute or they will be back on the picket line.`,
+            duration: 9000,
+          });
+        } else {
+          updatedRelations.strike = { ...activeStrike, weeksLeft };
+        }
+      } else {
+        // 2. No strike running — roll for a new walkout starting next week.
+        const newStrike = rollStrike(
+          updatedRelations.unrest, relAbsWeek, updatedRelations.strikeCooldownUntilAbsWeek);
+        if (newStrike) {
+          const gName = LABOR_GROUP_MAP[newStrike.group]?.name ?? newStrike.group;
+          updatedRelations.strike = newStrike;
+          newToasts.push({
+            type: 'danger', icon: '✊',
+            title: `STRIKE — ${gName} walk out`,
+            message: `Your ${gName.toLowerCase()} are on strike over pay: ~${Math.round(newStrike.severity * 100)}% of flights cancelled for up to ${newStrike.totalWeeks} week${newStrike.totalWeeks !== 1 ? 's' : ''}. Settle in Operations → Labor (15% raise) or wait it out.`,
+            duration: 12000,
+          });
+        }
+      }
+
+      // 3. Contract negotiations — tick the open one, or table a new demand.
+      if (updatedRelations.negotiation) {
+        const weeksLeft = updatedRelations.negotiation.weeksLeft - 1;
+        if (weeksLeft <= 0) {
+          // Ignored until it lapsed → counts as a refusal.
+          const group = updatedRelations.negotiation.group;
+          const gName = LABOR_GROUP_MAP[group]?.name ?? group;
+          const fx    = NEGOTIATION_EFFECTS.refuse;
+          updatedLabor[group] = {
+            ...updatedLabor[group],
+            morale: Math.max(5, Math.min(100, (updatedLabor[group]?.morale ?? 80) + fx.morale)),
+          };
+          updatedRelations.negotiation = null;
+          updatedRelations.unrest = {
+            ...updatedRelations.unrest,
+            [group]: Math.max(0, Math.min(100, (updatedRelations.unrest[group] ?? 0) + fx.unrest)),
+          };
+          updatedRelations.nextNegotiationAbsWeek = {
+            ...updatedRelations.nextNegotiationAbsWeek,
+            [group]: scheduleNextNegotiation(relAbsWeek, true),
+          };
+          newToasts.push({
+            type: 'danger', icon: '🚫',
+            title: `${gName} pay demand ignored`,
+            message: `The ${gName.toLowerCase()} contract demand lapsed without an answer. The union takes it as a refusal — morale has dropped and unrest is building.`,
+            duration: 10000,
+          });
+        } else {
+          updatedRelations.negotiation = { ...updatedRelations.negotiation, weeksLeft };
+        }
+      } else if (!updatedRelations.strike) {
+        // Only one open demand at a time; unions hold off during a walkout.
+        const due = Object.entries(updatedRelations.nextNegotiationAbsWeek)
+          .filter(([, wk]) => relAbsWeek >= wk)
+          .sort((a, b) => a[1] - b[1])[0];
+        if (due) {
+          const group      = due[0];
+          const gName      = LABOR_GROUP_MAP[group]?.name ?? group;
+          const currentPay = updatedLabor[group]?.payMultiplier ?? 1.0;
+          const profitable = (state.financialHistory ?? []).slice(-12)
+            .reduce((s, h) => s + (h.profit ?? 0), 0) > 0;
+          const demand = negotiationDemand(currentPay, profitable);
+          updatedRelations.negotiation = {
+            group,
+            demandMultiplier: demand,
+            weeksLeft:  NEGOTIATION_RESPONSE_WEEKS,
+            totalWeeks: NEGOTIATION_RESPONSE_WEEKS,
+          };
+          newToasts.push({
+            type: 'warning', icon: '📜',
+            title: `Contract talks — ${gName} table a pay demand`,
+            message: `The ${gName.toLowerCase()} union demands ${demand.toFixed(2)}× market rate (currently ${currentPay.toFixed(2)}×). Respond in Operations → Labor within ${NEGOTIATION_RESPONSE_WEEKS} weeks — silence counts as a refusal.`,
+            duration: 12000,
+          });
+        }
       }
 
       // ── Loan repayments ──────────────────────────────────────────────────
@@ -1661,18 +2079,37 @@ function reducer(state, action) {
 
       // Advance competitor networks (graceful fallback for old saves missing competitors)
       const currentCompetitors = state.competitors
-        ?? sampleAndInitializeCompetitors(15);
+        ?? sampleAndInitializeCompetitors(25);
       const weekNumber = (state.year - 1) * 52 + state.week;
-      const { competitors: grownCompetitors, events: competitorEvents } =
-        tickCompetitorGrowth(currentCompetitors, weekNumber);
-      // Competitors react to player pricing on shared routes
-      const reactedCompetitors = tickCompetitorPricing(grownCompetitors, state.routes);
 
-      // Simulate competitor networks, accumulate cash, and track profit history for market cap
+      // Adaptive competitor AI: expansion, cuts, capacity responses, pricing
+      // reactions, distress/fire sales, bankruptcies, mergers, and startups.
+      const aiPlayerRoutes = state.routes.map(r => ({
+        origin:          r.origin,
+        destination:     r.destination,
+        weeklyFrequency: r.weeklyFrequency,
+        ticketPrice:     state.routePricing?.[routePairKey(r.origin, r.destination)]?.economy
+                           ?? r.ticketPrice,
+      }));
+      const { competitors: aiCompetitors, events: competitorEvents } =
+        tickCompetitorAI(currentCompetitors, {
+          weekNumber,
+          month:           gameMonth,
+          playerRoutes:    aiPlayerRoutes,
+          playerHubs:      Object.keys(state.hubs ?? {}),
+          playerMarketCap: state.marketCap ?? 0,
+          playerCampaignSpend: state.targetedMarketing ?? {},
+        });
+
+      // Simulate competitor networks, accumulate cash, and track profit history
+      // for market cap. Demand on each city pair is shared across every carrier
+      // (player included) flying it, and cash-rich carriers pay out dividends
+      // instead of hoarding (keeps late-game acquisitions attainable).
       const approxMonth = gameMonth;
-      const updatedCompetitors = reactedCompetitors.map(c => {
-        const stats            = computeCompetitorWeeklyStats(c, approxMonth);
-        const newCompCash      = (c.cash ?? 0) + stats.weeklyProfit;
+      const compPairCounts = buildPairIncumbents(aiCompetitors, state.routes);
+      const updatedCompetitors = aiCompetitors.map(c => {
+        const stats            = computeCompetitorWeeklyStats(c, approxMonth, compPairCounts);
+        const newCompCash      = (c.cash ?? 0) + retainedProfit(c.cash ?? 0, stats.weeklyProfit);
         const newProfitHistory = [...(c.profitHistory ?? []), stats.weeklyProfit].slice(-12);
         const { marketCap: compMarketCap, sharePrice: compSharePrice } =
           computeMarketCap(newProfitHistory, newCompCash, c.baseQualityScore);
@@ -1685,6 +2122,30 @@ function reducer(state, action) {
           sharePrice:    compSharePrice,
         };
       });
+
+      // Dramatic market news → toasts (launch/boost/cut stay in the debrief feed).
+      for (const ev of competitorEvents) {
+        if (ev.type === 'bankrupt') {
+          newToasts.push({ type: 'warning', title: `✈️ ${ev.name} Collapses`, message: ev.description, duration: 9000 });
+        } else if (ev.type === 'merger') {
+          newToasts.push({ type: 'info', title: '🤝 Industry Consolidation', message: ev.description, duration: 9000 });
+        } else if (ev.type === 'startup') {
+          newToasts.push({ type: 'info', title: '🛫 New Entrant', message: ev.description, duration: 8000 });
+        } else if (ev.type === 'fireSale') {
+          newToasts.push({ type: 'info', title: `💸 ${ev.name} In Trouble`, message: `${ev.description} Check the Competition tab for a discounted acquisition.`, duration: 9000 });
+        } else if (ev.type === 'fareWar') {
+          newToasts.push({ type: 'danger', title: `🔥 Fare War — ${ev.name}`, message: ev.description, duration: 10000 });
+        } else if (ev.type === 'fareWarEnd') {
+          newToasts.push({ type: 'info', title: `🕊️ Fare War Over — ${ev.name}`, message: ev.description, duration: 7000 });
+        }
+      }
+
+      // Victory can now arrive without a final acquisition: if the last rival
+      // goes bankrupt or is absorbed, the skies belong to the player.
+      const rivalsGone = updatedCompetitors.length === 0 && (currentCompetitors?.length ?? 0) > 0;
+      const lastRivalName = rivalsGone
+        ? (competitorEvents.find(e => e.type === 'bankrupt' || e.type === 'merger')?.name ?? null)
+        : null;
 
       // ── Tick codeshare agreement durations (expire old ones) ─────────────
       const tickedCodeshares = (state.codeshareAgreements ?? [])
@@ -1701,6 +2162,38 @@ function reducer(state, action) {
           icon:    '🤝',
           duration: 6000,
         });
+      }
+
+      // ── Hub construction countdown + throughput history ──────────────────
+      const hubConstructionPrev = state.hubConstruction ?? {};
+      const newHubConstruction  = {};
+      let   hubsAfterBuild      = state.hubs ?? {};
+      for (const [code, c] of Object.entries(hubConstructionPrev)) {
+        const weeksLeft = (c.weeksLeft ?? 1) - 1;
+        if (weeksLeft <= 0) {
+          const tName = HUB_TIERS[c.targetTier]?.name ?? 'Hub';
+          hubsAfterBuild = {
+            ...hubsAfterBuild,
+            [code]: { tier: c.targetTier, tierSince: absoluteWeek(newYear, newWeek) },
+          };
+          newToasts.push({
+            type: 'success',
+            title: `🏗️ ${tName} Complete — ${code}`,
+            message: `Construction at ${code} is finished. ${tName} benefits (connecting traffic, quality, cost efficiencies) are now active.`,
+            duration: 9000,
+          });
+        } else {
+          newHubConstruction[code] = { ...c, weeksLeft };
+        }
+      }
+      // Rolling 4-week connecting throughput per designated hub (T3 prerequisite)
+      const prevThroughput = state.hubThroughput ?? {};
+      const newHubThroughput = {};
+      for (const code of Object.keys(hubsAfterBuild)) {
+        newHubThroughput[code] = [
+          ...(prevThroughput[code] ?? []),
+          report.hubThroughput?.[code] ?? 0,
+        ].slice(-4);
       }
 
       // ── Bankruptcy condition tracking ─────────────────────────────────────
@@ -1775,6 +2268,11 @@ function reducer(state, action) {
         seasonalReactivation: seasonalReactivationCost,
         corporateTax:       corporateTax,
         depreciation:       weeklyDepreciation,
+        // Active-event demand swing applied to revenue this week. Folded into the
+        // chart's revenue line so profit = revenue − cost reconciles visually.
+        eventDemandAdj:     Math.round(eventDemandAdj),
+        // Revenue forfeited to cancelled flights during a labor strike.
+        strikeLoss:         strikeRevenueLoss,
         totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost,
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
@@ -1915,13 +2413,17 @@ function reducer(state, action) {
           // headline net already reflects; "all-in" cost folds loan payments,
           // lease redelivery, seasonal reactivation fees and corporate tax on top of
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
-          revenueEffective: Math.round(report.totalRevenue + eventDemandAdj),
+          revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
+        hubs:              hubsAfterBuild,
+        hubConstruction:   newHubConstruction,
+        hubThroughput:     newHubThroughput,
         loans:             updatedLoans,
         labor:             updatedLabor,
+        laborRelations:    updatedRelations,
         maintenanceBudget: mainBudget,
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory },
@@ -1929,6 +2431,17 @@ function reducer(state, action) {
         loyalty:             updatedLoyalty,
         codeshareAgreements: tickedCodeshares,
         awareness:           Math.round(newAwareness * 10) / 10,
+        campaignStrength:    newCampaigns,
+        // Earned passenger satisfaction (EWMA toward delivered experience);
+        // computed by weeklyTick, persisted here, plus any one-time shocks from
+        // quality events that triggered this week (catering scandal, viral
+        // praise, ...). Old saves start null and initialize on their first tick.
+        satisfaction:        (() => {
+          const base = report.satisfaction ?? state.satisfaction ?? null;
+          if (base == null) return null;
+          const shock = newEvents.reduce((s, ev) => s + (ev.effects?.satisfactionShock ?? 0), 0);
+          return Math.max(0, Math.min(100, Math.round((base + shock) * 10) / 10));
+        })(),
         objectives:               updatedObjectives,
         objectivesEnabled,
         showDebrief:              true,
@@ -1939,6 +2452,19 @@ function reducer(state, action) {
         consecutiveNegativeWeeks: newConsecutiveNegativeWeeks,
         marketCap:                newMarketCap,
         sharePrice:               newSharePrice,
+        // Last rival collapsed or was absorbed → the player owns the skies.
+        gameWon:             state.gameWon || rivalsGone,
+        victoryAcknowledged: (rivalsGone && !state.gameWon) ? false : state.victoryAcknowledged,
+        victoryStats:        (rivalsGone && !state.gameWon) ? {
+          marketCap:   newMarketCap ?? state.marketCap ?? null,
+          cash:        newCash + objectiveCashBonus,
+          fleetCount:  finalFleet.filter(a => a.status !== 'retired').length,
+          routeCount:  finalRoutes.length,
+          airports:    Object.values(state.gates ?? {}).filter(n => n > 0).length,
+          weeksPlayed: (newYear - 1) * 52 + newWeek,
+          year:        newYear,
+          lastRival:   lastRivalName,
+        } : state.victoryStats,
       };
     } catch (err) {
       console.error('[ADVANCE_WEEK] reducer threw:', err);
@@ -2047,6 +2573,7 @@ function reducer(state, action) {
 }
 
 // Exported for headless simulation/testing harnesses (no React required to use it).
+export { reducer as gameReducer, freshState, reconcileState };
 
 /**
  * Reconcile a loaded save to fix any ID-collision corruption.
@@ -2088,7 +2615,7 @@ function reconcileState(parsed) {
   // 4. Migrate missing competitors.
   const competitors = (parsed.competitors?.length > 0)
     ? parsed.competitors
-    : sampleAndInitializeCompetitors(15);
+    : sampleAndInitializeCompetitors(25);
 
   // 5. Carry through pendingOrders (default to empty array for old saves).
   const pendingOrders = parsed.pendingOrders ?? [];
@@ -2159,22 +2686,39 @@ function reconcileState(parsed) {
     // Guarantee fields added in later versions exist even on old saves
     financialHistory: parsed.financialHistory ?? [],
     lastReport:       parsed.lastReport       ?? null,
+    satisfaction:     parsed.satisfaction     ?? null,
     hubs:             parsed.hubs             ?? {},
     gates:            parsed.gates            ?? {},
     loans:            parsed.loans            ?? [],
     hedgeContracts:   parsed.hedgeContracts   ?? [],
     loyalty:          parsed.loyalty
-      ? { effInvestment: parsed.loyalty.weeklyInvestment ?? 0, ...parsed.loyalty }
-      : { weeklyInvestment: 0, effInvestment: 0, members: 0 },
+      ? {
+          effInvestment: parsed.loyalty.weeklyInvestment ?? 0,
+          // Migration for pre-maturity saves: an established member base gets
+          // credit for half-built trust rather than resetting to zero.
+          maturity: parsed.loyalty.maturity ?? ((parsed.loyalty.members ?? 0) > 0 ? 0.5 : 0),
+          pointsLiability: parsed.loyalty.pointsLiability ?? 0,
+          ...parsed.loyalty,
+        }
+      : { weeklyInvestment: 0, effInvestment: 0, members: 0, maturity: 0, pointsLiability: 0 },
     fuelPrice:        parsed.fuelPrice        ?? { index: 1.0, history: [] },
     allianceMembership:       parsed.allianceMembership       ?? null,
     codeshareAgreements:      parsed.codeshareAgreements      ?? [],
     marketingBudget:          parsed.marketingBudget          ?? 0,
+    targetedMarketing:        parsed.targetedMarketing        ?? {},
+    campaignStrength:         parsed.campaignStrength         ?? {},
     defaultCateringLevel:     normalizeCateringLevel(parsed.defaultCateringLevel),
     awareness:                parsed.awareness                ?? 5,
+    // Labor relations (unrest / strikes / negotiations) — added later; old saves
+    // start calm and get their first negotiations scheduled on the next tick.
+    laborRelations:           parsed.laborRelations
+      ? { ...DEFAULT_LABOR_RELATIONS, ...parsed.laborRelations,
+          unrest: { ...DEFAULT_LABOR_RELATIONS.unrest, ...(parsed.laborRelations.unrest ?? {}) } }
+      : DEFAULT_LABOR_RELATIONS,
     missedLoanPayments:       parsed.missedLoanPayments       ?? 0,
     consecutiveNegativeWeeks: parsed.consecutiveNegativeWeeks ?? 0,
     bankruptcyReason:         parsed.bankruptcyReason         ?? null,
+    cabinTemplates:           parsed.cabinTemplates           ?? [],
     // Market cap — compute on load if missing (old saves)
     marketCap:   parsed.marketCap   ?? (() => {
       const ph = (parsed.financialHistory ?? []).slice(-12).map(h => h.profit);
@@ -2186,6 +2730,3 @@ function reconcileState(parsed) {
     })(),
   };
 }
-
-
-export { reducer as gameReducer, freshState, reconcileState };

@@ -2,9 +2,10 @@ import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { simulateCargoRoute, formatMoney, formatPercent } from '../utils/simulation.js';
+import { simulateCargoRoute, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
+import AddGateButton from './AddGateButton.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
@@ -115,7 +116,7 @@ const ACCENT = '#e8833a';
 
 // ─── Main cargo planner ─────────────────────────────────────────────────────────
 
-export default function CargoRoutePlanner({ mode, setMode }) {
+export default function CargoRoutePlanner({ mode, setMode, embedded = false, onOpened }) {
   const { state, dispatch } = useGame();
 
   const [origin, setOrigin]   = useState('');
@@ -179,15 +180,36 @@ export default function CargoRoutePlanner({ mode, setMode }) {
 
   function handleOpenRoute(aircraftId) {
     dispatch({ type: 'ADD_CARGO_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: frequency, yieldPrice: effectiveYield });
+    onOpened?.();
   }
   function handleSwap() { const o = origin; setOrigin(dest); setDest(o); setYieldPrice(null); }
 
   const yieldPct  = routeData ? Math.round((effectiveYield / routeData.refYield - 1) * 100) : 0;
   const perKg     = routeData ? (effectiveYield * routeData.dist / 1000) : 0;
 
+  // ── Gates & slots ───────────────────────────────────────────────────────────
+  // Freighters use gates and slots exactly like passenger flights: a gate is
+  // required at both ends, and each weekly departure consumes a slot.
+  const gates = state.gates ?? {};
+  const slotsUsedAt = (code) =>
+    (state.routes ?? [])
+      .filter(r => r.origin === code || r.destination === code)
+      .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0)
+    + cargoSlotsUsedAt(code, state.cargoRoutes);
+  const gateInfo = (code) => {
+    const count = gates[code] ?? 0;
+    const cap   = count * SLOTS_PER_GATE;
+    const used  = slotsUsedAt(code);
+    return { hasGate: count > 0, cap, used, free: cap - used, fits: count > 0 && used + frequency <= cap };
+  };
+  const originGate = gateInfo(origin);
+  const destGate   = gateInfo(dest);
+  const gatesOk    = ready && originGate.hasGate && destGate.hasGate;
+  const slotsOk    = gatesOk && originGate.fits && destGate.fits;
+
   return (
     <div>
-      <ModeToggle mode={mode} setMode={setMode} />
+      {!embedded && <ModeToggle mode={mode} setMode={setMode} />}
 
       {/* Route picker */}
       <div className="card" style={{ marginBottom: 12 }}>
@@ -306,11 +328,18 @@ export default function CargoRoutePlanner({ mode, setMode }) {
                   const idle      = idleByType[selectedTypeId] ?? [];
                   const lCost     = routeLaunchCost(routeData.dist);
                   const canAfford = state.cash >= lCost;
+                  const blocked   = !canAfford || !slotsOk;
+                  // Airports missing a gate, and airports out of free slots.
+                  const noGate    = [!originGate.hasGate && origin, !destGate.hasGate && dest].filter(Boolean);
+                  const noSlot    = [
+                    originGate.hasGate && !originGate.fits && origin,
+                    destGate.hasGate && !destGate.fits && dest,
+                  ].filter(Boolean);
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         {idle.length > 0 ? (
-                          <button className="btn btn-primary" style={{ padding: '8px 20px', background: ACCENT, borderColor: ACCENT, opacity: canAfford ? 1 : 0.5 }} disabled={!canAfford} onClick={() => handleOpenRoute(idle[0].id)}>
+                          <button className="btn btn-primary" style={{ padding: '8px 20px', background: ACCENT, borderColor: ACCENT, opacity: blocked ? 0.5 : 1 }} disabled={blocked} onClick={() => handleOpenRoute(idle[0].id)}>
                             Open Cargo Route with {idle[0].name}
                           </button>
                         ) : (
@@ -320,6 +349,27 @@ export default function CargoRoutePlanner({ mode, setMode }) {
                         )}
                         {simulation.result.profit < 0 && <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>}
                       </div>
+                      {/* Gate requirement */}
+                      {noGate.length > 0 && (
+                        <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 4, display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Glyph e="⛔" size={12} /> No gate at <strong>{noGate.join(' & ')}</strong> — freighters need a gate at both ends.
+                          {noGate.map(c => <AddGateButton key={c} code={c} />)}
+                        </div>
+                      )}
+                      {/* Slot capacity */}
+                      {noGate.length === 0 && noSlot.length > 0 && (
+                        <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 4, display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Glyph e="⚠" size={12} /> Not enough free slots at <strong>{noSlot.join(' & ')}</strong> for {frequency} weekly flight{frequency !== 1 ? 's' : ''}
+                          {originGate.hasGate && destGate.hasGate && ` (free: ${origin} ${Math.max(0, originGate.free)}, ${dest} ${Math.max(0, destGate.free)})`}.
+                          {noSlot.map(c => <AddGateButton key={c} code={c} />)}
+                        </div>
+                      )}
+                      {/* Slot usage summary when everything checks out */}
+                      {slotsOk && (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+                          <Glyph e="🛫" size={12} /> Slots after launch: {origin} {originGate.used + frequency}/{originGate.cap} · {dest} {destGate.used + frequency}/{destGate.cap}
+                        </div>
+                      )}
                       <div style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>
                         <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> One-time launch cost: <strong>{formatMoney(lCost)}</strong>{!canAfford && ' — insufficient cash'}
                       </div>

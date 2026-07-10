@@ -12,6 +12,7 @@ import {
 } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import CabinTemplatePicker from './CabinTemplatePicker.jsx';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -139,6 +140,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const type = getAircraftType(typeId);
   if (!type) return null;
 
+  const isFreighter   = !!type.freighter;
   const catColor      = CAT_COLORS[type.category] || '#93a4ba';
   const configOptions = type.configOptions ?? {};
   const engines       = configOptions.engines ?? [];
@@ -152,6 +154,9 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
 
   // ── Quantity ──────────────────────────────────────────────────────────────
   const [quantity, setQuantity] = useState(1);
+
+  // ── Custom name (optional) ────────────────────────────────────────────────
+  const [customName, setCustomName] = useState('');
 
   // ── Cabin configuration ───────────────────────────────────────────────────
   const [first, setFirstRaw] = useState(0);
@@ -173,6 +178,19 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   function setBiz(v)   { setBizRaw(v);   setEcoRaw(e => clampEco(first, v,   prem, e)); }
   function setPrem(v)  { setPremRaw(v);  setEcoRaw(e => clampEco(first, biz,  v,   e)); }
   function setEco(v)   { setEcoRaw(v); }
+
+  // Apply a saved cabin template (clamped defensively to this type's floor space)
+  function applyTemplate(cfg) {
+    const f = Math.max(0, cfg.firstClass ?? 0);
+    const b = Math.max(0, cfg.businessClass ?? 0);
+    const p = Math.max(0, cfg.premiumEconomy ?? 0);
+    setFirstRaw(f);
+    setBizRaw(b);
+    setPremRaw(p);
+    setEcoRaw(clampEco(f, b, p, Math.max(0, cfg.economy ?? 0)));
+    setSeatQ(cfg.seatQuality ?? 'standard');
+    setServQ(cfg.serviceQuality ?? 'standard');
+  }
 
   const usedUnits = first * CLASS_SPACE_MULTIPLIERS.firstClass
                   + biz   * CLASS_SPACE_MULTIPLIERS.businessClass
@@ -210,7 +228,9 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     (SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[servQ] ?? 0);
 
-  const cabinConfig = {
+  // Freighters carry cargo, not passengers — no cabin layout to choose. Pass null
+  // so delivery falls back to the (irrelevant) default config.
+  const cabinConfig = isFreighter ? null : {
     firstClass:     first,
     businessClass:  biz,
     premiumEconomy: prem,
@@ -293,6 +313,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
       hasWingtips,
       quantity,
       config:        cabinConfig,
+      name:          customName.trim() || null,
     });
     onClose();
   }
@@ -325,7 +346,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               <div style={{ fontWeight: 700, fontSize: 19 }}>{type.name}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 {type.manufacturer} · <span style={{ color: catColor }}>{type.category}</span>
-                {' · '}{type.seats} seats · {type.range.toLocaleString()} km range
+                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range
               </div>
             </div>
             <button className="btn btn-ghost" onClick={onClose} style={{ padding: '4px 10px', marginLeft: 8 }}><Glyph e="✕" /></button>
@@ -390,6 +411,30 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             </div>
           </section>
 
+          {/* ── Custom name ──────────────────────────────────────────────── */}
+          <section style={{ marginBottom: 18 }}>
+            <div style={sectionTitle}>Aircraft Name <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></div>
+            <input
+              type="text"
+              value={customName}
+              maxLength={40}
+              onChange={e => setCustomName(e.target.value)}
+              placeholder={`e.g. "Spirit of ${type.manufacturer}" — defaults to ${type.name} #N`}
+              style={{
+                width: '100%', padding: '8px 12px', fontSize: 13,
+                background: 'var(--surface2)', color: 'var(--text)',
+                border: '1px solid var(--border)', borderRadius: 7, outline: 'none',
+              }}
+              onFocus={e => { e.target.style.borderColor = 'var(--accent)'; }}
+              onBlur={e => { e.target.style.borderColor = 'var(--border)'; }}
+            />
+            {customName.trim() && quantity > 1 && (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>
+                Aircraft will be named “{customName.trim()} #1” through “{customName.trim()} #{quantity}”
+              </div>
+            )}
+          </section>
+
           {/* ── Engine options ───────────────────────────────────────────── */}
           {engines.length > 1 && (
             <section style={{ marginBottom: 18 }}>
@@ -443,9 +488,17 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             </section>
           )}
 
-          {/* ── Cabin configuration ──────────────────────────────────────── */}
+          {/* ── Cabin configuration (passenger aircraft only) ────────────── */}
+          {!isFreighter && (
           <section style={{ marginBottom: 18 }}>
             <div style={sectionTitle}>Cabin Configuration</div>
+
+            {/* Saved templates */}
+            <CabinTemplatePicker
+              typeId={typeId}
+              currentConfig={{ firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: servQ }}
+              onApply={applyTemplate}
+            />
 
             {/* Seat bar */}
             <div style={{ height: 12, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 6 }}>
@@ -561,6 +614,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               </span>
             </div>
           </section>
+          )}
 
           {/* ── Order summary ────────────────────────────────────────────── */}
           <section style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }}>

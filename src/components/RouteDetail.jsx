@@ -10,7 +10,7 @@ import {
 import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
-  isRouteActive, routeActiveMonths,
+  isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -45,6 +45,50 @@ function Stat({ label, value, sub, color }) {
       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
       <div style={{ fontWeight: 700, fontSize: 15, color: color ?? 'var(--text)' }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/** Where this route's quality score comes from — mirrors the engine exactly
+ *  via routeQualityBreakdown, so players can see (and pull) every lever. */
+function QualityBreakdownPanel({ route, aircraft, state }) {
+  const bd = routeQualityBreakdown(route, aircraft, state);
+  if (!bd) return null;
+  const fmt = (v) => `${v >= 0 ? '+' : ''}${Math.round(v * 10) / 10}`;
+  const rows = [
+    { label: 'On-time performance', pts: bd.onTimePts,   sub: `${Math.round(bd.onTimeRate * 100)}% on time · morale + fleet utilization` },
+    { label: 'Customer rating',     pts: bd.ratingPts,   sub: bd.satisfaction != null
+        ? `${bd.customerRating.toFixed(1)}★ · earned satisfaction ${Math.round(bd.satisfaction)}/100`
+        : `${bd.customerRating.toFixed(1)}★ · from cabin crew morale` },
+    { label: 'Cabin product',       pts: bd.cabinPts,    sub: 'seat + service quality settings' },
+    { label: 'Fleet age',           pts: bd.agePts,      sub: 'newer aircraft score higher' },
+    { label: 'Cabin space',         pts: bd.spacePts,    sub: 'floor left unfilled = more room' },
+    { label: 'Catering',            pts: bd.cateringPts, sub: 'matters more on long flights' },
+    { label: 'Ground staff',        pts: bd.groundPts,   sub: 'morale bonus / penalty' },
+    { label: 'Hub investment',      pts: bd.hubPts,      sub: 'from hub tier at endpoints' },
+  ].filter(r => r.pts !== 0 || ['On-time performance', 'Customer rating', 'Cabin product', 'Fleet age'].includes(r.label));
+  return (
+    <div style={{ padding: '10px 12px', background: 'var(--surface2)', borderRadius: 'var(--radius)', marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Quality score breakdown</span>
+        <span style={{ fontWeight: 700, fontSize: 16, color: bd.total >= 70 ? 'var(--green)' : bd.total >= 45 ? 'var(--yellow)' : 'var(--red)' }}>
+          {Math.round(bd.total)} / 100
+        </span>
+      </div>
+      {rows.map(r => (
+        <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, marginBottom: 3 }}>
+          <span>
+            {r.label}
+            <span style={{ color: 'var(--text-dim)', fontSize: 11, marginLeft: 6 }}>{r.sub}</span>
+          </span>
+          <span style={{ fontWeight: 600, color: r.pts >= 0 ? 'var(--text)' : 'var(--red)', whiteSpace: 'nowrap', marginLeft: 10 }}>
+            {fmt(r.pts)} pts
+          </span>
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+        Quality drives your share of passengers against competitors — business travelers weigh it heavily.
+      </div>
     </div>
   );
 }
@@ -113,7 +157,7 @@ function MarketSharePie({ slices }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function RouteDetail({ origin, dest, onBack }) {
+export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   const { state, dispatch } = useGame();
   const gameDate  = { week: state.week, month: weekToMonth(state.week) };
   const hubs      = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
@@ -157,8 +201,8 @@ export default function RouteDetail({ origin, dest, onBack }) {
   // Build market share
   const { shareResults } = useMemo(() => {
     const hubBonus = (code) => {
-      const tier = hubs[code]?.tier;
-      return tier ? (HUB_TIERS[tier]?.qualityBonus ?? 0) : 0;
+      const tier = hubs[code]?.tier;   // tier 0 (Focus City) is valid — check != null
+      return tier != null ? (HUB_TIERS[tier]?.qualityBonus ?? 0) : 0;
     };
     const maxHubBonus = Math.max(hubBonus(origin), hubBonus(dest));
 
@@ -178,7 +222,11 @@ export default function RouteDetail({ origin, dest, onBack }) {
           seatsPerFlight:    type.seats,
           economySeats:      (aircraft.config?.economy ?? type.seats) * totalFreq,
           businessSeats:     (aircraft.config?.businessClass ?? 0) * totalFreq,
-          qualityScore:      Math.min(100, computeQualityScore({ onTimeRate: 0.85, serviceLevel: 'economy', fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52, customerRating: 3.5 }) + maxHubBonus),
+          totalSeats:        ((aircraft.config?.economy ?? type.seats) + (aircraft.config?.businessClass ?? 0) + (aircraft.config?.premiumEconomy ?? 0) + (aircraft.config?.firstClass ?? 0)) * totalFreq,
+          // Same quality the engine computes for this route (morale, utilization,
+          // satisfaction, cabin product), incl. the hub bonus via the breakdown.
+          qualityScore:      routeQualityBreakdown(route, aircraft, state)?.total
+            ?? Math.min(100, computeQualityScore({ onTimeRate: 0.85, serviceLevel: 'economy', fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52, customerRating: 3.5 }) + maxHubBonus),
           connectivityBonus: (origin === state.hub || dest === state.hub) ? 0.20 : 0,
         };
       }
@@ -199,7 +247,7 @@ export default function RouteDetail({ origin, dest, onBack }) {
     // Build combined demand allocation when there are multiple aircraft
     const demandAllocations = new Map(); // aircraftId → demandOverride
     if (playerRoutes.length > 1) {
-      let totalEcoSeats = 0, totalBizSeats = 0, totalFreq = 0;
+      let totalEcoSeats = 0, totalBizSeats = 0, totalSeatsAll = 0, totalFreq = 0;
       let hasBusinessCabin = false;
       const validSims = [];
       for (const route of playerRoutes) {
@@ -213,6 +261,7 @@ export default function RouteDetail({ origin, dest, onBack }) {
         const biz  = (cfg.businessClass ?? 0) * freq;
         totalEcoSeats += eco;
         totalBizSeats += biz;
+        totalSeatsAll += ((cfg.economy ?? type.seats) + (cfg.businessClass ?? 0) + (cfg.premiumEconomy ?? 0) + (cfg.firstClass ?? 0)) * freq;
         totalFreq     += freq;
         if (biz > 0) hasBusinessCabin = true;
         validSims.push({ route, aircraft, type, cfg, freq, eco, biz });
@@ -229,6 +278,7 @@ export default function RouteDetail({ origin, dest, onBack }) {
           weeklyFrequency: totalFreq,
           seatsPerFlight: Math.round((totalEcoSeats + totalBizSeats) / totalFreq),
           economySeats: totalEcoSeats, businessSeats: totalBizSeats,
+          totalSeats: totalSeatsAll,
           qualityScore: shareResults.find(r => r.airlineId === 'player') ? 70 : 70,
           connectivityBonus: (origin === state.hub || dest === state.hub) ? 0.20 : 0,
         };
@@ -255,17 +305,25 @@ export default function RouteDetail({ origin, dest, onBack }) {
       const aircraft = state.fleet.find(a => a.id === route.aircraftId);
       if (!aircraft) return [];
       const type = getAircraftType(aircraft.typeId);
-      const result = simulateRoute(route, aircraft, gameDate, null, 1.0,
-        demandAllocations.get(aircraft.id) ?? null);
+      // Prefer the canonical engine result (same source as the Finance tab):
+      // it already accounts for competitor encroachment, marketing/loyalty lifts
+      // and landing fees, and carries weeklyLeaseCost / weeklyMaintCost / profit.
+      const rr = rrById[route.id];
+      if (rr) return [{ route, aircraft, type, result: rr }];
+      // Fallback for routes the engine skipped (grounded / dormant-seasonal) —
+      // same labor / utilization / satisfaction inputs the engine uses.
+      const result = simulateRoute(route, aircraft, gameDate, state.labor ?? null, 1.0,
+        demandAllocations.get(aircraft.id) ?? null, [],
+        fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
+        state.satisfaction ?? null);
       if (!result) return [];
-      // Attach fixed costs so the UI can show a fully-loaded profit indicator
       const weeklyLeaseCost = aircraft.ownershipType === 'owned' ? 0
         : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
       const weeklyMaintCost = type?.baseMaintenancePerWk ?? 0; // approximate (no maint mult here)
       return [{ route, aircraft, type, result: { ...result, weeklyLeaseCost, weeklyMaintCost,
         trueProfit: result.revenue - (result.totalOpCost ?? 0) - weeklyLeaseCost - weeklyMaintCost } }];
     });
-  }, [playerRoutes, state.fleet, gameDate, competitorsOnRoute, market, origin, dest, state.hub, shareResults]);
+  }, [playerRoutes, state.fleet, gameDate, competitorsOnRoute, market, origin, dest, state.hub, shareResults, rrById]);
 
   // result.passengers is one-way (per direction) — directly comparable to market demand.
   const totalPax     = playerSims.reduce((s, {result}) => s + result.passengers, 0);
@@ -273,7 +331,9 @@ export default function RouteDetail({ origin, dest, onBack }) {
   const totalOpCost  = playerSims.reduce((s, { route, aircraft, type: aType, result }) => {
     const originAp = getAirport(route.origin);
     const destAp   = getAirport(route.destination);
-    const lf       = weeklyLandingFee(
+    // Use the engine's landing fee when available so this reconciles with Finance;
+    // otherwise recompute it (fallback path for grounded/dormant routes).
+    const lf = result.landingFee ?? weeklyLandingFee(
       aType?.category ?? 'Narrow Body',
       route.weeklyFrequency,
       originAp?.tier ?? 'major',
@@ -282,6 +342,14 @@ export default function RouteDetail({ origin, dest, onBack }) {
     return s + result.totalOpCost + lf;
   }, 0);
   const avgLoad      = playerSims.length ? playerSims.reduce((s, {result}) => s + result.loadFactor, 0) / playerSims.length : 0;
+
+  // Capacity-limited: aircraft are essentially full yet real demand is still being
+  // turned away. On such routes load won't rise by cutting fares (you're seat-bound,
+  // not demand-bound) — the levers are more frequency/aircraft, or higher fares for
+  // yield. Surfaced as a badge so a "stuck" load reads as physically full, not a bug.
+  const servedPaxAll    = shareResults.reduce((s, r) => s + (r.totalPax ?? 0), 0);
+  const unmetDemandAll  = Math.max(0, totalDemand - servedPaxAll);
+  const capacityLimited = playerRoutes.length > 0 && !isDormantNow && avgLoad >= 0.97 && unmetDemandAll > 0;
 
   // Catering — per-route setting, edited here for the whole pair
   const catRev    = playerSims.reduce((s, { result }) => s + (result.cateringRevenue ?? 0), 0);
@@ -327,10 +395,19 @@ export default function RouteDetail({ origin, dest, onBack }) {
     const weeklyFrequency = playerRoutes.reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0) || 7;
 
     return computeConnectingDemand(origin, dest, hubs, rcOrigin, rcDest, refP,
-      { weeklyFrequency, partnerHubCodes }
+      { weeklyFrequency, partnerHubCodes, gates: state.gates ?? {} }
     );
   }, [origin, dest, hubs, rcOrigin, rcDest, refP, playerRoutes,
-      state.allianceMembership, state.codeshareAgreements, state.competitors]);
+      state.allianceMembership, state.codeshareAgreements, state.competitors, state.gates]);
+
+  // Actual connecting result from the last weekly tick (includes own-metal
+  // itinerary feed with per-O&D breakdown), if this route flew last week.
+  const lastConn = useMemo(() => {
+    const rr  = state.lastReport?.routeResults ?? [];
+    const ids = new Set(playerRoutes.map(r => r.id));
+    const match = rr.find(r => ids.has(r.routeId) && r.connecting);
+    return match?.connecting ?? null;
+  }, [state.lastReport, playerRoutes]);
 
   return (
     <div>
@@ -356,8 +433,18 @@ export default function RouteDetail({ origin, dest, onBack }) {
               <Glyph e="🗓" /> Dormant · resumes {MONTH_NAMES[resumeMonth]}
             </div>
           ) : (
-            <div style={{ background: 'rgba(63,185,80,0.12)', border: '1px solid rgba(63,185,80,0.3)', borderRadius: 'var(--radius)', padding: '6px 14px', fontSize: 13, fontWeight: 600, color: 'var(--green)', flexShrink: 0 }}>
-              <Glyph e="✈" /> Operating · {playerRoutes.reduce((s, r) => s + r.weeklyFrequency, 0)}× / wk
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+              <div style={{ background: 'rgba(63,185,80,0.12)', border: '1px solid rgba(63,185,80,0.3)', borderRadius: 'var(--radius)', padding: '6px 14px', fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>
+                <Glyph e="✈" /> Operating · {playerRoutes.reduce((s, r) => s + r.weeklyFrequency, 0)}× / wk
+              </div>
+              {capacityLimited && (
+                <div
+                  title={`Aircraft are essentially full and ~${unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Add frequency/aircraft or raise fares — cutting price won't lift load.`}
+                  style={{ background: 'rgba(210,153,34,0.12)', border: '1px solid rgba(210,153,34,0.35)', borderRadius: 'var(--radius)', padding: '6px 14px', fontSize: 13, fontWeight: 600, color: 'var(--yellow)' }}
+                >
+                  <Glyph e="⚠" /> Capacity-limited · {unmetDemandAll.toLocaleString()} unserved/wk
+                </div>
+              )}
             </div>
           )
         )}
@@ -366,6 +453,12 @@ export default function RouteDetail({ origin, dest, onBack }) {
       {isDormantNow && (
         <div style={{ background: 'rgba(139,148,158,0.1)', border: '1px solid rgba(139,148,158,0.3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
           <Glyph e="🗓" /> <strong>Out of season.</strong> This route is dormant until {MONTH_NAMES[resumeMonth]} — it earns no revenue and incurs no operating cost this month. The figures below are the in-season forecast for when it resumes.
+        </div>
+      )}
+
+      {capacityLimited && (
+        <div style={{ background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
+          <Glyph e="⚠" /> <strong style={{ color: 'var(--yellow)' }}>Capacity-limited.</strong> Your aircraft are essentially full and ~{unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Cutting fares won't lift load here — you're seat-bound, not demand-bound. To carry more, add frequency or aircraft; to earn more on the seats you have, raise fares toward the point where load starts to dip.
         </div>
       )}
 
@@ -506,6 +599,12 @@ export default function RouteDetail({ origin, dest, onBack }) {
               label={catLevel ? 'Catering service' : 'Catering service · mixed across aircraft'}
             />
           </div>
+          {/* Quality score breakdown — engine-accurate per-source points */}
+          {(() => {
+            const r0 = playerRoutes[0];
+            const ac = r0 ? state.fleet.find(a => a.id === r0.aircraftId) : null;
+            return ac ? <QualityBreakdownPanel route={r0} aircraft={ac} state={state} /> : null;
+          })()}
           {/* Load factor by class */}
           {activeClasses.length > 0 && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: playerSims.length > 1 ? 14 : 0 }}>
@@ -626,12 +725,36 @@ export default function RouteDetail({ origin, dest, onBack }) {
       )}
 
       {/* Row 4: Connecting passengers — full width */}
-      {connecting.totalPax > 0 && (
+      {(connecting.totalPax > 0 || (lastConn?.totalPax ?? 0) > 0) && (
         <div className="card">
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Connecting Passengers</div>
           <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 12 }}>
-            +{connecting.totalPax} pax · {formatMoney(connecting.totalRevenue)}/wk
+            {lastConn
+              ? <>+{lastConn.totalPax} pax · {formatMoney(lastConn.totalRevenue)}/wk last week
+                  {lastConn.itineraryPax > 0 && <span style={{ color: 'var(--text-muted)' }}> ({lastConn.itineraryPax} via hub itineraries, {lastConn.externalPax} gateway feed)</span>}
+                  {lastConn.capacityScale < 1 && <span style={{ color: 'var(--yellow)' }}> · seat-limited ×{lastConn.capacityScale}</span>}
+                </>
+              : <>+{connecting.totalPax} pax · {formatMoney(connecting.totalRevenue)}/wk (gateway feed estimate)</>}
           </div>
+          {/* Own-metal itinerary feed: real O&D markets connecting over your hubs */}
+          {(lastConn?.feeds?.length ?? 0) > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                Feeding markets (via your hubs)
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {lastConn.feeds.slice(0, 6).map((f, i) => (
+                  <div key={i} style={{
+                    padding: '4px 10px', background: 'var(--surface2)', borderRadius: 'var(--radius)',
+                    border: '1px solid var(--border)', fontSize: 12,
+                  }}>
+                    <span style={{ fontWeight: 700 }}>{f.od}</span>
+                    <span style={{ color: 'var(--text-muted)' }}> via {f.viaHub} · {f.pax} pax · {formatMoney(f.revenue)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {[{ label: origin, side: connecting.origin }, { label: dest, side: connecting.destination }].map(({ label, side }) =>
               side.pax > 0 && (

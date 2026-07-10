@@ -4,17 +4,23 @@ import { useGame } from '../store/GameContext.jsx';
 import RouteDetail from './RouteDetail.jsx';
 import AirportLink from './AirportLink.jsx';
 import CargoRoutesList, { FreightBadge, PassengerBadge } from './CargoRoutesList.jsx';
-import { AIRPORTS, getAirport } from '../data/airports.js';
+import CargoRoutePlanner from './CargoRoutePlanner.jsx';
+import { AIRPORTS, getAirport, getRegion, REGIONS } from '../data/airports.js';
+import { checkRouteRestrictions } from '../data/airportRestrictions.js';
+import { routeLaunchCost } from '../data/overhead.js';
+import AddGateButton from './AddGateButton.jsx';
 import { getAircraftType } from '../data/aircraft.js';
-import { normalizeCateringLevel } from '../data/catering.js';
+import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
+import { useToast } from './ToastSystem.jsx';
+import { projectWeek } from '../utils/financeProjection.js';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
-  weeklyBlockHours, blockTimeHours, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE,
+  weeklyBlockHours, blockTimeHours, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
-  maxClassPrice, isRouteActive, routeActiveMonths,
+  maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
 } from '../utils/simulation.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -122,7 +128,12 @@ function groupRoutes(routes) {
 
 export default function Routes() {
   const { state, dispatch } = useGame();
+  const addToast = useToast();
   const { fleet, routes, hub, pendingOrders = [], cargoRoutes = [] } = state;
+
+  // Bulk pricing: explicit card selection + the occupancy-filter modal
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
 
   // Detail view: null = list, { origin, destination } = route detail page
   const [detailPair, setDetailPair] = useState(null);
@@ -136,11 +147,19 @@ export default function Routes() {
   const [sortBy,    setSortBy]    = useState('profit');
   const [filterTab, setFilterTab] = useState('all');
 
+  // Extra scoping filters for large networks
+  const [regionFilter, setRegionFilter] = useState('all');  // route touches this region
+  const [acTypeFilter, setAcTypeFilter] = useState('all');  // aircraft type id
+  const [haulFilter,   setHaulFilter]   = useState('all');  // short | medium | long
+
   // Passenger vs Freight view
   const [typeFilter, setTypeFilter] = useState('all');
 
-  // View mode: 'cards' | 'compare'
-  const [viewMode, setViewMode] = useState('cards');
+  // Freight planner toggle (inline "Open Freight Route" form in the Freight view)
+  const [showCargoForm, setShowCargoForm] = useState(false);
+
+  // View mode: 'table' (default — scales to hundreds of routes) | 'cards'
+  const [viewMode, setViewMode] = useState('table');
 
   const usedHrsFor = (a) => {
     const t = getAircraftType(a.typeId);
@@ -157,22 +176,96 @@ export default function Routes() {
   const flatRoutes  = routes.filter(r => !isMultiStop(r));
   const routeGroups = groupRoutes(flatRoutes);
 
-  // Per-group stats for filtering + sorting (runs simulation once per group here)
+  // ── Single source of truth ──────────────────────────────────────────────────
+  // Every per-route number on this screen (cards, filters, detail page) must come
+  // from the SAME canonical engine projection the Finance tab uses. Re-simulating
+  // standalone here ignores competitor encroachment, labor, fuel and revenue
+  // boosts, which made routes look profitable on the Routes screen while Finance
+  // correctly showed them losing money.
   const gd = currentGameDate(state);
+  const proj = useMemo(() => projectWeek(state), [state]);
+  const rrById = useMemo(() => {
+    const m = {};
+    for (const rr of proj.report?.routeResults ?? []) m[rr.routeId] = rr;
+    return m;
+  }, [proj]);
+
+  // Authoritative per-route result. Prefer the engine's routeResult (includes
+  // encroachment, marketing/loyalty lifts, landing fees). Routes the engine skips
+  // (grounded or dormant-seasonal) aren't in the report, so fall back to a
+  // standalone sim run with the same labor + fuel the engine used.
+  const engineResultFor = (route, aircraft) => {
+    if (!aircraft) return null;
+    const rr = rrById[route.id];
+    if (rr) return rr;
+    const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
+    return simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null);
+  };
+
+  // Per-group stats for filtering + sorting
   const groupsWithStats = useMemo(() => routeGroups.map(group => {
     const sims = group.routes.map(route => {
       const ac     = fleet.find(a => a.id === route.aircraftId);
-      const result = ac ? simulateRoute(route, ac, gd) : null;
+      const result = engineResultFor(route, ac);
       return { route, result };
     });
-    const totalProfit  = sims.reduce((s, { result }) => s + (result?.profit    ?? 0), 0);
+    // Direct cost = operating cost + landing fee, so profit matches Finance "By Route".
     const totalRevenue = sims.reduce((s, { result }) => s + (result?.revenue   ?? 0), 0);
+    const totalCost    = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0) + (result?.landingFee ?? 0), 0);
+    const totalProfit  = totalRevenue - totalCost;
     const totalPax     = sims.reduce((s, { result }) => s + (result?.passengers ?? 0), 0);
     const totalSeats   = sims.reduce((s, { result }) => s + (result?.configuredSeatsOneWay ?? 0), 0);
     const avgLoad = totalSeats > 0 ? totalPax / totalSeats : 0;  // totalPax is one-way; totalSeats is configured one-way capacity
     const distance = sims[0]?.result?.distance ?? 0;
-    return { ...group, totalProfit, totalRevenue, avgLoad, distance };
-  }), [routes, fleet, state.week]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Per-class occupancy across every aircraft on the pair: sum one-way pax and
+    // weekly one-way capacity per cabin, then divide. classSummary[cls].seats is
+    // per-flight, so weekly capacity = seats × that aircraft's frequency.
+    // classLoads[cls] is null when the pair has no seats in that cabin, so the
+    // filter can skip it rather than treat it as 0%.
+    const classPax = { economy: 0, premiumEconomy: 0, businessClass: 0, firstClass: 0 };
+    const classCap = { economy: 0, premiumEconomy: 0, businessClass: 0, firstClass: 0 };
+    for (const { route, result } of sims) {
+      const cs = result?.classSummary;
+      if (!cs) continue;
+      const freq = route.weeklyFrequency ?? 1;
+      for (const cls of Object.keys(classPax)) {
+        classPax[cls] += cs[cls]?.passengers ?? 0;
+        classCap[cls] += (cs[cls]?.seats ?? 0) * freq;
+      }
+    }
+    const classLoads = {};
+    for (const cls of Object.keys(classPax)) {
+      classLoads[cls] = classCap[cls] > 0 ? classPax[cls] / classCap[cls] : null;
+    }
+
+    // Status + scoping metadata (drives the health chips and the region /
+    // aircraft-type / haul filters in the table view).
+    const acs = group.routes.map(r => fleet.find(a => a.id === r.aircraftId)).filter(Boolean);
+    const hasDisrupted = acs.some(a => a.status === 'grounded');
+    const hasDormant   = group.routes.some(r => r.season && !isRouteActive(r, gd.month));
+    const regions = new Set([
+      getRegion(getAirport(group.origin)?.country),
+      getRegion(getAirport(group.destination)?.country),
+    ]);
+    const typeIds   = new Set(acs.map(a => a.typeId));
+    const margin    = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
+    const totalFreq = group.routes.reduce((s, r) => s + r.weeklyFrequency, 0);
+
+    return {
+      ...group, totalProfit, totalRevenue, totalPax, avgLoad, distance, classLoads,
+      hasDisrupted, hasDormant, regions, typeIds, margin, totalFreq,
+    };
+  }), [routes, fleet, rrById]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Aircraft types present across all groups (for the type filter dropdown).
+  // NOTE: must stay above the detailPair early-return — hooks can't be conditional.
+  const typesInUse = useMemo(() => {
+    const ids = new Set();
+    for (const g of groupsWithStats) for (const t of g.typeIds) ids.add(t);
+    return [...ids].map(id => ({ id, name: getAircraftType(id)?.name ?? id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [groupsWithStats]);
 
   // If a route detail is selected, render that instead of the list
   if (detailPair) {
@@ -180,6 +273,7 @@ export default function Routes() {
       <RouteDetail
         origin={detailPair.origin}
         dest={detailPair.destination}
+        rrById={rrById}
         onBack={() => setDetailPair(null)}
       />
     );
@@ -200,29 +294,46 @@ export default function Routes() {
       })
     : groupsWithStats;
 
-  // Tab counts (based on search results, not filtered, so each tab shows a sensible number)
-  const tabCounts = {
-    all:          afterSearch.length,
-    profitable:   afterSearch.filter(g => g.totalProfit >= 0).length,
-    unprofitable: afterSearch.filter(g => g.totalProfit < 0).length,
-    lowload:      afterSearch.filter(g => g.avgLoad < 0.5).length,
-  };
-
-  // Filter
-  const afterFilter = afterSearch.filter(g => {
-    if (filterTab === 'profitable')   return g.totalProfit >= 0;
-    if (filterTab === 'unprofitable') return g.totalProfit < 0;
-    if (filterTab === 'lowload')      return g.avgLoad < 0.5;
+  // Scoping filters (applied before the status tabs so tab counts reflect scope)
+  const haulOf = (d) => d < 1500 ? 'short' : d <= 4500 ? 'medium' : 'long';
+  const afterScope = afterSearch.filter(g => {
+    if (regionFilter !== 'all' && !g.regions.has(regionFilter)) return false;
+    if (acTypeFilter !== 'all' && !g.typeIds.has(acTypeFilter)) return false;
+    if (haulFilter   !== 'all' && haulOf(g.distance) !== haulFilter) return false;
     return true;
   });
 
-  // Sort
+  // Tab counts (based on scoped results, not status-filtered, so each tab shows a sensible number)
+  const tabCounts = {
+    all:          afterScope.length,
+    profitable:   afterScope.filter(g => g.totalProfit >= 0).length,
+    unprofitable: afterScope.filter(g => g.totalProfit < 0).length,
+    lowload:      afterScope.filter(g => g.avgLoad < 0.5).length,
+    disrupted:    afterScope.filter(g => g.hasDisrupted).length,
+    dormant:      afterScope.filter(g => g.hasDormant).length,
+  };
+
+  // Status filter
+  const afterFilter = afterScope.filter(g => {
+    if (filterTab === 'profitable')   return g.totalProfit >= 0;
+    if (filterTab === 'unprofitable') return g.totalProfit < 0;
+    if (filterTab === 'lowload')      return g.avgLoad < 0.5;
+    if (filterTab === 'disrupted')    return g.hasDisrupted;
+    if (filterTab === 'dormant')      return g.hasDormant;
+    return true;
+  });
+
+  // Sort (cards view only — the table sorts by its own column headers)
   const visibleGroups = [...afterFilter].sort((a, b) => {
     if (sortBy === 'revenue')  return b.totalRevenue - a.totalRevenue;
     if (sortBy === 'load')     return b.avgLoad      - a.avgLoad;
     if (sortBy === 'distance') return b.distance     - a.distance;
     return b.totalProfit - a.totalProfit; // default
   });
+
+  // Groups the player has explicitly ticked (across the full list, not just the
+  // current filter view, so a selection survives a filter change).
+  const selectedGroups = groupsWithStats.filter(g => selectedKeys.has(g.key));
 
   function handleClose(routeId) {
     if (window.confirm('Remove this aircraft from the route? It will be freed for other assignments.')) {
@@ -236,6 +347,66 @@ export default function Routes() {
       dispatch({ type: 'UPDATE_TICKET_PRICE', routeId, ticketPrice: price });
     }
   }
+
+  // Apply a per-class % fare change to a set of route groups (one dispatch covers
+  // every aircraft on each pair). `pctRaw` maps class → string from the % inputs.
+  function applyPctToGroups(groupsToAdjust, pctRaw) {
+    const pct = {};
+    for (const [cls, v] of Object.entries(pctRaw ?? {})) {
+      const n = parseFloat(v);
+      if (!isNaN(n) && n !== 0) pct[cls] = n;
+    }
+    const routeIds = groupsToAdjust.flatMap(g => g.routes.map(r => r.id));
+    if (routeIds.length === 0 || Object.keys(pct).length === 0) return;
+    dispatch({ type: 'BULK_ADJUST_PRICING', routeIds, pct });
+    const parts = Object.entries(pct).map(([cls, n]) => `${CLASS_LABELS[cls]} ${n > 0 ? '+' : ''}${n}%`);
+    addToast({
+      type: 'success',
+      title: 'Pricing updated',
+      message: `${groupsToAdjust.length} route${groupsToAdjust.length !== 1 ? 's' : ''}: ${parts.join(', ')}`,
+    });
+  }
+
+  // Bulk: set catering level on every selected pair at once.
+  function bulkSetCatering(groupsToSet, level) {
+    const routeIds = groupsToSet.flatMap(g => g.routes.map(r => r.id));
+    if (routeIds.length === 0) return;
+    dispatch({ type: 'SET_ROUTE_CATERING', routeIds, level });
+    addToast({
+      type: 'success',
+      title: 'Catering updated',
+      message: `${groupsToSet.length} route${groupsToSet.length !== 1 ? 's' : ''} set to ${CATERING_LEVELS[normalizeCateringLevel(level)].name}`,
+    });
+    clearSelection();
+  }
+
+  // Bulk: close every selected pair (all aircraft deployments on them).
+  function bulkCloseGroups(groupsToClose) {
+    const routeIds = groupsToClose.flatMap(g => g.routes.map(r => r.id));
+    if (routeIds.length === 0) return;
+    const ok = window.confirm(
+      `Close ${groupsToClose.length} route${groupsToClose.length !== 1 ? 's' : ''} ` +
+      `(${routeIds.length} aircraft deployment${routeIds.length !== 1 ? 's' : ''})? ` +
+      `Aircraft will be freed for other assignments.`
+    );
+    if (!ok) return;
+    for (const id of routeIds) dispatch({ type: 'CLOSE_ROUTE', routeId: id });
+    addToast({
+      type: 'success',
+      title: 'Routes closed',
+      message: `${groupsToClose.length} route${groupsToClose.length !== 1 ? 's' : ''} closed.`,
+    });
+    clearSelection();
+  }
+
+  function toggleSelect(key) {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+  function clearSelection() { setSelectedKeys(new Set()); }
 
   function openNewRoute() {
     setFormMode('new');
@@ -271,9 +442,31 @@ export default function Routes() {
     </div>
   );
 
-  // Freight-only view: show just the cargo routes list.
+  // Freight-only view: cargo routes list + an inline freight planner.
   if (typeFilter === 'freight') {
-    return (<div>{typeToggle}<CargoRoutesList /></div>);
+    return (
+      <div>
+        {typeToggle}
+        <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+            {cargoCount} cargo route{cargoCount !== 1 ? 's' : ''}
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ background: '#e8833a', borderColor: '#e8833a' }}
+            onClick={() => setShowCargoForm(v => !v)}
+          >
+            <GlyphLabel size={12} text={showCargoForm ? '✕ Cancel' : '📦 Open Freight Route'} />
+          </button>
+        </div>
+        {showCargoForm && (
+          <div style={{ marginBottom: 16 }}>
+            <CargoRoutePlanner embedded onOpened={() => setShowCargoForm(false)} />
+          </div>
+        )}
+        <CargoRoutesList />
+      </div>
+    );
   }
 
   return (
@@ -301,7 +494,7 @@ export default function Routes() {
           {/* View mode toggle — only shown when routes exist */}
           {routeGroups.length > 0 && (
             <div style={{ display: 'flex', gap: 2, background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: 2 }}>
-              {[{ id: 'cards', label: '⊞ Cards' }, { id: 'compare', label: '⊟ Compare' }].map(v => (
+              {[{ id: 'table', label: '⊟ Table' }, { id: 'cards', label: '⊞ Cards' }].map(v => (
                 <button
                   key={v.id}
                   className={`btn ${viewMode === v.id ? 'btn-primary' : 'btn-ghost'}`}
@@ -312,6 +505,16 @@ export default function Routes() {
                 </button>
               ))}
             </div>
+          )}
+          {routeGroups.length > 0 && (
+            <button
+              className="btn btn-ghost"
+              style={{ fontSize: 12, padding: '4px 10px' }}
+              onClick={() => setShowBulkModal(true)}
+              title="Adjust fares across many routes at once, filtered by cabin occupancy"
+            >
+              <GlyphLabel size={12} text="⚖️ Bulk Pricing" />
+            </button>
           )}
           <button
             className="btn btn-primary"
@@ -331,6 +534,15 @@ export default function Routes() {
           </button>
         </div>
       </div>
+
+      {/* Network health strip — click a chip to filter */}
+      {routeGroups.length > 3 && (
+        <NetworkHealthStrip
+          groups={groupsWithStats}
+          activeTab={filterTab}
+          onSelectTab={t => setFilterTab(cur => cur === t ? 'all' : t)}
+        />
+      )}
 
       {/* Pending delivery notice */}
       {fleet.length === 0 && pendingOrders.length > 0 && (
@@ -363,6 +575,8 @@ export default function Routes() {
               { id: 'profitable',   label: '▲ Profit'   },
               { id: 'unprofitable', label: '▼ Losing'   },
               { id: 'lowload',      label: '⚠ Low Load' },
+              ...(tabCounts.disrupted > 0 ? [{ id: 'disrupted', label: '🔧 Disrupted' }] : []),
+              ...(tabCounts.dormant   > 0 ? [{ id: 'dormant',   label: '🗓 Dormant'   }] : []),
             ].map(t => (
               <button
                 key={t.id}
@@ -377,17 +591,55 @@ export default function Routes() {
               </button>
             ))}
           </div>
-          <select
-            className="form-select"
-            value={sortBy}
-            onChange={e => setSortBy(e.target.value)}
-            style={{ width: 'auto', fontSize: 12, marginLeft: 'auto' }}
-          >
-            <option value="profit">Sort: Profit ↓</option>
-            <option value="revenue">Sort: Revenue ↓</option>
-            <option value="load">Sort: Load ↓</option>
-            <option value="distance">Sort: Distance ↓</option>
-          </select>
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              className="form-select"
+              value={regionFilter}
+              onChange={e => setRegionFilter(e.target.value)}
+              style={{ width: 'auto', fontSize: 12 }}
+              title="Only routes touching this region"
+            >
+              <option value="all">Region: All</option>
+              {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            {typesInUse.length > 1 && (
+              <select
+                className="form-select"
+                value={acTypeFilter}
+                onChange={e => setAcTypeFilter(e.target.value)}
+                style={{ width: 'auto', fontSize: 12, maxWidth: 170 }}
+                title="Only routes flown by this aircraft type"
+              >
+                <option value="all">Aircraft: All</option>
+                {typesInUse.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
+            <select
+              className="form-select"
+              value={haulFilter}
+              onChange={e => setHaulFilter(e.target.value)}
+              style={{ width: 'auto', fontSize: 12 }}
+              title="Filter by route length"
+            >
+              <option value="all">Haul: All</option>
+              <option value="short">Short (&lt;1,500 km)</option>
+              <option value="medium">Medium (1,500–4,500)</option>
+              <option value="long">Long (&gt;4,500 km)</option>
+            </select>
+            {viewMode === 'cards' && (
+              <select
+                className="form-select"
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                style={{ width: 'auto', fontSize: 12 }}
+              >
+                <option value="profit">Sort: Profit ↓</option>
+                <option value="revenue">Sort: Revenue ↓</option>
+                <option value="load">Sort: Load ↓</option>
+                <option value="distance">Sort: Distance ↓</option>
+              </select>
+            )}
+          </div>
         </div>
       )}
 
@@ -399,6 +651,39 @@ export default function Routes() {
           initialOrigin={formInitialOrigin}
           initialDest={formInitialDest}
         />
+      )}
+
+      {/* Bulk-edit selection bar — appears when one or more cards are ticked */}
+      {selectedGroups.length > 0 && (
+        <SelectionActionBar
+          groups={selectedGroups}
+          onApplyToGroups={(g, pct) => { applyPctToGroups(g, pct); clearSelection(); }}
+          onSetCatering={bulkSetCatering}
+          onCloseGroups={bulkCloseGroups}
+          onClear={clearSelection}
+        />
+      )}
+
+      {/* Select-all helper — only in cards view when there are visible routes */}
+      {viewMode === 'cards' && visibleGroups.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={visibleGroups.every(g => selectedKeys.has(g.key))}
+              ref={el => { if (el) el.indeterminate = !visibleGroups.every(g => selectedKeys.has(g.key)) && visibleGroups.some(g => selectedKeys.has(g.key)); }}
+              onChange={e => {
+                setSelectedKeys(prev => {
+                  const next = new Set(prev);
+                  if (e.target.checked) visibleGroups.forEach(g => next.add(g.key));
+                  else visibleGroups.forEach(g => next.delete(g.key));
+                  return next;
+                });
+              }}
+            />
+            Select all {visibleGroups.length} shown
+          </label>
+        </div>
       )}
 
       {/* Route groups / compare table */}
@@ -417,14 +702,25 @@ export default function Routes() {
           <div className="empty-state-icon"><Glyph e="🔍" /></div>
           <div className="empty-state-text">No routes match</div>
           <div style={{ marginTop: 8, fontSize: 13 }}>
-            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { setSearch(''); setFilterTab('all'); }}>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { setSearch(''); setFilterTab('all'); setRegionFilter('all'); setAcTypeFilter('all'); setHaulFilter('all'); }}>
               Clear filters
             </button>
           </div>
         </div>
-      ) : viewMode === 'compare' ? (
-        <RouteCompareTable
-          groups={visibleGroups}
+      ) : viewMode === 'table' ? (
+        <RouteTable
+          groups={afterFilter}
+          getResult={engineResultFor}
+          selectedKeys={selectedKeys}
+          onToggleSelect={toggleSelect}
+          onSelectMany={(keys, checked) => setSelectedKeys(prev => {
+            const next = new Set(prev);
+            keys.forEach(k => checked ? next.add(k) : next.delete(k));
+            return next;
+          })}
+          onClose={handleClose}
+          onPriceChange={handlePriceChange}
+          onAddFlights={(g) => addFlightsTo(g.origin, g.destination)}
           onViewDetail={(g) => setDetailPair({ origin: g.origin, destination: g.destination })}
         />
       ) : (
@@ -432,6 +728,9 @@ export default function Routes() {
           <RouteGroupCard
             key={group.key}
             group={group}
+            getResult={engineResultFor}
+            selected={selectedKeys.has(group.key)}
+            onToggleSelect={() => toggleSelect(group.key)}
             onClose={handleClose}
             onPriceChange={handlePriceChange}
             onAddFlights={() => addFlightsTo(group.origin, group.destination)}
@@ -461,6 +760,15 @@ export default function Routes() {
           <CargoRoutesList />
         </div>
       )}
+
+      {/* Filter-based bulk pricing modal */}
+      {showBulkModal && (
+        <BulkPricingModal
+          allGroups={groupsWithStats}
+          onApplyToGroups={applyPctToGroups}
+          onClose={() => setShowBulkModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -475,7 +783,9 @@ function TagRouteCard({ route, onClose }) {
   const aircraft = fleet.find(a => a.id === route.aircraftId);
   const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
   const stops    = routeStops(route);
-  const sim      = aircraft ? simulateTagRoute(route, aircraft, gd, state.labor ?? null, 1.0) : null;
+  const sim      = aircraft ? simulateTagRoute(route, aircraft, gd, state.labor ?? null, 1.0,
+    fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
+    state.satisfaction ?? null) : null;
   const landingFee = type ? routeLandingFee(route, type, route.weeklyFrequency) : 0;
   const profit   = sim ? sim.profit - landingFee : 0;
 
@@ -540,15 +850,137 @@ function TagRouteCard({ route, onClose }) {
   );
 }
 
-// ─── Route comparison table ───────────────────────────────────────────────────
+// ─── Network health strip ─────────────────────────────────────────────────────
+//
+// At-a-glance totals plus clickable "problem" chips. Clicking a chip applies the
+// matching status filter (click again to clear), so with hundreds of routes the
+// player can jump straight to what needs attention.
+function NetworkHealthStrip({ groups, activeTab, onSelectTab }) {
+  const totalRev    = groups.reduce((s, g) => s + g.totalRevenue, 0);
+  const totalProfit = groups.reduce((s, g) => s + g.totalProfit,  0);
+  const losing    = groups.filter(g => g.totalProfit < 0);
+  const losingSum = losing.reduce((s, g) => s + g.totalProfit, 0);
+  const lowload   = groups.filter(g => g.avgLoad < 0.5).length;
+  const disrupted = groups.filter(g => g.hasDisrupted).length;
+  const dormant   = groups.filter(g => g.hasDormant).length;
 
-function RouteCompareTable({ groups, onViewDetail }) {
+  const chips = [
+    { tab: 'unprofitable', count: losing.length, color: 'var(--red)',
+      label: `▼ ${losing.length} losing (${formatMoney(losingSum)}/wk)` },
+    { tab: 'lowload',   count: lowload,   color: 'var(--yellow)',     label: `⚠ ${lowload} low load` },
+    { tab: 'disrupted', count: disrupted, color: 'var(--red)',        label: `🔧 ${disrupted} disrupted` },
+    { tab: 'dormant',   count: dormant,   color: 'var(--text-muted)', label: `🗓 ${dormant} dormant` },
+  ].filter(c => c.count > 0);
+
+  return (
+    <div style={{
+      display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
+      padding: '8px 12px', marginBottom: 12, fontSize: 12,
+      background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+    }}>
+      <span style={{ fontWeight: 700, color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+        {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}/wk
+      </span>
+      {totalRev > 0 && (
+        <span style={{ color: 'var(--text-muted)' }}>margin {Math.round((totalProfit / totalRev) * 100)}%</span>
+      )}
+      {chips.length > 0 && <span style={{ color: 'var(--border)' }}>|</span>}
+      {chips.map(c => {
+        const active = activeTab === c.tab;
+        return (
+          <button
+            key={c.tab}
+            onClick={() => onSelectTab(c.tab)}
+            style={{
+              fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 12, cursor: 'pointer',
+              background: active ? `color-mix(in srgb, ${c.color} 18%, transparent)` : 'transparent',
+              color: c.color, border: `1px solid ${active ? c.color : 'var(--border)'}`,
+            }}
+            title={active ? 'Click to clear this filter' : 'Click to show only these routes'}
+          >
+            <GlyphLabel text={c.label} size={11} />
+          </button>
+        );
+      })}
+      {chips.length === 0 && (
+        <span style={{ color: 'var(--green)' }}><Glyph e="✓" /> No problem routes</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Route table (default view) ───────────────────────────────────────────────
+//
+// Dense, sortable, selectable table built to handle hundreds of city pairs:
+// click a column header to sort, tick rows for bulk pricing, click a row to
+// expand its per-aircraft detail inline (pricing, catering, actions).
+const TABLE_PAGE_SIZE = 100;
+
+const TABLE_COLUMNS = [
+  { id: 'route',  label: 'Route',        align: 'left'  },
+  { id: 'dist',   label: 'Dist',         align: 'right' },
+  { id: 'freq',   label: 'Freq',         align: 'right' },
+  { id: 'load',   label: 'Load',         align: 'right' },
+  { id: 'pax',    label: 'Pax/wk',       align: 'right' },
+  { id: 'rev',    label: 'Revenue/wk',   align: 'right' },
+  { id: 'profit', label: 'Profit/wk',    align: 'right' },
+  { id: 'margin', label: 'Margin',       align: 'right' },
+];
+
+const TABLE_SORTERS = {
+  route:  (a, b) => `${a.origin}${a.destination}`.localeCompare(`${b.origin}${b.destination}`),
+  dist:   (a, b) => a.distance     - b.distance,
+  freq:   (a, b) => a.totalFreq    - b.totalFreq,
+  load:   (a, b) => a.avgLoad      - b.avgLoad,
+  pax:    (a, b) => a.totalPax     - b.totalPax,
+  rev:    (a, b) => a.totalRevenue - b.totalRevenue,
+  profit: (a, b) => a.totalProfit  - b.totalProfit,
+  margin: (a, b) => a.margin       - b.margin,
+};
+
+function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectMany, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+  const [sortCol, setSortCol] = useState('profit');
+  const [sortDir, setSortDir] = useState('desc');   // 'asc' | 'desc'
+  const [shown,   setShown]   = useState(TABLE_PAGE_SIZE);
+  const [expandedKeys, setExpandedKeys] = useState(() => new Set());
+
+  const sorted = useMemo(() => {
+    const cmp = TABLE_SORTERS[sortCol] ?? TABLE_SORTERS.profit;
+    const s = [...groups].sort(cmp);
+    if (sortDir === 'desc') s.reverse();
+    return s;
+  }, [groups, sortCol, sortDir]);
+
+  const visible = sorted.slice(0, shown);
+  const allSelected  = groups.length > 0 && groups.every(g => selectedKeys.has(g.key));
+  const someSelected = groups.some(g => selectedKeys.has(g.key));
+
   const totalRev    = groups.reduce((s, g) => s + g.totalRevenue, 0);
   const totalProfit = groups.reduce((s, g) => s + g.totalProfit,  0);
   const totalPax    = groups.reduce((s, g) => s + (g.totalPax ?? 0), 0);
 
-  const COL_HEADER = { padding: '6px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--border)' };
-  const COL_RIGHT  = { ...COL_HEADER, textAlign: 'right' };
+  function clickHeader(colId) {
+    if (sortCol === colId) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortCol(colId);
+      setSortDir(colId === 'route' ? 'asc' : 'desc');
+    }
+  }
+
+  function toggleExpand(key) {
+    setExpandedKeys(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  const COL_HEADER = {
+    padding: '6px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600,
+    fontSize: 11, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em',
+    borderBottom: '1px solid var(--border)', cursor: 'pointer', userSelect: 'none',
+  };
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -576,79 +1008,216 @@ function RouteCompareTable({ groups, onViewDetail }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr>
-              <th style={COL_HEADER}>Route</th>
-              <th style={COL_HEADER}>Cities</th>
-              <th style={COL_RIGHT}>Dist</th>
-              <th style={COL_RIGHT}>Freq</th>
-              <th style={COL_RIGHT}>Load</th>
-              <th style={COL_RIGHT}>Pax/wk</th>
-              <th style={COL_RIGHT}>Revenue/wk</th>
-              <th style={COL_RIGHT}>Op Profit/wk</th>
-              <th style={COL_RIGHT}>Margin</th>
-              <th style={COL_RIGHT}>Rev/km</th>
-              <th style={{ ...COL_HEADER, textAlign: 'center' }}></th>
+              <th style={{ ...COL_HEADER, cursor: 'default', width: 30 }}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                  onChange={e => onSelectMany(groups.map(g => g.key), e.target.checked)}
+                  title={allSelected ? 'Deselect all' : `Select all ${groups.length} filtered routes`}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
+              {TABLE_COLUMNS.map(c => (
+                <th
+                  key={c.id}
+                  style={{ ...COL_HEADER, textAlign: c.align }}
+                  onClick={() => clickHeader(c.id)}
+                  title="Click to sort"
+                >
+                  {c.label}
+                  {sortCol === c.id && (
+                    <span style={{ marginLeft: 4, color: 'var(--accent)' }}>{sortDir === 'desc' ? '▾' : '▴'}</span>
+                  )}
+                </th>
+              ))}
+              <th style={{ ...COL_HEADER, cursor: 'default', width: 30 }}></th>
             </tr>
           </thead>
           <tbody>
-            {groups.map((g, i) => {
-              const oa = getAirport(g.origin);
-              const da = getAirport(g.destination);
-              const margin = g.totalRevenue > 0 ? g.totalProfit / g.totalRevenue : 0;
-              const revPerKm = g.distance > 0 ? g.totalRevenue / g.distance : 0;
-              const totalFreq = g.routes.reduce((s, r) => s + r.weeklyFrequency, 0);
-
-              const profColor  = g.totalProfit >= 0 ? 'var(--green)' : 'var(--red)';
-              const loadColor  = g.avgLoad > 0.7 ? 'var(--green)' : g.avgLoad > 0.4 ? 'var(--yellow)' : 'var(--red)';
-              const margColor  = margin > 0.15 ? 'var(--green)' : margin > 0 ? 'var(--yellow)' : 'var(--red)';
-
-              return (
-                <tr
-                  key={g.key}
-                  style={{
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: i % 2 === 1 ? 'var(--surface2)' : undefined,
-                    cursor: 'pointer',
-                  }}
-                  onClick={() => onViewDetail(g)}
-                >
-                  <td style={{ padding: '8px 10px', fontWeight: 700, fontFamily: 'monospace', fontSize: 13, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
-                    {g.origin} → {g.destination}
-                  </td>
-                  <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {oa?.city} → {da?.city}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-muted)' }}>
-                    {g.distance ? `${g.distance.toLocaleString()} km` : '—'}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                    {totalFreq}×/wk
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: loadColor }}>
-                    {formatPercent(g.avgLoad)}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-muted)' }}>
-                    {(g.totalPax ?? 0).toLocaleString()}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}>
-                    +{formatMoney(g.totalRevenue)}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: profColor }}>
-                    {g.totalProfit >= 0 ? '+' : ''}{formatMoney(g.totalProfit)}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: margColor }}>
-                    {Math.round(margin * 100)}%
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-muted)' }}>
-                    {revPerKm > 0 ? `$${revPerKm.toFixed(0)}` : '—'}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>→</span>
-                  </td>
-                </tr>
-              );
-            })}
+            {visible.map((g, i) => (
+              <RouteTableRow
+                key={g.key}
+                group={g}
+                zebra={i % 2 === 1}
+                selected={selectedKeys.has(g.key)}
+                expanded={expandedKeys.has(g.key)}
+                onToggleSelect={() => onToggleSelect(g.key)}
+                onToggleExpand={() => toggleExpand(g.key)}
+                getResult={getResult}
+                onClose={onClose}
+                onPriceChange={onPriceChange}
+                onAddFlights={() => onAddFlights(g)}
+                onViewDetail={() => onViewDetail(g)}
+              />
+            ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Incremental paging keeps the DOM small with very large networks */}
+      {sorted.length > shown && (
+        <div style={{ padding: '10px 14px', textAlign: 'center', borderTop: '1px solid var(--border)' }}>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setShown(s => s + TABLE_PAGE_SIZE)}>
+            Show {Math.min(TABLE_PAGE_SIZE, sorted.length - shown)} more ({shown} of {sorted.length})
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RouteTableRow({ group: g, zebra, selected, expanded, onToggleSelect, onToggleExpand, getResult, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+  const oa = getAirport(g.origin);
+  const da = getAirport(g.destination);
+
+  const profColor = g.totalProfit >= 0 ? 'var(--green)' : 'var(--red)';
+  const loadColor = g.avgLoad > 0.7 ? 'var(--green)' : g.avgLoad > 0.4 ? 'var(--yellow)' : 'var(--red)';
+  const margColor = g.margin > 0.15 ? 'var(--green)' : g.margin > 0 ? 'var(--yellow)' : 'var(--red)';
+
+  const CELL = { padding: '7px 10px' };
+  const RIGHT = { ...CELL, textAlign: 'right' };
+
+  return (
+    <>
+      <tr
+        style={{
+          borderBottom: expanded ? 'none' : '1px solid var(--border-subtle)',
+          background: selected ? 'rgba(56,139,253,0.07)' : expanded ? 'var(--surface2)' : zebra ? 'var(--surface2)' : undefined,
+          cursor: 'pointer',
+        }}
+        onClick={onToggleExpand}
+      >
+        <td style={{ ...CELL, width: 30 }} onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            title="Select for bulk actions"
+            style={{ cursor: 'pointer' }}
+          />
+        </td>
+        <td style={{ ...CELL, whiteSpace: 'nowrap' }}>
+          <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 13, color: 'var(--accent)' }}>
+            {g.origin} → {g.destination}
+          </span>
+          <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>
+            {oa?.city} → {da?.city}
+          </span>
+          {g.hasDisrupted && (
+            <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}>
+              <Glyph e="🔧" /> Disrupted
+            </span>
+          )}
+          {g.hasDormant && (
+            <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(139,148,158,0.15)', color: 'var(--text-muted)', border: '1px solid rgba(139,148,158,0.3)', textTransform: 'uppercase' }}>
+              <Glyph e="🗓" /> Dormant
+            </span>
+          )}
+        </td>
+        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>
+          {g.distance ? `${g.distance.toLocaleString()} km` : '—'}
+        </td>
+        <td style={RIGHT}>
+          {g.totalFreq}×
+          {g.routes.length > 1 && (
+            <span style={{ color: 'var(--text-dim)', marginLeft: 3, fontSize: 10 }}>({g.routes.length} ac)</span>
+          )}
+        </td>
+        <td style={{ ...RIGHT, fontWeight: 700, color: loadColor }}>{formatPercent(g.avgLoad)}</td>
+        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{(g.totalPax ?? 0).toLocaleString()}</td>
+        <td style={{ ...RIGHT, fontWeight: 600, color: 'var(--green)' }}>+{formatMoney(g.totalRevenue)}</td>
+        <td style={{ ...RIGHT, fontWeight: 700, color: profColor }}>
+          {g.totalProfit >= 0 ? '+' : ''}{formatMoney(g.totalProfit)}
+        </td>
+        <td style={{ ...RIGHT, fontWeight: 700, color: margColor }}>{Math.round(g.margin * 100)}%</td>
+        <td style={{ ...CELL, textAlign: 'center', color: 'var(--text-dim)', fontSize: 10 }}>
+          {expanded ? '▴' : '▾'}
+        </td>
+      </tr>
+      {expanded && (
+        <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+          <td colSpan={TABLE_COLUMNS.length + 2} style={{ padding: '0 14px 12px' }}>
+            <ExpandedGroupPanel
+              group={g}
+              getResult={getResult}
+              onClose={onClose}
+              onPriceChange={onPriceChange}
+              onAddFlights={onAddFlights}
+              onViewDetail={onViewDetail}
+            />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// Inline detail shown when a table row is expanded: the same per-aircraft table
+// the card view uses, plus catering and the card's footer actions.
+function ExpandedGroupPanel({ group, getResult, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+  const { state, dispatch } = useGame();
+  const { fleet } = state;
+
+  const sims = group.routes.map(route => {
+    const aircraft = fleet.find(a => a.id === route.aircraftId);
+    const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+    const result   = aircraft ? getResult(route, aircraft) : null;
+    const bh       = type && result ? weeklyBlockHours(result.distance, route.weeklyFrequency, type) : 0;
+    return { route, aircraft, type, result, blockHrs: bh };
+  });
+
+  const dist = sims[0]?.result?.distance;
+  const catLevels     = [...new Set(group.routes.map(r => normalizeCateringLevel(r.cateringLevel)))];
+  const groupCatLevel = catLevels.length === 1 ? catLevels[0] : null;
+
+  return (
+    <div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              {['Aircraft', 'Tail', 'Freq', 'Seats/wk', 'Load', 'Revenue/wk', 'Op Cost/wk', 'Block hrs', 'Ticket', ''].map(h => (
+                <th key={h} style={{ padding: '4px 8px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sims.map(({ route, aircraft, type, result, blockHrs }) => (
+              <AircraftRow
+                key={route.id}
+                route={route}
+                aircraft={aircraft}
+                type={type}
+                result={result}
+                blockHrs={blockHrs}
+                onClose={onClose}
+                onPriceChange={onPriceChange}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 220, flex: '1 1 260px' }}>
+          <CateringSelector
+            value={groupCatLevel ?? 'full'}
+            onChange={(level) => dispatch({ type: 'SET_ROUTE_CATERING', routeIds: group.routes.map(r => r.id), level })}
+            distKm={dist}
+            compact
+            label={groupCatLevel ? 'Catering service' : 'Catering service · mixed across aircraft'}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onViewDetail}>
+            Details →
+          </button>
+          <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={onAddFlights}>
+            + Add Flights
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -656,21 +1225,21 @@ function RouteCompareTable({ groups, onViewDetail }) {
 
 // ─── Route group card ─────────────────────────────────────────────────────────
 
-function RouteGroupCard({ group, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, onPriceChange, onAddFlights, onViewDetail }) {
   const { state, dispatch } = useGame();
   const { fleet } = state;
   const { origin, destination, routes } = group;
-  const gd = currentGameDate(state);
 
   const originAirport = getAirport(origin);
   const destAirport   = getAirport(destination);
   const refP          = referencePrice(origin, destination);
 
-  // Simulate each aircraft on this route
+  // Pull each aircraft's authoritative result from the engine projection (same
+  // source as the Finance tab) so this card never disagrees with it.
   const sims = routes.map(route => {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
-    const result   = aircraft ? simulateRoute(route, aircraft, gd) : null;
+    const result   = aircraft ? getResult(route, aircraft) : null;
     const bh       = type && result ? weeklyBlockHours(result.distance, route.weeklyFrequency, type) : 0;
     return { route, aircraft, type, result, blockHrs: bh };
   });
@@ -678,7 +1247,8 @@ function RouteGroupCard({ group, onClose, onPriceChange, onAddFlights, onViewDet
   const dist        = sims[0]?.result?.distance;
   const totalFreq   = routes.reduce((s, r) => s + r.weeklyFrequency, 0);
   const totalRev    = sims.reduce((s, { result }) => s + (result?.revenue    ?? 0), 0);
-  const totalOp     = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0), 0);
+  // Direct cost = operating cost + landing fee, matching Finance "By Route".
+  const totalOp     = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0) + (result?.landingFee ?? 0), 0);
   const totalPax    = sims.reduce((s, { result }) => s + (result?.passengers  ?? 0), 0);
   const totalProfit = totalRev - totalOp;
 
@@ -698,10 +1268,18 @@ function RouteGroupCard({ group, onClose, onPriceChange, onAddFlights, onViewDet
     dispatch({ type: 'SET_ROUTE_CATERING', routeIds: routes.map(r => r.id), level });
 
   return (
-    <div className="card" style={{ marginBottom: 12 }}>
+    <div className="card" style={{ marginBottom: 12, borderLeft: selected ? '3px solid var(--accent)' : undefined }}>
       {/* ── Route header ──────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        <div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={onToggleSelect}
+            title="Select this route for bulk pricing"
+            style={{ marginTop: 4, cursor: 'pointer', flexShrink: 0 }}
+          />
+          <div>
           <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 2 }}>
             <AirportLink code={origin} />
             <span style={{ color: 'var(--text-muted)', margin: '0 8px', fontWeight: 400 }}>→</span>
@@ -711,6 +1289,7 @@ function RouteGroupCard({ group, onClose, onPriceChange, onAddFlights, onViewDet
             {originAirport?.city} → {destAirport?.city}
             {dist ? ` · ${dist.toLocaleString()} km` : ''}
             {' · '}ref ${refP}
+          </div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -859,6 +1438,290 @@ const CLASS_COLORS = {
   firstClass:     'var(--purple)',
 };
 
+// ─── Bulk pricing helpers ─────────────────────────────────────────────────────
+
+// Union of cabins that actually carry seats across a set of route groups, in the
+// canonical first→economy order. Used to decide which class controls to show.
+function classesPresentIn(groups) {
+  const present = new Set();
+  for (const g of groups) {
+    for (const cls of CLASS_ORDER) {
+      if (g.classLoads?.[cls] != null) present.add(cls);
+    }
+  }
+  return CLASS_ORDER.filter(cls => present.has(cls));
+}
+
+// Sum of aircraft deployments across a set of groups (for "N aircraft" labels).
+function aircraftCountIn(groups) {
+  return groups.reduce((s, g) => s + g.routes.length, 0);
+}
+
+// A row of per-class percentage inputs. `values` maps class → string; empty/0 means
+// "leave this cabin unchanged". onChange(cls, rawString) bubbles edits up.
+function PerClassPercentRow({ classes, values, onChange }) {
+  if (classes.length === 0) {
+    return <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No priced cabins in this selection.</div>;
+  }
+  return (
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      {classes.map(cls => {
+        const v = values[cls] ?? '';
+        const n = parseFloat(v);
+        const tint = !isNaN(n) && n !== 0 ? (n > 0 ? 'var(--green)' : 'var(--red)') : 'var(--border)';
+        return (
+          <label key={cls} style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
+            <span style={{ color: CLASS_COLORS[cls], fontWeight: 600 }}>{CLASS_LABELS[cls]}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <input
+                type="number"
+                inputMode="numeric"
+                step="1"
+                placeholder="0"
+                value={v}
+                onChange={e => onChange(cls, e.target.value)}
+                style={{
+                  width: 64, padding: '5px 7px', fontSize: 13, textAlign: 'right',
+                  background: 'var(--surface)', color: 'var(--text)',
+                  border: `1px solid ${tint}`, borderRadius: 6,
+                }}
+              />
+              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>%</span>
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Filter-based bulk pricing modal ──────────────────────────────────────────
+//
+// Lets the player target routes by per-class occupancy (load-factor) range, then
+// shift fares by a percentage on every matching route at once.
+function BulkPricingModal({ allGroups, onApplyToGroups, onClose }) {
+  const presentClasses = classesPresentIn(allGroups);
+
+  // Per-class occupancy filter: { enabled, min, max } as percentages (0–100).
+  const [filters, setFilters] = useState(() => {
+    const f = {};
+    for (const cls of presentClasses) f[cls] = { enabled: false, min: 0, max: 60 };
+    return f;
+  });
+  // Per-class percentage adjustments (string inputs).
+  const [pct, setPct] = useState({});
+
+  const enabledClasses = presentClasses.filter(cls => filters[cls]?.enabled);
+
+  // A group matches when, for every enabled class filter, the group has seats in
+  // that cabin and its occupancy falls within [min, max]. No filters ⇒ match all.
+  const matching = allGroups.filter(g => {
+    if (enabledClasses.length === 0) return true;
+    return enabledClasses.every(cls => {
+      const lf = g.classLoads?.[cls];
+      if (lf == null) return false;
+      const pctLf = lf * 100;
+      return pctLf >= filters[cls].min && pctLf <= filters[cls].max;
+    });
+  });
+
+  const adjustedClasses = Object.entries(pct)
+    .filter(([, v]) => { const n = parseFloat(v); return !isNaN(n) && n !== 0; })
+    .map(([k]) => k);
+
+  const canApply = matching.length > 0 && adjustedClasses.length > 0;
+
+  const setFilter = (cls, patch) =>
+    setFilters(f => ({ ...f, [cls]: { ...f[cls], ...patch } }));
+
+  const label = { fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2500,
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="card"
+        style={{ width: 560, maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}><Glyph e="⚖️" /> Bulk Pricing by Occupancy</div>
+          <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={onClose}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+          Target routes by how full each cabin is, then shift those fares by a percentage.
+          A typical move: find cabins running under ~50% full and cut fares to fill them, or
+          raise fares on cabins running hot.
+        </div>
+
+        {/* ── Occupancy criteria ─────────────────────────────────────────── */}
+        <div style={{ ...label, marginBottom: 8 }}>1 · Match by cabin occupancy</div>
+        {presentClasses.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>No passenger routes to filter.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+            {presentClasses.map(cls => {
+              const f = filters[cls];
+              return (
+                <div key={cls} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                  padding: '8px 10px', borderRadius: 8,
+                  background: f.enabled ? 'var(--surface2)' : 'transparent',
+                  border: `1px solid ${f.enabled ? CLASS_COLORS[cls] : 'var(--border)'}`,
+                  opacity: f.enabled ? 1 : 0.7,
+                }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 120, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={f.enabled} onChange={e => setFilter(cls, { enabled: e.target.checked })} />
+                    <span style={{ color: CLASS_COLORS[cls], fontWeight: 700, fontSize: 13 }}>{CLASS_LABELS[cls]}</span>
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, opacity: f.enabled ? 1 : 0.5 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>load</span>
+                    <input type="number" min="0" max="100" value={f.min} disabled={!f.enabled}
+                      onChange={e => setFilter(cls, { min: Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                      style={{ width: 56, padding: '4px 6px', textAlign: 'right', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }} />
+                    <span style={{ color: 'var(--text-muted)' }}>%–</span>
+                    <input type="number" min="0" max="100" value={f.max} disabled={!f.enabled}
+                      onChange={e => setFilter(cls, { max: Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                      style={{ width: 56, padding: '4px 6px', textAlign: 'right', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }} />
+                    <span style={{ color: 'var(--text-muted)' }}>%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Matching count ─────────────────────────────────────────────── */}
+        <div style={{
+          padding: '8px 12px', borderRadius: 8, marginBottom: 18, fontSize: 13,
+          background: matching.length > 0 ? 'rgba(56,139,253,0.10)' : 'var(--surface2)',
+          border: `1px solid ${matching.length > 0 ? 'rgba(56,139,253,0.3)' : 'var(--border)'}`,
+        }}>
+          {enabledClasses.length === 0
+            ? <><b>{matching.length}</b> city pair{matching.length !== 1 ? 's' : ''} ({aircraftCountIn(matching)} aircraft) — all routes, no occupancy filter set.</>
+            : <><b>{matching.length}</b> city pair{matching.length !== 1 ? 's' : ''} ({aircraftCountIn(matching)} aircraft) match your occupancy criteria.</>}
+        </div>
+
+        {/* ── Adjustment ─────────────────────────────────────────────────── */}
+        <div style={{ ...label, marginBottom: 8 }}>2 · Adjust fares by %</div>
+        <div style={{ marginBottom: 18 }}>
+          <PerClassPercentRow
+            classes={presentClasses}
+            values={pct}
+            onChange={(cls, v) => setPct(p => ({ ...p, [cls]: v }))}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8 }}>
+            Positive raises fares, negative cuts them. Blank cabins are left unchanged. New fares are capped at the per-cabin ceiling.
+          </div>
+        </div>
+
+        {/* ── Actions ────────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            disabled={!canApply}
+            title={!canApply ? 'Set at least one fare adjustment and match at least one route' : ''}
+            onClick={() => { onApplyToGroups(matching, pct); onClose(); }}
+          >
+            Apply to {matching.length} route{matching.length !== 1 ? 's' : ''}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Selection action bar ─────────────────────────────────────────────────────
+//
+// Appears when the player has ticked one or more route cards. Offers the same
+// per-class % adjustment, applied only to the explicitly selected routes.
+function SelectionActionBar({ groups, onApplyToGroups, onSetCatering, onCloseGroups, onClear }) {
+  const [pct, setPct] = useState({});
+  const [catering, setCatering] = useState('');
+  const classes = classesPresentIn(groups);
+
+  const adjustedClasses = Object.entries(pct)
+    .filter(([, v]) => { const n = parseFloat(v); return !isNaN(n) && n !== 0; })
+    .map(([k]) => k);
+
+  const apply = () => {
+    onApplyToGroups(groups, pct);
+    setPct({});
+  };
+
+  return (
+    <div style={{
+      position: 'sticky', top: 8, zIndex: 50, marginBottom: 14,
+      display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap',
+      padding: '12px 16px', borderRadius: 10,
+      background: 'var(--surface2)', border: '1px solid var(--accent)',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {groups.length} selected
+        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{aircraftCountIn(groups)} aircraft</div>
+      </div>
+      <PerClassPercentRow
+        classes={classes}
+        values={pct}
+        onChange={(cls, v) => setPct(p => ({ ...p, [cls]: v }))}
+      />
+      <button
+        className="btn btn-primary"
+        style={{ fontSize: 13 }}
+        disabled={adjustedClasses.length === 0}
+        onClick={apply}
+      >
+        Apply %
+      </button>
+
+      {/* Bulk catering */}
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
+        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Catering</span>
+        <span style={{ display: 'flex', gap: 4 }}>
+          <select
+            className="form-select"
+            value={catering}
+            onChange={e => setCatering(e.target.value)}
+            style={{ width: 'auto', fontSize: 12, padding: '4px 6px' }}
+          >
+            <option value="">— unchanged —</option>
+            {CATERING_LEVEL_ORDER.map(id => (
+              <option key={id} value={id}>{CATERING_LEVELS[id].name}</option>
+            ))}
+          </select>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 12 }}
+            disabled={!catering}
+            onClick={() => { onSetCatering(groups, catering); setCatering(''); }}
+          >
+            Set
+          </button>
+        </span>
+      </label>
+
+      <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+        <button
+          className="btn"
+          style={{ fontSize: 13, background: 'rgba(248,81,73,0.1)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)' }}
+          onClick={() => onCloseGroups(groups)}
+          title="Close every selected route and free their aircraft"
+        >
+          Close routes
+        </button>
+        <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={onClear}>Clear</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Per-class pricing panel ──────────────────────────────────────────────────
 
 function PricingPanel({ route, aircraft, type }) {
@@ -996,7 +1859,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
           {result ? `+${formatMoney(result.revenue)}` : '—'}
         </td>
         <td style={{ padding: '7px 8px', color: 'var(--red)' }}>
-          {result ? `−${formatMoney(result.totalOpCost)}` : '—'}
+          {result ? `−${formatMoney(result.totalOpCost + (result.landingFee ?? 0))}` : '—'}
         </td>
         <td style={{ padding: '7px 8px', color: bhColor, fontWeight: 600 }}>
           {blockHrs > 0 ? `${blockHrs.toFixed(1)}h` : '—'}
@@ -1059,7 +1922,7 @@ function airportRegion(airport) {
 
 function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const { state, dispatch } = useGame();
-  const { fleet, routes, hub, gates = {} } = state;
+  const { fleet, routes, hub, gates = {}, cargoRoutes = [] } = state;
 
   const isAddingFlights = initialOrigin != null && initialDest != null;
 
@@ -1071,7 +1934,29 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
       .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0);
   };
 
-  const defaultAircraft = fleet.find(a => usedBlockHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS);
+  // Freighters can't fly passenger routes (the reducer rejects them) — keep them
+  // out of this form entirely; they're managed in the cargo planner.
+  const paxFleet = fleet.filter(a => !getAircraftType(a.typeId)?.freighter);
+  const hasHours = (a) => usedBlockHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS;
+
+  // Default aircraft. In add-flights mode, prefer one already flying this pair
+  // (merges frequency, no launch cost), then one whose network touches an endpoint
+  // (passes the connectivity rule), then any idle passenger aircraft.
+  const pairAircraftIds = isAddingFlights
+    ? new Set(routes.filter(r =>
+        (r.origin === initialOrigin && r.destination === initialDest) ||
+        (r.origin === initialDest && r.destination === initialOrigin)
+      ).map(r => r.aircraftId))
+    : new Set();
+  const connectsToPair = (a) => {
+    const acRoutes = routes.filter(r => r.aircraftId === a.id);
+    return acRoutes.length === 0 ||
+      acRoutes.some(r => [r.origin, r.destination].some(c => c === initialOrigin || c === initialDest));
+  };
+  const defaultAircraft = isAddingFlights
+    ? (paxFleet.find(a => pairAircraftIds.has(a.id) && hasHours(a))
+        ?? paxFleet.find(a => hasHours(a) && connectsToPair(a)))
+    : paxFleet.find(hasHours);
 
   const [origin, setOrigin] = useState(initialOrigin ?? hub);
   const [dest,   setDest]   = useState(initialDest   ?? '');
@@ -1119,7 +2004,8 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // Per-month peak so a dormant route frees its slots for a counter-seasonal route.
   const slotsUsedAt    = (code) => Math.max(0, ...newMonths.map(m =>
     routes.filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
-      .reduce((s, r) => s + r.weeklyFrequency, 0)));
+      .reduce((s, r) => s + r.weeklyFrequency, 0)))
+    + cargoSlotsUsedAt(code, cargoRoutes);
   const originSlotCap  = (gates[origin] ?? 0) * SLOTS_PER_GATE;
   const originSlotsUsed = slotsUsedAt(origin);
   const originSlotsOk  = gateAtOrigin && (originSlotsUsed + Number(frequency) <= originSlotCap);
@@ -1134,8 +2020,32 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const connectivityOk   = aircraftRoutes.length === 0 ||
     servedAirports.has(origin) || (validDest && servedAirports.has(dest));
 
+  // Regulatory restrictions (perimeter rules, per-pair frequency caps) — mirror
+  // the reducer's check so a submit is never silently rejected.
+  const pairKey = validDest ? [origin, dest].sort().join('-') : null;
+  const restriction = (validDest && type) ? (() => {
+    const pairRoutes = routes.filter(r => [r.origin, r.destination].sort().join('-') === pairKey);
+    const peakPairFreq = Math.max(0, ...newMonths.map(m =>
+      pairRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) => s + r.weeklyFrequency, 0)));
+    return checkRouteRestrictions(origin, dest, dist, peakPairFreq + Number(frequency), type.category,
+      { routes, excludeKey: pairKey });
+  })() : null;
+
+  // Launch cost applies only when this opens a NEW route; adding frequency to a
+  // route the same aircraft already flies (same season window) merges for free.
+  const sameSeasonAs = (r) => {
+    const a = routeActiveMonths(r);
+    return a.length === newMonths.length && a.every((m, i) => m === newMonths[i]);
+  };
+  const mergesExisting = validDest && aircraft && routes.some(r =>
+    r.aircraftId === aircraft.id && sameSeasonAs(r) &&
+    ((r.origin === origin && r.destination === dest) || (r.origin === dest && r.destination === origin)));
+  const launchCost = (validDest && dist && !mergesExisting) ? routeLaunchCost(dist) : 0;
+  const canAfford  = state.cash >= launchCost;
+
   const canSubmit = validDest && aircraft && inRange && blockOk &&
-    gateAtOrigin && gateAtDest && originSlotsOk && destSlotsOk && connectivityOk;
+    gateAtOrigin && gateAtDest && originSlotsOk && destSlotsOk && connectivityOk &&
+    !restriction && canAfford;
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -1226,7 +2136,8 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Aircraft</label>
             <select className="form-select" value={aircraftId} onChange={e => setAircraftId(e.target.value)} required>
-              {fleet.map(a => {
+              {aircraftId === '' && <option value="">— Select aircraft —</option>}
+              {paxFleet.map(a => {
                 const t    = getAircraftType(a.typeId);
                 const used = usedBlockHrsFor(a);
                 const rem  = MAX_WEEKLY_BLOCK_HOURS - used;
@@ -1287,6 +2198,21 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
           </div>
         )}
 
+        {/* Regulatory restriction warning */}
+        {restriction && (
+          <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 10 }}>
+            <Glyph e="⛔" /> {restriction.reason.split(': ')[1] ?? restriction.reason}
+          </div>
+        )}
+
+        {/* Launch cost (new routes only — merging into an existing route is free) */}
+        {validDest && launchCost > 0 && (
+          <div style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)', marginBottom: 10 }}>
+            <Glyph e={canAfford ? '💸' : '⚠'} /> One-time launch cost: {formatMoney(launchCost)}
+            {!canAfford && ' — insufficient cash'}
+          </div>
+        )}
+
         {/* Block-hours bar */}
         {newBlockHrs > 0 && (
           <div style={{ marginBottom: 10 }}>
@@ -1316,20 +2242,24 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
         {/* Gate / slot status */}
         {validDest && (
           <div style={{ fontSize: 12, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {!gateAtOrigin ? (
-              <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> No gate at {origin} — go to Gates tab</span>
-            ) : !originSlotsOk ? (
-              <span style={{ color: 'var(--yellow)' }}><Glyph e="⚠" /> Not enough slots at {origin} ({originSlotsUsed}/{originSlotCap}) — add another gate</span>
-            ) : (
-              <span style={{ color: 'var(--green)' }}><Glyph e="✓" /> {origin}: {originSlotsUsed + Number(frequency)}/{originSlotCap} slots</span>
-            )}
-            {!gateAtDest ? (
-              <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> No gate at {dest} — go to Gates tab</span>
-            ) : !destSlotsOk ? (
-              <span style={{ color: 'var(--yellow)' }}><Glyph e="⚠" /> Not enough slots at {dest} ({destSlotsUsed}/{destSlotCap}) — add another gate</span>
-            ) : (
-              <span style={{ color: 'var(--green)' }}><Glyph e="✓" /> {dest}: {destSlotsUsed + Number(frequency)}/{destSlotCap} slots</span>
-            )}
+            {[
+              { code: origin, hasGate: gateAtOrigin, slotsOk: originSlotsOk, used: originSlotsUsed, cap: originSlotCap },
+              { code: dest,   hasGate: gateAtDest,   slotsOk: destSlotsOk,   used: destSlotsUsed,   cap: destSlotCap },
+            ].map(({ code, hasGate, slotsOk, used, cap }) => (
+              !hasGate ? (
+                <span key={code} style={{ color: 'var(--red)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Glyph e="⚠" /> No gate at {code}
+                  <AddGateButton code={code} />
+                </span>
+              ) : !slotsOk ? (
+                <span key={code} style={{ color: 'var(--yellow)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Glyph e="⚠" /> Not enough slots at {code} ({used}/{cap})
+                  <AddGateButton code={code} />
+                </span>
+              ) : (
+                <span key={code} style={{ color: 'var(--green)' }}><Glyph e="✓" /> {code}: {used + Number(frequency)}/{cap} slots</span>
+              )
+            ))}
           </div>
         )}
 

@@ -353,7 +353,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2.2,
     baseMaintenancePerWk: 210_000,
     description: 'Stretched quad with massive capacity. High fuel burn but very long range.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Frankfurt_Airport_Lufthansa_Airbus_A340-313_D-AIGY_%28DSC02566%29.jpg/960px-Frankfurt_Airport_Lufthansa_Airbus_A340-313_D-AIGY_%28DSC02566%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Lufthansa_Airbus_A340-600_D-AIHZ_MD2.jpg/960px-Lufthansa_Airbus_A340-600_D-AIHZ_MD2.jpg',
   },
   {
     id: 'a350900',
@@ -383,7 +383,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2,      // same crew as the -900
     baseMaintenancePerWk: 255_000,  // marginally higher than the -900
     description: 'Ultra-long-range A350. The only aircraft capable of operating the world\'s longest routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/EGLF_-_Airbus_A350-941_-_F-WZNW.jpg/960px-EGLF_-_Airbus_A350-941_-_F-WZNW.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Singapore_Airlines_Airbus_A350-900_ULR_at_New_York_JFK.jpg/960px-Singapore_Airlines_Airbus_A350-900_ULR_at_New_York_JFK.jpg',
   },
   {
     id: 'a3501000',
@@ -581,7 +581,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.74,
     baseMaintenancePerWk: 45_000,
     description: 'Shorter Classic 737 with good range. Ideal for thinner medium-haul routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg/960px-Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Boeing_737-500%2C_PLL_LOT_%2816020940261%29.jpg/960px-Boeing_737-500%2C_PLL_LOT_%2816020940261%29.jpg',
   },
   {
     id: 'b737300',
@@ -626,7 +626,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.77,
     baseMaintenancePerWk: 51_000,
     description: 'Stretched Classic 737. Wide second-hand market makes it accessible.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg/960px-Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Boeing_737-400_%28Olympic_Airlines%29_%283554931490%29.jpg/960px-Boeing_737-400_%28Olympic_Airlines%29_%283554931490%29.jpg',
   },
   {
     id: 'b707320',
@@ -656,7 +656,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.74,
     baseMaintenancePerWk: 52_400,
     description: 'Smallest MAX. Excellent range for its size, suited to thinner long-haul routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Alaska_737_Max_9.jpg/960px-Alaska_737_Max_9.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/50/Southwest_Boeing_737-8_MAX_N8847Q_BWI_MD2.jpg/960px-Southwest_Boeing_737-8_MAX_N8847Q_BWI_MD2.jpg',
   },
   {
     id: 'b737800',
@@ -734,7 +734,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.83,
     baseMaintenancePerWk: 70_000,
     description: 'Largest MAX variant. High capacity for busy short-to-medium routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Alaska_737_Max_9.jpg/960px-Alaska_737_Max_9.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Braunschweig_Airport_Smartwings_Boeing_737-8_MAX_OK-SWI_%28DSC00763%29.jpg/960px-Braunschweig_Airport_Smartwings_Boeing_737-8_MAX_OK-SWI_%28DSC00763%29.jpg',
   },
   {
     id: 'b757200',
@@ -771,7 +771,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.95,
     baseMaintenancePerWk: 92_400,
     description: 'Stretched 757. Very high seat density in the narrow-body class.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Delta_757-200_N713TW_on_final_approach_to_Boston_Dec_2024_2.jpg/960px-Delta_757-200_N713TW_on_final_approach_to_Boston_Dec_2024_2.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/United_Boeing_757-300_N78866_take_off_from_Runway_27_Boston_Feb_2025.jpg/960px-United_Boeing_757-300_N78866_take_off_from_Runway_27_Boston_Feb_2025.jpg',
     configOptions: {
       engines: [
         { id: 'rb211', label: 'RR RB211-535E4B', description: 'Standard fitment. Proven reliability.', fuelMod: 1.00, priceMod: 1.00, default: true },
@@ -793,7 +793,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.55,
     baseMaintenancePerWk: 120_000,
     description: 'Original transatlantic twin. Long range in a smaller widebody package.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Delta_Air_Lines_B767-332_N130DL.jpg/960px-Delta_Air_Lines_B767-332_N130DL.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/United_Boeing_767-200_N74007_MD1.jpg/960px-United_Boeing_767-200_N74007_MD1.jpg',
     configOptions: {
       engines: [
         { id: 'cf6',    label: 'GE CF6-80A', description: 'Standard fitment. Broad MRO availability.', fuelMod: 1.00, priceMod: 1.00, default: true },
@@ -838,7 +838,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.68,
     baseMaintenancePerWk: 145_000,
     description: 'Stretched 767 with modern winglets. Good capacity for medium long-haul routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Delta_Air_Lines_B767-332_N130DL.jpg/960px-Delta_Air_Lines_B767-332_N130DL.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/aa/United_Boeing_767-400ER_N76065_MD1.jpg/960px-United_Boeing_767-400ER_N76065_MD1.jpg',
   },
   {
     id: 'b7878',
@@ -910,7 +910,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2.3,
     baseMaintenancePerWk: 275_000,
     description: 'Classic first-generation jumbo. Very cheap to buy but extremely thirsty.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/B-747_Iberia.jpg/960px-B-747_Iberia.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Boeing_747-209B_-_China_Airlines_B-18255_0239713.jpg/960px-Boeing_747-209B_-_China_Airlines_B-18255_0239713.jpg',
   },
   {
     id: 'b777200lr',
@@ -940,7 +940,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.9,
     baseMaintenancePerWk: 210_000,
     description: 'Stretched 787, great capacity but shorter range. Best for busy medium-haul.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Boeing_787_N1015B_ANA_Airlines_%2827611880663%29_%28cropped%29.jpg/960px-Boeing_787_N1015B_ANA_Airlines_%2827611880663%29_%28cropped%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/United_Boeing_787-10_N12003_MD1.jpg/960px-United_Boeing_787-10_N12003_MD1.jpg',
     configOptions: {
       engines: [
         { id: 'genx',    label: 'GEnx-1B76/P2', description: 'Standard fitment. Optimised for the stretched fuselage.', fuelMod: 1.00, priceMod: 1.00, default: true },
@@ -976,7 +976,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2.05,
     baseMaintenancePerWk: 240_000,
     description: 'The freight train of long-haul. Massive capacity, proven on trunk routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Cathay_Pacific_Boeing_777-200%3B_B-HNL%40HKG.jpg/960px-Cathay_Pacific_Boeing_777-200%3B_B-HNL%40HKG.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Turkish_Airlines_Boeing_777-300ER_TC-LJA_MD1.jpg/960px-Turkish_Airlines_Boeing_777-300ER_TC-LJA_MD1.jpg',
   },
   {
     id: 'b747400',
@@ -991,7 +991,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2.25,
     baseMaintenancePerWk: 310_000,
     description: 'The Queen of the Skies. Iconic four-engine jumbo on high-density trunk routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/B-747_Iberia.jpg/960px-B-747_Iberia.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Singapore_Airlines_B747-400_%289V-SPK%29_in_Tropical_livery.jpg/960px-Singapore_Airlines_B747-400_%289V-SPK%29_in_Tropical_livery.jpg',
   },
   {
     id: 'b7778x',
@@ -1006,7 +1006,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2.15,
     baseMaintenancePerWk: 275_000,
     description: 'Ultra-long-range 777X. Connects the world\'s most distant city pairs.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/777X_Roll-Out_%2840407373023%29_%28cropped%29.jpg/960px-777X_Roll-Out_%2840407373023%29_%28cropped%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Boeing_777-9_front_view.jpg/960px-Boeing_777-9_front_view.jpg',
   },
   {
     id: 'b7779x',
@@ -1098,7 +1098,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.61,
     baseMaintenancePerWk: 33_000,
     description: 'Largest CRJ. High seat count in the regional jet class.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Bombardier_CRJ-900_by_Lufthansa_CityLine.jpg/960px-Bombardier_CRJ-900_by_Lufthansa_CityLine.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Bombardier_CRJ-1000_%E2%80%98EC-LJT%E2%80%99_Iberia_Regional_%2832216523755%29.jpg/960px-Bombardier_CRJ-1000_%E2%80%98EC-LJT%E2%80%99_Iberia_Regional_%2832216523755%29.jpg',
   },
 
   // ── BRITISH AEROSPACE ───────────────────────────────────────────────────────
@@ -1115,7 +1115,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.58,
     baseMaintenancePerWk: 25_600,
     description: 'Upgraded BAe 146 with FADEC engines. Quieter and more reliable than its predecessor.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Former_United_Airlines_BAe_146-200_%28N183US%29.jpg/960px-Former_United_Airlines_BAe_146-200_%28N183US%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/EI-RJU_Cityjet_British_Aerospace_Avro_RJ85%2C_takeoff_from_Schiphol_%28EHAM-AMS%29_runway_36L_pic1.JPG/960px-EI-RJU_Cityjet_British_Aerospace_Avro_RJ85%2C_takeoff_from_Schiphol_%28EHAM-AMS%29_runway_36L_pic1.JPG',
   },
   {
     id: 'bae146200',
@@ -1130,7 +1130,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.58,
     baseMaintenancePerWk: 26_400,
     description: 'Quiet quad-jet with exceptional short-field performance. Perfect for city airports.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Former_United_Airlines_BAe_146-200_%28N183US%29.jpg/960px-Former_United_Airlines_BAe_146-200_%28N183US%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/British_Aerospace_BAe-146-200%2C_Eurowings_AN0107805.jpg/960px-British_Aerospace_BAe-146-200%2C_Eurowings_AN0107805.jpg',
   },
 
   // ── BRITTEN-NORMAN ──────────────────────────────────────────────────────────
@@ -1275,7 +1275,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.5,
     baseMaintenancePerWk: 22_000,
     description: 'First of the E-jet family. Comfortable twin-aisle-style interior.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/SkyWest_Airlines_Embraer_ERJ-175.jpg/960px-SkyWest_Airlines_Embraer_ERJ-175.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/American_Eagle_Embraer_170_N855RW_pushback_at_Boston_January_2026.jpg/960px-American_Eagle_Embraer_170_N855RW_pushback_at_Boston_January_2026.jpg',
   },
   {
     id: 'e175',
@@ -1305,7 +1305,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.54,
     baseMaintenancePerWk: 24_600,
     description: 'Next-gen E175 with improved fuel burn. Better economics than the original.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Wider%C3%B8e%2C_LN-WEA%2C_Embraer_E190-E2_%40_HEL.jpg/960px-Wider%C3%B8e%2C_LN-WEA%2C_Embraer_E190-E2_%40_HEL.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/PR-ZEY_E190-E2_%28FAB-EGLF%29_%2828498436022%29.jpg/960px-PR-ZEY_E190-E2_%28FAB-EGLF%29_%2828498436022%29.jpg',
   },
   {
     id: 'e190',
@@ -1353,7 +1353,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.66,
     baseMaintenancePerWk: 37_200,
     description: 'Largest of the original E-jet family. Bridges regional jets and narrow-bodies on medium-thin routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/KLM_Cityhopper_-_Embraer_190LR_-_AN2571563.jpg/960px-KLM_Cityhopper_-_Embraer_190LR_-_AN2571563.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Embraer_195_%2823252063916%29.jpg/960px-Embraer_195_%2823252063916%29.jpg',
   },
   {
     id: 'e195e2',
@@ -1368,7 +1368,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.68,
     baseMaintenancePerWk: 39_600,
     description: 'Next-gen E-jet with improved fuel efficiency. Bridges regional and narrow-body.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Wider%C3%B8e%2C_LN-WEA%2C_Embraer_E190-E2_%40_HEL.jpg/960px-Wider%C3%B8e%2C_LN-WEA%2C_Embraer_E190-E2_%40_HEL.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/EC-NFA_Embraer_E195-E2_Binter_VGO.jpg/960px-EC-NFA_Embraer_E195-E2_Binter_VGO.jpg',
     configOptions: {
       engines: [
         { id: 'pw1900g', label: 'PW1922G', description: 'Standard fitment. Geared turbofan with class-leading fuel economy.', fuelMod: 1.00, priceMod: 1.00, default: true },
@@ -1864,7 +1864,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.2,
     baseMaintenancePerWk: 78_000,
     description: 'Stretched four-engine long-haul classic of the 1960s — the first jet to exceed Mach 1 in a (test) dive.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/DC-8_Airborne_Laboratory_in_flight_over_snow-capped_Sierra_Nevada_mountain_range.jpg/1280px-DC-8_Airborne_Laboratory_in_flight_over_snow-capped_Sierra_Nevada_mountain_range.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/Douglas_DC-8-63%2C_Capitol_Air_AN1002638.jpg/960px-Douglas_DC-8-63%2C_Capitol_Air_AN1002638.jpg',
   },
   {
     id: 'caravelle',
@@ -2089,7 +2089,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 2.3,
     baseMaintenancePerWk: 275_000,
     description: 'Stretched-upper-deck Jumbo bridging the -200 and the definitive -400.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/B-747_Iberia.jpg/1280px-B-747_Iberia.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/67bc_-_JAL_Japan_Airlines_Boeing_747-300%3B_JA8186%40SYD%3B15.08.1999_%285238186138%29.jpg/960px-67bc_-_JAL_Japan_Airlines_Boeing_747-300%3B_JA8186%40SYD%3B15.08.1999_%285238186138%29.jpg',
   },
   {
     id: 'a300b4',
@@ -2104,7 +2104,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.85,
     baseMaintenancePerWk: 120_000,
     description: 'The world\'s first twin-engine widebody — the aircraft that launched Airbus.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Iran_Air_Airbus_A300-605R%3B_EP-IBD%40FRA%3B06.07.2011_603ks_%285915220574%29.jpg/1280px-Iran_Air_Airbus_A300-605R%3B_EP-IBD%40FRA%3B06.07.2011_603ks_%285915220574%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Air_Afrique_Airbus_A300B4-203_TU-TAO_GVA_1982-5-20.png/960px-Air_Afrique_Airbus_A300B4-203_TU-TAO_GVA_1982-5-20.png',
   },
   {
     id: 'a310200',
@@ -2269,7 +2269,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.6,
     baseMaintenancePerWk: 12_000,
     description: 'Jet-powered 328 — one of the smallest regional jets ever in airline service.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Sun-Air_Do-328.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Dornier_328Jet%2C_SunAir.jpg/960px-Dornier_328Jet%2C_SunAir.jpg',
   },
   {
     id: 'do228',
@@ -2359,7 +2359,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.7,
     baseMaintenancePerWk: 9_000,
     description: 'The original Dash 8 — STOL-capable 39-seat regional turboprop.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Hamburg_Airport_Wider%C3%B8e_Bombardier_DHC-8-402Q_LN-WDR_%28DSC08713%29.jpg/1280px-Hamburg_Airport_Wider%C3%B8e_Bombardier_DHC-8-402Q_LN-WDR_%28DSC08713%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/ASJ_Air_Canada_Jazz_-_De_Havilland_Canada_DHC-8-102_Dash_8_-_C-GION_-_832_-_Flight_JZA7792_YAM_-_YYZ_%289448827146%29.jpg/960px-ASJ_Air_Canada_Jazz_-_De_Havilland_Canada_DHC-8-102_Dash_8_-_C-GION_-_832_-_Flight_JZA7792_YAM_-_YYZ_%289448827146%29.jpg',
   },
   {
     id: 'dhc8200',
@@ -2374,7 +2374,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.7,
     baseMaintenancePerWk: 9_500,
     description: 'Higher-powered Dash 8-100 with better speed and hot-and-high performance.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Hamburg_Airport_Wider%C3%B8e_Bombardier_DHC-8-402Q_LN-WDR_%28DSC08713%29.jpg/1280px-Hamburg_Airport_Wider%C3%B8e_Bombardier_DHC-8-402Q_LN-WDR_%28DSC08713%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Icelandair%2C_TF-FXG%2C_De_Havilland_Canada_Dash_8-200_%2852341964812%29.jpg/960px-Icelandair%2C_TF-FXG%2C_De_Havilland_Canada_Dash_8-200_%2852341964812%29.jpg',
   },
   {
     id: 'dash7',
@@ -2419,7 +2419,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.74,
     baseMaintenancePerWk: 9_800,
     description: 'Modernized MA60 with glass cockpit and updated systems.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/B-3706_-_Okay_Airways_-_Modern_Ark_60_-_DLC_%289575868910%29.jpg/1280px-B-3706_-_Okay_Airways_-_Modern_Ark_60_-_DLC_%289575868910%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/CAFUC_-_Xian_MA-600.jpg/960px-CAFUC_-_Xian_MA-600.jpg',
   },
   {
     id: 'c408',
@@ -2515,7 +2515,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 39,
     description: 'Narrowbody express freighter — the backbone of integrators like UPS and FedEx.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Delta_757-200_N713TW_on_final_approach_to_Boston_Dec_2024_2.jpg/1280px-Delta_757-200_N713TW_on_final_approach_to_Boston_Dec_2024_2.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Boeing_757-24A%28PF%29%2C_United_Parcel_Service_%28UPS%29_JP6779815.jpg/960px-Boeing_757-24A%28PF%29%2C_United_Parcel_Service_%28UPS%29_JP6779815.jpg',
   },
   {
     id: 'md11f',
@@ -2532,7 +2532,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 91,
     description: 'Tri-jet freighter prized by cargo carriers long after passenger MD-11s retired.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/McDonnell_Douglas_MD-11P_KLM_PH-KCC.jpg/1280px-McDonnell_Douglas_MD-11P_KLM_PH-KCC.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/FedEx_MD-11F_N607FE.jpg/960px-FedEx_MD-11F_N607FE.jpg',
   },
   {
     id: 'a300600f',
@@ -2549,7 +2549,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 54,
     description: 'Widebody freighter workhorse — FedEx\'s most numerous type for years.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Iran_Air_Airbus_A300-605R%3B_EP-IBD%40FRA%3B06.07.2011_603ks_%285915220574%29.jpg/1280px-Iran_Air_Airbus_A300-605R%3B_EP-IBD%40FRA%3B06.07.2011_603ks_%285915220574%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Fedex_Airbus_A300F4-600_N722FD_BWI_MD2.jpg/960px-Fedex_Airbus_A300F4-600_N722FD_BWI_MD2.jpg',
   },
   {
     id: 'dc1030f',
@@ -2566,7 +2566,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 78,
     description: 'Converted tri-jet freighter with long legs and a big main deck.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/d/d9/Continental_Airlines_DC-10.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/FEDEX_McDonnell_Douglas_DC-10-30F_%28N308FE_48297_416%29_%285679749455%29.jpg/960px-FEDEX_McDonnell_Douglas_DC-10-30F_%28N308FE_48297_416%29_%285679749455%29.jpg',
   },
   {
     id: 'b737400f',
@@ -2583,7 +2583,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 20,
     description: 'Classic 737 converted to carry parcels — ubiquitous regional cargo hauler.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg/1280px-Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/Sideral_Air_Cargo_Boeing_737-400SF_PR-SDJ.jpg/960px-Sideral_Air_Cargo_Boeing_737-400SF_PR-SDJ.jpg',
   },
   {
     id: 'b737300f',
@@ -2600,7 +2600,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 18,
     description: 'Earlier classic-737 freighter conversion for short-haul express networks.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg/1280px-Classic_Colors_Southwest_Airlines_N648SW_Boeing_737-3H4_SJC.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Australian_air_Express_%28Express_Freighters_Australia%29_Boeing_737-376%28SF%29_DRW_Butler.jpg/960px-Australian_air_Express_%28Express_Freighters_Australia%29_Boeing_737-376%28SF%29_DRW_Butler.jpg',
   },
   {
     id: 'b727200f',
@@ -2617,7 +2617,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 26,
     description: 'Tri-jet freighter that powered overnight express in the 1980s-90s.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/B-727_Iberia_%28cropped%29.jpg/1280px-B-727_Iberia_%28cropped%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Boeing_727-2S2F-Adv%28RE%29_Super_27%2C_FedEx_-_Federal_Express_AN0260523.jpg/960px-Boeing_727-2S2F-Adv%28RE%29_Super_27%2C_FedEx_-_Federal_Express_AN0260523.jpg',
   },
   {
     id: 'dc873f',
@@ -2634,7 +2634,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 53,
     description: 'Re-engined long-range DC-8 freighter, valued for trans-ocean cargo runs.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/DC-8_Airborne_Laboratory_in_flight_over_snow-capped_Sierra_Nevada_mountain_range.jpg/1280px-DC-8_Airborne_Laboratory_in_flight_over_snow-capped_Sierra_Nevada_mountain_range.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Douglas_DC-8-73%28F%29_%28German_Cargo%29_AN0197197.jpg/960px-Douglas_DC-8-73%28F%29_%28German_Cargo%29_AN0197197.jpg',
   },
   {
     id: 'e190f',
@@ -2668,7 +2668,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 28,
     description: 'Passenger-to-freighter A321 — efficient narrowbody capacity for e-commerce growth.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/81/Airbus_A321-231%28w%29_%E2%80%98N915US%E2%80%99_American_Airlines_%2828442733186%29.jpg/1280px-Airbus_A321-231%28w%29_%E2%80%98N915US%E2%80%99_American_Airlines_%2828442733186%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/G-POWW_-_Airbus_A321-211%28P2F%29_-_Titan_Airways_STN_130124.jpg/960px-G-POWW_-_Airbus_A321-211%28P2F%29_-_Titan_Airways_STN_130124.jpg',
   },
   {
     id: 'b767200sf',
@@ -2685,7 +2685,7 @@ export const AIRCRAFT_TYPES = [
     freighter: true,
     payloadTonnes: 42,
     description: 'Special-freighter 767-200 conversion — a favorite of Amazon Air feeder fleets.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Delta_Air_Lines_B767-332_N130DL.jpg/1280px-Delta_Air_Lines_B767-332_N130DL.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Boeing_767-232%28SF%29%2C_Amerijet_International_JP7699998.jpg/960px-Boeing_767-232%28SF%29%2C_Amerijet_International_JP7699998.jpg',
   },
   {
     id: 'an12',
@@ -2710,7 +2710,7 @@ export function getAircraftType(id) {
   return AIRCRAFT_TYPES.find(a => a.id === id);
 }
 
-export const AIRCRAFT_CATEGORIES = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body', 'Supersonic', 'Freighter'];
+export const AIRCRAFT_CATEGORIES = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body', 'Double Deck', 'Supersonic', 'Freighter'];
 
 // ─── Purchase pricing helpers ─────────────────────────────────────────────────
 

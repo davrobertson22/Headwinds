@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Devlog — Tailwinds Airline Management Game Updates</title>
+  <meta name="description" content="Development log for Tailwinds: what's new in the free browser airline management game — new features, balance changes, and fixes, update by update." />
+  <link rel="canonical" href="https://www.tailwindsairlinegame.com/devlog.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#1b1b1f; --panel:#26262d; --line:#3a3b40; --text:#ededee; --muted:#a1a1aa; --gold:#c79a4b; --gold-light:#d3ad63; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--gold-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--gold-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:0 0 4px; }
+    h3 { font-size:1.05rem; margin:20px 0 6px; }
+    p { margin:0 0 16px; }
+    ul { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .entry { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:24px 28px; margin:0 0 22px; }
+    .entry .date { color:var(--gold-light); font-size:0.85rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; margin:0 0 6px; }
+    .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--gold-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Tailwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Devlog</h1>
+    <p class="lede">What's changing in Tailwinds, update by update. The game ships improvements continuously — this page collects them into readable release notes. For discussion, bug reports, and sneak peeks, <a href="/contact.html">join the Discord</a>.</p>
+
+    <div class="entry">
+      <p class="date">July 10, 2026</p>
+      <h2>Loyalty rework: a long game with real money on the line</h2>
+      <p>Frequent-flyer programs used to be a vending machine — fund one for a quarter, collect a permanent bonus. No longer. Loyalty is now a genuine long-term investment: expensive up front, compounding for years, and painful to abandon.</p>
+      <ul>
+        <li><strong>Program maturity.</strong> Alongside member sign-ups, your program now builds <em>maturity</em> over roughly 18 months of continuous funding. A young program delivers only a quarter of its potential — the full demand shield, price-sensitivity protection and reputation prestige unlock as members build status and history worth protecting.</li>
+        <li><strong>Points are a real debt.</strong> Members earn points on every flight, and those points accrue as a visible <em>points liability</em> you repay over the following months as award seats. A growing program looks cheap before the redemption bill arrives — budget for it. About 20% of points quietly expire unused, which is where a well-run program eventually finds its margin.</li>
+        <li><strong>Expect years, not weeks.</strong> Enrollment is slower and early effects smaller: a well-funded program typically runs at a net loss for its first year and breaks even after two to three. After that it's one of the strongest moats in the game.</li>
+        <li><strong>Killing a program hurts.</strong> Defund a mature program and elite members defect fast, trust unwinds four times quicker than it was built — and every outstanding point must still be honoured.</li>
+        <li><strong>Elite tier matters now.</strong> Higher investment tiers no longer just enrol members faster — they raise the effect ceilings. Gold caps the hub demand boost at +10%; Elite pushes it to +12.5% with a stronger price shield, and matures fastest.</li>
+      </ul>
+      <p>The in-game wiki's Loyalty section has the full numbers. Existing saves carry over: established programs are credited with partial maturity rather than starting from zero. See also the <a href="/strategy.html">strategy guide</a> on when a loyalty program fits your airline's stage.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 8, 2026</p>
+      <h2>Two new alliances: the value bloc and the emerging-market network</h2>
+      <p>The alliance map grows from three global blocs to five, giving more carriers — and more playstyles — a network to call home.</p>
+      <ul>
+        <li><strong>Horizon Coalition.</strong> A low-cost carriers' alliance with cheap dues, an easy entry bar (just 5 routes and a 35 quality score), and the strongest revenue lift on contested routes. For the first time, running a budget carrier doesn't mean going it alone.</li>
+        <li><strong>Meridian Alliance.</strong> A fast-growing bloc of carriers across Africa, South Asia and Latin America, coordinating schedules to open connecting demand through emerging-market gateways the legacy alliances underserve.</li>
+        <li><strong>More room to choose.</strong> With five alliances competing for members, rivals spread across a wider map and your own membership decision carries more weight. Benefits still track live membership as carriers join and leave over time.</li>
+      </ul>
+      <p>See the full lineup and eligibility on the Alliances page in-game.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 8, 2026</p>
+      <h2>The hub overhaul: focus cities, real connections, and fortress hubs</h2>
+      <p>The biggest network update Tailwinds has shipped. Hubs are no longer a passive checkbox — they're a system you build, defend, and feel in every line of your P&amp;L.</p>
+      <ul>
+        <li><strong>Focus cities.</strong> A new starter designation below Hub: 5 gates and $1M gets you a small connecting operation with modest cost savings — active immediately, and allowed <em>anywhere</em>, including abroad (one per foreign country). At home, grow one to 10 gates and promote it to a full hub.</li>
+        <li><strong>Connections are real now.</strong> Connecting revenue comes from actual one-stop itineraries sold over your hubs — every spoke you add opens new city-pair markets, and the route screen shows exactly which markets feed each flight. Connecting passengers occupy real seats too, so feed can fill an underperforming spoke.</li>
+        <li><strong>Hubs cut your costs.</strong> Routes touching your hubs get cheaper ground handling and catering (your own staff and kitchens), much cheaper crew layovers (crews sleep at home), and — at Major Hub and above — discounted maintenance from on-site line stations. The Hubs page totals the weekly savings.</li>
+        <li><strong>Earning your tiers.</strong> Hub upgrades now cost real capex and construction time: $5M and 4 weeks for a Hub, up to $100M and 16 weeks for an International Gateway. And money alone won't cut it — a Major Hub demands 20 routes at the airport, a Gateway 50 routes, 6 international destinations, 1,000 connecting passengers a week, and half a year's service as a Major Hub. The upgrade button is now a checklist, so you always know the path.</li>
+        <li><strong>Hub competition and fortress hubs.</strong> Rivals hubbing at your airport now siphon connecting traffic — the new dominance bar shows your share. Dominate an International Gateway with over 60% and it becomes a fortress: +2 quality and pricing power on every route touching it.</li>
+        <li><strong>Congestion you can fix.</strong> The old hidden big-hub penalty is gone. Congestion is now about routes per gate — exceed what your tier's facilities handle and connections suffer, visibly, until you buy more gates. When gates run short at your fortress, that's the game telling you to open a second hub.</li>
+      </ul>
+      <p>The in-game wiki's Hubs section covers all the numbers, and the <a href="/route-economics.html">route economics guide</a> explains how connecting demand feeds route revenue. Existing saves carry over cleanly — your current hubs keep their tiers.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 7, 2026</p>
+      <h2>Unions arrive: strikes and contract negotiations</h2>
+      <p>Underpaying your people is no longer a slow, quiet drag on quality — labor relations now have teeth.</p>
+      <ul>
+        <li><strong>Union unrest.</strong> Each labor group — pilots, cabin crew, ground staff, maintenance — now builds unrest week by week while its morale sits below 50, and the deeper the deficit the faster it climbs. Watch the new unrest bars on the Operations page: cross the strike threshold and a walkout is only a dice roll away.</li>
+        <li><strong>Strikes ground your schedule.</strong> When a group walks out, a large share of your flights are cancelled for one to two weeks — pilots hit hardest at over half the schedule — while your fixed costs keep running. Settle instantly with a 15% raise, or hold the line and eat the losses. Either way there's an industrial truce before the next walkout can start.</li>
+        <li><strong>Contract talks every couple of years.</strong> Each union periodically tables a pay demand — bigger after profitable years, and a snap back toward market rate if you've been paying below it. You get four weeks to accept, counter at the midpoint, or refuse. Counters are a gamble: content crews usually take the deal, angry ones pocket the raise and come back sooner. Ignoring the demand counts as a refusal.</li>
+        <li><strong>Strike losses on the books.</strong> Cancelled-flight revenue losses show up in the weekly debrief and your revenue history, so you can see exactly what a labor dispute cost you.</li>
+      </ul>
+      <p>The full mechanics are documented in the in-game wiki under Operations. Cost-cutters, consider this your two-week warning — the <a href="/strategy.html">strategy guide</a>'s advice about not gutting pay just became load-bearing.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 8, 2026</p>
+      <h2>Fixed: quality investments now count on multi-aircraft routes — and the Alliances page stops lying</h2>
+      <p>Players reported being unable to push their quality score past ~60 — thanks for flagging it, and for the follow-up reports. It turned out to be TWO bugs:</p>
+      <ul>
+        <li><strong>The Alliances page's "Product quality" was hardwired to 60.</strong> It read a per-route quality field the engine never actually reported, so every route fell back to a default of 60 — the number literally could not move, no matter what you flew. Since that same figure gates alliance eligibility, premium alliances with a quality requirement above 60 were impossible to join. The engine now reports real per-route quality scores and the page (and eligibility checks) use them.</li>
+        <li><strong>On routes flown by two or more of your own aircraft</strong>, the combined offer competing for market share ignored your catering, cabin-space, ground-staff and hub-investment quality bonuses (up to ~30 points!), plus the price-sensitivity shield from reputation and loyalty. All bonuses now apply everywhere.</li>
+      </ul>
+      <p>Also worth knowing: a standard-everything product genuinely tops out in the low 60s by design. To go higher, upgrade seat and service quality, fly a younger fleet, invest in hubs and catering, keep morale high, and leave slack in your schedules — the quality breakdown on each route's detail page shows exactly where your points come from.</p>
+      <p>One more refinement in this update: spacious cabins now build lasting goodwill. Floor space you deliberately leave unfilled already boosted per-route quality — it now also feeds your passenger-satisfaction track record, so a roomy fleet earns its reputation over time just like good catering and punctuality do.</p>
+      <p><strong>And we simplified the scoreboard.</strong> Six overlapping labels ("overall brand score", "product quality", "quality score (demand)", "passenger satisfaction"…) are now three clear scores, each answering one question: <strong>Quality</strong> — how good is the product? (wins market share and business travelers; satisfaction is a component inside it), <strong>Reputation</strong> — how much do travelers trust you? (demand nudge + price power), and <strong>Awareness</strong> — how many people know you exist? (demand reach). The Reputation page shows all three with their exact effects, and the Wiki explains the model.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 7, 2026</p>
+      <h2>Quality overhaul: earned reputations and cabins that matter</h2>
+      <p>The quality system got a deep rework — your product choices now do exactly what they say, and your customer rating is something you earn.</p>
+      <ul>
+        <li><strong>Passenger satisfaction is now a track record.</strong> A new satisfaction stat drifts each week toward the experience you actually delivered — punctuality, crew service, cabin product, catering, fleet age — and your customer rating comes from it. Gut your service to save money and the rating erodes over the following weeks; rebuilding trust is just as slow. Watch it on the Reputation page.</li>
+        <li><strong>Seat AND service quality now both count.</strong> Service quality (the soft product) previously cost money without moving demand — it now adds its own quality points alongside seat quality. And <em>basic</em> tiers are a real low-cost play: they save weekly cost per route in exchange for a quality penalty, instead of being a pointless label.</li>
+        <li><strong>See exactly where your quality score comes from.</strong> Route Detail now has a full breakdown — points from on-time performance, customer rating, cabin product, fleet age, cabin space, catering, ground staff and hub investment — so you know which lever to pull. The Competition page now shows the same score the demand engine actually uses.</li>
+        <li><strong>Quality now captures business travelers — even on monopoly routes.</strong> Business passengers have alternatives (rail, another hub, a video call), so the business demand you can capture scales with quality: roughly −12% for a bare-bones product up to +12% for a flagship one. On contested routes the whole market's business pool grows or shrinks with the quality on offer, so a premium product pays twice: a bigger pool and a bigger slice of it.</li>
+        <li><strong>Flagship products can charge flagship fares.</strong> Quality now stretches the business fare travelers will tolerate (about ±7%) before demand collapses — a luxury cabin holds a fat premium, while premium pricing on a bare-bones product gets punished sooner.</li>
+        <li><strong>Service moments make the news.</strong> New random events shock passenger satisfaction directly: a catering contractor meltdown or baggage-system failure dents it, a viral crew moment or industry service award lifts it — and the effect fades gradually over the following weeks, like real reputations do.</li>
+        <li><strong>Route forecasts got honest.</strong> The route planner now forecasts with your real on-time rate, fleet utilization and earned satisfaction instead of fixed averages, so projected quality matches what actually happens after launch.</li>
+      </ul>
+      <p>More on how quality shifts demand share in the <a href="/competition-and-alliances.html">competition guide</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 7, 2026</p>
+      <h2>On-time performance: it takes a whole airline (and a rested fleet)</h2>
+      <p>Your on-time rate used to depend on pilot morale alone. Now it reflects how airlines actually run:</p>
+      <ul>
+        <li><strong>Every frontline team matters.</strong> Punctuality now blends the morale of pilots (50%), ground staff (30%) and cabin crew (20%). Underpaying your ramp agents finally shows up where passengers notice — late departures.</li>
+        <li><strong>Overworked fleets run late.</strong> Push your average aircraft utilisation past roughly 60% of the weekly block-hour cap and schedules lose the slack to absorb delays — a fleet flown flat-out loses up to 12 points of on-time rate. Idle spare aircraft act as a buffer that protects punctuality, so a standby jet is no longer pure dead weight.</li>
+        <li><strong>Late flights cost you twice.</strong> A weaker on-time rate lowers your quality score (hurting demand on contested routes) and raises passenger compensation payouts. See the <a href="/route-economics.html">route economics guide</a> for how quality feeds demand.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 7, 2026</p>
+      <h2>Freighters now look like freighters</h2>
+      <p>Several cargo aircraft in the market — the 757-200PF, MD-11F, DC-10-30F, 727-200F, A321P2F, and 767-200SF — were showing photos of their passenger cousins. They now show proper freighter photos, windowless fuselages and all. Browse the full fleet in the <a href="/aircraft.html">aircraft guide</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 7, 2026</p>
+      <h2>Add Flights fixed, and no more silent dead ends</h2>
+      <p>A player on Discord reported that "Add Flights" sometimes did nothing — thanks for the report! The button could look ready while the game quietly refused the request. All of those dead ends are fixed:</p>
+      <ul>
+        <li><strong>Add Flights works reliably.</strong> The form now pre-selects an aircraft that already flies the route (which merges frequency for free), and freighters no longer appear in the passenger aircraft list — picking one was silently ignored.</li>
+        <li><strong>Every blocker is now visible before you click.</strong> Regulatory limits (like perimeter rules and per-route frequency caps) and the one-time route launch cost now show right in the form, instead of the request quietly failing. See the <a href="/route-economics.html">route economics guide</a> for how launch costs work.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 6, 2026</p>
+      <h2>Smarter passengers, real marketing, and big-network tools</h2>
+      <p>This update makes demand feel much more alive, and gives players with large networks the management tools they've been asking for.</p>
+      <h3>Demand &amp; marketing</h3>
+      <ul>
+        <li><strong>Loyalty and reputation now feed directly into the demand engine.</strong> Loyal passengers are less price-sensitive, and your airline-wide reputation shifts demand share on every contested route — quality investments finally pay where it counts.</li>
+        <li><strong>Marketing reworked from the ground up.</strong> Campaigns now build awareness over time using an adstock model instead of an instant, flat boost. You can target campaigns at specific airports, and share of voice matters — competitors run their own marketing, including aggressive blitzes you'll need to answer.</li>
+      </ul>
+      <h3>Quality of life for big airlines</h3>
+      <ul>
+        <li><strong>Route management is now table-first</strong> — sort, scan, and edit a 100-route network without endless scrolling.</li>
+        <li><strong>Bulk fleet actions:</strong> select multiple aircraft to configure, sell, return, or retire in one pass.</li>
+        <li><strong>Orders &amp; Deliveries:</strong> a new Market subtab tracks incoming aircraft, and you can now give aircraft custom names.</li>
+        <li>Route planners show an inline "Add gate" button when a hub runs out of slots.</li>
+      </ul>
+      <h3>Balance</h3>
+      <ul>
+        <li><strong>Economy rebalance:</strong> thinner route margins, slower route spool-up, and competitors that arrive earlier. Easy money is over — plan accordingly. The <a href="/route-economics.html">route economics guide</a> reflects the new reality.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 5, 2026</p>
+      <h2>Competitors that actually compete</h2>
+      <p>The biggest AI update since launch. Rival airlines are no longer static route lists — they run their businesses:</p>
+      <ul>
+        <li><strong>Full competitor AI.</strong> Rivals expand into profitable markets, defend their hubs, and respond to your moves.</li>
+        <li><strong>Fare wars.</strong> Undercut a competitor on their turf and expect retaliation on price — sometimes sustained, sometimes ruinous for both sides.</li>
+        <li><strong>Quality investment.</strong> AI carriers upgrade their product over time. You're no longer the only airline that can win on quality.</li>
+        <li><strong>Dynamic alliances and second hubs.</strong> Competitors form alliances and open new hubs as they grow, reshaping the map mid-game.</li>
+        <li><strong>Route finder.</strong> A new tool that scans the map for underserved opportunities from any airport.</li>
+        <li><strong>Cabin template picker</strong> for faster, consistent fleet configuration.</li>
+      </ul>
+      <p>Strategy implications are covered in the updated <a href="/competition-and-alliances.html">competition &amp; alliances guide</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 4, 2026</p>
+      <h2>Bulk pricing tools</h2>
+      <ul>
+        <li><strong>Reprice routes in bulk:</strong> filter by occupancy (find everything under 60% load in one click), select route cards, and adjust fares together instead of one dialog at a time.</li>
+        <li>Dashboard and Routes screens now share a single projection engine — the numbers you see are the numbers the simulation uses.</li>
+        <li>Cleaned up the site: new content pages and footer navigation, plus fixes to duplicate aircraft photos.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">June 24, 2026</p>
+      <h2>Double deckers arrive</h2>
+      <ul>
+        <li><strong>The A380 and 747 family are now in the marketplace</strong>, with a Double Decker filter to find them. Can your network actually fill 500 seats? The <a href="/aircraft-flagships.html">flagship guide</a> will help you decide.</li>
+        <li><strong>Fuel rebalance:</strong> base fuel price stepped up to $1.20/litre over several patches, making fuel efficiency — and <a href="/route-economics.html">hedging</a> — meaningfully more important.</li>
+        <li><strong>Fleet-complexity surcharge:</strong> each additional aircraft family adds ~2% to pilot and maintenance overhead. Fleet commonality is now a real strategy, not just a tip.</li>
+        <li>Fixed capacity caps on multi-aircraft routes and capacity-limited load factor display, with a new "capacity-limited" badge.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">June 21, 2026</p>
+      <h2>Branding &amp; freight polish</h2>
+      <ul>
+        <li><strong>In-game branding editor:</strong> upload your own logo, or use the built-in system — neutral greyscale bases with your accent colour driving the motif. Rename and recolour your airline any time.</li>
+        <li><strong>Freight UX:</strong> open cargo routes straight from the Routes page, a freighter-only checkout flow, and cargo flights auto-resume after mechanical delays.</li>
+        <li>Your airline's real mark now shows in the setup screen and header.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">June 19, 2026</p>
+      <h2>Tailwinds goes mobile</h2>
+      <ul>
+        <li><strong>Install it like an app.</strong> Tailwinds is now a progressive web app: add it to your home screen for a full-screen experience, with offline start once cached.</li>
+        <li><strong>A proper mobile layout:</strong> responsive route map, scrollable tables, a compact top bar with overflow menu, and touch-friendly inputs throughout.</li>
+        <li>Groundwork for further mobile improvements — if you play on a phone, feedback is especially welcome on <a href="/contact.html">Discord</a>.</li>
+      </ul>
+    </div>
+
+    <p>Older changes predate this devlog. From here on, every significant update gets an entry.</p>
+
+    <a class="cta" href="/">Play Tailwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+    </div>
+  </footer>
+</body>
+</html>

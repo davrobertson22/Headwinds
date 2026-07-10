@@ -1,14 +1,17 @@
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
 import { getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 export { baseCityPairDemand } from './market.js';
-import { cargoCityPairDemand, cargoReferenceYield } from './market.js';
+import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
 import { LABOR_GROUPS, laborEffects } from '../data/labor.js';
-import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO, fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
+import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
+         fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
   calcHQCost,
   weeklyInsuranceCost,
   weeklyLandingFee,
-  marketingDemandMultiplier,
+  awarenessDemandMultiplier,
+  campaignDemandBoostPct,
+  competitorPressureDrag,
   weeklyLayoverCost,
   weeklyPassengerCompensation,
   weeklyGroundHandlingCost,
@@ -20,6 +23,7 @@ import {
   buildRouteMarket,
   computeMarketShare,
   computeQualityScore,
+  cabinQualityPoints,
   buildCompetitorOffer,
   routeMaturityFactor,
   COMPETITOR_AIRLINES,
@@ -30,9 +34,12 @@ import {
 import {
   ALLIANCES,
   getAlliance,
+  allianceMembers,
   partnerInterlineRevenue,
 } from '../data/alliances.js';
 import { runNetworkTick } from '../models/network.js';
+import { competitorMarketingSpend } from '../models/competitorAI.js';
+import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
 import { buildEncroachmentOffer } from '../models/encroachment.js';
 
 // ─────────────────────────────────────────────
@@ -58,15 +65,13 @@ function toRad(d) { return d * Math.PI / 180; }
 /**
  * Market reference price for a route ($ one-way, economy).
  * Players can price above or below this — demand adjusts via elasticity.
+ *
+ * Re-exported from market.js — single source of truth shared with competitor
+ * economics. (Previously this file carried its own ×1.1-boosted copy while
+ * competitors used the ×0.95 market.js version, giving the player a hidden
+ * ~15% fare advantage.)
  */
-export function referencePrice(originCode, destCode) {
-  const o = getAirport(originCode);
-  const d = getAirport(destCode);
-  if (!o || !d) return 200;
-  const dist = distanceKm(o, d);
-  // Reference fares boosted 10% across the board to lift baseline yields.
-  return Math.round((80 + dist * 0.09) * 1.1);
-}
+export { referencePrice };
 
 // ─────────────────────────────────────────────
 // CABIN CLASS CONSTANTS
@@ -389,35 +394,125 @@ export function effectiveRangeKm(aircraft, type) {
 // QUALITY CONSTANTS
 // ─────────────────────────────────────────────
 
-// Demand boost from seat quality
-export const SEAT_QUALITY_DEMAND = {
-  basic:    0.85,
-  standard: 1.00,
-  premium:  1.20,
-  luxury:   1.40,
-};
-
-// Demand boost from service quality
-export const SERVICE_QUALITY_DEMAND = {
-  basic:    0.90,
-  standard: 1.00,
-  premium:  1.15,
-  luxury:   1.30,
-};
-
-// Extra weekly operating cost per route from quality settings
+// Extra weekly operating cost per route from quality settings.
+// Demand-side effects come from SEAT/SERVICE_QUALITY_POINTS in demand.js
+// (via cabinQualityPoints → computeQualityScore). `basic` SAVES money —
+// slimline seats and a stripped soft product are the LCC tradeoff: cheaper
+// to run, but they cost quality points.
 export const SEAT_QUALITY_COST_PER_ROUTE = {
-  basic:    0,
+  basic:    -400,
   standard: 0,
   premium:  500,
   luxury:   2_000,
 };
 export const SERVICE_QUALITY_COST_PER_ROUTE = {
-  basic:    0,
+  basic:    -800,
   standard: 0,
   premium:  1_000,
   luxury:   3_500,
 };
+
+// ─────────────────────────────────────────────
+// PASSENGER SATISFACTION (earned customer rating)
+// ─────────────────────────────────────────────
+// Satisfaction is a persistent 0–100 stat that tracks the experience the
+// airline ACTUALLY delivered, with inertia — a reputation you build and can
+// squander. Each week it moves SATISFACTION_ADAPT_RATE of the way toward the
+// delivered experience; customerRating in the quality score derives from it
+// (see laborEffects). Old saves start at null and initialize to their first
+// week's delivered experience.
+
+/** Weekly convergence rate toward delivered experience (like morale, ~15%/wk). */
+export const SATISFACTION_ADAPT_RATE = 0.15;
+
+/**
+ * The experience delivered this week, 0–100. Inputs are what passengers
+ * actually encountered: punctuality, crew service, the cabin product +
+ * catering, and fleet age. Deliberately EXCLUDES customerRating itself so the
+ * satisfaction loop has no feedback term.
+ */
+export function deliveredExperience({ fleet = [], routes = [], labor = null }, avgUtilization = null) {
+  const { onTimeRate } = laborEffects(labor, avgUtilization);
+  const assigned = fleet.filter(a => routes.some(r => r.aircraftId === a.id));
+  const avgCabinPts = assigned.length > 0
+    ? assigned.reduce((s, a) => s + cabinQualityPoints(a.config), 0) / assigned.length
+    : 0;
+  // Spacious cabins build lasting goodwill too: average space bonus (empty
+  // floor → extra room per passenger) across assigned aircraft.
+  const avgSpacePts = assigned.length > 0
+    ? assigned.reduce((s, a) => {
+        const type = getAircraftType(a.typeId);
+        return s + (type ? configSpaceQualityBonus(a.config ?? defaultConfig(type.seats), type) : 0);
+      }, 0) / assigned.length
+    : 0;
+  const avgAgeYears = assigned.length > 0
+    ? assigned.reduce((s, a) => s + (a.ageWeeks ?? 0) / 52, 0) / assigned.length
+    : 0;
+  const avgCatering = routes.length > 0
+    ? routes.reduce((s, r) => s + cateringQualityBonus(
+        normalizeCateringLevel(r.cateringLevel),
+        routeDistanceKm(r.origin, r.destination)), 0) / routes.length
+    : 0;
+  const cabinMorale = labor?.cabinCrew?.morale ?? 80;
+
+  const otpPts   = onTimeRate * 40;                                            // 0–40
+  const crewPts  = (cabinMorale / 100) * 22;                                   // 0–22
+  const cabinPts = Math.max(0, Math.min(24, 12 + (avgCabinPts + avgCatering + avgSpacePts) * 0.55)); // 0–24
+  const agePts   = Math.max(0, 14 - avgAgeYears * 1.1);                        // 0–14
+  return Math.max(0, Math.min(100, Math.round(otpPts + crewPts + cabinPts + agePts)));
+}
+
+/** EWMA step: null/NaN current (new game or old save) snaps to delivered. */
+export function nextSatisfaction(current, delivered) {
+  if (current == null || Number.isNaN(current)) return delivered;
+  return Math.round((current + SATISFACTION_ADAPT_RATE * (delivered - current)) * 10) / 10;
+}
+
+/**
+ * Per-source quality point breakdown for one player route — the same inputs
+ * and stacking order simulateRoute/simulateTagRoute use, exposed for the UI so
+ * players can see where their quality score comes from. Returns null if the
+ * aircraft type is unknown.
+ */
+export function routeQualityBreakdown(route, aircraft, state) {
+  const type = aircraft ? getAircraftType(aircraft.typeId) : null;
+  if (!type) return null;
+  const config = aircraft.config ?? defaultConfig(type.seats);
+  const r      = hydrateRoute(route, state.routePricing ?? {}, state.routeCatering ?? {});
+
+  const avgUtilization = fleetAvgUtilization(state.fleet ?? [],
+    [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
+  const satisfaction = state.satisfaction ?? null;
+  const { onTimeRate, customerRating, groundQualityBonus } =
+    laborEffects(state.labor ?? null, avgUtilization, satisfaction);
+
+  const fleetAgeYears = (aircraft.ageWeeks ?? 0) / 52;
+  const onTimePts   = onTimeRate * 30;
+  const cabinPts    = cabinQualityPoints(config);
+  const agePts      = Math.max(0, 20 - fleetAgeYears * 1.5);
+  const ratingPts   = (customerRating / 5) * 28;
+  const spacePts    = configSpaceQualityBonus(config, type);
+  const dist        = isMultiStop(r) ? routeMaxLegKm(r) : routeDistanceKm(r.origin, r.destination);
+  const cateringPts = cateringQualityBonus(normalizeCateringLevel(r.cateringLevel), dist);
+
+  // Hub investment bonus: best player hub touching the route (all stops for tag routes)
+  const hubs = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
+  const stops = isMultiStop(r) ? routeStops(r) : [r.origin, r.destination];
+  const hubPts = Math.max(0, ...stops.map(c => {
+    const t = hubs[c]?.tier;   // tier 0 (Focus City) is valid — check != null
+    return t != null ? (HUB_TIERS[t]?.qualityBonus ?? 0) : 0;
+  }));
+
+  const raw   = computeQualityScore({ onTimeRate, cabinPoints: cabinPts, fleetAgeYears, customerRating });
+  const total = Math.max(0, Math.min(100, raw + groundQualityBonus + spacePts + cateringPts + hubPts));
+
+  return {
+    onTimePts, cabinPts, agePts, ratingPts,
+    groundPts: groundQualityBonus, spacePts, cateringPts, hubPts,
+    raw, total,
+    onTimeRate, customerRating, satisfaction, avgUtilization,
+  };
+}
 
 // ─────────────────────────────────────────────
 // AIRCRAFT UTILIZATION & GATE LIMITS
@@ -428,6 +523,18 @@ export const MAX_WEEKLY_BLOCK_HOURS = 140;
 
 /** Slot capacity of a single gate per week (departures from that airport). */
 export const SLOTS_PER_GATE = 50;
+
+/**
+ * Weekly slots consumed at `code` by cargo routes. Freighters use gates and
+ * slots exactly like passenger flights, so this is summed alongside passenger
+ * slot usage wherever capacity is displayed or enforced. Cargo routes have no
+ * seasonal dormancy, so every freight route counts year-round.
+ */
+export function cargoSlotsUsedAt(code, cargoRoutes = []) {
+  return (cargoRoutes ?? [])
+    .filter(r => r.origin === code || r.destination === code)
+    .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0);
+}
 
 // Average cruise speed by aircraft category (km/h)
 const CRUISE_SPEED_KMH = {
@@ -487,6 +594,33 @@ export function routeBlockHours(route, type, weeklyFrequency) {
   const f = weeklyFrequency ?? route.weeklyFrequency ?? 7;
   return routeLegs(route).reduce(
     (s, l) => s + blockTimeHours(routeDistanceKm(l.from, l.to), type) * f * 2, 0);
+}
+
+/**
+ * Average fleet block-hour utilization (0–1): each active (non-grounded)
+ * aircraft's assigned weekly block hours as a fraction of MAX_WEEKLY_BLOCK_HOURS,
+ * averaged across the fleet. Idle aircraft count as 0 — spare airframes act as
+ * an operational buffer that protects on-time performance (see
+ * utilizationOnTimePenalty in data/labor.js).
+ */
+export function fleetAvgUtilization(fleet = [], routes = []) {
+  const byAircraft = new Map();
+  for (const r of routes) {
+    if (!r?.aircraftId) continue;
+    if (!byAircraft.has(r.aircraftId)) byAircraft.set(r.aircraftId, []);
+    byAircraft.get(r.aircraftId).push(r);
+  }
+  let sum = 0, n = 0;
+  for (const a of fleet) {
+    if (a.status === 'grounded') continue;
+    const type = getAircraftType(a.typeId);
+    if (!type) continue;
+    const rs  = byAircraft.get(a.id) ?? [];
+    const hrs = rs.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+    sum += Math.max(0, Math.min(1, hrs / MAX_WEEKLY_BLOCK_HOURS));
+    n++;
+  }
+  return n > 0 ? sum / n : 0;
 }
 
 /**
@@ -608,7 +742,7 @@ export function defaultConfig(totalSeats) {
  * @param {object} [gameDate={ month: 6 }] - { week, month } — month is 1-indexed
  * @returns {object|null}
  */
-export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = []) {
+export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null) {
   const origin = getAirport(route.origin);
   const dest   = getAirport(route.destination);
   const type   = getAircraftType(aircraft.typeId);
@@ -622,17 +756,15 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   const effectiveRange = effectiveRangeKm(aircraft, type);
   if (dist > effectiveRange) return null;
 
-  // Derive a qualityScore for the demand model from the route's service settings.
-  // serviceLevel maps seat quality → demand.js tier names.
-  const serviceLevelMap = { basic: 'economy', standard: 'economy', premium: 'premium', luxury: 'business' };
-
-  // Labor morale feeds into quality inputs — pilots → on-time rate, cabin crew → customer rating,
+  // Labor morale feeds into quality inputs — on-time rate blends pilot/ground/cabin
+  // morale minus schedule pressure from fleet utilization; customer rating is
+  // earned from the persistent satisfaction stat (cabin-morale fallback);
   // ground staff → small quality bonus/penalty applied after scoring.
-  const { onTimeRate, customerRating, groundQualityBonus } = laborEffects(labor);
+  const { onTimeRate, customerRating, groundQualityBonus } = laborEffects(labor, avgUtilization, satisfaction);
 
   const rawQualityScore = route.qualityScore ?? computeQualityScore({
     onTimeRate,
-    serviceLevel:   serviceLevelMap[config.seatQuality ?? 'standard'] ?? 'economy',
+    cabinPoints:    cabinQualityPoints(config),   // seat (hard) + service (soft) product
     fleetAgeYears:  (aircraft.ageWeeks ?? 0) / 52,
     customerRating,
   });
@@ -677,11 +809,14 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     seatsPerFlight:    type.seats,
     economySeats,
     businessSeats:     (config.businessClass ?? 0) * route.weeklyFrequency,
-    // Total physical capacity (all cabins) × frequency — the demand model caps
-    // leisure at totalSeats − business pax so the whole aircraft can fill.
-    totalSeats:        type.seats * route.weeklyFrequency,
+    // Total physical seats across ALL cabins. The demand model caps leisure
+    // demand at this (minus business pax) so excess leisure can fill premium-cabin
+    // and spare economy seats, rather than being thrown away at the economy cap.
+    totalSeats:        configBodies(config) * route.weeklyFrequency,
     qualityScore,
     connectivityBonus,
+    // Loyalty program + reputation blunt price sensitivity (attached by weeklyTick).
+    priceSensitivityReduction: route.priceSensitivityReduction ?? 0,
   };
 
   // Gather any AI competitors serving this route and compute market share.
@@ -795,20 +930,37 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
 
+  // Hub cost efficiencies — own staff/kitchen/crew base at designated hubs.
+  // station: discount on ground handling + catering (mean of the two endpoints);
+  // layover: discount on crew hotels/per-diem (max endpoint — crews sleep at base).
+  const hcf      = route.hubCostFactors ?? null;
+  const stationF = hcf ? Math.max(0, 1 - (hcf.station ?? 0)) : 1;
+  const layoverF = hcf ? Math.max(0, 1 - (hcf.layover ?? 0)) : 1;
+
   // Catering — driven by the route's chosen service level. Cost AND ancillary
   // revenue both scale with distance; revenue only on the paid/hybrid levels.
+  // (Hub flight kitchens discount the COST; ancillary revenue is untouched.)
   const catering        = routeCatering(cateringLevel, classSummary, dist);
-  const cateringCost    = catering.cost;
+  const cateringCost    = Math.round(catering.cost * stationF);
   const cateringRevenue = catering.revenue;
   // Ancillary catering income folds straight into route revenue.
   totalRevenue += cateringRevenue;
 
   // Ground handling — ramp, baggage, gate agents, pushback; per boarded passenger
-  const groundHandlingCost = weeklyGroundHandlingCost(classSummary);
+  const groundHandlingCost = Math.round(weeklyGroundHandlingCost(classSummary) * stationF);
 
   // Crew layover — when one-way block time > 4 hours
   const blockTimeOneWay = blockTimeHours(dist, type);
-  const layoverCost = weeklyLayoverCost(blockTimeOneWay, type.seats, type.category, route.weeklyFrequency);
+  const layoverCost = Math.round(
+    weeklyLayoverCost(blockTimeOneWay, type.seats, type.category, route.weeklyFrequency) * layoverF
+  );
+
+  // Savings surfaced for the UI ("Hub efficiency" line in the cost breakdown)
+  const hubCostSavings = hcf ? Math.round(
+    catering.cost * (1 - stationF)
+    + weeklyGroundHandlingCost(classSummary) * (1 - stationF)
+    + weeklyLayoverCost(blockTimeOneWay, type.seats, type.category, route.weeklyFrequency) * (1 - layoverF)
+  ) : 0;
 
   // Passenger compensation — tied to pilot on-time rate (from morale)
   // Compensation applies to all boarded passengers (both directions = ×2).
@@ -822,6 +974,9 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 
   return {
     revenue:      Math.round(totalRevenue),
+    // Final quality score used in the demand model (all bonuses, clamped 0–100).
+    // Consumed by the Alliances page (eligibility) and available to any UI.
+    qualityScore,
     fuelCost,
     crewCost,
     qualityCost,
@@ -834,6 +989,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     loungeCost,
     layoverCost,
     compensationCost,
+    hubCostSavings,
     totalOpCost,
     profit:       Math.round(totalRevenue - totalOpCost),
     passengers:        totalPaxOneWay,  // one-way pax (per direction); revenue already covers both directions
@@ -883,7 +1039,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
  * @param {object} [gameDate={month:6}]
  * @returns {object|null}   null if an aircraft/airport is invalid or a leg exceeds range
  */
-export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0) {
+export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null) {
   const type  = getAircraftType(aircraft.typeId);
   if (!type) return null;
   const stops = routeStops(route);
@@ -901,11 +1057,10 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const f = Math.max(1, route.weeklyFrequency ?? 7);
 
   // ── Quality inputs (shared across segments; catering bonus is per-distance) ──
-  const { onTimeRate, customerRating, groundQualityBonus } = laborEffects(labor);
-  const serviceLevelMap = { basic: 'economy', standard: 'economy', premium: 'premium', luxury: 'business' };
+  const { onTimeRate, customerRating, groundQualityBonus } = laborEffects(labor, avgUtilization, satisfaction);
   const baseQuality = route.qualityScore ?? computeQualityScore({
     onTimeRate,
-    serviceLevel:  serviceLevelMap[config.seatQuality ?? 'standard'] ?? 'economy',
+    cabinPoints:   cabinQualityPoints(config),   // seat (hard) + service (soft) product
     fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
     customerRating,
   });
@@ -936,6 +1091,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       seatsPerFlight: type.seats,
       economySeats: 1e12, businessSeats: 1e12,   // huge → demand returns uncapped
       qualityScore: quality, connectivityBonus,
+      priceSensitivityReduction: route.priceSensitivityReduction ?? 0,
     };
     const competitorOffers = COMPETITOR_AIRLINES
       .map(c => buildCompetitorOffer(c, market)).filter(Boolean);
@@ -945,6 +1101,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     return {
       from: seg.from, to: seg.to, dist, eco, biz, legIdxs, legSpan: seg.legSpan,
       ecoDemand: res.leisurePax, bizDemand: res.businessPax,
+      quality,
     };
   });
 
@@ -1002,17 +1159,30 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
 
+  // Hub cost efficiencies — same model as simulateRoute (station = handling +
+  // catering discount averaged over endpoints; layover = max-endpoint discount).
+  const hcfTag    = route.hubCostFactors ?? null;
+  const stationFT = hcfTag ? Math.max(0, 1 - (hcfTag.station ?? 0)) : 1;
+  const layoverFT = hcfTag ? Math.max(0, 1 - (hcfTag.layover ?? 0)) : 1;
+
   const catering        = routeCatering(cateringLevel, classSummary, totalDist);
-  const cateringCost    = catering.cost;
+  const cateringCost    = Math.round(catering.cost * stationFT);
   const cateringRevenue = catering.revenue;
   totalRevenue += cateringRevenue;
 
-  const groundHandlingCost = weeklyGroundHandlingCost(classSummary);
+  const groundHandlingCost = Math.round(weeklyGroundHandlingCost(classSummary) * stationFT);
   const loungeCost         = weeklyLoungeCost(classSummary);
   // Layover cost accrues per leg whose one-way block time clears the threshold.
-  const layoverCost = legDistKm.reduce(
+  const layoverCostRaw = legDistKm.reduce(
     (s, d) => s + weeklyLayoverCost(blockTimeHours(d, type), type.seats, type.category, f), 0);
+  const layoverCost = Math.round(layoverCostRaw * layoverFT);
   const compensationCost = weeklyPassengerCompensation(totalPaxOneWay * 2, onTimeRate, totalDist);
+
+  const hubCostSavings = hcfTag ? Math.round(
+    catering.cost * (1 - stationFT)
+    + weeklyGroundHandlingCost(classSummary) * (1 - stationFT)
+    + layoverCostRaw * (1 - layoverFT)
+  ) : 0;
 
   const totalOpCost = fuelCost + crewCost + qualityCost + cateringCost
     + groundHandlingCost + loungeCost + layoverCost + compensationCost;
@@ -1023,6 +1193,11 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   return {
     tag:          true,
     revenue:      Math.round(totalRevenue),
+    // Average per-segment quality score (all bonuses, clamped) — same field
+    // simulateRoute exposes, consumed by the Alliances page.
+    qualityScore: segData.length > 0
+      ? Math.round(segData.reduce((s, d) => s + d.quality, 0) / segData.length)
+      : null,
     fuelCost,
     crewCost,
     qualityCost,
@@ -1033,6 +1208,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     loungeCost,
     layoverCost,
     compensationCost,
+    hubCostSavings,
     totalOpCost,
     profit:       Math.round(totalRevenue - totalOpCost),
     passengers:   totalPaxOneWay,                       // one-way boarded pax (all segments)
@@ -1167,14 +1343,21 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
 // ─────────────────────────────────────────────
 // LOYALTY PROGRAM MODEL
 // ─────────────────────────────────────────────
-// Every loyalty effect scales with MEMBER PENETRATION — the share of your own
-// flyers who are members — rather than an absolute member count. This keeps the
-// milestones meaningful at any airline size (a 100k-member program is elite for
-// a small carrier and trivial for a giant one) and makes the program a slow,
-// expensive asset to mature rather than a week-one freebie.
-//
-// Penetration is members / (4 weeks of passengers) — i.e. roughly the fraction
-// of a month's travellers carrying your card. It saturates at 1.0.
+// Loyalty is a slow-compounding ASSET, not a slider you profit from instantly.
+// Three stocks drive it:
+//   PENETRATION — share of your own flyers enrolled (members / 4 wks of pax).
+//   MATURITY    — 0→1 over ~18 months of continuous funding. New programs are
+//                 shallow: a member card means little until members have status,
+//                 history and a points balance worth protecting. All demand-side
+//                 effects scale with penetration × maturity, so the payoff is
+//                 heavily back-loaded even after sign-ups plateau.
+//   POINTS LIABILITY — a real balance-sheet debt. Members earn points now (a %
+//                 of member revenue accrues to the liability) and redeem them
+//                 over the following months as award seats — a genuine cost that
+//                 arrives LATER. Breakage (points that expire unused) is where a
+//                 well-run program eventually finds its margin.
+// Net effect: the program costs real money for its first year-plus and only
+// pays for itself once maturity unlocks the full demand shield.
 
 export function loyaltyPenetration(members, weeklyPassengers) {
   if (!weeklyPassengers || weeklyPassengers <= 0) return 0;
@@ -1182,45 +1365,77 @@ export function loyaltyPenetration(members, weeklyPassengers) {
 }
 
 // Investment tier → program quality. Higher tiers unlock a higher achievable
-// penetration CEILING (how deep into your base you can sign people up) and pay
-// richer rewards (generosity drives the points-redemption cost). The tier sets
-// where the program can go; the weekly budget sets how fast it gets there.
+// penetration CEILING, richer rewards (generosity drives points earn), HIGHER
+// EFFECT CAPS (demandCap / sensCap — the reason Elite exists), and faster
+// maturity growth (maturityFactor).
 export function loyaltyTier(weeklyInvestment) {
   const inv = weeklyInvestment ?? 0;
-  if (inv <= 0)        return { label: 'None',   maxPenetration: 0,    generosity: 0    };
-  if (inv < 100_000)   return { label: 'Basic',  maxPenetration: 0.15, generosity: 0.85 };
-  if (inv < 250_000)   return { label: 'Silver', maxPenetration: 0.30, generosity: 1.00 };
-  if (inv < 500_000)   return { label: 'Gold',   maxPenetration: 0.45, generosity: 1.15 };
-  return                      { label: 'Elite',  maxPenetration: 0.60, generosity: 1.30 };
+  if (inv <= 0)        return { label: 'None',   maxPenetration: 0,    generosity: 0,    demandCap: 0,     sensCap: 0,    maturityFactor: 0    };
+  if (inv < 100_000)   return { label: 'Basic',  maxPenetration: 0.15, generosity: 0.85, demandCap: 0.05,  sensCap: 0.08, maturityFactor: 0.60 };
+  if (inv < 250_000)   return { label: 'Silver', maxPenetration: 0.30, generosity: 1.00, demandCap: 0.075, sensCap: 0.11, maturityFactor: 0.85 };
+  if (inv < 500_000)   return { label: 'Gold',   maxPenetration: 0.45, generosity: 1.15, demandCap: 0.10,  sensCap: 0.15, maturityFactor: 1.00 };
+  return                      { label: 'Elite',  maxPenetration: 0.60, generosity: 1.30, demandCap: 0.125, sensCap: 0.18, maturityFactor: 1.15 };
 }
 
 // Per-week enrollment pull as a fraction of passengers flown, driven by budget.
-// Continuous in spend so the slider still matters; the S-curve ceiling (above)
-// is what ultimately bounds the program.
+// Deliberately slow — a program should take the better part of a year to fill,
+// not a fiscal quarter.
 export function loyaltyEnrollPull(weeklyInvestment) {
-  return Math.min(0.25, (weeklyInvestment ?? 0) / 2_000_000);
+  return Math.min(0.12, (weeklyInvestment ?? 0) / 4_000_000);
+}
+
+// Maturity growth: 0→1 in ~80 funded weeks at Gold pace (maturityFactor 1.0);
+// Elite matures ~15% faster, Basic ~40% slower. Unfunded programs decay in
+// ~20 weeks — members drift away far faster than trust was built.
+export const LOYALTY_MATURITY_WEEKS = 80;
+export const LOYALTY_MATURITY_DECAY = 1 / 20;
+
+// Effective program strength — the single number every demand-side effect keys
+// off. A brand-new program delivers only 25% of its penetration's potential;
+// full value requires full maturity.
+export function loyaltyEffectiveStrength(penetration, maturity) {
+  return (penetration ?? 0) * (0.25 + 0.75 * Math.min(1, Math.max(0, maturity ?? 0)));
 }
 
 // Demand stability boost (retained price-defectors). Concentrated on hub routes
-// by the caller; this is the full hub-route figure. Cap +10%, reached near 40%
-// penetration.
-export function loyaltyDemandBoostPct(penetration) {
-  return Math.min(0.10, 0.25 * (penetration ?? 0));
+// by the caller; this is the full hub-route figure. Cap set by tier.
+export function loyaltyDemandBoostPct(strength, tier) {
+  return Math.min(tier?.demandCap ?? 0.10, 0.25 * (strength ?? 0));
 }
 
-// Effective price-sensitivity reduction members confer. Cap 15%, near maturity.
-export function loyaltyPriceSensitivityReduction(penetration) {
-  return Math.min(0.15, 0.35 * (penetration ?? 0));
+// Effective price-sensitivity reduction members confer. Cap set by tier.
+export function loyaltyPriceSensitivityReduction(strength, tier) {
+  return Math.min(tier?.sensCap ?? 0.15, 0.35 * (strength ?? 0));
 }
 
-// Brand/reputation bonus: only a deep, mature program earns the full +8. Linear
-// in penetration, full value at ~45% penetration (a Gold+ program at scale).
-export function loyaltyReputationBonus(penetration) {
-  return Math.min(8, Math.round(8 * ((penetration ?? 0) / 0.45)));
+// Brand/reputation bonus: only a deep, MATURE program earns the full +8.
+// Full value at strength ≈ 0.40 (e.g. 53% penetration at full maturity).
+export function loyaltyReputationBonus(strength) {
+  return Math.max(0, Math.min(8, Math.round(8 * ((strength ?? 0) / 0.40))));
 }
 
-// Points-redemption cost as a share of revenue. Scales with penetration AND tier
-// generosity (richer programs give more away). Real programs run ~2–4%; cap 4%.
+// ── Points economics ──
+// Members earn points worth LOYALTY_EARN_RATE × member-attributable revenue
+// (member revenue ≈ total revenue × penetration), scaled by tier generosity.
+// That value accrues to the liability. Each week ~LOYALTY_REDEEM_RATE of the
+// outstanding liability is drawn down: most becomes award-seat cost on the
+// P&L, LOYALTY_BREAKAGE expires unused (free liability relief).
+export const LOYALTY_EARN_RATE   = 0.09;   // points value earned / member revenue
+export const LOYALTY_REDEEM_RATE = 0.035;  // share of liability drawn per week
+export const LOYALTY_BREAKAGE    = 0.20;   // share of drawn points that expire
+
+export function loyaltyPointsFlows(liability, totalRevenue, penetration, generosity) {
+  const lia     = Math.max(0, liability ?? 0);
+  const earned  = Math.round(Math.max(0, totalRevenue ?? 0) * (penetration ?? 0) * LOYALTY_EARN_RATE * (generosity || 0));
+  const drawn   = Math.round(lia * LOYALTY_REDEEM_RATE);
+  const expired = Math.round(drawn * LOYALTY_BREAKAGE);
+  const redeemedCost = drawn - expired;              // real award-seat cost this week
+  const newLiability = Math.max(0, lia + earned - drawn);
+  return { earned, redeemedCost, expired, newLiability };
+}
+
+// Legacy flat redemption-cost curve — kept only for save-file back-compat
+// estimates in old reports; the engine now uses loyaltyPointsFlows.
 export function loyaltyPointsCostPct(penetration, generosity) {
   return Math.min(0.04, 0.06 * (penetration ?? 0) * (generosity || 1));
 }
@@ -1240,6 +1455,8 @@ export function weeklyTick(state) {
     fleet, routes: rawRoutes = [], cargoRoutes = [], gameDate = { month: 6 }, gates = {}, labor,
     maintenanceBudget = 1.0, fuelMultiplier = 1.0,
     marketingBudget = 0,
+    targetedMarketing = {},
+    campaignStrength = {},
     loyalty = { weeklyInvestment: 0, members: 0 },
     awareness = 5,
     encroachments = {},
@@ -1262,9 +1479,49 @@ export function weeklyTick(state) {
   // feed, interline adjacency, or cannibalization while they're out of season.
   const activeRoutes = routes.filter(r => isRouteActive(r, gameDate.month));
 
-  // Awareness multiplier: new/unknown airlines attract only a fraction of potential demand.
-  // Range 0.4 (awareness=0, brand unknown) → 1.0 (awareness=100, household name).
-  const awarenessMultiplier = 0.4 + (awareness / 100) * 0.6;
+  // Average fleet block-hour utilization (pax + cargo schedules): fleets flown
+  // near the cap lose punctuality; idle spares buffer the schedule. Feeds the
+  // on-time rate via laborEffects(labor, avgUtilization).
+  const avgUtilization = fleetAvgUtilization(fleet, [...routes, ...cargoRoutes]);
+
+  // Persistent passenger satisfaction: this week's sims use the CURRENT stat;
+  // the post-week value (EWMA toward this week's delivered experience) is
+  // returned on the report for the reducer to persist.
+  const satisfaction  = state.satisfaction ?? null;
+  const deliveredExp  = deliveredExperience({ fleet, routes, labor }, avgUtilization);
+  const satisfactionNext = nextSatisfaction(satisfaction, deliveredExp);
+
+  // Awareness multiplier (adstock model): demand reach derives ONLY from the
+  // awareness stock — marketing spend has no instant effect, it builds the
+  // stock over time (see GameContext weekly update). 0.4 (unknown) → 1.0 at
+  // parity (75) → 1.12 (household name).
+  const awarenessMultiplier = awarenessDemandMultiplier(awareness);
+
+  // Targeted campaign boost per route: strongest campaign at either endpoint
+  // (max, not sum — the same seats can't be sold twice). Strength stocks are
+  // last week's; GameContext advances them after the tick.
+  const campaignBoostFor = (a, b) => campaignDemandBoostPct(
+    Math.max(campaignStrength?.[a] ?? 0, campaignStrength?.[b] ?? 0)
+  );
+
+  // Share of voice: competitor marketing (hub advertising, station presence,
+  // ad blitzes) drags demand on routes touching contested airports. Countering
+  // with your own targeted spend reduces the drag.
+  const compMktSpend = competitorMarketingSpend(state.competitors ?? []);
+  const mktDragCache = {};
+  const mktDragAt = (code) => {
+    if (!(code in mktDragCache)) {
+      const ap = getAirport(code);
+      mktDragCache[code] = competitorPressureDrag(
+        compMktSpend[code],
+        targetedMarketing?.[code],
+        ap?.effectivePop ?? ap?.population ?? 1,
+      );
+    }
+    return mktDragCache[code];
+  };
+  // Net marketing lift for a route (campaign boost minus rival drag; can be negative).
+  const netMarketingLift = (boost, drag) => (1 + boost) * (1 - drag) - 1;
 
   // ── Alliance / codeshare setup ────────────────────────────────────────────
   const allianceMembership  = state.allianceMembership  ?? null;
@@ -1279,9 +1536,11 @@ export function weeklyTick(state) {
     servedAirports.add(r.destination);
   }
 
-  // IDs of alliance and codeshare partners
+  // IDs of alliance and codeshare partners. Alliance membership is DYNAMIC:
+  // carriers join/leave blocs over time, so partners are read from live
+  // competitor state (allianceMembers) rather than the static founding list.
   const allianceDef         = allianceMembership ? getAlliance(allianceMembership.allianceId) : null;
-  const alliancePartnerIds  = allianceDef?.memberIds ?? [];
+  const alliancePartnerIds  = allianceDef ? allianceMembers(allianceDef.id, competitors).map(c => c.id) : [];
   const codesharePartnerIds = codeshareAgreements.map(a => a.competitorId);
   const allPartnerIds       = new Set([...alliancePartnerIds, ...codesharePartnerIds]);
 
@@ -1293,9 +1552,24 @@ export function weeklyTick(state) {
     if (comp?.homeHub) partnerHubCodes.push(comp.homeHub);
   }
 
-  // ── Network O&D cannibalization ───────────────────────────────────────────
+  // Build the hubs map, with backward-compat for saves that only have state.hub (a string).
+  // Only COMPLETED designations live here — under-construction tiers sit in
+  // state.hubConstruction and grant nothing until they finish.
+  const hubs = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
+
+  // Pre-count how many routes the player has at each airport (hub feed, congestion,
+  // contest weights). Dormant seasonal routes don't operate this month.
+  const routeCountByAirport = {};
+  for (const r of routes) {
+    if (!isRouteActive(r, gameDate.month)) continue;
+    routeCountByAirport[r.origin]      = (routeCountByAirport[r.origin]      ?? 0) + 1;
+    routeCountByAirport[r.destination] = (routeCountByAirport[r.destination] ?? 0) + 1;
+  }
+
+  // ── Network O&D cannibalization + itinerary revenue + hub competition ──────
   // Run the full network tick: enumerates 1-stop connections, applies logit
-  // diversion when a direct route competes, computes O&D-based partner revenue.
+  // diversion when a direct route competes, computes O&D-based partner revenue,
+  // own-metal itinerary revenue over designated hubs, and hub contest weights.
   const networkTick = runNetworkTick({
     routes: activeRoutes,
     competitors,
@@ -1303,8 +1577,36 @@ export function weeklyTick(state) {
     codeshareAgreements,
     allianceDef,
     gameDate,
+    hubs,
+    gates,
+    routeCountByAirport,
   });
-  const { cannibalizationMap, partnerODRevenue, partnerHealthDecay } = networkTick;
+  const {
+    cannibalizationMap, partnerODRevenue, partnerHealthDecay,
+    hubContestMap, ownMetalOD,
+  } = networkTick;
+
+  // Contest factors for the external connecting pool, keyed by airport.
+  const contestFactors = {};
+  for (const [code, c] of Object.entries(hubContestMap ?? {})) {
+    contestFactors[code] = c.contestFactor;
+  }
+
+  // Hub cost efficiency factors for a set of airports a route touches.
+  // station: mean of per-endpoint discounts (hub-to-hub gets the full rate);
+  // layover: max endpoint (crews based at the hub sleep at home);
+  // maint:   best (lowest) factor among T2+ hubs touched.
+  const hubCostFactorsFor = (codes) => {
+    const defs = codes.map(c => {
+      const t = hubs[c]?.tier;
+      return t != null ? (HUB_TIERS[t] ?? null) : null;
+    });
+    const station = defs.reduce((s, d) => s + (d?.stationDiscount ?? 0), 0) / Math.max(1, defs.length);
+    const layover = Math.max(0, ...defs.map(d => d?.layoverDiscount ?? 0));
+    const maint   = Math.min(1.0, ...defs.map(d => d?.maintFactor ?? 1.0));
+    if (station <= 0 && layover <= 0 && maint >= 1.0) return null;
+    return { station: +station.toFixed(4), layover, maint };
+  };
 
   // Pre-build set of route-keys where an alliance/codeshare partner also operates
   const partnerContestedKeys = new Set();
@@ -1320,25 +1622,36 @@ export function weeklyTick(state) {
 
   // Loyalty demand effect: members are less price-sensitive, so the player
   // retains more of them even when competitors undercut. The size of the effect
-  // scales with member PENETRATION (share of our own flyers enrolled), using
-  // last week's passenger count as the base. It is CONCENTRATED on hub routes —
-  // where frequent flyers actually have a captive relationship — and diluted on
-  // off-hub leisure routes where people buy on price regardless.
+  // scales with member PENETRATION × program MATURITY (see loyalty model above),
+  // using last week's passenger count as the base. It is CONCENTRATED on hub
+  // routes — where frequent flyers actually have a captive relationship — and
+  // diluted on off-hub leisure routes where people buy on price regardless.
   const loyaltyMembers      = loyalty?.members ?? 0;
   const loyaltyPaxBase      = state.lastReport?.totalPassengers ?? 0;
   const loyaltyPenet        = loyaltyPenetration(loyaltyMembers, loyaltyPaxBase);
-  const loyaltyBoostHub     = loyaltyDemandBoostPct(loyaltyPenet);   // full, hub routes
-  const loyaltyBoostOffHub  = loyaltyBoostHub * 0.4;                 // diluted, off-hub
+  const loyaltyMaturity     = loyalty?.maturity ?? 0;
+  const loyaltyStrength     = loyaltyEffectiveStrength(loyaltyPenet, loyaltyMaturity);
+  const loyaltyTierNow      = loyaltyTier(loyalty?.effInvestment ?? loyalty?.weeklyInvestment ?? 0);
+  const loyaltyBoostHub     = loyaltyDemandBoostPct(loyaltyStrength, loyaltyTierNow); // full, hub routes
+  const loyaltyBoostOffHub  = loyaltyBoostHub * 0.4;                                  // diluted, off-hub
   // Headline multiplier reported to the UI is the hub-route ("up to") figure,
   // consistent with how marketing/awareness lifts are surfaced.
   const loyaltyMultiplier   = 1 + loyaltyBoostHub;
 
-  // Pre-compute marketing multiplier (needs an initial revenue pass — use last week's revenue
-  // if available, otherwise estimate from current routes without multiplier applied yet)
-  const lastRevenue = state.financialHistory?.length
-    ? state.financialHistory[state.financialHistory.length - 1]?.revenue ?? 0
-    : 0;
-  const mktMultiplier = marketingDemandMultiplier(marketingBudget, Math.max(lastRevenue, 1));
+  // Reputation: brand trust nudges demand (±7.5%) and — together with the
+  // loyalty program — blunts passengers' price sensitivity. These are the same
+  // figures the Reputation page displays; they now actually feed the engine.
+  const repInfo          = calcReputation(state, loyaltyReputationBonus(loyaltyStrength), avgUtilization);
+  const reputationMult   = reputationDemandMultiplier(repInfo.overall);
+  const repElasticityRed = reputationElasticityReduction(repInfo.overall);
+  // Combined price-sensitivity reduction for player offers. Loyalty's share is
+  // concentrated on hub routes (captive frequent flyers), diluted off-hub.
+  const sensReductionFor = (hubQ) => Math.max(-0.2, Math.min(0.35,
+    repElasticityRed + loyaltyPriceSensitivityReduction(loyaltyStrength, loyaltyTierNow) * (hubQ > 0 ? 1 : 0.4)
+  ));
+
+  // NOTE: no instant marketing multiplier — spend feeds the awareness stock
+  // (brand) and campaign-strength stocks (targeted) instead. See overhead.js §9.
 
   // 1. Route revenue + operating costs
   let totalRevenue        = 0;
@@ -1354,19 +1667,12 @@ export function weeklyTick(state) {
   let totalCompensation   = 0;
   let totalLandingFees    = 0;
   let totalPassengers     = 0;
+  let totalHubCostSavings = 0;   // station/layover savings from hub efficiencies (§D)
   const routeResults    = [];
+  const hubExternalPax  = {};    // external connecting pax attributed per designated hub
+  const aircraftMaintFactor = {};  // aircraftId → hub line-maintenance factor (≤1)
 
-  // Pre-count how many routes the player has at each airport (for hub feed bonus).
-  // Dormant seasonal routes don't operate this month, so they don't feed the hub.
-  const routeCountByAirport = {};
-  for (const r of routes) {
-    if (!isRouteActive(r, gameDate.month)) continue;
-    routeCountByAirport[r.origin]      = (routeCountByAirport[r.origin]      ?? 0) + 1;
-    routeCountByAirport[r.destination] = (routeCountByAirport[r.destination] ?? 0) + 1;
-  }
-
-  // Build the hubs map, with backward-compat for saves that only have state.hub (a string)
-  const hubs = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
+  // (hubs + routeCountByAirport were built above, before the network tick.)
 
   // ── Pre-pass: aggregate player demand per O&D pair ───────────────────────────
   // When multiple aircraft share the same origin–destination pair each
@@ -1396,10 +1702,22 @@ export function weeklyTick(state) {
       const maturity = r0.weeksOpen != null ? routeMaturityFactor(r0.weeksOpen) : 1;
       const market   = buildRouteMarket(r0.origin, r0.destination, gameDate, maturity);
 
+      // Pair-level bonuses (same as the single-aircraft simulateRoute path):
+      // hub investment, catering (distance-amplified), ground staff. Previously
+      // the combined offer used ONLY the raw quality score — multi-aircraft
+      // routes silently lost up to ~30 pts of space/catering/ground/hub quality
+      // and the reputation/loyalty price-sensitivity shield in the share fight.
+      const groupDist   = routeDistanceKm(r0.origin, r0.destination);
+      const groupHubQ   = Math.max(
+        hubs[r0.origin]?.tier      ? (HUB_TIERS[hubs[r0.origin].tier]?.qualityBonus      ?? 0) : 0,
+        hubs[r0.destination]?.tier ? (HUB_TIERS[hubs[r0.destination].tier]?.qualityBonus ?? 0) : 0,
+      );
+      const fx = laborEffects(labor, avgUtilization, satisfaction);
+
       // Aggregate capacity across all aircraft in the group
       let totalEcoSeats = 0;
       let totalBizSeats = 0;
-      let totalPhysSeats = 0; // total physical capacity (all cabins) across the group
+      let totalSeatsAll = 0; // ALL cabins (incl. premium economy / first) × freq
       let totalFreq     = 0;
       let totalQuality  = 0;
       let hasBusinessCabin = false;
@@ -1413,14 +1731,20 @@ export function weeklyTick(state) {
         const biz  = (cfg.businessClass ?? 0) * freq;
         totalEcoSeats += eco;
         totalBizSeats += biz;
-        totalPhysSeats += type.seats * freq;
+        totalSeatsAll += configBodies(cfg) * freq;
         totalFreq     += freq;
-        totalQuality  += computeQualityScore({
-          onTimeRate:    laborEffects(labor).onTimeRate,
-          serviceLevel:  ({ basic: 'economy', standard: 'economy', premium: 'premium', luxury: 'business' })[cfg.seatQuality ?? 'standard'] ?? 'economy',
+        const raw = computeQualityScore({
+          onTimeRate:    fx.onTimeRate,
+          cabinPoints:   cabinQualityPoints(cfg),
           fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
-          customerRating: laborEffects(labor).customerRating,
+          customerRating: fx.customerRating,
         });
+        // Full per-aircraft quality with every bonus simulateRoute applies.
+        totalQuality += Math.max(0, Math.min(100,
+          raw + fx.groundQualityBonus
+          + configSpaceQualityBonus(cfg, type)
+          + cateringQualityBonus(normalizeCateringLevel(route.cateringLevel), groupDist)
+          + groupHubQ));
         if (biz > 0) hasBusinessCabin = true;
       }
 
@@ -1442,9 +1766,12 @@ export function weeklyTick(state) {
         seatsPerFlight:    totalFreq > 0 ? Math.round((totalEcoSeats + totalBizSeats) / totalFreq) : 0,
         economySeats:      totalEcoSeats,
         businessSeats:     totalBizSeats,
-        totalSeats:        totalPhysSeats,
+        totalSeats:        totalSeatsAll,
         qualityScore:      avgQuality,
         connectivityBonus: connBonus,
+        // Reputation/loyalty price-sensitivity shield — same as single-aircraft
+        // routes get via sensReductionFor (was: always 0 for grouped routes).
+        priceSensitivityReduction: sensReductionFor(groupHubQ),
       };
 
       const competitorOffers = COMPETITOR_AIRLINES
@@ -1495,18 +1822,38 @@ export function weeklyTick(state) {
     // the single-leg connecting-demand model (tag/network feed is a later phase).
     if (isMultiStop(route)) {
       const stopsList = routeStops(route);
+      // NOTE: tier 0 (Focus City) is a valid designation — check != null, not truthy.
       const tagHubQuality = Math.max(0, ...stopsList.map(c => {
         const t = hubs[c]?.tier;
-        return t ? (HUB_TIERS[t]?.qualityBonus ?? 0) : 0;
+        return t != null ? (HUB_TIERS[t]?.qualityBonus ?? 0) : 0;
       }));
-      const tagRoute = tagHubQuality > 0 ? { ...route, hubQualityBonus: tagHubQuality } : route;
-      const result = simulateTagRoute(tagRoute, aircraft, gameDate, labor, fuelMultiplier);
+      // Fortress bonus: an International Gateway (T3) the player dominates (>60%
+      // share of connecting weight) grants +2 quality and blunted price sensitivity.
+      const tagFortress = stopsList.some(c =>
+        hubs[c]?.tier === 3 && (hubContestMap?.[c]?.playerShare ?? 0) > 0.6
+      );
+      const tagHcf = hubCostFactorsFor(stopsList);
+      const tagRoute = {
+        ...route,
+        ...(tagHubQuality + (tagFortress ? 2 : 0) > 0
+          ? { hubQualityBonus: tagHubQuality + (tagFortress ? 2 : 0) } : {}),
+        priceSensitivityReduction: Math.min(0.40,
+          sensReductionFor(tagHubQuality) + (tagFortress ? 0.05 : 0)),
+        ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
+      };
+      const result = simulateTagRoute(tagRoute, aircraft, gameDate, labor, fuelMultiplier, avgUtilization, satisfaction);
       if (!result) continue;
 
       const cateringRev    = result.cateringRevenue ?? 0;
       // Loyalty boost is concentrated on hub-touching routes.
       const tagLoyaltyBoost = tagHubQuality > 0 ? loyaltyBoostHub : loyaltyBoostOffHub;
-      const combinedMult   = awarenessMultiplier * mktMultiplier * (1 + tagLoyaltyBoost);
+      // Targeted campaigns: strongest campaign among ALL stops on a tag route,
+      // net of the heaviest rival marketing drag along the way.
+      const tagCampaignBoost = netMarketingLift(
+        campaignDemandBoostPct(Math.max(0, ...stopsList.map(c => campaignStrength?.[c] ?? 0))),
+        Math.max(0, ...stopsList.map(mktDragAt)),
+      );
+      const combinedMult   = awarenessMultiplier * reputationMult * (1 + tagCampaignBoost) * (1 + tagLoyaltyBoost);
       const boostedRevenue = Math.round((result.revenue - cateringRev) * combinedMult) + cateringRev;
       const routeRevenue   = boostedRevenue;   // no simple connecting add for tag routes
 
@@ -1526,6 +1873,8 @@ export function weeklyTick(state) {
       totalLandingFees    += landingFee;
       totalPassengers     += result.passengers ?? 0;
 
+      // Hub line-maintenance: routes touching a T2+ hub get discounted maintenance.
+      aircraftMaintFactor[aircraft.id] = tagHcf?.maint ?? 1.0;
       const { maintenanceCostMultiplier } = laborEffects(labor);
       const weeklyLeaseCost = aircraft.ownershipType === 'owned' ? 0
         : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
@@ -1533,13 +1882,15 @@ export function weeklyTick(state) {
         (type?.baseMaintenancePerWk ?? 0)
         * maintenanceMultiplier(aircraft.ageWeeks ?? 0)
         * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)
+        * (tagHcf?.maint ?? 1.0)
       );
+      totalHubCostSavings += result.hubCostSavings ?? 0;
 
       routeResults.push({
         routeId: route.id,
         ...result,
         revenue:       routeRevenue,
-        marketingLift: Math.round(result.revenue * (mktMultiplier   - 1)),
+        marketingLift: Math.round(result.revenue * tagCampaignBoost),
         loyaltyLift:   Math.round(result.revenue * tagLoyaltyBoost),
         allianceLift:  0,
         landingFee,
@@ -1552,18 +1903,32 @@ export function weeklyTick(state) {
       continue;
     }
 
-    // Inject hub quality bonus from the best hub on this route
+    // Inject hub quality bonus from the best hub on this route.
+    // Tier 0 (Focus City) is a valid designation — compare against null, not truthy.
     const originTier  = hubs[route.origin]?.tier;
     const destTier    = hubs[route.destination]?.tier;
-    const hubQuality  = Math.max(
-      originTier ? (HUB_TIERS[originTier]?.qualityBonus ?? 0) : 0,
-      destTier   ? (HUB_TIERS[destTier]?.qualityBonus   ?? 0) : 0,
+    let hubQuality  = Math.max(
+      originTier != null ? (HUB_TIERS[originTier]?.qualityBonus ?? 0) : 0,
+      destTier   != null ? (HUB_TIERS[destTier]?.qualityBonus   ?? 0) : 0,
     );
-    const routeWithHubBonus = hubQuality > 0 ? { ...route, hubQualityBonus: hubQuality } : route;
+    // Fortress bonus: a dominated (>60% share) International Gateway grants
+    // +2 quality and +0.05 price-sensitivity reduction on routes touching it.
+    const fortress =
+      (originTier === 3 && (hubContestMap?.[route.origin]?.playerShare      ?? 0) > 0.6) ||
+      (destTier   === 3 && (hubContestMap?.[route.destination]?.playerShare ?? 0) > 0.6);
+    if (fortress) hubQuality += 2;
+    const hcfRoute = hubCostFactorsFor([route.origin, route.destination]);
+    const routeWithHubBonus = {
+      ...route,
+      ...(hubQuality > 0 ? { hubQualityBonus: hubQuality } : {}),
+      priceSensitivityReduction: Math.min(0.40,
+        sensReductionFor(hubQuality) + (fortress ? 0.05 : 0)),
+      ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
+    };
 
     const rkRoute = [route.origin, route.destination].sort().join('-');
     const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, labor, fuelMultiplier,
-      demandAllocations.get(aircraft.id) ?? null, encroachByPair(rkRoute));
+      demandAllocations.get(aircraft.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction);
     if (!result) continue;
 
     // Connecting passengers: additional revenue from hub-feed and partner agreements.
@@ -1575,6 +1940,8 @@ export function weeklyTick(state) {
     // would yield NaN — which cascades into NaN revenue and permanently corrupts
     // the save. Fall back to the market reference fare.
     const connectingPrice = route.ticketPrice ?? referencePrice(route.origin, route.destination);
+    // EXTERNAL feed only (residual gateway/partner pool) — the internal feed is
+    // now real itineraries from network.js (ownMetalOD), added below.
     const connectingRaw = computeConnectingDemand(
       route.origin,
       route.destination,
@@ -1582,26 +1949,70 @@ export function weeklyTick(state) {
       routeCountByAirport[route.origin]      ?? 0,
       routeCountByAirport[route.destination] ?? 0,
       connectingPrice,
-      { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes },
+      { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes, gates, contestFactors },
     );
-    // Apply marketing + loyalty + alliance demand boosts to passenger revenue
-    const routeKey       = [route.origin, route.destination].sort().join('-');
-    const cannibFactor = cannibalizationMap[routeKey] ?? 1.0;
-    const connecting   = cannibFactor < 1.0
-      ? {
-          ...connectingRaw,
-          totalPax:     Math.round(connectingRaw.totalPax     * cannibFactor),
-          totalRevenue: Math.round(connectingRaw.totalRevenue * cannibFactor),
-          origin:       { ...connectingRaw.origin,      pax: Math.round((connectingRaw.origin?.pax      ?? 0) * cannibFactor), revenue: Math.round((connectingRaw.origin?.revenue      ?? 0) * cannibFactor) },
-          destination:  { ...connectingRaw.destination, pax: Math.round((connectingRaw.destination?.pax ?? 0) * cannibFactor), revenue: Math.round((connectingRaw.destination?.revenue ?? 0) * cannibFactor) },
-          cannibalizationFactor: +cannibFactor.toFixed(3),
-        }
-      : connectingRaw;
+    const routeKey     = [route.origin, route.destination].sort().join('-');
+    // Cannibalization multiplier applies ONLY to the residual external pool —
+    // own-metal itineraries handle direct-route competition inside the market
+    // model (conn.connectionShare), so applying it there would double-count.
+    const cannibFactor = Math.min(1.0, cannibalizationMap[routeKey] ?? 1.0);
+    let   extPax       = Math.round(connectingRaw.totalPax     * cannibFactor);
+    let   extRevenue   = Math.round(connectingRaw.totalRevenue * cannibFactor);
+
+    // Own-metal itinerary feed on this leg (competition/congestion-adjusted upstream).
+    const ownMetalLeg = ownMetalOD?.byRouteKey?.[routeKey] ?? null;
+    let   itinPax     = ownMetalLeg?.pax     ?? 0;
+    let   itinRevenue = ownMetalLeg?.revenue ?? 0;
+
+    // Capacity coupling: connecting passengers occupy real seats. Cap combined
+    // connecting pax by the seats left after direct passengers board (5% ops buffer).
+    const seatHeadroom = Math.max(0,
+      Math.round((result.configuredSeatsOneWay ?? 0) * 0.95) - (result.passengers ?? 0));
+    const wantPax  = extPax + itinPax;
+    const capScale = wantPax > seatHeadroom && wantPax > 0 ? seatHeadroom / wantPax : 1;
+    if (capScale < 1) {
+      extPax      = Math.round(extPax      * capScale);
+      extRevenue  = Math.round(extRevenue  * capScale);
+      itinPax     = Math.round(itinPax     * capScale);
+      itinRevenue = Math.round(itinRevenue * capScale);
+    }
+
+    const connecting = {
+      totalPax:         extPax + itinPax,
+      totalRevenue:     extRevenue + itinRevenue,
+      externalPax:      extPax,
+      externalRevenue:  extRevenue,
+      itineraryPax:     itinPax,
+      itineraryRevenue: itinRevenue,
+      feeds:            ownMetalLeg?.feeds ?? [],   // top O&D markets feeding this leg
+      origin:           connectingRaw.origin,
+      destination:      connectingRaw.destination,
+      priceFactor:      connectingRaw.priceFactor,
+      cannibalizationFactor: +cannibFactor.toFixed(3),
+      capacityScale:         +capScale.toFixed(3),
+    };
+
+    // Hub throughput accounting (T3 prerequisite + HubManagement UI): attribute
+    // external feed to designated endpoints proportional to the raw endpoint split.
+    {
+      const rawO  = connectingRaw.origin?.pax      ?? 0;
+      const rawD  = connectingRaw.destination?.pax ?? 0;
+      const denom = rawO + rawD;
+      if (denom > 0 && extPax > 0) {
+        if (originTier != null) hubExternalPax[route.origin] =
+          (hubExternalPax[route.origin] ?? 0) + Math.round(extPax * rawO / denom);
+        if (destTier != null) hubExternalPax[route.destination] =
+          (hubExternalPax[route.destination] ?? 0) + Math.round(extPax * rawD / denom);
+      }
+    }
     const allianceLift   = partnerContestedKeys.has(routeKey) ? allianceDemandBoostPct : 0;
-    const marketingLift  = mktMultiplier - 1;
+    const marketingLift  = netMarketingLift(
+      campaignBoostFor(route.origin, route.destination),
+      Math.max(mktDragAt(route.origin), mktDragAt(route.destination)),
+    );
     // Loyalty boost concentrated on hub-touching routes, diluted elsewhere.
     const loyaltyLift    = hubQuality > 0 ? loyaltyBoostHub : loyaltyBoostOffHub;
-    const combinedMult   = awarenessMultiplier * mktMultiplier * (1 + loyaltyLift) * (1 + allianceLift);
+    const combinedMult   = awarenessMultiplier * reputationMult * (1 + marketingLift) * (1 + loyaltyLift) * (1 + allianceLift);
     // Ancillary catering revenue is per-actual-passenger income — it should NOT be
     // amplified by the marketing/awareness/loyalty demand multipliers (those proxy
     // for attracting MORE passengers, which catering income would then double-count).
@@ -1639,6 +2050,9 @@ export function weeklyTick(state) {
     // These are NOT added to the route-level totals (the fleet loop in section 2
     // handles lease/maint for the overall P&L to avoid double-counting).
     const acType           = getAircraftType(aircraft.typeId);
+    // Hub line-maintenance: routes touching a T2+ hub get discounted maintenance.
+    aircraftMaintFactor[aircraft.id] = hcfRoute?.maint ?? 1.0;
+    totalHubCostSavings += result.hubCostSavings ?? 0;
     const { maintenanceCostMultiplier } = laborEffects(labor);
     const weeklyLeaseCost  = aircraft.ownershipType === 'owned' ? 0
       : (aircraft.weeklyLease ?? acType?.weeklyLease ?? 0);
@@ -1648,6 +2062,7 @@ export function weeklyTick(state) {
       * maintenanceBudget
       * maintenanceCostMultiplier
       * (aircraft.maintMod ?? 1.0)
+      * (hcfRoute?.maint ?? 1.0)
     );
 
     routeResults.push({
@@ -1740,6 +2155,7 @@ export function weeklyTick(state) {
     const { maintenanceCostMultiplier } = laborEffects(labor);
     const maint             = Math.round(
       type.baseMaintenancePerWk * maintMult * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)
+      * (aircraftMaintFactor[aircraft.id] ?? 1.0)   // hub line-maintenance discount
     );
     // Owned aircraft carry no lease — only maintenance applies.
     // Use the per-aircraft weeklyLease stored at delivery time (may differ from type default
@@ -1752,15 +2168,15 @@ export function weeklyTick(state) {
   }
 
   // 3. Labor overhead (fixed per aircraft, scaled by pay multiplier for each group).
-  // Pilots & maintenance team also carry a fleet-complexity surcharge (+2% per
-  // aircraft family beyond the first) — split pilot pools, type ratings, tooling.
+  //    Pilots & maintenance also carry a fleet-complexity surcharge: +2% per
+  //    aircraft family beyond the first (split pilot pools, extra type ratings).
+  const complexityMult = fleetComplexityMultiplier(fleet);
   let totalLaborCosts = 0;
   if (labor && fleet.length > 0) {
-    const complexityMult = fleetComplexityMultiplier(fleet);
     for (const group of LABOR_GROUPS) {
       const payMult = labor[group.id]?.payMultiplier ?? 1.0;
-      const complexity = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) ? complexityMult : 1;
-      totalLaborCosts += Math.round(group.baseWeeklyPerAircraft * payMult * fleet.length * complexity);
+      const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) ? complexityMult : 1.0;
+      totalLaborCosts += Math.round(group.baseWeeklyPerAircraft * payMult * fleet.length * famMult);
     }
   }
 
@@ -1793,22 +2209,26 @@ export function weeklyTick(state) {
     totalInsurance += weeklyInsuranceCost(aircraft, type);
   }
 
-  // 9. Marketing spend — deducted as a cost; demand effect already in revenue above
-  const totalMarketingSpend = marketingBudget > 0 ? Math.round(marketingBudget) : 0;
+  // 9. Marketing spend — brand budget + targeted campaigns. Deducted as a cost;
+  // demand effect flows through awareness / campaign-strength stocks.
+  const totalTargetedSpend  = Object.values(targetedMarketing ?? {})
+    .reduce((s, v) => s + Math.max(0, v || 0), 0);
+  const totalMarketingSpend = Math.round(Math.max(0, marketingBudget) + totalTargetedSpend);
 
   // 10. Loyalty program costs:
   //   - Weekly investment (technology, partnerships, admin)
-  //   - Points redemption / award seat cost: up to 3.5% of revenue at full membership.
-  //   Real programs run 2–4% of revenue; 3.5% cap is realistic for a large mature program.
+  //   - Points flows: members EARN points now (accrues to the liability stock),
+  //     and outstanding points are REDEEMED over the following months as award
+  //     seats — that draw-down (minus breakage) is the real weekly cost.
+  //   A program that stops being funded still owes its outstanding points.
   const loyaltyInvestment = loyalty?.weeklyInvestment ?? 0;
-  // Redemption cost scales with penetration AND how generous the current tier is.
-  // A program kept alive with members but zero budget still honours outstanding
-  // points, so fall back to a baseline generosity when members remain.
   const loyaltyGenerosity = loyaltyTier(loyaltyInvestment).generosity
     || (loyaltyMembers > 0 ? 0.85 : 0);
-  const loyaltyPointsCost = loyaltyMembers > 0
-    ? Math.round(totalRevenue * loyaltyPointsCostPct(loyaltyPenet, loyaltyGenerosity))
-    : 0;
+  const loyaltyPrevLiability = Math.max(0, loyalty?.pointsLiability ?? 0);
+  const loyaltyFlows = (loyaltyMembers > 0 || loyaltyPrevLiability > 0)
+    ? loyaltyPointsFlows(loyaltyPrevLiability, totalRevenue, loyaltyPenet, loyaltyGenerosity)
+    : { earned: 0, redeemedCost: 0, expired: 0, newLiability: 0 };
+  const loyaltyPointsCost = loyaltyFlows.redeemedCost;
   const totalLoyaltyCost  = loyaltyInvestment + loyaltyPointsCost;
 
   // 11. Alliance & codeshare partnerships
@@ -1825,6 +2245,14 @@ export function weeklyTick(state) {
 
   // Distribution: GDS fees, OTA commissions, credit-card processing (~2.5% of revenue)
   const totalDistributionCost = Math.round((totalRevenue + totalPartnerRevenue) * DISTRIBUTION_COST_PCT);
+
+  // Hub throughput: connecting pax over each designated hub this week
+  // (own-metal itineraries + attributed external feed). Drives the T3
+  // throughput prerequisite (4-week average kept by GameContext) and the UI.
+  const hubThroughput = {};
+  for (const code of Object.keys(hubs)) {
+    hubThroughput[code] = (ownMetalOD?.byHub?.[code]?.pax ?? 0) + (hubExternalPax[code] ?? 0);
+  }
 
   const totalOpCost = totalFuel + totalCrew + totalQuality + totalCatering + totalGroundHandling + totalLounge + totalLayover + totalCompensation + totalLandingFees;
   const totalCost   = totalLeases + totalMaintenance + totalOpCost + totalGateFees
@@ -1868,10 +2296,31 @@ export function weeklyTick(state) {
     partnerODRevenue,        // { totalRevenue, entries[] } — detailed O&D breakdown
     partnerHealthDecay,      // { [competitorId]: hpLost } — for partnership state updates
     networkConnections:      networkTick.connections, // full Connection[] for debugging/UI
+    // Hub systems (§B–§F)
+    hubContestMap,           // { [code]: { playerShare, rivals, ... } } — hub competition
+    hubThroughput,           // { [code]: connecting pax/wk } — T3 prereq + HubManagement
+    totalHubCostSavings:     Math.round(totalHubCostSavings),
+    ownMetalOD: {            // own-metal itinerary revenue summary (trimmed for state size)
+      totalRevenue: ownMetalOD?.totalRevenue ?? 0,
+      totalPax:     ownMetalOD?.totalPax ?? 0,
+      byHub:        ownMetalOD?.byHub ?? {},
+      entries:      (ownMetalOD?.entries ?? []).slice(0, 40),
+    },
     loyaltyMultiplier,
+    loyaltyStrength,                                   // penetration × maturity factor
+    loyaltyPointsEarned:    Math.round(loyaltyFlows.earned),
+    loyaltyPointsCost:      Math.round(loyaltyPointsCost),
+    loyaltyPointsExpired:   Math.round(loyaltyFlows.expired),
+    loyaltyLiability:       Math.round(loyaltyFlows.newLiability), // for the reducer to persist
     awarenessMultiplier,
+    reputationMultiplier:   reputationMult,
+    reputationScore:        repInfo.overall,
+    // Passenger satisfaction: post-week stat for the reducer to persist, plus
+    // this week's delivered experience for UI display.
+    satisfaction:           satisfactionNext,
+    deliveredExperience:    deliveredExp,
     totalPassengers,
-    mktMultiplier,
+    totalTargetedSpend:     Math.round(totalTargetedSpend),
     totalOpCost:            Math.round(totalOpCost),
     totalCost:              Math.round(totalCost),
     routeResults,

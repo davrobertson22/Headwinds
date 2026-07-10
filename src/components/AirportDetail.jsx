@@ -3,6 +3,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import {
   baseCityPairDemand, referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE,
+  cargoSlotsUsedAt,
 } from '../utils/simulation.js';
 import {
   AIRPORT_GATEWAY_SCORES, HUB_TIERS,
@@ -44,7 +45,8 @@ export default function AirportDetail({ code, onBack }) {
   const slotCap  = myGates * SLOTS_PER_GATE;
   const slotsUsed = state.routes
     .filter(r => r.origin === code || r.destination === code)
-    .reduce((s, r) => s + r.weeklyFrequency, 0);
+    .reduce((s, r) => s + r.weeklyFrequency, 0)
+    + cargoSlotsUsedAt(code, state.cargoRoutes);
 
   const gwScore = AIRPORT_GATEWAY_SCORES[code] ?? 0.20;
 

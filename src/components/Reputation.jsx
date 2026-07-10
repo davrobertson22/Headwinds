@@ -1,15 +1,13 @@
 import { useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { formatMoney, formatPercent, referencePrice, loyaltyPenetration, loyaltyReputationBonus } from '../utils/simulation.js';
+import { formatMoney, formatPercent, referencePrice, loyaltyPenetration, loyaltyEffectiveStrength, loyaltyReputationBonus, fleetAvgUtilization } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
 import { LABOR_GROUPS, laborEffects, moraleColor } from '../data/labor.js';
 import { computeQualityScore } from '../models/demand.js';
+import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
+import { awarenessDemandMultiplier } from '../data/overhead.js';
 import { Glyph } from './Icons.jsx';
-
-// ─── Reputation scoring constants ────────────────────────────────────────────
-
-const QUALITY_SCORE = { basic: 15, standard: 45, premium: 72, luxury: 100 };
 
 // Competitor brand benchmarks (fixed reference points for positioning map)
 const COMPETITOR_POSITIONS = [
@@ -20,70 +18,8 @@ const COMPETITOR_POSITIONS = [
 
 // ─── Pure calculation functions ───────────────────────────────────────────────
 
-function calcReputation(state) {
-  const { fleet, routes, financialHistory, labor, loyalty } = state;
-  const effects = laborEffects(labor);
-
-  // ── Service score (35%) ────────────────────────────────────────────────────
-  // Based on average cabin quality of assigned aircraft, filtered through morale
-  const assignedFleet = fleet.filter(a => routes.some(r => r.aircraftId === a.id));
-  const serviceBase = assignedFleet.length > 0
-    ? assignedFleet.reduce((s, a) => {
-        const seatQ = QUALITY_SCORE[a.config?.seatQuality  ?? 'standard'] ?? 45;
-        const servQ = QUALITY_SCORE[a.config?.serviceQuality ?? 'standard'] ?? 45;
-        return s + (seatQ + servQ) / 2;
-      }, 0) / assignedFleet.length
-    : 45;
-
-  // Cabin crew morale boosts/hurts service delivery
-  const cabinMorale = labor?.cabinCrew?.morale ?? 80;
-  const serviceScore = Math.round(Math.min(100, serviceBase * (cabinMorale / 80)));
-
-  // ── Fleet freshness score (20%) ────────────────────────────────────────────
-  const avgAgeYears = fleet.length > 0
-    ? fleet.reduce((s, a) => s + (a.ageWeeks ?? 0) / 52, 0) / fleet.length
-    : 0;
-  const fleetScore = Math.round(Math.max(0, 100 - avgAgeYears * 5));
-
-  // ── Network score (20%) ────────────────────────────────────────────────────
-  const airports  = new Set(routes.flatMap(r => [r.origin, r.destination]));
-  const hubRoutes = routes.filter(r => r.origin === state.hub || r.destination === state.hub);
-  const rawNet = airports.size * 4 + routes.length * 2 + hubRoutes.length * 3;
-  const networkScore = Math.round(Math.min(100, rawNet));
-
-  // ── Employee morale score (25%) ────────────────────────────────────────────
-  const morales    = Object.values(labor ?? {}).map(g => g.morale ?? 80);
-  const avgMorale  = morales.length > 0 ? morales.reduce((s, m) => s + m, 0) / morales.length : 80;
-  // Financial health bonus/penalty
-  const recentProfit = financialHistory.slice(-4).reduce((s, h) => s + (h.profit ?? 0), 0);
-  const profitBump   = Math.max(-10, Math.min(10, recentProfit / 200000 * 10));
-  const moraleScore  = Math.round(Math.min(100, Math.max(0, avgMorale + profitBump)));
-
-  // Loyalty bonus: up to +8 reputation points for a deep, mature program.
-  // Scales with member PENETRATION (share of your own flyers enrolled), so the
-  // full +8 takes a sustained high-tier program at scale — not a quick win.
-  const loyaltyMembers = loyalty?.members ?? 0;
-  const loyaltyPax     = state.lastReport?.totalPassengers ?? 0;
-  const loyaltyBonus   = loyaltyReputationBonus(loyaltyPenetration(loyaltyMembers, loyaltyPax));
-
-  const overall = Math.min(100, Math.round(
-    serviceScore * 0.35 +
-    fleetScore   * 0.20 +
-    networkScore * 0.20 +
-    moraleScore  * 0.25 +
-    loyaltyBonus
-  ));
-
-  // Quality score as fed into the demand model (mirrors computeQualityScore inputs)
-  const qualityDemandScore = computeQualityScore({
-    onTimeRate:     effects.onTimeRate,
-    serviceLevel:   serviceBase >= 72 ? 'business' : serviceBase >= 60 ? 'premium' : 'economy',
-    fleetAgeYears:  avgAgeYears,
-    customerRating: effects.customerRating + effects.groundQualityBonus,
-  });
-
-  return { overall, service: serviceScore, fleet: fleetScore, network: networkScore, morale: moraleScore, qualityDemandScore, avgAgeYears, loyaltyBonus };
-}
+// calcReputation now lives in models/reputation.js — shared with the engine,
+// so the numbers this page shows are the ones weeklyTick actually applies.
 
 function calcPositioning(state) {
   const { fleet, routes } = state;
@@ -150,17 +86,25 @@ export default function Reputation() {
   const { state } = useGame();
   const { fleet, routes, airlineName, labor } = state;
 
-  const rep = useMemo(() => calcReputation(state), [state]);
+  const rep = useMemo(() => calcReputation(
+    state,
+    loyaltyReputationBonus(loyaltyEffectiveStrength(
+      loyaltyPenetration(state.loyalty?.members ?? 0, state.lastReport?.totalPassengers ?? 0),
+      state.loyalty?.maturity ?? 0,
+    )),
+    fleetAvgUtilization(fleet ?? [], [...(routes ?? []), ...(state.cargoRoutes ?? [])]),
+  ), [state]);  // eslint-disable-line
   const pos = useMemo(() => calcPositioning(state), [state]);
   const strategy = strategyLabel(pos);
 
-  // Demand multiplier from reputation (centered at 50)
-  const demandMultiplier = 1 + (rep.overall - 50) / 100 * 0.15;
-  const elasticityReduction = (rep.overall - 50) / 100 * 0.20;
+  // Same functions the engine applies in weeklyTick (demand multiplier on route
+  // revenue; elasticity reduction on the player offer's price sensitivity).
+  const demandMultiplier = reputationDemandMultiplier(rep.overall);
+  const elasticityReduction = reputationElasticityReduction(rep.overall);
 
   // Awareness
   const awareness = state.awareness ?? 5;
-  const awarenessMultiplier = 0.4 + (awareness / 100) * 0.6;
+  const awarenessMultiplier = awarenessDemandMultiplier(awareness);
 
   if (fleet.length === 0 && routes.length === 0) {
     return (
@@ -174,46 +118,52 @@ export default function Reputation() {
   return (
     <div>
 
-      {/* ── Brand health KPIs ── */}
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: 20 }}>
-        <div className="stat-box" style={{ gridColumn: 'span 1' }}>
-          <div className="stat-label">Overall Brand Score</div>
+      {/* ── The three scores: Quality · Reputation · Awareness ── */}
+      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: 20 }}>
+        <div className="stat-box">
+          <div className="stat-label">Quality</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
+            <span style={{ fontSize: 32, fontWeight: 800, color: scoreColor(rep.qualityDemandScore) }}>{Math.round(rep.qualityDemandScore)}</span>
+            <span style={{ fontSize: 14, color: 'var(--text-muted)', paddingBottom: 4 }}>/100</span>
+          </div>
+          <ScoreBar value={rep.qualityDemandScore} color={scoreColor(rep.qualityDemandScore)} />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            How good the product is — wins market share &amp; business travelers.
+            {state.satisfaction != null && (
+              <> Includes earned satisfaction <span style={{ color: scoreColor(state.satisfaction), fontWeight: 600 }}>{Math.round(state.satisfaction)}</span> → rating {((state.satisfaction / 100) * 5).toFixed(1)}★.</>
+            )}
+            {' '}Per-route detail on each route's page.
+          </div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">Reputation</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
             <span style={{ fontSize: 32, fontWeight: 800, color: scoreColor(rep.overall) }}>{rep.overall}</span>
             <span style={{ fontSize: 14, color: 'var(--text-muted)', paddingBottom: 4 }}>/100</span>
           </div>
           <ScoreBar value={rep.overall} color={scoreColor(rep.overall)} />
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Demand Bonus</div>
-          <div style={{ fontWeight: 700, fontSize: 20, marginTop: 4, color: demandMultiplier > 1 ? 'var(--green)' : demandMultiplier < 1 ? 'var(--red)' : 'var(--text-muted)' }}>
-            {demandMultiplier > 1 ? '+' : ''}{formatPercent(demandMultiplier - 1)}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            How much travelers trust the brand — demand{' '}
+            <span style={{ color: demandMultiplier >= 1 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+              {demandMultiplier >= 1 ? '+' : ''}{formatPercent(demandMultiplier - 1)}
+            </span>
+            {' '}· price sensitivity{' '}
+            <span style={{ color: elasticityReduction >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+              {elasticityReduction >= 0 ? '−' : '+'}{formatPercent(Math.abs(elasticityReduction))}
+            </span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>vs neutral airline</div>
         </div>
         <div className="stat-box">
-          <div className="stat-label">Price Sensitivity</div>
-          <div style={{ fontWeight: 700, fontSize: 20, marginTop: 4, color: elasticityReduction > 0 ? 'var(--green)' : elasticityReduction < 0 ? 'var(--red)' : 'var(--text-muted)' }}>
-            {elasticityReduction >= 0 ? '−' : '+'}{formatPercent(Math.abs(elasticityReduction))}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>passengers less price-sensitive</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Quality Score (demand)</div>
-          <div style={{ fontWeight: 700, fontSize: 20, marginTop: 4, color: scoreColor(rep.qualityDemandScore) }}>
-            {Math.round(rep.qualityDemandScore)}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text-muted)' }}>/100</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>as seen in demand model</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Brand Awareness</div>
+          <div className="stat-label">Awareness</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
-            <span style={{ fontSize: 28, fontWeight: 800, color: scoreColor(awareness) }}>{Math.round(awareness)}</span>
+            <span style={{ fontSize: 32, fontWeight: 800, color: scoreColor(awareness) }}>{Math.round(awareness)}</span>
             <span style={{ fontSize: 14, color: 'var(--text-muted)', paddingBottom: 4 }}>/100</span>
           </div>
           <ScoreBar value={awareness} color={scoreColor(awareness)} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            Demand reach: <span style={{ color: scoreColor(awareness), fontWeight: 600 }}>{formatPercent(awarenessMultiplier - 1 + 1)}</span> of potential
+            How many travelers know you exist — reaching{' '}
+            <span style={{ color: scoreColor(awareness), fontWeight: 600 }}>{formatPercent(awarenessMultiplier)}</span>
+            {' '}of potential demand. Built by marketing &amp; flying.
           </div>
         </div>
       </div>
@@ -238,7 +188,7 @@ export default function Reputation() {
 
         {/* ── Score breakdown ── */}
         <div className="card" style={{ marginBottom: 0 }}>
-          <div className="card-title">Brand Drivers</div>
+          <div className="card-title">Reputation Drivers</div>
           <DimensionRow
             label="Service Quality"
             score={rep.service}
@@ -268,10 +218,10 @@ export default function Reputation() {
             tip={rep.morale < 60 ? 'Raise pay multipliers for struggling groups' : undefined}
           />
           <DimensionRow
-            label="Brand Awareness"
+            label="Awareness"
             score={Math.round(awareness)}
             icon="📣"
-            detail={`${formatPercent(awarenessMultiplier)} of potential demand reached. Grows via passengers flown + marketing spend.`}
+            detail={`${formatPercent(awarenessMultiplier)} of potential demand reached. Grows via passengers flown + brand marketing (with a lag); fades slowly without upkeep.`}
             tip={awareness < 40 ? 'Increase marketing budget or fly more passengers to build awareness' : undefined}
           />
         </div>

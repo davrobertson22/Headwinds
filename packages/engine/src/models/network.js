@@ -38,7 +38,10 @@ import {
   buildCompetitorOffer,
   computeMarketShare,
   BUSINESS_PRICE_MULTIPLIER,
+  HUB_TIERS,
+  hubCongestionFactor,
 } from './demand.js';
+import { allianceMembers } from '../data/alliances.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -48,12 +51,25 @@ import {
  * Scaled by partnership type: own metal is least punishing, bare interline most.
  */
 export const CONNECTION_PENALTY = {
-  ownMetal:      0.30,   // both legs on player aircraft — lounge, bag transfer, seamless
+  ownMetal:      0.38,   // both legs on player aircraft — DEFAULT; overridden per hub
+                         // tier via HUB_TIERS[tier].connPenalty when the hub is designated
   jointVenture:  0.38,   // JV: coordinated schedules, shared revenue pool
   alliance:      0.50,   // alliance: coordinated but separate revenue
   codeshare:     0.60,   // codeshare: one ticket, different metal
   interline:     0.75,   // basic interline: separate tickets, minimal cooperation
 };
+
+/**
+ * Own-metal connection penalty at a hub, by designation tier.
+ * Undesignated airports return null — own-metal connections there are not
+ * monetized (no transfer product exists), though they still count for
+ * cannibalization detection.
+ */
+export function ownMetalPenaltyAt(hubs, hubCode) {
+  const tier = hubs?.[hubCode]?.tier;
+  if (tier == null) return null;
+  return HUB_TIERS[tier]?.connPenalty ?? CONNECTION_PENALTY.ownMetal;
+}
 
 /**
  * Prorate fraction the player earns on their leg of a codeshare/alliance itinerary.
@@ -308,12 +324,16 @@ export function buildPartnerRoutes(competitors, partnershipMap) {
  * @param {object}      [jvRoutes]           - { [competitorId]: true } for JV partners
  * @returns {Map<string, string>}
  */
-export function buildPartnershipMap(allianceMembership, codeshareAgreements, allianceDef, jvRoutes = {}) {
+export function buildPartnershipMap(allianceMembership, codeshareAgreements, allianceDef, jvRoutes = {}, competitors = []) {
   const map = new Map();
 
-  // Alliance members (weaker than codeshare)
+  // Alliance members (weaker than codeshare). Membership is dynamic — read
+  // from live competitor state, seeded by the founding memberIds list.
   if (allianceDef) {
-    for (const id of (allianceDef.memberIds ?? [])) {
+    const liveIds = competitors.length
+      ? allianceMembers(allianceDef.id, competitors).map(c => c.id)
+      : (allianceDef.memberIds ?? []);
+    for (const id of liveIds) {
       map.set(id, 'alliance');
     }
   }
@@ -843,6 +863,255 @@ export function getCannibalizationPreview(
   };
 }
 
+// ─── Hub competition ──────────────────────────────────────────────────────────
+
+/** Competitor quality factor by carrier tier for presence weighting. */
+const COMP_TIER_FACTOR = { budget: 0.7, legacy: 1.0, premium: 1.2 };
+
+/** Routes a competitor operates touching an airport. */
+function competitorRoutesAt(comp, code) {
+  let n = 0;
+  for (const key of Object.keys(comp.routes ?? {})) {
+    const [a, b] = key.split('-');
+    if (a === code || b === code) n++;
+  }
+  return n;
+}
+
+/**
+ * Build the hub contest map: for each player-designated airport, how contested
+ * is the connecting-traffic pool? A competitor "hubs" at an airport when it's
+ * their homeHub or they operate 6+ routes there.
+ *
+ *   playerWeight = playerRoutesAt × (1 + captureRate(tier))
+ *   compWeight   = competitorRoutesAt × tierFactor (budget 0.7 / legacy 1.0 / premium 1.2)
+ *   contestFactor = playerWeight / (playerWeight + Σ compWeights)
+ *
+ * @returns {{ [code]: { playerShare, contestFactor, compWeight, rivals: [{id,name,weight}] } }}
+ */
+export function buildHubContestMap(competitors = [], routeCountByAirport = {}, hubs = {}) {
+  const map = {};
+  for (const [code, hubData] of Object.entries(hubs)) {
+    const tierDef      = HUB_TIERS[hubData?.tier] ?? HUB_TIERS[1];
+    const playerRoutes = routeCountByAirport[code] ?? 0;
+    const playerWeight = Math.max(0.5, playerRoutes) * (1 + (tierDef.captureRate ?? 0));
+
+    let compSum = 0;
+    const rivals = [];
+    for (const comp of competitors) {
+      const routesAt = competitorRoutesAt(comp, code);
+      if (routesAt === 0) continue;
+      const isHubbed = comp.homeHub === code || routesAt >= 6;
+      if (!isHubbed) continue;
+      const w = routesAt * (COMP_TIER_FACTOR[comp.tier] ?? 1.0);
+      compSum += w;
+      rivals.push({ id: comp.id, name: comp.name, weight: +w.toFixed(1) });
+    }
+
+    const share = playerWeight / (playerWeight + compSum);
+    map[code] = {
+      playerShare:   +share.toFixed(3),
+      contestFactor: +share.toFixed(3),
+      compWeight:    +compSum.toFixed(1),
+      rivals:        rivals.sort((a, b) => b.weight - a.weight),
+    };
+  }
+  return map;
+}
+
+// ─── Own-metal itinerary revenue ─────────────────────────────────────────────
+
+/** Max own-metal O&D markets scored per hub per tick (perf guard; sorted by demand). */
+const MAX_OWN_METAL_ODS_PER_HUB = 150;
+
+/**
+ * Compute own-metal connecting revenue from real A→hub→C itineraries.
+ *
+ * Replaces the old abstract "internal feed" pool: each own-metal connection
+ * (both legs player metal) over a DESIGNATED hub/focus city competes for its
+ * O&D market against competitor nonstops and the outside option, through the
+ * same discrete-choice model the partner-feed path uses. Captured revenue is
+ * split across the two legs by mileage; captured pax occupy seats on BOTH legs
+ * (simulation.js applies per-leg capacity coupling).
+ *
+ * Tier effects: connection penalty (HUB_TIERS[tier].connPenalty), a quality
+ * nudge from the tier bonus, gate congestion at the hub, and competitor hub
+ * contest (stronger outside option at contested hubs).
+ *
+ * @param {Connection[]} connections     - from buildAllConnections
+ * @param {object}   options
+ * @param {object}   options.hubs                  - { [code]: { tier } } designated only
+ * @param {object}   [options.gameDate]
+ * @param {Map}      [options.competitorRouteIndex]
+ * @param {object}   [options.contestMap]          - from buildHubContestMap
+ * @param {object}   [options.routeCountByAirport]
+ * @param {object}   [options.gates]               - { [code]: gateCount }
+ * @returns {{
+ *   totalRevenue: number,
+ *   totalPax:     number,
+ *   byRouteKey:   { [routeKey]: { pax, revenue, feeds: [{od, viaHub, pax, revenue}] } },
+ *   byHub:        { [hub]: { pax, revenue, markets: number } },
+ *   entries:      [{ od, hub, pax, revenue, share }],
+ * }}
+ */
+export function computeOwnMetalODRevenue(connections, options = {}) {
+  const {
+    hubs = {},
+    gameDate = { month: 6 },
+    competitorRouteIndex = null,
+    contestMap = {},
+    routeCountByAirport = {},
+    gates = {},
+  } = options;
+
+  const byRouteKey = {};
+  const byHub      = {};
+  const entries    = [];
+  let totalRevenue = 0;
+  let totalPax     = 0;
+
+  // Own-metal connections over designated hubs only.
+  const eligible = connections.filter(c =>
+    c.leg1Owner === 'player' && c.leg2Owner === 'player' && hubs[c.hub]?.tier != null
+  );
+  if (eligible.length === 0) {
+    return { totalRevenue, totalPax, byRouteKey, byHub, entries };
+  }
+
+  // Perf guard: keep only the top-N ODs per hub by gravity demand.
+  const perHubCount = {};
+  const kept = [];
+  const sorted = [...eligible].sort((a, b) => b.odDemand - a.odDemand);
+  for (const c of sorted) {
+    const n = perHubCount[c.hub] ?? 0;
+    if (n >= MAX_OWN_METAL_ODS_PER_HUB) continue;
+    perHubCount[c.hub] = n + 1;
+    kept.push(c);
+  }
+
+  // Group by directional O&D so multiple routings (different hubs) share one market.
+  const byOD = new Map();
+  for (const conn of kept) {
+    const dirKey = `${conn.legOneOrigin}-${conn.legTwoDest}`;
+    if (!byOD.has(dirKey)) byOD.set(dirKey, []);
+    // Dedupe same hub+OD enumerations
+    const group = byOD.get(dirKey);
+    if (!group.some(c => c.hub === conn.hub)) group.push(conn);
+  }
+
+  for (const [dirKey, conns] of byOD) {
+    const [origin, dest] = dirKey.split('-');
+    const odKey  = [origin, dest].sort().join('-');
+    const market = buildRouteMarket(origin, dest, gameDate, 1);
+    if (!market.baseWeeklyDemand) continue;
+
+    // One offer per routing (per hub), all competing in the same market.
+    const offers = [];
+    const meta   = new Map();
+    let i = 0;
+    // Contest raises the outside option once per market: use the strongest
+    // rival presence among the hubs involved.
+    let maxCompWeight = 0;
+
+    for (const conn of conns) {
+      const tier    = hubs[conn.hub].tier;
+      const tierDef = HUB_TIERS[tier] ?? HUB_TIERS[1];
+      const penalty = tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal;
+
+      const minFreq = Math.min(conn.leg1Freq, conn.leg2Freq);
+      // Better transfer products reserve more of each leg's inventory for
+      // connections (banked schedules, protected connect blocks) — this keeps
+      // tiers differentiated even in capacity-capped markets.
+      const seatFraction = ({ 0: 0.10, 1: 0.15, 2: 0.18, 3: 0.22 })[tier] ?? CONNECTING_SEAT_FRACTION;
+      const econSeats = Math.max(1, Math.round(minFreq * ASSUMED_SEATS_PER_FLIGHT * seatFraction));
+      const economyPrice = conn.totalPrice;
+
+      const offer = {
+        airlineId:         `__own_conn__${i++}`,
+        origin:            market.origin,
+        destination:       market.destination,
+        economyPrice,
+        businessPrice:     Math.round(economyPrice * BUSINESS_PRICE_MULTIPLIER),
+        weeklyFrequency:   minFreq,
+        seatsPerFlight:    ASSUMED_SEATS_PER_FLIGHT,
+        economySeats:      econSeats,
+        businessSeats:     Math.max(1, Math.round(econSeats * 0.13)),
+        qualityScore:      CONNECTION_QUALITY_SCORE + Math.round((tierDef.qualityBonus ?? 0) / 2),
+        connectivityBonus: -penalty,
+      };
+      offers.push(offer);
+      meta.set(offer.airlineId, { conn, tier });
+
+      maxCompWeight = Math.max(maxCompWeight, contestMap[conn.hub]?.compWeight ?? 0);
+    }
+    if (offers.length === 0) continue;
+
+    // Competitor nonstops + outside option (bumped at contested hubs: rival
+    // hubs at the same airport offer competing connecting paths).
+    for (const competitor of (competitorRouteIndex?.get(odKey) ?? [])) {
+      const compOffer = buildCompetitorOffer(competitor, market);
+      if (compOffer) offers.push(compOffer);
+    }
+    const outside = buildOutsideOptionOffer(market);
+    outside.connectivityBonus += 0.15 * Math.log1p(maxCompWeight / 10);
+    offers.push(outside);
+
+    const results = computeMarketShare(market, offers);
+    for (const r of results) {
+      const m = meta.get(r.airlineId);
+      if (!m) continue;
+      const { conn, tier } = m;
+
+      // Player's own direct on this O&D steals per the logit split (this replaces
+      // the blunt per-routeKey cannibalization multiplier for own-metal flows).
+      const directFactor = conn.directExists ? conn.connectionShare : 1.0;
+      // Gate congestion at the hub throttles transfer capacity.
+      const congestion = hubCongestionFactor(
+        routeCountByAirport[conn.hub] ?? 0, gates[conn.hub] ?? 0, tier
+      );
+
+      const pax = Math.round(r.totalPax * CONNECTION_LOAD_FACTOR * directFactor * congestion);
+      if (pax <= 0) continue;
+      const revenue = Math.round(r.totalRevenue * CONNECTION_LOAD_FACTOR * directFactor * congestion);
+
+      // Split revenue across legs by mileage; pax occupy BOTH legs.
+      const leg1Miles = routeDistance(conn.legOneOrigin, conn.hub) || 1;
+      const leg2Miles = routeDistance(conn.hub, conn.legTwoDest)   || 1;
+      const leg1Share = leg1Miles / (leg1Miles + leg2Miles);
+      const leg1Key   = [conn.legOneOrigin, conn.hub].sort().join('-');
+      const leg2Key   = [conn.hub, conn.legTwoDest].sort().join('-');
+      const od        = `${conn.legOneOrigin}→${conn.legTwoDest}`;
+
+      const addLeg = (key, legRevenue) => {
+        if (!byRouteKey[key]) byRouteKey[key] = { pax: 0, revenue: 0, feeds: [] };
+        byRouteKey[key].pax     += pax;
+        byRouteKey[key].revenue += legRevenue;
+        byRouteKey[key].feeds.push({ od, viaHub: conn.hub, pax, revenue: legRevenue });
+      };
+      addLeg(leg1Key, Math.round(revenue * leg1Share));
+      addLeg(leg2Key, Math.round(revenue * (1 - leg1Share)));
+
+      if (!byHub[conn.hub]) byHub[conn.hub] = { pax: 0, revenue: 0, markets: 0 };
+      byHub[conn.hub].pax     += pax;
+      byHub[conn.hub].revenue += revenue;
+      byHub[conn.hub].markets += 1;
+
+      totalRevenue += revenue;
+      totalPax     += pax;
+      entries.push({ od, hub: conn.hub, pax, revenue, share: +(r.leisureShare ?? 0).toFixed(4) });
+    }
+  }
+
+  // Trim + sort feeds for UI friendliness
+  for (const key of Object.keys(byRouteKey)) {
+    byRouteKey[key].feeds.sort((a, b) => b.pax - a.pax);
+    byRouteKey[key].feeds = byRouteKey[key].feeds.slice(0, 8);
+  }
+  entries.sort((a, b) => b.revenue - a.revenue);
+
+  return { totalRevenue, totalPax, byRouteKey, byHub, entries };
+}
+
 // ─── Convenience: run all network calculations for a weekly tick ──────────────
 
 /**
@@ -873,6 +1142,9 @@ export function runNetworkTick(state) {
     allianceDef          = null,
     jointVentures        = {},
     gameDate             = { month: 6 },
+    hubs                 = {},   // { [code]: { tier } } — designated hubs/focus cities
+    gates                = {},   // { [code]: gateCount } — for congestion
+    routeCountByAirport  = {},   // player routes per airport
   } = state;
 
   const partnershipMap = buildPartnershipMap(
@@ -880,6 +1152,7 @@ export function runNetworkTick(state) {
     codeshareAgreements,
     allianceDef,
     jointVentures,
+    competitors,
   );
 
   // Index every competitor by the O&D pairs they fly nonstop, so the partner-feed
@@ -894,10 +1167,25 @@ export function runNetworkTick(state) {
   });
   const partnerHealthDecay = computePartnerHealthDecay(connections, partnershipMap);
 
+  // Hub competition: contested connecting pools at player-designated airports.
+  const hubContestMap = buildHubContestMap(competitors, routeCountByAirport, hubs);
+
+  // Own-metal itinerary revenue: real A→hub→C markets over designated hubs.
+  const ownMetalOD = computeOwnMetalODRevenue(connections, {
+    hubs,
+    gameDate,
+    competitorRouteIndex,
+    contestMap: hubContestMap,
+    routeCountByAirport,
+    gates,
+  });
+
   return {
     connections,
     cannibalizationMap,
     partnerODRevenue,
     partnerHealthDecay,
+    hubContestMap,
+    ownMetalOD,
   };
 }

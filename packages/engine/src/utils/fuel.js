@@ -28,7 +28,7 @@
  * Each aircraft stores its own physical burn (litres/100km), independent of
  * this price. Effective $/km for a type = (burnPer100km / 100) × pricePerLitre.
  */
-export const FUEL_PRICE_PER_LITRE = 0.80;
+export const FUEL_PRICE_PER_LITRE = 1.20;
 
 /**
  * Market fuel price ($/litre) for a given index (defaults to base, index 1.0).
