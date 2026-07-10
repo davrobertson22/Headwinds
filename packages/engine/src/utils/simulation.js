@@ -1361,7 +1361,9 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
 
 export function loyaltyPenetration(members, weeklyPassengers) {
   if (!weeklyPassengers || weeklyPassengers <= 0) return 0;
-  return Math.min(1, (members ?? 0) / (weeklyPassengers * 4));
+  // Capped at 85%: not every flyer can be a member. Anything above the cap is
+  // lapsing dead weight (see LOYALTY_HARD_CAP_PEN), not usable penetration.
+  return Math.min(0.85, (members ?? 0) / (weeklyPassengers * 4));
 }
 
 // Passenger base used for penetration & enrollment ceilings: an 8-week average

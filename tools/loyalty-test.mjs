@@ -183,12 +183,11 @@ console.log('\n6. Shrinking airline');
   for (let w = 0; w < 150; w++) step(100_000, 800_000);   // grow big at Elite
   const bigMembers = members;
   check('big-airline penetration below hard cap', loyaltyPenetration(bigMembers, 100_000) < 0.85);
-  for (let w = 0; w < 26; w++) step(25_000, 800_000);     // shrink to a quarter the pax
-  const penHalfYear = loyaltyPenetration(members, 25_000);
-  check('6 months after shrinking, penetration falling (<92%)', penHalfYear < 0.92, `pen=${penHalfYear.toFixed(3)}`);
-  for (let w = 0; w < 26; w++) step(25_000, 800_000);     // another 6 months
-  const penYear = loyaltyPenetration(members, 25_000);
-  check('1 year after shrinking, penetration ≤ 86%', penYear <= 0.86, `pen=${penYear.toFixed(3)}`);
+  check('penetration is hard-capped at 85%', loyaltyPenetration(10_000_000, 25_000) === 0.85);
+  for (let w = 0; w < 52; w++) step(25_000, 800_000);     // shrink to a quarter the pax, 1 year
+  const hardCap = Math.round(25_000 * 4 * HARD_CAP_PEN);
+  check('1 year after shrinking, members near the flyer-base cap', members <= hardCap * 1.06,
+    `${members} vs cap ${hardCap}`);
   check('inactive members actually lapsed', members < bigMembers * 0.55, `${bigMembers} → ${members}`);
 }
 

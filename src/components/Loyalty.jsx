@@ -95,7 +95,12 @@ export default function Loyalty() {
         <StatCard
           label="Active Members"
           value={members.toLocaleString()}
-          sub={members > 0 ? `${(penetration * 100).toFixed(1)}% of monthly pax · ${tierInfo.label} tier` : 'No members yet'}
+          sub={
+            members === 0 ? 'No members yet'
+            : members > weeklyPassengers * 4 * 0.85
+              ? `At the 85% cap — inactive members lapsing · ${tierInfo.label} tier`
+              : `${(penetration * 100).toFixed(1)}% of monthly pax · ${tierInfo.label} tier`
+          }
           color="#3ea6ff"
         />
         <StatCard

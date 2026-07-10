@@ -4,7 +4,10 @@ import { gameReducer as reducer, freshState, reconcileState } from '../../packag
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
-export { reducer as gameReducer, freshState, reconcileState };
+// `export *` forwards EVERYTHING the reducer module exports (gameReducer,
+// freshState, reconcileState, plus helpers like transferCompatibility) so new
+// upstream exports keep working here without touching this file.
+export * from '../../packages/engine/src/reducer.mjs';
 
 // ─────────────────────────────────────────────
 // CONTEXT + PROVIDER

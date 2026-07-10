@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
 import {
@@ -73,6 +73,72 @@ function AircraftThumb({ type, size = 'sm' }) {
   );
 }
 
+// ─── Transfer routes modal ────────────────────────────────────────────────────
+// Move every route (pax + cargo) from this tail to a compatible idle aircraft.
+// Routes keep their ramp, pricing and season — handy for swapping a new owned
+// delivery in for a leased plane before returning it.
+
+function TransferRoutesModal({ aircraft, onClose }) {
+  const { state, dispatch } = useGame();
+  const type = getAircraftType(aircraft.typeId);
+
+  const candidates = state.fleet
+    .filter(a => a.id !== aircraft.id)
+    .map(a => ({ a, t: getAircraftType(a.typeId), compat: transferCompatibility(state, aircraft.id, a.id) }))
+    .sort((x, y) => (y.compat.ok ? 1 : 0) - (x.compat.ok ? 1 : 0));
+
+  function transferTo(toId) {
+    dispatch({ type: 'TRANSFER_ROUTES', fromAircraftId: aircraft.id, toAircraftId: toId });
+    onClose();
+  }
+
+  return (
+    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="saveload-modal" style={{ width: 'min(520px, 94vw)' }}>
+        <div className="saveload-header">
+          <h2 style={{ margin: 0, fontSize: 17 }}>Transfer Routes</h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)', margin: '4px 0 16px', lineHeight: 1.5 }}>
+          Move every route from <strong>{aircraft.name}</strong> ({type?.name}) to another aircraft.
+          Routes keep their maturity, pricing and season — the old aircraft goes idle, ready to
+          sell or return.
+        </p>
+        {candidates.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--text-dim)', fontStyle: 'italic' }}>No other aircraft in the fleet.</div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {candidates.map(({ a, t, compat }) => (
+            <div
+              key={a.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                border: '1px solid var(--border)', borderRadius: 8,
+                opacity: compat.ok ? 1 : 0.55,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {a.name}
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {t?.name}</span>
+                </div>
+                <div style={{ fontSize: 11, color: compat.ok ? 'var(--text-muted)' : 'var(--red)' }}>
+                  {compat.ok
+                    ? `${a.ownershipType === 'owned' ? 'Owned' : 'Leased'} · ${ageLabel(a.ageWeeks ?? 0)}`
+                    : compat.reason}
+                </div>
+              </div>
+              <button className="btn btn-primary" disabled={!compat.ok} onClick={() => transferTo(a.id)}>
+                Transfer
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail panel ─────────────────────────────────────────────────────────────
 
 function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
@@ -82,6 +148,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   // Inline rename
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft]     = useState('');
+  const [showTransfer, setShowTransfer] = useState(false);
 
   function startRename() {
     setNameDraft(aircraft.name);
@@ -421,8 +488,13 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
       </div>
 
       {/* ── Actions ───────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={onConfigure}>Configure Cabin</button>
+        {(aircraftRoutes.length > 0 || (state.cargoRoutes ?? []).some(r => r.aircraftId === aircraft.id)) && (
+          <button className="btn" onClick={() => setShowTransfer(true)}>
+            Transfer Routes
+          </button>
+        )}
         {aircraft.ownershipType === 'owned' && (
           <button
             className="btn"
@@ -440,6 +512,8 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
           {aircraft.ownershipType === 'owned' ? 'Scrap / Write Off' : 'Return Aircraft'}
         </button>
       </div>
+
+      {showTransfer && <TransferRoutesModal aircraft={aircraft} onClose={() => setShowTransfer(false)} />}
     </div>
   );
 }
