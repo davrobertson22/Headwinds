@@ -8,6 +8,7 @@
     "schema": "prisma/schema.prisma"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "node --watch src/server.mjs",
     "start": "node src/server.mjs",
     "worker": "node worker/index.mjs",
