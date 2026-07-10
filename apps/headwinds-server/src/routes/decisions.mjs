@@ -94,7 +94,11 @@ export default async function decisionRoutes(fastify) {
     if (airline.world.status !== 'RUNNING') throw httpError(409, `This world is ${airline.world.status}`);
 
     // Authoritative computation — same reducer as the solo game and the tick.
-    const next = gameReducer(airline.state, { type, ...payload });
+    // Run it over the rival-injected view so (a) the stored blob is scrubbed of
+    // any pre-humans-only AI competitors, and (b) the response the client
+    // re-renders from shows the same rivals the read path does.
+    const view = await rivalViewFor(airline);
+    const next = gameReducer(withRivals(airline.state, view), { type, ...payload });
 
     await prisma.$transaction([
       prisma.airline.update({
