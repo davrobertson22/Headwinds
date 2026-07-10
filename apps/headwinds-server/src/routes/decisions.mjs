@@ -10,6 +10,16 @@ import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { weekIndex } from '../lib/tickService.mjs';
+import { buildRivalViews, withRivals } from '../lib/humanRivals.mjs';
+
+// Live rival view for one airline (fresh on every read — never stale-from-blob).
+async function rivalViewFor(airline) {
+  const airlines = await prisma.airline.findMany({
+    where: { worldId: airline.worldId, status: 'ACTIVE' },
+  });
+  return buildRivalViews(airlines).get(airline.id)
+    ?? { competitors: [], humanRivals: {} };
+}
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -38,13 +48,16 @@ export default async function decisionRoutes(fastify) {
     schema: { params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   }, async (request) => {
     const airline = await loadMyAirline(request);
+    // Inject the CURRENT rival view so the Rivals tab and demand previews show
+    // other humans as they are right now, not as of the last tick.
+    const view = await rivalViewFor(airline);
     return {
       airlineId: airline.id,
       status: airline.status,
       week: airline.week,
       worldStatus: airline.world.status,
       worldClock: { week: airline.world.currentWeek, year: airline.world.currentYear },
-      state: airline.state,
+      state: withRivals(airline.state, view),
     };
   });
 
@@ -67,6 +80,11 @@ export default async function decisionRoutes(fastify) {
 
     if (!ALLOWED_PLAYER_ACTIONS.has(type)) {
       throw httpError(403, `Action not allowed: ${type}`);
+    }
+    // You can't buy out a human. Acquisitions were a solo-game mechanic against
+    // AI carriers; in Headwinds every competitor is a real player.
+    if (type === 'ACQUIRE_COMPETITOR') {
+      throw httpError(403, 'Acquisitions are disabled in multiplayer — your rivals are real people.');
     }
     // Defense in depth: a payload can't override the validated type.
     if ('type' in payload) delete payload.type;

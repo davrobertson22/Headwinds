@@ -241,8 +241,14 @@ function AppInner() {
       {/* Top bar */}
       <div className="topbar">
         <div className="topbar-logo">
-          <span className="topbar-logo-icon"><TailwindsMark size={20} /></span>
-          Tailwinds - Airline Manager
+          {remote ? (
+            <span style={{ fontWeight: 800, letterSpacing: 2, color: 'var(--accent)' }}>
+              HEADWINDS<span style={{ opacity: 0.55, fontWeight: 400, letterSpacing: 0 }}> · multiplayer</span>
+            </span>
+          ) : (<>
+            <span className="topbar-logo-icon"><TailwindsMark size={20} /></span>
+            Tailwinds - Airline Manager
+          </>)}
         </div>
         <div className="topbar-sep" />
         <button
@@ -381,7 +387,9 @@ function AppInner() {
             onClick={() => setActiveTab(id)}
           >
             <Icon size={14} />
-            <span>{label}</span>
+            {/* In multiplayer the Competition tab shows the OTHER HUMANS in
+                your world — "Rivals" says what it actually is. */}
+            <span>{remote && id === 'competition' ? 'Rivals' : label}</span>
           </button>
         ))}
       </div>
@@ -419,7 +427,7 @@ function AppInner() {
             title={BUILD_TIME ? `Built ${BUILD_TIME}` : undefined}
             style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', letterSpacing: '.02em' }}
           >
-            Tailwinds v{APP_VERSION} · build {BUILD_ID}
+            {remote ? 'Headwinds' : 'Tailwinds'} v{APP_VERSION} · build {BUILD_ID}
           </div>
         </footer>
       </div>

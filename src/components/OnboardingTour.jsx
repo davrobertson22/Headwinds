@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Glyph } from './Icons.jsx';
+import { useGame } from '../store/GameContext.jsx';
 
 // Bump this version whenever the tour content changes so returning players
 // see the updated guidance once (v2 added: Market filtering, idle-aircraft
@@ -10,13 +11,16 @@ const STEPS = [
   {
     icon: '✈️',
     title: 'Welcome to Tailwinds - Airline Manager',
+    remoteTitle: 'Welcome to Headwinds - Multiplayer Airline Manager',
     body: "You've founded your airline with $15 million in equity capital — yours to invest, with no debt to service. Your mission: build a profitable route network before you burn through it. Spend wisely; the bank is there if you need a loan later.",
+    remoteBody: "You've founded your airline with $15 million in equity capital — the same opening every player in this world gets. Your mission: build a profitable route network before you burn through it, in a shared world where every competitor is a real person.",
     highlight: null,
   },
   {
     icon: '🎯',
     title: 'What You\'re Trying to Do',
     body: "Every week you collect ticket revenue. Every week costs come out — fuel, crew, leases, loan repayments. Stay profitable, grow your network, and outlast the competition.",
+    remoteBody: "Every week you collect ticket revenue. Every week costs come out — fuel, crew, leases, loan repayments. Stay profitable, grow your network, and climb the standings — the leaderboard ranks every human airline in this world by market cap.",
     highlight: null,
   },
   {
@@ -46,8 +50,20 @@ const STEPS = [
   {
     icon: '⏩',
     title: 'Step 3 — Advance the Week',
+    remoteTitle: 'Step 3 — The World Clock',
     body: "Hit Next Week in the top bar to fly your routes and collect revenue. The game also auto-advances every hour. Check your Dashboard after each week — it shows alerts when something needs attention.",
+    remoteBody: "Time belongs to the world, not to you: the server advances every airline one week at a time, in lockstep, on this world's pace (shown in the lobby). Your routes fly and your bills come due even while you're away — check the Dashboard when you come back.",
     highlight: 'Next Week',
+    remoteHighlight: '',
+  },
+  {
+    icon: '⚔️',
+    title: 'Your Rivals Are Real',
+    body: '',
+    remoteBody: "Every other airline in this world is a real person making real decisions. Open the Rivals tab to see the leaderboard and go head-to-head on contested routes — when a rival flies one of your city pairs, you split its passengers based on price, quality and frequency. There are no AI airlines in Headwinds.",
+    highlight: null,
+    remoteHighlight: 'Rivals',
+    remoteOnly: true,
   },
   {
     icon: '💀',
@@ -71,9 +87,21 @@ const STEPS = [
 ];
 
 export default function OnboardingTour({ onClose }) {
+  // Multiplayer (Headwinds) shows the same tour with reworded steps: the brand,
+  // the server-owned world clock, and human rivals. `remote` is false in solo,
+  // where remoteOnly steps are dropped and remote* fields are ignored.
+  const { remote } = useGame();
+  const steps = STEPS
+    .filter((s) => !s.remoteOnly || remote)
+    .map((s) => remote ? {
+      ...s,
+      title: s.remoteTitle ?? s.title,
+      body: s.remoteBody ?? s.body,
+      highlight: s.remoteHighlight !== undefined ? (s.remoteHighlight || null) : s.highlight,
+    } : s);
   const [step, setStep] = useState(0);
-  const current = STEPS[step];
-  const isLast = step === STEPS.length - 1;
+  const current = steps[step];
+  const isLast = step === steps.length - 1;
 
   function handleNext() {
     if (isLast) {
@@ -122,7 +150,7 @@ export default function OnboardingTour({ onClose }) {
           fontSize: 11, color: 'var(--text-dim)',
           fontFamily: 'monospace', letterSpacing: '0.5px',
         }}>
-          {step + 1} / {STEPS.length}
+          {step + 1} / {steps.length}
         </div>
 
         {/* Icon */}
@@ -162,7 +190,7 @@ export default function OnboardingTour({ onClose }) {
 
         {/* Progress dots */}
         <div style={{ display: 'flex', gap: 5, marginBottom: 24, alignItems: 'center' }}>
-          {STEPS.map((_, i) => (
+          {steps.map((_, i) => (
             <div
               key={i}
               onClick={() => setStep(i)}

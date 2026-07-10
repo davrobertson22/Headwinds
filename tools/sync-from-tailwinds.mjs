@@ -134,6 +134,142 @@ if (!CHECK) {
   }
 }
 
+// ── 6b. Re-apply Headwinds multiplayer patches to synced engine files ────────
+// The engine is synced FROM Tailwinds, but Headwinds needs a few small hooks
+// (humans-as-competitors; skip AI evolution/encroachment in multiplayer). Each
+// patch is idempotent: skipped when already applied, applied when its anchor is
+// found, and a HARD ERROR when neither — that means upstream refactored the
+// code and the patch must be updated by hand. NEVER delete a failing patch
+// without understanding it: without these hooks multiplayer silently regresses
+// to AI competitors. See apps/headwinds-server/src/lib/humanRivals.mjs.
+const MULTIPLAYER_PATCHES = [
+  {
+    file: 'packages/engine/src/utils/simulation.js',
+    why: 'inject human rivals (state.humanRivals) into per-pair demand',
+    anchor: `  // Encroachment challengers, keyed by O&D pair, injected into the demand model so
+  // they split the route's passenger pool with the player.
+  const encroachByPair = (pairKey) => {
+    const e = encroachments?.[pairKey];
+    return e ? [e] : [];
+  };`,
+    patched: `  // Encroachment challengers, keyed by O&D pair, injected into the demand model so
+  // they split the route's passenger pool with the player.
+  // Multiplayer (Headwinds): state.humanRivals carries OTHER HUMAN PLAYERS'
+  // offers per pair in the same spec shape — they flow through the identical
+  // channel, so every contested city pair splits demand between real people.
+  const humanRivalsByPair = state.humanRivals ?? {};
+  const encroachByPair = (pairKey) => {
+    const e = encroachments?.[pairKey];
+    const humans = humanRivalsByPair[pairKey] ?? [];
+    return e ? [e, ...humans] : humans;
+  };`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'skip AI route encroachment in multiplayer',
+    anchor: `      // ── Route encroachment: AI carriers contest the player's fat routes ──────
+      // Decided from the PRIOR week's outcome (load factor + fares), gated by airline
+      // size, then injected into this week's demand model so they split passengers.
+      const { encroachments: updatedEncroachments, events: encroachEvents } = tickEncroachment({`,
+    patched: `      // Multiplayer (Headwinds): no AI carriers exist. The server injects other
+      // human players as state.competitors + state.humanRivals each tick, so AI
+      // encroachment, AI network evolution, and AI startups are all skipped.
+      const isMultiplayerWorld = state.multiplayer === true;
+
+      // ── Route encroachment: AI carriers contest the player's fat routes ──────
+      // Decided from the PRIOR week's outcome (load factor + fares), gated by airline
+      // size, then injected into this week's demand model so they split passengers.
+      const { encroachments: updatedEncroachments, events: encroachEvents } = isMultiplayerWorld
+        ? { encroachments: state.encroachments ?? {}, events: [] }
+        : tickEncroachment({`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'skip AI competitor evolution/startups in multiplayer',
+    anchor: `      const { competitors: aiCompetitors, events: competitorEvents } =
+        tickCompetitorAI(currentCompetitors, {`,
+    patched: `      // In multiplayer the "competitors" are real humans injected by the server:
+      // they manage their own networks, so the AI never moves them, no AI
+      // startups spawn, and no scripted fare wars / bankruptcies / mergers fire.
+      const { competitors: aiCompetitors, events: competitorEvents } = isMultiplayerWorld
+        ? { competitors: currentCompetitors, events: [] }
+        : tickCompetitorAI(currentCompetitors, {`,
+  },
+];
+
+// Branding patches: the shared UI (synced from Tailwinds) renders Headwinds
+// branding when `remote` is true (multiplayer) and stays byte-identical for
+// solo. Ideally these land upstream in Tailwinds (they're no-ops there — remote
+// is always false in solo) and can then be deleted here.
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'src/App.jsx',
+    why: 'Headwinds wordmark in the game top bar (multiplayer)',
+    anchor: `        <div className="topbar-logo">
+          <span className="topbar-logo-icon"><TailwindsMark size={20} /></span>
+          Tailwinds - Airline Manager
+        </div>`,
+    patched: `        <div className="topbar-logo">
+          {remote ? (
+            <span style={{ fontWeight: 800, letterSpacing: 2, color: 'var(--accent)' }}>
+              HEADWINDS<span style={{ opacity: 0.55, fontWeight: 400, letterSpacing: 0 }}> · multiplayer</span>
+            </span>
+          ) : (<>
+            <span className="topbar-logo-icon"><TailwindsMark size={20} /></span>
+            Tailwinds - Airline Manager
+          </>)}
+        </div>`,
+  },
+  {
+    file: 'src/App.jsx',
+    why: 'Competition tab reads "Rivals" in multiplayer',
+    anchor: `            <Icon size={14} />
+            <span>{label}</span>
+          </button>`,
+    patched: `            <Icon size={14} />
+            {/* In multiplayer the Competition tab shows the OTHER HUMANS in
+                your world — "Rivals" says what it actually is. */}
+            <span>{remote && id === 'competition' ? 'Rivals' : label}</span>
+          </button>`,
+  },
+  {
+    file: 'src/App.jsx',
+    why: 'brand-aware version footer',
+    anchor: `            Tailwinds v{APP_VERSION} · build {BUILD_ID}`,
+    patched: `            {remote ? 'Headwinds' : 'Tailwinds'} v{APP_VERSION} · build {BUILD_ID}`,
+  },
+);
+// The onboarding tour is fully reworded for multiplayer. Rather than patch its
+// many hunks, keep the Headwinds copy authoritative: if a sync brings a NEW
+// Tailwinds tour that lacks the remote-aware fields, fail loudly below.
+MULTIPLAYER_PATCHES.push({
+  file: 'src/components/OnboardingTour.jsx',
+  why: 'multiplayer-aware tour (remoteTitle/remoteBody steps + useGame)',
+  anchor: '__TOUR_MUST_BE_REMOTE_AWARE__',        // never matches — assert-only
+  patched: "import { useGame } from '../store/GameContext.jsx';",
+});
+
+let patchErrors = 0;
+for (const p of MULTIPLAYER_PATCHES) {
+  const fp = path.join(HW, p.file);
+  const src = readFileSync(fp, 'utf8');
+  if (src.includes(p.patched)) continue; // already applied
+  if (src.includes(p.anchor)) {
+    if (!CHECK) writeFileSync(fp, src.replace(p.anchor, p.patched));
+    changes++;
+    console.log(`  ✚ multiplayer patch ${CHECK ? 'would be ' : ''}applied: ${p.file} (${p.why})`);
+  } else {
+    patchErrors++;
+    console.error(`\n  ✗ MULTIPLAYER PATCH FAILED: ${p.file} (${p.why})`);
+    console.error('    Neither the patch nor its anchor was found — Tailwinds refactored this code.');
+    console.error('    Update MULTIPLAYER_PATCHES in tools/sync-from-tailwinds.mjs before committing.');
+  }
+}
+if (patchErrors > 0) {
+  console.error(`\n✗ ${patchErrors} multiplayer patch(es) failed — resolve before committing this sync.`);
+  process.exit(1);
+}
+
 // ── 7. Allow-list coverage report ─────────────────────────────────────────────
 const reducerActions = new Set([...reducerSrc.matchAll(/case '([A-Z_]+)'/g)].map((m) => m[1]));
 const worldSrc = readFileSync(path.join(HW, 'apps/headwinds-server/src/world.mjs'), 'utf8');

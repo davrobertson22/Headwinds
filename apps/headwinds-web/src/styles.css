@@ -1,4 +1,6 @@
-/* Headwinds web — dark theme in the same family as the Tailwinds game UI. */
+/* Headwinds web — dark theme in the same family as the Tailwinds game UI,
+   re-accented in Headwinds TEAL (Tailwinds is gold; the palette shift is how
+   players tell the two games apart at a glance). */
 :root {
   --bg: #0b0e13;
   --panel: #141a23;
@@ -6,11 +8,25 @@
   --line: #263143;
   --text: #e8edf4;
   --muted: #8b98ab;
-  --gold: #e3b341;
+  --accent: #38c9b4;        /* Headwinds teal (was Tailwinds gold) */
+  --accent-soft: rgba(56, 201, 180, 0.09);
   --green: #3fb96b;
   --red: #e05c5c;
   --blue: #5c9de0;
 }
+
+/* Full-game re-theme: the solo app's index.css defines the game palette on
+   :root; main.jsx sets data-brand="headwinds" on <html>, and these overrides
+   win on specificity. Layout, spacing and typography stay identical — only the
+   accent family moves from Tailwinds gold to Headwinds teal. */
+:root[data-brand='headwinds'] {
+  --accent:        #38c9b4;
+  --accent-bright: #5fe0cc;
+  --accent-deep:   #1e9483;
+  --accent-dim:    #10312c;
+  --yellow:        #38c9b4;
+}
+
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
@@ -21,7 +37,7 @@ header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 8px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px;
 }
-.brand { font-weight: 800; letter-spacing: 2px; color: var(--gold); text-decoration: none; }
+.brand { font-weight: 800; letter-spacing: 2px; color: var(--accent); text-decoration: none; }
 h2, h3 { margin: 8px 0; }
 a { color: var(--blue); }
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
@@ -43,7 +59,7 @@ input, select {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 8px 10px; font: inherit;
 }
-input:focus, select:focus { outline: 1px solid var(--gold); }
+input:focus, select:focus { outline: 1px solid var(--accent); }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 .hub-input { width: 130px; }
 
@@ -51,8 +67,8 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;
 }
-.btn:hover { border-color: var(--gold); }
-.btn.primary { background: var(--gold); color: #1a1405; border-color: var(--gold); font-weight: 600; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: #06201c; border-color: var(--accent); font-weight: 600; }
 .btn.danger { border-color: var(--red); color: var(--red); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .btn.wide { width: 100%; }
@@ -67,13 +83,15 @@ table.worlds th {
   letter-spacing: 1px; padding: 6px 8px; border-bottom: 1px solid var(--line);
 }
 table.worlds td { padding: 8px; border-bottom: 1px solid var(--line); }
-tr.me-row td { background: rgba(227, 179, 65, 0.07); }
+tr.me-row td { background: var(--accent-soft); }
+tr.rival-row { cursor: pointer; }
+tr.rival-row:hover td { background: rgba(56, 201, 180, 0.05); }
 
 .chip {
   font-size: 11px; padding: 2px 8px; border-radius: 10px; text-transform: uppercase;
   letter-spacing: 1px; border: 1px solid var(--line);
 }
-.chip-lobby { color: var(--gold); border-color: var(--gold); }
+.chip-lobby { color: var(--accent); border-color: var(--accent); }
 .chip-running, .chip-active { color: var(--green); border-color: var(--green); }
 .chip-ended, .chip-archived, .chip-abandoned { color: var(--muted); }
 .chip-bankrupt { color: var(--red); border-color: var(--red); }
@@ -83,19 +101,29 @@ tr.me-row td { background: rgba(227, 179, 65, 0.07); }
   height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden;
   margin-top: 8px; max-width: 420px;
 }
-.progress div { height: 100%; background: var(--gold); }
-.join-code { color: var(--gold); font-weight: 700; letter-spacing: 2px; }
+.progress div { height: 100%; background: var(--accent); }
+.join-code { color: var(--accent); font-weight: 700; letter-spacing: 2px; }
 .mine { text-align: right; }
 
 footer { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 /* Phase 2 gameplay panel */
 .kpis { gap: 18px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.kpis .pos { color: var(--green); }
-.kpis .neg { color: var(--red); }
-h4 { margin: 14px 0 6px; color: var(--gold); }
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+h4 { margin: 14px 0 6px; color: var(--accent); }
 table.compact td { padding: 4px 8px; font-size: 14px; }
 .inline-num { width: 84px; padding: 4px 6px; }
+
+/* Rival detail (expanded from the standings table) */
+.rival-detail {
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px 14px; margin: 4px 0 8px;
+}
+.rival-detail h5 { margin: 8px 0 4px; color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.rival-detail .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 18px; font-size: 13px; }
+.rival-move { font-size: 13px; padding: 2px 0; }
+.rival-move .wk { color: var(--muted); font-size: 11px; margin-right: 8px; }
 
 /* Full-game mount: the solo app brings its own index.css and owns the viewport;
    our only chrome is the thin bar above it. */

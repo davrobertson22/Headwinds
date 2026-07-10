@@ -1,7 +1,7 @@
 // Headwinds web client — sign in → browse worlds → join → play.
 // Hash routes: '#/' world list · '#/w/<id>' world lobby · '#/w/<id>/play' the
 // full Tailwinds game UI running on server-authoritative state.
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } from 'react';
 import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
@@ -424,7 +424,9 @@ function AirlinePanel({ worldId, token }) {
                   <input type="number" className="inline-num" defaultValue={Math.round(r.ticketPrice ?? 0)}
                     onBlur={(e) => {
                       const p = Number(e.target.value);
-                      if (p > 0 && p !== Math.round(r.ticketPrice ?? 0)) decide('UPDATE_TICKET_PRICE', { routeId: r.id, price: p });
+                      // Engine payload field is `ticketPrice` (was `price` — a bug that
+                      // clamped every lobby fare edit down to $1).
+                      if (p > 0 && p !== Math.round(r.ticketPrice ?? 0)) decide('UPDATE_TICKET_PRICE', { routeId: r.id, ticketPrice: p });
                     }} />
                 </td>
                 <td>
@@ -485,11 +487,101 @@ function AirlinePanel({ worldId, token }) {
   );
 }
 
+// ── Rival detail (public profile, expanded from the standings table) ─────────
+
+const MOVE_LABELS = {
+  ADD_ROUTE: (p) => `Opened route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
+  CLOSE_ROUTE: (p) => `Closed route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
+  ADD_CARGO_ROUTE: (p) => `Opened cargo route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
+  CLOSE_CARGO_ROUTE: (p) => `Closed cargo route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
+  LEASE_AIRCRAFT: (p, ac) => `Leased a ${ac(p.typeId)}`,
+  BUY_AIRCRAFT: (p, ac) => `Bought a ${ac(p.typeId)}`,
+  ORDER_AIRCRAFT: (p, ac) => `Ordered a ${ac(p.typeId)}`,
+  SELL_AIRCRAFT: () => 'Sold an aircraft',
+  RETIRE_AIRCRAFT: () => 'Retired an aircraft',
+  ADD_GATE: (p) => `Added a gate at ${p.airportCode ?? '?'}`,
+  UPGRADE_HUB: (p) => `Upgraded hub ${p.airportCode ?? ''}`.trim(),
+  DESIGNATE_HUB: (p) => `Designated ${p.airportCode ?? 'a'} hub`,
+  DESIGNATE_FOCUS_CITY: (p) => `Designated ${p.airportCode ?? 'a'} focus city`,
+  JOIN_ALLIANCE: (p) => `Joined the ${p.allianceId ?? ''} alliance`.replace('  ', ' '),
+  LEAVE_ALLIANCE: () => 'Left their alliance',
+};
+
+function RivalDetail({ worldId, airlineId }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    api(`/worlds/${worldId}/rivals/${airlineId}`)
+      .then((d) => alive && setData(d))
+      .catch((e) => alive && setError(e));
+    return () => { alive = false; };
+  }, [worldId, airlineId]);
+
+  if (error) return <div className="rival-detail"><ErrorNote error={error} /></div>;
+  if (!data) return <div className="rival-detail"><p className="muted small">Loading rival intel…</p></div>;
+
+  const acName = (typeId) => AIRCRAFT_TYPES.find((t) => t.id === typeId)?.name ?? typeId ?? 'aircraft';
+  const ranks = data.rankHistory ?? [];
+  const trend = ranks.length >= 2 ? ranks[0].rank - ranks[ranks.length - 1].rank : 0;
+
+  return (
+    <div className="rival-detail">
+      <div className="row wrap">
+        {data.hubs.length > 0 && <span className="small">Hubs: <strong>{data.hubs.join(', ')}</strong></span>}
+        {data.alliance && <span className="small">Alliance: <strong>{data.alliance}</strong></span>}
+        {ranks.length >= 2 && (
+          <span className="small">
+            Rank trend: <strong className={trend > 0 ? 'pos' : trend < 0 ? 'neg' : ''}>
+              {trend > 0 ? `▲ up ${trend}` : trend < 0 ? `▼ down ${-trend}` : '— steady'}
+            </strong> <span className="muted">(last {ranks.length} wks)</span>
+          </span>
+        )}
+      </div>
+
+      <h5>Route network ({data.routeNetwork.length})</h5>
+      {data.routeNetwork.length === 0 ? <p className="muted small">No routes open yet.</p> : (
+        <div className="grid">
+          {data.routeNetwork.map((r, i) => (
+            <span key={i}>
+              {r.origin} → {r.destination}
+              <span className="muted"> · {r.weeklyFrequency}×/wk{r.economyFare ? ` · $${r.economyFare}` : ''}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <h5>Fleet</h5>
+      {Object.keys(data.fleetByType).length === 0 ? <p className="muted small">No aircraft yet.</p> : (
+        <div className="grid">
+          {Object.entries(data.fleetByType).map(([typeId, n]) => (
+            <span key={typeId}>{n}× {acName(typeId)}</span>
+          ))}
+        </div>
+      )}
+
+      {data.recentMoves.length > 0 && (
+        <>
+          <h5>Recent moves</h5>
+          {data.recentMoves.map((m, i) => (
+            <div className="rival-move" key={i}>
+              <span className="wk">W{m.week}</span>
+              {(MOVE_LABELS[m.type] ?? (() => m.type))(m.payload ?? {}, acName)}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── World detail / lobby ──────────────────────────────────────────────────────
 
 function WorldScreen({ worldId, token, me, refreshMe }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [openRival, setOpenRival] = useState(null); // airlineId of expanded row
 
   const load = useCallback(() => {
     api(`/worlds/${worldId}`, { token }).then(setData).catch(setError);
@@ -554,25 +646,38 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       {!token && <div className="card"><p className="muted">Sign in above to join this world.</p></div>}
 
       <h3>Standings</h3>
+      <p className="muted small">Every airline below is a real player. Click one to see their network, fleet and recent moves.</p>
       {standings.length === 0 ? <p className="muted">No airlines yet — be the first to join.</p> : (
         <table className="worlds">
           <thead>
-            <tr><th>#</th><th>Airline</th><th>Hub</th><th>Cash</th><th>Market cap</th><th>Status</th></tr>
+            <tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Fleet</th><th>Cash</th><th>Market cap</th><th>Status</th></tr>
           </thead>
           <tbody>
             {standings.map((a) => (
-              <tr key={a.id} className={mine?.id === a.id ? 'me-row' : ''}>
-                <td>{a.rank}</td><td>{a.name}</td><td>{a.hub}</td>
-                <td>{fmtMoney(a.cash)}</td><td>{fmtMoney(a.marketCap)}</td>
-                <td><StatusChip status={a.status} /></td>
-              </tr>
+              <Fragment key={a.id}>
+                <tr
+                  className={`rival-row ${mine?.id === a.id ? 'me-row' : ''}`}
+                  onClick={() => setOpenRival(openRival === a.id ? null : a.id)}
+                >
+                  <td>{a.rank}</td>
+                  <td>{a.name}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}</td>
+                  <td>{a.hub}</td>
+                  <td>{a.routes}</td><td>{a.fleet}</td>
+                  <td>{fmtMoney(a.cash)}</td><td>{fmtMoney(a.marketCap)}</td>
+                  <td><StatusChip status={a.status} /></td>
+                </tr>
+                {openRival === a.id && (
+                  <tr>
+                    <td colSpan={8} style={{ padding: 0, border: 'none' }}>
+                      <RivalDetail worldId={world.id} airlineId={a.id} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
       )}
-      <p className="muted small">
-        Gameplay (the weekly tick) arrives in Phase 2 — for now worlds are lobbies with standings.
-      </p>
     </>
   );
 }

@@ -65,7 +65,95 @@ export default async function worldRoutes(fastify) {
         playerCount: world._count.airlines,
         includeJoinCode: isMember,
       }),
-      standings: airlines.map((a, i) => ({ rank: i + 1, ...serializeAirline(a) })),
+      standings: airlines.map((a, i) => ({
+        rank: i + 1,
+        ...serializeAirline(a),
+        // Public network-size signals for the rivals view.
+        routes: a.state?.routes?.length ?? 0,
+        fleet: a.state?.fleet?.length ?? 0,
+      })),
+    };
+  });
+
+  // ── Rival profile: an airline's PUBLIC view ────────────────────────────────
+  // What any player (or spectator) can see about a rival: their route network
+  // with fares and frequencies (public information at any real airport), fleet
+  // composition, rank history, and recent visible moves. Never exposes private
+  // internals like cash-flow detail, loans, hedges, or marketing budgets.
+  const PUBLIC_DECISIONS = new Set([
+    'ADD_ROUTE', 'CLOSE_ROUTE', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE',
+    'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'ORDER_AIRCRAFT',
+    'ADD_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
+    'JOIN_ALLIANCE', 'LEAVE_ALLIANCE',
+  ]);
+  // Only the payload fields that describe a PUBLIC move — never echo payloads raw.
+  const publicPayload = (d) => {
+    const p = d.payload ?? {};
+    return {
+      ...(p.origin ? { origin: p.origin } : {}),
+      ...(p.destination ? { destination: p.destination } : {}),
+      ...(p.typeId ? { typeId: p.typeId } : {}),
+      ...(p.airportCode ? { airportCode: p.airportCode } : {}),
+      ...(p.allianceId ? { allianceId: p.allianceId } : {}),
+    };
+  };
+  fastify.get('/worlds/:id/rivals/:airlineId', {
+    schema: {
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string' }, airlineId: { type: 'string' } },
+        required: ['id', 'airlineId'],
+      },
+    },
+  }, async (request, reply) => {
+    const airline = await prisma.airline.findUnique({
+      where: { id: request.params.airlineId },
+    });
+    if (!airline || airline.worldId !== request.params.id) {
+      return reply.code(404).send({ error: 'No such airline in this world' });
+    }
+    const s = airline.state ?? {};
+
+    const routes = (s.routes ?? []).map((r) => {
+      const key = [r.origin, r.destination].sort().join('-');
+      return {
+        origin: r.origin,
+        destination: r.destination,
+        weeklyFrequency: r.weeklyFrequency ?? 0,
+        economyFare: Math.round(s.routePricing?.[key]?.economy ?? r.ticketPrice ?? 0) || null,
+      };
+    });
+
+    const fleetByType = {};
+    for (const a of s.fleet ?? []) {
+      fleetByType[a.typeId] = (fleetByType[a.typeId] ?? 0) + 1;
+    }
+
+    const [rankHistory, recentDecisions] = await Promise.all([
+      prisma.standing.findMany({
+        where: { worldId: airline.worldId, airlineId: airline.id },
+        orderBy: { week: 'desc' },
+        take: 26,
+        select: { week: true, rank: true },
+      }),
+      prisma.decision.findMany({
+        where: { worldId: airline.worldId, airlineId: airline.id },
+        orderBy: { createdAt: 'desc' },
+        take: 60,
+      }),
+    ]);
+
+    return {
+      airline: { ...serializeAirline(airline), routes: routes.length, fleet: (s.fleet ?? []).length },
+      hubs: Object.keys(s.hubs ?? {}),
+      alliance: s.allianceMembership?.allianceId ?? null,
+      routeNetwork: routes,
+      fleetByType,
+      rankHistory: rankHistory.reverse(),
+      recentMoves: recentDecisions
+        .filter((d) => PUBLIC_DECISIONS.has(d.type))
+        .slice(0, 12)
+        .map((d) => ({ week: d.week, type: d.type, payload: publicPayload(d) })),
     };
   });
 

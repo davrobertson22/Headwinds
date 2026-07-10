@@ -1736,10 +1736,17 @@ function reducer(state, action) {
         return { ...r, seasonState: prevState };
       });
 
+      // Multiplayer (Headwinds): no AI carriers exist. The server injects other
+      // human players as state.competitors + state.humanRivals each tick, so AI
+      // encroachment, AI network evolution, and AI startups are all skipped.
+      const isMultiplayerWorld = state.multiplayer === true;
+
       // ── Route encroachment: AI carriers contest the player's fat routes ──────
       // Decided from the PRIOR week's outcome (load factor + fares), gated by airline
       // size, then injected into this week's demand model so they split passengers.
-      const { encroachments: updatedEncroachments, events: encroachEvents } = tickEncroachment({
+      const { encroachments: updatedEncroachments, events: encroachEvents } = isMultiplayerWorld
+        ? { encroachments: state.encroachments ?? {}, events: [] }
+        : tickEncroachment({
         // Dormant seasonal routes aren't in the market this month, so AI carriers
         // shouldn't contest them or count their (idle) frequency on the pair.
         routes:       state.routes
@@ -2179,8 +2186,12 @@ function reducer(state, action) {
         ticketPrice:     state.routePricing?.[routePairKey(r.origin, r.destination)]?.economy
                            ?? r.ticketPrice,
       }));
-      const { competitors: aiCompetitors, events: competitorEvents } =
-        tickCompetitorAI(currentCompetitors, {
+      // In multiplayer the "competitors" are real humans injected by the server:
+      // they manage their own networks, so the AI never moves them, no AI
+      // startups spawn, and no scripted fare wars / bankruptcies / mergers fire.
+      const { competitors: aiCompetitors, events: competitorEvents } = isMultiplayerWorld
+        ? { competitors: currentCompetitors, events: [] }
+        : tickCompetitorAI(currentCompetitors, {
           weekNumber,
           month:           gameMonth,
           playerRoutes:    aiPlayerRoutes,

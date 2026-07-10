@@ -1486,9 +1486,14 @@ export function weeklyTick(state) {
 
   // Encroachment challengers, keyed by O&D pair, injected into the demand model so
   // they split the route's passenger pool with the player.
+  // Multiplayer (Headwinds): state.humanRivals carries OTHER HUMAN PLAYERS'
+  // offers per pair in the same spec shape — they flow through the identical
+  // channel, so every contested city pair splits demand between real people.
+  const humanRivalsByPair = state.humanRivals ?? {};
   const encroachByPair = (pairKey) => {
     const e = encroachments?.[pairKey];
-    return e ? [e] : [];
+    const humans = humanRivalsByPair[pairKey] ?? [];
+    return e ? [e, ...humans] : humans;
   };
 
   // Price and catering live on the route (O&D pair) in state.routePricing /

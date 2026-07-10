@@ -64,13 +64,16 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   const count = await prisma.airline.count({ where: { worldId: world.id } });
   if (count >= world.maxPlayers) throw httpError(409, 'This world is full');
 
-  // Seed the airline from the SHARED engine — identical to the solo opening.
-  const state = gameReducer(freshState(), {
+  // Seed the airline from the SHARED engine — identical to the solo opening,
+  // EXCEPT: no AI competitors. In Headwinds your rivals are the other humans;
+  // the tick injects them fresh every week (see humanRivals.mjs).
+  const seeded = gameReducer(freshState(), {
     type: 'START_GAME',
     airlineName: airlineName?.trim() || 'New Airline',
     hub,
     enableObjectives: false,
   });
+  const state = { ...seeded, multiplayer: true, competitors: [], humanRivals: {}, encroachments: {} };
 
   return prisma.airline.create({
     data: {
