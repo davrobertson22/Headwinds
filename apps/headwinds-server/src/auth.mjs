@@ -57,3 +57,23 @@ export async function resolveAccount(request) {
 export async function requireAuth(request) {
   request.account = await resolveAccount(request);
 }
+
+// ── Admin gate ────────────────────────────────────────────────────────────────
+// Admins are the accounts listed in the ADMIN_EMAILS env var (comma-separated,
+// case-insensitive). For now ALL game worlds are operator-controlled: players
+// join worlds, only admins (and the worker's spawner) create them.
+
+export function isAdmin(account) {
+  return env.adminEmails.includes((account?.email ?? '').toLowerCase());
+}
+
+// Fastify preHandler: require a valid session belonging to an admin account.
+// Usage: fastify.post('/worlds', { preHandler: requireAdmin }, handler)
+export async function requireAdmin(request) {
+  request.account = await resolveAccount(request);
+  if (!isAdmin(request.account)) {
+    const e = new Error('World creation is limited to game admins for now');
+    e.statusCode = 403;
+    throw e;
+  }
+}

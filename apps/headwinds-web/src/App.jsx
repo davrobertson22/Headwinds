@@ -289,11 +289,17 @@ function WorldsScreen({ token, me }) {
 
       <div className="list-head">
         <h2>Open worlds</h2>
-        {token && <CreateWorld token={token} />}
+        {/* World creation is admin-only — the server enforces it (403), this just
+            hides the button for everyone else. */}
+        {token && me?.account?.isAdmin && <CreateWorld token={token} />}
       </div>
       <ErrorNote error={error} />
       {!worlds ? <p className="muted">Loading worlds…</p> : worlds.length === 0 ? (
-        <p className="muted">No public worlds yet — create one, or wait for the spawner.</p>
+        <p className="muted">
+          {me?.account?.isAdmin
+            ? 'No public worlds yet — create one, or wait for the spawner.'
+            : 'No open worlds right now — a fresh one spins up shortly, check back in a minute.'}
+        </p>
       ) : (
         <table className="worlds">
           <thead>

@@ -1,5 +1,5 @@
 // /worlds — browse, view, create, join, and leave worlds.
-import { requireAuth, resolveAccount } from '../auth.mjs';
+import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import {
@@ -172,9 +172,11 @@ export default async function worldRoutes(fastify) {
     };
   });
 
-  // ── Create a world ────────────────────────────────────────────────────────
+  // ── Create a world (ADMIN ONLY) ───────────────────────────────────────────
+  // World supply is operator-controlled: the worker's spawner keeps public
+  // worlds topped up, and only ADMIN_EMAILS accounts may create them by hand.
   fastify.post('/worlds', {
-    preHandler: requireAuth,
+    preHandler: requireAdmin,
     schema: {
       body: {
         type: 'object',

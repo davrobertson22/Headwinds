@@ -1,5 +1,5 @@
 // /me — the current account and the airlines it controls across all worlds.
-import { requireAuth } from '../auth.mjs';
+import { requireAuth, isAdmin } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { serializeAirline } from '../lib/worldConfig.mjs';
 
@@ -16,6 +16,9 @@ export default async function meRoutes(fastify) {
         id: account.id,
         email: account.email,
         displayName: account.displayName,
+        // Admins may create worlds; the web client shows the create UI on this.
+        // The server is the real gate (requireAdmin on POST /worlds).
+        isAdmin: isAdmin(account),
       },
       // Your own worlds include their join code — you're a member.
       airlines: airlines.map((a) =>

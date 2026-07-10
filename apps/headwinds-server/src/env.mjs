@@ -31,6 +31,12 @@ export const env = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  // Admin accounts (comma-separated emails, case-insensitive). Only these
+  // accounts may create game worlds — world supply is operator-controlled.
+  adminEmails: optional('ADMIN_EMAILS', '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
   // Spawner
   spawnIntervalMinutes: Number(optional('SPAWN_INTERVAL_MINUTES', '30')),
   spawnTargetOpenWorlds: Number(optional('SPAWN_TARGET_OPEN_WORLDS', '4')),

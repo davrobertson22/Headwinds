@@ -67,6 +67,7 @@ model World {
   ticks       TickLog[]
   decisions   Decision[]
   alliances   Alliance[]
+  messages    Message[]
 
   @@index([status, visibility])
 }
@@ -154,6 +155,47 @@ model AllianceMember {
   alliance   Alliance             @relation(fields: [allianceId], references: [id], onDelete: Cascade)
 
   @@index([allianceId, status])
+}
+
+// ── In-game messaging: airline-to-airline DMs + alliance chat ─────────────────
+
+enum MessageKind {
+  DM // fromAirlineId → toAirlineId, readAt marks it read
+  ALLIANCE // fromAirlineId → allianceId channel; read state via MessageCursor
+}
+
+model Message {
+  id            String      @id @default(cuid())
+  worldId       String
+  kind          MessageKind @default(DM)
+  fromAirlineId String
+  toAirlineId   String? // DM recipient (null for alliance posts)
+  allianceId    String? // alliance channel (null for DMs)
+  body          String
+  createdAt     DateTime    @default(now())
+  readAt        DateTime? // DM read marker
+  world         World       @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, toAirlineId, readAt]) // inbox + unread counts
+  @@index([worldId, fromAirlineId, createdAt]) // rate limiting + sent view
+  @@index([allianceId, createdAt]) // alliance channel feed
+}
+
+// "airlineId never wants to hear from blockedAirlineId again."
+model MessageBlock {
+  id               String   @id @default(cuid())
+  airlineId        String
+  blockedAirlineId String
+  createdAt        DateTime @default(now())
+
+  @@unique([airlineId, blockedAirlineId])
+}
+
+// Per-airline read cursor for channel-style feeds (alliance chat).
+model MessageCursor {
+  id             String    @id @default(cuid())
+  airlineId      String    @unique
+  allianceSeenAt DateTime?
 }
 
 model Standing {

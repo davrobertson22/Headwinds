@@ -16,6 +16,7 @@ import SoloApp from '../../../src/App.jsx';
 import { RemoteGameProvider, gameReducer } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
 import { api } from './api.js';
+import MessagesWidget from './Messages.jsx';
 import '../../../src/index.css';
 
 export default function GamePlayScreen({ worldId, token }) {
@@ -72,6 +73,9 @@ export default function GamePlayScreen({ worldId, token }) {
           {meta?.worldStatus !== 'RUNNING' ? ` · world ${meta?.worldStatus}` : ''}
         </span>
         {error && <span className="error">{String(error.message || error)}</span>}
+        <span style={{ marginLeft: 'auto' }}>
+          <MessagesWidget worldId={worldId} token={token} />
+        </span>
       </div>
       <RemoteGameProvider state={state} dispatch={dispatch}>
         <SoloApp />
