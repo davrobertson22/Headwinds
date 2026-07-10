@@ -39,7 +39,7 @@ Do them in this order. Total time ~30–45 min the first time.
 4. Both deploy on every push to `main` from now on.
 
 Notes: `prisma generate` runs automatically on install (postinstall hook).
-Node 20 is pinned by `engines` in package.json.
+Node 22 is pinned by `engines` in package.json (supabase-js needs native WebSocket, Node 22+).
 
 ---
 
