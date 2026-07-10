@@ -12,9 +12,11 @@ function httpError(statusCode, message) {
   return e;
 }
 
-// Create a world row. Phase 1 starts worlds RUNNING immediately (no lobby wait)
-// so there's always an active, joinable world; the weekly tick that advances them
-// arrives in Phase 2.
+// Create a world row — parked in LOBBY at Year 1, Week 1. The clock does NOT
+// start at creation: startedAt/endsAt stay null and the tick scheduler skips
+// non-RUNNING worlds, so a world waits (at year 1) however long it takes for
+// its first player. The first join starts the clock (see joinWorld) — every
+// fresh world is therefore joined at Y1W1, never mid-season.
 export async function createWorld(prisma, {
   name,
   lengthYears,
@@ -24,13 +26,10 @@ export async function createWorld(prisma, {
 } = {}) {
   validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers });
 
-  const startedAt = new Date();
-  const endsAt = deriveEndsAt(startedAt, lengthYears, weeksPerDay);
-
   return prisma.world.create({
     data: {
       name: name?.trim() || genWorldName(),
-      status: 'RUNNING',
+      status: 'LOBBY',
       visibility,
       lengthYears,
       weeksPerDay,
@@ -39,8 +38,8 @@ export async function createWorld(prisma, {
       maxPlayers,
       joinCode: visibility === 'PRIVATE' ? genJoinCode() : null,
       worldSeed: genWorldSeed(),
-      startedAt,
-      endsAt,
+      startedAt: null,
+      endsAt: null,
     },
   });
 }
@@ -75,7 +74,7 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   });
   const state = { ...seeded, multiplayer: true, competitors: [], humanRivals: {}, encroachments: {} };
 
-  return prisma.airline.create({
+  const airline = await prisma.airline.create({
     data: {
       worldId: world.id,
       accountId: account.id,
@@ -89,4 +88,21 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
       status: 'ACTIVE',
     },
   });
+
+  // First player starts the clock: LOBBY → RUNNING, startedAt = now. The
+  // compare-and-set on status makes a race between two simultaneous first
+  // joiners harmless — exactly one sets the clock, both airlines are in.
+  if (world.status === 'LOBBY') {
+    const startedAt = new Date();
+    await prisma.world.updateMany({
+      where: { id: world.id, status: 'LOBBY' },
+      data: {
+        status: 'RUNNING',
+        startedAt,
+        endsAt: deriveEndsAt(startedAt, world.lengthYears, world.weeksPerDay),
+      },
+    });
+  }
+
+  return airline;
 }

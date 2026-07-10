@@ -28,8 +28,10 @@ function pickTier() {
   return TIER_MIX[0];
 }
 
-// Ensure at least `targetOpen` PUBLIC worlds started within `youngThresholdHours`
-// exist; create new ones to top up. Idempotent — safe to run on any schedule.
+// Ensure at least `targetOpen` fresh PUBLIC worlds exist; create new ones to top
+// up. "Fresh" means: still in LOBBY (clock parked at Year 1 Week 1 — a LOBBY
+// world never ages, it waits for its first player), or RUNNING but started
+// within `youngThresholdHours`. Idempotent — safe to run on any schedule.
 export async function ensureWorldPool(prisma, {
   targetOpen = 4,
   youngThresholdHours = 48,
@@ -40,8 +42,10 @@ export async function ensureWorldPool(prisma, {
   const youngCount = await prisma.world.count({
     where: {
       visibility: 'PUBLIC',
-      status: 'RUNNING',
-      startedAt: { gte: cutoff },
+      OR: [
+        { status: 'LOBBY' },
+        { status: 'RUNNING', startedAt: { gte: cutoff } },
+      ],
     },
   });
 

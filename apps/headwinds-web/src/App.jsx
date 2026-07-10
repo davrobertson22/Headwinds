@@ -310,7 +310,9 @@ function WorldsScreen({ token, me }) {
               <tr key={w.id}>
                 <td><a href={`#/w/${w.id}`}>{w.name}</a></td>
                 <td>{w.paceLabel}</td>
-                <td>Y{w.progress.year}/{w.progress.totalYears} <span className="muted">({w.progress.percent}%)</span></td>
+                <td>{w.status === 'LOBBY'
+                  ? <span className="muted">Y1 — starts on first join</span>
+                  : <>Y{w.progress.year}/{w.progress.totalYears} <span className="muted">({w.progress.percent}%)</span></>}</td>
                 <td>{w.playerCount}/{w.maxPlayers}</td>
                 <td><StatusChip status={w.status} /></td>
                 <td>
@@ -751,7 +753,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         <div>
           <h2>{world.name} <StatusChip status={world.status} /></h2>
           <p className="muted">
-            {world.paceLabel} · Year {world.progress.year} of {world.progress.totalYears} ·
+            {world.paceLabel} ·{' '}
+            {world.status === 'LOBBY'
+              ? 'Year 1 — the clock starts when the first player joins'
+              : `Year ${world.progress.year} of ${world.progress.totalYears}`} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
           </p>
