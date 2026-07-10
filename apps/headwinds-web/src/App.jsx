@@ -1,7 +1,7 @@
 // Headwinds web client — sign in → browse worlds → join → play.
 // Hash routes: '#/' world list · '#/w/<id>' world lobby · '#/w/<id>/play' the
 // full Tailwinds game UI running on server-authoritative state.
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, Fragment } from 'react';
 import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
@@ -61,6 +61,80 @@ function ErrorNote({ error }) {
 
 // ── Sign in ───────────────────────────────────────────────────────────────────
 
+// Google Identity Services (GIS) client ID — a public identifier, not a secret.
+// GIS keeps the whole Google sign-in on OUR domain (popup + ID token), so the
+// consent screen says headwindsairlinegame.com instead of the Supabase project
+// URL that the redirect flow shows. The token is handed to Supabase via
+// signInWithIdToken.
+const GOOGLE_CLIENT_ID = import.meta.env?.VITE_GOOGLE_CLIENT_ID
+  ?? '13515979130-5jvkfgs69c6anqrpqibrj764vn1dgtn7.apps.googleusercontent.com';
+
+let gsiPromise = null;
+function loadGsi() {
+  if (!gsiPromise) {
+    gsiPromise = new Promise((resolve, reject) => {
+      if (window.google?.accounts?.id) return resolve(window.google.accounts.id);
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.async = true;
+      s.onload = () => resolve(window.google.accounts.id);
+      s.onerror = () => reject(new Error('Could not load Google sign-in'));
+      document.head.appendChild(s);
+    });
+  }
+  return gsiPromise;
+}
+
+function GoogleSignInButton({ onError }) {
+  const ref = useRef(null);
+  const [fallback, setFallback] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Per Supabase docs: give Google the SHA-256 hash of a nonce and give
+        // Supabase the raw value — it verifies the token's nonce claim.
+        const nonce = crypto.randomUUID();
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nonce));
+        const hashedNonce = Array.from(new Uint8Array(digest))
+          .map((b) => b.toString(16).padStart(2, '0')).join('');
+        const gsi = await loadGsi();
+        if (cancelled || !ref.current) return;
+        gsi.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          nonce: hashedNonce,
+          callback: async ({ credential }) => {
+            const { error } = await supabase.auth.signInWithIdToken({
+              provider: 'google',
+              token: credential,
+              nonce,
+            });
+            if (error) onError(error);
+          },
+        });
+        gsi.renderButton(ref.current, { theme: 'outline', size: 'large', text: 'continue_with', width: 320 });
+      } catch {
+        if (!cancelled) setFallback(true); // GIS blocked (ad-blocker/offline) → redirect flow
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [onError]);
+
+  if (fallback) {
+    const google = async () => {
+      onError(null);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) onError(error);
+    };
+    return <button className="btn primary wide" onClick={google}>Continue with Google</button>;
+  }
+  return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', minHeight: 44 }} />;
+}
+
 function SignIn() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
@@ -76,15 +150,6 @@ function SignIn() {
     );
   }
 
-  const google = async () => {
-    setError(null);
-    const { error: e } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
-    if (e) setError(e);
-  };
-
   const magicLink = async (ev) => {
     ev.preventDefault();
     setError(null);
@@ -99,7 +164,7 @@ function SignIn() {
     <div className="card narrow">
       <h2>Sign in to play</h2>
       <p className="muted">One account, all worlds. Your airline waits for you between sessions.</p>
-      <button className="btn primary wide" onClick={google}>Continue with Google</button>
+      <GoogleSignInButton onError={setError} />
       <div className="divider">or</div>
       {sent ? (
         <p>Check your email — we sent you a sign-in link.</p>
