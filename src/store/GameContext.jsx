@@ -2,9 +2,8 @@ import { createContext, useContext, useReducer, useEffect, useMemo } from 'react
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
 
-// The game logic — reducer, freshState, reconcileState — lives in @tailwinds/engine
-// (packages/engine/src/reducer.mjs), the single source of truth shared by the solo
-// app and the multiplayer server. This file is just the React binding.
+// The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
+// the single source of truth shared by the solo app and the multiplayer server.
 export { reducer as gameReducer, freshState, reconcileState };
 
 // ─────────────────────────────────────────────

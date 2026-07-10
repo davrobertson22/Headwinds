@@ -186,9 +186,9 @@ export function referencePrice(originCode, destCode) {
   const d = getAirport(destCode);
   if (!o || !d) return 200;
   const dist = distanceKm(o, d);
-  // Reference fares trimmed 5% below baseline to tighten yields and make
-  // sustained profitability harder (was boosted +10%).
-  return Math.round((80 + dist * 0.09) * 0.95);
+  // Reference fares trimmed 8% below baseline to tighten yields and make
+  // sustained profitability harder (was −5%, originally +10%).
+  return Math.round((80 + dist * 0.09) * 0.92);
 }
 
 // ─── Market capitalisation ─────────────────────────────────────────────────────

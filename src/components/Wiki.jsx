@@ -24,7 +24,7 @@ const WIKI = [
     title: 'Getting Started',
     blurb: 'Your first 15 minutes',
     blocks: [
-      { p: "You've founded an airline with **$10 million in equity** — no debt to service, just cash to invest. Your job is to build a route network that earns more than it spends, week after week, and eventually outgrow every rival." },
+      { p: "You've founded an airline with **$15 million in equity** — no debt to service, just cash to invest. Your job is to build a route network that earns more than it spends, week after week, and eventually outgrow every rival." },
       { h: 'The fastest path to your first flight' },
       { steps: [
         'Open the **Market** tab and lease a Turboprop or Regional Jet. They are cheap to run and low-commitment — perfect for week one.',

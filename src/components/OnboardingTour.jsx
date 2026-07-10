@@ -10,7 +10,7 @@ const STEPS = [
   {
     icon: '✈️',
     title: 'Welcome to Tailwinds - Airline Manager',
-    body: "You've founded your airline with $10 million in equity capital — yours to invest, with no debt to service. Your mission: build a profitable route network before you burn through it. Spend wisely; the bank is there if you need a loan later.",
+    body: "You've founded your airline with $15 million in equity capital — yours to invest, with no debt to service. Your mission: build a profitable route network before you burn through it. Spend wisely; the bank is there if you need a loan later.",
     highlight: null,
   },
   {

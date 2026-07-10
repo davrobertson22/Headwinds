@@ -41,12 +41,18 @@ export const ENCROACH_SIZE_PROB_FLOOR = 0.30;
 
 /** Market cap above which even fairly-priced routes carry the small baseline
  *  entry chance (ordinary competitive entry, not gouging punishment). */
-export const ENCROACH_RANDOM_ENTRY_MARKETCAP = 100_000_000;
+export const ENCROACH_RANDOM_ENTRY_MARKETCAP = 50_000_000;
 
 /** A route is a "fat target" worth attacking when it runs at/above this load factor … */
 export const ENCROACH_TARGET_MIN_LF = 0.78;
 /** … AND the player prices it at/above this multiple of the reference fare. */
-export const ENCROACH_TARGET_MIN_FARE_RATIO = 1.25;
+export const ENCROACH_TARGET_MIN_FARE_RATIO = 1.10;
+
+/** Saturation entry: a route running essentially FULL is an underserved market and
+ *  attracts entrants even at fair fares — full planes are visible to the whole industry. */
+export const ENCROACH_SATURATION_LF = 0.93;
+/** Weekly entry probability for a saturated (near-100% LF) route at a fair fare. */
+export const ENCROACH_SATURATION_PROB = 0.06;
 
 /** Base weekly probability that a fat route draws a new entrant (scaled by how fat it is). */
 export const ENCROACH_BASE_ENTRY_PROB = 0.075;
@@ -233,6 +239,11 @@ export function tickEncroachment({ routes = [], routePricing = {}, lastReport = 
       if (lf >= ENCROACH_TARGET_MIN_LF && info.fareRatio >= ENCROACH_TARGET_MIN_FARE_RATIO) {
         const fatness = Math.min(2.0, info.fareRatio - 1.0);
         prob = Math.max(prob, Math.min(ENCROACH_MAX_ENTRY_PROB, ENCROACH_BASE_ENTRY_PROB * (1 + fatness * 2)));
+      }
+      // Saturated routes (near-100% LF) attract entry even at fair fares — an
+      // always-full market is visibly underserved, and rivals want a slice.
+      if (lf >= ENCROACH_SATURATION_LF) {
+        prob = Math.max(prob, ENCROACH_SATURATION_PROB);
       }
       prob *= sizeFactor;
       if (prob <= 0 || Math.random() >= prob) continue;

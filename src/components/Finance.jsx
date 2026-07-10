@@ -57,7 +57,7 @@ class FinanceErrorBoundary extends Component {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const STARTING_CAPITAL = 10_000_000;
+const STARTING_CAPITAL = 15_000_000;
 const CLASS_LABELS = { firstClass: 'First', businessClass: 'Business', premiumEconomy: 'Prem-Eco', economy: 'Economy' };
 const CLASS_COLORS = { firstClass: '#bc8cff', businessClass: '#ffb43d', premiumEconomy: '#3ea6ff', economy: '#38d39f' };
 

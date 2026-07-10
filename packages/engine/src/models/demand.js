@@ -2659,6 +2659,6 @@ export function buildCompetitorOffer(competitor, market) {
  * @returns {number}
  */
 export function routeMaturityFactor(weeksOpen) {
-  if (weeksOpen >= 26) return 1;
-  return Math.min(1, 0.30 + 0.70 * Math.sqrt(weeksOpen / 26));
+  if (weeksOpen >= 16) return 1;
+  return Math.min(1, 0.55 + 0.45 * Math.sqrt(weeksOpen / 16));
 }

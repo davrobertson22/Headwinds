@@ -1,7 +1,6 @@
 // @tailwinds/engine — canonical pure reducer (gameReducer + freshState + reconcileState).
 // Extracted from the solo app's src/store/GameContext.jsx (the authoritative logic),
 // with import paths rewritten for this package. No React/DOM/localStorage.
-// Regenerate by re-running the sync: copy GameContext.jsx minus the React binding.
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, routeDistanceKm,
@@ -64,7 +63,7 @@ import { initialObjectives, initialObjectivesForState, checkObjectives, getObjec
 // STATE SHAPE
 // ─────────────────────────────────────────────
 
-const STARTING_CASH = 10_000_000;
+const STARTING_CASH = 15_000_000;
 
 function freshState() {
   return {
@@ -191,7 +190,7 @@ function reducer(state, action) {
   switch (action.type) {
 
     case 'START_GAME': {
-      // Startup capital: $10M of founders' EQUITY (see STARTING_CASH in freshState).
+      // Startup capital: $15M of founders' EQUITY (see STARTING_CASH in freshState).
       // It is not a loan — there is no debt to service at launch, giving new airlines
       // breathing room to reach profitability. Players can borrow from the bank later.
       return {

@@ -28,7 +28,7 @@ export const LABOR_GROUPS = [
     // This group covers FIXED overhead: base salary guarantees, sim training, type ratings,
     // standby pay, scheduling staff, chief pilots office.
     description: 'Fixed pilot overhead (base pay, training, standby). Variable flight duty pay is charged separately via Crew Operating Costs. Biggest single driver of your on-time rate.',
-    baseWeeklyPerAircraft: 26_000,
+    baseWeeklyPerAircraft: 38_000,
     effectDescription: (morale) =>
       `On-time rate (50% share) · ${moraleBand(morale)}`,
   },
@@ -39,7 +39,7 @@ export const LABOR_GROUPS = [
     // NOTE: same split as pilots — variable flight costs are in crewCostPerKm.
     // This covers fixed overhead: base pay guarantees, training, uniforms, scheduling.
     description: 'Fixed cabin crew overhead (base pay, training, uniforms). Variable flight duty pay is charged separately via Crew Operating Costs. Service delivery feeds passenger satisfaction (which drives your customer rating over time) plus a small share of on-time rate.',
-    baseWeeklyPerAircraft: 6_500,
+    baseWeeklyPerAircraft: 10_000,
     effectDescription: (morale) =>
       `Service delivery ${(morale / 100 * 5).toFixed(1)} / 5 · on-time 20% share · ${moraleBand(morale)}`,
   },
@@ -48,7 +48,7 @@ export const LABOR_GROUPS = [
     name: 'Ground Staff',
     emoji: '🔧',
     description: 'Check-in, boarding and ramp agents. Fast turnarounds keep flights on time (30% of on-time rate), plus a small bonus or penalty to your overall quality score.',
-    baseWeeklyPerAircraft: 3_000,
+    baseWeeklyPerAircraft: 4_000,
     effectDescription: (morale) => {
       const bonus = ((morale - 80) / 10).toFixed(1);
       return `On-time 30% share · quality ${bonus >= 0 ? '+' : ''}${bonus} pts · ${moraleBand(morale)}`;
@@ -59,7 +59,7 @@ export const LABOR_GROUPS = [
     name: 'Maintenance Team',
     emoji: '🔩',
     description: 'Engineers and technicians. Morale multiplies all maintenance costs — unhappy mechanics cost more.',
-    baseWeeklyPerAircraft: 4_500,
+    baseWeeklyPerAircraft: 6_000,
     effectDescription: (morale) => {
       const mult = (1.4 - morale / 200).toFixed(2);
       return `Maintenance ×${mult} · ${moraleBand(morale)}`;
