@@ -892,6 +892,11 @@ tr:hover td { background: rgba(62,166,255,.05); }
   cursor: pointer;
   transition: stroke-width .15s ease, stroke-opacity .15s ease;
 }
+/* Invisible mouse hit-corridor over each route — keep the pointer affordance
+   even though the visible .route-line is now non-interactive. */
+.route-hit {
+  cursor: pointer;
+}
 .route-line.flowing {
   animation: route-flow 1.6s linear infinite;
 }

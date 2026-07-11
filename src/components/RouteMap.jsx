@@ -472,25 +472,46 @@ export default function RouteMap() {
         halo.push(glow);
         layersRef.current.push(glow);
 
-        // Crisp main line (interactive)
+        // Crisp main line — VISUAL ONLY. It is non-interactive, so the dashed
+        // style and extra width it takes on hover can never punch gaps in the
+        // mouse hit-region. (Those dash gaps were what made the tooltip rapidly
+        // flash on and off as the cursor sat over the line.)
         const line = L.polyline(pts, {
           color,
           weight: 2.5,
           opacity: 0.85,
           lineCap: 'round',
           smoothFactor: 1,
+          interactive: false,
           className: 'route-line',
-        });
-        line.bindTooltip(tipHtml, { sticky: true, className: 'game-tooltip', offset: [15, 0] });
-        line.on('mouseover', () => { setHoveredId(g.key); });
-        line.on('mouseout',  () => { setHoveredId(null); });
-        line.on('click', (e) => {
-          L.DomEvent.stopPropagation(e);
-          setSelectedId(prev => (prev === g.key ? null : g.key));
         });
         line.addTo(map);
         main.push(line);
         layersRef.current.push(line);
+
+        // Invisible, always-solid "hit corridor" sitting on top of the visible
+        // line. This — not the styled line — is what the mouse interacts with.
+        // Its geometry and width never change, so hover stays rock-steady and
+        // the tooltip stops flickering while you hover a route.
+        const hit = L.polyline(pts, {
+          color: '#000',
+          weight: 22,
+          opacity: 0,
+          lineCap: 'round',
+          smoothFactor: 1,
+          interactive: true,
+          bubblingMouseEvents: false,
+          className: 'route-hit',
+        });
+        hit.bindTooltip(tipHtml, { sticky: true, className: 'game-tooltip', offset: [15, 0] });
+        hit.on('mouseover', () => { setHoveredId(g.key); });
+        hit.on('mouseout',  () => { setHoveredId(null); });
+        hit.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          setSelectedId(prev => (prev === g.key ? null : g.key));
+        });
+        hit.addTo(map);
+        layersRef.current.push(hit);
       }
 
       lineGroupsRef.current.set(g.key, { halo, main, color });
