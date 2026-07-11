@@ -91,6 +91,7 @@ model Airline {
   cash        BigInt        @default(0)
   marketCap   BigInt        @default(0)
   week        Int           @default(1)
+  version     Int           @default(0) // optimistic-concurrency guard: tick vs player decision
   status      AirlineStatus @default(ACTIVE)
   joinedWeek  Int           @default(1)
   createdAt   DateTime      @default(now())

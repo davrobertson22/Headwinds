@@ -25,6 +25,24 @@ function httpError(statusCode, message) {
   return e;
 }
 
+// The action TYPE is allow-listed, but payload fields were previously trusted
+// verbatim. Reject non-finite / absurd numbers (any depth) so a crafted decision
+// can't overflow cash or feed NaN into the reducer.
+function assertFinitePayload(v, path = 'payload') {
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || Math.abs(v) > 1e12) throw httpError(400, `Invalid numeric value at ${path}`);
+  } else if (Array.isArray(v)) {
+    v.forEach((x, i) => assertFinitePayload(x, `${path}[${i}]`));
+  } else if (v && typeof v === 'object') {
+    for (const [k, val] of Object.entries(v)) assertFinitePayload(val, `${path}.${k}`);
+  }
+}
+
+// Thrown inside the decision transaction when the optimistic version check fails
+// (the worker tick or another decision changed this airline first).
+class DecisionConflict extends Error {}
+const toBig = (v) => { const n = Math.round(Number(v)); return BigInt(Number.isFinite(n) ? n : 0); };
+
 async function loadMyAirline(request) {
   const airline = await prisma.airline.findUnique({
     where: {
@@ -99,6 +117,7 @@ export default async function decisionRoutes(fastify) {
     }
     // Defense in depth: a payload can't override the validated type.
     if ('type' in payload) delete payload.type;
+    assertFinitePayload(payload);
 
     const airline = await loadMyAirline(request);
     if (airline.status !== 'ACTIVE') throw httpError(409, `Your airline is ${airline.status}`);
@@ -111,25 +130,37 @@ export default async function decisionRoutes(fastify) {
     const view = await rivalViewFor(airline);
     const next = gameReducer(withRivals(airline.state, view), { type, ...payload });
 
-    await prisma.$transaction([
-      prisma.airline.update({
-        where: { id: airline.id },
-        data: {
-          state: next,
-          cash: BigInt(Math.round(next.cash ?? 0)),
-          marketCap: BigInt(Math.round(next.marketCap ?? 0)),
-        },
-      }),
-      prisma.decision.create({
-        data: {
-          worldId: airline.worldId,
-          airlineId: airline.id,
-          week: weekIndex(airline.world),
-          type,
-          payload,
-        },
-      }),
-    ]);
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Optimistic concurrency: only write if the airline is still at the version
+        // we read. If the worker tick (or another decision) got there first, bail
+        // with a 409 instead of silently clobbering it — the client re-GETs + retries.
+        const updated = await tx.airline.updateMany({
+          where: { id: airline.id, version: airline.version },
+          data: {
+            state: next,
+            cash: toBig(next.cash),
+            marketCap: toBig(next.marketCap),
+            version: { increment: 1 },
+          },
+        });
+        if (updated.count === 0) throw new DecisionConflict();
+        await tx.decision.create({
+          data: {
+            worldId: airline.worldId,
+            airlineId: airline.id,
+            week: weekIndex(airline.world),
+            type,
+            payload,
+          },
+        });
+      });
+    } catch (e) {
+      if (e instanceof DecisionConflict) {
+        throw httpError(409, 'Your airline just changed (a new week ticked) — reload and try again.');
+      }
+      throw e;
+    }
 
     return reply.code(201).send({
       ok: true,

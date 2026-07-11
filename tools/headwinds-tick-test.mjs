@@ -30,7 +30,7 @@ function fakePrisma({ world, airlines }) {
     standings: [],
   };
   let logId = 0;
-  return {
+  const p = {
     _db: db,
     world: {
       findMany: async () => [{ ...db.world }],
@@ -52,6 +52,19 @@ function fakePrisma({ world, airlines }) {
         const a = db.airlines.find((x) => x.id === where.id);
         Object.assign(a, data);
         return { ...a };
+      },
+      updateMany: async ({ where, data }) => {
+        let count = 0;
+        for (const a of db.airlines) {
+          if (a.id !== where.id) continue;
+          if (where.version !== undefined && (a.version ?? 0) !== where.version) continue;
+          for (const [k, v] of Object.entries(data)) {
+            if (v && typeof v === 'object' && 'increment' in v) a[k] = (a[k] ?? 0) + v.increment;
+            else a[k] = v;
+          }
+          count++;
+        }
+        return { count };
       },
     },
     tickLog: {
@@ -75,6 +88,9 @@ function fakePrisma({ world, airlines }) {
       findMany: async () => [],
     },
   };
+  // Interactive transaction: same fake surface acts as the tx client.
+  p.$transaction = async (fn) => fn(p);
+  return p;
 }
 
 const quiet = { info: () => {}, error: () => {} };

@@ -91,17 +91,36 @@ export default async function reportRoutes(fastify) {
       return reply.code(200).send({ ok: true, id: existing.id, alreadyReported: true });
     }
 
-    const report = await prisma.report.create({
-      data: {
-        worldId,
-        reporterAccountId: request.account.id,
-        reporterAirlineId: me.id,
-        reportedAccountId: target.accountId,
-        reportedAirlineId: target.id,
-        category,
-        details,
-      },
-    });
+    let report;
+    try {
+      report = await prisma.report.create({
+        data: {
+          worldId,
+          reporterAccountId: request.account.id,
+          reporterAirlineId: me.id,
+          reportedAccountId: target.accountId,
+          reportedAirlineId: target.id,
+          category,
+          details,
+        },
+      });
+    } catch (e) {
+      // Lost the create race against a concurrent identical report — fold into the
+      // OPEN row the other request just created (backed by the partial unique index).
+      if (e?.code === 'P2002') {
+        const open = await prisma.report.findFirst({
+          where: { worldId, reporterAccountId: request.account.id, reportedAccountId: target.accountId, status: 'OPEN' },
+        });
+        if (open) {
+          await prisma.report.update({
+            where: { id: open.id },
+            data: { category, details: details ?? open.details, reportedAirlineId: target.id, reporterAirlineId: me.id },
+          });
+          return reply.code(200).send({ ok: true, id: open.id, alreadyReported: true });
+        }
+      }
+      throw e;
+    }
     return reply.code(201).send({ ok: true, id: report.id });
   });
 }

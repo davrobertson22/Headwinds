@@ -59,74 +59,96 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const newWeek = ((toIndex - 1) % WEEKS_PER_YEAR) + 1;
   const ended = toIndex >= totalWeeks(world.lengthYears);
 
-  // ── Claim the tick (compare-and-set on the world clock) ─────────────────────
-  const claimed = await prisma.world.updateMany({
-    where: { id: world.id, currentWeek: world.currentWeek, currentYear: world.currentYear, status: 'RUNNING' },
-    data: {
-      currentWeek: newWeek,
-      currentYear: newYear,
-      ...(ended ? { status: 'ENDED', endedAt: new Date() } : {}),
-    },
+  // Reads first (outside the transaction): active airlines + their rival views.
+  // Humans-only competition — each airline ticks against the OTHER players'
+  // current states plus the world's alliance graph. No AI airlines exist.
+  const airlines = await prisma.airline.findMany({
+    where: { worldId: world.id, status: 'ACTIVE' },
   });
-  if (claimed.count === 0) return { ok: false, reason: 'lost-race' };
+  const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines });
 
-  const tickLog = await prisma.tickLog.create({
-    data: { worldId: world.id, week: toIndex, status: 'running' },
-  });
-
-  try {
-    // ── Advance every active airline through the shared engine ───────────────
-    const airlines = await prisma.airline.findMany({
-      where: { worldId: world.id, status: 'ACTIVE' },
-    });
-
-    // Humans-only competition: rebuild every airline's view of its rivals from
-    // the OTHER players' current states (plus the world's player-alliance
-    // graph), then tick. No AI airlines exist in Headwinds — your competition
-    // is the other humans in this world.
-    const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines });
-
-    const results = [];
-    for (const airline of airlines) {
+  // Compute every airline's next state BEFORE touching the DB. An airline whose
+  // reducer/serialization throws is skipped (logged) so one corrupt airline can
+  // no longer abort the whole week.
+  const computed = [];
+  for (const airline of airlines) {
+    try {
       const next = gameReducer(withRivals(airline.state, rivalViews.get(airline.id)), { type: 'ADVANCE_WEEK' });
-      const bankrupt = next.phase === 'bankrupt';
-      await prisma.airline.update({
-        where: { id: airline.id },
+      computed.push({
+        airline,
+        next,
+        cash: safeInt(next.cash),
+        marketCap: safeInt(next.marketCap),
+        bankrupt: next.phase === 'bankrupt',
+      });
+    } catch (err) {
+      log.error(`[tick] world ${world.id} airline ${airline.id} reducer threw — skipped this week:`, err?.message ?? err);
+    }
+  }
+
+  // ── Atomic commit ───────────────────────────────────────────────────────────
+  // Advance the clock (compare-and-set), write every airline, and snapshot the
+  // standings in ONE transaction: either the whole week lands or nothing does, so
+  // the world clock can never run ahead of the airline state it summarises.
+  try {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.world.updateMany({
+        where: { id: world.id, currentWeek: world.currentWeek, currentYear: world.currentYear, status: 'RUNNING' },
         data: {
-          state: next,
-          cash: BigInt(safeInt(next.cash)),
-          marketCap: BigInt(safeInt(next.marketCap)),
-          week: toIndex,
-          ...(bankrupt ? { status: 'BANKRUPT' } : {}),
+          currentWeek: newWeek,
+          currentYear: newYear,
+          ...(ended ? { status: 'ENDED', endedAt: new Date() } : {}),
         },
       });
-      results.push({ airlineId: airline.id, name: airline.name, cash: safeInt(next.cash), marketCap: safeInt(next.marketCap), bankrupt });
-    }
+      if (claimed.count === 0) return { lostRace: true };
 
-    // ── Standings snapshot for this week ─────────────────────────────────────
-    const ranked = [...results].sort((a, b) => b.marketCap - a.marketCap);
-    if (ranked.length > 0) {
-      await prisma.standing.createMany({
-        data: ranked.map((r, i) => ({
-          worldId: world.id,
-          airlineId: r.airlineId,
-          week: toIndex,
-          rank: i + 1,
-          score: BigInt(r.marketCap),
-        })),
+      await tx.tickLog.create({
+        data: { worldId: world.id, week: toIndex, status: 'ok', finishedAt: new Date() },
       });
-    }
 
-    await prisma.tickLog.update({
-      where: { id: tickLog.id },
-      data: { status: 'ok', finishedAt: new Date() },
+      const written = [];
+      for (const c of computed) {
+        // Version compare-and-set: if a player decision changed this airline since
+        // we read it, skip it here (it catches up next pass) rather than clobber
+        // the just-committed decision.
+        const res = await tx.airline.updateMany({
+          where: { id: c.airline.id, version: c.airline.version ?? 0 },
+          data: {
+            state: c.next,
+            cash: BigInt(c.cash),
+            marketCap: BigInt(c.marketCap),
+            week: toIndex,
+            version: { increment: 1 },
+            ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
+          },
+        });
+        if (res.count > 0) written.push({ airlineId: c.airline.id, name: c.airline.name, marketCap: c.marketCap });
+        else log.error(`[tick] world ${world.id} airline ${c.airline.id} changed under the tick — skipped, catches up next pass`);
+      }
+
+      const ranked = [...written].sort((a, b) => b.marketCap - a.marketCap);
+      if (ranked.length > 0) {
+        await tx.standing.createMany({
+          data: ranked.map((r, i) => ({
+            worldId: world.id,
+            airlineId: r.airlineId,
+            week: toIndex,
+            rank: i + 1,
+            score: BigInt(r.marketCap),
+          })),
+        });
+      }
+      return { lostRace: false, airlines: written.length };
     });
-    return { ok: true, week: newWeek, year: newYear, ended, airlines: results.length };
+
+    if (outcome.lostRace) return { ok: false, reason: 'lost-race' };
+    return { ok: true, week: newWeek, year: newYear, ended, airlines: outcome.airlines };
   } catch (err) {
     log.error(`[tick] world ${world.id} week ${toIndex} failed:`, err);
-    await prisma.tickLog.update({
-      where: { id: tickLog.id },
-      data: { status: 'error', error: String(err?.message ?? err), finishedAt: new Date() },
+    // The transaction rolled back — record the failure separately for the audit
+    // trail (best-effort; never masks the original error).
+    await prisma.tickLog.create({
+      data: { worldId: world.id, week: toIndex, status: 'error', error: String(err?.message ?? err), finishedAt: new Date() },
     }).catch(() => {});
     throw err;
   }
