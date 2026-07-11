@@ -4,6 +4,7 @@
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
+  DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT,
 } from './worldConfig.mjs';
 
 function httpError(statusCode, message) {
@@ -23,8 +24,18 @@ export async function createWorld(prisma, {
   weeksPerDay,
   visibility = 'PUBLIC',
   maxPlayers = 50,
+  startingCapital,
+  demandMultiplier,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier });
+
+  // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
+  // Read back at join (starting capital) and every tick (demand multiplier, via
+  // the airline's baked-in state.worldDemandMult).
+  const tickConfig = {
+    startingCapital: startingCapital ?? DEFAULT_STARTING_CAPITAL,
+    demandMultiplier: demandMultiplier ?? DEFAULT_DEMAND_MULT,
+  };
 
   return prisma.world.create({
     data: {
@@ -36,6 +47,7 @@ export async function createWorld(prisma, {
       currentWeek: 1,
       currentYear: 1,
       maxPlayers,
+      tickConfig,
       joinCode: visibility === 'PRIVATE' ? genJoinCode() : null,
       worldSeed: genWorldSeed(),
       startedAt: null,
@@ -63,6 +75,11 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   const count = await prisma.airline.count({ where: { worldId: world.id } });
   if (count >= world.maxPlayers) throw httpError(409, 'This world is full');
 
+  // Per-world admin knobs (default when the world predates them / tickConfig empty).
+  const tc = world.tickConfig ?? {};
+  const startingCapital = tc.startingCapital ?? DEFAULT_STARTING_CAPITAL;
+  const demandMultiplier = tc.demandMultiplier ?? DEFAULT_DEMAND_MULT;
+
   // Seed the airline from the SHARED engine — identical to the solo opening,
   // EXCEPT: no AI competitors. In Headwinds your rivals are the other humans;
   // the tick injects them fresh every week (see humanRivals.mjs).
@@ -72,7 +89,23 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     hub,
     enableObjectives: false,
   });
-  const state = { ...seeded, multiplayer: true, competitors: [], humanRivals: {}, encroachments: {} };
+
+  // Scale the seeded opening balances to this world's starting capital. The engine
+  // seeds cash=$15M with marketCap/sharePrice at fixed multiples of it, so scaling
+  // marketCap/sharePrice by the same factor keeps them internally consistent.
+  const capitalScale = seeded.cash > 0 ? startingCapital / seeded.cash : 1;
+  const state = {
+    ...seeded,
+    cash: startingCapital,
+    marketCap: (seeded.marketCap ?? 0) * capitalScale,
+    sharePrice: (seeded.sharePrice ?? 0) * capitalScale,
+    multiplayer: true,
+    competitors: [],
+    humanRivals: {},
+    encroachments: {},
+    // World-level demand multiplier, baked in at join (fixed at creation).
+    worldDemandMult: demandMultiplier,
+  };
 
   const airline = await prisma.airline.create({
     data: {

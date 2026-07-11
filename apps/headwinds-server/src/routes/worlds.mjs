@@ -3,7 +3,9 @@ import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import {
-  serializeWorld, serializeAirline, LENGTH_YEARS, WEEKS_PER_DAY,
+  serializeWorld, serializeAirline,
+  MIN_LENGTH_YEARS, MAX_LENGTH_YEARS, MIN_WEEKS_PER_DAY, MAX_WEEKS_PER_DAY,
+  MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
 } from '../lib/worldConfig.mjs';
 
 export default async function worldRoutes(fastify) {
@@ -14,8 +16,8 @@ export default async function worldRoutes(fastify) {
         type: 'object',
         properties: {
           status: { type: 'string', enum: ['LOBBY', 'RUNNING', 'ENDED', 'ARCHIVED'] },
-          length: { type: 'integer', enum: LENGTH_YEARS },
-          pace: { type: 'integer', enum: WEEKS_PER_DAY },
+          length: { type: 'integer', minimum: MIN_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
+          pace: { type: 'integer', minimum: MIN_WEEKS_PER_DAY, maximum: MAX_WEEKS_PER_DAY },
         },
       },
     },
@@ -284,10 +286,13 @@ export default async function worldRoutes(fastify) {
         required: ['lengthYears', 'weeksPerDay'],
         properties: {
           name: { type: 'string', maxLength: 60 },
-          lengthYears: { type: 'integer', enum: LENGTH_YEARS },
-          weeksPerDay: { type: 'integer', enum: WEEKS_PER_DAY },
+          lengthYears: { type: 'integer', minimum: MIN_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
+          weeksPerDay: { type: 'integer', minimum: MIN_WEEKS_PER_DAY, maximum: MAX_WEEKS_PER_DAY },
           visibility: { type: 'string', enum: ['PUBLIC', 'PRIVATE'] },
           maxPlayers: { type: 'integer', minimum: 1, maximum: 500 },
+          // Admin-only per-world knobs (server also re-validates in worldConfig).
+          startingCapital: { type: 'integer', minimum: MIN_STARTING_CAPITAL, maximum: MAX_STARTING_CAPITAL },
+          demandMultiplier: { type: 'number', minimum: MIN_DEMAND_MULT, maximum: MAX_DEMAND_MULT },
         },
       },
     },

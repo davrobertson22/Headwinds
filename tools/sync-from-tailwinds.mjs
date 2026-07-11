@@ -166,6 +166,24 @@ const MULTIPLAYER_PATCHES = [
   },
   {
     file: 'packages/engine/src/utils/simulation.js',
+    why: 'per-world demand multiplier (state.worldDemandMult) scales the passenger pool',
+    anchor: `  const { globalMult: eventGlobalDemandMult, multFor: eventDemandMultFor } =
+    buildEventDemandModel(state.activeEvents);`,
+    patched: `  const { globalMult: eventGlobalDemandMult, multFor: eventDemandMultFor0 } =
+    buildEventDemandModel(state.activeEvents);
+  // Multiplayer (Headwinds): a per-world demand multiplier (state.worldDemandMult,
+  // set by the admin at world creation) scales the whole passenger POOL so busier
+  // worlds can support more surviving airlines. Applied to the per-pair demand
+  // function that actually drives bookings; the reported eventGlobalDemandMult
+  // stays pure so the Finance "Events ×" chip shows only event shocks. Defaults to
+  // 1 → byte-identical to the solo game (state.worldDemandMult is undefined there).
+  const worldDemandMult = state.worldDemandMult ?? 1;
+  const eventDemandMultFor = worldDemandMult === 1
+    ? eventDemandMultFor0
+    : (a, b) => eventDemandMultFor0(a, b) * worldDemandMult;`,
+  },
+  {
+    file: 'packages/engine/src/utils/simulation.js',
     why: 'resolve player-founded alliance defs from state.allianceDef',
     anchor: `  const allianceDef         = allianceMembership ? getAlliance(allianceMembership.allianceId) : null;`,
     patched: `  // Multiplayer (Headwinds): player-founded alliances carry their definition in

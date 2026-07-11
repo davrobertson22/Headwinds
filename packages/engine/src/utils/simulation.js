@@ -164,33 +164,10 @@ export function routePairKey(origin, destination) {
  */
 export const MAX_ROUTE_STOPS = 4;
 
-/** Ordered airport codes a route visits. Falls back to [origin, destination].
- *
- * A stray/degenerate `stops` array (e.g. [SFO, SFO, LAX], or an interior stop
- * that merely repeats an endpoint) is collapsed to the route's real waypoints.
- * A route whose waypoints reduce to just its two endpoints is a DIRECT flight —
- * so it groups into the shared per-O&D demand pool and prices like the nonstop
- * it is, instead of being mis-read as a phantom multi-stop route and pulled out
- * of the pool (which made two identical nonstops on one pair diverge wildly). */
+/** Ordered airport codes a route visits. Falls back to [origin, destination]. */
 export function routeStops(route) {
-  const raw = (route && Array.isArray(route.stops) && route.stops.length >= 2)
-    ? route.stops
-    : [route?.origin, route?.destination];
-  // Drop empties and consecutive duplicates.
-  const cleaned = [];
-  for (const code of raw) {
-    if (!code) continue;
-    if (cleaned.length && cleaned[cleaned.length - 1] === code) continue;
-    cleaned.push(code);
-  }
-  // Drop interior stops that merely repeat the origin or destination endpoint —
-  // they add no real leg. Genuine distinct intermediates are preserved.
-  if (cleaned.length > 2) {
-    const o = cleaned[0], d = cleaned[cleaned.length - 1];
-    const interior = cleaned.slice(1, -1).filter(c => c !== o && c !== d);
-    return [o, ...interior, d];
-  }
-  return cleaned.length >= 2 ? cleaned : [route?.origin, route?.destination];
+  if (route && Array.isArray(route.stops) && route.stops.length >= 2) return route.stops;
+  return [route?.origin, route?.destination];
 }
 
 /** Flown legs as {from, to} pairs. Length = stops.length - 1. */
@@ -1595,8 +1572,18 @@ export function weeklyTick(state) {
   // events (volcanic ash, unrest, expos...) hit only routes touching an affected
   // country. Oversubscribed routes absorb small shocks — demand above capacity
   // buffers them — which is exactly how real fortress routes behave.
-  const { globalMult: eventGlobalDemandMult, multFor: eventDemandMultFor } =
+  const { globalMult: eventGlobalDemandMult, multFor: eventDemandMultFor0 } =
     buildEventDemandModel(state.activeEvents);
+  // Multiplayer (Headwinds): a per-world demand multiplier (state.worldDemandMult,
+  // set by the admin at world creation) scales the whole passenger POOL so busier
+  // worlds can support more surviving airlines. Applied to the per-pair demand
+  // function that actually drives bookings; the reported eventGlobalDemandMult
+  // stays pure so the Finance "Events ×" chip shows only event shocks. Defaults to
+  // 1 → byte-identical to the solo game (state.worldDemandMult is undefined there).
+  const worldDemandMult = state.worldDemandMult ?? 1;
+  const eventDemandMultFor = worldDemandMult === 1
+    ? eventDemandMultFor0
+    : (a, b) => eventDemandMultFor0(a, b) * worldDemandMult;
 
   // Targeted campaign boost per route: strongest campaign at either endpoint
   // (max, not sum — the same seats can't be sold twice). Strength stocks are

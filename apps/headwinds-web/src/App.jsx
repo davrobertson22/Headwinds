@@ -188,17 +188,33 @@ function JoinForm({ world, token, needsCode, onJoined }) {
 
 // ── Create world ──────────────────────────────────────────────────────────────
 
+const LENGTH_PRESETS = [10, 25, 50, 100, 200];
+const PACE_PRESETS = [1, 2, 4, 6, 12, 24, 48, 96];
+const createPaceLabel = (w) => {
+  const hrs = 24 / w;
+  if (!(w > 0)) return '';
+  if (hrs < 1) return `1 wk / ${Math.round(hrs * 60)} min`;
+  if (hrs < 24) return `1 wk / ${Number.isInteger(hrs) ? hrs : hrs.toFixed(1)} hr`;
+  const d = hrs / 24;
+  return `1 wk / ${Number.isInteger(d) ? d : d.toFixed(1)} day${d === 1 ? '' : 's'}`;
+};
+
 function CreateWorld({ token, onCreated }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [lengthYears, setLengthYears] = useState(50);
-  const [weeksPerDay, setWeeksPerDay] = useState(24);
+  const [lengthSel, setLengthSel] = useState('50');   // preset value or 'custom'
+  const [lengthCustom, setLengthCustom] = useState('75');
+  const [paceSel, setPaceSel] = useState('24');       // preset value or 'custom'
+  const [paceCustom, setPaceCustom] = useState('8');
   const [visibility, setVisibility] = useState('PRIVATE');
   const [maxPlayers, setMaxPlayers] = useState(20);
+  const [startingCapital, setStartingCapital] = useState(15000000);
+  const [demandMultiplier, setDemandMultiplier] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  const paceLabel = (w) => (24 / w < 1 ? `1 wk / ${Math.round((24 / w) * 60)} min` : `1 wk / ${24 / w} hr`);
+  const lengthYears = lengthSel === 'custom' ? Math.round(Number(lengthCustom)) : Number(lengthSel);
+  const weeksPerDay = paceSel === 'custom' ? Math.round(Number(paceCustom)) : Number(paceSel);
 
   const create = async (ev) => {
     ev.preventDefault();
@@ -208,10 +224,12 @@ function CreateWorld({ token, onCreated }) {
         method: 'POST', token,
         body: {
           ...(name.trim() ? { name: name.trim() } : {}),
-          lengthYears: Number(lengthYears),
-          weeksPerDay: Number(weeksPerDay),
+          lengthYears,
+          weeksPerDay,
           visibility,
           maxPlayers: Number(maxPlayers),
+          startingCapital: Math.round(Number(startingCapital)),
+          demandMultiplier: Number(demandMultiplier),
         },
       });
       onCreated?.(res.world);
@@ -230,16 +248,30 @@ function CreateWorld({ token, onCreated }) {
         <input maxLength={60} placeholder="Name (optional — we'll invent one)" value={name}
           onChange={(e) => setName(e.target.value)} />
         <label>Length
-          <select value={lengthYears} onChange={(e) => setLengthYears(e.target.value)}>
-            <option value={50}>50 game-years</option>
-            <option value={100}>100 game-years</option>
+          <select value={lengthSel} onChange={(e) => setLengthSel(e.target.value)}>
+            {LENGTH_PRESETS.map((y) => <option key={y} value={String(y)}>{y} game-years</option>)}
+            <option value="custom">Custom…</option>
           </select>
         </label>
+        {lengthSel === 'custom' && (
+          <label>Custom length (yrs)
+            <input type="number" min={5} max={300} value={lengthCustom}
+              onChange={(e) => setLengthCustom(e.target.value)} />
+          </label>
+        )}
         <label>Pace
-          <select value={weeksPerDay} onChange={(e) => setWeeksPerDay(e.target.value)}>
-            {[6, 12, 24, 48].map((w) => <option key={w} value={w}>{paceLabel(w)}</option>)}
+          <select value={paceSel} onChange={(e) => setPaceSel(e.target.value)}>
+            {PACE_PRESETS.map((w) => <option key={w} value={String(w)}>{createPaceLabel(w)}</option>)}
+            <option value="custom">Custom…</option>
           </select>
         </label>
+        {paceSel === 'custom' && (
+          <label>Weeks / day
+            <input type="number" min={1} max={96} value={paceCustom}
+              onChange={(e) => setPaceCustom(e.target.value)} />
+            <span className="muted">{createPaceLabel(Number(paceCustom))}</span>
+          </label>
+        )}
         <label>Visibility
           <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
             <option value="PRIVATE">Private (join code)</option>
@@ -249,6 +281,16 @@ function CreateWorld({ token, onCreated }) {
         <label>Max players
           <input type="number" min={1} max={500} value={maxPlayers}
             onChange={(e) => setMaxPlayers(e.target.value)} />
+        </label>
+        <label>Starting capital ($)
+          <input type="number" min={1000000} max={500000000} step={1000000} value={startingCapital}
+            onChange={(e) => setStartingCapital(e.target.value)} />
+          <span className="muted">{fmtMoney(Number(startingCapital))} per airline · default $15.0M</span>
+        </label>
+        <label>Demand multiplier
+          <input type="number" min={0.5} max={3} step={0.1} value={demandMultiplier}
+            onChange={(e) => setDemandMultiplier(e.target.value)} />
+          <span className="muted">{Number(demandMultiplier).toFixed(1)}× global demand · 1.0× = normal</span>
         </label>
       </div>
       <div className="row">

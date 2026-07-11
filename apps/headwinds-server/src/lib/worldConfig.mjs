@@ -4,9 +4,32 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 export const WEEKS_PER_YEAR = 52;
 
-// Allowed tiers (HEADWINDS_MULTIPLAYER_PLAN.md §3a).
-export const LENGTH_YEARS = [50, 100];
-export const WEEKS_PER_DAY = [6, 12, 24, 48];
+// Preset quick-picks shown in the admin create form's dropdowns. Admins may also
+// enter a custom value (the "custom…" option) — anything within the MIN/MAX
+// bounds below is accepted, so these arrays are convenience presets, NOT the
+// authoritative allow-list. (Originally §3a fixed these to [50,100] / [6,12,24,48].)
+export const LENGTH_YEARS = [10, 25, 50, 100, 200];
+export const WEEKS_PER_DAY = [1, 2, 4, 6, 12, 24, 48, 96];
+
+// Custom-value bounds (admin-only create form). weeksPerDay is weeks advanced per
+// real day: 1 → one game-week per day (very slow, casual), 96 → one every 15 min.
+export const MIN_LENGTH_YEARS = 5;
+export const MAX_LENGTH_YEARS = 300;
+export const MIN_WEEKS_PER_DAY = 1;
+export const MAX_WEEKS_PER_DAY = 96;
+
+// Per-world starting capital (founders' equity). Default matches the solo game's
+// STARTING_CASH ($15M); market cap seeds at 1.5× as always. Admin may override
+// per world to make a world easier (more runway) or harder.
+export const DEFAULT_STARTING_CAPITAL = 15_000_000;
+export const MIN_STARTING_CAPITAL = 1_000_000;
+export const MAX_STARTING_CAPITAL = 500_000_000;
+
+// Per-world global demand multiplier — scales the whole passenger pool so worlds
+// with more players can carry more surviving airlines. 1.0 = identical to solo.
+export const DEFAULT_DEMAND_MULT = 1;
+export const MIN_DEMAND_MULT = 0.5;
+export const MAX_DEMAND_MULT = 3;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -24,25 +47,40 @@ export const realTimeDays = (lengthYears, weeksPerDay) =>
 export const deriveEndsAt = (startedAt, lengthYears, weeksPerDay) =>
   new Date(startedAt.getTime() + realTimeDays(lengthYears, weeksPerDay) * DAY_MS);
 
-// Human label for a pace, e.g. 48 → "1 week / 30 min".
+// Human label for a pace, e.g. 48 → "1 week / 30 min", 1 → "1 week / 1 day".
+const fmtNum = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 export function paceLabel(weeksPerDay) {
   const hours = 24 / weeksPerDay;
   if (hours < 1) return `1 week / ${Math.round(hours * 60)} min`;
-  return `1 week / ${hours} hr`;
+  if (hours < 24) return `1 week / ${fmtNum(hours)} hr`;
+  const days = hours / 24;
+  return `1 week / ${fmtNum(days)} day${days === 1 ? '' : 's'}`;
 }
 
-export function validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers }) {
-  if (!LENGTH_YEARS.includes(lengthYears)) {
-    throw badRequest(`lengthYears must be one of ${LENGTH_YEARS.join(', ')}`);
+// Admins may pass custom length/pace/capital/demand — validated to bounds, not to
+// the preset arrays (those are just dropdown quick-picks in the UI).
+export function validateWorldConfig({
+  lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier,
+}) {
+  if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
+    throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
   }
-  if (!WEEKS_PER_DAY.includes(weeksPerDay)) {
-    throw badRequest(`weeksPerDay must be one of ${WEEKS_PER_DAY.join(', ')}`);
+  if (!Number.isInteger(weeksPerDay) || weeksPerDay < MIN_WEEKS_PER_DAY || weeksPerDay > MAX_WEEKS_PER_DAY) {
+    throw badRequest(`weeksPerDay must be a whole number between ${MIN_WEEKS_PER_DAY} and ${MAX_WEEKS_PER_DAY}`);
   }
   if (visibility && !['PUBLIC', 'PRIVATE'].includes(visibility)) {
     throw badRequest('visibility must be PUBLIC or PRIVATE');
   }
   if (maxPlayers != null && (maxPlayers < 1 || maxPlayers > 500)) {
     throw badRequest('maxPlayers must be between 1 and 500');
+  }
+  if (startingCapital != null
+    && (!Number.isFinite(startingCapital) || startingCapital < MIN_STARTING_CAPITAL || startingCapital > MAX_STARTING_CAPITAL)) {
+    throw badRequest(`startingCapital must be between ${MIN_STARTING_CAPITAL} and ${MAX_STARTING_CAPITAL}`);
+  }
+  if (demandMultiplier != null
+    && (!Number.isFinite(demandMultiplier) || demandMultiplier < MIN_DEMAND_MULT || demandMultiplier > MAX_DEMAND_MULT)) {
+    throw badRequest(`demandMultiplier must be between ${MIN_DEMAND_MULT} and ${MAX_DEMAND_MULT}`);
   }
 }
 
@@ -100,6 +138,10 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     paceLabel: paceLabel(world.weeksPerDay),
     progress: worldProgress(world),
     maxPlayers: world.maxPlayers,
+    // Admin-tunable knobs live in tickConfig (JSON); fall back to the defaults so
+    // worlds created before these existed serialize sensibly.
+    startingCapital: world.tickConfig?.startingCapital ?? DEFAULT_STARTING_CAPITAL,
+    demandMultiplier: world.tickConfig?.demandMultiplier ?? DEFAULT_DEMAND_MULT,
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.
