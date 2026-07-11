@@ -75,12 +75,13 @@ function SignIn() {
     );
   }
 
-  const google = async () => {
+  // Google and Discord share the same redirect flow. Back to /play, not the
+  // origin — the static landing page at '/' has no Supabase client, so tokens
+  // landing there would never be exchanged.
+  const oauth = async (provider) => {
     setError(null);
     const { error: e } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      // Back to /play, not the origin — the static landing page at '/' has no
-      // Supabase client, so tokens landing there would never be exchanged.
+      provider,
       options: { redirectTo: `${window.location.origin}/play` },
     });
     if (e) setError(e);
@@ -100,7 +101,8 @@ function SignIn() {
     <div className="card narrow">
       <h2>Sign in to play</h2>
       <p className="muted">One account, all worlds. Your airline waits for you between sessions.</p>
-      <button className="btn primary wide" onClick={google}>Continue with Google</button>
+      <button className="btn primary wide" onClick={() => oauth('google')}>Continue with Google</button>
+      <button className="btn discord wide" onClick={() => oauth('discord')}>Continue with Discord</button>
       <div className="divider">or</div>
       {sent ? (
         <p>Check your email — we sent you a sign-in link.</p>

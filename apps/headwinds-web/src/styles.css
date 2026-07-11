@@ -73,6 +73,8 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 .btn.danger { border-color: var(--red); color: var(--red); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .btn.wide { width: 100%; }
+.btn.discord { background: #5865f2; border-color: #5865f2; color: #fff; font-weight: 600; margin-top: 8px; }
+.btn.discord:hover { background: #4752c4; border-color: #4752c4; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .airline-chip { text-align: left; }
 
