@@ -293,6 +293,8 @@ export default async function worldRoutes(fastify) {
           // Admin-only per-world knobs (server also re-validates in worldConfig).
           startingCapital: { type: 'integer', minimum: MIN_STARTING_CAPITAL, maximum: MAX_STARTING_CAPITAL },
           demandMultiplier: { type: 'number', minimum: MIN_DEMAND_MULT, maximum: MAX_DEMAND_MULT },
+          // Optional scheduled start (ISO date-time string); real validation in worldConfig.
+          scheduledStartAt: { type: 'string', maxLength: 40 },
         },
       },
     },

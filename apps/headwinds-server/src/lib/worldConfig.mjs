@@ -31,6 +31,13 @@ export const DEFAULT_DEMAND_MULT = 1;
 export const MIN_DEMAND_MULT = 0.5;
 export const MAX_DEMAND_MULT = 3;
 
+// Optional scheduled start — admin "list a game that starts at a preset time".
+// A world with tickConfig.scheduledStartAt sits open in LOBBY (players may join)
+// and the worker flips it LOBBY→RUNNING automatically at that instant; joining
+// never starts the clock. Null = classic "starts on first join". Capped ~1 year
+// out as a typo guard.
+export const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Total game-weeks in a world of this length.
@@ -60,7 +67,7 @@ export function paceLabel(weeksPerDay) {
 // Admins may pass custom length/pace/capital/demand — validated to bounds, not to
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
-  lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier,
+  lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt,
 }) {
   if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
     throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
@@ -81,6 +88,12 @@ export function validateWorldConfig({
   if (demandMultiplier != null
     && (!Number.isFinite(demandMultiplier) || demandMultiplier < MIN_DEMAND_MULT || demandMultiplier > MAX_DEMAND_MULT)) {
     throw badRequest(`demandMultiplier must be between ${MIN_DEMAND_MULT} and ${MAX_DEMAND_MULT}`);
+  }
+  if (scheduledStartAt != null) {
+    const t = new Date(scheduledStartAt).getTime();
+    if (Number.isNaN(t)) throw badRequest('scheduledStartAt must be a valid date/time');
+    if (t <= Date.now()) throw badRequest('scheduledStartAt must be in the future');
+    if (t > Date.now() + MAX_SCHEDULE_AHEAD_MS) throw badRequest('scheduledStartAt is more than a year out');
   }
 }
 
@@ -142,6 +155,7 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // worlds created before these existed serialize sensibly.
     startingCapital: world.tickConfig?.startingCapital ?? DEFAULT_STARTING_CAPITAL,
     demandMultiplier: world.tickConfig?.demandMultiplier ?? DEFAULT_DEMAND_MULT,
+    scheduledStartAt: world.tickConfig?.scheduledStartAt ?? null,
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.

@@ -26,8 +26,9 @@ export async function createWorld(prisma, {
   maxPlayers = 50,
   startingCapital,
   demandMultiplier,
+  scheduledStartAt,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -35,6 +36,9 @@ export async function createWorld(prisma, {
   const tickConfig = {
     startingCapital: startingCapital ?? DEFAULT_STARTING_CAPITAL,
     demandMultiplier: demandMultiplier ?? DEFAULT_DEMAND_MULT,
+    // Optional preset start instant (ISO). Present → the worker starts this world
+    // at that time and joining does NOT start the clock (see joinWorld + tickService).
+    ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),
   };
 
   return prisma.world.create({
@@ -125,7 +129,10 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   // First player starts the clock: LOBBY → RUNNING, startedAt = now. The
   // compare-and-set on status makes a race between two simultaneous first
   // joiners harmless — exactly one sets the clock, both airlines are in.
-  if (world.status === 'LOBBY') {
+  // A scheduled world (tickConfig.scheduledStartAt) is NOT started by joining — the
+  // worker flips it LOBBY→RUNNING at the preset time. Only classic "starts on first
+  // join" worlds start their clock here.
+  if (world.status === 'LOBBY' && !world.tickConfig?.scheduledStartAt) {
     const startedAt = new Date();
     await prisma.world.updateMany({
       where: { id: world.id, status: 'LOBBY' },
