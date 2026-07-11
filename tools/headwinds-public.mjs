@@ -183,6 +183,33 @@ function injectRulesLink(html) {
   return s;
 }
 
+// Put the Headwinds logo mark + teal wordmark in the header of EVERY page.
+// The shared info pages (synced from Tailwinds) and the hand-written Headwinds
+// pages both ship a text-only brand link — only the landing page (the app's own
+// index.html) carries the mark. This makes the whole site consistent with it.
+// Every generated page uses the identical `.brand` markup and CSS rule, so a
+// single string swap covers all of them. Idempotent: after the swap the source
+// strings are gone, and re-runs start from a clean OUT. Uses the literal teal
+// hex (#38c9b4) rather than a CSS var because the shared pages name their accent
+// var `--gold` (holding teal post-rebrand) while the hand-written pages use
+// `--teal` — the hex works on both without depending on either name.
+function injectBrandLogo(html) {
+  let s = html;
+  // 1. Restyle the brand link: horizontal lockup, mark sized to the wordmark,
+  //    wordmark in Headwinds teal.
+  s = s.replace(
+    'nav.site .brand { font-family:\'Space Grotesk\',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }',
+    'nav.site .brand { display:inline-flex; align-items:center; gap:9px; font-family:\'Space Grotesk\',sans-serif; font-weight:700; font-size:1.15rem; letter-spacing:0.5px; color:#38c9b4; text-decoration:none; margin-right:auto; }\n    nav.site .brand img { height:22px; width:auto; display:block; }',
+  );
+  // 2. Add the mark image ahead of the wordmark text. Decorative (alt="") — the
+  //    adjacent "Headwinds" text already names the link. 848x479 art → 39x22.
+  s = s.replace(
+    '<a class="brand" href="/">Headwinds</a>',
+    '<a class="brand" href="/"><img src="/headwinds-mark-color.png" alt="" width="39" height="22" />Headwinds</a>',
+  );
+  return s;
+}
+
 // ── build ─────────────────────────────────────────────────────────────────────
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -236,7 +263,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectRulesLink(before);
+  const after = injectBrandLogo(injectRulesLink(before));
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 

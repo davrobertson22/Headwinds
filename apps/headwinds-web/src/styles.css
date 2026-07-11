@@ -264,3 +264,6 @@ table.compact td { padding: 4px 8px; font-size: 14px; }
 .chip-dismissed { color: var(--muted); }
 .chip-warn { color: #e0a95c; border-color: #e0a95c; }
 .chip-banned { color: var(--red); border-color: var(--red); margin-left: 6px; }
+
+/* Footer cross-links: on-brand teal, not the default --blue link colour. */
+footer a { color: var(--accent); }

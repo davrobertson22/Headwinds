@@ -1,0 +1,48 @@
+#!/bin/sh
+# tools/git-hooks/post-commit
+# -----------------------------------------------------------------------------
+# After every commit, refresh the Headwinds devlog's "Full change history" feed
+# from git log and, if it changed, record that refresh as its own tidy commit.
+#
+# Activated by:  git config core.hooksPath tools/git-hooks   (run once per clone)
+#
+# Design notes:
+#   * Runs the generator, which rewrites apps/headwinds-web/pages/devlog.html.
+#   * If (and only if) that file changed, it stages just that file and commits
+#     it as "chore(devlog): ..." with --no-verify.
+#   * Recursion is impossible: our own chore(devlog) commit re-fires this hook,
+#     the guard below matches its subject and exits before doing anything.
+#   * A commit that need not appear in the feed can opt out with [skip devlog]
+#     in its message; a whole push can skip the hook with `git push --no-verify`
+#     (well, per-commit: `git commit --no-verify`).
+# -----------------------------------------------------------------------------
+set -eu
+
+# Guard 1: don't act on our own bookkeeping commit (prevents recursion).
+subject=$(git log -1 --pretty=%s 2>/dev/null || echo '')
+case "$subject" in
+  'chore(devlog):'*) exit 0 ;;
+esac
+
+# Guard 2: re-entrancy flag, belt-and-suspenders.
+[ -n "${DEVLOG_HOOK_RUNNING:-}" ] && exit 0
+DEVLOG_HOOK_RUNNING=1
+export DEVLOG_HOOK_RUNNING
+
+root=$(git rev-parse --show-toplevel)
+devlog="apps/headwinds-web/pages/devlog.html"
+
+# Regenerate. Never let a generator hiccup block the user's commit.
+node "$root/tools/devlog-autolog.mjs" || {
+  echo "devlog: generator failed; leaving devlog unchanged." >&2
+  exit 0
+}
+
+# Nothing changed => nothing to commit.
+if git diff --quiet -- "$devlog"; then
+  exit 0
+fi
+
+git add -- "$devlog"
+git commit --no-verify -m "chore(devlog): sync change-history feed" >/dev/null
+echo "devlog: change-history feed updated (chore(devlog) commit added)."
