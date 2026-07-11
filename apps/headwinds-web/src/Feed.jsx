@@ -49,19 +49,32 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
   const [nextBefore, setNextBefore] = useState(null);
   const [error, setError] = useState(null);
   const [hasNew, setHasNew] = useState(false);
+  const [paginated, setPaginated] = useState(false);
 
   const load = useCallback(() => {
     api(`/worlds/${worldId}/feed`, { token })
       .then((d) => {
-        setEvents(d.events);
-        setNextBefore(d.nextBefore);
         setError(null);
         const latest = d.events[0]?.at;
         const seen = localStorage.getItem(LAST_SEEN_KEY(worldId));
         setHasNew(Boolean(latest && latest !== seen));
+        if (paginated) {
+          // User loaded older pages — a full replace would wipe that history and
+          // reset scroll. Prepend only genuinely-new events; leave nextBefore
+          // (the older-page cursor) untouched.
+          setEvents((prev) => {
+            if (!prev || prev.length === 0) return d.events;
+            const newest = prev[0]?.at;
+            const fresh = newest ? d.events.filter((e) => e.at > newest) : d.events;
+            return fresh.length ? [...fresh, ...prev] : prev;
+          });
+        } else {
+          setEvents(d.events);
+          setNextBefore(d.nextBefore);
+        }
       })
       .catch(setError);
-  }, [worldId, token]);
+  }, [worldId, token, paginated]);
 
   // Light poll for the "new activity" dot; full refresh while open.
   useEffect(() => {
@@ -81,6 +94,7 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
 
   const loadMore = () => {
     if (!nextBefore) return;
+    setPaginated(true);
     api(`/worlds/${worldId}/feed?before=${encodeURIComponent(nextBefore)}`, { token })
       .then((d) => {
         setEvents((prev) => [...(prev ?? []), ...d.events]);

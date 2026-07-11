@@ -103,14 +103,23 @@ export default function GamePlayScreen({ worldId, token }) {
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
   }), [worldId, token]);
 
+  const decisionSeq = useRef(0);
   const dispatch = useCallback((action) => {
     const { type, ...payload } = action ?? {};
     if (!ALLOWED_PLAYER_ACTIONS.has(type)) return; // ADVANCE_WEEK etc. — server-owned
+    const seq = ++decisionSeq.current;
     // Optimistic: same reducer, instant UI.
     setState((s) => gameReducer(s, action));
-    // Authoritative: server recomputes and its result wins.
+    // Authoritative: server result wins — but only the MOST RECENT decision may
+    // overwrite local state, and never roll the week backwards (a pre-tick
+    // response landing after the weekly poll advanced us). Stale/out-of-order
+    // responses are dropped; the next poll reconciles.
     authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload } })
-      .then((res) => setState(res.state))
+      .then((res) => setState((cur) => {
+        if (seq !== decisionSeq.current) return cur;
+        if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+        return res.state;
+      }))
       .catch((e) => {
         if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
         setError(e); load(); // rejected → resync from server

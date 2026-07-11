@@ -1871,7 +1871,7 @@ export function weeklyTick(state) {
       const ecoPrice = Math.max(1, cp0.economy ?? r0.ticketPrice ?? 1);
       const bizPrice = hasBusinessCabin && cp0.businessClass != null
         ? Math.max(1, cp0.businessClass)
-        : hasBusinessCabin ? ecoPrice * 3.5 : null;
+        : null;  // match single-aircraft path (no implicit 3.5x biz fare)
       const connBonus = (r0.origin === r0.hub || r0.destination === r0.hub) ? 0.20 : 0;
 
       const combinedOffer = {

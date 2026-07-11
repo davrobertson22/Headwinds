@@ -134,14 +134,22 @@ export default async function allianceRoutes(fastify) {
     });
     if (clash) throw httpError(409, 'An alliance with that name already exists in this world');
 
-    const alliance = await prisma.alliance.create({
-      data: {
-        worldId: airline.worldId,
-        name,
-        members: { create: { airlineId: airline.id, status: 'ACTIVE', role: 'FOUNDER' } },
-      },
-      include: { members: true },
-    });
+    let alliance;
+    try {
+      alliance = await prisma.alliance.create({
+        data: {
+          worldId: airline.worldId,
+          name,
+          members: { create: { airlineId: airline.id, status: 'ACTIVE', role: 'FOUNDER' } },
+        },
+        include: { members: true },
+      });
+    } catch (e) {
+      // Concurrent found of the same name (or a double-submit) races the unique
+      // index — return 409 instead of a raw 500.
+      if (e?.code === 'P2002') throw httpError(409, 'An alliance with that name already exists in this world');
+      throw e;
+    }
     return reply.code(201).send({ ok: true, alliance: { id: alliance.id, name: alliance.name } });
   });
 

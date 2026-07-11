@@ -4,7 +4,7 @@
 //   Alliance  your alliance's shared board
 // Headwinds-owned (not synced from Tailwinds) — safe to evolve freely.
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { api } from './api.js';
+import { authedApi } from './authedApi.js';
 import { ReportDialog } from './Report.jsx';
 
 const fmtTime = (t) => {
@@ -22,7 +22,7 @@ export default function MessagesWidget({ worldId, token }) {
   const [error, setError] = useState(null);
 
   const loadSummary = useCallback(() => {
-    api(`/worlds/${worldId}/messages`, { token })
+    authedApi(`/worlds/${worldId}/messages`, { token })
       .then((d) => { setSummary(d); setError(null); })
       .catch(setError);
   }, [worldId, token]);
@@ -113,7 +113,7 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
                 <div key={b.airlineId} className="hw-msg-blocked-row">
                   <span>{b.name}</span>
                   <button className="btn small" onClick={() =>
-                    api(`/worlds/${worldId}/messages/block`, {
+                    authedApi(`/worlds/${worldId}/messages/block`, {
                       method: 'POST', token, body: { airlineId: b.airlineId, blocked: false },
                     }).then(refresh)
                   }>Unblock</button>
@@ -172,13 +172,14 @@ function Composer({ placeholder, disabled, onSend }) {
 
 function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
   const [messages, setMessages] = useState(null);
+  const [error, setError] = useState(null);
   const [reporting, setReporting] = useState(false);
   const endRef = useRef(null);
 
   const load = useCallback(() => {
-    api(`/worlds/${worldId}/messages/with/${airlineId}`, { token })
-      .then((d) => setMessages(d.messages))
-      .catch(() => {});
+    authedApi(`/worlds/${worldId}/messages/with/${airlineId}`, { token })
+      .then((d) => { setMessages(d.messages); setError(null); })
+      .catch(setError);
   }, [worldId, token, airlineId]);
 
   useEffect(() => {
@@ -190,7 +191,7 @@ function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
 
   const block = () => {
     if (!window.confirm(`Block ${name}? Their messages will no longer reach you.`)) return;
-    api(`/worlds/${worldId}/messages/block`, {
+    authedApi(`/worlds/${worldId}/messages/block`, {
       method: 'POST', token, body: { airlineId, blocked: true },
     }).then(onBlocked);
   };
@@ -212,7 +213,8 @@ function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
         />
       )}
       <div className="hw-msg-scroll">
-        {!messages ? <p className="hw-msg-empty">Loading…</p> :
+        {error && !messages ? <p className="hw-msg-empty error">{String(error.message || error)}</p> :
+         !messages ? <p className="hw-msg-empty">Loading…</p> :
           messages.length === 0 ? <p className="hw-msg-empty">No messages yet — you're starting this conversation.</p> :
           messages.map((m) => (
             <div key={m.id} className={`hw-msg-bubble ${m.fromMe ? 'mine' : ''}`}>
@@ -225,7 +227,7 @@ function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
       <Composer
         placeholder={`Message ${name}…`}
         onSend={async (body) => {
-          await api(`/worlds/${worldId}/messages`, {
+          await authedApi(`/worlds/${worldId}/messages`, {
             method: 'POST', token, body: { toAirlineId: airlineId, body },
           });
           load();
@@ -237,12 +239,18 @@ function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
 
 function AllianceBoard({ worldId, token, onSeen }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
   const endRef = useRef(null);
+  const seenRef = useRef(false);
 
   const load = useCallback(() => {
-    api(`/worlds/${worldId}/messages/alliance`, { token })
-      .then((d) => { setData(d); onSeen(); })
-      .catch(() => {});
+    authedApi(`/worlds/${worldId}/messages/alliance`, { token })
+      .then((d) => {
+        setData(d); setError(null);
+        // Mark the board seen (refresh parent unread) once on open, not every poll.
+        if (!seenRef.current) { seenRef.current = true; onSeen(); }
+      })
+      .catch(setError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldId, token]);
 
@@ -253,7 +261,11 @@ function AllianceBoard({ worldId, token, onSeen }) {
   }, [load]);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [data]);
 
-  if (!data) return <div className="hw-msg-body"><p className="hw-msg-empty">Loading…</p></div>;
+  if (!data) return (
+    <div className="hw-msg-body">
+      <p className="hw-msg-empty">{error ? String(error.message || error) : 'Loading…'}</p>
+    </div>
+  );
 
   return (
     <div className="hw-msg-body hw-msg-thread">
@@ -273,7 +285,7 @@ function AllianceBoard({ worldId, token, onSeen }) {
       <Composer
         placeholder="Message your alliance…"
         onSend={async (body) => {
-          await api(`/worlds/${worldId}/messages/alliance`, { method: 'POST', token, body: { body } });
+          await authedApi(`/worlds/${worldId}/messages/alliance`, { method: 'POST', token, body: { body } });
           load();
         }}
       />

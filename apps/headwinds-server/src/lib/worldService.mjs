@@ -111,20 +111,28 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     worldDemandMult: demandMultiplier,
   };
 
-  const airline = await prisma.airline.create({
-    data: {
-      worldId: world.id,
-      accountId: account.id,
-      name: state.airlineName,
-      hub: state.hub ?? hub,
-      state,
-      cash: BigInt(Math.round(state.cash ?? 0)),
-      marketCap: BigInt(Math.round(state.marketCap ?? 0)),
-      week: state.week ?? world.currentWeek,
-      joinedWeek: world.currentWeek,
-      status: 'ACTIVE',
-    },
-  });
+  let airline;
+  try {
+    airline = await prisma.airline.create({
+      data: {
+        worldId: world.id,
+        accountId: account.id,
+        name: state.airlineName,
+        hub: state.hub ?? hub,
+        state,
+        cash: BigInt(Math.round(state.cash ?? 0)),
+        marketCap: BigInt(Math.round(state.marketCap ?? 0)),
+        week: state.week ?? world.currentWeek,
+        joinedWeek: world.currentWeek,
+        status: 'ACTIVE',
+      },
+    });
+  } catch (e) {
+    // A same-account double-submit races the (worldId, accountId) unique index —
+    // return the clean 409 the pre-check would have, not a raw 500.
+    if (e?.code === 'P2002') throw httpError(409, 'You already have an airline in this world');
+    throw e;
+  }
 
   // First player starts the clock: LOBBY → RUNNING, startedAt = now. The
   // compare-and-set on status makes a race between two simultaneous first
