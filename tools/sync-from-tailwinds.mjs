@@ -447,6 +447,290 @@ MULTIPLAYER_PATCHES.push({
   patched: 'The other players in your world',
 });
 
+// ── Starter Fleet: first 2 aircraft deliver instantly (Headwinds MP only) ─────
+// New players shouldn't idle for real hours waiting on their first plane. In
+// multiplayer, ORDER_AIRCRAFT hands the first two aircraft straight into the
+// fleet (cost still charged; only the wait waived). Solo Tailwinds is untouched
+// (state.multiplayer is undefined). Ideally lands upstream in Tailwinds guarded
+// by state.multiplayer (a no-op in solo) so these patches can then be deleted.
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'freshState: starter-delivery counter',
+    anchor: `    pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }`,
+    patched: `    pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }
+    starterDeliveriesUsed: 0, // Headwinds MP only: first 2 aircraft ever taken deliver INSTANTLY (see ORDER_AIRCRAFT). Counts instant grants used; capped at 2. No effect in solo.`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'ORDER_AIRCRAFT: instant starter-delivery setup vars',
+    anchor: `      // Build all N orders, updating the running pendingOrders list so each order
+      // can see the previous ones when computing its staggered delivery week.
+      let runningPending = [...(state.pendingOrders ?? [])];
+      let cashBalance    = state.cash;
+      const newOrders    = [];`,
+    patched: `      // Build all N orders, updating the running pendingOrders list so each order
+      // can see the previous ones when computing its staggered delivery week.
+      //
+      // Headwinds multiplayer: the first two aircraft a player EVER takes delivery
+      // of are handed over INSTANTLY — straight into the fleet, skipping the queue —
+      // so a new competitor can start flying immediately instead of idling for real
+      // hours waiting on their first plane. The purchase price / lease deposit is
+      // still charged in full; only the delivery wait is waived. Solo (Tailwinds)
+      // is unaffected: state.multiplayer is undefined, so isMultiplayerWorld is
+      // false and this behaves exactly as before.
+      const isMultiplayerWorld   = state.multiplayer === true;
+      const STARTER_DELIVERY_CAP = 2;
+      const DELIVERY_LEASE_TERMS = { 'Turboprop': 52, 'Regional Jet': 78, 'Narrow Body': 104, 'Wide Body': 156 };
+      let starterUsed    = state.starterDeliveriesUsed ?? 0;
+      let runningPending = [...(state.pendingOrders ?? [])];
+      let runningFleet   = [...(state.fleet ?? [])];
+      let cashBalance    = state.cash;
+      const newOrders       = [];
+      const instantAircraft = [];
+      const instantToasts   = [];`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'ORDER_AIRCRAFT: count just-delivered starter aircraft in fleet discount',
+    anchor: `        // Price (fleet discount counts fleet + already-queued units)
+        const totalExisting  = state.fleet.filter(a => a.typeId === action.typeId).length
+                             + pendingOfType.length;`,
+    patched: `        // Price (fleet discount counts owned fleet — including any just-delivered
+        // starter aircraft — plus already-queued units)
+        const totalExisting  = runningFleet.filter(a => a.typeId === action.typeId).length
+                             + pendingOfType.length;`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'ORDER_AIRCRAFT: deliver starter aircraft into fleet + return',
+    anchor: `        newOrders.push(order);
+        runningPending = [...runningPending, order];
+        cashBalance   -= unitUpfrontCost;
+      }
+
+      if (newOrders.length === 0) return state;
+
+      return {
+        ...state,
+        cash:          cashBalance,
+        pendingOrders: runningPending,
+      };
+    }`,
+    patched: `        newOrders.push(order);
+        cashBalance   -= unitUpfrontCost;
+
+        // Starter Fleet perk (multiplayer only): the first two aircraft go straight
+        // into the fleet now instead of onto the delivery queue. Mirrors the tick's
+        // delivery construction (tail number, lease term, cabin config).
+        if (isMultiplayerWorld && starterUsed < STARTER_DELIVERY_CAP) {
+          const usedTails  = runningFleet.map(a => a.tailNumber).filter(Boolean);
+          const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
+          const deliveredLeaseTerm = order.ownershipType === 'lease'
+            ? (DELIVERY_LEASE_TERMS[type.category] ?? 104)
+            : undefined;
+          const aircraft = {
+            id:            uid(),
+            typeId:        order.typeId,
+            name:          order.name,
+            tailNumber,
+            status:        'idle',
+            ageWeeks:      0,
+            config:        order.config ?? defaultConfig(type.seats ?? 100),
+            ownershipType: order.ownershipType,
+            weeklyLease:         order.weeklyLease ?? 0,
+            leaseTermWeeks:      deliveredLeaseTerm,
+            leaseRemainingWeeks: deliveredLeaseTerm,
+            fuelMod:       order.fuelMod   ?? 1.0,
+            rangeMod:      order.rangeMod  ?? 1.0,
+            maintMod:      order.maintMod  ?? 1.0,
+            engineId:      order.engineId  ?? null,
+            engineLabel:   order.engineLabel ?? null,
+            hasWingtips:   order.hasWingtips ?? false,
+          };
+          runningFleet = [...runningFleet, aircraft];
+          instantAircraft.push(aircraft);
+          instantToasts.push({
+            type:     'success',
+            title:    \`✈ Aircraft Delivered — \${order.name}\`,
+            message:  \`Your \${type.name} (\${tailNumber}) arrived instantly — Starter Fleet perk (first \${STARTER_DELIVERY_CAP} aircraft). Later orders arrive on the normal delivery schedule.\`,
+            icon:     '✈',
+            duration: 7000,
+          });
+          starterUsed += 1;
+        } else {
+          runningPending = [...runningPending, order];
+        }
+      }
+
+      if (newOrders.length === 0) return state;
+
+      return {
+        ...state,
+        cash:                  cashBalance,
+        fleet:                 runningFleet,
+        pendingOrders:         runningPending,
+        starterDeliveriesUsed: starterUsed,
+        pendingToasts:         instantToasts.length > 0
+          ? [ ...(state.pendingToasts ?? []), ...instantToasts ]
+          : state.pendingToasts,
+      };
+    }`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'reconcileState: seed starter-delivery counter for old saves',
+    anchor: `    cargoRoutes,
+    competitors,
+    pendingOrders,
+    // Guarantee fields added in later versions exist even on old saves`,
+    patched: `    cargoRoutes,
+    competitors,
+    pendingOrders,
+    // Headwinds MP starter-fleet counter. New saves carry it; for old saves,
+    // seed from how many aircraft the player already has so established airlines
+    // don't suddenly get 2 free instant deliveries — a brand-new save (no fleet,
+    // no orders) still gets the full perk.
+    starterDeliveriesUsed:    parsed.starterDeliveriesUsed ?? Math.min(2, cleanFleet.length + pendingOrders.length),
+    // Guarantee fields added in later versions exist even on old saves`,
+  },
+);
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'src/components/AircraftCheckout.jsx',
+    why: 'Starter Fleet notice: read remote + starter counter',
+    anchor: `export default function AircraftCheckout({ typeId, mode, onClose }) {
+  const { state, dispatch } = useGame();
+  const { cash, fleet, pendingOrders = [], year, week } = state;`,
+    patched: `export default function AircraftCheckout({ typeId, mode, onClose }) {
+  const { state, dispatch, remote } = useGame();
+  const { cash, fleet, pendingOrders = [], year, week } = state;
+
+  // Headwinds multiplayer only: the first 2 aircraft a player ever takes deliver
+  // instantly. \`starterDeliveriesRemaining\` > 0 means this order (and the next,
+  // up to the cap) skips the delivery wait entirely.
+  const STARTER_DELIVERY_CAP     = 2;
+  const starterDeliveriesRemaining = remote
+    ? Math.max(0, STARTER_DELIVERY_CAP - (state.starterDeliveriesUsed ?? 0))
+    : 0;`,
+  },
+  {
+    file: 'src/components/AircraftCheckout.jsx',
+    why: 'Starter Fleet notice: instant-delivery callout',
+    anchor: `          {/* Delivery callout */}
+          <div style={{
+            marginTop: 10, padding: '8px 12px',
+            background: 'rgba(56,139,253,0.1)', borderRadius: 6,
+            fontSize: 13, color: 'var(--accent)',
+            border: '1px solid rgba(56,139,253,0.25)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span><Glyph e="📅" /></span>
+              <span>
+                {quantity === 1 ? (
+                  <>First delivery in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear})</>
+                ) : (
+                  <><strong>{quantity} aircraft</strong> — first in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear}), last in <strong>{lastDelivery - currentAbsWeek}w</strong> (Wk {lastWIM} {lastMon} Y{lastYear}) · every {lead}w</>
+                )}
+                {pendingOfType.length > 0 && (
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {pendingOfType.length} already queued</span>
+                )}
+              </span>
+            </div>
+            {quantity > 1 && (
+              <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(56,139,253,0.2)', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {deliveryWeeks.map((absW, i) => {
+                  const { displayYear: dy, monthName: mn, weekInMonth: wim } = absWeekToDisplay(absW);
+                  return (
+                    <span key={i} style={{
+                      fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                      background: 'rgba(56,139,253,0.15)', color: 'var(--accent)',
+                      border: '1px solid rgba(56,139,253,0.25)',
+                    }}>#{i+1} — {absW - currentAbsWeek}w (Wk {wim} {mn} Y{dy})</span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>`,
+    patched: `          {/* Starter Fleet perk (multiplayer only) — first 2 aircraft ship instantly */}
+          {starterDeliveriesRemaining > 0 && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px',
+              background: 'rgba(56,201,180,0.12)', borderRadius: 6,
+              fontSize: 12.5, color: 'var(--accent)',
+              border: '1px solid rgba(56,201,180,0.35)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span><Glyph e="🎁" /></span>
+              <span>
+                <strong>Starter Fleet:</strong> your first {STARTER_DELIVERY_CAP} aircraft are delivered instantly
+                {' '}— {starterDeliveriesRemaining} {starterDeliveriesRemaining === 1 ? 'is' : 'are'} left.
+                {' '}Only the wait is waived; you still pay the price. Later orders arrive on the normal schedule.
+              </span>
+            </div>
+          )}
+
+          {/* Delivery callout */}
+          {(() => {
+            const instantUnits = Math.min(quantity, starterDeliveriesRemaining);
+            const queuedUnits  = quantity - instantUnits;
+            return (
+          <div style={{
+            marginTop: 10, padding: '8px 12px',
+            background: 'rgba(56,139,253,0.1)', borderRadius: 6,
+            fontSize: 13, color: 'var(--accent)',
+            border: '1px solid rgba(56,139,253,0.25)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span><Glyph e="📅" /></span>
+              <span>
+                {instantUnits > 0 && queuedUnits === 0 ? (
+                  quantity === 1
+                    ? <>Delivered <strong>instantly</strong> — ready to fly now</>
+                    : <><strong>{quantity} aircraft</strong> delivered <strong>instantly</strong> — ready to fly now</>
+                ) : instantUnits > 0 ? (
+                  <><strong>{instantUnits}</strong> delivered <strong>instantly</strong>, then <strong>{queuedUnits}</strong> from <strong>{lead}w</strong> apart (last in <strong>{lastDelivery - currentAbsWeek}w</strong>)</>
+                ) : quantity === 1 ? (
+                  <>First delivery in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear})</>
+                ) : (
+                  <><strong>{quantity} aircraft</strong> — first in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear}), last in <strong>{lastDelivery - currentAbsWeek}w</strong> (Wk {lastWIM} {lastMon} Y{lastYear}) · every {lead}w</>
+                )}
+                {pendingOfType.length > 0 && (
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {pendingOfType.length} already queued</span>
+                )}
+              </span>
+            </div>
+            {quantity > 1 && (
+              <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(56,139,253,0.2)', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {deliveryWeeks.map((absW, i) => {
+                  if (i < instantUnits) {
+                    return (
+                      <span key={i} style={{
+                        fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                        background: 'rgba(56,201,180,0.18)', color: 'var(--accent)',
+                        border: '1px solid rgba(56,201,180,0.4)',
+                      }}>#{i+1} — Now</span>
+                    );
+                  }
+                  const { displayYear: dy, monthName: mn, weekInMonth: wim } = absWeekToDisplay(absW);
+                  return (
+                    <span key={i} style={{
+                      fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                      background: 'rgba(56,139,253,0.15)', color: 'var(--accent)',
+                      border: '1px solid rgba(56,139,253,0.25)',
+                    }}>#{i+1} — {absW - currentAbsWeek}w (Wk {wim} {mn} Y{dy})</span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+            );
+          })()}
+        </div>`,
+  },
+);
+
 let patchErrors = 0;
 for (const p of MULTIPLAYER_PATCHES) {
   const fp = path.join(HW, p.file);

@@ -134,8 +134,16 @@ function ClassRow({ label, color, fareLabel, spaceLabel, value, max, onChange })
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function AircraftCheckout({ typeId, mode, onClose }) {
-  const { state, dispatch } = useGame();
+  const { state, dispatch, remote } = useGame();
   const { cash, fleet, pendingOrders = [], year, week } = state;
+
+  // Headwinds multiplayer only: the first 2 aircraft a player ever takes deliver
+  // instantly. `starterDeliveriesRemaining` > 0 means this order (and the next,
+  // up to the cap) skips the delivery wait entirely.
+  const STARTER_DELIVERY_CAP     = 2;
+  const starterDeliveriesRemaining = remote
+    ? Math.max(0, STARTER_DELIVERY_CAP - (state.starterDeliveriesUsed ?? 0))
+    : 0;
 
   const type = getAircraftType(typeId);
   if (!type) return null;
@@ -352,7 +360,29 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             <button className="btn btn-ghost" onClick={onClose} style={{ padding: '4px 10px', marginLeft: 8 }}><Glyph e="✕" /></button>
           </div>
 
+          {/* Starter Fleet perk (multiplayer only) — first 2 aircraft ship instantly */}
+          {starterDeliveriesRemaining > 0 && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px',
+              background: 'rgba(56,201,180,0.12)', borderRadius: 6,
+              fontSize: 12.5, color: 'var(--accent)',
+              border: '1px solid rgba(56,201,180,0.35)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span><Glyph e="🎁" /></span>
+              <span>
+                <strong>Starter Fleet:</strong> your first {STARTER_DELIVERY_CAP} aircraft are delivered instantly
+                {' '}— {starterDeliveriesRemaining} {starterDeliveriesRemaining === 1 ? 'is' : 'are'} left.
+                {' '}Only the wait is waived; you still pay the price. Later orders arrive on the normal schedule.
+              </span>
+            </div>
+          )}
+
           {/* Delivery callout */}
+          {(() => {
+            const instantUnits = Math.min(quantity, starterDeliveriesRemaining);
+            const queuedUnits  = quantity - instantUnits;
+            return (
           <div style={{
             marginTop: 10, padding: '8px 12px',
             background: 'rgba(56,139,253,0.1)', borderRadius: 6,
@@ -362,7 +392,13 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span><Glyph e="📅" /></span>
               <span>
-                {quantity === 1 ? (
+                {instantUnits > 0 && queuedUnits === 0 ? (
+                  quantity === 1
+                    ? <>Delivered <strong>instantly</strong> — ready to fly now</>
+                    : <><strong>{quantity} aircraft</strong> delivered <strong>instantly</strong> — ready to fly now</>
+                ) : instantUnits > 0 ? (
+                  <><strong>{instantUnits}</strong> delivered <strong>instantly</strong>, then <strong>{queuedUnits}</strong> from <strong>{lead}w</strong> apart (last in <strong>{lastDelivery - currentAbsWeek}w</strong>)</>
+                ) : quantity === 1 ? (
                   <>First delivery in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear})</>
                 ) : (
                   <><strong>{quantity} aircraft</strong> — first in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear}), last in <strong>{lastDelivery - currentAbsWeek}w</strong> (Wk {lastWIM} {lastMon} Y{lastYear}) · every {lead}w</>
@@ -375,6 +411,15 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             {quantity > 1 && (
               <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(56,139,253,0.2)', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {deliveryWeeks.map((absW, i) => {
+                  if (i < instantUnits) {
+                    return (
+                      <span key={i} style={{
+                        fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                        background: 'rgba(56,201,180,0.18)', color: 'var(--accent)',
+                        border: '1px solid rgba(56,201,180,0.4)',
+                      }}>#{i+1} — Now</span>
+                    );
+                  }
                   const { displayYear: dy, monthName: mn, weekInMonth: wim } = absWeekToDisplay(absW);
                   return (
                     <span key={i} style={{
@@ -387,6 +432,8 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               </div>
             )}
           </div>
+            );
+          })()}
         </div>
 
         <div style={{ padding: '14px 20px' }}>

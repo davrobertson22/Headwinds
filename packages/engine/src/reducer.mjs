@@ -194,6 +194,7 @@ function freshState() {
     year: 1,
     fleet: [],         // { id, typeId, name, status, ageWeeks, config, ownershipType, fuelMod, rangeMod, maintMod, engineId, engineLabel, hasWingtips }
     pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }
+    starterDeliveriesUsed: 0, // Headwinds MP only: first 2 aircraft ever taken deliver INSTANTLY (see ORDER_AIRCRAFT). Counts instant grants used; capped at 2. No effect in solo.
     routes: [],      // { id, origin, destination, stops:[origin,...,destination], aircraftId, weeklyFrequency, hub } — price lives in routePricing; stops carries intermediate tag-flight airports (single-leg routes have stops=[origin,destination])
     routePricing: {},// { [pairKey]: { economy, premiumEconomy, businessClass, firstClass } } — one price set per O&D pair
     routeCatering: {},// { [pairKey]: cateringLevel } — one catering level per O&D pair
@@ -414,9 +415,24 @@ function reducer(state, action) {
 
       // Build all N orders, updating the running pendingOrders list so each order
       // can see the previous ones when computing its staggered delivery week.
+      //
+      // Headwinds multiplayer: the first two aircraft a player EVER takes delivery
+      // of are handed over INSTANTLY — straight into the fleet, skipping the queue —
+      // so a new competitor can start flying immediately instead of idling for real
+      // hours waiting on their first plane. The purchase price / lease deposit is
+      // still charged in full; only the delivery wait is waived. Solo (Tailwinds)
+      // is unaffected: state.multiplayer is undefined, so isMultiplayerWorld is
+      // false and this behaves exactly as before.
+      const isMultiplayerWorld   = state.multiplayer === true;
+      const STARTER_DELIVERY_CAP = 2;
+      const DELIVERY_LEASE_TERMS = { 'Turboprop': 52, 'Regional Jet': 78, 'Narrow Body': 104, 'Wide Body': 156 };
+      let starterUsed    = state.starterDeliveriesUsed ?? 0;
       let runningPending = [...(state.pendingOrders ?? [])];
+      let runningFleet   = [...(state.fleet ?? [])];
       let cashBalance    = state.cash;
-      const newOrders    = [];
+      const newOrders       = [];
+      const instantAircraft = [];
+      const instantToasts   = [];
 
       for (let i = 0; i < quantity; i++) {
         const pendingOfType = runningPending.filter(o => o.typeId === action.typeId);
@@ -429,8 +445,9 @@ function reducer(state, action) {
           ? currentAbsWeek + 2 * lead          // first in queue → 2× lead
           : maxExistingDelivery + lead;         // subsequent → +lead after last
 
-        // Price (fleet discount counts fleet + already-queued units)
-        const totalExisting  = state.fleet.filter(a => a.typeId === action.typeId).length
+        // Price (fleet discount counts owned fleet — including any just-delivered
+        // starter aircraft — plus already-queued units)
+        const totalExisting  = runningFleet.filter(a => a.typeId === action.typeId).length
                              + pendingOfType.length;
         const unitBasePrice  = action.ownershipType === 'owned'
           ? effectivePurchasePrice(type, totalExisting)
@@ -476,16 +493,62 @@ function reducer(state, action) {
         };
 
         newOrders.push(order);
-        runningPending = [...runningPending, order];
         cashBalance   -= unitUpfrontCost;
+
+        // Starter Fleet perk (multiplayer only): the first two aircraft go straight
+        // into the fleet now instead of onto the delivery queue. Mirrors the tick's
+        // delivery construction (tail number, lease term, cabin config).
+        if (isMultiplayerWorld && starterUsed < STARTER_DELIVERY_CAP) {
+          const usedTails  = runningFleet.map(a => a.tailNumber).filter(Boolean);
+          const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
+          const deliveredLeaseTerm = order.ownershipType === 'lease'
+            ? (DELIVERY_LEASE_TERMS[type.category] ?? 104)
+            : undefined;
+          const aircraft = {
+            id:            uid(),
+            typeId:        order.typeId,
+            name:          order.name,
+            tailNumber,
+            status:        'idle',
+            ageWeeks:      0,
+            config:        order.config ?? defaultConfig(type.seats ?? 100),
+            ownershipType: order.ownershipType,
+            weeklyLease:         order.weeklyLease ?? 0,
+            leaseTermWeeks:      deliveredLeaseTerm,
+            leaseRemainingWeeks: deliveredLeaseTerm,
+            fuelMod:       order.fuelMod   ?? 1.0,
+            rangeMod:      order.rangeMod  ?? 1.0,
+            maintMod:      order.maintMod  ?? 1.0,
+            engineId:      order.engineId  ?? null,
+            engineLabel:   order.engineLabel ?? null,
+            hasWingtips:   order.hasWingtips ?? false,
+          };
+          runningFleet = [...runningFleet, aircraft];
+          instantAircraft.push(aircraft);
+          instantToasts.push({
+            type:     'success',
+            title:    `✈ Aircraft Delivered — ${order.name}`,
+            message:  `Your ${type.name} (${tailNumber}) arrived instantly — Starter Fleet perk (first ${STARTER_DELIVERY_CAP} aircraft). Later orders arrive on the normal delivery schedule.`,
+            icon:     '✈',
+            duration: 7000,
+          });
+          starterUsed += 1;
+        } else {
+          runningPending = [...runningPending, order];
+        }
       }
 
       if (newOrders.length === 0) return state;
 
       return {
         ...state,
-        cash:          cashBalance,
-        pendingOrders: runningPending,
+        cash:                  cashBalance,
+        fleet:                 runningFleet,
+        pendingOrders:         runningPending,
+        starterDeliveriesUsed: starterUsed,
+        pendingToasts:         instantToasts.length > 0
+          ? [ ...(state.pendingToasts ?? []), ...instantToasts ]
+          : state.pendingToasts,
       };
     }
 
@@ -1700,12 +1763,14 @@ function reducer(state, action) {
       const allEvents  = [...survivingEvents, ...newEvents];
 
       // ── Compute event effects on this week's finances ──────────────────
-      let fuelMult         = 1.0;
-      let globalDemandMult = 1.0;
+      // Fuel shocks scale the fuel multiplier below. Demand shocks (global +
+      // regional) are applied INSIDE weeklyTick — they shrink each route's
+      // passenger pool so load factors genuinely drop, rather than skimming a
+      // flat revenue adjustment off fully-booked flights.
+      let fuelMult = 1.0;
       for (const ev of allEvents) {
         const fx = ev.effects ?? {};
-        if (fx.fuelMult)         fuelMult         *= fx.fuelMult;
-        if (fx.globalDemandMult) globalDemandMult *= fx.globalDemandMult;
+        if (fx.fuelMult) fuelMult *= fx.fuelMult;
       }
 
       // ── Fuel price + hedging ──────────────────────────────────────────
@@ -1794,7 +1859,7 @@ function reducer(state, action) {
         encroachments: state.encroachments ?? {},
       });
 
-      const report = weeklyTick({ ...state, fleet: tickedFleetPre, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments });
+      const report = weeklyTick({ ...state, fleet: tickedFleetPre, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents });
 
       // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the
@@ -1889,22 +1954,24 @@ function reducer(state, action) {
         if (next >= 0.5) newCampaigns[code] = Math.min(100, +next.toFixed(2));
       }
 
-      // Apply event demand multiplier as a line-item adjustment to the report.
-      // (fuelMult is already baked into fuelMultiplier above, so no separate fuel adj needed.)
-      const eventDemandAdj  = report.totalRevenue ? report.totalRevenue * (globalDemandMult - 1.0) : 0;
+      // Event demand shocks are baked into report revenue by weeklyTick (they
+      // shrink each route's passenger pool). The old flat line-item adjustment
+      // is retired; the field is kept at 0 so saved-history charts that add
+      // eventDemandAdj back into revenue keep reconciling for old saves.
+      const eventDemandAdj  = 0;
 
       // ── Strike in progress: cancelled flights forfeit a share of revenue ──
       // The walkout that started in a previous week applies to THIS week's
-      // schedule. Applied as a line-item revenue loss (same pattern as
-      // eventDemandAdj) so cash still reconciles: fixed costs keep running
-      // while the picket line is up — that is the pain of a strike.
+      // schedule. Applied as a line-item revenue loss so cash still
+      // reconciles: fixed costs keep running while the picket line is up —
+      // that is the pain of a strike.
       const relationsPrev = state.laborRelations ?? DEFAULT_LABOR_RELATIONS;
       const activeStrike  = relationsPrev.strike && relationsPrev.strike.weeksLeft > 0
         ? relationsPrev.strike : null;
       const strikeRevenueLoss = activeStrike && report.totalRevenue
         ? Math.round(report.totalRevenue * activeStrike.severity) : 0;
 
-      const adjustedCashDelta = report.cashDelta + eventDemandAdj - strikeRevenueLoss;
+      const adjustedCashDelta = report.cashDelta - strikeRevenueLoss;
 
       // agingRate and tickedFleet were computed before weeklyTick above.
       const mainBudget = mainBudgetPre;
@@ -2818,6 +2885,11 @@ function reconcileState(parsed) {
     cargoRoutes,
     competitors,
     pendingOrders,
+    // Headwinds MP starter-fleet counter. New saves carry it; for old saves,
+    // seed from how many aircraft the player already has so established airlines
+    // don't suddenly get 2 free instant deliveries — a brand-new save (no fleet,
+    // no orders) still gets the full perk.
+    starterDeliveriesUsed:    parsed.starterDeliveriesUsed ?? Math.min(2, cleanFleet.length + pendingOrders.length),
     // Guarantee fields added in later versions exist even on old saves
     financialHistory: parsed.financialHistory ?? [],
     lastReport:       parsed.lastReport       ?? null,
