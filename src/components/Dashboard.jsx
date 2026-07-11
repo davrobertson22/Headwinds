@@ -226,14 +226,18 @@ export default function Dashboard() {
     }, {})
   ));
 
-  // ── Trends (vs 2 weeks ago) ───────────────────────────────────────────────
+  // ── Trends (this week's projection vs last week's actual) ─────────────────
+  // Both KPI badges sit on cards whose headline number is the PROJECTION
+  // (projectedProfit / projectedRevenue). So the arrow must compare that
+  // projection against what actually closed last week — NOT two past weeks
+  // against each other. Anchoring on lastReport (cashDelta / totalRevenue)
+  // keeps the profit badge identical to the Weekly P&L WoW step below.
   const hist    = financialHistory;
-  const prevRev = hist.at(-2)?.revenue ?? null;
-  const revTrend = prevRev != null && lastReport
-    ? ((lastReport.totalRevenue - prevRev) / Math.max(1, prevRev)) * 100
+  const revTrend = lastReport
+    ? ((projectedRevenue - lastReport.totalRevenue) / Math.max(1, lastReport.totalRevenue)) * 100
     : null;
-  const profTrend = hist.length >= 2
-    ? hist.at(-1)?.profit - hist.at(-2)?.profit
+  const profTrend = lastReport
+    ? projectedProfit - (lastReport.cashDelta ?? 0)
     : null;
 
   // ── Unique airports and countries ────────────────────────────────────────
