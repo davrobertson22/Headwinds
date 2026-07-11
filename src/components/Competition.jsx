@@ -50,6 +50,9 @@ export default function Competition() {
   const { competitors = [], routes, fleet, financialHistory = [] } = state;
   const [expandedCarrier, setExpandedCarrier] = useState(null);
   const [acquireTarget, setAcquireTarget] = useState(null); // competitor object pending confirmation
+  // Multiplayer: clicking a rival opens a dedicated full-screen dossier instead
+  // of a cramped inline expand. Null in solo (solo keeps the inline network expand).
+  const [detailCarrier, setDetailCarrier] = useState(null);
 
   // Map from routeKey → player route object
   const playerRouteMap = {};
@@ -83,6 +86,11 @@ export default function Competition() {
         />
       )}
 
+      {/* ── Rival dossier (multiplayer) — click any rival to open ──────────── */}
+      {remote && detailCarrier && (
+        <RivalDetailView carrier={detailCarrier} onClose={() => setDetailCarrier(null)} />
+      )}
+
       {/* ── Leaderboard ───────────────────────────────────────────────────── */}
       <Leaderboard
         competitors={competitors}
@@ -95,6 +103,7 @@ export default function Competition() {
         playerSharePrice={state.sharePrice ?? null}
         playerProfitHistory={financialHistory.slice(-12).map(w => w.profit ?? 0)}
         remote={remote}
+        onSelect={remote ? setDetailCarrier : null}
       />
 
       {/* ── Contested routes ──────────────────────────────────────────────── */}
@@ -142,6 +151,7 @@ export default function Competition() {
             expanded={expandedCarrier === c.id}
             onToggle={() => setExpandedCarrier(p => p === c.id ? null : c.id)}
             onAcquire={() => setAcquireTarget(c)}
+            onOpenDetail={remote ? () => setDetailCarrier(c) : null}
             remote={remote}
             remoteApi={remoteApi}
           />
@@ -154,7 +164,8 @@ export default function Competition() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerHub, playerCash,
-                        playerMarketCap, playerSharePrice, playerProfitHistory = [], remote = false }) {
+                        playerMarketCap, playerSharePrice, playerProfitHistory = [], remote = false,
+                        onSelect = null }) {
   // Build unified list with player + competitors
   const entries = [
     {
@@ -169,6 +180,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       sharePrice:  playerSharePrice,
       profitHistory: playerProfitHistory,
       isPlayer:    true,
+      carrier:     null,
     },
     ...competitors.map(c => ({
       id:          c.id,
@@ -183,6 +195,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       sharePrice:  c.sharePrice ?? null,
       profitHistory: c.profitHistory ?? [],
       isPlayer:    false,
+      carrier:     c,       // raw competitor — clicking opens the rival dossier
     })),
   ];
 
@@ -203,6 +216,11 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
   return (
     <div style={{ marginBottom: 28 }}>
       <SectionHeader><Glyph e="🏆" /> Industry Leaderboard — Market Capitalisation</SectionHeader>
+      {onSelect && competitors.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 8 }}>
+          Click any rival to open their full dossier — fleet, routes, trends and head-to-head.
+        </div>
+      )}
 
       {!hasMarketCapData && (
         <div className="empty-state" style={{ marginBottom: 8 }}>
@@ -220,16 +238,23 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
           const barWidth = mcap !== null ? (mcap / maxMarketCap) * 100 : 0;
           const tier = entry.tier ? TIER_META[entry.tier] : null;
           const rankBadge = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+          const clickable = !!(onSelect && entry.carrier);
 
           return (
             <div
               key={entry.id}
               className="card"
+              onClick={clickable ? () => onSelect(entry.carrier) : undefined}
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(entry.carrier); } } : undefined}
+              title={clickable ? `View ${entry.name}'s dossier` : undefined}
               style={{
                 padding: '10px 14px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
+                cursor: clickable ? 'pointer' : undefined,
                 border: entry.isPlayer ? '1px solid rgba(59,130,246,0.4)' : undefined,
                 background: entry.isPlayer ? 'rgba(59,130,246,0.06)' : undefined,
               }}
@@ -601,7 +626,7 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
   );
 }
 
-function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle, onAcquire, remote = false, remoteApi = null }) {
+function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle, onAcquire, onOpenDetail = null, remote = false, remoteApi = null }) {
   const isHuman = carrier.human === true;
   const tier   = isHuman ? null : (TIER_META[carrier.tier] ?? { label: carrier.tier, color: 'var(--text-muted)' });
   const routes = Object.entries(carrier.routes).sort(([a], [b]) => a.localeCompare(b));
@@ -622,7 +647,8 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
       <button
-        onClick={onToggle}
+        onClick={onOpenDetail || onToggle}
+        title={onOpenDetail ? `View ${carrier.name}'s dossier` : undefined}
         style={{
           width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)',
@@ -703,11 +729,11 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
               <GlyphLabel size={13} text={canAfford ? '🤝 Acquire' : `🔒 ${formatMoney(acquisitionCost ?? 0)}`} />
             </button>
           )}
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{onOpenDetail ? '›' : expanded ? '▲' : '▼'}</span>
         </div>
       </button>
 
-      {expanded && (
+      {expanded && !onOpenDetail && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
           {/* Multiplayer: the rival's public profile — fleet, rank history,
               recent moves — fetched from the server on expand. */}
@@ -902,6 +928,391 @@ function RankSparkline({ ranks, width = 90, height = 20 }) {
         stroke={improving ? 'var(--green)' : '#f87171'}
         strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
+  );
+}
+
+// ─── Rival detail view (multiplayer dossier) ──────────────────────────────────
+// A dedicated, full-screen dossier for one human rival — opened by clicking them
+// in the leaderboard or the Rival Networks list. Everything the "open book"
+// model makes public, laid out to be read rather than squinted at:
+//   • overview stat tiles (market cap, share price, cash, profit, quality…)
+//   • financial trend + rank-over-time charts
+//   • fleet breakdown by type (with total seats)
+//   • the full route network with fares, frequency, seats and contested markers
+//   • head-to-head vs YOU on every contested city pair
+//   • a timeline of their recent public moves
+// Private internals (loans, hedges, marketing spend) never appear.
+
+function StatTile({ label, value, sub, color }) {
+  return (
+    <div style={{
+      background: 'var(--surface2)', borderRadius: 8, padding: '10px 12px',
+      display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0,
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 800, color: color ?? 'var(--text)', lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {value}
+      </div>
+      {sub != null && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+function DetailSection({ title, right, children }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          {title}
+        </div>
+        {right && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{right}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// A single You-vs-Them comparison line inside the head-to-head block.
+function VsRow({ label, you, them, youWins, fmt = (v) => v }) {
+  const youColor = youWins === true ? 'var(--green)' : youWins === false ? 'var(--text)' : 'var(--text)';
+  const themColor = youWins === false ? 'var(--green)' : 'var(--text)';
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 0' }}>
+      <div style={{ textAlign: 'right', fontWeight: 700, color: youColor }}>{you == null ? '–' : fmt(you)}</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'center', minWidth: 78 }}>{label}</div>
+      <div style={{ textAlign: 'left', fontWeight: 700, color: themColor }}>{them == null ? '–' : fmt(them)}</div>
+    </div>
+  );
+}
+
+function RivalDetailView({ carrier, onClose }) {
+  const { state, remoteApi } = useGame();
+  const [profile, setProfile] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const isHuman = carrier.human === true;
+  const airlineId = carrier.id.startsWith('human:') ? carrier.id.slice('human:'.length) : carrier.id;
+
+  useEffect(() => {
+    if (!remoteApi?.fetchRivalProfile) { setFailed(true); return; }
+    let alive = true;
+    setProfile(null); setFailed(false);
+    remoteApi.fetchRivalProfile(airlineId)
+      .then((p) => { if (alive) setProfile(p); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [airlineId, remoteApi]);
+
+  // Esc closes; lock body scroll while open.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
+
+  // ── Player-side inputs for head-to-head ──────────────────────────────────────
+  const fleet = state.fleet ?? [];
+  const playerRouteMap = {};
+  for (const r of (state.routes ?? [])) {
+    playerRouteMap[[r.origin, r.destination].sort().join('-')] = r;
+  }
+  const laborFx = laborEffects(
+    state.labor ?? null,
+    fleetAvgUtilization(fleet, [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
+    state.satisfaction ?? null,
+  );
+
+  // ── Rival data (carrier is instant; profile fills in fleet/rank/moves) ────────
+  const routeEntries = Object.entries(carrier.routes ?? {}).sort((a, b) => {
+    const ac = (a[0] in playerRouteMap) ? 0 : 1;
+    const bc = (b[0] in playerRouteMap) ? 0 : 1;
+    return ac - bc || a[0].localeCompare(b[0]);
+  });
+  const contestedEntries = routeEntries.filter(([k]) => k in playerRouteMap);
+
+  const fleetByType = profile?.fleetByType ?? null;
+  const fleetTotal = fleetByType ? Object.values(fleetByType).reduce((s, n) => s + n, 0) : null;
+  const seatTotal = fleetByType
+    ? Object.entries(fleetByType).reduce((s, [t, n]) => s + (getAircraftType(t)?.seats ?? 0) * n, 0)
+    : null;
+  const maxTypeCount = fleetByType ? Math.max(1, ...Object.values(fleetByType)) : 1;
+
+  const ranks = (profile?.rankHistory ?? []).map((r) => r.rank);
+  const currentRank = ranks.length ? ranks[ranks.length - 1] : null;
+  const rankDelta = ranks.length >= 2 ? ranks[0] - ranks[ranks.length - 1] : null; // + = climbed
+
+  const alliance = carrier.allianceId ? (carrier.allianceName ?? profile?.alliance ?? 'Alliance') : (profile?.alliance ?? null);
+  const hubs = profile?.hubs?.length ? profile.hubs : (carrier.homeHub ? [carrier.homeHub] : []);
+  const wp = carrier.weeklyStats?.weeklyProfit ?? null;
+  const wr = carrier.weeklyStats?.weeklyRevenue ?? null;
+  const profitHistory = carrier.profitHistory ?? [];
+  const moves = profile?.recentMoves ?? [];
+
+  const money = (v) => (v == null ? '–' : formatMoney(v));
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.62)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '4vh 16px',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="card"
+        style={{
+          width: '100%', maxWidth: 880, maxHeight: '92vh', padding: 0,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}
+      >
+        {/* ── Sticky header ─────────────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px',
+          borderBottom: '1px solid var(--border)', flexShrink: 0,
+        }}>
+          <AirlineLogo id={carrier.logoId} size={44} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, fontSize: 18 }}>{carrier.name}</span>
+              {isHuman && (
+                <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99,
+                               background: 'var(--accent-dim, var(--surface2))', color: 'var(--accent)', fontWeight: 700 }}>
+                  PLAYER
+                </span>
+              )}
+              {currentRank != null && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
+                  Rank #{currentRank}
+                  {rankDelta != null && rankDelta !== 0 && (
+                    <span style={{ color: rankDelta > 0 ? 'var(--green)' : '#f87171', marginLeft: 4 }}>
+                      {rankDelta > 0 ? `▲${rankDelta}` : `▼${-rankDelta}`}
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <span>Hub {hubs.length ? hubs.map((h, i) => (
+                <span key={h}>{i > 0 && ', '}<AirportLink code={h} style={{ color: 'var(--text-muted)' }} /></span>
+              )) : '—'}</span>
+              {alliance && (
+                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                  <GlyphLabel size={12} text={`🤝 ${alliance}`} />
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)',
+              borderRadius: 8, width: 32, height: 32, cursor: 'pointer', fontSize: 16, lineHeight: 1, flexShrink: 0,
+            }}
+          >×</button>
+        </div>
+
+        {/* ── Scrollable body ───────────────────────────────────────────────── */}
+        <div style={{ padding: '16px 18px 22px', overflowY: 'auto' }}>
+          {/* Overview tiles */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            <StatTile label="Market cap" value={money(carrier.marketCap)} />
+            <StatTile label="Share price" value={carrier.sharePrice != null ? `$${carrier.sharePrice.toFixed(2)}` : '–'} />
+            <StatTile label="Cash" value={money(carrier.cash)} color={carrier.cash != null && carrier.cash < 0 ? '#f87171' : undefined} />
+            <StatTile label="Weekly profit" value={wp == null ? '–' : `${wp >= 0 ? '+' : ''}${formatMoney(wp)}`}
+              color={wp == null ? undefined : wp >= 0 ? 'var(--green)' : '#f87171'} />
+            <StatTile label="Weekly revenue" value={money(wr)} />
+            <StatTile label="Quality" value={`${carrier.baseQualityScore}/100`} color={qualityColor(carrier.baseQualityScore)} />
+            <StatTile label="Routes" value={routeEntries.length} sub={contestedEntries.length ? `${contestedEntries.length} vs you` : undefined} />
+            <StatTile label="Fleet" value={fleetTotal == null ? '…' : fleetTotal} sub={seatTotal ? `${seatTotal.toLocaleString()} seats` : undefined} />
+          </div>
+
+          {/* Trends */}
+          <DetailSection title="Financial & rank trends">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+              <div className="card" style={{ padding: '12px 14px', background: 'var(--surface2)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Weekly profit — last {profitHistory.length || 0} wks</div>
+                {profitHistory.length >= 2 ? (
+                  <ProfitSparkline history={profitHistory} width={220} height={54} />
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Not enough history yet</div>
+                )}
+              </div>
+              <div className="card" style={{ padding: '12px 14px', background: 'var(--surface2)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Rank over time {currentRank != null && <span style={{ color: 'var(--text)', fontWeight: 700 }}>· now #{currentRank}</span>}
+                </div>
+                {ranks.length >= 2 ? (
+                  <RankSparkline ranks={ranks} width={220} height={54} />
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                    {failed ? 'Rank history unavailable' : profile ? 'Not enough history yet' : 'Loading…'}
+                  </div>
+                )}
+              </div>
+            </div>
+          </DetailSection>
+
+          {/* Fleet breakdown */}
+          <DetailSection
+            title="Fleet"
+            right={fleetTotal != null ? `${fleetTotal} aircraft${seatTotal ? ` · ${seatTotal.toLocaleString()} seats` : ''}` : null}
+          >
+            {fleetByType == null ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                {failed ? 'Fleet composition unavailable' : 'Loading fleet…'}
+              </div>
+            ) : fleetTotal === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No aircraft yet.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {Object.entries(fleetByType).sort((a, b) => b[1] - a[1]).map(([typeId, n]) => {
+                  const t = getAircraftType(typeId);
+                  return (
+                    <div key={typeId} style={{ display: 'grid', gridTemplateColumns: '1fr 46px', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <span style={{ fontWeight: 600 }}>{t?.name ?? typeId}</span>
+                        {t?.seats != null && <span style={{ color: 'var(--text-muted)' }}> · {t.seats} seats</span>}
+                        <div style={{ marginTop: 3, height: 4, background: 'var(--surface2)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${(n / maxTypeCount) * 100}%`, background: 'var(--accent)', borderRadius: 2 }} />
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', fontWeight: 700 }}>{n}×</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </DetailSection>
+
+          {/* Route network */}
+          <DetailSection
+            title="Route network"
+            right={`${routeEntries.length} route${routeEntries.length === 1 ? '' : 's'}${contestedEntries.length ? ` · ${contestedEntries.length} contested` : ''}`}
+          >
+            {routeEntries.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No routes open yet.</div>
+            ) : (
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: 'var(--text-muted)', background: 'var(--surface2)' }}>
+                      <th style={{ textAlign: 'left', padding: '7px 12px', fontWeight: 500 }}>Route</th>
+                      <th style={{ textAlign: 'right', padding: '7px 12px', fontWeight: 500 }}>Fare</th>
+                      <th style={{ textAlign: 'right', padding: '7px 12px', fontWeight: 500 }}>vs ref</th>
+                      <th style={{ textAlign: 'right', padding: '7px 12px', fontWeight: 500 }}>Freq</th>
+                      <th style={{ textAlign: 'right', padding: '7px 12px', fontWeight: 500 }}>Seats/wk</th>
+                      <th style={{ textAlign: 'left', padding: '7px 12px', fontWeight: 500 }}>Aircraft</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {routeEntries.map(([key, cfg]) => {
+                      const [a, b] = key.split('-');
+                      const refP = referencePrice(a, b);
+                      const price = cfg.economyFare ?? Math.round(refP * (cfg.priceMultiplier ?? 1));
+                      const ratio = refP ? price / refP : 1;
+                      const seatsWk = cfg.seats != null ? cfg.seats * (cfg.frequency ?? 0) : null;
+                      const isShared = key in playerRouteMap;
+                      return (
+                        <tr key={key} style={{ borderTop: '1px solid var(--border)', background: isShared ? 'rgba(251,191,36,0.06)' : 'transparent' }}>
+                          <td style={{ padding: '7px 12px' }}>
+                            <span style={{ fontWeight: 600 }}><AirportLink code={a} />–<AirportLink code={b} /></span>
+                            {isShared && (
+                              <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--yellow)', fontWeight: 700 }}>
+                                <Glyph e="⚔" /> contested
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right', padding: '7px 12px', fontWeight: 700, color: ratio < 0.95 ? 'var(--green)' : ratio > 1.2 ? '#f87171' : 'var(--text)' }}>${price}</td>
+                          <td style={{ textAlign: 'right', padding: '7px 12px', color: 'var(--text-muted)' }}>{Math.round(ratio * 100)}%</td>
+                          <td style={{ textAlign: 'right', padding: '7px 12px' }}>{cfg.frequency ?? 0}×</td>
+                          <td style={{ textAlign: 'right', padding: '7px 12px', color: 'var(--text-muted)' }}>{seatsWk != null ? seatsWk.toLocaleString() : '–'}</td>
+                          <td style={{ padding: '7px 12px', color: 'var(--text-muted)' }}>
+                            {cfg.aircraftType ? (getAircraftType(cfg.aircraftType)?.name ?? cfg.aircraftType) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </DetailSection>
+
+          {/* Head-to-head on contested routes */}
+          {contestedEntries.length > 0 && (
+            <DetailSection title="Head-to-head — contested routes" right="you vs them">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {contestedEntries.map(([key, cfg]) => {
+                  const [a, b] = key.split('-');
+                  const refP = referencePrice(a, b);
+                  const pr = playerRouteMap[key];
+                  const theirFare = cfg.economyFare ?? Math.round(refP * (cfg.priceMultiplier ?? 1));
+                  const yourFare = pr.ticketPrice;
+                  const yourQual = playerQuality(pr, fleet, laborFx);
+                  const theirQual = carrier.baseQualityScore;
+                  const yourFreq = pr.weeklyFrequency ?? 0;
+                  const theirFreq = cfg.frequency ?? 0;
+                  const yourAc = fleet.find((x) => x.id === pr.aircraftId);
+                  const yourSeatsWk = yourAc ? (getAircraftType(yourAc.typeId)?.seats ?? 0) * yourFreq : null;
+                  const theirSeatsWk = cfg.seats != null ? cfg.seats * theirFreq : null;
+                  // Simple "who's ahead" tally across the four levers.
+                  let youPts = 0, themPts = 0;
+                  if (yourFare < theirFare) youPts++; else if (theirFare < yourFare) themPts++;
+                  if (yourQual != null && (yourQual > theirQual)) youPts++; else if (yourQual != null && theirQual > yourQual) themPts++;
+                  if (yourFreq > theirFreq) youPts++; else if (theirFreq > yourFreq) themPts++;
+                  if (yourSeatsWk != null && theirSeatsWk != null) {
+                    if (yourSeatsWk > theirSeatsWk) youPts++; else if (theirSeatsWk > yourSeatsWk) themPts++;
+                  }
+                  const verdict = youPts > themPts ? { t: 'You lead', c: 'var(--green)' }
+                    : themPts > youPts ? { t: `${carrier.name} leads`, c: '#f87171' }
+                    : { t: 'Even', c: 'var(--text-muted)' };
+                  return (
+                    <div key={key} className="card" style={{ padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}><AirportLink code={a} /> → <AirportLink code={b} /></span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: verdict.c }}>{verdict.t}</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
+                        <div style={{ textAlign: 'right', fontWeight: 700, color: '#60a5fa' }}>You</div>
+                        <div style={{ minWidth: 78 }} />
+                        <div style={{ textAlign: 'left', fontWeight: 700, color: 'var(--text)' }}>{carrier.name}</div>
+                      </div>
+                      <VsRow label="Fare" you={yourFare} them={theirFare} youWins={yourFare < theirFare ? true : theirFare < yourFare ? false : null} fmt={(v) => `$${v}`} />
+                      <VsRow label="Quality" you={yourQual} them={theirQual} youWins={yourQual == null ? null : yourQual > theirQual ? true : theirQual > yourQual ? false : null} />
+                      <VsRow label="Flights/wk" you={yourFreq} them={theirFreq} youWins={yourFreq > theirFreq ? true : theirFreq > yourFreq ? false : null} fmt={(v) => `${v}×`} />
+                      <VsRow label="Seats/wk" you={yourSeatsWk} them={theirSeatsWk} youWins={(yourSeatsWk == null || theirSeatsWk == null) ? null : yourSeatsWk > theirSeatsWk ? true : theirSeatsWk > yourSeatsWk ? false : null} fmt={(v) => v.toLocaleString()} />
+                    </div>
+                  );
+                })}
+              </div>
+            </DetailSection>
+          )}
+
+          {/* Recent public moves */}
+          <DetailSection title="Recent moves">
+            {moves.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                {failed ? 'Move history unavailable' : profile ? 'No public moves yet' : 'Loading…'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {moves.map((m, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--text)', display: 'flex', gap: 8 }}>
+                    {m.week != null && <span style={{ color: 'var(--text-muted)', fontWeight: 700, minWidth: 34 }}>W{m.week}</span>}
+                    <span style={{ color: 'var(--text-muted)' }}>{describeMove(m)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </DetailSection>
+        </div>
+      </div>
+    </div>
   );
 }
 
