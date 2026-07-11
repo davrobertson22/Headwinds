@@ -141,6 +141,10 @@ export default function GamePlayScreen({ worldId, token }) {
   return (
     <div className="hw-game">
       <div className="hw-gamebar">
+        <a href="#/" className="hw-gamebar-brand" title="Headwinds">
+          <img src="/headwinds-mark-color.png" alt="Headwinds" />
+          <span>HEADWINDS</span>
+        </a>
         <a href={`#/w/${worldId}`}>← World lobby</a>
         <span className="muted">
           Multiplayer — Y{meta?.worldClock?.year} W{meta?.worldClock?.week}
