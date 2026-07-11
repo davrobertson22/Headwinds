@@ -21,6 +21,7 @@ import {
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
+  buildEventDemandModel,
 } from '../utils/simulation.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -199,7 +200,8 @@ export default function Routes() {
     const rr = rrById[route.id];
     if (rr) return rr;
     const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
-    return simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null);
+    const evMult  = buildEventDemandModel(state.activeEvents).multFor(route.origin, route.destination);
+    return simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
   };
 
   // Per-group stats for filtering + sorting
@@ -785,7 +787,7 @@ function TagRouteCard({ route, onClose }) {
   const stops    = routeStops(route);
   const sim      = aircraft ? simulateTagRoute(route, aircraft, gd, state.labor ?? null, 1.0,
     fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
-    state.satisfaction ?? null) : null;
+    state.satisfaction ?? null, buildEventDemandModel(state.activeEvents).multFor) : null;
   const landingFee = type ? routeLandingFee(route, type, route.weeklyFrequency) : 0;
   const profit   = sim ? sim.profit - landingFee : 0;
 
@@ -939,6 +941,7 @@ const TABLE_SORTERS = {
 };
 
 function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectMany, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+  const { state: gameState } = useGame();
   const [sortCol, setSortCol] = useState('profit');
   const [sortDir, setSortDir] = useState('desc');   // 'asc' | 'desc'
   const [shown,   setShown]   = useState(TABLE_PAGE_SIZE);
@@ -991,6 +994,18 @@ function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectM
         fontSize: 12, flexWrap: 'wrap',
       }}>
         <span style={{ color: 'var(--text-muted)' }}>{groups.length} city pairs</span>
+        {(() => {
+          // World-event demand banner: these figures already include the shock,
+          // so tell the player WHY demand looks soft (or hot) this week.
+          const evMult = buildEventDemandModel(gameState.activeEvents).globalMult;
+          if (Math.abs(evMult - 1) < 0.005) return null;
+          const pct = Math.round(Math.abs(evMult - 1) * 100);
+          return (
+            <span style={{ color: evMult < 1 ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
+              {evMult < 1 ? `▼ Events cutting demand ~${pct}%` : `▲ Events boosting demand ~${pct}%`}
+            </span>
+          );
+        })()}
         <span style={{ color: 'var(--green)', fontWeight: 600 }}>Total revenue: +{formatMoney(totalRev)}/wk</span>
         <span style={{ color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
           Op profit: {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}/wk
@@ -1972,7 +1987,9 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const validDest = dest && dest !== origin && AIRPORTS.find(a => a.code === dest);
   const preview   = validDest && aircraft
     ? simulateRoute({ origin, destination: dest, aircraftId, weeklyFrequency: frequency,
-        ticketPrice: Number(ticketPrice) || referencePrice(origin, dest) }, aircraft, gd)
+        ticketPrice: Number(ticketPrice) || referencePrice(origin, dest) }, aircraft, gd,
+        null, 1.0, null, [], null, null,
+        buildEventDemandModel(state.activeEvents).multFor(origin, dest))
     : null;
   const dist    = validDest ? Math.round(distanceKm(getAirport(origin), getAirport(dest))) : null;
   const refP    = validDest ? referencePrice(origin, dest) : null;

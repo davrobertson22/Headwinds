@@ -373,13 +373,17 @@ export function getRouteClassDemandShares(origin, destination) {
  * @param {string} destination
  * @param {object} gameDate   - { week: number, month: number }  (month 1-12)
  * @param {number} [maturityFactor=1]  - pass <1 if route was recently opened
+ * @param {number} [demandMult=1]      - world-event demand multiplier (pandemic,
+ *                                       recession, regional disruption...) — scales
+ *                                       the passenger pool BEFORE the share fight,
+ *                                       so load factors genuinely drop in a slump.
  * @returns {RouteMarket}
  */
-export function buildRouteMarket(origin, destination, gameDate, maturityFactor = 1) {
+export function buildRouteMarket(origin, destination, gameDate, maturityFactor = 1, demandMult = 1) {
   const base     = baseCityPairDemand(origin, destination);
   const refPrice = referencePrice(origin, destination);
   const seasonal = getSeasonalProfile(origin, destination)[gameDate.month] ?? 1;
-  const adjusted = Math.round(base * seasonal * maturityFactor);
+  const adjusted = Math.round(base * seasonal * maturityFactor * demandMult);
 
   const shares        = getRouteClassDemandShares(origin, destination);
   const premiumShare  = shares.firstClass + shares.businessClass + shares.premiumEconomy;
@@ -394,6 +398,7 @@ export function buildRouteMarket(origin, destination, gameDate, maturityFactor =
     businessDemand,
     seasonalityFactor: seasonal,
     maturityFactor,
+    eventDemandMult: demandMult,
     referencePrice: refPrice,
     distanceKm: routeDistance(origin, destination),
   };
@@ -2603,6 +2608,23 @@ export function computeCompetitorWeeklyStats(competitor, month = 1, pairCounts =
  * @param {RouteMarket}       market
  * @returns {AirlineOffer|null}  null if competitor doesn't serve this route
  */
+/**
+ * Fraction of a competitor's cabin configured as business class, by carrier
+ * tier and stage length. Real carriers dedicate more floor to premium seats on
+ * long-haul (lie-flat J cabins) and premium brands carry more than legacies:
+ *   budget  → 0 everywhere
+ *   legacy  → 8% short-haul → 15% at 6,000 km+
+ *   premium → 12% short-haul → 22% at 6,000 km+
+ * Deterministic (no RNG) so a route's competitive capacity is stable week to week.
+ */
+export function competitorBusinessFraction(tier, distanceKm = 0) {
+  if (tier === 'budget') return 0;
+  const longHaul = Math.min(1, Math.max(0, (distanceKm - 1500) / 4500)); // 0 → 1 at 6,000 km
+  return tier === 'premium'
+    ? 0.12 + 0.10 * longHaul
+    : 0.08 + 0.07 * longHaul;
+}
+
 export function buildCompetitorOffer(competitor, market) {
   const routeKey = [market.origin, market.destination].sort().join('-');
   const config   = competitor.routes[routeKey];
@@ -2617,7 +2639,9 @@ export function buildCompetitorOffer(competitor, market) {
   // Use the route's real assigned aircraft for capacity; fall back to mid-size.
   const acType          = config.aircraftType ? getAircraftType(config.aircraftType) : null;
   const seatsPerFlight  = acType?.seats ?? 150;
-  const businessPerFlight = hasBusinessClass ? Math.round(seatsPerFlight * 0.13) : 0;
+  const businessPerFlight = hasBusinessClass
+    ? Math.round(seatsPerFlight * competitorBusinessFraction(competitor.tier, market.distanceKm))
+    : 0;
 
   return {
     airlineId:         competitor.id,
@@ -2651,7 +2675,7 @@ export function buildCompetitorOffer(competitor, market) {
  * awareness builds. Modelled as a square-root ramp — fastest gains in the
  * first weeks (the route becomes bookable), then a long tail to full demand.
  *
- * Launch: 30% of demand · ~65% by week 6 · ~79% by week 13 · 100% at week 26.
+ * Launch: 55% of demand · ~82% by week 6 · ~95% by week 13 · 100% at week 16.
  * New routes burn cash before they earn — opening one is an investment, not
  * an instant profit source.
  *

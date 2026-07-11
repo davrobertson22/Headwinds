@@ -740,9 +740,13 @@ export function defaultConfig(totalSeats) {
  *                             ticketPrice, hub?, weeksOpen?, qualityScore? }
  * @param {object} aircraft - fleet aircraft (has .typeId, .ageWeeks, .config)
  * @param {object} [gameDate={ month: 6 }] - { week, month } — month is 1-indexed
+ * @param {number} [eventDemandMult=1.0]   - world-event demand multiplier for this
+ *                                           O&D (global × regional). Scales the
+ *                                           passenger pool so a pandemic actually
+ *                                           empties seats instead of skimming revenue.
  * @returns {object|null}
  */
-export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null) {
+export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null, eventDemandMult = 1.0) {
   const origin = getAirport(route.origin);
   const dest   = getAirport(route.destination);
   const type   = getAircraftType(aircraft.typeId);
@@ -783,7 +787,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 
   // Build market and player offer, then run through demand model
   const maturity     = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
-  const market       = buildRouteMarket(route.origin, route.destination, gameDate, maturity);
+  const market       = buildRouteMarket(route.origin, route.destination, gameDate, maturity, eventDemandMult);
   // Resolve per-class prices: use route.classPrices when set, fall back to ticketPrice × multiplier
   const cp = route.classPrices ?? {};
   // Supersonic aircraft (e.g. Concorde) command a ticket premium.
@@ -1039,7 +1043,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
  * @param {object} [gameDate={month:6}]
  * @returns {object|null}   null if an aircraft/airport is invalid or a leg exceeds range
  */
-export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null) {
+export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null, demandMultFor = null) {
   const type  = getAircraftType(aircraft.typeId);
   if (!type) return null;
   const stops = routeStops(route);
@@ -1077,7 +1081,10 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const maturity = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
   const segData = routeSegments(route).map(seg => {
     const dist   = distanceKm(getAirport(seg.from), getAirport(seg.to));
-    const market = buildRouteMarket(seg.from, seg.to, gameDate, maturity);
+    // World-event demand shock per segment (regional events hit only the legs
+    // that touch an affected country; global events hit every leg).
+    const segEventMult = demandMultFor ? demandMultFor(seg.from, seg.to) : 1;
+    const market = buildRouteMarket(seg.from, seg.to, gameDate, maturity, segEventMult);
     const sp     = route.segmentPrices?.[routeSegmentKey(seg.from, seg.to)];
     const eco    = Math.max(1, sp?.economy ?? market.referencePrice);
     const biz    = Math.max(1, sp?.businessClass ?? eco * CLASS_FARE_MULTIPLIERS.businessClass);
@@ -1467,6 +1474,40 @@ export function loyaltyPointsCostPct(penetration, generosity) {
 // ─────────────────────────────────────────────
 
 /**
+ * Build the world-event demand model from active events.
+ * Returns { globalMult, multFor(origin, dest) } where multFor combines the
+ * global demand multiplier with any regional multipliers whose country codes
+ * match either endpoint. Used by weeklyTick and by route-planning previews so
+ * "what-if" numbers match what the engine will actually book during an event.
+ *
+ * @param {object[]} [activeEvents]
+ * @returns {{ globalMult: number, multFor: (a: string, b: string) => number }}
+ */
+export function buildEventDemandModel(activeEvents) {
+  let   globalMult  = 1.0;
+  const regionMults = [];   // [{ codes:Set<country>, mult }]
+  for (const ev of activeEvents ?? []) {
+    const fx = ev.effects ?? {};
+    if (fx.globalDemandMult) globalMult *= fx.globalDemandMult;
+    if (fx.regionCodes && fx.regionDemandMult) {
+      regionMults.push({ codes: new Set(fx.regionCodes), mult: fx.regionDemandMult });
+    }
+  }
+  const multFor = (a, b) => {
+    let m = globalMult;
+    if (regionMults.length) {
+      const ca = getAirport(a)?.country;
+      const cb = getAirport(b)?.country;
+      for (const r of regionMults) {
+        if (r.codes.has(ca) || r.codes.has(cb)) m *= r.mult;
+      }
+    }
+    return m;
+  };
+  return { globalMult, multFor };
+}
+
+/**
  * Advances the game one week. Returns a full financial report.
  *
  * @param {object} state - { fleet, routes, gameDate? }
@@ -1523,6 +1564,16 @@ export function weeklyTick(state) {
   // stock over time (see GameContext weekly update). 0.4 (unknown) → 1.0 at
   // parity (75) → 1.12 (household name).
   const awarenessMultiplier = awarenessDemandMultiplier(awareness);
+
+  // ── World-event demand shocks ──────────────────────────────────────────────
+  // Active events scale the passenger POOL itself (before the market-share
+  // fight), so a pandemic scare empties seats and drops load factors instead of
+  // skimming booked revenue off the top. Global events hit every pair; regional
+  // events (volcanic ash, unrest, expos...) hit only routes touching an affected
+  // country. Oversubscribed routes absorb small shocks — demand above capacity
+  // buffers them — which is exactly how real fortress routes behave.
+  const { globalMult: eventGlobalDemandMult, multFor: eventDemandMultFor } =
+    buildEventDemandModel(state.activeEvents);
 
   // Targeted campaign boost per route: strongest campaign at either endpoint
   // (max, not sum — the same seats can't be sold twice). Strength stocks are
@@ -1611,6 +1662,7 @@ export function weeklyTick(state) {
     hubs,
     gates,
     routeCountByAirport,
+    demandMultFor: eventDemandMultFor,   // world-event shocks hit itinerary O&Ds too
   });
   const {
     cannibalizationMap, partnerODRevenue, partnerHealthDecay,
@@ -1731,7 +1783,8 @@ export function weeklyTick(state) {
 
       const { route: r0 } = group[0];
       const maturity = r0.weeksOpen != null ? routeMaturityFactor(r0.weeksOpen) : 1;
-      const market   = buildRouteMarket(r0.origin, r0.destination, gameDate, maturity);
+      const market   = buildRouteMarket(r0.origin, r0.destination, gameDate, maturity,
+        eventDemandMultFor(r0.origin, r0.destination));
 
       // Pair-level bonuses (same as the single-aircraft simulateRoute path):
       // hub investment, catering (distance-amplified), ground staff. Previously
@@ -1872,7 +1925,7 @@ export function weeklyTick(state) {
           sensReductionFor(tagHubQuality) + (tagFortress ? 0.05 : 0)),
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
       };
-      const result = simulateTagRoute(tagRoute, aircraft, gameDate, labor, fuelMultiplier, avgUtilization, satisfaction);
+      const result = simulateTagRoute(tagRoute, aircraft, gameDate, labor, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor);
       if (!result) continue;
 
       const cateringRev    = result.cateringRevenue ?? 0;
@@ -1959,7 +2012,8 @@ export function weeklyTick(state) {
 
     const rkRoute = [route.origin, route.destination].sort().join('-');
     const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, labor, fuelMultiplier,
-      demandAllocations.get(aircraft.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction);
+      demandAllocations.get(aircraft.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
+      eventDemandMultFor(route.origin, route.destination));
     if (!result) continue;
 
     // Connecting passengers: additional revenue from hub-feed and partner agreements.
@@ -1987,8 +2041,11 @@ export function weeklyTick(state) {
     // own-metal itineraries handle direct-route competition inside the market
     // model (conn.connectionShare), so applying it there would double-count.
     const cannibFactor = Math.min(1.0, cannibalizationMap[routeKey] ?? 1.0);
-    let   extPax       = Math.round(connectingRaw.totalPax     * cannibFactor);
-    let   extRevenue   = Math.round(connectingRaw.totalRevenue * cannibFactor);
+    // External connecting feed rides the same world-event demand shock as the
+    // local O&D pool — fewer people flying means fewer people connecting.
+    const evConnMult   = eventDemandMultFor(route.origin, route.destination);
+    let   extPax       = Math.round(connectingRaw.totalPax     * cannibFactor * evConnMult);
+    let   extRevenue   = Math.round(connectingRaw.totalRevenue * cannibFactor * evConnMult);
 
     // Own-metal itinerary feed on this leg (competition/congestion-adjusted upstream).
     const ownMetalLeg = ownMetalOD?.byRouteKey?.[routeKey] ?? null;
@@ -2346,6 +2403,9 @@ export function weeklyTick(state) {
     awarenessMultiplier,
     reputationMultiplier:   reputationMult,
     reputationScore:        repInfo.overall,
+    // World-event demand shock baked into this week's demand pools (global
+    // component only — regional shocks vary per route). 1.0 = no active events.
+    eventDemandMult:        eventGlobalDemandMult,
     // Passenger satisfaction: post-week stat for the reducer to persist, plus
     // this week's delivered experience for UI display.
     satisfaction:           satisfactionNext,

@@ -93,19 +93,22 @@ export function projectWeek(state) {
     : (state.fuelMultiplier ?? 1.0) * eventFuelMult;
 
   // ── Canonical engine pass ──────────────────────────────────────────────────
+  // Event demand shocks are applied INSIDE weeklyTick (state.activeEvents flows
+  // through in the spread): each route's passenger pool is scaled, so per-route
+  // revenue, pax and load factors already reflect active events.
   const report = weeklyTick({ ...state, fuelMultiplier, loyalty: state.loyalty, gameDate });
 
   // Per-route boosted revenue (what actually books) keyed by routeId.
   const revById = {};
   for (const r of report.routeResults ?? []) revById[r.routeId] = r.revenue;
 
-  // Active-event demand adjustment (applied by the reducer on top of cashDelta).
-  const eventDemandAdj   = report.totalRevenue ? report.totalRevenue * (globalDemandMult - 1.0) : 0;
-  const effectiveRevenue = Math.round(report.totalRevenue + eventDemandAdj);
+  // Retired flat adjustment — kept at 0 so Finance UI rows keyed off it hide.
+  const eventDemandAdj   = 0;
+  const effectiveRevenue = Math.round(report.totalRevenue);
 
   // EBITDA = effective revenue − all operating+fixed cost (report.totalCost has no
   // interest, tax, or depreciation in it). This equals the adjusted cashDelta.
-  const ebitda       = Math.round(report.totalRevenue + eventDemandAdj - report.totalCost);
+  const ebitda       = Math.round(report.totalRevenue - report.totalCost);
   const depreciation = fleetWeeklyDepreciation(fleet);
   const ebit         = ebitda - depreciation;
 

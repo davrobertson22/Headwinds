@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useGame, frequencyChangeBlockReason } from '../store/GameContext.jsx';
+import { useMemo } from 'react';
+import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getAircraftType } from '../data/aircraft.js';
@@ -11,7 +11,7 @@ import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
-  weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm,
+  buildEventDemandModel,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -158,90 +158,8 @@ function MarketSharePie({ slices }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-// One assignable aircraft on a route: a selectable row that expands to show the
-// jet's weekly block-hour utilization (across ALL its routes) and a frequency
-// stepper. Reducing is always allowed (floors at 1 — close the route to drop it);
-// increasing is disabled once the aircraft would blow past its 140h block budget
-// (the reducer still guards gate-slot / regulatory limits as a backstop).
-function AircraftFreqRow({ route, aircraft, type, allRoutes, increaseReason, expanded, onToggle, onChange }) {
-  const dist = routeDistanceKm(route.origin, route.destination);
-  // Utilization bar = this jet's total weekly block hours across all its routes
-  // (same flat figure the Fleet page shows). The +/- ENABLE decision, however,
-  // comes from the engine's shared `frequencyChangeBlockReason` predicate
-  // (per-month peak block-hours + gate slots + regulatory), passed in as
-  // `increaseReason`, so the button can never disagree with what the server enforces.
-  const otherBlockHrs = (allRoutes || [])
-    .filter(r => r.aircraftId === route.aircraftId && r.id !== route.id)
-    .reduce((s, r) => s + (type ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type) : 0), 0);
-  const thisBlockHrs = type ? weeklyBlockHours(dist, route.weeklyFrequency, type) : 0;
-  const totalBlockHrs = otherBlockHrs + thisBlockHrs;
-  const pct = Math.min(100, (totalBlockHrs / MAX_WEEKLY_BLOCK_HOURS) * 100);
-  const color = pct >= 95 ? 'var(--red)' : pct >= 75 ? 'var(--yellow)' : 'var(--accent)';
-  const canIncrease = !increaseReason;
-  const seatsWk = (type?.seats ?? 0) * route.weeklyFrequency;
-  const seasonal = Array.isArray(route.season?.months) && route.season.months.length > 0;
-
-  const Btn = ({ txt, delta, off }) => (
-    <button
-      className="btn btn-ghost"
-      disabled={off}
-      onClick={(e) => { e.stopPropagation(); onChange(Math.max(1, route.weeklyFrequency + delta)); }}
-      style={{ padding: '2px 11px', fontSize: 16, fontWeight: 700, lineHeight: 1.1, opacity: off ? 0.4 : 1 }}
-    >
-      {txt}
-    </button>
-  );
-
-  return (
-    <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-      {/* Collapsed summary row — click to select/expand */}
-      <div
-        onClick={onToggle}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '9px 0', cursor: 'pointer' }}
-      >
-        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: 'var(--text-dim)', fontSize: 11, width: 12, display: 'inline-block' }}>{expanded ? '▾' : '▸'}</span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {aircraft ? `${aircraft.name}${aircraft.tailNumber ? ` · ${aircraft.tailNumber}` : ''}` : 'Aircraft'}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-              {[type ? `${type.seats} seats` : null, `${Math.round(totalBlockHrs)}h / ${MAX_WEEKLY_BLOCK_HOURS}h`, seasonal ? 'seasonal' : null].filter(Boolean).join(' · ')}
-            </div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          <Btn txt="−" delta={-1} off={route.weeklyFrequency <= 1} />
-          <span style={{ minWidth: 62, textAlign: 'center', fontWeight: 700, fontSize: 14 }}>{route.weeklyFrequency}× / wk</span>
-          <Btn txt="+" delta={+1} off={!canIncrease} />
-        </div>
-      </div>
-
-      {/* Expanded detail — utilization + guidance */}
-      {expanded && (
-        <div style={{ padding: '4px 0 12px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
-            <span>Block-hour utilization</span>
-            <span style={{ color, fontWeight: 600 }}>{totalBlockHrs.toFixed(1)}h / {MAX_WEEKLY_BLOCK_HOURS}h · {Math.round(pct)}%</span>
-          </div>
-          <div style={{ height: 6, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 3, transition: 'width 0.3s' }} />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.6 }}>
-            This route: <strong style={{ color: 'var(--text-muted)' }}>{thisBlockHrs.toFixed(1)}h</strong> · other routes: <strong style={{ color: 'var(--text-muted)' }}>{otherBlockHrs.toFixed(1)}h</strong> · {seatsWk.toLocaleString()} seats/wk here
-          </div>
-          {increaseReason && (
-            <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4 }}>Can't add more: {increaseReason}.</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   const { state, dispatch } = useGame();
-  const [expandedFreqId, setExpandedFreqId] = useState(null);
   const gameDate  = { week: state.week, month: weekToMonth(state.week) };
   const hubs      = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
 
@@ -251,8 +169,13 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   const refP          = referencePrice(origin, dest);
   const routeKey      = [origin, dest].sort().join('-');
 
-  // Market
-  const market      = useMemo(() => buildRouteMarket(origin, dest, gameDate), [origin, dest, gameDate.month]);
+  // Market — scaled by any active world-event demand shock (pandemic, regional
+  // disruption...) so the detail page matches what the engine actually books.
+  const eventDemand = useMemo(() => buildEventDemandModel(state.activeEvents), [state.activeEvents]);
+  const market      = useMemo(
+    () => buildRouteMarket(origin, dest, gameDate, 1, eventDemand.multFor(origin, dest)),
+    [origin, dest, gameDate.month, eventDemand]
+  );
   const totalDemand = market.leisureDemand + market.businessDemand;
 
   // Player routes on this pair (either direction)
@@ -398,7 +321,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       const result = simulateRoute(route, aircraft, gameDate, state.labor ?? null, 1.0,
         demandAllocations.get(aircraft.id) ?? null, [],
         fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
-        state.satisfaction ?? null);
+        state.satisfaction ?? null, eventDemand.multFor(origin, dest));
       if (!result) return [];
       const weeklyLeaseCost = aircraft.ownershipType === 'owned' ? 0
         : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
@@ -406,7 +329,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       return [{ route, aircraft, type, result: { ...result, weeklyLeaseCost, weeklyMaintCost,
         trueProfit: result.revenue - (result.totalOpCost ?? 0) - weeklyLeaseCost - weeklyMaintCost } }];
     });
-  }, [playerRoutes, state.fleet, gameDate, competitorsOnRoute, market, origin, dest, state.hub, shareResults, rrById]);
+  }, [playerRoutes, state.fleet, gameDate, competitorsOnRoute, market, origin, dest, state.hub, shareResults, rrById, eventDemand]);
 
   // result.passengers is one-way (per direction) — directly comparable to market demand.
   const totalPax     = playerSims.reduce((s, {result}) => s + result.passengers, 0);
@@ -542,39 +465,6 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       {capacityLimited && (
         <div style={{ background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
           <Glyph e="⚠" /> <strong style={{ color: 'var(--yellow)' }}>Capacity-limited.</strong> Your aircraft are essentially full and ~{unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Cutting fares won't lift load here — you're seat-bound, not demand-bound. To carry more, add frequency or aircraft; to earn more on the seats you have, raise fares toward the point where load starts to dip.
-        </div>
-      )}
-
-      {/* Frequency control — select an aircraft to see its utilization + adjust flights/wk */}
-      {playerRoutes.length > 0 && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontWeight: 600 }}>Frequency & utilization</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Total {playerRoutes.reduce((s, r) => s + r.weeklyFrequency, 0)}× / wk
-            </div>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 2px' }}>
-            Select an aircraft to see its weekly block-hour utilization, then use −/+ to change its flights per week. Reducing frees block-hours and gate slots and cuts cost; increasing is capped by the 140h block budget, gates and regulatory limits.
-          </div>
-          {playerRoutes.map(r => {
-            const ac = state.fleet.find(a => a.id === r.aircraftId);
-            const t  = ac ? getAircraftType(ac.typeId) : null;
-            const incReason = frequencyChangeBlockReason(state, r.id, r.weeklyFrequency + 1);
-            return (
-              <AircraftFreqRow
-                key={r.id}
-                route={r}
-                aircraft={ac}
-                type={t}
-                allRoutes={state.routes}
-                increaseReason={incReason}
-                expanded={expandedFreqId === r.id}
-                onToggle={() => setExpandedFreqId(id => id === r.id ? null : r.id)}
-                onChange={(f) => dispatch({ type: 'UPDATE_FREQUENCY', routeId: r.id, weeklyFrequency: f })}
-              />
-            );
-          })}
         </div>
       )}
 

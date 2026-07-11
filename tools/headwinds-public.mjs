@@ -161,6 +161,28 @@ function rebrand(html) {
   return s;
 }
 
+// Surface the Headwinds-only Rules page in the shared nav + footer of EVERY page.
+// The Rules page is multiplayer-specific (it has no Tailwinds counterpart), so
+// the link can't live in the synced root public/ pages — it's injected here at
+// build time instead. Idempotent: rules.html already carries its own links, and
+// re-runs start from a clean OUT, so nothing double-links. A page missing the
+// FAQ anchor simply keeps the link it does have.
+function injectRulesLink(html) {
+  if (html.includes('href="/rules.html"')) return html;   // e.g. rules.html itself
+  let s = html;
+  // Top nav (class="link") — Rules sits after FAQ, before Play.
+  s = s.replace(
+    '<a class="link" href="/faq.html">FAQ</a>',
+    '<a class="link" href="/faq.html">FAQ</a>\n      <a class="link" href="/rules.html">Rules</a>',
+  );
+  // Footer list (plain anchors) — Rules after FAQ.
+  s = s.replace(
+    '<a href="/faq.html">FAQ</a>',
+    '<a href="/faq.html">FAQ</a>\n      <a href="/rules.html">Rules</a>',
+  );
+  return s;
+}
+
 // ── build ─────────────────────────────────────────────────────────────────────
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -207,6 +229,17 @@ if (existsSync(PAGES)) {
   }
 }
 
+// Inject the Rules link across every generated page (rebranded + overlaid).
+// Runs after overlays land in OUT so hand-written Headwinds pages get it too.
+let linked = 0;
+for (const f of readdirSync(OUT)) {
+  if (!f.endsWith('.html')) continue;
+  const p = path.join(OUT, f);
+  const before = readFileSync(p, 'utf8');
+  const after = injectRulesLink(before);
+  if (after !== before) { writeFileSync(p, after); linked++; }
+}
+
 // PWA manifest — Headwinds identity, app lives at /play.
 writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
   name: 'Headwinds — Multiplayer Airline Management',
@@ -229,10 +262,10 @@ writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
 writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: https://${DOMAIN}/sitemap.xml\n`);
 const today = new Date().toISOString().slice(0, 10);
 const pages = ['', 'play', ...readdirSync(OUT).filter((f) => f.endsWith('.html')).sort()];
-const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : /^(how-to-play|strategy|devlog)/.test(p) ? '0.8' : '0.6';
+const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : /^(how-to-play|strategy|devlog|rules)/.test(p) ? '0.8' : '0.6';
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
   pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
   `\n</urlset>\n`);
 
-console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${copied} assets copied, ${brandFiles} brand files${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''} → ${path.relative(HW, OUT)}/`);
+console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${copied} assets copied, ${brandFiles} brand files, ${linked} pages Rules-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''} → ${path.relative(HW, OUT)}/`);

@@ -429,7 +429,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   const [openRival, setOpenRival] = useState(null); // airlineId of expanded row
 
   const load = useCallback(() => {
-    api(`/worlds/${worldId}`, { token }).then((d) => { setData(d); setError(null); }).catch(setError);
+    api(`/worlds/${worldId}`, { token }).then(setData).catch(setError);
   }, [worldId, token]);
   useEffect(() => {
     load();
@@ -560,10 +560,7 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <a href="#/" className="brand">
-          <img src="/headwinds-mark-color.png" alt="" className="brand-mark" />
-          HEADWINDS<span className="muted"> · multiplayer</span>
-        </a>
+        <a href="#/" className="brand">HEADWINDS<span className="muted"> · multiplayer</span></a>
         {session ? (
           <div className="row">
             <span className="muted">{me?.account?.displayName ?? session.user.email}</span>

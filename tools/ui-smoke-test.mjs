@@ -97,7 +97,7 @@ console.log('\n── 3. Wiki documents multi-stop routing ───────
 test('Wiki renders and registers the Multi-stop Routes help section', () => {
   // The Wiki renders only the active section's body; the table of contents lists
   // every section title, so the new entry shows there once it's wired in.
-  const html = renderToString(React.createElement(Wiki));
+  const html = render(React.createElement(Wiki));  // inside GameProvider — the Headwinds Wiki reads useGame()
   assert.ok(html.includes('Multi-stop Routes'), 'multi-stop help section listed');
 });
 

@@ -24,7 +24,7 @@
 // }
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { BUSINESS_PRICE_MULTIPLIER } from './demand.js';
+import { BUSINESS_PRICE_MULTIPLIER, competitorBusinessFraction } from './demand.js';
 import { referencePrice, routePairKey } from '../utils/simulation.js';
 
 // ── Tunable knobs ────────────────────────────────────────────────────────────
@@ -116,7 +116,9 @@ export function buildEncroachmentOffer(spec, market) {
   const hasBusiness  = spec.tier !== 'budget';
   const businessPrice = hasBusiness ? Math.round(economyPrice * BUSINESS_PRICE_MULTIPLIER) : null;
   const seats = spec.seatsPerFlight ?? 186;
-  const businessPerFlight = hasBusiness ? Math.round(seats * 0.13) : 0;
+  const businessPerFlight = hasBusiness
+    ? Math.round(seats * competitorBusinessFraction(spec.tier, market.distanceKm))
+    : 0;
   return {
     airlineId:         `encroach:${spec.competitorId}`,
     origin:            market.origin,

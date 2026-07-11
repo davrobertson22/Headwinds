@@ -635,6 +635,7 @@ export function computePartnerODRevenue(connections, options = {}) {
   const {
     gameDate = { month: 6 },
     competitorRouteIndex = null,
+    demandMultFor = null,   // (origin, dest) → world-event demand multiplier
   } = options;
 
   const entries = [];
@@ -665,7 +666,8 @@ export function computePartnerODRevenue(connections, options = {}) {
 
   for (const { origin, dest, routings } of byOD.values()) {
     const odKey = [origin, dest].sort().join('-');   // display key (unordered)
-    const market = buildRouteMarket(origin, dest, gameDate, 1);
+    const market = buildRouteMarket(origin, dest, gameDate, 1,
+      demandMultFor ? demandMultFor(origin, dest) : 1);
     if (!market.baseWeeklyDemand) continue;
 
     // One offer per distinct player routing, all competing in the same market.
@@ -962,6 +964,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     contestMap = {},
     routeCountByAirport = {},
     gates = {},
+    demandMultFor = null,   // (origin, dest) → world-event demand multiplier
   } = options;
 
   const byRouteKey = {};
@@ -1002,7 +1005,8 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
   for (const [dirKey, conns] of byOD) {
     const [origin, dest] = dirKey.split('-');
     const odKey  = [origin, dest].sort().join('-');
-    const market = buildRouteMarket(origin, dest, gameDate, 1);
+    const market = buildRouteMarket(origin, dest, gameDate, 1,
+      demandMultFor ? demandMultFor(origin, dest) : 1);
     if (!market.baseWeeklyDemand) continue;
 
     // One offer per routing (per hub), all competing in the same market.
@@ -1145,6 +1149,7 @@ export function runNetworkTick(state) {
     hubs                 = {},   // { [code]: { tier } } — designated hubs/focus cities
     gates                = {},   // { [code]: gateCount } — for congestion
     routeCountByAirport  = {},   // player routes per airport
+    demandMultFor        = null, // (origin, dest) → world-event demand multiplier
   } = state;
 
   const partnershipMap = buildPartnershipMap(
@@ -1164,6 +1169,7 @@ export function runNetworkTick(state) {
   const partnerODRevenue   = computePartnerODRevenue(connections, {
     gameDate,
     competitorRouteIndex,
+    demandMultFor,
   });
   const partnerHealthDecay = computePartnerHealthDecay(connections, partnershipMap);
 
@@ -1178,6 +1184,7 @@ export function runNetworkTick(state) {
     contestMap: hubContestMap,
     routeCountByAirport,
     gates,
+    demandMultFor,
   });
 
   return {

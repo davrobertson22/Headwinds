@@ -7,6 +7,7 @@ import {
   simulateRoute, formatMoney, formatPercent, weekToGameDate,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
+  buildEventDemandModel,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import {
@@ -423,14 +424,21 @@ export default function RoutePlanner() {
   const destAirport   = getAirport(dest);
   const ready         = !!(originAirport && destAirport);
 
+  // World-event demand shocks: previews must match what the engine will book
+  // this week (a pandemic scare shrinks the pool the planner shows too).
+  const eventDemand = useMemo(
+    () => buildEventDemandModel(state.activeEvents),
+    [state.activeEvents]
+  );
+
   // Core market data
   const routeData = useMemo(() => {
     if (!ready) return null;
     const dist   = Math.round(distanceKm(originAirport, destAirport));
     const refP   = referencePrice(origin, dest);
-    const market = buildRouteMarket(origin, dest, gameDate);
+    const market = buildRouteMarket(origin, dest, gameDate, 1, eventDemand.multFor(origin, dest));
     return { dist, refP, market };
-  }, [origin, dest, gameDate.month, ready]);
+  }, [origin, dest, gameDate.month, ready, eventDemand]);
 
   const effectivePrice = price ?? routeData?.refP ?? 200;
 
@@ -570,6 +578,7 @@ export default function RoutePlanner() {
       simAircraft,
       gameDate,
       state.labor ?? null, 1.0, null, [], avgUtil, satisfaction,
+      eventDemand.multFor(origin, dest),
     );
     if (!result) return null;
 
@@ -579,6 +588,7 @@ export default function RoutePlanner() {
       simAircraft,
       gameDate,
       state.labor ?? null, 1.0, null, [], avgUtil, satisfaction,
+      eventDemand.multFor(origin, dest),
     );
 
     // Connecting passenger estimate

@@ -5,6 +5,7 @@ import {
   simulateRoute, maintenanceMultiplier, blockTimeHours,
   CLASS_FARE_MULTIPLIERS,
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
+  buildEventDemandModel,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
@@ -327,14 +328,17 @@ function PLStatement({ proj }) {
   // Per-route REVENUE for display uses the engine's boosted figure (proj.revById),
   // which includes connecting feed + awareness/marketing/loyalty/alliance lifts.
   const avgUtilization = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
-  const routeData = useMemo(() => routes.map(route => {
+  const routeData = useMemo(() => {
+    const evDemand = buildEventDemandModel(state.activeEvents);
+    return routes.map(route => {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) return null;
-    const result = simulateRoute(route, aircraft, gd, labor, proj.fuelMultiplier, null, [], avgUtilization, state.satisfaction ?? null);
+    const result = simulateRoute(route, aircraft, gd, labor, proj.fuelMultiplier, null, [], avgUtilization, state.satisfaction ?? null,
+      evDemand.multFor(route.origin, route.destination));
     if (!result) return null;
     const bookedRevenue = proj.revById[route.id] ?? result.revenue;
     return { route, aircraft, result, bookedRevenue };
-  }).filter(Boolean), [routes, fleet, state.week, proj]);  // eslint-disable-line
+  }).filter(Boolean); }, [routes, fleet, state.week, proj]);  // eslint-disable-line
 
   // Canonical cost buckets (from the engine report, not re-derived)
   const totFuel = report.totalFuel;
@@ -2146,13 +2150,15 @@ function UnitEconomics({ proj }) {
 
   const routeData = useMemo(() => {
     const avgUtil = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
+    const evDemand = buildEventDemandModel(state.activeEvents);
     return routes.map(route => {
     const a    = fleet.find(x => x.id === route.aircraftId);
     const type = a ? getAircraftType(a.typeId) : null;
     if (!a || !type) return null;
     // Simulate with the engine's labor + fuel multiplier so costs match; use the
     // engine's BOOKED revenue (incl. connecting feed + demand lifts) for RASK/yield.
-    const raw = simulateRoute(route, a, gd, labor, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null);
+    const raw = simulateRoute(route, a, gd, labor, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null,
+      evDemand.multFor(route.origin, route.destination));
     if (!raw) return null;
     const result = { ...raw, revenue: proj.revById[route.id] ?? raw.revenue };
     const ue = calcUnitEconomics(route, a, type, result, fleet, routes);
