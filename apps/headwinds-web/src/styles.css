@@ -37,7 +37,8 @@ header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 8px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px;
 }
-.brand { font-weight: 800; letter-spacing: 2px; color: var(--accent); text-decoration: none; }
+.brand { font-weight: 800; letter-spacing: 2px; color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; }
+.brand-mark { height: 24px; width: auto; display: block; }
 h2, h3 { margin: 8px 0; }
 a { color: var(--blue); }
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }

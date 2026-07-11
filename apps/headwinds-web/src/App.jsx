@@ -558,7 +558,10 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <a href="#/" className="brand">HEADWINDS<span className="muted"> · multiplayer</span></a>
+        <a href="#/" className="brand">
+          <img src="/headwinds-mark-color.png" alt="" className="brand-mark" />
+          HEADWINDS<span className="muted"> · multiplayer</span>
+        </a>
         {session ? (
           <div className="row">
             <span className="muted">{me?.account?.displayName ?? session.user.email}</span>
