@@ -138,6 +138,32 @@ export default function AirportDetail({ code, onBack }) {
     return result.sort((a, b) => b.frequency - a.frequency);
   }, [myRoutes, compRouteMap, state.airlineName, myTotalFreq]);
 
+  // Total weekly frequency across all carriers here → market share per airline
+  const totalPresenceFreq = useMemo(
+    () => airlinePresence.reduce((s, a) => s + a.frequency, 0),
+    [airlinePresence]
+  );
+
+  // Per-pair weekly frequency (mine vs competitors) → route-level market share
+  const pairFreqs = useMemo(() => {
+    const map = {}; // otherCode -> { mine, comp }
+    for (const r of myRoutes) {
+      const other = r.origin === code ? r.destination : r.origin;
+      if (!map[other]) map[other] = { mine: 0, comp: 0 };
+      map[other].mine += r.weeklyFrequency;
+    }
+    for (const comp of state.competitors ?? []) {
+      for (const [key, val] of Object.entries(comp.routes ?? {})) {
+        const [a, b] = key.split('-');
+        const other  = a === code ? b : b === code ? a : null;
+        if (!other) continue;
+        if (!map[other]) map[other] = { mine: 0, comp: 0 };
+        map[other].comp += (val?.frequency ?? 0);
+      }
+    }
+    return map;
+  }, [myRoutes, code, state.competitors]);
+
   return (
     <div>
       {/* Back + header */}
@@ -286,11 +312,21 @@ export default function AirportDetail({ code, onBack }) {
 
         {/* Airlines at this airport */}
         <div className="card">
-          <div style={{ fontWeight: 600, marginBottom: 12 }}>
-            Airlines at {code}
-            <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>Airlines at {code}</span>
+            <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}>
               {airlinePresence.length} {airlinePresence.length === 1 ? 'carrier' : 'carriers'}
             </span>
+            {(() => {
+              const me = airlinePresence.find(a => a.isPlayer);
+              if (!me || totalPresenceFreq <= 0) return null;
+              const pct = me.frequency / totalPresenceFreq * 100;
+              return (
+                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'rgba(63,185,80,0.12)', border: '1px solid rgba(63,185,80,0.3)', borderRadius: 4, padding: '2px 8px' }}>
+                  Your share {pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%
+                </span>
+              );
+            })()}
           </div>
           {airlinePresence.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No airline data available.</div>
@@ -299,13 +335,16 @@ export default function AirportDetail({ code, onBack }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface2)' }}>
-                    {['Airline', 'Type', 'Routes', 'Flights/wk'].map(h => (
-                      <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600 }}>{h}</th>
+                    {['Airline', 'Type', 'Routes', 'Flights/wk', 'Market Share'].map(h => (
+                      <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {airlinePresence.map((a, i) => (
+                  {airlinePresence.map((a, i) => {
+                    const share = totalPresenceFreq > 0 ? a.frequency / totalPresenceFreq : 0;
+                    const sharePct = share * 100;
+                    return (
                     <tr key={a.id} style={{ borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none', background: a.isPlayer ? 'rgba(63,185,80,0.05)' : 'transparent' }}>
                       <td style={{ padding: '7px 12px', fontWeight: a.isPlayer ? 700 : 400, color: a.isPlayer ? 'var(--green)' : 'var(--text)' }}>
                         {a.isPlayer && '▶ '}{a.name}
@@ -317,8 +356,22 @@ export default function AirportDetail({ code, onBack }) {
                       </td>
                       <td style={{ padding: '7px 12px', color: 'var(--text-muted)' }}>{a.routes}</td>
                       <td style={{ padding: '7px 12px', fontWeight: 600 }}>{a.frequency * 2}×</td>
+                      <td style={{ padding: '7px 12px', minWidth: 120 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, height: 6, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', minWidth: 48 }}>
+                            <div style={{
+                              width: `${Math.round(sharePct)}%`, height: '100%', borderRadius: 3,
+                              background: a.isPlayer ? 'var(--green)' : 'var(--accent)', opacity: a.isPlayer ? 0.9 : 0.5,
+                            }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: a.isPlayer ? 'var(--green)' : 'var(--text-muted)', minWidth: 34, textAlign: 'right' }}>
+                            {sharePct >= 10 ? Math.round(sharePct) : sharePct.toFixed(1)}%
+                          </span>
+                        </div>
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -340,7 +393,7 @@ export default function AirportDetail({ code, onBack }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--surface2)' }}>
-                  {['Destination', 'O&D Demand', 'Ref Price', 'You', 'Competitors', 'Demand Bar'].map(h => (
+                  {['Destination', 'O&D Demand', 'Ref Price', 'You', 'Competitors', 'Your Share', 'Demand Bar'].map(h => (
                     <th key={h} style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -351,6 +404,9 @@ export default function AirportDetail({ code, onBack }) {
                   const comps     = compRouteMap[pair.code] ?? [];
                   const maxDemand = topPairs[0]?.demand ?? 1;
                   const barPct    = Math.round(pair.demand / maxDemand * 100);
+                  const fr        = pairFreqs[pair.code] ?? { mine: 0, comp: 0 };
+                  const pairTotal = fr.mine + fr.comp;
+                  const myShare   = pairTotal > 0 ? fr.mine / pairTotal * 100 : null;
                   return (
                     <tr key={pair.code} style={{ borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
                       <td style={{ padding: '7px 12px' }}>
@@ -370,6 +426,23 @@ export default function AirportDetail({ code, onBack }) {
                           ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{comps.map(c => c.name).join(', ')}</span>
                           : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                         }
+                      </td>
+                      <td style={{ padding: '7px 12px', minWidth: 110 }}>
+                        {myShare === null ? (
+                          <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>—</span>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ flex: 1, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', minWidth: 40 }}>
+                              <div style={{
+                                width: `${Math.round(myShare)}%`, height: '100%', borderRadius: 3,
+                                background: iServe ? 'var(--green)' : 'var(--text-dim)', opacity: iServe ? 0.9 : 0.5,
+                              }} />
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: iServe ? 'var(--green)' : 'var(--text-muted)', minWidth: 34, textAlign: 'right' }}>
+                              {myShare >= 10 ? Math.round(myShare) : myShare.toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '7px 12px', minWidth: 100 }}>
                         <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
