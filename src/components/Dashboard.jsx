@@ -8,11 +8,12 @@ import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
 import BoardObjectives from './BoardObjectives.jsx';
 import InfoTip from './InfoTip.jsx';
-import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon } from './Icons.jsx';
+import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon, CloseIcon } from './Icons.jsx';
 
 export default function Dashboard() {
   const { state, remote } = useGame();
   const { cash, fleet, routes, cargoRoutes = [], financialHistory, lastReport, week, year, activeEvents = [] } = state;
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
   // ── Projections ──────────────────────────────────────────────────────────
   const weeklyLeaseCost = fleet.reduce((sum, a) => {
@@ -226,18 +227,14 @@ export default function Dashboard() {
     }, {})
   ));
 
-  // ── Trends (this week's projection vs last week's actual) ─────────────────
-  // Both KPI badges sit on cards whose headline number is the PROJECTION
-  // (projectedProfit / projectedRevenue). So the arrow must compare that
-  // projection against what actually closed last week — NOT two past weeks
-  // against each other. Anchoring on lastReport (cashDelta / totalRevenue)
-  // keeps the profit badge identical to the Weekly P&L WoW step below.
+  // ── Trends (vs 2 weeks ago) ───────────────────────────────────────────────
   const hist    = financialHistory;
-  const revTrend = lastReport
-    ? ((projectedRevenue - lastReport.totalRevenue) / Math.max(1, lastReport.totalRevenue)) * 100
+  const prevRev = hist.at(-2)?.revenue ?? null;
+  const revTrend = prevRev != null && lastReport
+    ? ((lastReport.totalRevenue - prevRev) / Math.max(1, prevRev)) * 100
     : null;
-  const profTrend = lastReport
-    ? projectedProfit - (lastReport.cashDelta ?? 0)
+  const profTrend = hist.length >= 2
+    ? hist.at(-1)?.profit - hist.at(-2)?.profit
     : null;
 
   // ── Unique airports and countries ────────────────────────────────────────
@@ -285,16 +282,24 @@ export default function Dashboard() {
           display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14,
         }}>
           {activeEvents.map(ev => (
-            <div key={ev.id} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '4px 10px', borderRadius: 20,
-              background: `${ev.color}18`, border: `1px solid ${ev.color}40`,
-              fontSize: 11, color: ev.color, fontWeight: 600,
-            }}>
+            <button
+              key={ev.id}
+              type="button"
+              onClick={() => setSelectedEvent(ev)}
+              title="Click for details"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 20,
+                background: `${ev.color}18`, border: `1px solid ${ev.color}40`,
+                fontSize: 11, color: ev.color, fontWeight: 600,
+                cursor: 'pointer', font: 'inherit', lineHeight: 1.4,
+              }}
+            >
               <span>{ev.icon}</span>
               {ev.name}
               <span style={{ fontWeight: 400, color: 'var(--text-dim)' }}>{ev.weeksLeft}w</span>
-            </div>
+              <span style={{ fontWeight: 400, color: ev.color, opacity: 0.7, marginLeft: 1 }}>ⓘ</span>
+            </button>
           ))}
         </div>
       )}
@@ -620,6 +625,172 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {selectedEvent && (
+        <EventDetailModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── World-event detail modal ──────────────────────────────────────────────────
+
+// ISO country codes → readable names, covering every code used by event templates.
+const EVENT_COUNTRY_NAMES = {
+  AR: 'Argentina', AT: 'Austria', AU: 'Australia', BE: 'Belgium', BR: 'Brazil',
+  CA: 'Canada', CH: 'Switzerland', CL: 'Chile', CN: 'China', CO: 'Colombia',
+  DE: 'Germany', DK: 'Denmark', EG: 'Egypt', ES: 'Spain', ET: 'Ethiopia',
+  FR: 'France', GB: 'United Kingdom', GR: 'Greece', HK: 'Hong Kong', ID: 'Indonesia',
+  IN: 'India', IS: 'Iceland', IT: 'Italy', JP: 'Japan', KE: 'Kenya',
+  KR: 'South Korea', MA: 'Morocco', MX: 'Mexico', MY: 'Malaysia', NG: 'Nigeria',
+  NL: 'Netherlands', NO: 'Norway', NZ: 'New Zealand', PE: 'Peru', PH: 'Philippines',
+  PT: 'Portugal', SE: 'Sweden', SG: 'Singapore', TH: 'Thailand', TR: 'Turkey',
+  US: 'United States', ZA: 'South Africa',
+};
+
+const EVENT_TYPE_LABELS = {
+  fuel: 'Fuel', demand: 'Demand', disruption: 'Disruption',
+  competition: 'Competition', economy: 'Economy',
+};
+
+// Turn a multiplier into a "+12%" / "−8%" string relative to normal.
+function pctDelta(mult) {
+  const delta = Math.round((mult - 1) * 100);
+  return `${delta >= 0 ? '+' : '−'}${Math.abs(delta)}%`;
+}
+
+// Build a plain-language list of an event's mechanical effects.
+function describeEventEffects(effects = {}) {
+  const rows = [];
+  if (effects.fuelMult != null && effects.fuelMult !== 1) {
+    const up = effects.fuelMult > 1;
+    rows.push({
+      label: 'Fuel costs',
+      value: pctDelta(effects.fuelMult),
+      good: !up,
+      note: up ? 'Every route is more expensive to operate.' : 'Cheaper to fly — a good week to add frequency.',
+    });
+  }
+  if (effects.globalDemandMult != null && effects.globalDemandMult !== 1) {
+    const up = effects.globalDemandMult > 1;
+    rows.push({
+      label: 'Demand — all routes',
+      value: pctDelta(effects.globalDemandMult),
+      good: up,
+      note: up ? 'More passengers than normal across your whole network.' : 'Fewer passengers everywhere — watch load factors.',
+    });
+  }
+  if (effects.regionDemandMult != null && effects.regionDemandMult !== 1) {
+    const up = effects.regionDemandMult > 1;
+    const codes = effects.regionCodes ?? [];
+    const names = codes.map(c => EVENT_COUNTRY_NAMES[c] ?? c);
+    rows.push({
+      label: 'Demand — affected region',
+      value: pctDelta(effects.regionDemandMult),
+      good: up,
+      note: names.length
+        ? `Applies to routes touching: ${names.join(', ')}.`
+        : 'Applies to the affected region only.',
+    });
+  }
+  if (effects.competitorMult != null && effects.competitorMult !== 1) {
+    const up = effects.competitorMult > 1;
+    rows.push({
+      label: 'Competitor pressure',
+      value: `×${effects.competitorMult.toFixed(2)}`,
+      good: !up,
+      note: up ? 'Rivals are pricing more aggressively — expect share pressure.' : 'Rivals have eased off on pricing.',
+    });
+  }
+  if (effects.satisfactionShock != null && effects.satisfactionShock !== 0) {
+    const up = effects.satisfactionShock > 0;
+    rows.push({
+      label: 'Passenger satisfaction',
+      value: `${up ? '+' : '−'}${Math.abs(effects.satisfactionShock)} pts`,
+      good: up,
+      note: 'One-time change to your satisfaction score.',
+    });
+  }
+  return rows;
+}
+
+function EventDetailModal({ event, onClose }) {
+  const rows = describeEventEffects(event.effects);
+  const total = event.totalDur ?? event.weeksLeft;
+  const elapsed = Math.max(0, total - event.weeksLeft);
+  const pctElapsed = total > 0 ? Math.min(100, Math.round((elapsed / total) * 100)) : 0;
+  const typeLabel = EVENT_TYPE_LABELS[event.type] ?? event.type;
+
+  return (
+    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="saveload-modal" style={{ width: 'min(460px, 94vw)' }}>
+        <div className="saveload-header" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <span style={{
+              fontSize: 26, lineHeight: 1, flexShrink: 0,
+              filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.3))',
+            }}>{event.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <h3 className="saveload-title" style={{ color: event.color }}>{event.name}</h3>
+              <div style={{
+                display: 'inline-block', marginTop: 4, padding: '2px 8px', borderRadius: 20,
+                background: `${event.color}18`, border: `1px solid ${event.color}40`,
+                fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase',
+                color: event.color,
+              }}>{typeLabel}</div>
+            </div>
+          </div>
+          <button className="saveload-close btn btn-ghost" onClick={onClose}><CloseIcon size={15} /></button>
+        </div>
+
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 18px' }}>
+          {event.description}
+        </p>
+
+        {/* Duration */}
+        <div style={{ marginBottom: rows.length ? 18 : 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', color: 'var(--text-dim)' }}>Duration</span>
+            <span style={{ fontSize: 12, color: 'var(--text)' }}>
+              <strong style={{ color: event.color }}>{event.weeksLeft} week{event.weeksLeft !== 1 ? 's' : ''}</strong> remaining
+              <span style={{ color: 'var(--text-dim)' }}> · {total}w total</span>
+            </span>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: 'var(--surface3)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pctElapsed}%`, background: event.color, opacity: 0.85 }} />
+          </div>
+        </div>
+
+        {/* Effects */}
+        {rows.length > 0 ? (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 8 }}>
+              Impact
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {rows.map((r, i) => (
+                <div key={i} style={{
+                  padding: '10px 12px', borderRadius: 'var(--radius)',
+                  background: 'var(--surface2)',
+                  borderLeft: `3px solid ${r.good ? 'var(--green)' : 'var(--red)'}`,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{r.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: r.good ? 'var(--green)' : 'var(--red)', whiteSpace: 'nowrap' }}>{r.value}</span>
+                  </div>
+                  {r.note && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 3, lineHeight: 1.45 }}>{r.note}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+            No direct financial impact — this event is informational.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
