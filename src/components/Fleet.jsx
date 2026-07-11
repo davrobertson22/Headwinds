@@ -1242,7 +1242,12 @@ export default function Fleet() {
                 const catColor   = CAT_COLORS[type?.category] || '#93a4ba';
                 const weeksLeft  = order.deliverAbsWeek - currentAbsWeek;
                 const lead       = DELIVERY_LEAD[type?.category] ?? 2;
-                const progress   = Math.max(0, Math.min(1, 1 - (weeksLeft / lead)));
+                // Use this order's ACTUAL total lead (first-of-type = 2×lead, stacked = +lead),
+                // not the flat category constant, so progress isn't stuck at 0% early on.
+                const totalLead  = (order.orderedWeek != null && order.orderedYear != null)
+                  ? Math.max(1, order.deliverAbsWeek - absoluteWeek(order.orderedYear, order.orderedWeek))
+                  : lead;
+                const progress   = Math.max(0, Math.min(1, 1 - (weeksLeft / totalLead)));
                 const deliverY   = Math.floor((order.deliverAbsWeek - 1) / 52) + 1;
                 const _dWIY      = ((order.deliverAbsWeek - 1) % 52) + 1;
                 const { monthName: deliverMon, weekInMonth: deliverWIM } = weekToGameDate(_dWIY);
