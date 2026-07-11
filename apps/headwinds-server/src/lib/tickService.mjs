@@ -9,8 +9,16 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
-import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals } from './humanRivals.mjs';
+
+// A reducer bug that yields NaN/Infinity for cash or marketCap must not take down
+// the whole tick (BigInt(NaN) throws): coerce to a finite integer so the world
+// keeps advancing. The caller's catch logs any world that misbehaves.
+const safeInt = (v) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? n : 0;
+};
 
 // Linear week index (1-based) of a world's clock.
 export const weekIndex = (world) =>
@@ -86,13 +94,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         where: { id: airline.id },
         data: {
           state: next,
-          cash: BigInt(Math.round(next.cash ?? 0)),
-          marketCap: BigInt(Math.round(next.marketCap ?? 0)),
+          cash: BigInt(safeInt(next.cash)),
+          marketCap: BigInt(safeInt(next.marketCap)),
           week: toIndex,
           ...(bankrupt ? { status: 'BANKRUPT' } : {}),
         },
       });
-      results.push({ airlineId: airline.id, name: airline.name, cash: Math.round(next.cash ?? 0), marketCap: Math.round(next.marketCap ?? 0), bankrupt });
+      results.push({ airlineId: airline.id, name: airline.name, cash: safeInt(next.cash), marketCap: safeInt(next.marketCap), bankrupt });
     }
 
     // ── Standings snapshot for this week ─────────────────────────────────────
@@ -127,20 +135,60 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
 // Tick every RUNNING world that's due, catching up at most `maxCatchUp` weeks per
 // world per call (so a long worker outage streams back gradually instead of
 // slamming the DB in one pass — the next scheduler run continues the catch-up).
+// Flip any LOBBY world whose scheduled start time has arrived to RUNNING. A world
+// created with tickConfig.scheduledStartAt sits open for joining but its clock is
+// parked until here — joining never starts it. startedAt is set to the SCHEDULED
+// instant (not "now") so the tick cadence lines up with the announced time even if
+// the worker fires a little late; a long outage just means the world owes weeks and
+// runDueTicks catches it up (bounded by maxCatchUp). Empty worlds start too — the
+// countdown is a promise; a late joiner simply joins mid-season.
+export async function startDueWorlds(prisma, { now = new Date(), log = console } = {}) {
+  const lobby = await prisma.world.findMany({ where: { status: 'LOBBY' } });
+  let started = 0;
+  for (const w of lobby) {
+    const at = w.tickConfig?.scheduledStartAt;
+    if (!at) continue;
+    const startAt = new Date(at);
+    if (Number.isNaN(startAt.getTime()) || startAt.getTime() > now.getTime()) continue;
+    const claimed = await prisma.world.updateMany({
+      where: { id: w.id, status: 'LOBBY' },
+      data: {
+        status: 'RUNNING',
+        startedAt: startAt,
+        endsAt: deriveEndsAt(startAt, w.lengthYears, w.weeksPerDay),
+      },
+    });
+    if (claimed.count) {
+      started++;
+      log.info?.(`[tick] scheduled world "${w.name}" (${w.id}) started — due ${startAt.toISOString()}`);
+    }
+  }
+  return { started };
+}
+
 export async function runDueTicks(prisma, { maxCatchUp = 12, log = console, now = new Date() } = {}) {
+  // Start any scheduled worlds that have come due, then tick everything RUNNING —
+  // so a world that starts this pass also advances its first due week(s) here.
+  await startDueWorlds(prisma, { now, log });
   const worlds = await prisma.world.findMany({ where: { status: 'RUNNING' } });
   let ticked = 0;
   for (let world of worlds) {
-    let due = Math.min(ticksDue(world, now), maxCatchUp);
-    if (due > 0) log.info(`[tick] ${world.name} (${world.id}): ${due} week(s) due`);
-    while (due > 0) {
-      const res = await tickWorldOnce(prisma, world, { log });
-      if (!res.ok) break; // lost a race or world completed — stop, next run resolves
-      ticked++;
-      due--;
-      // Refresh the in-memory clock for the next compare-and-set.
-      world = { ...world, currentWeek: res.week, currentYear: res.year, status: res.ended ? 'ENDED' : 'RUNNING' };
-      if (res.ended) { log.info(`[tick] ${world.name} reached its final week — ENDED`); break; }
+    try {
+      let due = Math.min(ticksDue(world, now), maxCatchUp);
+      if (due > 0) log.info(`[tick] ${world.name} (${world.id}): ${due} week(s) due`);
+      while (due > 0) {
+        const res = await tickWorldOnce(prisma, world, { log });
+        if (!res.ok) break; // lost a race or world completed — stop, next run resolves
+        ticked++;
+        due--;
+        // Refresh the in-memory clock for the next compare-and-set.
+        world = { ...world, currentWeek: res.week, currentYear: res.year, status: res.ended ? 'ENDED' : 'RUNNING' };
+        if (res.ended) { log.info(`[tick] ${world.name} reached its final week — ENDED`); break; }
+      }
+    } catch (err) {
+      // One world failing (e.g. a corrupt airline state) must not wedge the whole
+      // scheduler pass — log it and move on so the other worlds still tick.
+      log.error(`[tick] world ${world.id} aborted this pass:`, err?.message ?? err);
     }
   }
   return { ticked };

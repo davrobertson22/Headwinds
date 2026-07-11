@@ -53,6 +53,21 @@ const fmtMoney = (n) => n == null ? '—' :
   Math.abs(n) >= 1e9 ? `$${(n / 1e9).toFixed(2)}B` :
   Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${Math.round(n / 1e3)}k`;
 
+// Format a scheduled-start instant as local date/time + a rough countdown.
+const fmtStartTime = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const abs = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
+  const ms = d.getTime() - Date.now();
+  if (ms <= 0) return `${abs} (starting…)`;
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${abs} (in ${mins} min)`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${abs} (in ${hrs} hr)`;
+  return `${abs} (in ${Math.round(hrs / 24)} days)`;
+};
+
 function StatusChip({ status }) {
   return <span className={`chip chip-${status.toLowerCase()}`}>{status}</span>;
 }
@@ -210,6 +225,7 @@ function CreateWorld({ token, onCreated }) {
   const [maxPlayers, setMaxPlayers] = useState(20);
   const [startingCapital, setStartingCapital] = useState(15000000);
   const [demandMultiplier, setDemandMultiplier] = useState(1);
+  const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -230,6 +246,7 @@ function CreateWorld({ token, onCreated }) {
           maxPlayers: Number(maxPlayers),
           startingCapital: Math.round(Number(startingCapital)),
           demandMultiplier: Number(demandMultiplier),
+          ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
       });
       onCreated?.(res.world);
@@ -291,6 +308,13 @@ function CreateWorld({ token, onCreated }) {
           <input type="number" min={0.5} max={3} step={0.1} value={demandMultiplier}
             onChange={(e) => setDemandMultiplier(e.target.value)} />
           <span className="muted">{Number(demandMultiplier).toFixed(1)}× global demand · 1.0× = normal</span>
+        </label>
+        <label>Scheduled start (optional)
+          <input type="datetime-local" value={scheduledStart}
+            onChange={(e) => setScheduledStart(e.target.value)} />
+          <span className="muted">{scheduledStart
+            ? `Opens for joining now · clock starts ${fmtStartTime(new Date(scheduledStart).toISOString())}`
+            : 'Empty → clock starts when the first player joins'}</span>
         </label>
       </div>
       <div className="row">
@@ -359,7 +383,7 @@ function WorldsScreen({ token, me }) {
                 <td><a href={`#/w/${w.id}`}>{w.name}</a></td>
                 <td>{w.paceLabel}</td>
                 <td>{w.status === 'LOBBY'
-                  ? <span className="muted">Y1 — starts on first join</span>
+                  ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : 'Y1 — starts on first join'}</span>
                   : <>Y{w.progress.year}/{w.progress.totalYears} <span className="muted">({w.progress.percent}%)</span></>}</td>
                 <td>{w.playerCount}/{w.maxPlayers}</td>
                 <td><StatusChip status={w.status} /></td>
@@ -521,7 +545,9 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           <p className="muted">
             {world.paceLabel} ·{' '}
             {world.status === 'LOBBY'
-              ? 'Year 1 — the clock starts when the first player joins'
+              ? (world.scheduledStartAt
+                  ? `Year 1 — starts ${fmtStartTime(world.scheduledStartAt)}`
+                  : 'Year 1 — the clock starts when the first player joins')
               : `Year ${world.progress.year} of ${world.progress.totalYears}`} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
@@ -762,6 +788,14 @@ function ReportScreen({ token, me }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [target, setTarget] = useState(null); // { id, name } being reported
+
+  // `me` (and thus `active`) loads async, so the useState initializer above runs
+  // while active=[]. Once it resolves to exactly one world, auto-select it —
+  // otherwise single-world players get no world <select> (it only renders for
+  // active.length > 1) and the player list, gated on `worldId`, never appears.
+  useEffect(() => {
+    if (!worldId && active.length === 1) setWorldId(active[0].worldId);
+  }, [active.length, active[0]?.worldId]);
 
   useEffect(() => {
     if (!worldId || !token) { setData(null); return; }

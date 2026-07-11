@@ -597,8 +597,9 @@ function reducer(state, action) {
       // Early termination penalty: 50 % of remaining weekly lease × weeks left
       const type    = aircraft ? getAircraftType(aircraft.typeId) : null;
       const weeksLeft = aircraft?.leaseRemainingWeeks ?? 0;
+      const leaseRate = aircraft?.weeklyLease ?? type?.weeklyLease ?? 0;
       const penalty = (aircraft?.ownershipType === 'lease' && weeksLeft > 0)
-        ? Math.round((type?.weeklyLease ?? 0) * weeksLeft * 0.5)
+        ? Math.round(leaseRate * weeksLeft * 0.5)
         : 0;
       return {
         ...state,
@@ -612,6 +613,10 @@ function reducer(state, action) {
     case 'SELL_AIRCRAFT': {
       // Sell an owned aircraft at NAV minus 5% selling & admin fee.
       const aircraft      = state.fleet.find(a => a.id === action.aircraftId);
+      // Guard: only OWNED aircraft can be sold. Leased tails are returned via
+      // RETIRE_AIRCRAFT — without this, a crafted SELL_AIRCRAFT on a leased plane
+      // pays out its full purchase-price NAV for a jet you never bought.
+      if (!aircraft || aircraft.ownershipType !== 'owned') return state;
       const type          = aircraft ? getAircraftType(aircraft.typeId) : null;
       const ageYears      = (aircraft?.ageWeeks ?? 0) / 52;
       const remaining     = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
@@ -654,7 +659,7 @@ function reducer(state, action) {
 
     case 'CONFIGURE_AIRCRAFT': {
       // action: { aircraftId, config, reconfCost }
-      const cost = action.reconfCost ?? 0;
+      const cost = Math.max(0, Math.round(Number(action.reconfCost) || 0));
       return {
         ...state,
         cash:  state.cash - cost,
