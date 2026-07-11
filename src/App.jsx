@@ -411,6 +411,8 @@ function AppInner() {
               ['How to Play', '/how-to-play.html'],
               ['Strategy Guide', '/strategy.html'],
               ['Glossary', '/glossary.html'],
+              // Headwinds-only: fair-play rules page (no Tailwinds counterpart).
+              ...(remote ? [['Rules', '/rules.html']] : []),
               ['Devlog', '/devlog.html'],
               ['About', '/about.html'],
               ['Privacy', '/privacy.html'],

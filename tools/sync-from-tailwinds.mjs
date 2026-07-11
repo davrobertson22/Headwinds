@@ -248,6 +248,16 @@ MULTIPLAYER_PATCHES.push(
     anchor: `            Tailwinds v{APP_VERSION} · build {BUILD_ID}`,
     patched: `            {remote ? 'Headwinds' : 'Tailwinds'} v{APP_VERSION} · build {BUILD_ID}`,
   },
+  {
+    file: 'src/App.jsx',
+    why: 'Headwinds-only Rules link in the in-game footer (no Tailwinds /rules.html)',
+    anchor: `              ['Glossary', '/glossary.html'],
+              ['Devlog', '/devlog.html'],`,
+    patched: `              ['Glossary', '/glossary.html'],
+              // Headwinds-only: fair-play rules page (no Tailwinds counterpart).
+              ...(remote ? [['Rules', '/rules.html']] : []),
+              ['Devlog', '/devlog.html'],`,
+  },
 );
 MULTIPLAYER_PATCHES.push(
   {
