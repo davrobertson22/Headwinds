@@ -9,7 +9,8 @@ import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer } from '@tailwinds/engine/reducer';
-import { weekIndex } from '../lib/tickService.mjs';
+import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
+import { paceLabel } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
 
 // Live rival view for one airline (fresh on every read — never stale-from-blob).
@@ -48,12 +49,20 @@ export default async function decisionRoutes(fastify) {
     // Inject the CURRENT rival view so the Rivals tab and demand previews show
     // other humans as they are right now, not as of the last tick.
     const view = await rivalViewFor(airline);
+    const dueAt = nextTickAt(airline.world);
     return {
       airlineId: airline.id,
       status: airline.status,
       week: airline.week,
       worldStatus: airline.world.status,
-      worldClock: { week: airline.world.currentWeek, year: airline.world.currentYear },
+      worldClock: {
+        week: airline.world.currentWeek,
+        year: airline.world.currentYear,
+        // Countdown material for the game bar: when the next week lands (null
+        // for LOBBY/ENDED worlds) and the world's human-readable pace.
+        nextTickAt: dueAt ? dueAt.toISOString() : null,
+        paceLabel: paceLabel(airline.world.weeksPerDay),
+      },
       state: withRivals(airline.state, view),
     };
   });

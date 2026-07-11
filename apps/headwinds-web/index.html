@@ -1,15 +1,350 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <title>Headwinds — Multiplayer Airline Management</title>
-    <meta name="description" content="Headwinds: build an airline against real people in a shared persistent world. The multiplayer companion to Tailwinds." />
-    <meta name="google-adsense-account" content="ca-pub-5123198950074938" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- Legacy deep links: the app used to live at '/' with hash routes
+       (headwindsairlinegame.com/#/w/<id>). Send those straight to /play. -->
+  <script>
+    if (/^#\//.test(location.hash) || /access_token|refresh_token|type=magiclink|code=/.test(location.hash + location.search)) {
+      location.replace('/play' + location.search + location.hash);
+    }
+  </script>
+
+  <title>Headwinds — Multiplayer Airline Management Game</title>
+  <meta name="description" content="Build an airline against real people in persistent shared worlds. No AI opponents — every rival is a real player. Free, in your browser. The multiplayer companion to Tailwinds." />
+  <meta name="keywords" content="multiplayer airline management game, airline tycoon multiplayer, browser strategy game, airline simulator online, persistent world game" />
+  <link rel="canonical" href="https://www.headwindsairlinegame.com/" />
+  <meta name="google-adsense-account" content="ca-pub-5123198950074938" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0b0e13" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Headwinds" />
+  <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+
+  <!-- Open Graph / Twitter -->
+  <meta property="og:title" content="Headwinds — Multiplayer Airline Management Game" />
+  <meta property="og:description" content="Persistent shared worlds. Player alliances. Every rival is a real person. Free to play in your browser." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.headwindsairlinegame.com/" />
+  <meta property="og:image" content="https://www.headwindsairlinegame.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="Headwinds" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Headwinds — Multiplayer Airline Management Game" />
+  <meta name="twitter:description" content="Every rival is a real person. Free to play in your browser." />
+  <meta name="twitter:image" content="https://www.headwindsairlinegame.com/og-image.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Headwinds",
+    "alternateName": "Headwinds Multiplayer Airline Management Game",
+    "description": "Multiplayer airline management strategy game in persistent shared worlds. Every competitor is a real player — build routes, found alliances, and out-fly real people. Free to play in your browser.",
+    "genre": ["Strategy", "Simulation", "Management", "Tycoon", "MMO"],
+    "playMode": "MultiPlayer",
+    "gamePlatform": "Web Browser",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any",
+    "url": "https://www.headwindsairlinegame.com",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD", "availability": "https://schema.org/InStock" },
+    "featureList": [
+      "Persistent multiplayer worlds that run 24/7",
+      "Human competition only — no AI airlines",
+      "Player-founded alliances with real governance",
+      "In-game messaging and diplomacy",
+      "Contested routes: demand splits between real players",
+      "Full airline simulation — fleet, hubs, pricing, loyalty, cargo",
+      "1,500+ real airports and 100+ real aircraft"
+    ]
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0b0e13; --panel: #141a23; --panel-2: #1b2330; --line: #263143;
+      --text: #e8edf4; --soft: #c3cddb; --muted: #8b98ab; --faint: #66748a;
+      --teal: #38c9b4; --teal-bright: #5fe0cc; --teal-deep: #1e9483;
+      --teal-soft: rgba(56, 201, 180, 0.09);
+      --gold: #c79a4b; /* rival colour — a nod to Tailwinds */
+      --green: #3fb96b; --red: #e05c5c;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; line-height: 1.6; }
+    a { color: var(--teal-bright); }
+    h1, h2, h3, .wordmark { font-family: 'Space Grotesk', system-ui, sans-serif; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+    /* nav */
+    header.site { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: rgba(11, 14, 19, 0.86); backdrop-filter: blur(8px); z-index: 10; }
+    nav.site { display: flex; align-items: center; gap: 22px; padding: 14px 0; }
+    .brandlink { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-right: auto; }
+    .brandlink img { height: 26px; width: auto; }
+    .wordmark { font-weight: 700; font-size: 1.12rem; letter-spacing: 2.5px; color: var(--teal); }
+    .wordmark .tag { color: var(--faint); font-weight: 500; letter-spacing: 0; font-family: 'IBM Plex Sans', sans-serif; font-size: 0.85rem; }
+    nav.site a.link { color: var(--muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; }
+    nav.site a.link:hover { color: var(--teal-bright); }
+    .btn { display: inline-block; background: var(--teal); color: #04211d; font-weight: 700; text-decoration: none; border-radius: 8px; padding: 9px 20px; font-size: 0.98rem; }
+    .btn:hover { background: var(--teal-bright); }
+    .btn.big { font-size: 1.15rem; padding: 15px 36px; box-shadow: 0 6px 24px -6px rgba(56, 201, 180, 0.45); }
+    .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+    .btn.ghost:hover { border-color: var(--teal); color: var(--teal-bright); }
+    @media (max-width: 720px) { nav.site a.link { display: none; } }
+
+    /* hero */
+    .hero { display: flex; flex-wrap: wrap; gap: 48px; align-items: center; padding: 64px 0 56px; }
+    .hero-copy { flex: 1 1 400px; min-width: 300px; }
+    .eyebrow { color: var(--teal); font-size: 0.82rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; margin: 0 0 14px; }
+    .hero h1 { font-size: 3rem; font-weight: 700; letter-spacing: -0.5px; line-height: 1.05; margin: 0 0 16px; }
+    .hero h1 em { font-style: normal; color: var(--teal); }
+    .hero .sub { font-size: 1.22rem; color: var(--soft); max-width: 540px; margin: 0 0 22px; line-height: 1.55; }
+    .trust { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 0 0 28px; color: var(--muted); font-size: 0.92rem; }
+    .trust span::before { content: "✓ "; color: var(--teal); }
+    .ctas { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .statrow { display: flex; flex-wrap: wrap; gap: 30px; margin: 36px 0 0; }
+    .statrow .n { font-size: 1.5rem; font-weight: 800; font-family: 'Space Grotesk', sans-serif; }
+    .statrow .l { font-size: 0.8rem; color: var(--faint); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* hero visual — a live-world mock */
+    .hero-visual { flex: 1 1 430px; min-width: 300px; }
+    .mock { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); box-shadow: 0 22px 60px -16px rgba(0, 0, 0, 0.75); }
+    .mock-bar { display: flex; align-items: center; gap: 8px; padding: 9px 13px; background: #0a0d12; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .mock-clock { margin-left: auto; color: var(--muted); }
+    .mock-clock b { color: var(--teal); font-weight: 600; }
+    .standings { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .standings th { text-align: left; color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 8px 12px 5px; border-bottom: 1px solid var(--line); }
+    .standings td { padding: 6px 12px; border-bottom: 1px solid rgba(38, 49, 67, 0.55); }
+    .standings .you td { background: var(--teal-soft); }
+    .standings .up { color: var(--green); } .standings .dn { color: var(--red); }
+    .pill { font-size: 10px; border: 1px solid var(--line); border-radius: 9px; padding: 0 6px; color: var(--teal); white-space: nowrap; }
+    .mock-note { padding: 8px 12px; font-size: 11px; color: var(--faint); border-top: 1px solid var(--line); background: var(--panel-2); }
+    .mock-note b { color: var(--soft); font-weight: 600; }
+
+    /* sections */
+    section { padding: 56px 0; }
+    section.alt { background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    h2.sec { font-size: 1.75rem; margin: 0 0 8px; letter-spacing: -0.3px; }
+    p.sec-sub { color: var(--muted); margin: 0 0 32px; max-width: 640px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; }
+    section.alt .card { background: var(--panel-2); }
+    .card h3 { margin: 0 0 8px; font-size: 1.06rem; color: var(--teal-bright); display: flex; align-items: center; gap: 9px; }
+    .card h3 svg { flex: none; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+    .card p b { color: var(--soft); font-weight: 600; }
+
+    /* steps */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; counter-reset: step; }
+    .step { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+    .step::before { counter-increment: step; content: counter(step); display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 50%; background: var(--teal); color: #04211d; font-weight: 800; font-family: 'Space Grotesk', sans-serif; margin-bottom: 12px; }
+    .step h3 { margin: 0 0 6px; font-size: 1.02rem; }
+    .step p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+    /* cross-promo */
+    .duo { display: flex; flex-wrap: wrap; gap: 18px; }
+    .duo .card { flex: 1 1 320px; }
+    .duo .glyph { font-family: 'Space Grotesk', sans-serif; font-weight: 700; letter-spacing: 2px; font-size: 0.95rem; margin-bottom: 8px; }
+
+    footer.site { border-top: 1px solid var(--line); }
+    .footwrap { display: flex; flex-wrap: wrap; gap: 14px 18px; padding: 28px 0 10px; color: var(--muted); font-size: 0.9rem; }
+    .footwrap a { color: var(--teal-bright); text-decoration: none; }
+    .footnote { color: var(--faint); font-size: 0.8rem; line-height: 1.6; border-top: 1px solid var(--line); padding: 16px 0 32px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+  <header class="site">
+    <div class="wrap"><nav class="site">
+      <a class="brandlink" href="/">
+        <img src="/headwinds-mark-color.png" alt="" width="33" height="26" />
+        <span class="wordmark">HEADWINDS <span class="tag">· multiplayer</span></span>
+      </a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/devlog.html">Devlog</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="btn" href="/play">Play now</a>
+    </nav></div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <div class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Multiplayer airline strategy</p>
+          <h1>Every rival is a <em>real person</em>.</h1>
+          <p class="sub">Found an airline in a persistent shared world. Open routes, build hubs, and fight for passengers against other players — no AI opponents, ever. The world keeps flying while you sleep.</p>
+          <div class="trust">
+            <span>100% free</span>
+            <span>Plays in your browser</span>
+            <span>Worlds tick 24/7</span>
+            <span>Real airports &amp; aircraft</span>
+          </div>
+          <div class="ctas">
+            <a class="btn big" href="/play">Play free now →</a>
+            <a class="btn big ghost" href="#how">How it works</a>
+          </div>
+          <div class="statrow">
+            <div><div class="n">1,500+</div><div class="l">Real airports</div></div>
+            <div><div class="n">100+</div><div class="l">Real aircraft</div></div>
+            <div><div class="n">20</div><div class="l">Airlines per world</div></div>
+            <div><div class="n">24/7</div><div class="l">Server-run weeks</div></div>
+          </div>
+        </div>
+
+        <div class="hero-visual">
+          <div class="mock" aria-hidden="true">
+            <div class="mock-bar">
+              <span class="dot" style="background:#e05c5c"></span>
+              <span class="dot" style="background:#f59e0b"></span>
+              <span class="dot" style="background:#3fb96b"></span>
+              <span style="margin-left:8px;">Headwinds — Pacific Century · world standings</span>
+              <span class="mock-clock">server clock <b>Y7 W32</b></span>
+            </div>
+            <svg viewBox="0 0 460 168" style="display:block;width:100%;background:radial-gradient(circle at 55% 30%, #1b2330, #0a0d12);">
+              <g fill="none" stroke-width="1.6" opacity="0.9">
+                <path d="M96,120 Q180,28 318,72" stroke="#38c9b4"/>
+                <path d="M96,120 Q150,70 246,52" stroke="#38c9b4"/>
+                <path d="M96,120 Q220,150 372,118" stroke="#38c9b4"/>
+                <path d="M318,72 Q250,20 152,40" stroke="#c79a4b" stroke-dasharray="5 4"/>
+                <path d="M318,72 Q350,98 372,118" stroke="#c79a4b" stroke-dasharray="5 4"/>
+                <path d="M246,52 Q290,44 318,72" stroke="#5c9de0" stroke-dasharray="2 4"/>
+              </g>
+              <g fill="#8b98ab" opacity="0.45">
+                <circle cx="52" cy="42" r="2"/><circle cx="210" cy="132" r="2"/><circle cx="416" cy="48" r="2"/><circle cx="420" cy="146" r="2"/>
+              </g>
+              <circle cx="96" cy="120" r="6" fill="#38c9b4"/><circle cx="96" cy="120" r="11" fill="none" stroke="#38c9b4" stroke-width="1.5" opacity="0.5"/>
+              <circle cx="152" cy="40" r="4.5" fill="#c79a4b"/>
+              <circle cx="318" cy="72" r="5" fill="#e8edf4"/>
+              <circle cx="246" cy="52" r="4" fill="#e8edf4"/>
+              <circle cx="372" cy="118" r="4" fill="#e8edf4"/>
+              <text x="96" y="141" fill="#c3cddb" font-size="9" font-family="system-ui" text-anchor="middle">SIN — you</text>
+              <text x="152" y="29" fill="#c79a4b" font-size="9" font-family="system-ui" text-anchor="middle">HND — rival hub</text>
+              <text x="330" y="68" fill="#c3cddb" font-size="9" font-family="system-ui">SYD — contested</text>
+            </svg>
+            <table class="standings">
+              <thead><tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Market cap</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>Kestrel Pacific <span class="pill">🤝 Meridian</span></td><td>HND</td><td>41</td><td>$2.1B</td><td class="up">▲ 1</td></tr>
+                <tr class="you"><td>2</td><td>Your airline <span style="color:#66748a">(you)</span></td><td>SIN</td><td>38</td><td>$1.9B</td><td class="up">▲ 2</td></tr>
+                <tr><td>3</td><td>Aurora Atlantic <span class="pill">🤝 Meridian</span></td><td>KEF</td><td>33</td><td>$1.7B</td><td class="dn">▼ 1</td></tr>
+                <tr><td>4</td><td>Baltic Wing</td><td>RIX</td><td>27</td><td>$1.2B</td><td class="dn">▼ 2</td></tr>
+              </tbody>
+            </table>
+            <div class="mock-note">✉ <b>Kestrel Pacific:</b> “Stay out of SYD and we'll leave SIN–NRT alone. Deal?”</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section class="alt" id="features">
+      <div class="wrap">
+        <h2 class="sec">Built for competition between people</h2>
+        <p class="sec-sub">Headwinds runs the full Tailwinds airline simulation — fleet, routes, hubs, pricing, loyalty, cargo — then replaces every AI competitor with someone who can actually hold a grudge.</p>
+        <div class="grid">
+          <div class="card">
+            <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fe0cc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Human rivals only</h3>
+            <p>There are <b>no AI airlines</b>. Every carrier in the standings is a real player growing a real network. Fly a contested city pair and the demand splits between you and them — fares, frequency and quality decide who wins it.</p>
+          </div>
+          <div class="card">
+            <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fe0cc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Persistent worlds</h3>
+            <p>Worlds run on a <b>server clock</b> — one game week every hour or few, around the clock. Set your fares and frequencies, log off, and come back to a week of results, rival moves, and consequences.</p>
+          </div>
+          <div class="card">
+            <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fe0cc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Player alliances</h3>
+            <p>Alliances aren't scripted blocs — <b>players found them</b>, approve who joins, and share the benefits: partner feed on connecting traffic, a demand boost where allies overlap, and a weekly fee to keep it honest.</p>
+          </div>
+          <div class="card">
+            <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fe0cc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Diplomacy &amp; messaging</h3>
+            <p>Message rivals directly or talk strategy in your <b>alliance chat</b>. Negotiate a truce over a contested route, coordinate hubs with allies — or bluff. Blocking the ones who won't stop talking is also supported.</p>
+          </div>
+          <div class="card">
+            <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fe0cc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>The full airline sim</h3>
+            <p>The same deep simulation as Tailwinds: lease and buy from <b>100+ real aircraft</b>, build hubs and focus cities, run cargo, price cabins, invest in loyalty — across 1,500+ real airports.</p>
+          </div>
+          <div class="card">
+            <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fe0cc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>Rival intelligence</h3>
+            <p>Click any airline in the standings to see its <b>route network, fleet and recent moves</b>. Watch a rival lease widebodies and guess where they're going next — then get there first.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <div class="wrap">
+        <h2 class="sec">How a world works</h2>
+        <p class="sec-sub">Each world is a fresh map shared by up to 20 airlines, run end-to-end on the server. Join one and the story writes itself.</p>
+        <div class="steps">
+          <div class="step">
+            <h3>Sign in &amp; pick a world</h3>
+            <p>One click with Google or an email link. Browse open worlds — each shows its pace, progress and how many seats are left.</p>
+          </div>
+          <div class="step">
+            <h3>Found your airline</h3>
+            <p>Name it, pick a hub airport anywhere on Earth, and you're in with starting capital and an empty route map.</p>
+          </div>
+          <div class="step">
+            <h3>The clock never stops</h3>
+            <p>Game weeks advance automatically — even while you're offline. Set your network up to survive without you, then check back to see what your rivals did about it.</p>
+          </div>
+          <div class="step">
+            <h3>Outfly real people</h3>
+            <p>Climb the standings over a 50-year world. Ally, negotiate, undercut, fortress your hubs — whatever works. When it ends, the ranking is history.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="alt">
+      <div class="wrap">
+        <div class="duo">
+          <div class="card">
+            <div class="glyph" style="color: var(--teal);">HEADWINDS</div>
+            <p style="margin-bottom:14px;"><b style="color:var(--soft)">Multiplayer.</b> Persistent shared worlds where every competitor is a real player. Server-run clock, alliances, diplomacy, seasons that end with a winner.</p>
+            <a class="btn" href="/play">Play Headwinds →</a>
+          </div>
+          <div class="card">
+            <div class="glyph" style="color: var(--gold);">TAILWINDS</div>
+            <p style="margin-bottom:14px;"><b style="color:var(--soft)">Solo.</b> The original single-player game the Headwinds engine comes from. Your own world, your own pace, AI competitors — no account needed.</p>
+            <a class="btn ghost" href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer" style="border-color:#c79a4b;color:#d3ad63;">Play Tailwinds ↗</a>
+          </div>
+        </div>
+        <p style="color: var(--muted); margin: 26px 0 0;">Questions before you take off? Read the <a href="/how-to-play.html">how-to-play guide</a>, the <a href="/strategy.html">strategy guide</a>, or the <a href="/faq.html">FAQ</a> — and follow what's new on the <a href="/devlog.html">devlog</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <div class="footwrap">
+        <a href="/play">Play</a>
+        <a href="/how-to-play.html">How to Play</a>
+        <a href="/strategy.html">Strategy</a>
+        <a href="/aircraft.html">Aircraft</a>
+        <a href="/glossary.html">Glossary</a>
+        <a href="/faq.html">FAQ</a>
+        <a href="/devlog.html">Devlog</a>
+        <a href="/about.html">About</a>
+        <a href="/contact.html">Contact</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/terms.html">Terms</a>
+        <span style="margin-left:auto;">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.</span>
+      </div>
+      <p class="footnote">Headwinds is the multiplayer companion to Tailwinds, built on the same simulation engine. AI was used in the development of this game: core mechanics were designed by humans, while much of the coding and scaling of designs was done with LLMs.</p>
+    </div>
+  </footer>
+</body>
 </html>

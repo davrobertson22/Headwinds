@@ -522,7 +522,7 @@ export default function Routes() {
             disabled={fleet.length === 0 || availableFleet.length === 0}
             title={
               fleet.length === 0 && pendingOrders.length > 0
-                ? `Your aircraft is being delivered — advance time to receive it`
+                ? `Your aircraft is being delivered — it arrives with an upcoming week`
                 : fleet.length === 0
                 ? 'Lease an aircraft first'
                 : availableFleet.length === 0
@@ -555,7 +555,7 @@ export default function Routes() {
           fontSize: 13,
           color: 'var(--color-warning-text, #92400e)',
         }}>
-          <Glyph e="✈️" /> Your aircraft {pendingOrders.length === 1 ? 'is' : 'are'} on the way — advance time to receive {pendingOrders.length === 1 ? 'it' : 'them'} and open routes.
+          <Glyph e="✈️" /> Your aircraft {pendingOrders.length === 1 ? 'is' : 'are'} on the way — {pendingOrders.length === 1 ? 'it arrives' : 'they arrive'} with an upcoming week, ready to open routes.
         </div>
       )}
 

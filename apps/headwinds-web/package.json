@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Headwinds multiplayer web client — sign in, browse worlds, join a lobby. Talks to @headwinds/server; Phase 2 adds gameplay (decision submission + server-computed state).",
+  "description": "Headwinds multiplayer web client — static landing at /, lobby + full game UI at /play. Talks to @headwinds/server; state is server-authoritative.",
   "scripts": {
+    "predev": "node ../../tools/headwinds-public.mjs",
     "dev": "vite",
+    "prebuild": "node ../../tools/headwinds-public.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

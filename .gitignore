@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Generated at build by tools/headwinds-public.mjs (predev/prebuild)
+apps/headwinds-web/public/
+
 # macOS system files
 .DS_Store
 .fuse_hidden*

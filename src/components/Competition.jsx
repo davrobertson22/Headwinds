@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
@@ -43,7 +43,10 @@ function playerQuality(route, fleet, laborFx) {
 // ─── Root component ───────────────────────────────────────────────────────────
 
 export default function Competition() {
-  const { state, dispatch } = useGame();
+  // Multiplayer (Headwinds): `remote` is true and every competitor is a real
+  // player (`c.human`) — acquisitions and AI chrome (tiers, archetypes, fire
+  // sales) don't exist; rival profiles load via remoteApi.fetchRivalProfile.
+  const { state, dispatch, remote, remoteApi } = useGame();
   const { competitors = [], routes, fleet, financialHistory = [] } = state;
   const [expandedCarrier, setExpandedCarrier] = useState(null);
   const [acquireTarget, setAcquireTarget] = useState(null); // competitor object pending confirmation
@@ -67,8 +70,8 @@ export default function Competition() {
 
   return (
     <div>
-      {/* ── Acquisition confirmation modal ────────────────────────────────── */}
-      {acquireTarget && (
+      {/* ── Acquisition confirmation modal (solo only — you can't buy people) ── */}
+      {acquireTarget && !remote && (
         <AcquisitionModal
           target={acquireTarget}
           playerCash={state.cash}
@@ -90,6 +93,8 @@ export default function Competition() {
         playerCash={state.cash}
         playerMarketCap={state.marketCap ?? null}
         playerSharePrice={state.sharePrice ?? null}
+        playerProfitHistory={financialHistory.slice(-12).map(w => w.profit ?? 0)}
+        remote={remote}
       />
 
       {/* ── Contested routes ──────────────────────────────────────────────── */}
@@ -117,7 +122,16 @@ export default function Competition() {
       )}
 
       {/* ── Full competitor networks ──────────────────────────────────────── */}
-      <SectionHeader>Competitor Networks</SectionHeader>
+      <SectionHeader>{remote ? 'Rival Networks' : 'Competitor Networks'}</SectionHeader>
+      {remote && competitors.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-state-icon"><Glyph e="🌍" /></div>
+          <div className="empty-state-text">You're the only airline in this world so far</div>
+          <div style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>
+            Rivals appear here as real players join. Share the world's join code from the lobby.
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {competitors.map(c => (
           <NetworkPanel
@@ -128,6 +142,8 @@ export default function Competition() {
             expanded={expandedCarrier === c.id}
             onToggle={() => setExpandedCarrier(p => p === c.id ? null : c.id)}
             onAcquire={() => setAcquireTarget(c)}
+            remote={remote}
+            remoteApi={remoteApi}
           />
         ))}
       </div>
@@ -138,7 +154,7 @@ export default function Competition() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerHub, playerCash,
-                        playerMarketCap, playerSharePrice }) {
+                        playerMarketCap, playerSharePrice, playerProfitHistory = [], remote = false }) {
   // Build unified list with player + competitors
   const entries = [
     {
@@ -151,6 +167,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       weeklyProfit: playerLastWeek,
       marketCap:   playerMarketCap,
       sharePrice:  playerSharePrice,
+      profitHistory: playerProfitHistory,
       isPlayer:    true,
     },
     ...competitors.map(c => ({
@@ -159,10 +176,12 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       logoId:      c.logoId,
       hub:         c.homeHub,
       cash:        c.cash ?? null,
-      tier:        c.tier,
+      // Humans don't have AI tiers — every rival is just an airline.
+      tier:        c.human ? null : c.tier,
       weeklyProfit: c.weeklyStats?.weeklyProfit ?? null,
       marketCap:   c.marketCap ?? null,
       sharePrice:  c.sharePrice ?? null,
+      profitHistory: c.profitHistory ?? [],
       isPlayer:    false,
     })),
   ];
@@ -188,7 +207,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       {!hasMarketCapData && (
         <div className="empty-state" style={{ marginBottom: 8 }}>
           <div className="empty-state-icon"><Glyph e="📊" /></div>
-          <div className="empty-state-text">Advance a few weeks to populate the leaderboard</div>
+          <div className="empty-state-text">The leaderboard populates as weeks complete</div>
         </div>
       )}
 
@@ -254,6 +273,11 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
                 </div>
               </div>
 
+              {/* 12-week profit sparkline (multiplayer: how a rival is trending) */}
+              {remote && entry.profitHistory?.length >= 2 && (
+                <ProfitSparkline history={entry.profitHistory} />
+              )}
+
               {/* Market cap + share price */}
               <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 110 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>
@@ -272,6 +296,28 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
         })}
       </div>
     </div>
+  );
+}
+
+// Tiny inline profit trend — green above zero, red below.
+function ProfitSparkline({ history, width = 72, height = 24 }) {
+  const max = Math.max(...history.map(Math.abs), 1);
+  const stepX = width / Math.max(history.length - 1, 1);
+  const y = (v) => height / 2 - (v / max) * (height / 2 - 2);
+  const points = history.map((v, i) => `${(i * stepX).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const last = history[history.length - 1];
+  return (
+    <svg width={width} height={height} style={{ flexShrink: 0 }} aria-label="profit trend">
+      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="var(--border)" strokeWidth="1" strokeDasharray="2 3" />
+      <polyline
+        points={points}
+        fill="none"
+        stroke={last >= 0 ? 'var(--green)' : '#f87171'}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
@@ -344,7 +390,7 @@ function CompetitorCard({ carrier, playerRouteMap }) {
         </>
       ) : (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-          Advance one week to see financials
+          Financials appear after the first full week
         </div>
       )}
 
@@ -411,7 +457,10 @@ function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
         <RowLabel>Price (economy)</RowLabel>
         <PriceCell price={playerRoute.ticketPrice} refP={refP} isPlayer />
         {competitors.map(c => {
-          const price = Math.round(refP * c.routes[routeKey].priceMultiplier);
+          // Human rivals publish their ACTUAL fare (open book); AI carriers
+          // are reconstructed from their price multiplier as before.
+          const cfg = c.routes[routeKey];
+          const price = cfg.economyFare ?? Math.round(refP * cfg.priceMultiplier);
           return <PriceCell key={c.id} price={price} refP={refP} />;
         })}
 
@@ -426,6 +475,26 @@ function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
         {competitors.map(c => (
           <FreqCell key={c.id} freq={c.routes[routeKey].frequency} />
         ))}
+
+        {/* Seats/week — human rivals publish configured capacity (open book) */}
+        {competitors.some(c => c.routes[routeKey].seats != null) && (<>
+          <RowLabel>Seats / week</RowLabel>
+          <div style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            {(() => {
+              const aircraft = fleet.find(x => x.id === playerRoute.aircraftId);
+              const seats = aircraft ? getAircraftType(aircraft.typeId)?.seats ?? null : null;
+              return seats != null ? (seats * (playerRoute.weeklyFrequency ?? 0)).toLocaleString() : '–';
+            })()}
+          </div>
+          {competitors.map(c => {
+            const cfg = c.routes[routeKey];
+            return (
+              <div key={c.id} style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                {cfg.seats != null ? (cfg.seats * (cfg.frequency ?? 0)).toLocaleString() : '–'}
+              </div>
+            );
+          })}
+        </>)}
       </div>
 
       {/* Hints */}
@@ -503,7 +572,8 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
   const hints = [];
 
   for (const c of competitors) {
-    const compPrice = Math.round(refP * c.routes[routeKey].priceMultiplier);
+    const compPrice = c.routes[routeKey].economyFare
+      ?? Math.round(refP * c.routes[routeKey].priceMultiplier);
     const priceDiff = playerRoute.ticketPrice - compPrice;
     const qualDiff  = (playerQual ?? 0) - c.baseQualityScore;
 
@@ -531,14 +601,21 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
   );
 }
 
-function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle, onAcquire }) {
-  const tier   = TIER_META[carrier.tier] ?? { label: carrier.tier, color: 'var(--text-muted)' };
+function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle, onAcquire, remote = false, remoteApi = null }) {
+  const isHuman = carrier.human === true;
+  const tier   = isHuman ? null : (TIER_META[carrier.tier] ?? { label: carrier.tier, color: 'var(--text-muted)' });
   const routes = Object.entries(carrier.routes).sort(([a], [b]) => a.localeCompare(b));
-  const arch     = carrier._archetype ? ARCHETYPES[carrier._archetype] : null;
-  const alliance = getAlliance(effectiveAllianceId(carrier));
-  const atWar    = carrier._fareWars && Object.keys(carrier._fareWars).length > 0;
+  const arch     = !isHuman && carrier._archetype ? ARCHETYPES[carrier._archetype] : null;
+  // Player-founded alliances ('hw:' ids) never resolve in the static bank —
+  // the server sends the display name alongside.
+  const alliance = isHuman
+    ? (carrier.allianceId ? { name: carrier.allianceName ?? 'Alliance', icon: '🤝', color: 'var(--accent)' } : null)
+    : getAlliance(effectiveAllianceId(carrier));
+  const atWar    = !isHuman && carrier._fareWars && Object.keys(carrier._fareWars).length > 0;
 
-  const acquisitionCost = acquisitionPrice(carrier);
+  // You can't buy a human being's airline.
+  const acquirable      = !remote && !isHuman;
+  const acquisitionCost = acquirable ? acquisitionPrice(carrier) : null;
   const canAfford       = acquisitionCost !== null && playerCash >= acquisitionCost;
   const hasMarketCap    = carrier.marketCap != null;
 
@@ -553,7 +630,13 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
       >
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700 }}>{carrier.name}</span>
-          <span style={{ fontSize: 11, color: tier.color, fontWeight: 600 }}>{tier.label}</span>
+          {tier && <span style={{ fontSize: 11, color: tier.color, fontWeight: 600 }}>{tier.label}</span>}
+          {isHuman && (
+            <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99,
+                           background: 'var(--accent-dim, var(--surface2))', color: 'var(--accent)', fontWeight: 700 }}>
+              PLAYER
+            </span>
+          )}
           {arch && (
             <span
               title={arch.blurb}
@@ -605,7 +688,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {hasMarketCap && (
+          {acquirable && hasMarketCap && (
             <button
               onClick={e => { e.stopPropagation(); onAcquire(); }}
               disabled={!canAfford}
@@ -626,6 +709,11 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
 
       {expanded && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
+          {/* Multiplayer: the rival's public profile — fleet, rank history,
+              recent moves — fetched from the server on expand. */}
+          {isHuman && remoteApi?.fetchRivalProfile && (
+            <RivalProfile carrier={carrier} fetchRivalProfile={remoteApi.fetchRivalProfile} />
+          )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ color: 'var(--text-muted)', background: 'var(--surface2)' }}>
@@ -641,7 +729,8 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
               {routes.map(([key, cfg]) => {
                 const [a, b] = key.split('-');
                 const refP  = referencePrice(a, b);
-                const price = Math.round(refP * cfg.priceMultiplier);
+                // Human rivals publish real fares (open book).
+                const price = cfg.economyFare ?? Math.round(refP * cfg.priceMultiplier);
                 const oCity = getAirport(a)?.city ?? a;
                 const dCity = getAirport(b)?.city ?? b;
                 const isShared = key in playerRouteMap;
@@ -683,6 +772,136 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Rival profile (multiplayer) ──────────────────────────────────────────────
+// A human rival's PUBLIC profile, fetched from the server on expand: fleet
+// composition, hubs, rank history and recent visible moves. The route table
+// below it comes from state.competitors as usual.
+
+const MOVE_LABELS = {
+  ADD_ROUTE:           (p) => `Opened route ${p.origin ?? '?'}–${p.destination ?? '?'}`,
+  CLOSE_ROUTE:         (p) => `Closed route ${p.origin ?? '?'}–${p.destination ?? '?'}`,
+  ADD_CARGO_ROUTE:     (p) => `Opened cargo lane ${p.origin ?? '?'}–${p.destination ?? '?'}`,
+  CLOSE_CARGO_ROUTE:   (p) => `Closed cargo lane ${p.origin ?? '?'}–${p.destination ?? '?'}`,
+  LEASE_AIRCRAFT:      (p) => `Leased ${p.typeId ?? 'an aircraft'}`,
+  BUY_AIRCRAFT:        (p) => `Bought ${p.typeId ?? 'an aircraft'}`,
+  ORDER_AIRCRAFT:      (p) => `Ordered ${p.typeId ?? 'an aircraft'}`,
+  SELL_AIRCRAFT:       () => 'Sold an aircraft',
+  RETIRE_AIRCRAFT:     () => 'Retired an aircraft',
+  ADD_GATE:            (p) => `Added a gate${p.airportCode ? ` at ${p.airportCode}` : ''}`,
+  UPGRADE_HUB:         (p) => `Upgraded hub${p.airportCode ? ` ${p.airportCode}` : ''}`,
+  DESIGNATE_HUB:       (p) => `Designated ${p.airportCode ?? 'a'} hub`,
+  DESIGNATE_FOCUS_CITY:(p) => `Designated ${p.airportCode ?? 'a'} focus city`,
+  JOIN_ALLIANCE:       () => 'Joined an alliance',
+  LEAVE_ALLIANCE:      () => 'Left an alliance',
+};
+
+function describeMove(m) {
+  const fn = MOVE_LABELS[m.type];
+  return fn ? fn(m.payload ?? {}) : m.type;
+}
+
+function RivalProfile({ carrier, fetchRivalProfile }) {
+  const [profile, setProfile] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const airlineId = carrier.id.startsWith('human:') ? carrier.id.slice('human:'.length) : carrier.id;
+
+  useEffect(() => {
+    let alive = true;
+    setProfile(null); setFailed(false);
+    fetchRivalProfile(airlineId)
+      .then((p) => { if (alive) setProfile(p); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [airlineId, fetchRivalProfile]);
+
+  if (failed) return null; // the route table below still works from local state
+  if (!profile) {
+    return (
+      <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
+        Loading profile…
+      </div>
+    );
+  }
+
+  const fleetEntries = Object.entries(profile.fleetByType ?? {});
+  const ranks = (profile.rankHistory ?? []).map((r) => r.rank);
+  const moves = profile.recentMoves ?? [];
+
+  return (
+    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)',
+                  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+      {/* Fleet + hubs */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+          Fleet {fleetEntries.length > 0 && `(${fleetEntries.reduce((s, [, n]) => s + n, 0)} aircraft)`}
+        </div>
+        {fleetEntries.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No aircraft yet</div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {fleetEntries.map(([typeId, n]) => (
+              <span key={typeId} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                                          background: 'var(--surface2)', color: 'var(--text)' }}>
+                {n}× {getAircraftType(typeId)?.name ?? typeId}
+              </span>
+            ))}
+          </div>
+        )}
+        {(profile.hubs ?? []).length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+            Hubs: {profile.hubs.map((h, i) => (
+              <span key={h}>{i > 0 && ', '}<AirportLink code={h} /></span>
+            ))}
+          </div>
+        )}
+        {ranks.length >= 2 && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Rank trend:
+            <RankSparkline ranks={ranks} />
+            <span style={{ fontWeight: 700, color: 'var(--text)' }}>#{ranks[ranks.length - 1]}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Recent public moves */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+          Recent moves
+        </div>
+        {moves.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No public moves yet</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {moves.slice(0, 8).map((m, i) => (
+              <div key={i} style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {m.week != null && <span style={{ color: 'var(--text-dim)', marginRight: 6 }}>W{m.week}</span>}
+                {describeMove(m)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Rank over time — lower is better, so the y-axis is inverted.
+function RankSparkline({ ranks, width = 90, height = 20 }) {
+  const min = Math.min(...ranks), max = Math.max(...ranks);
+  const span = Math.max(max - min, 1);
+  const stepX = width / Math.max(ranks.length - 1, 1);
+  const y = (r) => 2 + ((r - min) / span) * (height - 4);
+  const points = ranks.map((r, i) => `${(i * stepX).toFixed(1)},${y(r).toFixed(1)}`).join(' ');
+  const improving = ranks[ranks.length - 1] <= ranks[0];
+  return (
+    <svg width={width} height={height} aria-label="rank history">
+      <polyline points={points} fill="none"
+        stroke={improving ? 'var(--green)' : '#f87171'}
+        strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   );
 }
 

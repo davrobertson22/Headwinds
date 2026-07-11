@@ -2494,7 +2494,7 @@ function Trends() {
   const hist = state.financialHistory;
 
   if (hist.length < 2) {
-    return <div className="empty-state"><div className="empty-state-icon"><Glyph e="📈" /></div><div className="empty-state-text">Advance at least 2 weeks to see trends.</div></div>;
+    return <div className="empty-state"><div className="empty-state-icon"><Glyph e="📈" /></div><div className="empty-state-text">Trends appear once 2 weeks of history exist.</div></div>;
   }
 
   const last = hist[hist.length - 1];
@@ -3261,7 +3261,7 @@ function FuelHedging() {
           </div>
           {pts.length < 2 ? (
             <div style={{ color: 'var(--muted)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
-              History builds as you advance weeks
+              History builds week by week
             </div>
           ) : (
             <svg width="100%" viewBox={`0 0 ${chartW} ${chartH + 4}`} style={{ overflow: 'visible' }}>

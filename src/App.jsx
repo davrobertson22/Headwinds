@@ -159,6 +159,7 @@ function AppInner() {
   const weeksSinceAd = useRef(0);
   const advanceWeek = useRef(() => {});
   advanceWeek.current = () => {
+    if (remote) return; // multiplayer: the server owns time — never advance locally
     dispatch({ type: 'ADVANCE_WEEK' });
     setActiveTab('dashboard');
     resetTimer();
@@ -170,8 +171,12 @@ function AppInner() {
     }
   };
 
-  // Auto-advance every hour
+  // Auto-advance every hour.
+  // Multiplayer (Headwinds): time belongs to the SERVER world clock — the local
+  // timer must never run (its ADVANCE_WEEK is swallowed, but it would still
+  // yank the player to the Dashboard and fire ad breaks every hour).
   useEffect(() => {
+    if (remote) return;
     if (state.phase !== 'playing') return;
 
     const tick = setInterval(() => {
@@ -402,14 +407,20 @@ function AppInner() {
             screen space. */}
         <footer className="app-footer app-footer-inline">
           <div style={{ marginBottom: 8 }}>
-            {[
+            {/* Multiplayer (Headwinds): the solo doc pages (how-to-play, strategy…)
+                aren't deployed there and describe solo mechanics — only pages that
+                exist in the Headwinds web app are linked. */}
+            {(remote ? [
+              ['About', '/about.html'],
+              ['Privacy', '/privacy.html'],
+            ] : [
               ['How to Play', '/how-to-play.html'],
               ['Strategy Guide', '/strategy.html'],
               ['Glossary', '/glossary.html'],
               ['Devlog', '/devlog.html'],
               ['About', '/about.html'],
               ['Privacy', '/privacy.html'],
-            ].map(([label, href]) => (
+            ]).map(([label, href]) => (
               <a
                 key={href}
                 href={href}
@@ -487,13 +498,22 @@ function AppInner() {
               Weeks survived: <strong style={{ color: 'var(--text)' }}>{((state.year - 1) * 52 + state.week)}</strong>
               {state.missedLoanPayments > 0 && <> · Missed payments: <strong style={{ color: 'var(--red)' }}>{state.missedLoanPayments}</strong></>}
             </div>
-            <button
-              className="btn btn-primary"
-              style={{ width: '100%', padding: 12 }}
-              onClick={handleReset}
-            >
-              Start New Airline
-            </button>
+            {remote ? (
+              /* Multiplayer: there's no local reset — the world carries on.
+                 The game bar's "← World lobby" link is the way out. */
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+                This world carries on without you. Head back to the world lobby to
+                spectate the standings or join another world.
+              </p>
+            ) : (
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', padding: 12 }}
+                onClick={handleReset}
+              >
+                Start New Airline
+              </button>
+            )}
           </div>
         </div>
       )}

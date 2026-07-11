@@ -172,6 +172,107 @@ export default async function worldRoutes(fastify) {
     };
   });
 
+  // ── World activity feed: everyone's PUBLIC moves, newest first ─────────────
+  // "This week in your world": route openings/closings, fleet moves, hub and
+  // gate expansion, plus system events (players joining, alliances forming).
+  // Built on the same PUBLIC_DECISIONS allowlist + payload scrubber as the
+  // rival profile — nothing private (prices, budgets, loans) ever leaks here.
+  fastify.get('/worlds/:id/feed', {
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      querystring: {
+        type: 'object',
+        properties: {
+          before: { type: 'string' },                        // ISO cursor (createdAt)
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    const limit = request.query.limit ?? 40;
+    const before = request.query.before ? new Date(request.query.before) : null;
+    const cutoff = before && !Number.isNaN(before.getTime()) ? before : null;
+    const beforeFilter = cutoff ? { createdAt: { lt: cutoff } } : {};
+
+    const [decisions, airlines, alliances, allianceJoins] = await Promise.all([
+      prisma.decision.findMany({
+        where: {
+          worldId: world.id,
+          type: { in: [...PUBLIC_DECISIONS] },
+          ...beforeFilter,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      prisma.airline.findMany({
+        where: { worldId: world.id },
+        select: { id: true, name: true, hub: true, status: true, createdAt: true },
+      }),
+      prisma.alliance.findMany({
+        where: { worldId: world.id, ...beforeFilter },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      prisma.allianceMember.findMany({
+        where: {
+          status: 'ACTIVE',
+          alliance: { worldId: world.id },
+          ...beforeFilter,
+        },
+        include: { alliance: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+    ]);
+
+    const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
+    const events = [
+      ...decisions.map((d) => ({
+        kind: 'move',
+        at: d.createdAt.toISOString(),
+        week: d.week,
+        airlineId: d.airlineId,
+        airline: nameOf.get(d.airlineId) ?? 'An airline',
+        type: d.type,
+        payload: publicPayload(d),
+      })),
+      ...airlines
+        .filter((a) => (cutoff ? a.createdAt < cutoff : true))
+        .map((a) => ({
+          kind: 'joined',
+          at: a.createdAt.toISOString(),
+          airlineId: a.id,
+          airline: a.name,
+          hub: a.hub,
+        })),
+      ...alliances.map((al) => ({
+        kind: 'alliance_founded',
+        at: al.createdAt.toISOString(),
+        alliance: al.name,
+      })),
+      // Founders are covered by alliance_founded — only report genuine joins.
+      ...allianceJoins
+        .filter((m) => m.role !== 'FOUNDER')
+        .map((m) => ({
+          kind: 'alliance_joined',
+          at: m.createdAt.toISOString(),
+          airlineId: m.airlineId,
+          airline: nameOf.get(m.airlineId) ?? 'An airline',
+          alliance: m.alliance.name,
+        })),
+    ]
+      .sort((a, b) => (a.at < b.at ? 1 : -1))
+      .slice(0, limit);
+
+    return {
+      events,
+      // Pass the oldest timestamp back as ?before= to page further into history.
+      nextBefore: events.length === limit ? events[events.length - 1].at : null,
+    };
+  });
+
   // ── Create a world (ADMIN ONLY) ───────────────────────────────────────────
   // World supply is operator-controlled: the worker's spawner keeps public
   // worlds topped up, and only ADMIN_EMAILS accounts may create them by hand.

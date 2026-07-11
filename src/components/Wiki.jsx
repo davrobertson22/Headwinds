@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Glyph } from './Icons.jsx';
+import { useGame } from '../store/GameContext.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-game Wiki / Help panel.
@@ -15,6 +16,12 @@ import { Glyph } from './Icons.jsx';
 //   { steps: ['a', 'b', ...] }      numbered step list
 //   { tip: 'text' }                 highlighted tip / callout
 //   { warn: 'text' }                highlighted warning callout
+//
+// Multiplayer (Headwinds) awareness — `remote` from useGame():
+//   Section flags:  soloOnly / remoteOnly   → whole section shown in one mode
+//   Block flags:    solo: true / remote: true → block shown only in that mode
+// Solo (Tailwinds) renders identically to before: remote is always false there,
+// so `solo` blocks show, `remote` blocks/sections are dropped.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WIKI = [
@@ -26,14 +33,21 @@ const WIKI = [
     blocks: [
       { p: "You've founded an airline with **$15 million in equity** — no debt to service, just cash to invest. Your job is to build a route network that earns more than it spends, week after week, and eventually outgrow every rival." },
       { h: 'The fastest path to your first flight' },
-      { steps: [
+      { solo: true, steps: [
         'Open the **Market** tab and lease a Turboprop or Regional Jet. They are cheap to run and low-commitment — perfect for week one.',
         'Open the **Gates** tab and buy a gate at the airport you want to fly to. You already start with a gate at your home hub, but you need one at *both* ends of every route.',
         'Go to the **Route Planner** (or Routes → New Route), pick your two airports, assign the aircraft, set a ticket price and weekly frequency, then open the route.',
         'Hit **Next Week** in the top bar to fly the route and collect revenue. Check the **Dashboard** afterwards for alerts.',
       ] },
+      { remote: true, steps: [
+        'Open the **Market** tab and lease a Turboprop or Regional Jet. They are cheap to run and low-commitment — perfect for week one.',
+        'Open the **Gates** tab and buy a gate at the airport you want to fly to. You already start with a gate at your home hub, but you need one at *both* ends of every route.',
+        'Go to the **Route Planner** (or Routes → New Route), pick your two airports, assign the aircraft, set a ticket price and weekly frequency, then open the route.',
+        'The **world clock** flies your route and collects revenue automatically on this world\'s pace — check the **Dashboard** after each new week for results and alerts.',
+      ] },
       { tip: "Don't over-spend in week one. Keep a cash cushion — leases, fuel and crew are billed every week whether your planes are full or not." },
-      { p: "The game auto-advances one week every hour, but you can always advance manually with **Next Week**. Your progress is auto-saved; use **Save** to keep named slots you can return to." },
+      { p: "The game auto-advances one week every hour, but you can always advance manually with **Next Week**. Your progress is auto-saved; use **Save** to keep named slots you can return to.", solo: true },
+      { p: "Time belongs to the world, not to you: the server advances **every airline one week at a time, in lockstep**, on this world's pace (shown in the lobby and the bar above the game). Your routes fly and your bills come due even while you're offline — there is no save or load; the server is the save.", remote: true },
     ],
   },
   {
@@ -44,7 +58,8 @@ const WIKI = [
     blocks: [
       { p: 'Every week you collect ticket (and cargo) revenue from your routes. Every week, costs come out: fuel, crew, leases, maintenance, gate fees, overhead and any loan payments. The gap between the two is your weekly profit or loss.' },
       { h: 'How you win' },
-      { p: 'You win by **acquiring every competitor**. As you grow stronger and rivals weaken, you can buy them out from the **Competition** tab. Take over the last one and the industry is yours.' },
+      { p: 'You win by **acquiring every competitor**. As you grow stronger and rivals weaken, you can buy them out from the **Competition** tab. Take over the last one and the industry is yours.', solo: true },
+      { p: 'Every airline in this world belongs to a **real player**, and the **Rivals** leaderboard ranks all of them by market cap. The world runs for a fixed length (shown in the lobby) — finish at the top when the clock runs out. There are no buyouts of human airlines: you win by out-building, out-pricing and out-lasting people.', remote: true },
       { h: 'How you go bankrupt' },
       { ul: [
         '**Miss 3 loan payments** — i.e. your cash is negative on a week when loan repayments are due, three times.',
@@ -53,6 +68,7 @@ const WIKI = [
       { warn: 'Warning toasts appear before you hit either limit. Watch the Finance tab and act early — debt is much easier to manage before it spirals.' },
       { h: 'Why no two games play the same' },
       { p: 'Fuel prices fluctuate, random events fire at different times and intensities, aircraft failures are unpredictable, and regional booms or downturns hit different parts of the world each run. A strategy that won one game may struggle the next.' },
+      { p: 'And in a shared world, the biggest variable is the **other players**: every fare cut, new route and alliance is a human decision reacting to yours.', remote: true },
     ],
   },
   {
@@ -296,7 +312,9 @@ const WIKI = [
     blocks: [
       { p: 'Alliances and codeshares let you earn from passengers you don\'t carry yourself by partnering with competitors.' },
       { h: 'Alliance membership' },
-      { p: 'Joining an alliance costs an **initiation fee** plus **weekly dues**, and connects you to a network of partner carriers — extending your reach and reputation.' },
+      { p: 'Joining an alliance costs an **initiation fee** plus **weekly dues**, and connects you to a network of partner carriers — extending your reach and reputation.', solo: true },
+      { p: 'Alliances here are **founded and run by players** — there are no preset blocs. Anyone can found one from the **world lobby**; others request to join and the **founder** accepts or rejects (up to 8 members). Members pay weekly dues and get a partner demand boost, interline revenue from connecting traffic, and a quality bonus.', remote: true },
+      { p: 'Manage membership — founding, join requests, leaving — from the **world lobby**; this tab shows your current alliance and its benefits.', remote: true },
       { h: 'Bilateral codeshare agreements' },
       { p: 'You can also strike **codeshare agreements** directly with individual competitors. Each agreement has a weekly fee scaled to the partner\'s tier, and earns **interline revenue** from shared traffic across the airports you both serve.' },
       { tip: 'Your in-flight product score matters to partners — upgrade seat and service quality in Fleet → Configure to make yourself a more attractive ally.' },
@@ -307,6 +325,7 @@ const WIKI = [
     icon: '⚔️',
     title: 'Competition',
     blurb: 'Track rivals and acquire them',
+    soloOnly: true, // multiplayer gets the human-rivals section below instead
     blocks: [
       { p: 'The Competition tab is your view of the rest of the industry — a leaderboard of competitors with their cash, fleet size and quality scores, plus their route networks.' },
       { h: 'Living rivals' },
@@ -322,6 +341,27 @@ const WIKI = [
       { h: 'Acquisitions' },
       { p: 'As you grow and rivals weaken, you can **acquire** competitors. The **Acquisition Summary** previews the cost and the fleet and gates that would transfer to you. Buying out a competitor folds their network into yours.' },
       { warn: 'You win when no rival remains standing — acquire them, or outlast them as they collapse. Each purchase is a big cash outlay, so make sure a takeover strengthens you rather than overextending your balance sheet.' },
+    ],
+  },
+  {
+    id: 'rivals',
+    icon: '⚔️',
+    title: 'Rivals',
+    blurb: 'The other players in your world',
+    remoteOnly: true,
+    blocks: [
+      { p: 'There are **no AI airlines** in Headwinds. Every rival on the leaderboard is a real person running a real airline in the same world, on the same clock, from the same $15M start.' },
+      { h: 'The Rivals tab' },
+      { ul: [
+        '**Leaderboard** — every airline in the world ranked by market cap, with cash, last-week profit and alliance.',
+        '**Contested routes** — city pairs both you and a rival fly, head-to-head: fares, frequency, quality, and how the passenger pool split.',
+        '**Rival profiles** — open any airline to see its full route network with fares, fleet, hubs, rank history and recent moves. It\'s all public — and they can see yours too.',
+      ] },
+      { h: 'How contested routes work' },
+      { p: 'When two or more airlines fly the same city pair, the pair\'s passenger pool is **split between them** based on price, quality and frequency — the same demand model as everywhere else in the game. Undercut a rival and you take their passengers; let your quality slip and they take yours.' },
+      { tip: 'Everything about your network is public information — fares, frequencies, fleet. Assume your rivals are watching the same numbers about you that you watch about them.' },
+      { h: 'Talking to rivals' },
+      { p: 'Use **✉ Messages** in the bar above the game to message any player directly, or your alliance\'s shared board. Coordinate, negotiate, or declare your fare war in person.' },
     ],
   },
   {
@@ -484,20 +524,29 @@ function Block({ block }) {
 }
 
 export default function Wiki() {
-  const [activeId, setActiveId] = useState(WIKI[0].id);
+  // Multiplayer (Headwinds): sections/blocks flagged soloOnly / remoteOnly /
+  // solo / remote are filtered by mode. Solo renders exactly as before.
+  const { remote } = useGame();
+  const sections = useMemo(() => (
+    WIKI
+      .filter(s => (remote ? !s.soloOnly : !s.remoteOnly))
+      .map(s => ({ ...s, blocks: s.blocks.filter(b => (remote ? b.solo !== true : b.remote !== true)) }))
+  ), [remote]);
+
+  const [activeId, setActiveId] = useState(sections[0].id);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return WIKI;
-    return WIKI.filter(s => {
+    if (!q) return sections;
+    return sections.filter(s => {
       if (s.title.toLowerCase().includes(q) || s.blurb.toLowerCase().includes(q)) return true;
       return s.blocks.some(b => {
         const text = b.p || b.h || b.tip || b.warn || (b.ul || b.steps || []).join(' ') || '';
         return text.toLowerCase().includes(q);
       });
     });
-  }, [query]);
+  }, [query, sections]);
 
   // Keep the active section valid as the filter narrows results.
   const active = filtered.find(s => s.id === activeId) || filtered[0];

@@ -205,7 +205,7 @@ function HubCard({ code, hubData, gateCount, routeCount, snap, lastReport }) {
         <Stat label="Gates"           value={gateCount}   sub="at this airport" />
         <Stat label="Routes"          value={routeCount}  sub="through hub" />
         <Stat label="Connecting"      value={(throughput ?? 0).toLocaleString()}
-                                      sub={throughput != null ? 'pax/wk (last week)' : 'no data yet — advance a week'}
+                                      sub={throughput != null ? 'pax/wk (last week)' : 'no data yet — updates weekly'}
                                       color="var(--accent)" />
         <Stat label="Quality Boost"   value={`+${tierDef.qualityBonus} pts`} sub="on hub routes" color={tierDef.color} />
         <Stat label="Cost Efficiency" value={`−${Math.round(tierDef.stationDiscount * 100)}% / −${Math.round(tierDef.layoverDiscount * 100)}%`}

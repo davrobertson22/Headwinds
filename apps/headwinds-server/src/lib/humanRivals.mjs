@@ -98,7 +98,7 @@ export async function loadAllianceMap(prisma, worldId) {
 // One competitor-shaped object for a human rival (consumed by the Competition
 // tab, marketing voice, alliances, codeshares — everywhere state.competitors
 // flows in the engine).
-export function toHumanCompetitor(airlineRow, { allianceId = null } = {}) {
+export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName = null } = {}) {
   const s = airlineRow.state ?? {};
   const routes = {};
   for (const r of s.routes ?? []) {
@@ -110,10 +110,15 @@ export function toHumanCompetitor(airlineRow, { allianceId = null } = {}) {
     routes[key] = {
       frequency: (prev?.frequency ?? 0) + freq,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : (prev?.priceMultiplier ?? 1),
+      // Open book: rivals see the ACTUAL fare, not a reverse-engineered multiple.
+      economyFare: econ != null ? Math.round(econ) : (prev?.economyFare ?? null),
+      seats: prev?.seats ?? seatsForRoute(s, r),
       aircraftType: prev?.aircraftType ?? (s.fleet ?? []).find((a) => a.id === r.aircraftId)?.typeId ?? null,
     };
   }
-  const profitHistory = (s.financialHistory ?? []).slice(-12).map((w) => w.profit ?? 0);
+  const history = (s.financialHistory ?? []).slice(-12);
+  const profitHistory = history.map((w) => w.profit ?? 0);
+  const lastWeek = history.length ? history[history.length - 1] : null;
   return {
     id: `human:${airlineRow.id}`,
     human: true,                     // marker — never treated as an AI carrier
@@ -124,12 +129,17 @@ export function toHumanCompetitor(airlineRow, { allianceId = null } = {}) {
     baseQualityScore: qualityOf(s),
     cash: Math.round(s.cash ?? 0),
     marketCap: Math.round(s.marketCap ?? 0),
+    sharePrice: s.sharePrice ?? null,
     profitHistory,
-    weeklyStats: profitHistory.length
-      ? { weeklyProfit: profitHistory[profitHistory.length - 1] }
+    weeklyStats: lastWeek
+      ? {
+          weeklyProfit: lastWeek.profit ?? 0,
+          ...(lastWeek.revenue != null ? { weeklyRevenue: lastWeek.revenue } : {}),
+        }
       : null,
     // DB-authoritative (player alliances); a stale blob value never leaks in.
     allianceId,
+    allianceName, // display name — 'hw:' ids never resolve in the static bank
     routes,
   };
 }
@@ -167,7 +177,10 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
   const active = airlines.filter((a) => a.status === 'ACTIVE');
   const comps = new Map(active.map((a) => [
     a.id,
-    toHumanCompetitor(a, { allianceId: allianceMap.get(a.id)?.membership.allianceId ?? null }),
+    toHumanCompetitor(a, {
+      allianceId: allianceMap.get(a.id)?.membership.allianceId ?? null,
+      allianceName: allianceMap.get(a.id)?.def?.name ?? null,
+    }),
   ]));
   const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a)]));
 

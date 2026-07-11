@@ -16,6 +16,17 @@ import { buildWorldRivalViews, withRivals } from './humanRivals.mjs';
 export const weekIndex = (world) =>
   (world.currentYear - 1) * WEEKS_PER_YEAR + world.currentWeek;
 
+// When the NEXT week lands for this world (null when not RUNNING or complete).
+// Week toIndex = weekIndex+1 becomes due once elapsed ≥ weekIndex × interval —
+// the same derived schedule ticksDue() uses, exposed for client countdowns.
+export function nextTickAt(world) {
+  if (world.status !== 'RUNNING' || !world.startedAt) return null;
+  if (weekIndex(world) >= totalWeeks(world.lengthYears)) return null;
+  return new Date(
+    new Date(world.startedAt).getTime() + weekIndex(world) * tickIntervalMs(world.weeksPerDay),
+  );
+}
+
 // How many ticks this world owes right now (0 for non-RUNNING worlds).
 // Never exceeds the world's total length.
 export function ticksDue(world, now = new Date()) {

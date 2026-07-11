@@ -8,10 +8,22 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
-  // The full game UI (mounted on '#/w/<id>/play') references the solo game's
-  // static assets (logos, aircraft art) by absolute path — serve the repo's
-  // shared public/ so those resolve here too.
-  publicDir: fileURLToPath(new URL('../../public', import.meta.url)),
+  // Two pages: index.html is the static marketing landing; play.html mounts the
+  // React app (lobby + full game UI, hash-routed: /play#/w/<id>/play).
+  build: {
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('index.html', import.meta.url)),
+        play: fileURLToPath(new URL('play.html', import.meta.url)),
+      },
+    },
+  },
+  // GENERATED public dir (gitignored) — built by tools/headwinds-public.mjs
+  // (predev/prebuild): the shared repo public/ re-branded for Headwinds (teal
+  // pages, Headwinds canonicals/manifest) plus brand art and page overrides.
+  // The full game UI still finds the solo app's static assets here because the
+  // generator copies them through.
+  publicDir: fileURLToPath(new URL('public', import.meta.url)),
   server: {
     port: 5173,
     fs: { allow: [repoRoot] },

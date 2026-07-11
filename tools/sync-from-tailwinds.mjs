@@ -292,6 +292,186 @@ MULTIPLAYER_PATCHES.push({
   patched: "import { useGame } from '../store/GameContext.jsx';",
 });
 
+// ── Multiplayer-readiness patches (solo leftovers purged when remote) ────────
+// See HEADWINDS_MP_READINESS_PLAN.md. Each is remote-guarded: solo renders
+// byte-identically. Best long-term home is upstream in Tailwinds.
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'src/App.jsx',
+    why: 'solo auto-advance timer must never run in multiplayer (tab yank + ad breaks)',
+    anchor: `  // Auto-advance every hour
+  useEffect(() => {
+    if (state.phase !== 'playing') return;`,
+    patched: `  // Auto-advance every hour.
+  // Multiplayer (Headwinds): time belongs to the SERVER world clock — the local
+  // timer must never run (its ADVANCE_WEEK is swallowed, but it would still
+  // yank the player to the Dashboard and fire ad breaks every hour).
+  useEffect(() => {
+    if (remote) return;
+    if (state.phase !== 'playing') return;`,
+  },
+  {
+    file: 'src/App.jsx',
+    why: 'belt-and-braces: advanceWeek is a no-op under the server clock',
+    anchor: `  advanceWeek.current = () => {
+    dispatch({ type: 'ADVANCE_WEEK' });`,
+    patched: `  advanceWeek.current = () => {
+    if (remote) return; // multiplayer: the server owns time — never advance locally
+    dispatch({ type: 'ADVANCE_WEEK' });`,
+  },
+  {
+    file: 'src/App.jsx',
+    why: 'footer doc links: solo pages are not deployed (or true) in Headwinds',
+    anchor: `          <div style={{ marginBottom: 8 }}>
+            {[
+              ['How to Play', '/how-to-play.html'],
+              ['Strategy Guide', '/strategy.html'],
+              ['Glossary', '/glossary.html'],
+              ['Devlog', '/devlog.html'],
+              ['About', '/about.html'],
+              ['Privacy', '/privacy.html'],
+            ].map(([label, href]) => (`,
+    patched: `          <div style={{ marginBottom: 8 }}>
+            {/* Multiplayer (Headwinds): the solo doc pages (how-to-play, strategy…)
+                aren't deployed there and describe solo mechanics — only pages that
+                exist in the Headwinds web app are linked. */}
+            {(remote ? [
+              ['About', '/about.html'],
+              ['Privacy', '/privacy.html'],
+            ] : [
+              ['How to Play', '/how-to-play.html'],
+              ['Strategy Guide', '/strategy.html'],
+              ['Glossary', '/glossary.html'],
+              ['Devlog', '/devlog.html'],
+              ['About', '/about.html'],
+              ['Privacy', '/privacy.html'],
+            ]).map(([label, href]) => (`,
+  },
+  {
+    file: 'src/App.jsx',
+    why: 'bankrupt overlay: no local reset in multiplayer — point to the lobby',
+    anchor: `            <button
+              className="btn btn-primary"
+              style={{ width: '100%', padding: 12 }}
+              onClick={handleReset}
+            >
+              Start New Airline
+            </button>
+          </div>
+        </div>
+      )}`,
+    patched: `            {remote ? (
+              /* Multiplayer: there's no local reset — the world carries on.
+                 The game bar's "← World lobby" link is the way out. */
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+                This world carries on without you. Head back to the world lobby to
+                spectate the standings or join another world.
+              </p>
+            ) : (
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', padding: 12 }}
+                onClick={handleReset}
+              >
+                Start New Airline
+              </button>
+            )}
+          </div>
+        </div>
+      )}`,
+  },
+  {
+    file: 'src/components/Dashboard.jsx',
+    why: 'Dashboard reads `remote` for the Getting Started card',
+    anchor: `export default function Dashboard() {
+  const { state } = useGame();`,
+    patched: `export default function Dashboard() {
+  const { state, remote } = useGame();`,
+  },
+  {
+    file: 'src/components/Dashboard.jsx',
+    why: 'Getting Started card: no "Click Next Week" in multiplayer',
+    anchor: `          <div className="card-title">Getting Started</div>
+          <ol style={{ paddingLeft: 20, lineHeight: 2.2, color: 'var(--text-muted)' }}>
+            <li>Go to <strong style={{ color: 'var(--text)' }}>Market</strong> and lease an aircraft.</li>
+            <li>Go to <strong style={{ color: 'var(--text)' }}>Routes</strong> and open your first route.</li>
+            <li>Click <strong style={{ color: 'var(--accent)' }}>Next Week →</strong> to collect revenue.</li>
+            <li>Keep expanding — but watch your cash!</li>
+          </ol>`,
+    patched: `          <div className="card-title">Getting Started</div>
+          {remote ? (
+            /* Multiplayer (Headwinds): there is no Next Week button — the server
+               advances the world clock for everyone on this world's pace. */
+            <ol style={{ paddingLeft: 20, lineHeight: 2.2, color: 'var(--text-muted)' }}>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Market</strong> and lease an aircraft.</li>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Routes</strong> and open your first route.</li>
+              <li>The world clock <strong style={{ color: 'var(--accent)' }}>advances automatically</strong> — revenue lands every game-week, even while you're away.</li>
+              <li>Watch the <strong style={{ color: 'var(--text)' }}>Rivals</strong> tab — every other airline here is a real player.</li>
+            </ol>
+          ) : (
+            <ol style={{ paddingLeft: 20, lineHeight: 2.2, color: 'var(--text-muted)' }}>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Market</strong> and lease an aircraft.</li>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Routes</strong> and open your first route.</li>
+              <li>Click <strong style={{ color: 'var(--accent)' }}>Next Week →</strong> to collect revenue.</li>
+              <li>Keep expanding — but watch your cash!</li>
+            </ol>
+          )}`,
+  },
+);
+
+// Neutral copy that reads correctly in BOTH games ("advance the week" assumes a
+// button multiplayer doesn't have). Land these upstream in Tailwinds verbatim,
+// then these patches self-skip (patched text already present).
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'src/components/Routes.jsx',
+    why: 'delivery copy: no manual time advance in multiplayer',
+    anchor: '? \`Your aircraft is being delivered — advance time to receive it\`',
+    patched: '? \`Your aircraft is being delivered — it arrives with an upcoming week\`',
+  },
+  {
+    file: 'src/components/Routes.jsx',
+    why: 'pending-order banner: no manual time advance in multiplayer',
+    anchor: `Your aircraft {pendingOrders.length === 1 ? 'is' : 'are'} on the way — advance time to receive {pendingOrders.length === 1 ? 'it' : 'them'} and open routes.`,
+    patched: `Your aircraft {pendingOrders.length === 1 ? 'is' : 'are'} on the way — {pendingOrders.length === 1 ? 'it arrives' : 'they arrive'} with an upcoming week, ready to open routes.`,
+  },
+  {
+    file: 'src/components/Finance.jsx',
+    why: 'trend empty-state: neutral wording',
+    anchor: 'Advance at least 2 weeks to see trends.',
+    patched: 'Trends appear once 2 weeks of history exist.',
+  },
+  {
+    file: 'src/components/Finance.jsx',
+    why: 'price-history empty-state: neutral wording',
+    anchor: 'History builds as you advance weeks',
+    patched: 'History builds week by week',
+  },
+  {
+    file: 'src/components/HubManagement.jsx',
+    why: 'throughput empty-state: neutral wording',
+    anchor: "'no data yet — advance a week'",
+    patched: "'no data yet — updates weekly'",
+  },
+);
+
+// Competition (Rivals) tab and the Wiki are fully reworked for multiplayer —
+// human-first leaderboard/profiles and remote-aware help content are too large
+// to string-patch. Same pattern as the tour: assert the Headwinds markers
+// survive each sync and fail loudly if a fresh Tailwinds copy wiped them.
+MULTIPLAYER_PATCHES.push({
+  file: 'src/components/Competition.jsx',
+  why: 'human-first Rivals tab (open-book fares, no Acquire, rival profiles)',
+  anchor: '__COMPETITION_TAB_MUST_BE_REMOTE_AWARE__', // never matches — assert-only
+  patched: "You can't buy a human being's airline.",
+});
+MULTIPLAYER_PATCHES.push({
+  file: 'src/components/Wiki.jsx',
+  why: 'remote-aware wiki (soloOnly/remoteOnly sections, world-clock copy)',
+  anchor: '__WIKI_MUST_BE_REMOTE_AWARE__',           // never matches — assert-only
+  patched: 'The other players in your world',
+});
+
 let patchErrors = 0;
 for (const p of MULTIPLAYER_PATCHES) {
   const fp = path.join(HW, p.file);

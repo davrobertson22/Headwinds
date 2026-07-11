@@ -10,7 +10,7 @@ import BoardObjectives from './BoardObjectives.jsx';
 import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon } from './Icons.jsx';
 
 export default function Dashboard() {
-  const { state } = useGame();
+  const { state, remote } = useGame();
   const { cash, fleet, routes, cargoRoutes = [], financialHistory, lastReport, week, year, activeEvents = [] } = state;
 
   // ── Projections ──────────────────────────────────────────────────────────
@@ -432,12 +432,23 @@ export default function Dashboard() {
       {routes.length === 0 && fleet.length === 0 && (
         <div className="card">
           <div className="card-title">Getting Started</div>
-          <ol style={{ paddingLeft: 20, lineHeight: 2.2, color: 'var(--text-muted)' }}>
-            <li>Go to <strong style={{ color: 'var(--text)' }}>Market</strong> and lease an aircraft.</li>
-            <li>Go to <strong style={{ color: 'var(--text)' }}>Routes</strong> and open your first route.</li>
-            <li>Click <strong style={{ color: 'var(--accent)' }}>Next Week →</strong> to collect revenue.</li>
-            <li>Keep expanding — but watch your cash!</li>
-          </ol>
+          {remote ? (
+            /* Multiplayer (Headwinds): there is no Next Week button — the server
+               advances the world clock for everyone on this world's pace. */
+            <ol style={{ paddingLeft: 20, lineHeight: 2.2, color: 'var(--text-muted)' }}>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Market</strong> and lease an aircraft.</li>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Routes</strong> and open your first route.</li>
+              <li>The world clock <strong style={{ color: 'var(--accent)' }}>advances automatically</strong> — revenue lands every game-week, even while you're away.</li>
+              <li>Watch the <strong style={{ color: 'var(--text)' }}>Rivals</strong> tab — every other airline here is a real player.</li>
+            </ol>
+          ) : (
+            <ol style={{ paddingLeft: 20, lineHeight: 2.2, color: 'var(--text-muted)' }}>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Market</strong> and lease an aircraft.</li>
+              <li>Go to <strong style={{ color: 'var(--text)' }}>Routes</strong> and open your first route.</li>
+              <li>Click <strong style={{ color: 'var(--accent)' }}>Next Week →</strong> to collect revenue.</li>
+              <li>Keep expanding — but watch your cash!</li>
+            </ol>
+          )}
         </div>
       )}
     </div>

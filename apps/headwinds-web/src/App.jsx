@@ -80,7 +80,9 @@ function SignIn() {
     setError(null);
     const { error: e } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      // Back to /play, not the origin — the static landing page at '/' has no
+      // Supabase client, so tokens landing there would never be exchanged.
+      options: { redirectTo: `${window.location.origin}/play` },
     });
     if (e) setError(e);
   };
@@ -90,7 +92,7 @@ function SignIn() {
     setError(null);
     const { error: e } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: `${window.location.origin}/play` },
     });
     if (e) setError(e); else setSent(true);
   };
@@ -875,7 +877,9 @@ export default function App() {
       )}
 
       <footer className="muted small">
-        Headwinds is the multiplayer companion to{' '}
+        <a href="/">Home</a> · <a href="/how-to-play.html">How to play</a> ·{' '}
+        <a href="/strategy.html">Strategy</a> · <a href="/devlog.html">Devlog</a> ·{' '}
+        <a href="/faq.html">FAQ</a> — Headwinds is the multiplayer companion to{' '}
         <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noreferrer">Tailwinds</a>.
       </footer>
     </div>

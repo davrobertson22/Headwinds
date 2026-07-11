@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Devlog — Headwinds Multiplayer Airline Game Updates</title>
+  <meta name="description" content="Development log for Headwinds: what's new in the multiplayer airline management game — new features, balance changes, and fixes, update by update." />
+  <link rel="canonical" href="https://www.headwindsairlinegame.com/devlog.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0b0e13; --panel:#141a23; --line:#263143; --text:#e8edf4; --muted:#8b98ab; --teal:#38c9b4; --teal-light:#5fe0cc; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--teal-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--teal-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:0 0 4px; }
+    h3 { font-size:1.05rem; margin:20px 0 6px; }
+    p { margin:0 0 16px; }
+    ul { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .entry { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:24px 28px; margin:0 0 22px; }
+    .entry .date { color:var(--teal-light); font-size:0.85rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; margin:0 0 6px; }
+    .cta { display:inline-block; background:var(--teal); color:#04211d; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--teal-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Headwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/play">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Devlog</h1>
+    <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
+
+    <div class="entry">
+      <p class="date">July 11, 2026</p>
+      <h2>Talk to your rivals: in-game messaging</h2>
+      <p>Competition is more fun when you can gloat, negotiate, or plead. Every world now has a messaging system built in — look for the <strong>✉ Messages</strong> button in the game bar.</p>
+      <ul>
+        <li><strong>Direct messages.</strong> Write privately to any airline in your world. Propose a truce over a contested route, warn someone off your hub, or just talk shop.</li>
+        <li><strong>Alliance chat.</strong> Every alliance gets a shared board only its members can read — coordinate hubs, split markets, plan the next move together.</li>
+        <li><strong>Guardrails.</strong> Message limits keep spam down, and you can block any airline that won't take a hint — blocked senders can't reach you at all.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 11, 2026</p>
+      <h2>Player-founded alliances</h2>
+      <p>Alliances in Headwinds aren't the scripted blocs from the solo game — there are no scripted anything in Headwinds. They're founded, grown, and run by players.</p>
+      <ul>
+        <li><strong>Found one from the world lobby.</strong> Name it and you're the founder. Other airlines request to join; you accept or reject them. Up to 8 active members.</li>
+        <li><strong>Real benefits.</strong> Members feed each other connecting traffic, get a demand boost on routes where a partner also flies, and pay a weekly fee that keeps membership a real decision rather than a checkbox.</li>
+        <li><strong>Real governance.</strong> If the founder walks away, leadership passes to the longest-serving member — or the alliance disbands. Choose your allies like it matters.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 10, 2026</p>
+      <h2>Humans are the competition</h2>
+      <p>The biggest design decision in Headwinds, made permanent: <strong>there are no AI airlines</strong>. Every competitor on the map is a real person running a real network in your world.</p>
+      <ul>
+        <li><strong>Contested routes are player-vs-player.</strong> When two airlines fly the same city pair, the demand model splits passengers between them based on fares, frequency, quality, and loyalty — the same economics as always, but the other schedule belongs to a human who will react.</li>
+        <li><strong>The Rivals tab.</strong> In multiplayer, the Competition tab becomes <em>Rivals</em> and shows the actual players in your world. The world standings do too — click any airline to open its profile: route network, fleet, alliance, and its recent moves, week by week.</li>
+        <li><strong>No scripted drama.</strong> AI fare wars, scripted bankruptcies and startup carriers are all gone. If a fare war breaks out, it's because someone chose to start one.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 10, 2026</p>
+      <h2>Headwinds takes off</h2>
+      <p>Headwinds is live at <a href="/">headwindsairlinegame.com</a> — the multiplayer companion to Tailwinds, running the full airline simulation in persistent shared worlds.</p>
+      <ul>
+        <li><strong>Persistent worlds on a server clock.</strong> Game weeks advance automatically around the clock, whether you're online or not. Set up your network to survive without you, then come back to the results.</li>
+        <li><strong>The whole game, multiplayer.</strong> This isn't a cut-down lobby experience — it's the complete Tailwinds interface (fleet, routes, hubs, finance, loyalty, cargo) running on server-authoritative state, so nobody can edit their save into a 747 fleet.</li>
+        <li><strong>Fresh worlds, always.</strong> Public worlds spawn on a schedule and wait in the lobby at Year 1 until their first player joins — the clock starts when you do. Pick your pace, from a leisurely week per hour to faster worlds for the impatient.</li>
+        <li><strong>One-click sign-in.</strong> Google or an email link. One account, all your worlds, from any device.</li>
+      </ul>
+      <a class="cta" href="/play">Join a world →</a>
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.</span>
+    </div>
+  </footer>
+</body>
+</html>
