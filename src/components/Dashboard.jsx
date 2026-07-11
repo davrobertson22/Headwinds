@@ -56,7 +56,9 @@ export default function Dashboard() {
   // Per-route operating cost — retained only for the cost-breakdown fallback below
   // (used when there's no lastReport yet). Now reads the real totalOpCost key.
   const projectedOpCost  = routeResults.reduce((s, { result }) => s + (result?.totalOpCost ?? 0), 0);
-  const weeksOfCash      = weeklyLeaseCost > 0 ? Math.floor(cash / weeklyLeaseCost) : Infinity;
+  // True cash runway: only meaningful when you're burning cash. Profitable (or
+  // break-even) => cash grows, so runway is Infinity. Matches the Finance page.
+  const weeksOfCash      = projectedProfit < 0 && cash > 0 ? Math.floor(cash / -projectedProfit) : Infinity;
   const idleAircraft     = fleet.filter(a => a.status === 'idle').length;
 
   // ── Cost breakdown ─────────────────────────────────────────────────────────
