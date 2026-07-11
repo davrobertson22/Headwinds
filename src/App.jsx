@@ -407,20 +407,14 @@ function AppInner() {
             screen space. */}
         <footer className="app-footer app-footer-inline">
           <div style={{ marginBottom: 8 }}>
-            {/* Multiplayer (Headwinds): the solo doc pages (how-to-play, strategy…)
-                aren't deployed there and describe solo mechanics — only pages that
-                exist in the Headwinds web app are linked. */}
-            {(remote ? [
-              ['About', '/about.html'],
-              ['Privacy', '/privacy.html'],
-            ] : [
+            {[
               ['How to Play', '/how-to-play.html'],
               ['Strategy Guide', '/strategy.html'],
               ['Glossary', '/glossary.html'],
               ['Devlog', '/devlog.html'],
               ['About', '/about.html'],
               ['Privacy', '/privacy.html'],
-            ]).map(([label, href]) => (
+            ].map(([label, href]) => (
               <a
                 key={href}
                 href={href}

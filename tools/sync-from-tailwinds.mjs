@@ -319,34 +319,9 @@ MULTIPLAYER_PATCHES.push(
     if (remote) return; // multiplayer: the server owns time — never advance locally
     dispatch({ type: 'ADVANCE_WEEK' });`,
   },
-  {
-    file: 'src/App.jsx',
-    why: 'footer doc links: solo pages are not deployed (or true) in Headwinds',
-    anchor: `          <div style={{ marginBottom: 8 }}>
-            {[
-              ['How to Play', '/how-to-play.html'],
-              ['Strategy Guide', '/strategy.html'],
-              ['Glossary', '/glossary.html'],
-              ['Devlog', '/devlog.html'],
-              ['About', '/about.html'],
-              ['Privacy', '/privacy.html'],
-            ].map(([label, href]) => (`,
-    patched: `          <div style={{ marginBottom: 8 }}>
-            {/* Multiplayer (Headwinds): the solo doc pages (how-to-play, strategy…)
-                aren't deployed there and describe solo mechanics — only pages that
-                exist in the Headwinds web app are linked. */}
-            {(remote ? [
-              ['About', '/about.html'],
-              ['Privacy', '/privacy.html'],
-            ] : [
-              ['How to Play', '/how-to-play.html'],
-              ['Strategy Guide', '/strategy.html'],
-              ['Glossary', '/glossary.html'],
-              ['Devlog', '/devlog.html'],
-              ['About', '/about.html'],
-              ['Privacy', '/privacy.html'],
-            ]).map(([label, href]) => (`,
-  },
+  // NOTE: footer doc links are NOT patched — apps/headwinds-web/public/ ships
+  // its own multiplayer-correct how-to-play/strategy/glossary/about/privacy
+  // pages, so the same hrefs resolve properly in both games.
   {
     file: 'src/App.jsx',
     why: 'bankrupt overlay: no local reset in multiplayer — point to the lobby',
