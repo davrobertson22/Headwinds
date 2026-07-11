@@ -281,9 +281,9 @@ MULTIPLAYER_PATCHES.push(
 // fail loudly if a fresh Tailwinds copy wiped them (re-merge by hand).
 MULTIPLAYER_PATCHES.push({
   file: 'src/components/Alliances.jsx',
-  why: 'multiplayer membership section (player alliances, lobby pointer)',
+  why: 'multiplayer membership section (in-game player-alliance management)',
   anchor: '__ALLIANCES_TAB_MUST_BE_REMOTE_AWARE__', // never matches — assert-only
-  patched: 'Create, join, or manage alliances from this world',
+  patched: 'function PlayerAlliancesPanel',
 });
 MULTIPLAYER_PATCHES.push({
   file: 'src/components/OnboardingTour.jsx',

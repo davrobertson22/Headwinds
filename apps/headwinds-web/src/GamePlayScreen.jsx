@@ -77,11 +77,22 @@ export default function GamePlayScreen({ worldId, token }) {
     return () => { clearInterval(t); clearInterval(slow); };
   }, [load]);
 
-  // World-scoped read capabilities for the shared UI (Rivals tab profiles etc.).
-  // Passed through RemoteGameProvider as `remoteApi` — always null in solo.
+  // World-scoped capabilities for the shared UI (Rivals tab profiles, player
+  // alliances). Passed through RemoteGameProvider as `remoteApi` — always null
+  // in solo. Alliances are managed HERE, in the game's Alliances tab — the
+  // lobby only shows world details and the leaderboard.
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => api(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => api(`/worlds/${worldId}/feed${params}`, { token }),
+    fetchAlliances: () => api(`/worlds/${worldId}/alliances`, { token }),
+    createAlliance: (name) =>
+      api(`/worlds/${worldId}/alliances`, { method: 'POST', token, body: { name } }),
+    requestJoinAlliance: (allianceId) =>
+      api(`/worlds/${worldId}/alliances/${allianceId}/join`, { method: 'POST', token }),
+    decideAllianceRequest: (allianceId, airlineId, decision) =>
+      api(`/worlds/${worldId}/alliances/${allianceId}/requests/${airlineId}`, { method: 'POST', token, body: { decision } }),
+    leaveAlliance: (allianceId) =>
+      api(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
   }), [worldId, token]);
 
   const dispatch = useCallback((action) => {

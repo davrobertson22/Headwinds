@@ -1,5 +1,5 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, routeQualityBreakdown } from '../utils/simulation.js';
 import AirlineLogo from './AirlineLogo.jsx';
@@ -137,35 +137,9 @@ export default function Alliances() {
       {/* ── Alliance membership ──────────────────────────────────────────── */}
       <SectionHeader>Alliance Membership</SectionHeader>
       {remote ? (
-        // Multiplayer: alliances are founded and governed by PLAYERS in the
-        // world lobby — this tab shows your current alliance and its effects.
-        <div className="card" style={{ padding: '16px 18px', marginBottom: 28 }}>
-          {currentAlliance ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <Glyph e={currentAlliance.icon ?? '🤝'} size={22} />
-                <strong style={{ fontSize: 16, color: currentAlliance.color ?? 'var(--accent)' }}>
-                  {currentAlliance.name}
-                </strong>
-                {allianceMembership?.role === 'FOUNDER' && (
-                  <span style={{ fontSize: 11, color: 'var(--text-dim)', border: '1px solid var(--border)', borderRadius: 10, padding: '1px 8px' }}>FOUNDER</span>
-                )}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
-                Fellow members: {allianceMembers(currentAlliance.id, competitors).map(c => c.name).join(', ') || 'just you so far'}
-                {' '}· +{Math.round((currentAlliance.demandBoostPct ?? 0) * 100)}% demand where a member also flies
-                {' '}· interline revenue from member networks · {formatMoney(currentAlliance.weeklyFee ?? 0)}/wk fee
-              </div>
-            </>
-          ) : (
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
-              You're not in an alliance. In Headwinds, alliances are founded and run by real players.
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-            Create, join, or manage alliances from this world's lobby page (← World lobby, above the standings).
-          </div>
-        </div>
+        // Multiplayer: alliances are founded and governed by PLAYERS, right
+        // here — found one, request to join, approve members, leave.
+        <PlayerAlliancesPanel currentAlliance={currentAlliance} />
       ) : (
       <div style={{
         display: 'grid',
@@ -226,6 +200,257 @@ export default function Alliances() {
         state={state}
         dispatch={dispatch}
       />
+    </div>
+  );
+}
+
+// ─── Player alliances (multiplayer) ──────────────────────────────────────────
+// Headwinds: alliances are founded and governed by PLAYERS — no preset blocs.
+// This is the full management surface (found · request to join · approve or
+// reject · leave), talking to the world API through remoteApi. It never
+// touches the engine reducer, and solo never renders it (remote is false,
+// remoteApi is null).
+
+function PlayerAlliancesPanel({ currentAlliance }) {
+  const { remoteApi } = useGame();
+  const [data, setData]                 = useState(null);
+  const [error, setError]               = useState(null);
+  const [busy, setBusy]                 = useState(false);
+  const [creating, setCreating]         = useState(false);
+  const [name, setName]                 = useState('');
+  const [confirmLeave, setConfirmLeave] = useState(false);
+
+  const load = useCallback(() => {
+    remoteApi?.fetchAlliances?.().then(setData).catch(setError);
+  }, [remoteApi]);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000); // catch new alliances / decided requests
+    return () => clearInterval(t);
+  }, [load]);
+
+  async function act(fn) {
+    setBusy(true); setError(null);
+    try { await fn(); await load(); } catch (e) { setError(e); }
+    setBusy(false);
+  }
+
+  if (!data) {
+    return (
+      <div className="card" style={{ padding: '16px 18px', marginBottom: 28, fontSize: 13, color: 'var(--text-muted)' }}>
+        {error ? String(error.message || error) : 'Loading alliances…'}
+      </div>
+    );
+  }
+
+  const { alliances = [], mine, maxMembers, myAirlineId } = data;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, flex: 1 }}>
+          Alliances here are founded and run by <strong style={{ color: 'var(--text)' }}>real players</strong>:
+          members feed each other connecting traffic, get a demand boost on routes where a
+          partner also flies, and pay weekly dues. Founders approve who joins
+          (max {maxMembers} members).
+        </div>
+        {!mine && !creating && (
+          <button
+            className="btn btn-primary"
+            style={{ fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' }}
+            onClick={() => setCreating(true)}
+          >
+            + Found an alliance
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>
+          <Glyph e="✗" /> {String(error.message || error)}
+        </div>
+      )}
+
+      {creating && (
+        <form
+          className="card"
+          style={{ padding: '12px 14px', marginBottom: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const n = name.trim();
+            if (n.length < 3) return;
+            setBusy(true); setError(null);
+            try {
+              await remoteApi.createAlliance(n);
+              setCreating(false); setName('');
+              await load();
+            } catch (err) { setError(err); }
+            setBusy(false);
+          }}
+        >
+          <input
+            required minLength={3} maxLength={40} placeholder="Alliance name"
+            value={name} onChange={(e) => setName(e.target.value)}
+            style={{
+              flex: 1, minWidth: 180, fontSize: 13, padding: '7px 10px',
+              background: 'var(--surface2)', color: 'var(--text)',
+              border: '1px solid var(--border)', borderRadius: 6,
+            }}
+          />
+          <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} disabled={busy} type="submit">
+            Found it
+          </button>
+          <button className="btn" style={{ fontSize: 12, padding: '7px 14px' }} type="button" onClick={() => setCreating(false)}>
+            Cancel
+          </button>
+        </form>
+      )}
+
+      {alliances.length === 0 && !creating && (
+        <div className="empty-state">
+          <div className="empty-state-icon"><Glyph e="🤝" /></div>
+          <div className="empty-state-text">
+            No alliances in this world yet{mine ? '.' : ' — found the first one.'}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {alliances.map((a) => {
+          const isMine     = mine?.allianceId === a.id;
+          const iAmActive  = isMine && mine.status === 'ACTIVE';
+          const iAmFounder = iAmActive && mine.role === 'FOUNDER';
+          const iAmPending = isMine && mine.status === 'PENDING';
+          const isFull     = a.members.length >= maxMembers;
+          return (
+            <div
+              key={a.id}
+              className="card"
+              style={{
+                padding: '14px 16px',
+                border: iAmActive ? '1px solid var(--accent)' : '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <Glyph e="🤝" size={18} />
+                <strong style={{ fontSize: 14 }}>{a.name}</strong>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {a.members.length}/{maxMembers} members
+                  {a.pendingCount > 0 ? ` · ${a.pendingCount} pending` : ''}
+                </span>
+                {iAmFounder && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 10, padding: '1px 8px' }}>
+                    FOUNDER
+                  </span>
+                )}
+                {iAmPending && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--yellow)', border: '1px solid var(--yellow)', borderRadius: 10, padding: '1px 8px' }}>
+                    REQUEST PENDING
+                  </span>
+                )}
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  {!mine && (
+                    <button
+                      className="btn"
+                      style={{ fontSize: 12, padding: '5px 12px', opacity: isFull ? 0.5 : 1 }}
+                      disabled={busy || isFull}
+                      onClick={() => act(() => remoteApi.requestJoinAlliance(a.id))}
+                    >
+                      {isFull ? 'Full' : 'Request to join'}
+                    </button>
+                  )}
+                  {iAmPending && (
+                    <button
+                      className="btn"
+                      style={{ fontSize: 12, padding: '5px 12px' }}
+                      disabled={busy}
+                      onClick={() => act(() => remoteApi.leaveAlliance(a.id))}
+                    >
+                      Cancel request
+                    </button>
+                  )}
+                  {iAmActive && (
+                    <button
+                      className="btn"
+                      style={{
+                        fontSize: 12, padding: '5px 12px',
+                        background: confirmLeave ? '#f87171' : 'var(--surface2)',
+                        color: confirmLeave ? '#fff' : 'var(--text)',
+                        border: '1px solid var(--border)',
+                      }}
+                      disabled={busy}
+                      onClick={() => {
+                        if (confirmLeave) { act(() => remoteApi.leaveAlliance(a.id)); setConfirmLeave(false); }
+                        else setConfirmLeave(true);
+                      }}
+                    >
+                      {confirmLeave ? '⚠ Confirm leave' : 'Leave'}
+                    </button>
+                  )}
+                  {iAmActive && confirmLeave && (
+                    <button
+                      style={{ fontSize: 11, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                      onClick={() => setConfirmLeave(false)}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </span>
+              </div>
+
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                {a.members.map((m) => (
+                  <span key={m.airlineId} style={{ marginRight: 14 }}>
+                    {m.role === 'FOUNDER' ? '★ ' : ''}{m.name}
+                    {m.airlineId === myAirlineId ? <span style={{ opacity: 0.7 }}> (you)</span> : null}
+                    {m.hub ? <span style={{ opacity: 0.7 }}> · {m.hub}</span> : null}
+                  </span>
+                ))}
+              </div>
+
+              {iAmActive && currentAlliance && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                  +{Math.round((currentAlliance.demandBoostPct ?? 0) * 100)}% demand where a member also flies
+                  {' '}· interline revenue from member networks · {formatMoney(currentAlliance.weeklyFee ?? 0)}/wk dues
+                </div>
+              )}
+
+              {iAmFounder && (a.pending ?? []).length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
+                    JOIN REQUESTS
+                  </div>
+                  {a.pending.map((p) => (
+                    <div key={p.airlineId} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '4px 0' }}>
+                      <span>
+                        {p.name}
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          {p.hub ? ` · ${p.hub}` : ''} · {formatMoney(p.marketCap ?? 0)} market cap
+                        </span>
+                      </span>
+                      <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                        <button
+                          className="btn btn-primary" style={{ fontSize: 11, padding: '4px 10px' }} disabled={busy}
+                          onClick={() => act(() => remoteApi.decideAllianceRequest(a.id, p.airlineId, 'accept'))}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          className="btn" style={{ fontSize: 11, padding: '4px 10px' }} disabled={busy}
+                          onClick={() => act(() => remoteApi.decideAllianceRequest(a.id, p.airlineId, 'reject'))}
+                        >
+                          Reject
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
