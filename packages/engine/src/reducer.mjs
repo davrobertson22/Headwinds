@@ -2620,7 +2620,11 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members,
+          // Maintenance budget in effect when totalMaintenance was computed — lets
+          // the Operations UI project next week's cost live as the slider moves
+          // (maintenance scales ~linearly with this multiplier).
+          maintenanceBudgetUsed: mainBudget },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         hubs:              hubsAfterBuild,

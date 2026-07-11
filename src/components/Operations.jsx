@@ -399,10 +399,19 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
 
 // ─── Maintenance budget card ──────────────────────────────────────────────────
 
-function MaintenanceCard({ budget, fleetMaintTotal, dispatch }) {
+function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch }) {
   // Aging rate: 0.5→1.25 faster, 1.0→1.0 normal, 2.0→0.5 slower
   const agingRate = Math.max(0.5, 1 + (1 - budget) * 0.5);
   const agingColor = agingRate > 1.1 ? 'var(--red)' : agingRate < 0.9 ? 'var(--green)' : 'var(--text-muted)';
+
+  // Live projection: last week's actual maintenance scaled to the current slider.
+  // Maintenance cost is ~linear in the budget multiplier, so projected next-week
+  // spend ≈ lastActual × (currentBudget / budgetThatProducedLastActual). This
+  // makes the headline figure respond to the slider instead of showing a static
+  // historical number (which only refreshes on the weekly tick).
+  const baselineBudget = maintBudgetUsed > 0 ? maintBudgetUsed : 1.0;
+  const projectedMaint = fleetMaintTotal * (budget / baselineBudget);
+  const projMoved = Math.abs(budget - baselineBudget) > 0.001;
 
   const budgetLabel = budget < 0.75 ? 'Cut-rate'
     : budget < 0.95 ? 'Below standard'
@@ -426,11 +435,16 @@ function MaintenanceCard({ budget, fleetMaintTotal, dispatch }) {
         {fleetMaintTotal > 0 && (
           <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 16 }}>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--red)' }}>
-              −{formatMoney(fleetMaintTotal)}/wk
+              −{formatMoney(projectedMaint)}/wk
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-              all aircraft combined
+              projected next week · all aircraft
             </div>
+            {projMoved && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>
+                was −{formatMoney(fleetMaintTotal)}/wk last week
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -827,6 +841,7 @@ export default function Operations() {
       <MaintenanceCard
         budget={maintenanceBudget}
         fleetMaintTotal={fleetMaintTotal}
+        maintBudgetUsed={state.lastReport?.maintenanceBudgetUsed ?? 1.0}
         dispatch={dispatch}
       />
 
