@@ -123,6 +123,56 @@ export function transferCompatibility(state, fromAircraftId, toAircraftId) {
 }
 
 // ─────────────────────────────────────────────
+// FREQUENCY CHANGE GUARD (Routes: change one route's weekly frequency)
+// ─────────────────────────────────────────────
+// Returns null if `newFreq` is allowed for the route, else a short player-facing
+// reason. Shared by the UPDATE_FREQUENCY reducer and the Route detail UI, so the
+// −/+ stepper enables/disables and explains exactly what the engine enforces.
+// Reductions only free capacity → always allowed. Increases mirror ADD_ROUTE's
+// per-month PEAK logic (counter-seasonal routes that never share a month can
+// share the aircraft/gate budget) plus the regulatory perimeter/cap check.
+export function frequencyChangeBlockReason(state, routeId, newFreq) {
+  const route = state.routes.find(r => r.id === routeId);
+  if (!route) return 'Route not found';
+  const target = Math.max(1, Math.round(Number(newFreq) || 0));
+  if (target <= route.weeklyFrequency) return null; // reductions always allowed
+
+  const aircraft = state.fleet.find(a => a.id === route.aircraftId);
+  const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+  if (!type) return null; // no aircraft/type → nothing to enforce
+
+  const dist   = routeDistanceKm(route.origin, route.destination);
+  const months = routeActiveMonths(route);
+  const freqOf = (r) => (r.id === route.id ? target : r.weeklyFrequency);
+
+  // Regulatory (perimeter rules, per-pair frequency caps): peak proposed weekly
+  // frequency on this city-pair across the route's active months.
+  const pairKey = [route.origin, route.destination].sort().join('-');
+  const pairRoutes = state.routes.filter(r => [r.origin, r.destination].sort().join('-') === pairKey);
+  const peakPairFreq = Math.max(0, ...months.map(m =>
+    pairRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) => s + freqOf(r), 0)));
+  if (checkRouteRestrictions(route.origin, route.destination, dist, peakPairFreq, type.category,
+        { routes: state.routes, excludeKey: pairKey })) return 'Regulatory frequency cap on this route';
+
+  // Block-hours on this aircraft, per-month peak, with this route at the new freq.
+  const acRoutes = state.routes.filter(r => r.aircraftId === route.aircraftId);
+  const peakBlockHrs = Math.max(0, ...months.map(m =>
+    acRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) =>
+      s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), freqOf(r), type), 0)));
+  if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return "Aircraft's weekly block-hour limit";
+
+  // Gate slots at each endpoint, per-month peak.
+  const gates = state.gates ?? {};
+  const peakSlotsAt = (code) => Math.max(0, ...months.map(m => state.routes
+    .filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
+    .reduce((s, r) => s + freqOf(r), 0)));
+  if (peakSlotsAt(route.origin)      > (gates[route.origin]      ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.origin}`;
+  if (peakSlotsAt(route.destination) > (gates[route.destination] ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.destination}`;
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
 // STATE SHAPE
 // ─────────────────────────────────────────────
 
@@ -1227,27 +1277,12 @@ function reducer(state, action) {
     case 'UPDATE_FREQUENCY': {
       const targetRoute = state.routes.find(r => r.id === action.routeId);
       if (!targetRoute) return state;
-      const freqAircraft = state.fleet.find(a => a.id === targetRoute.aircraftId);
-      const freqType     = freqAircraft ? getAircraftType(freqAircraft.typeId) : null;
-      const newFreq      = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
-
-      if (freqType) {
-        // Block-hours: sum all other routes on this aircraft + this route at new freq
-        const otherBlockHrs = state.routes
-          .filter(r => r.aircraftId === targetRoute.aircraftId && r.id !== targetRoute.id)
-          .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, freqType), 0);
-        const newBlockHrs = weeklyBlockHours(routeDistanceKm(targetRoute.origin, targetRoute.destination), newFreq, freqType);
-        if (otherBlockHrs + newBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return state;
-
-        // Gate/slot check: slots used by all other routes at each endpoint + new freq
-        const gates = state.gates ?? {};
-        const slotsAt = (code) => state.routes
-          .filter(r => r.id !== targetRoute.id && (r.origin === code || r.destination === code))
-          .reduce((s, r) => s + r.weeklyFrequency, 0);
-        if (slotsAt(targetRoute.origin)      + newFreq > (gates[targetRoute.origin]      ?? 0) * SLOTS_PER_GATE) return state;
-        if (slotsAt(targetRoute.destination) + newFreq > (gates[targetRoute.destination] ?? 0) * SLOTS_PER_GATE) return state;
-      }
-
+      const newFreq = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
+      if (newFreq === targetRoute.weeklyFrequency) return state;
+      // Reductions always allowed; increases guarded by the shared predicate
+      // (per-month peak block-hours + gate slots + regulatory) — the same logic
+      // the Route UI uses to enable/disable and explain the stepper.
+      if (frequencyChangeBlockReason(state, action.routeId, newFreq)) return state;
       return {
         ...state,
         routes: state.routes.map(r =>
