@@ -67,8 +67,31 @@ export function fleetWeeklyDepreciation(fleet = []) {
  *   corporateTax    — 21% of positive preTaxProfit
  *   netCash         — preTaxProfit − tax  →  EQUALS the `profit` stored in history
  *   netIncomeAccrual— accrual view: ebit − interest − tax (excludes principal)
+ *
+ * Result caching: a projection is a pure function of the (immutable) `state`
+ * snapshot, and the Dashboard, Finance, Routes and Fleet screens each call
+ * projectWeek(state) with the SAME state object. Running the full weeklyTick
+ * four times over is wasteful and — because weeklyTick has some internal
+ * randomness — could even yield slightly different numbers on different
+ * screens, defeating this module's "one source of truth" purpose. We therefore
+ * memoise the result against the state object identity in a WeakMap: same
+ * snapshot → the exact same result, computed once; a new snapshot (after any
+ * edit or a server tick) is a fresh key, so nothing goes stale. The returned
+ * object is shared — treat it as read-only, never mutate it in place.
  */
+const _projectionCache = new WeakMap();
 export function projectWeek(state) {
+  if (state && typeof state === 'object') {
+    const cached = _projectionCache.get(state);
+    if (cached !== undefined) return cached;
+    const result = computeProjectWeek(state);
+    _projectionCache.set(state, result);
+    return result;
+  }
+  return computeProjectWeek(state);
+}
+
+function computeProjectWeek(state) {
   const fleet = state.fleet ?? [];
 
   // Match the reducer's gameDate so seasonality agrees with the actual tick.

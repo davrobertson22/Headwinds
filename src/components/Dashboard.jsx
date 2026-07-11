@@ -10,10 +10,53 @@ import BoardObjectives from './BoardObjectives.jsx';
 import InfoTip from './InfoTip.jsx';
 import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon, CloseIcon } from './Icons.jsx';
 
-export default function Dashboard() {
+// localStorage key for which dashboard cards the player has collapsed.
+const DASH_COLLAPSE_KEY = 'hw_dash_collapsed_v1';
+
+// Small ▸/▾ toggle used in collapsible card headers.
+function CollapseChevron({ collapsed, onClick, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={collapsed ? `Show ${label}` : `Hide ${label}`}
+      aria-label={collapsed ? `Show ${label}` : `Hide ${label}`}
+      aria-expanded={!collapsed}
+      style={{
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        color: 'var(--text-dim)', font: 'inherit', display: 'inline-flex', alignItems: 'center',
+      }}
+    >
+      <span style={{ fontSize: 10, width: 10, display: 'inline-block' }}>{collapsed ? '▸' : '▾'}</span>
+    </button>
+  );
+}
+
+export default function Dashboard({ onNavigate }) {
   const { state, remote } = useGame();
-  const { cash, fleet, routes, cargoRoutes = [], financialHistory, lastReport, week, year, activeEvents = [] } = state;
+  const { cash, fleet, routes, cargoRoutes = [], financialHistory, lastReport, week, year, activeEvents = [], satisfaction } = state;
   const [selectedEvent, setSelectedEvent] = useState(null);
+
+  // Jump to another tab when a KPI / row is clicked. No-op if the host app
+  // hasn't wired onNavigate (e.g. a build where App doesn't pass it yet), so
+  // the tiles simply stay non-clickable rather than breaking.
+  const canNavigate = typeof onNavigate === 'function';
+  const go = (tab) => { if (canNavigate) onNavigate(tab); };
+
+  // How much financial history the chart shows ('all' | '12' | '26' | '52').
+  const [chartRange, setChartRange] = useState('all');
+
+  // Per-card collapse state, persisted so veterans keep their layout between
+  // visits. localStorage is best-effort — never let a read/write throw.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(DASH_COLLAPSE_KEY) || '{}') || {}; }
+    catch { return {}; }
+  });
+  const toggleCollapse = (key) => setCollapsed(prev => {
+    const next = { ...prev, [key]: !prev[key] };
+    try { localStorage.setItem(DASH_COLLAPSE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
 
   // ── Projections ──────────────────────────────────────────────────────────
   const weeklyLeaseCost = fleet.reduce((sum, a) => {
@@ -73,6 +116,34 @@ export default function Dashboard() {
       revPerPax:   pax > 0 ? rev / (pax * 2) : null,
     };
   }, [proj]);
+
+  // Fleet age & the maintenance premium it silently carries. Maintenance rises
+  // with age via maintenanceMultiplier(); comparing the aged bill to a
+  // brand-new-fleet baseline surfaces cost creep that utilisation alone hides.
+  const fleetHealth = useMemo(() => {
+    if (fleet.length === 0) return null;
+    let baseMaint = 0, agedMaint = 0, ageWeeks = 0;
+    for (const a of fleet) {
+      const t    = getAircraftType(a.typeId);
+      const base = t?.baseMaintenancePerWk ?? 0;
+      baseMaint += base;
+      agedMaint += base * maintenanceMultiplier(a.ageWeeks ?? 0);
+      ageWeeks  += a.ageWeeks ?? 0;
+    }
+    return {
+      avgAgeYears:  (ageWeeks / fleet.length) / 52,
+      maintPremium: baseMaint > 0 ? agedMaint / baseMaint - 1 : 0,
+    };
+  }, [fleet]);
+
+  // Passenger-satisfaction trend: points vs the prior completed week. The
+  // satisfaction field is new to history entries, so the delta only appears
+  // once two ticks have written it — guard for nulls.
+  const satTrend = (() => {
+    const a = financialHistory.at(-1)?.satisfaction;
+    const b = financialHistory.at(-2)?.satisfaction;
+    return a != null && b != null ? a - b : null;
+  })();
 
   // Per-route operating cost — retained only for the cost-breakdown fallback below
   // (used when there's no lastReport yet). Now reads the real totalOpCost key.
@@ -333,6 +404,7 @@ export default function Dashboard() {
           color={cash >= 0 ? 'green' : 'red'}
           sub={isFinite(weeksOfCash) ? `${weeksOfCash} wks runway` : undefined}
           subColor={weeksOfCash < 4 ? 'var(--red)' : 'var(--text-dim)'}
+          onClick={canNavigate ? () => go('finance') : undefined}
         />
         <KpiBox
           label="Projected Profit / wk"
@@ -340,6 +412,7 @@ export default function Dashboard() {
           color={projectedProfit >= 0 ? 'green' : 'red'}
           trend={profTrend}
           sub={projectedRevenue > 0 ? `${Math.round((projectedProfit / projectedRevenue) * 100)}% margin` : undefined}
+          onClick={canNavigate ? () => go('finance') : undefined}
         />
         <KpiBox
           label="Revenue / wk"
@@ -347,6 +420,7 @@ export default function Dashboard() {
           color="green"
           trend={revTrend != null ? revTrend : undefined}
           trendIsPercent
+          onClick={canNavigate ? () => go('finance') : undefined}
         />
         {cargoRoutes.length > 0 && (
           <KpiBox
@@ -355,6 +429,7 @@ export default function Dashboard() {
             color="green"
             sub={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><PackageIcon size={11} /> {Math.round(cargoTonnes).toLocaleString()} t/wk · {cargoRoutes.length} route{cargoRoutes.length !== 1 ? 's' : ''}</span>}
             subColor="var(--text-dim)"
+            onClick={canNavigate ? () => go('routes') : undefined}
           />
         )}
         <KpiBox
@@ -363,12 +438,24 @@ export default function Dashboard() {
           color="blue"
           sub={idleAircraft > 0 ? `${idleAircraft} idle` : `${routes.length + cargoRoutes.length} routes`}
           subColor={idleAircraft > 0 ? 'var(--yellow)' : 'var(--text-dim)'}
+          onClick={canNavigate ? () => go('fleet') : undefined}
         />
+        {fleetHealth && (
+          <KpiBox
+            label="Fleet Age"
+            value={`${fleetHealth.avgAgeYears.toFixed(1)} yrs`}
+            color={fleetHealth.avgAgeYears < 8 ? 'green' : fleetHealth.avgAgeYears < 16 ? 'blue' : fleetHealth.avgAgeYears < 22 ? 'yellow' : 'red'}
+            sub={fleetHealth.maintPremium > 0.005 ? `+${Math.round(fleetHealth.maintPremium * 100)}% upkeep vs new` : 'like-new upkeep'}
+            subColor={fleetHealth.maintPremium > 0.25 ? 'var(--yellow)' : 'var(--text-dim)'}
+            onClick={canNavigate ? () => go('fleet') : undefined}
+          />
+        )}
         <KpiBox
           label="Network"
           value={`${airportCodes.length} airports`}
           color="blue"
           sub={`${countries.length} countries`}
+          onClick={canNavigate ? () => go('map') : undefined}
         />
         {networkStats.loadFactor != null && (
           <KpiBox
@@ -376,6 +463,7 @@ export default function Dashboard() {
             value={formatPercent(networkStats.loadFactor)}
             color={networkStats.loadFactor >= 0.75 ? 'green' : networkStats.loadFactor >= 0.5 ? 'blue' : 'yellow'}
             sub={`${Math.round(networkStats.boardedPax).toLocaleString()} pax/wk`}
+            onClick={canNavigate ? () => go('routes') : undefined}
           />
         )}
         {networkStats.yieldPerPkm != null && (
@@ -384,6 +472,18 @@ export default function Dashboard() {
             value={`${(networkStats.yieldPerPkm * 100).toFixed(1)}¢/pkm`}
             color="blue"
             sub={networkStats.revPerPax != null ? `${formatMoney(networkStats.revPerPax)} avg / pax` : undefined}
+            onClick={canNavigate ? () => go('routes') : undefined}
+          />
+        )}
+        {satisfaction != null && (
+          <KpiBox
+            label="Satisfaction"
+            value={`${Math.round(satisfaction)}`}
+            color={satisfaction >= 70 ? 'green' : satisfaction >= 50 ? 'blue' : satisfaction >= 30 ? 'yellow' : 'red'}
+            trend={satTrend}
+            trendUnit=" pt"
+            sub={`${((satisfaction / 100) * 5).toFixed(1)}★ rating`}
+            onClick={canNavigate ? () => go('reputation') : undefined}
           />
         )}
         <KpiBox
@@ -397,19 +497,51 @@ export default function Dashboard() {
 
       {/* ── Weekly P&L bridge (incl. cost-mix bar) ───────────────────────── */}
       {pnl.projected && (routes.length > 0 || cargoRoutes.length > 0 || pnl.lastWeek) && (
-        <WeeklyPnL lastWeek={pnl.lastWeek} projected={pnl.projected} costBreakdown={totalWeeklyCosts > 0 ? costBreakdown : null} />
+        <WeeklyPnL
+          lastWeek={pnl.lastWeek}
+          projected={pnl.projected}
+          costBreakdown={totalWeeklyCosts > 0 ? costBreakdown : null}
+          collapsed={!!collapsed.pnl}
+          onToggleCollapse={() => toggleCollapse('pnl')}
+        />
       )}
 
       {/* ── Board objectives ─────────────────────────────────────────────── */}
       <BoardObjectives />
 
       {/* ── Financial history chart ──────────────────────────────────────── */}
-      {hist.length > 1 && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-title">Financial History</div>
-          <FinancialChart history={hist} currentWeek={week} />
-        </div>
-      )}
+      {hist.length > 1 && (() => {
+        const rangeN   = chartRange === 'all' ? hist.length : Number(chartRange);
+        const chartHist = hist.slice(-rangeN);
+        return (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: collapsed.chart ? 0 : 10 }}>
+              <div className="card-title" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CollapseChevron collapsed={!!collapsed.chart} onClick={() => toggleCollapse('chart')} label="financial history" />
+                Financial History
+              </div>
+              {!collapsed.chart && hist.length > 12 && (
+                <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+                  {[['12', '12w'], ['26', '26w'], ['52', '1y'], ['all', 'All']].map(([key, lbl]) => (
+                    <button
+                      key={key}
+                      onClick={() => setChartRange(key)}
+                      style={{
+                        padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                        background: chartRange === key ? 'var(--accent)' : 'transparent',
+                        color: chartRange === key ? '#fff' : 'var(--text-muted)',
+                      }}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {!collapsed.chart && <FinancialChart history={chartHist} currentWeek={week} />}
+          </div>
+        );
+      })()}
 
       {/* ── Fleet utilization ────────────────────────────────────────────── */}
       {fleet.length > 0 && (() => {
@@ -429,10 +561,14 @@ export default function Dashboard() {
         const avgColor = avgPct >= 0.75 ? 'var(--green)' : avgPct >= 0.4 ? 'var(--yellow)' : 'var(--red)';
         return (
           <div className="card" style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div className="card-title" style={{ marginBottom: 0 }}>Fleet Utilisation</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: collapsed.fleet ? 0 : 10 }}>
+              <div className="card-title" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CollapseChevron collapsed={!!collapsed.fleet} onClick={() => toggleCollapse('fleet')} label="fleet utilisation" />
+                Fleet Utilisation
+              </div>
               <span style={{ fontSize: 13, fontWeight: 700, color: avgColor }}>{Math.round(avgPct * 100)}% avg</span>
             </div>
+            {!collapsed.fleet && (<>
             {/* Aggregate bar */}
             <div style={{ height: 10, background: 'var(--surface3)', borderRadius: 5, overflow: 'hidden', marginBottom: 10 }}>
               <div style={{ height: '100%', width: `${avgPct * 100}%`, background: avgColor, borderRadius: 5, transition: 'width 0.3s' }} />
@@ -452,6 +588,7 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+            </>)}
           </div>
         );
       })()}
@@ -461,7 +598,11 @@ export default function Dashboard() {
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div className="card-title" style={{ marginBottom: 0 }}>Top Routes</div>
+              <div className="card-title" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CollapseChevron collapsed={!!collapsed.routes} onClick={() => toggleCollapse('routes')} label="top routes" />
+                Top Routes
+              </div>
+              {!collapsed.routes && (<>
               <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
                 {[
                   ['projected', 'Projected'],
@@ -485,13 +626,17 @@ export default function Dashboard() {
               {routeView === 'true' && (
                 <InfoTip text="Profit after each route also carries its share of the aircraft's weekly lease + maintenance, split by block hours when one aircraft flies several routes. Shows which routes truly pay for their aircraft." />
               )}
+              </>)}
             </div>
-            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-              {showLastWeekRoutes ? 'operating profit last week'
-                : routeView === 'true' ? 'incl. aircraft lease + maintenance'
-                : 'sorted by profit'} · Finance → By Route for full list
-            </span>
+            {!collapsed.routes && (
+              <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                {showLastWeekRoutes ? 'operating profit last week'
+                  : routeView === 'true' ? 'incl. aircraft lease + maintenance'
+                  : 'sorted by profit'} · Finance → By Route for full list
+              </span>
+            )}
           </div>
+          {!collapsed.routes && (
           <table>
             <thead>
               <tr>
@@ -599,6 +744,7 @@ export default function Dashboard() {
               })()}
             </tbody>
           </table>
+          )}
         </div>
       )}
 
@@ -797,14 +943,23 @@ function EventDetailModal({ event, onClose }) {
 
 // ── KPI box with trend indicator ──────────────────────────────────────────────
 
-function KpiBox({ label, value, color, trend, trendIsPercent, sub, subColor }) {
+function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, sub, subColor, onClick }) {
+  const clickable = typeof onClick === 'function';
   return (
-    <div className="stat-box">
+    <div
+      className="stat-box"
+      onClick={onClick}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      title={clickable ? 'Open details →' : undefined}
+      style={clickable ? { cursor: 'pointer' } : undefined}
+    >
       <div className="stat-label">{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div className={`stat-value ${color}`}>{value}</div>
         {trend != null && (
-          <TrendBadge value={trend} isPercent={trendIsPercent} />
+          <TrendBadge value={trend} isPercent={trendIsPercent} unit={trendUnit} />
         )}
       </div>
       {sub && (
@@ -814,14 +969,14 @@ function KpiBox({ label, value, color, trend, trendIsPercent, sub, subColor }) {
   );
 }
 
-function TrendBadge({ value, isPercent }) {
+function TrendBadge({ value, isPercent, unit }) {
   const up    = value >= 0;
   const color = up ? 'var(--green)' : 'var(--red)';
-  const label = isPercent
-    ? `${up ? '↑' : '↓'} ${Math.abs(value).toFixed(1)}%`
-    : `${up ? '↑' : '↓'} ${formatMoney(Math.abs(value))}`;
+  const mag   = isPercent ? `${Math.abs(value).toFixed(1)}%`
+              : unit      ? `${Math.abs(value).toFixed(1)}${unit}`
+              :             formatMoney(Math.abs(value));
   return (
-    <span style={{ fontSize: 11, color, fontWeight: 600 }}>{label}</span>
+    <span style={{ fontSize: 11, color, fontWeight: 600 }}>{`${up ? '↑' : '↓'} ${mag}`}</span>
   );
 }
 
@@ -829,7 +984,7 @@ function TrendBadge({ value, isPercent }) {
 // Reconciles per-route operating profit (the Top Routes table) down to the real
 // bottom line, side by side for last week (actual) and this week (projected).
 
-function WeeklyPnL({ lastWeek, projected, costBreakdown }) {
+function WeeklyPnL({ lastWeek, projected, costBreakdown, collapsed, onToggleCollapse }) {
   const [showFixed, setShowFixed] = useState(false);
   const two = !!lastWeek;
 
@@ -912,13 +1067,15 @@ function WeeklyPnL({ lastWeek, projected, costBreakdown }) {
 
   return (
     <div className="card" style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: collapsed ? 0 : 10 }}>
         <div className="card-title" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {onToggleCollapse && <CollapseChevron collapsed={collapsed} onClick={onToggleCollapse} label="weekly P&L" />}
           Weekly P&amp;L
           <InfoTip text="Why route profit doesn't add up to total profit: routes only carry their direct flying costs. Fixed costs, financing and tax sit below the line — this bridge reconciles the two." />
         </div>
-        {!two && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>last-week actuals appear after your first full week</span>}
+        {!two && !collapsed && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>last-week actuals appear after your first full week</span>}
       </div>
+      {!collapsed && (<>
 
       <div style={{
         display: 'grid',
@@ -980,6 +1137,7 @@ function WeeklyPnL({ lastWeek, projected, costBreakdown }) {
           <CostBreakdownChart breakdown={costBreakdown} />
         </div>
       )}
+      </>)}
     </div>
   );
 }

@@ -224,7 +224,7 @@ function AppInner() {
   }
 
   const tabContent = {
-    dashboard:   <Dashboard />,
+    dashboard:   <Dashboard onNavigate={setActiveTab} />,
     map:         <RouteMap />,
     planner:     <RoutePlanner />,
     routes:      <Routes />,
