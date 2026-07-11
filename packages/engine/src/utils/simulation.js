@@ -1738,7 +1738,8 @@ export function weeklyTick(state) {
 
   // 1. Route revenue + operating costs
   let totalRevenue        = 0;
-  let totalConnecting     = 0;
+  let totalConnecting     = 0;   // connecting REVENUE (own-metal + external feed)
+  let totalConnectingPax  = 0;   // connecting PAX (own-metal itineraries + external gateway feed)
   let totalFuel           = 0;
   let totalCrew           = 0;
   let totalQuality        = 0;
@@ -2122,6 +2123,7 @@ export function weeklyTick(state) {
 
     totalRevenue        += routeRevenue;
     totalConnecting     += connecting.totalRevenue;
+    totalConnectingPax  += connecting.totalPax ?? 0;
     totalFuel           += result.fuelCost;
     totalCrew           += result.crewCost;
     totalQuality        += result.qualityCost;
@@ -2411,6 +2413,15 @@ export function weeklyTick(state) {
     satisfaction:           satisfactionNext,
     deliveredExperience:    deliveredExp,
     totalPassengers,
+    // ── Passenger segmentation (one-way boardings per direction; ×2 for round-trip)
+    // Organic    = direct local O&D boarded on the player's own routes.
+    // Connecting = fed through the player's OWN hubs (own-metal itineraries) plus
+    //              the residual external gateway feed pool.
+    // Interline  = fed by PARTNER metal on one leg (interline / codeshare / alliance).
+    // These are modeled estimates and don't perfectly sum to a single "network total".
+    paxOrganic:             totalPassengers,
+    paxConnecting:          Math.round(totalConnectingPax),
+    paxInterline:           partnerODRevenue?.totalPax ?? 0,
     totalTargetedSpend:     Math.round(totalTargetedSpend),
     totalOpCost:            Math.round(totalOpCost),
     totalCost:              Math.round(totalCost),

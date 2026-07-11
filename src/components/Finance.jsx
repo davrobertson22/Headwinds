@@ -157,6 +157,7 @@ function FinanceInner() {
     { id: 'uniteco',   label: '📐 Unit Economics' },
     { id: 'forecast',  label: '🔭 Forecast'       },
     { id: 'trends',    label: '📈 Trends'         },
+    { id: 'stats',     label: '📊 Statistics'     },
     { id: 'bs',        label: '⚖️ Balance Sheet'  },
     { id: 'loans',     label: '🏦 Loans'          },
     { id: 'fuel',      label: '⛽ Fuel'           },
@@ -184,6 +185,7 @@ function FinanceInner() {
       {view === 'uniteco'  && <UnitEconomics proj={proj} />}
       {view === 'forecast' && <Forecast proj={proj} />}
       {view === 'trends'   && <Trends />}
+      {view === 'stats'    && <Statistics />}
       {view === 'bs'       && <BalanceSheet />}
       {view === 'loans'    && <Loans proj={proj} />}
       {view === 'fuel'     && <FuelHedging />}
@@ -2614,6 +2616,390 @@ function Trends() {
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Statistics ─────────────────────────────────────────────────────────────
+// Long-term KPI charts driven by state.statsHistory (a compact per-week series
+// retained for up to 35 game years — see STATS_HISTORY_CAP in the engine).
+
+const STAT_COLORS = {
+  organic:   '#38d39f',   // direct O&D
+  connecting:'#3ea6ff',   // own-hub connections
+  interline: '#ffb43d',   // partner-fed (interline / codeshare)
+  routes:    '#38d39f',
+  flights:   '#3ea6ff',
+  dests:     '#c792ea',
+  fleet:     '#ffb43d',
+  revenue:   '#38d39f',
+  cost:      '#ff5d6c',
+  profit:    '#3ea6ff',
+  passRev:   '#38d39f',
+  partnerRev:'#ffb43d',
+  cargoRev:  '#c792ea',
+  lf:        '#3ea6ff',
+  yield:     '#38d39f',
+  ask:       '#c792ea',
+};
+
+const STAT_PERIODS = [
+  { id: '4',    label: '4 wks',  weeks: 4    },
+  { id: '12',   label: '12 wks', weeks: 12   },
+  { id: '26',   label: '6 mo',   weeks: 26   },
+  { id: '52',   label: '12 mo',  weeks: 52   },
+  { id: '156',  label: '3 yr',   weeks: 156  },
+  { id: '260',  label: '5 yr',   weeks: 260  },
+  { id: '520',  label: '10 yr',  weeks: 520  },
+  { id: '1040', label: '20 yr',  weeks: 1040 },
+  { id: '1560', label: '30 yr',  weeks: 1560 },
+  { id: 'all',  label: 'All',    weeks: Infinity },
+];
+
+/** Bucket a long series down to <= maxPoints. Flows are averaged to per-week
+ *  units (so the y-axis stays in per-week terms regardless of bucket width);
+ *  stocks take the bucket's last value. */
+function downsampleStats(rows, maxPoints = 150) {
+  if (rows.length <= maxPoints) return rows.map(r => ({ ...r, _n: 1 }));
+  const bucket = Math.ceil(rows.length / maxPoints);
+  const out = [];
+  for (let i = 0; i < rows.length; i += bucket) {
+    const slice = rows.slice(i, i + bucket);
+    const n = slice.length;
+    const last = slice[n - 1];
+    const avg = k => slice.reduce((s, r) => s + (r[k] ?? 0), 0) / n;
+    out.push({
+      label: last.label, week: last.week, year: last.year, absWeek: last.absWeek,
+      // flows → per-week average
+      paxOrganic: avg('paxOrganic'), paxConnecting: avg('paxConnecting'), paxInterline: avg('paxInterline'),
+      flights: avg('flights'), revenue: avg('revenue'), partnerRevenue: avg('partnerRevenue'),
+      cargoRevenue: avg('cargoRevenue'), cost: avg('cost'), profit: avg('profit'),
+      // stocks → last in bucket
+      routes: last.routes, destinations: last.destinations, fleet: last.fleet, cash: last.cash,
+      // efficiency → average
+      loadFactor: avg('loadFactor'), yield: avg('yield'), ask: avg('ask'),
+      partial: slice.some(r => r.partial),
+      _n: n,
+    });
+  }
+  return out;
+}
+
+const fmtInt = v => Math.round(v).toLocaleString();
+
+/** Flexible SVG chart: stacked areas and/or lines, zero baseline, x-axis ticks,
+ *  and a hover crosshair + tooltip. `series` items: { key, label, color, kind }.
+ *  kind 'area' entries stack; kind 'line' entries draw on top. */
+function StatChart({ points, series, height = 150, yFrom0 = true, format = fmtInt, wideLabels = false }) {
+  const [hover, setHover] = useState(null);
+  const W = 660, H = height, PADL = 6, PADR = 6, PADT = 10, PADB = 18;
+  const n = points.length;
+  const areas = series.filter(s => s.kind === 'area');
+  const lines = series.filter(s => s.kind !== 'area');
+
+  if (n === 0) return null;
+
+  let maxV = -Infinity, minV = Infinity;
+  for (const p of points) {
+    const stackTot = areas.reduce((s, se) => s + (p[se.key] ?? 0), 0);
+    if (stackTot > maxV) maxV = stackTot;
+    if (stackTot < minV) minV = stackTot;
+    for (const se of lines) {
+      const v = p[se.key] ?? 0;
+      if (v > maxV) maxV = v;
+      if (v < minV) minV = v;
+    }
+  }
+  if (yFrom0) minV = Math.min(0, minV);
+  if (!isFinite(maxV)) { maxV = 1; minV = 0; }
+  if (maxV === minV) maxV = minV + 1;
+  const range = maxV - minV;
+  const plotH = H - PADT - PADB, plotW = W - PADL - PADR;
+  const toY = v => PADT + plotH - ((v - minV) / range) * plotH;
+  const toX = i => (n > 1 ? PADL + (i / (n - 1)) * plotW : PADL + plotW / 2);
+  const zeroY = toY(0);
+
+  // Stacked area paths (cumulative from the baseline up).
+  const areaPaths = [];
+  if (areas.length) {
+    const cum = new Array(n).fill(0);
+    for (const se of areas) {
+      const pts = points.map((p, i) => {
+        const base = cum[i];
+        const top = base + (p[se.key] ?? 0);
+        cum[i] = top;
+        return { i, base, top };
+      });
+      const upper = pts.map(t => `${toX(t.i)},${toY(t.top)}`);
+      const lower = pts.slice().reverse().map(t => `${toX(t.i)},${toY(t.base)}`);
+      areaPaths.push({ se, d: `M ${upper.join(' L ')} L ${lower.join(' L ')} Z` });
+    }
+  }
+
+  const tickIdx = n <= 1 ? [0] : Array.from(new Set([0, Math.floor((n - 1) / 3), Math.floor((2 * (n - 1)) / 3), n - 1]));
+
+  const onMove = e => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const relX = ((e.clientX - rect.left) / rect.width) * W;
+    let i = Math.round(((relX - PADL) / plotW) * (n - 1));
+    i = Math.max(0, Math.min(n - 1, i));
+    setHover({ i, px: e.clientX - rect.left, wpx: rect.width });
+  };
+
+  const hp = hover ? points[hover.i] : null;
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        {zeroY > PADT && zeroY < H - PADB && (
+          <line x1={PADL} y1={zeroY} x2={W - PADR} y2={zeroY} stroke="var(--border)" strokeDasharray="3,3" strokeWidth="1" />
+        )}
+        {areaPaths.map(a => (
+          <path key={a.se.key} d={a.d} fill={a.se.color} opacity="0.82" stroke={a.se.color} strokeWidth="0.5" />
+        ))}
+        {lines.map(se => (
+          <polyline key={se.key} fill="none" stroke={se.color} strokeWidth="2" strokeLinejoin="round"
+            points={points.map((p, i) => `${toX(i)},${toY(p[se.key] ?? 0)}`).join(' ')} />
+        ))}
+        {hover && (
+          <g>
+            <line x1={toX(hover.i)} y1={PADT} x2={toX(hover.i)} y2={H - PADB} stroke="var(--text-muted)" strokeWidth="1" opacity="0.5" />
+            {lines.map(se => (
+              <circle key={se.key} cx={toX(hover.i)} cy={toY(hp[se.key] ?? 0)} r="3" fill={se.color} />
+            ))}
+          </g>
+        )}
+        {tickIdx.map(i => (
+          <text key={i} x={Math.max(PADL + 10, Math.min(W - PADR - 10, toX(i)))} y={H - 5}
+            fontSize="10" fill="var(--text-muted)"
+            textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}>
+            {wideLabels ? `Y${points[i].year}` : (points[i].label || `Y${points[i].year}`)}
+          </text>
+        ))}
+      </svg>
+      {hover && hp && (
+        <div style={{
+          position: 'absolute', top: 4,
+          left: hover.px > hover.wpx / 2 ? undefined : Math.min(hover.px + 12, hover.wpx - 150),
+          right: hover.px > hover.wpx / 2 ? Math.min(hover.wpx - hover.px + 12, hover.wpx - 150) : undefined,
+          background: 'var(--panel, #1b1f27)', border: '1px solid var(--border)', borderRadius: 8,
+          padding: '7px 9px', fontSize: 11, pointerEvents: 'none', zIndex: 5, minWidth: 120, boxShadow: '0 4px 14px rgba(0,0,0,.25)',
+        }}>
+          <div style={{ color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>{hp.label || `Year ${hp.year}`}</div>
+          {series.map(se => (
+            <div key={se.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, lineHeight: 1.5 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: se.color, display: 'inline-block' }} />
+                <span style={{ color: 'var(--text-muted)' }}>{se.label}</span>
+              </span>
+              <span style={{ fontWeight: 600 }}>{format(hp[se.key] ?? 0, se)}</span>
+            </div>
+          ))}
+          {hp._n > 1 && <div style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 10 }}>avg of {hp._n} wks</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatLegend({ items }) {
+  return (
+    <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', fontSize: 12 }}>
+      {items.map(([color, label]) => (
+        <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: color, display: 'inline-block' }} />
+          <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function Statistics() {
+  const { state } = useGame();
+  const all = state.statsHistory ?? [];
+  const [period, setPeriod] = useState('52');
+
+  // Which period buttons to show: everything up to the first window that already
+  // covers all data, plus "All".
+  const visiblePeriods = useMemo(() => {
+    const out = [];
+    for (const p of STAT_PERIODS) {
+      if (p.id === 'all') { out.push(p); break; }
+      out.push(p);
+      if (p.weeks >= all.length) break;
+    }
+    return out;
+  }, [all.length]);
+
+  const activeId = visiblePeriods.some(p => p.id === period)
+    ? period
+    : visiblePeriods[visiblePeriods.length - 2]?.id ?? 'all';
+  const activeWeeks = STAT_PERIODS.find(p => p.id === activeId)?.weeks ?? Infinity;
+
+  const windowed = useMemo(
+    () => (activeWeeks === Infinity ? all : all.slice(-activeWeeks)),
+    [all, activeWeeks],
+  );
+
+  // Financial + passenger charts use every windowed week (partial weeks carry
+  // financials + total pax as organic). Network + efficiency need real tracked
+  // data, so they drop pre-tracking (partial) weeks.
+  const points = useMemo(() => downsampleStats(windowed).map(p => ({
+    ...p,
+    paxTotal: (p.paxOrganic ?? 0) + (p.paxConnecting ?? 0) + (p.paxInterline ?? 0),
+    passengerRev: Math.max(0, (p.revenue ?? 0) - (p.partnerRevenue ?? 0) - (p.cargoRevenue ?? 0)),
+    lfPct: (p.loadFactor ?? 0) * 100,
+    yieldCents: (p.yield ?? 0) * 100,
+  })), [windowed]);
+
+  const trackedWindow = useMemo(() => windowed.filter(r => !r.partial), [windowed]);
+  const trackedPoints = useMemo(() => downsampleStats(trackedWindow), [trackedWindow]);
+  const wide = activeWeeks > 130 || (activeWeeks === Infinity && all.length > 130);
+
+  if (all.length < 2) {
+    return (
+      <div className="empty-state">
+        <div className="empty-state-icon"><Glyph e="📊" /></div>
+        <div className="empty-state-text">Statistics appear once you have at least 2 weeks of history. Advance the week to start building your KPI charts.</div>
+      </div>
+    );
+  }
+
+  const firstTracked = all.find(r => !r.partial);
+  const hasTracked = trackedWindow.length > 0;
+  const latest = points[points.length - 1] ?? {};
+  const latestTracked = trackedPoints[trackedPoints.length - 1] ?? {};
+  const money = v => formatMoney(Math.round(v));
+
+  return (
+    <div>
+      {/* Period selector */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 2 }}>Period:</span>
+        {visiblePeriods.map(p => (
+          <button key={p.id}
+            className={`btn ${activeId === p.id ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: 12, padding: '4px 10px' }}
+            onClick={() => setPeriod(p.id)}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
+        Weekly figures shown per week; longer periods are bucket-averaged for readability. Passenger split, network and efficiency data are modeled estimates.
+        {firstTracked && all[0]?.partial && (
+          <> Detailed tracking (passenger split, routes, efficiency) began <strong>{firstTracked.label}</strong>; earlier weeks predate this feature.</>
+        )}
+      </div>
+
+      {/* KPI tiles */}
+      <div className="stat-grid" style={{ marginBottom: 20 }}>
+        {[
+          { label: 'Weekly Passengers', val: fmtInt(latest.paxTotal ?? 0), c: '' },
+          { label: 'Weekly Revenue',    val: money(latest.revenue ?? 0), c: 'green' },
+          { label: 'Net Profit / wk',   val: money(latest.profit ?? 0), c: (latest.profit ?? 0) >= 0 ? 'green' : 'red' },
+          { label: 'Active Routes',     val: hasTracked ? fmtInt(latestTracked.routes ?? 0) : '—', c: '' },
+          { label: 'Fleet',             val: hasTracked ? fmtInt(latestTracked.fleet ?? 0) : '—', c: '' },
+          { label: 'Load Factor',       val: hasTracked ? `${(latestTracked.lfPct ?? 0).toFixed(1)}%` : '—', c: '' },
+        ].map(m => (
+          <div className="stat-box" key={m.label}>
+            <div className="stat-label">{m.label}</div>
+            <div className={`stat-value ${m.c}`} style={{ fontSize: 18 }}>{m.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Passengers (stacked) ── */}
+      <div className="card">
+        <div className="card-title">Passengers per week — by source</div>
+        <StatChart points={points} wideLabels={wide} format={(v) => fmtInt(v)} series={[
+          { key: 'paxOrganic',    label: 'Organic (direct)',        color: STAT_COLORS.organic,    kind: 'area' },
+          { key: 'paxConnecting', label: 'Connecting (own hubs)',   color: STAT_COLORS.connecting, kind: 'area' },
+          { key: 'paxInterline',  label: 'Interline / codeshare',   color: STAT_COLORS.interline,  kind: 'area' },
+        ]} />
+        <StatLegend items={[
+          [STAT_COLORS.organic, 'Organic — direct O&D'],
+          [STAT_COLORS.connecting, 'Connecting — own hubs'],
+          [STAT_COLORS.interline, 'Interline / codeshare — partner-fed'],
+        ]} />
+      </div>
+
+      {/* ── Revenue & profit ── */}
+      <div className="card">
+        <div className="card-title">Revenue, cost & net profit (per week)</div>
+        <StatChart points={points} wideLabels={wide} yFrom0={false} format={(v) => money(v)} series={[
+          { key: 'revenue', label: 'Revenue',    color: STAT_COLORS.revenue },
+          { key: 'cost',    label: 'Total cost', color: STAT_COLORS.cost },
+          { key: 'profit',  label: 'Net profit', color: STAT_COLORS.profit },
+        ]} />
+        <StatLegend items={[[STAT_COLORS.revenue, 'Revenue'], [STAT_COLORS.cost, 'Total cost'], [STAT_COLORS.profit, 'Net profit']]} />
+      </div>
+
+      <div className="card">
+        <div className="card-title">Revenue mix (per week)</div>
+        <StatChart points={points} wideLabels={wide} format={(v) => money(v)} series={[
+          { key: 'passengerRev', label: 'Passenger',          color: STAT_COLORS.passRev,    kind: 'area' },
+          { key: 'partnerRevenue', label: 'Partner (interline)', color: STAT_COLORS.partnerRev, kind: 'area' },
+          { key: 'cargoRevenue', label: 'Cargo',              color: STAT_COLORS.cargoRev,   kind: 'area' },
+        ]} />
+        <StatLegend items={[[STAT_COLORS.passRev, 'Passenger'], [STAT_COLORS.partnerRev, 'Partner / interline'], [STAT_COLORS.cargoRev, 'Cargo']]} />
+      </div>
+
+      {/* ── Network size ── */}
+      <div className="card">
+        <div className="card-title">Network size</div>
+        {hasTracked ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+            {[
+              { key: 'routes',       title: 'Active routes',       color: STAT_COLORS.routes },
+              { key: 'flights',      title: 'Weekly departures',   color: STAT_COLORS.flights },
+              { key: 'destinations', title: 'Destinations served', color: STAT_COLORS.dests },
+              { key: 'fleet',        title: 'Fleet size',          color: STAT_COLORS.fleet },
+            ].map(m => (
+              <div key={m.key}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>{m.title}</div>
+                <StatChart points={trackedPoints} height={110} wideLabels={wide} format={(v) => fmtInt(v)}
+                  series={[{ key: m.key, label: m.title, color: m.color }]} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>
+            Network-size tracking begins on your next advanced week — check back shortly.
+          </div>
+        )}
+      </div>
+
+      {/* ── Efficiency ── */}
+      <div className="card">
+        <div className="card-title">Operating efficiency</div>
+        {hasTracked ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Load factor</div>
+              <StatChart points={trackedPoints} height={110} wideLabels={wide} format={(v) => `${v.toFixed(1)}%`}
+                series={[{ key: 'lfPct', label: 'Load factor', color: STAT_COLORS.lf }]} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Yield (¢ per pax-km)</div>
+              <StatChart points={trackedPoints} height={110} wideLabels={wide} format={(v) => `${v.toFixed(2)}¢`}
+                series={[{ key: 'yieldCents', label: 'Yield', color: STAT_COLORS.yield }]} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Capacity (weekly ASK)</div>
+              <StatChart points={trackedPoints} height={110} wideLabels={wide} format={(v) => fmtInt(v)}
+                series={[{ key: 'ask', label: 'ASK', color: STAT_COLORS.ask }]} />
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>
+            Efficiency tracking begins on your next advanced week — check back shortly.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -629,7 +629,7 @@ function buildPlayerConnectionOffer(conn, market) {
  * @param {object}        [options.gameDate={month:6}]       - { month } for seasonality
  * @param {Map<string,object[]>} [options.competitorRouteIndex]
  *        sorted-routeKey → array of competitor airline objects serving that O&D nonstop
- * @returns {{ totalRevenue: number, entries: PartnerODEntry[] }}
+ * @returns {{ totalRevenue: number, totalPax: number, entries: PartnerODEntry[] }}
  */
 export function computePartnerODRevenue(connections, options = {}) {
   const {
@@ -640,6 +640,7 @@ export function computePartnerODRevenue(connections, options = {}) {
 
   const entries = [];
   let totalRevenue = 0;
+  let totalPax     = 0;   // partner-fed (interline/codeshare/alliance) connecting pax
 
   // ── Group mixed-leg connections by directional O&D market ────────────────────
   // Every distinct routing that serves the same origin→destination direction
@@ -719,6 +720,7 @@ export function computePartnerODRevenue(connections, options = {}) {
       const playerRevenue    = Math.round(grossItinRevenue * meta.prorate);
 
       totalRevenue += playerRevenue;
+      totalPax     += pax;
       entries.push({
         odKey,
         hub:               meta.hub,
@@ -733,7 +735,7 @@ export function computePartnerODRevenue(connections, options = {}) {
     }
   }
 
-  return { totalRevenue, entries };
+  return { totalRevenue, totalPax, entries };
 }
 
 /**

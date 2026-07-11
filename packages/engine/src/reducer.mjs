@@ -60,6 +60,12 @@ import { routeLaunchCost, DEPRECIATION_YEARS,
 import { normalizeCateringLevel } from './data/catering.js';
 import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective } from './data/objectives.js';
 
+// How many weeks of the compact long-term KPI series (state.statsHistory) to
+// retain. 1820 weeks = 35 game years — comfortably covers the Statistics page's
+// longest period filter (30 years) with headroom. Only lightweight scalar fields
+// are stored per week, so even at the cap this is a small slice of the save.
+const STATS_HISTORY_CAP = 1820;
+
 // ─────────────────────────────────────────────
 // ROUTE TRANSFER (Fleet: move every route from one tail to another)
 // ─────────────────────────────────────────────
@@ -218,6 +224,7 @@ function freshState() {
       pointsLiability: 0,    // $ value of outstanding unredeemed points (balance-sheet debt)
     },
     financialHistory: [],  // last 52 weeks of reports
+    statsHistory: [],      // compact long-term KPI series (Statistics page) — see STATS_HISTORY_CAP
     lastReport: null,
     fuelPrice: { index: 1.0, history: [] },  // fuel price index + 52-week history
     hedgeContracts: [],                       // active fuel hedge contracts
@@ -2489,6 +2496,57 @@ function reducer(state, action) {
       };
       const newHistory = [...state.financialHistory, historyEntry].slice(-52);
 
+      // ── Long-term statistics series (Finance ▸ Statistics page) ──────────────
+      // A compact per-week KPI record retained far longer than financialHistory
+      // (which stays capped at 52 weeks). Only lightweight scalars — no per-route
+      // maps — so the save / MP-sync footprint stays small even over decades.
+      const statAbsWeek  = (state.year - 1) * 52 + state.week;
+      const statRouteById = new Map((state.routes ?? []).map(r => [r.id, r]));
+      const statCargoById = new Map((state.cargoRoutes ?? []).map(r => [r.id, r]));
+      const statDest      = new Set();
+      let   statFlights = 0, statAsk = 0, statRpk = 0, statPaxRev = 0;
+      for (const rr of (report.routeResults ?? [])) {
+        const r = statRouteById.get(rr.routeId);
+        if (r) { statDest.add(r.origin); statDest.add(r.destination); statFlights += (r.weeklyFrequency ?? 0); }
+        const seats = rr.configuredSeatsOneWay ?? 0;
+        const dist  = rr.distance ?? 0;
+        const pax   = rr.passengers ?? 0;
+        statAsk    += seats * dist * 2;   // ASK — both directions
+        statRpk    += pax   * dist * 2;   // RPK — both directions
+        statPaxRev += rr.revenue ?? 0;    // passenger route revenue (incl. connecting)
+      }
+      for (const cr of (report.cargoRouteResults ?? [])) {
+        const r = statCargoById.get(cr.routeId);
+        if (r) { statDest.add(r.origin); statDest.add(r.destination); statFlights += (r.weeklyFrequency ?? 0); }
+      }
+      const statsEntry = {
+        label:   historyEntry.label,
+        week:    state.week,
+        year:    state.year,
+        absWeek: statAbsWeek,
+        // Passenger segmentation (one-way boardings per direction; ×2 for round trips)
+        paxOrganic:     report.paxOrganic    ?? report.totalPassengers ?? 0,
+        paxConnecting:  report.paxConnecting ?? 0,
+        paxInterline:   report.paxInterline  ?? 0,
+        // Network size
+        routes:         (report.routeResults?.length ?? 0) + (report.cargoRouteResults?.length ?? 0),
+        flights:        statFlights,
+        destinations:   statDest.size,
+        fleet:          agedFleet?.length ?? state.fleet?.length ?? 0,
+        // Financials (mirror historyEntry so charts reconcile with the P&L)
+        revenue:        (report.totalRevenue ?? 0) + (report.totalCargoRevenue ?? 0),  // grand total operating revenue
+        partnerRevenue: report.totalPartnerRevenue ?? 0,
+        cargoRevenue:   report.totalCargoRevenue   ?? 0,
+        cost:           historyEntry.totalCost,
+        profit:         historyEntry.profit,
+        cash:           newCash,
+        // Efficiency
+        loadFactor:     statAsk > 0 ? +(statRpk / statAsk).toFixed(4) : 0,
+        yield:          statRpk > 0 ? +(statPaxRev / statRpk).toFixed(4) : 0,   // $ per RPK
+        ask:            Math.round(statAsk),
+      };
+      const newStats = [...(state.statsHistory ?? []), statsEntry].slice(-STATS_HISTORY_CAP);
+
       // ── Player market cap (trailing 12 weeks, using newHistory which includes this week) ──
       const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);
       const { marketCap: newMarketCap, sharePrice: newSharePrice } =
@@ -2613,6 +2671,7 @@ function reducer(state, action) {
         cargoRoutes:       finalCargoRoutes,
         pendingOrders:     remainingOrders,
         financialHistory:  newHistory,
+        statsHistory:      newStats,
         lastReport:        { ...report, cashDelta: preTaxProfit - corporateTax,
           // Effective revenue includes the world-event demand adjustment that the
           // headline net already reflects; "all-in" cost folds loan payments,
@@ -2620,11 +2679,7 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members,
-          // Maintenance budget in effect when totalMaintenance was computed — lets
-          // the Operations UI project next week's cost live as the slider moves
-          // (maintenance scales ~linearly with this multiplier).
-          maintenanceBudgetUsed: mainBudget },
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         hubs:              hubsAfterBuild,
@@ -2899,6 +2954,25 @@ function reconcileState(parsed) {
     starterDeliveriesUsed:    parsed.starterDeliveriesUsed ?? Math.min(2, cleanFleet.length + pendingOrders.length),
     // Guarantee fields added in later versions exist even on old saves
     financialHistory: parsed.financialHistory ?? [],
+    // Long-term KPI series (Finance ▸ Statistics). New saves carry it; for older
+    // saves, seed a PARTIAL series from financialHistory so the recent financial
+    // charts aren't empty on first load. Pre-update weeks can't have the passenger
+    // split / network-size / efficiency fields reconstructed — they're flagged
+    // `partial` and simply fill in going forward as new weeks tick.
+    statsHistory:     parsed.statsHistory ?? (parsed.financialHistory ?? []).map(h => ({
+      label:          h.label,
+      week:           h.week,
+      year:           h.year,
+      absWeek:        ((h.year ?? 1) - 1) * 52 + (h.week ?? 0),
+      paxOrganic:     h.passengers    ?? 0,
+      revenue:        (h.revenue ?? 0) + (h.cargoRevenue ?? 0),
+      partnerRevenue: h.partnerRevenue ?? 0,
+      cargoRevenue:   h.cargoRevenue   ?? 0,
+      cost:           h.totalCost      ?? 0,
+      profit:         h.profit         ?? 0,
+      cash:           h.cash           ?? 0,
+      partial:        true,
+    })),
     lastReport:       parsed.lastReport       ?? null,
     satisfaction:     parsed.satisfaction     ?? null,
     hubs:             parsed.hubs             ?? {},
