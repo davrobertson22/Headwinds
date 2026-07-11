@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
@@ -6,8 +6,10 @@ import {
   formatMoney, formatPercent,
   maintenanceMultiplier, ageLabel,
   simulateRoute, weeklyBlockHours, currentGameDate,
+  fleetAvgUtilization, buildEventDemandModel,
   MAX_WEEKLY_BLOCK_HOURS, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate,
 } from '../utils/simulation.js';
+import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
 import InfoTip from './InfoTip.jsx';
@@ -164,11 +166,31 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
 
   const type = getAircraftType(aircraft.typeId);
 
-  // All routes for this aircraft, with simulation results and block hours
+  // All routes for this aircraft, with simulation results and block hours.
+  // Numbers MUST come from the canonical engine projection (projectWeek) — the
+  // same source the Routes and Finance tabs use — so this panel reflects real
+  // competitor encroachment, labor, fuel and revenue lifts. Re-simulating
+  // standalone here (simulateRoute with no competition context) reported the
+  // uncontested demand, which showed routes at 100% load while Routes/Finance
+  // correctly showed them contested and often losing money.
   const gd             = currentGameDate(state);
+  const proj           = useMemo(() => projectWeek(state), [state]);
+  const rrById         = useMemo(() => {
+    const m = {};
+    for (const rr of proj.report?.routeResults ?? []) m[rr.routeId] = rr;
+    return m;
+  }, [proj]);
   const aircraftRoutes = routes.filter(r => r.aircraftId === aircraft.id);
   const routeResults   = aircraftRoutes.map(r => {
-    const result = simulateRoute(r, aircraft, gd);
+    // Prefer the engine's authoritative routeResult. Routes the engine skips
+    // (grounded or dormant-seasonal) aren't in the report, so fall back to a
+    // standalone sim run with the same labor + fuel the engine used.
+    let result = rrById[r.id];
+    if (!result) {
+      const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
+      const evMult  = buildEventDemandModel(state.activeEvents).multFor(r.origin, r.destination);
+      result = simulateRoute(r, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
+    }
     if (!result) return null;
     const bh = type ? weeklyBlockHours(result.distance, r.weeklyFrequency, type) : 0;
     return { route: r, result, blockHrs: bh };
