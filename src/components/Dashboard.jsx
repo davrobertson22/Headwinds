@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
@@ -7,6 +7,7 @@ import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
 import BoardObjectives from './BoardObjectives.jsx';
+import InfoTip from './InfoTip.jsx';
 import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon } from './Icons.jsx';
 
 export default function Dashboard() {
@@ -53,6 +54,25 @@ export default function Dashboard() {
   const cargoRevenue = proj.report.totalCargoRevenue ?? 0;
   const cargoTonnes  = proj.report.totalCargoTonnes ?? 0;
 
+  // Network-wide load factor & yield (passenger network, canonical projection).
+  // passengers/configuredSeatsOneWay are per direction; revenue covers both
+  // directions, so RPK = pax × 2 × distance and boarded pax/wk = pax × 2.
+  const networkStats = useMemo(() => {
+    let pax = 0, seats = 0, rpk = 0, rev = 0;
+    for (const rr of proj.report?.routeResults ?? []) {
+      pax   += rr.passengers ?? 0;
+      seats += rr.configuredSeatsOneWay ?? 0;
+      rpk   += (rr.passengers ?? 0) * 2 * (rr.distance ?? 0);
+      rev   += rr.revenue ?? 0;
+    }
+    return {
+      loadFactor:  seats > 0 ? pax / seats : null,
+      boardedPax:  pax * 2,
+      yieldPerPkm: rpk > 0 ? rev / rpk : null,   // $ per passenger-km
+      revPerPax:   pax > 0 ? rev / (pax * 2) : null,
+    };
+  }, [proj]);
+
   // Per-route operating cost — retained only for the cost-breakdown fallback below
   // (used when there's no lastReport yet). Now reads the real totalOpCost key.
   const projectedOpCost  = routeResults.reduce((s, { result }) => s + (result?.totalOpCost ?? 0), 0);
@@ -94,15 +114,112 @@ export default function Dashboard() {
 
   const totalWeeklyCosts = costBreakdown.total;
 
+  // ── Weekly P&L bridge (route profit → net profit), last week + projected ──
+  // The Top Routes table shows per-route OPERATING profit (revenue − direct
+  // route costs − landing fees). That deliberately excludes fleet fixed costs,
+  // overhead, financing and tax — so the routes never "add up" to the bottom
+  // line. This bridge makes the gap explicit, for BOTH what actually happened
+  // last week (lastReport) and the coming week (the canonical projectWeek pass).
+  //
+  // Identities (mirror simulation.js weeklyTick + the reducer / projectWeek):
+  //   routeOp  = Σ routeResults.profit + totalCargoProfit
+  //            = (route+cargo revenue) − totalOpCost            [op cost incl. landing fees]
+  //   fixed    = totalCost − totalOpCost                        [leases…distribution]
+  //   EBITDA   = routeOp + partner/other revenue − fixed − strike loss
+  //   net      = EBITDA − loan payments − one-time charges − corporate tax
+  const pnl = useMemo(() => {
+    const fromReport = (r) => {
+      if (!r) return null;
+      const routeOp  = (r.routeResults ?? []).reduce((s, rr) => s + (rr.profit ?? 0), 0)
+                     + (r.totalCargoProfit ?? 0);
+      const otherRev = (r.totalPartnerRevenue ?? 0) + (r.eventDemandAdj ?? 0);
+      const fixed    = Math.max(0, (r.totalCost ?? 0) - (r.totalOpCost ?? 0));
+      const strike   = r.strikeLoss ?? 0;
+      const operating = routeOp + otherRev - fixed - strike;               // EBITDA
+      const loans     = r.loanPayments ?? 0;
+      const oneOff    = (r.leaseRedelivery ?? 0) + (r.seasonalReactivation ?? 0);
+      const tax       = r.corporateTax ?? 0;
+      return {
+        routeOp, otherRev, fixed, strike, operating, loans, oneOff, tax,
+        net: operating - loans - oneOff - tax,
+        breakdown: {
+          leases:       r.totalLeases ?? 0,
+          maintenance:  r.totalMaintenance ?? 0,
+          gates:        r.totalGateFees ?? 0,
+          labor:        r.totalLaborCosts ?? 0,
+          overhead:     (r.totalHQCost ?? 0) + (r.totalInsurance ?? 0) + (r.totalFamilyBaseCosts ?? 0),
+          marketing:    (r.totalMarketingSpend ?? 0) + (r.totalLoyaltyCost ?? 0) + (r.totalHubInvestment ?? 0),
+          distribution: (r.totalDistributionCost ?? 0) + (r.totalPartnerFees ?? 0),
+        },
+      };
+    };
+    const projected = fromReport(proj.report);
+    if (projected) {
+      // Below-the-line items come from the canonical projection so the card's
+      // net EXACTLY equals the "Projected Profit / wk" KPI (proj.netCash).
+      projected.operating = proj.ebitda;
+      projected.loans     = proj.loanPayments;
+      projected.oneOff    = proj.seasonalReactivation;
+      projected.tax       = proj.corporateTax;
+      projected.net       = proj.netCash;
+    }
+    const lastWeek = fromReport(lastReport);
+    if (lastWeek && lastReport?.cashDelta != null) lastWeek.net = lastReport.cashDelta;
+    return { projected, lastWeek };
+  }, [proj, lastReport]);
+
+  // ── Top Routes view toggle (projected vs what actually happened) ──────────
+  const [routeView, setRouteView] = useState('projected');
+  const lastWeekRRById = useMemo(() => {
+    const m = {};
+    for (const rr of lastReport?.routeResults ?? []) m[rr.routeId] = rr;
+    return m;
+  }, [lastReport]);
+  const hasLastWeekRoutes = (lastReport?.routeResults?.length ?? 0) > 0;
+  const showLastWeekRoutes = routeView === 'lastweek' && hasLastWeekRoutes;
+
+  // "True profit" view: profit after each route also carries its SHARE of the
+  // aircraft's weekly lease + maintenance. The engine's per-route trueProfit
+  // charges the FULL aircraft cost to every route it flies, which double-counts
+  // when one aircraft serves several routes — so apportion by block-hour share
+  // (cargo routes included in the denominator so freighter time isn't billed
+  // to passenger routes).
+  const trueResults = useMemo(() => {
+    const bhFor = (r) => {
+      const ac = fleet.find(a => a.id === r.aircraftId);
+      const t  = ac ? getAircraftType(ac.typeId) : null;
+      return t ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t) : 0;
+    };
+    const bhByAircraft = {};
+    for (const r of [...routes, ...cargoRoutes]) {
+      bhByAircraft[r.aircraftId] = (bhByAircraft[r.aircraftId] ?? 0) + bhFor(r);
+    }
+    return routeResults.map(({ route, result }) => {
+      if (!result) return { route, result };
+      const totalBh = bhByAircraft[route.aircraftId] || 0;
+      const share   = totalBh > 0 ? bhFor(route) / totalBh : 1;
+      const fixedShare = Math.round(((result.weeklyLeaseCost ?? 0) + (result.weeklyMaintCost ?? 0)) * share);
+      return { route, result: { ...result, profit: (result.profit ?? 0) - fixedShare, fixedShare } };
+    });
+  }, [routeResults, routes, cargoRoutes, fleet]);
+
+  // The dataset the table actually renders. Last-week rows join the stored
+  // engine report to current routes by id — routes opened this week show "—".
+  const displayedResults = useMemo(() => (
+    showLastWeekRoutes ? routes.map(route => ({ route, result: lastWeekRRById[route.id] ?? null }))
+    : routeView === 'true' ? trueResults
+    : routeResults
+  ), [showLastWeekRoutes, routeView, routes, lastWeekRRById, trueResults, routeResults]);
+
   // ── Route profit normalization (for mini-bars) ─────────────────────────────
-  const routeProfitMap = routeResults.reduce((acc, { route, result }) => {
+  const routeProfitMap = displayedResults.reduce((acc, { route, result }) => {
     const key = `${route.origin}→${route.destination}`;
     acc[key] = (acc[key] ?? 0) + (result?.profit ?? 0);
     return acc;
   }, {});
   const maxAbsRouteProfit = Math.max(1, ...Object.values(routeProfitMap).map(p => Math.abs(p)));
   const maxRouteRevenue   = Math.max(1, ...Object.values(
-    routeResults.reduce((acc, { route, result }) => {
+    displayedResults.reduce((acc, { route, result }) => {
       const key = `${route.origin}→${route.destination}`;
       acc[key] = (acc[key] ?? 0) + (result?.revenue ?? 0);
       return acc;
@@ -136,6 +253,13 @@ export default function Dashboard() {
     alerts.push({ color: 'var(--yellow)', icon: AlertIcon, text: `${idleAircraft} idle aircraft — paying lease with no revenue` });
   if (isFinite(weeksOfCash) && weeksOfCash < 4)
     alerts.push({ color: 'var(--red)', icon: DotIcon, text: `Only ${weeksOfCash} weeks of cash runway remaining` });
+  // The silent killer: routes are in the black, but fixed costs, financing and
+  // tax flip the bottom line negative. Invisible until cash dips — call it out.
+  if (pnl.projected && pnl.projected.routeOp > 0 && pnl.projected.net < 0)
+    alerts.push({
+      color: 'var(--red)', icon: TrendDownIcon,
+      text: `Routes earn +${formatMoney(pnl.projected.routeOp)}/wk, but fixed costs, financing & tax turn that into ${formatMoney(pnl.projected.net)}/wk — see Weekly P&L`,
+    });
   const losingRoutes = routeResults.filter(({ result }) => result && result.profit < 0);
   if (losingRoutes.length > 0)
     alerts.push({ color: 'var(--red)', icon: TrendDownIcon, text: `${losingRoutes.length} loss-making route${losingRoutes.length !== 1 ? 's' : ''} — consider repricing` });
@@ -237,6 +361,22 @@ export default function Dashboard() {
           color="blue"
           sub={`${countries.length} countries`}
         />
+        {networkStats.loadFactor != null && (
+          <KpiBox
+            label="Load Factor"
+            value={formatPercent(networkStats.loadFactor)}
+            color={networkStats.loadFactor >= 0.75 ? 'green' : networkStats.loadFactor >= 0.5 ? 'blue' : 'yellow'}
+            sub={`${Math.round(networkStats.boardedPax).toLocaleString()} pax/wk`}
+          />
+        )}
+        {networkStats.yieldPerPkm != null && (
+          <KpiBox
+            label="Yield"
+            value={`${(networkStats.yieldPerPkm * 100).toFixed(1)}¢/pkm`}
+            color="blue"
+            sub={networkStats.revPerPax != null ? `${formatMoney(networkStats.revPerPax)} avg / pax` : undefined}
+          />
+        )}
         <KpiBox
           label="Date"
           value={formatGameDate({ week, year })}
@@ -246,19 +386,13 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* ── Weekly P&L bridge (incl. cost-mix bar) ───────────────────────── */}
+      {pnl.projected && (routes.length > 0 || cargoRoutes.length > 0 || pnl.lastWeek) && (
+        <WeeklyPnL lastWeek={pnl.lastWeek} projected={pnl.projected} costBreakdown={totalWeeklyCosts > 0 ? costBreakdown : null} />
+      )}
+
       {/* ── Board objectives ─────────────────────────────────────────────── */}
       <BoardObjectives />
-
-      {/* ── Cost breakdown ───────────────────────────────────────────────── */}
-      {totalWeeklyCosts > 0 && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div className="card-title" style={{ marginBottom: 0 }}>Weekly Cost Breakdown</div>
-            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{formatMoney(totalWeeklyCosts)} total</span>
-          </div>
-          <CostBreakdownChart breakdown={costBreakdown} />
-        </div>
-      )}
 
       {/* ── Financial history chart ──────────────────────────────────────── */}
       {hist.length > 1 && (
@@ -316,9 +450,38 @@ export default function Dashboard() {
       {/* ── Route performance ────────────────────────────────────────────── */}
       {routes.length > 0 && (
         <div className="card">
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div className="card-title" style={{ marginBottom: 0 }}>Top Routes (Projected)</div>
-            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>sorted by profit · Finance → By Route for full list</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="card-title" style={{ marginBottom: 0 }}>Top Routes</div>
+              <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+                {[
+                  ['projected', 'Projected'],
+                  ...(hasLastWeekRoutes ? [['lastweek', 'Last Week']] : []),
+                  ['true', 'True Profit'],
+                ].map(([key, lbl]) => (
+                  <button
+                    key={key}
+                    onClick={() => setRouteView(key)}
+                    style={{
+                      padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      border: 'none',
+                      background: routeView === key ? 'var(--accent)' : 'transparent',
+                      color: routeView === key ? '#fff' : 'var(--text-muted)',
+                    }}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {routeView === 'true' && (
+                <InfoTip text="Profit after each route also carries its share of the aircraft's weekly lease + maintenance, split by block hours when one aircraft flies several routes. Shows which routes truly pay for their aircraft." />
+              )}
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+              {showLastWeekRoutes ? 'operating profit last week'
+                : routeView === 'true' ? 'incl. aircraft lease + maintenance'
+                : 'sorted by profit'} · Finance → By Route for full list
+            </span>
           </div>
           <table>
             <thead>
@@ -328,14 +491,14 @@ export default function Dashboard() {
                 <th>Freq</th>
                 <th>Load</th>
                 <th>Revenue / wk</th>
-                <th>Profit / wk</th>
+                <th>{routeView === 'true' ? 'True profit / wk' : 'Profit / wk'}</th>
               </tr>
             </thead>
             <tbody>
               {(() => {
                 // Consolidate by origin→destination pair
                 const grouped = {};
-                routeResults.forEach(({ route, result }) => {
+                displayedResults.forEach(({ route, result }) => {
                   const key = `${route.origin}→${route.destination}`;
                   if (!grouped[key]) grouped[key] = { route, entries: [] };
                   grouped[key].entries.push({ route, result });
@@ -487,9 +650,169 @@ function TrendBadge({ value, isPercent }) {
   );
 }
 
+// ── Weekly P&L bridge card ────────────────────────────────────────────────────
+// Reconciles per-route operating profit (the Top Routes table) down to the real
+// bottom line, side by side for last week (actual) and this week (projected).
+
+function WeeklyPnL({ lastWeek, projected, costBreakdown }) {
+  const [showFixed, setShowFixed] = useState(false);
+  const two = !!lastWeek;
+
+  const FIXED_DETAIL = [
+    ['leases',       'Aircraft leases'],
+    ['maintenance',  'Maintenance'],
+    ['gates',        'Gates & slots'],
+    ['labor',        'Staff & labor'],
+    ['overhead',     'HQ, insurance & admin'],
+    ['marketing',    'Marketing, loyalty & hubs'],
+    ['distribution', 'Distribution & partner fees'],
+  ];
+
+  const signed = (v, { forceSign = true } = {}) =>
+    v == null ? '—' : (v > 0 && forceSign ? '+' : '') + formatMoney(v);
+
+  const rows = [];
+  rows.push({
+    label: 'Route operating profit',
+    tip: 'Sum of every route’s revenue minus its direct flying costs (fuel, crew, service, landing fees) — passenger and cargo. This is the profit shown in the Top Routes table.',
+    lw: lastWeek?.routeOp, pj: projected.routeOp,
+  });
+  if ((lastWeek?.otherRev ?? 0) !== 0 || projected.otherRev !== 0) rows.push({
+    label: 'Partner & other revenue',
+    tip: 'Alliance and codeshare revenue not tied to a single route.',
+    lw: lastWeek?.otherRev, pj: projected.otherRev,
+  });
+  rows.push({
+    label: 'Fixed & overhead costs',
+    tip: 'Costs you pay regardless of how full the planes are: aircraft leases, maintenance, gates, staff, HQ, insurance, marketing, loyalty and distribution.',
+    lw: lastWeek ? -lastWeek.fixed : null, pj: -projected.fixed,
+    expandable: true,
+  });
+  if (showFixed) {
+    for (const [key, label] of FIXED_DETAIL) {
+      const lwv = lastWeek?.breakdown?.[key] ?? 0;
+      const pjv = projected.breakdown?.[key] ?? 0;
+      if (lwv === 0 && pjv === 0) continue;
+      rows.push({ label, lw: lastWeek ? -lwv : null, pj: -pjv, detail: true });
+    }
+  }
+  if ((lastWeek?.strike ?? 0) !== 0) rows.push({
+    label: 'Strike revenue loss',
+    tip: 'Revenue forfeited to flights cancelled by industrial action.',
+    lw: -lastWeek.strike, pj: 0,
+  });
+  rows.push({
+    label: 'Operating profit',
+    tip: 'Revenue minus ALL operating and fixed costs (EBITDA) — before financing and tax.',
+    lw: lastWeek?.operating, pj: projected.operating,
+    subtotal: true,
+  });
+  if ((lastWeek?.loans ?? 0) !== 0 || projected.loans !== 0) rows.push({
+    label: 'Loan payments',
+    tip: 'Weekly interest + principal on outstanding loans.',
+    lw: lastWeek ? -lastWeek.loans : null, pj: -projected.loans,
+  });
+  if ((lastWeek?.oneOff ?? 0) !== 0 || projected.oneOff !== 0) rows.push({
+    label: 'One-time charges',
+    tip: 'Lease redelivery and seasonal route reactivation fees.',
+    lw: lastWeek ? -lastWeek.oneOff : null, pj: -projected.oneOff,
+  });
+  if ((lastWeek?.tax ?? 0) !== 0 || projected.tax !== 0) rows.push({
+    label: 'Corporate tax',
+    tip: '21% of taxable profit.',
+    lw: lastWeek ? -lastWeek.tax : null, pj: -projected.tax,
+  });
+  rows.push({
+    label: 'Net profit',
+    tip: 'The actual change in your cash balance for the week.',
+    lw: lastWeek?.net, pj: projected.net,
+    total: true,
+  });
+
+  const colStyle = { textAlign: 'right', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap' };
+  const valColor = (v, strong) =>
+    v == null ? 'var(--text-dim)'
+    : strong ? (v >= 0 ? 'var(--green)' : 'var(--red)')
+    : 'var(--text)';
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+        <div className="card-title" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+          Weekly P&amp;L
+          <InfoTip text="Why route profit doesn't add up to total profit: routes only carry their direct flying costs. Fixed costs, financing and tax sit below the line — this bridge reconciles the two." />
+        </div>
+        {!two && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>last-week actuals appear after your first full week</span>}
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: two ? 'minmax(0,1fr) auto auto' : 'minmax(0,1fr) auto',
+        columnGap: 18, rowGap: 0, maxWidth: 560,
+      }}>
+        {/* Column headers */}
+        <span />
+        {two && <span style={{ ...colStyle, fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '.06em', paddingBottom: 4 }}>Last Week</span>}
+        <span style={{ ...colStyle, fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '.06em', paddingBottom: 4 }}>This Week (proj.)</span>
+
+        {rows.map((r, i) => {
+          const strong = r.subtotal || r.total;
+          const rowPad = strong ? '6px 0' : r.detail ? '2px 0' : '4px 0';
+          const border = strong ? '1px solid var(--border)' : 'none';
+          return [
+            <span key={`l${i}`} style={{
+              padding: rowPad, borderTop: border,
+              paddingLeft: r.detail ? 16 : 0,
+              fontSize: r.detail ? 11 : 12.5,
+              fontWeight: strong ? 700 : r.detail ? 400 : 500,
+              color: r.detail ? 'var(--text-dim)' : strong ? 'var(--text)' : 'var(--text-muted)',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}>
+              {r.expandable ? (
+                <button
+                  onClick={() => setShowFixed(s => !s)}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', font: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}
+                  title={showFixed ? 'Hide breakdown' : 'Show breakdown'}
+                >
+                  <span style={{ fontSize: 9, width: 10, display: 'inline-block' }}>{showFixed ? '▾' : '▸'}</span>
+                  {r.label}
+                </button>
+              ) : r.label}
+              {r.tip && !r.detail && <InfoTip text={r.tip} />}
+            </span>,
+            ...(two ? [
+              <span key={`w${i}`} style={{ ...colStyle, padding: rowPad, borderTop: border, fontWeight: strong ? 700 : 400, fontSize: r.detail ? 11 : strong ? 13 : 12, color: valColor(r.lw, strong) }}>
+                {signed(r.lw)}
+              </span>,
+            ] : []),
+            <span key={`p${i}`} style={{ ...colStyle, padding: rowPad, borderTop: border, fontWeight: strong ? 700 : 400, fontSize: r.detail ? 11 : strong ? 13 : 12, color: valColor(r.pj, strong) }}>
+              {signed(r.pj)}
+            </span>,
+          ];
+        })}
+      </div>
+
+      {/* Cost mix — the full weekly cost stack (variable + fixed), absorbed from
+          the old standalone "Weekly Cost Breakdown" card. */}
+      {costBreakdown && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+              Cost Mix {costBreakdown.fromReport ? '· last week' : '· projected'}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{formatMoney(costBreakdown.total)} total</span>
+          </div>
+          <CostBreakdownChart breakdown={costBreakdown} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Multi-line financial chart (enhanced) ────────────────────────────────────
 
 function FinancialChart({ history, currentWeek }) {
+  const [hover, setHover] = useState(null);
   const PAD_L = 58, PAD_R = 12, PAD_T = 10, PAD_B = 22;
   const W = 600, H = 180;
   const dW = W - PAD_L - PAD_R;
@@ -555,9 +878,24 @@ function FinancialChart({ history, currentWeek }) {
     ? `${Math.round((profits[n - 1] / revenues[n - 1]) * 100)}% margin`
     : '';
 
+  const hasEventWeeks = history.some(h => (h.events?.length ?? 0) > 0);
+
+  // Map mouse x → nearest history index (viewBox coordinates).
+  const handleMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!rect.width) return;
+    const xPx = ((e.clientX - rect.left) / rect.width) * W;
+    setHover(Math.max(0, Math.min(n - 1, Math.round(((xPx - PAD_L) / dW) * (n - 1)))));
+  };
+
   return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
+    <div style={{ position: 'relative' }}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ width: '100%', height: H, display: 'block', cursor: 'crosshair' }}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHover(null)}
+      >
         {/* Grid lines + y-axis labels */}
         {gridLines.map(({ y, v, lbl }, idx) => (
           <g key={idx}>
@@ -592,15 +930,67 @@ function FinancialChart({ history, currentWeek }) {
         {line(costs,    '#ff5d6c', '5 3')}
         {line(profits,  '#38d39f')}
 
+        {/* World-event week markers */}
+        {history.map((h, i) => (h.events?.length ?? 0) > 0 && (
+          <circle key={`ev${i}`} cx={px(i).toFixed(1)} cy={PAD_T + 3} r="2.5"
+            fill={h.events[0]?.color ?? 'var(--yellow)'} opacity=".9" />
+        ))}
+
+        {/* Hover guide + markers */}
+        {hover != null && (
+          <g pointerEvents="none">
+            <line x1={px(hover).toFixed(1)} x2={px(hover).toFixed(1)} y1={PAD_T} y2={PAD_T + dH}
+              stroke="var(--text-dim)" strokeWidth="0.8" strokeDasharray="2 3" />
+            <circle cx={px(hover).toFixed(1)} cy={py(revenues[hover]).toFixed(1)} r="3" fill="#3ea6ff" />
+            <circle cx={px(hover).toFixed(1)} cy={py(costs[hover]).toFixed(1)}    r="3" fill="#ff5d6c" />
+            <circle cx={px(hover).toFixed(1)} cy={py(profits[hover]).toFixed(1)}  r="3" fill="#38d39f" />
+          </g>
+        )}
+
         {/* End dots */}
         <circle cx={px(n-1).toFixed(1)} cy={py(revenues[n-1]).toFixed(1)} r="3.5" fill="#3ea6ff" />
         <circle cx={px(n-1).toFixed(1)} cy={py(costs[n-1]).toFixed(1)}    r="3.5" fill="#ff5d6c" />
         <circle cx={px(n-1).toFixed(1)} cy={py(profits[n-1]).toFixed(1)}  r="3.5" fill="#38d39f" />
       </svg>
+
+      {/* Hover tooltip */}
+      {hover != null && (() => {
+        const h = history[hover];
+        const leftPct = (px(hover) / W) * 100;
+        const flip = leftPct > 62;
+        return (
+          <div style={{
+            position: 'absolute', top: 2, left: `${leftPct}%`,
+            transform: flip ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)',
+            background: 'var(--surface2)', border: '1px solid var(--border)',
+            borderRadius: 6, padding: '6px 10px', fontSize: 11,
+            pointerEvents: 'none', zIndex: 5, whiteSpace: 'nowrap',
+            boxShadow: 'var(--shadow-sm)',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: 3, color: 'var(--text)' }}>
+              {h.label ?? `W${h.week ?? hover + 1}`}
+            </div>
+            <div style={{ color: '#3ea6ff' }}>Revenue&nbsp; {formatMoney(revenues[hover])}</div>
+            <div style={{ color: '#ff5d6c' }}>Costs&nbsp;&nbsp;&nbsp;&nbsp; {formatMoney(costs[hover])}</div>
+            <div style={{ color: '#38d39f', fontWeight: 600 }}>Profit&nbsp;&nbsp;&nbsp; {(profits[hover] >= 0 ? '+' : '') + formatMoney(profits[hover])}</div>
+            {(h.events?.length ?? 0) > 0 && (
+              <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--border)' }}>
+                {h.events.map((ev, j) => (
+                  <div key={ev.id ?? j} style={{ color: ev.color ?? 'var(--yellow)' }}>
+                    {ev.icon ? `${ev.icon} ` : ''}{ev.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
         <span><span style={{ color: '#3ea6ff' }}>—</span> Revenue</span>
         <span><span style={{ color: '#ff5d6c' }}>- -</span> Costs</span>
         <span><span style={{ color: '#38d39f' }}>—</span> Profit</span>
+        {hasEventWeeks && <span><span style={{ color: 'var(--yellow)' }}>●</span> world event</span>}
         {lastPct && <span style={{ marginLeft: 'auto', color: 'var(--green)' }}>{lastPct}</span>}
       </div>
     </div>

@@ -2479,6 +2479,9 @@ function reducer(state, action) {
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
         fuelIndex:          currentFuelIndex,
+        // World events active during this week — the Dashboard's financial
+        // history chart uses these for event markers + hover tooltips.
+        events:             allEvents.map(e => ({ id: e.id, name: e.name, icon: e.icon, color: e.color })),
         // Per-route revenue breakdown for Finance page prior-week column
         routeRevenues:      Object.fromEntries(
           (report.routeResults ?? []).map(r => [r.routeId, r.revenue])
