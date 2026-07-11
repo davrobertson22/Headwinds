@@ -291,6 +291,12 @@ MULTIPLAYER_PATCHES.push({
   anchor: '__TOUR_MUST_BE_REMOTE_AWARE__',        // never matches — assert-only
   patched: "import { useGame } from '../store/GameContext.jsx';",
 });
+MULTIPLAYER_PATCHES.push({
+  file: 'src/components/Reputation.jsx',
+  why: 'positioning map plots REAL human rivals (state.competitors[].positioning), not fabricated ZoomJet/Global Air/Apex Air brands',
+  anchor: '__POSITIONING_MUST_PLOT_REAL_RIVALS__', // never matches — assert-only
+  patched: '__HW_POSITIONING_REAL_RIVALS__',
+});
 
 // ── Multiplayer-readiness patches (solo leftovers purged when remote) ────────
 // See HEADWINDS_MP_READINESS_PLAN.md. Each is remote-guarded: solo renders

@@ -20,6 +20,7 @@
 // view is never trusted from the stored blob.
 import { referencePrice } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
 
@@ -140,6 +141,10 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // DB-authoritative (player alliances); a stale blob value never leaks in.
     allianceId,
     allianceName, // display name — 'hw:' ids never resolve in the static bank
+    // Market-positioning coordinates (Leisure↔Business, Budget↔Premium), computed
+    // with the SAME shared engine formula the player sees for itself, so the
+    // Reputation positioning chart can plot this human rival as a real dot.
+    positioning: calcPositioning(s),
     routes,
   };
 }
