@@ -153,7 +153,8 @@ export default function GamePlayScreen({ worldId, token }) {
           {meta?.worldStatus !== 'RUNNING' ? ` · world ${meta?.worldStatus}` : ''}
         </span>
         {error && <span className="error">{String(error.message || error)}</span>}
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8 }}>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+          <a href="/rules.html" target="_blank" rel="noopener noreferrer" title="Headwinds fair play rules">Rules</a>
           <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
           <MessagesWidget worldId={worldId} token={token} />
         </span>
