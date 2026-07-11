@@ -1766,7 +1766,9 @@ function reducer(state, action) {
       // ── Events: tick existing, roll for new ──────────────────────────────
       const { updated: survivingEvents, expired: expiredEvents } =
         tickEvents(state.activeEvents ?? []);
-      const newEvents  = rollEvents(survivingEvents);
+      // Headwinds multiplayer: suppress solo-only events that assume a fictional
+      // AI rival airline (see SOLO_ONLY_EVENTS in data/events.js). No-op in solo.
+      const newEvents  = rollEvents(survivingEvents, { multiplayer: state.multiplayer === true });
       const allEvents  = [...survivingEvents, ...newEvents];
 
       // ── Compute event effects on this week's finances ──────────────────
@@ -2486,6 +2488,11 @@ function reducer(state, action) {
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
         fuelIndex:          currentFuelIndex,
+        // Earned passenger satisfaction (0-100) and this week's reputation score,
+        // so the Dashboard can trend them. Older history entries lack these - any
+        // consumer must guard for null (the trend simply builds up going forward).
+        satisfaction:       report.satisfaction ?? state.satisfaction ?? null,
+        reputationScore:    report.reputationScore ?? null,
         // World events active during this week — the Dashboard's financial
         // history chart uses these for event markers + hover tooltips.
         events:             allEvents.map(e => ({ id: e.id, name: e.name, icon: e.icon, color: e.color })),

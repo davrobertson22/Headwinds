@@ -747,6 +747,52 @@ MULTIPLAYER_PATCHES.push(
   },
 );
 
+// ── Multiplayer: suppress events that assume a fictional AI rival airline ────
+// competitor_crisis, fare_war and new_route_frenzy all attribute a market swing
+// to an off-screen rival carrier's behaviour. Headwinds has no AI airlines —
+// every competitor is a real player — so these are skipped when multiplayer.
+// Remote-guarded: solo Tailwinds keeps them (multiplayer is false), so this is
+// the ideal candidate to land upstream and then delete the patch.
+MULTIPLAYER_PATCHES.push(
+  {
+    file: 'packages/engine/src/data/events.js',
+    why: 'skip solo-only competitor-fiction events in multiplayer',
+    anchor: `export function rollEvents(activeEvents = []) {
+  const MAX_ACTIVE_EVENTS = 2;
+  const activeTypes = new Set(activeEvents.map(e => e.templateId));
+  const newEvents = [];
+
+  for (const tmpl of EVENT_TEMPLATES) {
+    if (activeEvents.length + newEvents.length >= MAX_ACTIVE_EVENTS) break; // cap reached
+    if (activeTypes.has(tmpl.id)) continue;          // already active`,
+    patched: `// Headwinds (multiplayer) suppresses events that pin a market swing on a
+// fictional AI rival airline: a scripted fare war, a competitor grounding its
+// fleet, or a low-cost carrier collapsing. In Headwinds every competitor is a
+// real human who sets their own fares and runs their own fleet, so these read
+// as fiction. They stay fully active in solo Tailwinds (multiplayer is false).
+export const SOLO_ONLY_EVENTS = new Set(['competitor_crisis', 'fare_war', 'new_route_frenzy']);
+
+export function rollEvents(activeEvents = [], opts = {}) {
+  const MAX_ACTIVE_EVENTS = 2;
+  const multiplayer = opts.multiplayer === true;
+  const activeTypes = new Set(activeEvents.map(e => e.templateId));
+  const newEvents = [];
+
+  for (const tmpl of EVENT_TEMPLATES) {
+    if (activeEvents.length + newEvents.length >= MAX_ACTIVE_EVENTS) break; // cap reached
+    if (multiplayer && SOLO_ONLY_EVENTS.has(tmpl.id)) continue; // MP: no AI rival to justify it
+    if (activeTypes.has(tmpl.id)) continue;          // already active`,
+  },
+  {
+    file: 'packages/engine/src/reducer.mjs',
+    why: 'pass multiplayer flag into rollEvents so solo-only events are skipped',
+    anchor: `      const newEvents  = rollEvents(survivingEvents);`,
+    patched: `      // Headwinds multiplayer: suppress solo-only events that assume a fictional
+      // AI rival airline (see SOLO_ONLY_EVENTS in data/events.js). No-op in solo.
+      const newEvents  = rollEvents(survivingEvents, { multiplayer: state.multiplayer === true });`,
+  },
+);
+
 let patchErrors = 0;
 for (const p of MULTIPLAYER_PATCHES) {
   const fp = path.join(HW, p.file);

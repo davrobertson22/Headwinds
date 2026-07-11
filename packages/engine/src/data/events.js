@@ -649,13 +649,22 @@ export function eventsConflict(idA, idB) {
  * Won't add a second instance of an already-active event type, and won't add
  * an event that logically contradicts a currently-active or newly-rolled one.
  */
-export function rollEvents(activeEvents = []) {
+// Headwinds (multiplayer) suppresses events that pin a market swing on a
+// fictional AI rival airline: a scripted fare war, a competitor grounding its
+// fleet, or a low-cost carrier collapsing. In Headwinds every competitor is a
+// real human who sets their own fares and runs their own fleet, so these read
+// as fiction. They stay fully active in solo Tailwinds (multiplayer is false).
+export const SOLO_ONLY_EVENTS = new Set(['competitor_crisis', 'fare_war', 'new_route_frenzy']);
+
+export function rollEvents(activeEvents = [], opts = {}) {
   const MAX_ACTIVE_EVENTS = 2;
+  const multiplayer = opts.multiplayer === true;
   const activeTypes = new Set(activeEvents.map(e => e.templateId));
   const newEvents = [];
 
   for (const tmpl of EVENT_TEMPLATES) {
     if (activeEvents.length + newEvents.length >= MAX_ACTIVE_EVENTS) break; // cap reached
+    if (multiplayer && SOLO_ONLY_EVENTS.has(tmpl.id)) continue; // MP: no AI rival to justify it
     if (activeTypes.has(tmpl.id)) continue;          // already active
     if (Math.random() > tmpl.probability * EVENT_FREQUENCY) continue;  // didn't trigger
 
