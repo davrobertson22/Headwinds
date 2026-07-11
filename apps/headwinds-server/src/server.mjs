@@ -14,6 +14,8 @@ import worldRoutes from './routes/worlds.mjs';
 import decisionRoutes from './routes/decisions.mjs';
 import allianceRoutes from './routes/alliances.mjs';
 import messageRoutes from './routes/messages.mjs';
+import reportRoutes from './routes/reports.mjs';
+import adminRoutes from './routes/admin.mjs';
 
 export function buildServer() {
   const app = Fastify({
@@ -37,6 +39,8 @@ export function buildServer() {
   app.register(decisionRoutes);
   app.register(allianceRoutes);
   app.register(messageRoutes);
+  app.register(reportRoutes);
+  app.register(adminRoutes);
 
   return app;
 }

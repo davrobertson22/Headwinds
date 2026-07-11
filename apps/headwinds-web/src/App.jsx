@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } from 'react';
 import { supabase } from './supabase.js';
 import { api } from './api.js';
+import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 
@@ -37,6 +38,8 @@ function useRoute() {
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
+  if (hash.startsWith('#/admin')) return { screen: 'admin' };
+  if (hash.startsWith('#/report')) return { screen: 'report' };
   const m = hash.match(/^#\/w\/([\w-]+)(\/play)?/);
   if (m && m[2]) return { screen: 'play', worldId: m[1] };
   return m ? { screen: 'world', worldId: m[1] } : { screen: 'worlds' };
@@ -352,9 +355,10 @@ const MOVE_LABELS = {
   LEAVE_ALLIANCE: () => 'Left their alliance',
 };
 
-function RivalDetail({ worldId, airlineId }) {
+function RivalDetail({ worldId, airlineId, airlineName, token, canReport }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -383,7 +387,20 @@ function RivalDetail({ worldId, airlineId }) {
             </strong> <span className="muted">(last {ranks.length} wks)</span>
           </span>
         )}
+        {canReport && (
+          <button
+            className="btn small" style={{ marginLeft: 'auto' }}
+            onClick={() => setReporting(true)}
+            title="Report this player to the admins"
+          >⚠ Report</button>
+        )}
       </div>
+      {reporting && (
+        <ReportDialog
+          worldId={worldId} token={token} airlineId={airlineId}
+          airlineName={airlineName} onClose={() => setReporting(false)}
+        />
+      )}
 
       <h5>Route network ({data.routeNetwork.length})</h5>
       {data.routeNetwork.length === 0 ? <p className="muted small">No routes open yet.</p> : (
@@ -518,7 +535,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                 {openRival === a.id && (
                   <tr>
                     <td colSpan={8} style={{ padding: 0, border: 'none' }}>
-                      <RivalDetail worldId={world.id} airlineId={a.id} />
+                      <RivalDetail
+                        worldId={world.id} airlineId={a.id} airlineName={a.name}
+                        token={token} canReport={!!(token && mine && mine.id !== a.id)}
+                      />
                     </td>
                   </tr>
                 )}
@@ -526,6 +546,271 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
             ))}
           </tbody>
         </table>
+      )}
+    </>
+  );
+}
+
+// ── Moderation panel (admins only) ────────────────────────────────────────────
+
+const CATEGORY_LABEL = Object.fromEntries(REPORT_CATEGORIES.map((c) => [c.value, c.label]));
+
+const fmtWhen = (t) => {
+  if (!t) return '';
+  const d = new Date(t);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    + ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
+
+function ModerationScreen({ token, me }) {
+  const [tab, setTab] = useState('OPEN'); // 'OPEN' | 'ALL' | 'BANS'
+  const [reports, setReports] = useState(null);
+  const [bans, setBans] = useState(null);
+  const [error, setError] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  const isAdmin = me?.account?.isAdmin;
+
+  const load = useCallback(() => {
+    if (!token || !isAdmin) return;
+    setError(null);
+    if (tab === 'BANS') {
+      api('/admin/bans', { token }).then((d) => setBans(d.bans)).catch(setError);
+    } else {
+      api(`/admin/reports?status=${tab}`, { token })
+        .then((d) => setReports(d.reports)).catch(setError);
+    }
+  }, [token, isAdmin, tab]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!token) return <div className="card"><p className="muted">Sign in to view the admin panel.</p><a href="#/">← All worlds</a></div>;
+  if (!isAdmin) return <div className="card"><p className="error">This area is for game admins only.</p><a href="#/">← All worlds</a></div>;
+
+  const ban = async (accountId, who) => {
+    const reason = window.prompt(`Ban ${who}? They'll be signed out and blocked from every world, and their airlines abandoned.\n\nReason (shown to them on their next sign-in attempt):`, '');
+    if (reason === null) return; // cancelled
+    setBusyId(accountId); setError(null);
+    try {
+      const res = await api(`/admin/accounts/${accountId}/ban`, { method: 'POST', token, body: { reason } });
+      window.alert(`Banned ${who}. Abandoned ${res.airlinesAbandoned} airline(s); closed ${res.reportsActioned} open report(s).`);
+      load();
+    } catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
+  const dismiss = async (reportId) => {
+    if (!window.confirm('Dismiss this report as not actionable?')) return;
+    setBusyId(reportId); setError(null);
+    try {
+      await api(`/admin/reports/${reportId}/dismiss`, { method: 'POST', token, body: {} });
+      load();
+    } catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
+  const unban = async (accountId, who) => {
+    if (!window.confirm(`Unban ${who}? They'll be able to sign in and join worlds again (past airlines stay abandoned).`)) return;
+    setBusyId(accountId); setError(null);
+    try {
+      await api(`/admin/accounts/${accountId}/unban`, { method: 'POST', token });
+      load();
+    } catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
+  return (
+    <>
+      <a href="#/" className="muted">← All worlds</a>
+      <div className="list-head">
+        <h2>Moderation</h2>
+        <div className="row">
+          <button className={`btn small ${tab === 'OPEN' ? 'primary' : ''}`} onClick={() => setTab('OPEN')}>Open reports</button>
+          <button className={`btn small ${tab === 'ALL' ? 'primary' : ''}`} onClick={() => setTab('ALL')}>All reports</button>
+          <button className={`btn small ${tab === 'BANS' ? 'primary' : ''}`} onClick={() => setTab('BANS')}>Banned players</button>
+        </div>
+      </div>
+      <ErrorNote error={error} />
+
+      {tab !== 'BANS' ? (
+        reports == null ? <p className="muted">Loading reports…</p> :
+        reports.length === 0 ? <p className="muted">{tab === 'OPEN' ? 'No open reports — all clear.' : 'No reports yet.'}</p> : (
+          <div className="mod-list">
+            {reports.map((r) => (
+              <div key={r.id} className={`card mod-report ${r.status !== 'OPEN' ? 'resolved' : ''}`}>
+                <div className="mod-report-head">
+                  <span className="mod-cat">{CATEGORY_LABEL[r.category] ?? r.category}</span>
+                  <StatusChip status={r.status} />
+                  {r.reported.openReportCount > 1 && (
+                    <span className="chip chip-warn" title="Multiple open reports about this player">
+                      {r.reported.openReportCount} open reports
+                    </span>
+                  )}
+                  <span className="muted small" style={{ marginLeft: 'auto' }}>{fmtWhen(r.createdAt)}</span>
+                </div>
+
+                <p className="mod-line">
+                  <strong>{r.reported.airline?.name ?? r.reported.displayName}</strong>
+                  <span className="muted"> ({r.reported.email})</span>
+                  {r.reported.bannedAt && <span className="chip chip-banned"> banned</span>}
+                  {' '}reported by <strong>{r.reporter.airline?.name ?? r.reporter.displayName}</strong>
+                  <span className="muted"> in {r.world?.name ?? 'a world'}</span>
+                </p>
+
+                {r.details && <p className="mod-details">“{r.details}”</p>}
+
+                {r.status !== 'OPEN' && (
+                  <p className="muted small">
+                    {r.status === 'ACTIONED' ? 'Actioned' : 'Dismissed'}
+                    {r.resolvedByEmail ? ` by ${r.resolvedByEmail}` : ''}
+                    {r.resolvedAt ? ` · ${fmtWhen(r.resolvedAt)}` : ''}
+                    {r.resolutionNote ? ` — ${r.resolutionNote}` : ''}
+                  </p>
+                )}
+
+                {r.status === 'OPEN' && (
+                  <div className="row">
+                    {r.reported.bannedAt ? (
+                      <span className="muted small">This account is already banned.</span>
+                    ) : (
+                      <button className="btn danger small" disabled={busyId === r.reported.accountId}
+                        onClick={() => ban(r.reported.accountId, r.reported.airline?.name ?? r.reported.displayName)}>
+                        Ban this player
+                      </button>
+                    )}
+                    <button className="btn small" disabled={busyId === r.id} onClick={() => dismiss(r.id)}>Dismiss</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        bans == null ? <p className="muted">Loading…</p> :
+        bans.length === 0 ? <p className="muted">No banned players.</p> : (
+          <table className="worlds">
+            <thead><tr><th>Player</th><th>Email</th><th>Reason</th><th>Banned</th><th /></tr></thead>
+            <tbody>
+              {bans.map((b) => (
+                <tr key={b.id}>
+                  <td>{b.displayName}</td>
+                  <td className="muted">{b.email}</td>
+                  <td>{b.banReason || <span className="muted">—</span>}</td>
+                  <td className="muted small">{fmtWhen(b.bannedAt)}{b.bannedByEmail ? ` · by ${b.bannedByEmail}` : ''}</td>
+                  <td>
+                    <button className="btn small" disabled={busyId === b.id} onClick={() => unban(b.id, b.displayName)}>Unban</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+    </>
+  );
+}
+
+// ── Report a player (standalone entry — deep-linked as #/report) ──────────────
+// The static Rules page links here with "⚑ Report a player". Reporting is world-
+// and target-scoped, so this walks a signed-in player through it: pick one of the
+// worlds you're in, then pick who to report — funnelling into the very same
+// POST /worlds/:id/report the in-game Report buttons use (ReportDialog).
+function ReportScreen({ token, me }) {
+  const active = (me?.airlines ?? []).filter((a) => a.status !== 'ABANDONED');
+  const [worldId, setWorldId] = useState(active.length === 1 ? active[0].worldId : '');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [target, setTarget] = useState(null); // { id, name } being reported
+
+  useEffect(() => {
+    if (!worldId || !token) { setData(null); return; }
+    let alive = true;
+    setData(null); setError(null);
+    api(`/worlds/${worldId}`, { token })
+      .then((d) => alive && setData(d))
+      .catch((e) => alive && setError(e));
+    return () => { alive = false; };
+  }, [worldId, token]);
+
+  if (!token) {
+    return (
+      <div className="card">
+        <h2>Report a player</h2>
+        <p className="muted">Sign in above to report a player.</p>
+        <a href="#/" className="muted">← All worlds</a>
+      </div>
+    );
+  }
+  if (active.length === 0) {
+    return (
+      <div className="card">
+        <h2>Report a player</h2>
+        <p className="muted">You can report players in the worlds you're competing in — you're not in any yet.</p>
+        <a className="btn" href="#/">Browse worlds</a>
+      </div>
+    );
+  }
+
+  const myAirlineId = active.find((a) => a.worldId === worldId)?.id;
+  const others = (data?.standings ?? [])
+    .filter((a) => a.id !== myAirlineId && a.status !== 'ABANDONED');
+  const worldName = active.find((a) => a.worldId === worldId)?.world?.name
+    ?? data?.world?.name ?? 'your world';
+
+  return (
+    <>
+      <a href="#/" className="muted">← All worlds</a>
+      <div className="card">
+        <h2>Report a player</h2>
+        <p className="muted">
+          Flag someone breaking the <a href="/rules.html">fair-play rules</a>. Pick the
+          world and the player — it goes straight to the admins for review.
+        </p>
+        {active.length > 1 && (
+          <label>World
+            <select value={worldId} onChange={(e) => { setWorldId(e.target.value); setTarget(null); }}>
+              <option value="">Select a world…</option>
+              {active.map((a) => (
+                <option key={a.worldId} value={a.worldId}>{a.world?.name ?? a.worldId}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <ErrorNote error={error} />
+      </div>
+
+      {worldId && (
+        <>
+          <h3>Players in {worldName}</h3>
+          {!data ? <p className="muted">Loading players…</p> :
+            others.length === 0 ? <p className="muted">No other players to report in this world yet.</p> : (
+            <table className="worlds">
+              <thead><tr><th>Airline</th><th>Hub</th><th /></tr></thead>
+              <tbody>
+                {others.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      {a.name}
+                      {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
+                    </td>
+                    <td>{a.hub}</td>
+                    <td>
+                      <button className="btn danger small" onClick={() => setTarget({ id: a.id, name: a.name })}>
+                        ⚑ Report
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+
+      {target && (
+        <ReportDialog
+          worldId={worldId} token={token} airlineId={target.id} airlineName={target.name}
+          onClose={() => setTarget(null)}
+        />
       )}
     </>
   );
@@ -566,6 +851,7 @@ export default function App() {
         </a>
         {session ? (
           <div className="row">
+            {me?.account?.isAdmin && <a href="#/admin" className="btn small">🛡 Admin</a>}
             <span className="muted">{me?.account?.displayName ?? session.user.email}</span>
             <button className="btn small" onClick={signOut}>Sign out</button>
           </div>
@@ -577,6 +863,8 @@ export default function App() {
           {!session && <SignIn />}
           {route.screen === 'worlds' && <WorldsScreen token={token} me={me} />}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
+          {route.screen === 'admin' && <ModerationScreen token={token} me={me} />}
+          {route.screen === 'report' && <ReportScreen token={token} me={me} />}
         </>
       )}
 

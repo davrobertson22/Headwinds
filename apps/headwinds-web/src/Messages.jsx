@@ -5,6 +5,7 @@
 // Headwinds-owned (not synced from Tailwinds) — safe to evolve freely.
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from './api.js';
+import { ReportDialog } from './Report.jsx';
 
 const fmtTime = (t) => {
   const d = new Date(t);
@@ -171,6 +172,7 @@ function Composer({ placeholder, disabled, onSend }) {
 
 function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
   const [messages, setMessages] = useState(null);
+  const [reporting, setReporting] = useState(false);
   const endRef = useRef(null);
 
   const load = useCallback(() => {
@@ -198,8 +200,17 @@ function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
       <div className="hw-msg-thread-head">
         <button className="btn small" onClick={onBack}>← Inbox</button>
         <strong>{name}</strong>
-        <button className="btn danger small" onClick={block} style={{ marginLeft: 'auto' }}>Block</button>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+          <button className="btn small" onClick={() => setReporting(true)} title="Report this player to the admins">⚠ Report</button>
+          <button className="btn danger small" onClick={block}>Block</button>
+        </span>
       </div>
+      {reporting && (
+        <ReportDialog
+          worldId={worldId} token={token} airlineId={airlineId} airlineName={name}
+          onClose={() => setReporting(false)}
+        />
+      )}
       <div className="hw-msg-scroll">
         {!messages ? <p className="hw-msg-empty">Loading…</p> :
           messages.length === 0 ? <p className="hw-msg-empty">No messages yet — you're starting this conversation.</p> :

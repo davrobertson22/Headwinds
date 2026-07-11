@@ -42,7 +42,14 @@ model Account {
   cosmetics   Json      @default("[]") // unlocked liveries/logos (meta-progression)
   careerStats Json      @default("{}") // cross-season hall-of-fame stats
   createdAt   DateTime  @default(now())
+  // ── Moderation: a banned account cannot sign in / act (auth.mjs rejects it).
+  // Set by an admin from the moderation panel; account-wide (blocks every world).
+  bannedAt      DateTime?
+  banReason     String?
+  bannedByEmail String? // which admin issued the ban (audit trail)
   airlines    Airline[]
+  reportsMade Report[]  @relation("ReportsMade")
+  reportsAgainst Report[] @relation("ReportsAgainst")
 }
 
 model World {
@@ -68,6 +75,7 @@ model World {
   decisions   Decision[]
   alliances   Alliance[]
   messages    Message[]
+  reports     Report[]
 
   @@index([status, visibility])
 }
@@ -196,6 +204,40 @@ model MessageCursor {
   id             String    @id @default(cuid())
   airlineId      String    @unique
   allianceSeenAt DateTime?
+}
+
+// ── Player reports: one player flags another for a rule violation. An admin ──
+// ── reviews these in the moderation panel and may ban the reported account. ──
+
+enum ReportStatus {
+  OPEN // awaiting an admin
+  ACTIONED // admin acted (typically a ban)
+  DISMISSED // admin judged it not actionable
+}
+
+model Report {
+  id                String       @id @default(cuid())
+  worldId           String
+  // Who filed it (the account) and the airline they were flying as.
+  reporterAccountId String
+  reporterAirlineId String?
+  // Who it's about — the ACCOUNT is what gets banned; the airline is context.
+  reportedAccountId String
+  reportedAirlineId String?
+  category          String // HARASSMENT | CHEATING | OFFENSIVE_NAME | SPAM | OTHER
+  details           String? // optional free-text from the reporter
+  status            ReportStatus @default(OPEN)
+  resolvedAt        DateTime?
+  resolvedByEmail   String? // which admin resolved it
+  resolutionNote    String? // e.g. "banned" / "dismissed — not actionable"
+  createdAt         DateTime     @default(now())
+  world             World        @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  reporter          Account      @relation("ReportsMade", fields: [reporterAccountId], references: [id], onDelete: Cascade)
+  reported          Account      @relation("ReportsAgainst", fields: [reportedAccountId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt]) // the admin queue
+  @@index([reportedAccountId]) // "all reports about this player"
+  @@index([worldId])
 }
 
 model Standing {

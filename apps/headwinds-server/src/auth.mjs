@@ -22,6 +22,12 @@ function unauthorized(message) {
   return e;
 }
 
+function forbidden(message) {
+  const e = new Error(message);
+  e.statusCode = 403;
+  return e;
+}
+
 function bearerToken(request) {
   const h = request.headers.authorization || '';
   const [scheme, token] = h.split(' ');
@@ -29,8 +35,15 @@ function bearerToken(request) {
   return token;
 }
 
+// A banned account is one an admin has locked out. The ban is account-wide, so
+// we enforce it here — one gate covers every authenticated route in the app.
+export function isBanned(account) {
+  return Boolean(account?.bannedAt);
+}
+
 // Verify a Supabase token and return the matching local Account (creating it on
-// first sight). Throws 401 if the token is missing or invalid.
+// first sight). Throws 401 if the token is missing or invalid, or 403 if the
+// account has been banned.
 export async function resolveAccount(request) {
   const token = bearerToken(request);
   if (!token) throw unauthorized('Missing Authorization: Bearer <token>');
@@ -45,11 +58,22 @@ export async function resolveAccount(request) {
     user.user_metadata?.name ||
     email.split('@')[0];
 
-  return prisma.account.upsert({
+  const account = await prisma.account.upsert({
     where: { authUserId: user.id },
     update: { email },
     create: { authUserId: user.id, email, displayName },
   });
+
+  // Banned accounts are stopped here — before they can touch any world.
+  if (isBanned(account)) {
+    throw forbidden(
+      account.banReason
+        ? `Your account has been banned: ${account.banReason}`
+        : 'Your account has been banned.'
+    );
+  }
+
+  return account;
 }
 
 // Fastify preHandler: require a valid session and attach request.account.
@@ -61,7 +85,8 @@ export async function requireAuth(request) {
 // ── Admin gate ────────────────────────────────────────────────────────────────
 // Admins are the accounts listed in the ADMIN_EMAILS env var (comma-separated,
 // case-insensitive). For now ALL game worlds are operator-controlled: players
-// join worlds, only admins (and the worker's spawner) create them.
+// join worlds, only admins (and the worker's spawner) create them. Admins also
+// review player reports and issue/lift bans (routes/admin.mjs).
 
 export function isAdmin(account) {
   return env.adminEmails.includes((account?.email ?? '').toLowerCase());
@@ -72,7 +97,7 @@ export function isAdmin(account) {
 export async function requireAdmin(request) {
   request.account = await resolveAccount(request);
   if (!isAdmin(request.account)) {
-    const e = new Error('World creation is limited to game admins for now');
+    const e = new Error('This action is limited to game admins');
     e.statusCode = 403;
     throw e;
   }
