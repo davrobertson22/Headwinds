@@ -328,6 +328,63 @@ function CreateWorld({ token, onCreated }) {
 
 // ── Worlds list ───────────────────────────────────────────────────────────────
 
+// Admin-only: manage every world (find archived/private ones, restore, delete).
+function AdminWorldsManager({ token }) {
+  const [worlds, setWorlds] = useState(null);
+  const [error, setError] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(() => {
+    api('/admin/worlds', { token }).then((d) => setWorlds(d.worlds)).catch(setError);
+  }, [token]);
+  useEffect(() => { if (open) load(); }, [open, load]);
+
+  const act = async (id, path, method, confirmMsg) => {
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    setBusyId(id); setError(null);
+    try { await api(`/worlds/${id}${path}`, { method, token }); load(); }
+    catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
+  if (!open) {
+    return <button className="btn small" onClick={() => setOpen(true)}>🛠 Manage all worlds (admin)</button>;
+  }
+  return (
+    <div className="card">
+      <div className="list-head">
+        <h3>All worlds (admin)</h3>
+        <button className="btn small" onClick={() => setOpen(false)}>Hide</button>
+      </div>
+      <ErrorNote error={error} />
+      {!worlds ? <p className="muted">Loading…</p> : worlds.length === 0 ? <p className="muted">No worlds.</p> : (
+        <table className="worlds">
+          <thead><tr><th>World</th><th>Status</th><th>Players</th><th /></tr></thead>
+          <tbody>
+            {worlds.map((w) => (
+              <tr key={w.id}>
+                <td><a href={`#/w/${w.id}`}>{w.name}</a>{w.visibility === 'PRIVATE' ? <span className="muted"> · private</span> : null}</td>
+                <td><StatusChip status={w.status} /></td>
+                <td>{w.playerCount}</td>
+                <td>
+                  <div className="row">
+                    {w.status === 'ARCHIVED'
+                      ? <button className="btn small" disabled={busyId === w.id} onClick={() => act(w.id, '/unarchive', 'POST')}>Unarchive</button>
+                      : <button className="btn small" disabled={busyId === w.id} onClick={() => act(w.id, '/archive', 'POST', `Archive "${w.name}"? It'll be hidden and stop ticking.`)}>Archive</button>}
+                    <button className="btn danger small" disabled={busyId === w.id}
+                      onClick={() => act(w.id, '', 'DELETE', `Permanently DELETE "${w.name}"? Removes the world and ALL ${w.playerCount} airline(s). CANNOT be undone.`)}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function WorldsScreen({ token, me }) {
   const [worlds, setWorlds] = useState(null);
   const [error, setError] = useState(null);
@@ -397,6 +454,7 @@ function WorldsScreen({ token, me }) {
           </tbody>
         </table>
       )}
+      {token && me?.account?.isAdmin && <AdminWorldsManager token={token} />}
     </>
   );
 }
@@ -536,6 +594,22 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
     } catch (e) { setError(e); }
   };
 
+  const archive = async () => {
+    if (!window.confirm(`Archive "${world.name}"? It'll be hidden from the lobby and stop ticking — you can unarchive it later.`)) return;
+    try { await api(`/worlds/${world.id}/archive`, { method: 'POST', token }); load(); } catch (e) { setError(e); }
+  };
+  const unarchive = async () => {
+    try { await api(`/worlds/${world.id}/unarchive`, { method: 'POST', token }); load(); } catch (e) { setError(e); }
+  };
+  const del = async () => {
+    const n = world.playerCount ?? standings.length;
+    const msg = n > 0
+      ? `Permanently DELETE "${world.name}"? This removes the world and ALL ${n} player airline(s), standings and messages. This CANNOT be undone.`
+      : `Permanently DELETE "${world.name}"? This CANNOT be undone.`;
+    if (!window.confirm(msg)) return;
+    try { await api(`/worlds/${world.id}`, { method: 'DELETE', token }); refreshMe(); goTo('/'); } catch (e) { setError(e); }
+  };
+
   return (
     <>
       <a href="#/" className="muted">← All worlds</a>
@@ -560,6 +634,17 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
             <div className="row">
               <button className="btn primary" onClick={() => goTo(`/w/${world.id}/play`)}>▶ Open the game</button>
               <button className="btn danger small" onClick={leave}>Abandon airline</button>
+            </div>
+          </div>
+        )}
+        {me?.account?.isAdmin && (
+          <div className="mine">
+            <p className="muted">Admin controls</p>
+            <div className="row">
+              {world.status === 'ARCHIVED'
+                ? <button className="btn small" onClick={unarchive}>Unarchive</button>
+                : <button className="btn small" onClick={archive}>Archive</button>}
+              <button className="btn danger small" onClick={del}>Delete world</button>
             </div>
           </div>
         )}

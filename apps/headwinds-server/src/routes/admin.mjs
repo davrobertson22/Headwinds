@@ -199,4 +199,28 @@ export default async function adminRoutes(fastify) {
     });
     return { bans: banned.map(accountSummary) };
   });
+
+  // ── All worlds, for admin management (any status/visibility) ────────────────
+  // Powers the "Manage all worlds" panel: archived/private worlds vanish from the
+  // public lobby, so admins need this to find and restore/delete them.
+  fastify.get('/admin/worlds', { preHandler: requireAdmin }, async () => {
+    const worlds = await prisma.world.findMany({
+      include: { _count: { select: { airlines: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return {
+      worlds: worlds.map((w) => ({
+        id: w.id,
+        name: w.name,
+        status: w.status,
+        visibility: w.visibility,
+        lengthYears: w.lengthYears,
+        weeksPerDay: w.weeksPerDay,
+        playerCount: w._count.airlines,
+        createdAt: w.createdAt,
+        startedAt: w.startedAt,
+      })),
+    };
+  });
 }

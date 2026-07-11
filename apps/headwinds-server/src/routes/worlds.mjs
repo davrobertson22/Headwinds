@@ -350,4 +350,69 @@ export default async function worldRoutes(fastify) {
     });
     return { ok: true };
   });
+
+  // ── Archive a world (ADMIN — reversible) ──────────────────────────────────
+  // Hides it from the lobby and stops ticks (the scheduler only advances RUNNING
+  // worlds). Remembers the prior status + archive instant in tickConfig so
+  // unarchive can restore it and resume a paused RUNNING world at the same
+  // game-week (no phantom catch-up for the paused span).
+  fastify.post('/worlds/:id/archive', {
+    preHandler: requireAdmin,
+    schema: { params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    if (world.status === 'ARCHIVED') return reply.code(409).send({ error: 'World is already archived' });
+    const updated = await prisma.world.update({
+      where: { id: world.id },
+      data: {
+        status: 'ARCHIVED',
+        tickConfig: { ...(world.tickConfig ?? {}), _prevStatus: world.status, _archivedAt: new Date().toISOString() },
+      },
+    });
+    return { world: serializeWorld(updated, {}) };
+  });
+
+  // ── Unarchive / restore a world (ADMIN) ───────────────────────────────────
+  fastify.post('/worlds/:id/unarchive', {
+    preHandler: requireAdmin,
+    schema: { params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    if (world.status !== 'ARCHIVED') return reply.code(409).send({ error: 'World is not archived' });
+    const tc = { ...(world.tickConfig ?? {}) };
+    const prev = tc._prevStatus;
+    const archivedAt = tc._archivedAt ? new Date(tc._archivedAt) : null;
+    delete tc._prevStatus; delete tc._archivedAt;
+    const restored = (prev && prev !== 'ARCHIVED') ? prev : (world.startedAt ? 'RUNNING' : 'LOBBY');
+    let startedAt = world.startedAt;
+    let endsAt = world.endsAt;
+    if (restored === 'RUNNING' && startedAt && archivedAt) {
+      const delta = Date.now() - archivedAt.getTime();
+      if (delta > 0) {
+        startedAt = new Date(new Date(startedAt).getTime() + delta);
+        endsAt = endsAt ? new Date(new Date(endsAt).getTime() + delta) : endsAt;
+      }
+    }
+    const updated = await prisma.world.update({
+      where: { id: world.id },
+      data: { status: restored, tickConfig: tc, startedAt, endsAt },
+    });
+    return { world: serializeWorld(updated, {}) };
+  });
+
+  // ── Delete a world PERMANENTLY (ADMIN) ────────────────────────────────────
+  // Hard delete. The schema cascades (onDelete: Cascade) so every airline,
+  // standing, tick log, decision, alliance, message and report in this world is
+  // removed too. Irreversible — the UI shows the player count and double-confirms.
+  fastify.delete('/worlds/:id', {
+    preHandler: requireAdmin,
+    schema: { params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    await prisma.world.delete({ where: { id: world.id } });
+    return { ok: true, deleted: world.id, name: world.name };
+  });
 }
