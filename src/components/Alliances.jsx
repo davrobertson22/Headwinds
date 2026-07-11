@@ -636,7 +636,6 @@ function AllianceCard({
 // ─── Active codeshare row ────────────────────────────────────────────────────
 
 function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch }) {
-  const tier = TIER_META[agreement.competitorTier] ?? TIER_META.legacy;
   const net  = weeklyRevenue - agreement.weeklyFee;
 
   return (
@@ -644,7 +643,7 @@ function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch }) {
       {comp && <AirlineLogo id={comp.logoId} size={32} radius={6} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 13 }}>{agreement.competitorName}</div>
-        <div style={{ fontSize: 11, color: tier.color }}>{tier.label}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Hub: {comp?.homeHub ?? '—'}</div>
       </div>
 
       <div style={{ textAlign: 'right', fontSize: 12, minWidth: 120 }}>
@@ -688,8 +687,6 @@ function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch }) {
 // ─── Available codeshare partners ────────────────────────────────────────────
 
 function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports, alliancePartnerIds, state, dispatch }) {
-  const [filter, setFilter] = useState('all');
-
   const activePartnerIds = new Set([
     ...codeshareAgreements.map(a => a.competitorId),
     ...alliancePartnerIds,
@@ -697,7 +694,6 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
 
   const available = competitors
     .filter(c => !activePartnerIds.has(c.id))
-    .filter(c => filter === 'all' || c.tier === filter)
     .map(c => ({
       comp:    c,
       adjacent: countAdjacentRoutes(c, servedAirports),
@@ -714,23 +710,6 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
         <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
           AVAILABLE PARTNERS
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {['all', 'legacy', 'budget', 'premium'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className="btn"
-              style={{
-                fontSize: 11, padding: '3px 8px',
-                background: filter === f ? 'var(--accent)' : 'var(--surface2)',
-                color: filter === f ? '#fff' : 'var(--text-muted)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-        </div>
       </div>
 
       {atCap && (
@@ -746,13 +725,12 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
         <div className="empty-state">
           <div className="empty-state-icon"><Glyph e="🤝" /></div>
           <div className="empty-state-text">
-            {filter !== 'all' ? `No available ${filter} partners` : 'All carriers already partnered'}
+            All carriers already partnered
           </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {available.map(({ comp, adjacent, weeklyFee, estRevenue }) => {
-            const tier     = TIER_META[comp.tier] ?? TIER_META.legacy;
             const netBenefit = estRevenue - weeklyFee;
             const worthwhile = netBenefit > 0;
 
@@ -767,7 +745,6 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{comp.name}</div>
                   <div style={{ fontSize: 11, display: 'flex', gap: 10, marginTop: 2 }}>
-                    <span style={{ color: tier.color }}>{tier.label}</span>
                     <span style={{ color: 'var(--text-muted)' }}>Hub: {comp.homeHub}</span>
                     <span style={{ color: 'var(--text-muted)' }}>{Object.keys(comp.routes).length} routes</span>
                     <span style={{ color: adjacent > 0 ? 'var(--accent)' : 'var(--text-muted)' }}>
