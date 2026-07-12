@@ -153,9 +153,11 @@ function rebrand(html) {
   // 4. "Play" links point at the app, not the landing page.
   s = s.replace(/<a class="link" href="\/">Play<\/a>/g, '<a class="link" href="/play">Play</a>');
   s = s.replace(/class="cta" href="\/"/g, 'class="cta" href="/play"');
-  // 5. Footer cross-link back to the solo game.
+  // 5. Footer cross-link back to the solo game. The optional group also strips
+  //    the reverse "Multiplayer: Headwinds" link the synced Tailwinds info pages
+  //    now carry, so the live Headwinds pages never link to themselves.
   s = s.replace(
-    /© Headwinds — free to play in your browser\./g,
+    /© Headwinds — free to play in your browser\.(?:\s*Multiplayer:\s*<a\b[^>]*>Headwinds<\/a>\.)?/g,
     '© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.'
   );
   return s;
