@@ -2898,7 +2898,7 @@ function Statistics() {
         ))}
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
-        Weekly figures shown per week; longer periods are bucket-averaged for readability. Passenger split, network and efficiency data are modeled estimates.
+        Weekly figures shown per week; longer periods are bucket-averaged for readability. Connecting pax matches your Hubs-tab throughput; the organic/interline split, network and efficiency data are modeled estimates.
         {firstTracked && all[0]?.partial && (
           <> Detailed tracking (passenger split, routes, efficiency) began <strong>{firstTracked.label}</strong>; earlier weeks predate this feature.</>
         )}
@@ -2908,6 +2908,8 @@ function Statistics() {
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         {[
           { label: 'Weekly Passengers', val: fmtInt(latest.paxTotal ?? 0), c: '' },
+          { label: 'Connecting / wk',   val: fmtInt(latest.paxConnecting ?? 0), c: '' },
+          { label: 'Interlining / wk',  val: fmtInt(latest.paxInterline ?? 0), c: '' },
           { label: 'Weekly Revenue',    val: money(latest.revenue ?? 0), c: 'green' },
           { label: 'Net Profit / wk',   val: money(latest.profit ?? 0), c: (latest.profit ?? 0) >= 0 ? 'green' : 'red' },
           { label: 'Active Routes',     val: hasTracked ? fmtInt(latestTracked.routes ?? 0) : '—', c: '' },
@@ -2926,13 +2928,13 @@ function Statistics() {
         <div className="card-title">Passengers per week — by source</div>
         <StatChart points={points} wideLabels={wide} format={(v) => fmtInt(v)} series={[
           { key: 'paxOrganic',    label: 'Organic (direct)',        color: STAT_COLORS.organic,    kind: 'area' },
-          { key: 'paxConnecting', label: 'Connecting (own hubs)',   color: STAT_COLORS.connecting, kind: 'area' },
-          { key: 'paxInterline',  label: 'Interline / codeshare',   color: STAT_COLORS.interline,  kind: 'area' },
+          { key: 'paxConnecting', label: 'Connecting (over your hubs)', color: STAT_COLORS.connecting, kind: 'area' },
+          { key: 'paxInterline',  label: 'Interline / codeshare & gateway feed', color: STAT_COLORS.interline,  kind: 'area' },
         ]} />
         <StatLegend items={[
           [STAT_COLORS.organic, 'Organic — direct O&D'],
-          [STAT_COLORS.connecting, 'Connecting — own hubs'],
-          [STAT_COLORS.interline, 'Interline / codeshare — partner-fed'],
+          [STAT_COLORS.connecting, 'Connecting — over your hubs (matches Hubs tab)'],
+          [STAT_COLORS.interline, 'Interline / codeshare & non-hub gateway feed'],
         ]} />
       </div>
 

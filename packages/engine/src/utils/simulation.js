@@ -2400,6 +2400,15 @@ export function weeklyTick(state) {
     hubThroughput[code] = (ownMetalOD?.byHub?.[code]?.pax ?? 0) + (hubExternalPax[code] ?? 0);
   }
 
+  // ── Single connecting number ────────────────────────────────────────────────
+  // The Statistics chart's "Connecting" band now equals EXACTLY the Hubs-tab
+  // throughput (sum over designated hubs) so the two surfaces can never disagree.
+  // The residual network-wide gateway/partner transit feed (extPax routed through
+  // NON-hub airports) is reclassified into the interline / partner-fed band below,
+  // where it actually belongs — it is not traffic you hubbed yourself.
+  const hubConnectingPax   = Object.values(hubThroughput).reduce((a, v) => a + (v ?? 0), 0);
+  const gatewayResidualPax = Math.max(0, Math.round(totalConnectingPax) - hubConnectingPax);
+
   const totalOpCost = totalFuel + totalCrew + totalQuality + totalCatering + totalGroundHandling + totalLounge + totalLayover + totalCompensation + totalLandingFees;
   const totalCost   = totalLeases + totalMaintenance + totalOpCost + totalGateFees
     + totalLaborCosts + totalFamilyBaseCosts + totalHubInvestment
@@ -2516,13 +2525,16 @@ export function weeklyTick(state) {
     totalPassengers,
     // ── Passenger segmentation (one-way boardings per direction; ×2 for round-trip)
     // Organic    = direct local O&D boarded on the player's own routes.
-    // Connecting = fed through the player's OWN hubs (own-metal itineraries) plus
-    //              the residual external gateway feed pool.
-    // Interline  = fed by PARTNER metal on one leg (interline / codeshare / alliance).
-    // These are modeled estimates and don't perfectly sum to a single "network total".
+    // Connecting = throughput over the player's DESIGNATED hubs — own-metal
+    //              itineraries plus the external feed attributed to those hubs.
+    //              This is the SAME figure the Hubs tab shows (sum of hubThroughput),
+    //              so the two surfaces are guaranteed to agree.
+    // Interline  = partner-fed O&D (interline / codeshare / alliance) PLUS the
+    //              residual gateway transit feed routed through non-hub airports.
+    // Organic is an estimate; Connecting is the exact hub throughput.
     paxOrganic:             totalPassengers,
-    paxConnecting:          Math.round(totalConnectingPax),
-    paxInterline:           partnerODRevenue?.totalPax ?? 0,
+    paxConnecting:          hubConnectingPax,
+    paxInterline:           (partnerODRevenue?.totalPax ?? 0) + gatewayResidualPax,
     totalTargetedSpend:     Math.round(totalTargetedSpend),
     totalOpCost:            Math.round(totalOpCost),
     totalCost:              Math.round(totalCost),
