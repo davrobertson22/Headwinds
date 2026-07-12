@@ -2407,7 +2407,52 @@ export function weeklyTick(state) {
     + totalDistributionCost;
   const cashDelta   = totalRevenue + totalPartnerRevenue - totalCost;
 
+  // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
+  // Aircraft sharing one O&D pair pool their demand (see the pre-pass) and must
+  // therefore land within rounding of the SAME load factor. If two ever diverge in
+  // the OUTPUT, the pool silently failed — capture the exact inputs (including
+  // whether the pre-pass actually allocated each aircraft) so the cause is
+  // deterministic instead of guesswork. Surfaced on the report as `poolingAnomalies`
+  // and logged once per tick.
+  const poolingAnomalies = [];
+  {
+    const groups = new Map();
+    for (const rr of routeResults) {
+      const rt = routes.find(r => r.id === rr.routeId);
+      if (!rt || isMultiStop(rt)) continue;
+      const key = [rt.origin, rt.destination].sort().join('-');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ rr, rt });
+    }
+    for (const [pair, list] of groups) {
+      if (list.length < 2) continue;
+      const lfs = list.map(x => x.rr.loadFactor ?? 0);
+      const spread = Math.max(...lfs) - Math.min(...lfs);
+      if (spread > 0.05) {
+        poolingAnomalies.push({
+          pair, spread: +spread.toFixed(3), week: gameDate?.week,
+          multiplayer: state.multiplayer === true,
+          aircraft: list.map(({ rr, rt }) => {
+            const ac = fleet.find(a => a.id === rt.aircraftId);
+            return {
+              routeId: rt.id, aircraftId: rt.aircraftId, freq: rt.weeklyFrequency,
+              loadFactor: +(rr.loadFactor ?? 0).toFixed(3), passengers: rr.passengers,
+              capacity: rr.configuredSeatsOneWay, capacityCapped: rr.capacityCapped,
+              pooled: demandAllocations.has(rt.aircraftId),
+              status: ac?.status, stops: rt.stops, season: rt.season ?? null,
+              weeksOpen: rt.weeksOpen, config: ac?.config,
+            };
+          }),
+        });
+      }
+    }
+    if (poolingAnomalies.length && typeof console !== 'undefined' && console.warn) {
+      console.warn('[pooling-anomaly]', JSON.stringify(poolingAnomalies));
+    }
+  }
+
   return {
+    poolingAnomalies,
     cashDelta:              Math.round(cashDelta),
     totalRevenue:           Math.round(totalRevenue + totalPartnerRevenue),
     totalConnecting:        Math.round(totalConnecting),
