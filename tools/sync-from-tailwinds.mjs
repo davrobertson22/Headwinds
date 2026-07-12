@@ -28,6 +28,16 @@ const args = process.argv.slice(2).filter((a) => a !== '--check');
 const CHECK = process.argv.includes('--check');
 const TW = path.resolve(args[0] ?? path.join(HW, '..', 'Airline Management Game'));
 
+// ── RETIRED 2026-07-12 (Dave's call) ────────────────────────────────────────
+// Headwinds is now a STANDALONE repo. Tailwinds is NO LONGER authoritative and
+// this sync must never run again: a real run rsyncs with --delete and would
+// clobber Headwinds-only engine + component work. Everything below is kept only
+// as documentation of the historical Tailwinds→Headwinds mapping. To re-enable,
+// delete this guard block (and understand the clobber risk before you do).
+console.error('✗ sync-from-tailwinds is RETIRED — Headwinds is standalone; refusing to run.');
+console.error('  The engine + app files on disk are the source of truth now. Edit them directly.');
+process.exit(1);
+
 if (!existsSync(path.join(TW, 'src', 'store', 'GameContext.jsx'))) {
   console.error(`✗ Tailwinds repo not found at: ${TW}`);
   console.error('  Pass the path: node tools/sync-from-tailwinds.mjs ~/path/to/tailwinds');
