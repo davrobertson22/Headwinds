@@ -46,6 +46,45 @@ function TickCountdown({ nextTickAt, paceLabel }) {
   );
 }
 
+// ── Statistics backfill ─────────────────────────────────────────────────────
+// Finance ▸ Statistics is driven by state.statsHistory, a compact per-week KPI
+// series the engine only started recording recently — and only ever builds it
+// going FORWARD (nothing reconciles the statsHistory of already-running worlds
+// server-side). So an airline that has been operating for weeks arrives with an
+// empty or near-empty statsHistory and the page shows its "need 2 weeks of
+// history" empty state, even though financialHistory is full. Seed the missing
+// weeks from financialHistory here — the SAME partial-series shape the solo
+// reducer's reconcileState uses on load — so the revenue/cost/profit and
+// passenger charts render immediately. Real entries the server records (with the
+// passenger split, network-size and efficiency detail) take precedence; the rest
+// are flagged `partial` and fill in with detail as new weeks tick.
+function withStatsBackfill(state) {
+  if (!state) return state;
+  const real = Array.isArray(state.statsHistory) ? state.statsHistory : [];
+  const fin = Array.isArray(state.financialHistory) ? state.financialHistory : [];
+  if (fin.length === 0) return state;
+  const have = new Set(real.map((s) => `${s.year}-${s.week}`));
+  const partials = fin
+    .filter((h) => !have.has(`${h.year}-${h.week}`))
+    .map((h) => ({
+      label:          h.label,
+      week:           h.week,
+      year:           h.year,
+      absWeek:        ((h.year ?? 1) - 1) * 52 + (h.week ?? 0),
+      paxOrganic:     h.passengers     ?? 0,
+      revenue:        (h.revenue ?? 0) + (h.cargoRevenue ?? 0),
+      partnerRevenue: h.partnerRevenue ?? 0,
+      cargoRevenue:   h.cargoRevenue   ?? 0,
+      cost:           h.totalCost      ?? 0,
+      profit:         h.profit         ?? 0,
+      cash:           h.cash           ?? 0,
+      partial:        true,
+    }));
+  if (partials.length === 0) return state;
+  const merged = [...partials, ...real].sort((a, b) => (a.absWeek ?? 0) - (b.absWeek ?? 0));
+  return { ...state, statsHistory: merged };
+}
+
 export default function GamePlayScreen({ worldId, token }) {
   const [state, setState] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -63,7 +102,7 @@ export default function GamePlayScreen({ worldId, token }) {
       // Only replace local state when the server has genuinely moved on (a tick
       // landed or first load) — don't stomp optimistic edits between polls.
       const local = stateRef.current;
-      if (!local || (d.state.week ?? 0) > (local.week ?? 0)) setState(d.state);
+      if (!local || (d.state.week ?? 0) > (local.week ?? 0)) setState(withStatsBackfill(d.state));
       setError(null); // a good poll clears any stale transient error
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);
@@ -118,7 +157,7 @@ export default function GamePlayScreen({ worldId, token }) {
       .then((res) => setState((cur) => {
         if (seq !== decisionSeq.current) return cur;
         if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
-        return res.state;
+        return withStatsBackfill(res.state);
       }))
       .catch((e) => {
         if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
