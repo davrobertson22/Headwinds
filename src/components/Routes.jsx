@@ -1,6 +1,6 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { useState, useMemo } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, frequencyChangeBlockReason } from '../store/GameContext.jsx';
 import RouteDetail from './RouteDetail.jsx';
 import AirportLink from './AirportLink.jsx';
 import CargoRoutesList, { FreightBadge, PassengerBadge } from './CargoRoutesList.jsx';
@@ -1818,6 +1818,60 @@ function PricingPanel({ route, aircraft, type }) {
   );
 }
 
+// Inline weekly-frequency stepper — nudge one aircraft's weekly frequency up or
+// down in place, without closing and re-opening the route. Reductions free
+// capacity and are always allowed (down to 1 — below that, use Remove to close
+// the route). Increases run through frequencyChangeBlockReason (the exact guard
+// the engine enforces: per-month peak block-hours, gate slots, regulatory caps),
+// so when blocked the + explains why on hover / via a toast and nothing is
+// silently rejected.
+function FrequencyStepper({ route }) {
+  const { state, dispatch } = useGame();
+  const addToast = useToast();
+  const freq = route.weeklyFrequency ?? 1;
+  const blockUp = frequencyChangeBlockReason(state, route.id, freq + 1); // null => allowed
+  const canDown = freq > 1;
+
+  const setFreq = (next) =>
+    dispatch({ type: 'UPDATE_FREQUENCY', routeId: route.id, weeklyFrequency: next });
+
+  const stepDown = () => { if (canDown) setFreq(freq - 1); };
+  const stepUp = () => {
+    if (blockUp) { addToast({ type: 'warning', title: 'Can’t add a flight', message: blockUp }); return; }
+    setFreq(freq + 1);
+  };
+
+  const btnStyle = (enabled) => ({
+    width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center',
+    justifyContent: 'center', borderRadius: 'var(--radius)', fontSize: 15, fontWeight: 700,
+    lineHeight: 1, cursor: enabled ? 'pointer' : 'not-allowed',
+    border: '1px solid ' + (enabled ? 'var(--border)' : 'var(--border-subtle)'),
+    background: enabled ? 'var(--surface3)' : 'var(--surface2)',
+    color: enabled ? 'var(--text)' : 'var(--text-dim)',
+  });
+
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <button
+        type="button"
+        style={btnStyle(canDown)}
+        onClick={stepDown}
+        disabled={!canDown}
+        title={canDown ? 'One fewer flight per week' : 'At the minimum — use Remove to close this route'}
+      >−</button>
+      <span style={{ minWidth: 26, textAlign: 'center', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+        {freq}×
+      </span>
+      <button
+        type="button"
+        style={btnStyle(!blockUp)}
+        onClick={stepUp}
+        title={blockUp ? blockUp : 'One more flight per week'}
+      >+</button>
+    </div>
+  );
+}
+
 // ─── Per-aircraft table row ───────────────────────────────────────────────────
 
 function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPriceChange }) {
@@ -1863,7 +1917,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
         <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: 11, color: 'var(--accent)' }}>
           {aircraft?.tailNumber ?? '—'}
         </td>
-        <td style={{ padding: '7px 8px' }}>{route.weeklyFrequency}×</td>
+        <td style={{ padding: '7px 8px' }}><FrequencyStepper route={route} /></td>
         <td style={{ padding: '7px 8px', color: 'var(--text-muted)' }}>{seatsPerWk.toLocaleString()}</td>
         <td style={{ padding: '7px 8px' }}>
           {result ? (
