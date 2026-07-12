@@ -958,6 +958,105 @@ const MAX_OWN_METAL_ODS_PER_HUB = 150;
  *   entries:      [{ od, hub, pax, revenue, share }],
  * }}
  */
+/**
+ * Bi-directional own-metal connection enumeration.
+ *
+ * A player route is a ROUND TRIP: the aircraft flies origin→dest AND dest→origin
+ * every week, and simulateRoute already sells both directions (revenue ×2,
+ * flights = weeklyFrequency × 2). The direct-passenger model therefore treats
+ * every route as bidirectional — but buildAllConnections / findConnectionsAtHub
+ * classify a leg as inbound- OR outbound-only by its STORED origin/destination.
+ * That makes own-metal connecting itineraries vanish whenever a player's spokes
+ * are stored with a consistent orientation (e.g. every route as hub→spoke): the
+ * hub then has zero "inbound" legs, so no A→hub→C markets are formed and the
+ * connecting-pax KPI collapses to the tiny external-gateway feed alone.
+ *
+ * This helper lets every player route serve as EITHER leg at a hub, aggregates
+ * frequency/price per (hub, spoke), and emits each unordered A↔hub↔C market once
+ * (demand + price are symmetric between two airports), keeping the connecting
+ * count one-way-consistent with the direct model. It feeds computeOwnMetalODRevenue
+ * only; partner/interline feed is unchanged and still flows through buildAllConnections.
+ */
+export function buildOwnMetalConnections(playerRoutes = []) {
+  const legs = expandRoutesToLegs(playerRoutes);
+  const directRouteKeys = new Set(legs.map(r => [r.origin, r.destination].sort().join('-')));
+
+  // Aggregate hub-adjacent frequency/price per (airport, spoke). Each round-trip
+  // leg contributes to BOTH of its endpoints' spoke lists.
+  const atAirport = new Map(); // airport -> Map(spoke -> { freq, priceFreqSum, tagParents:Set })
+  const add = (airport, spoke, freq, price, tagId) => {
+    if (!atAirport.has(airport)) atAirport.set(airport, new Map());
+    const m = atAirport.get(airport);
+    const e = m.get(spoke) ?? { freq: 0, priceFreqSum: 0, tagParents: new Set() };
+    e.freq += freq;
+    e.priceFreqSum += price * freq;
+    if (tagId) e.tagParents.add(tagId);
+    m.set(spoke, e);
+  };
+  for (const leg of legs) {
+    const f = leg.weeklyFrequency ?? 7;
+    const p = leg.ticketPrice ?? referencePrice(leg.origin, leg.destination);
+    add(leg.origin,      leg.destination, f, p, leg._tagParentId);
+    add(leg.destination, leg.origin,      f, p, leg._tagParentId);
+  }
+
+  const connections = [];
+  for (const [hub, spokeMap] of atAirport) {
+    const spokes = [...spokeMap.entries()].map(([spoke, e]) => ({
+      spoke, freq: e.freq, price: e.priceFreqSum / Math.max(e.freq, 1), tagParents: e.tagParents,
+    }));
+    if (spokes.length < 2) continue;
+    for (let i = 0; i < spokes.length; i++) {
+      for (let j = i + 1; j < spokes.length; j++) {
+        const a = spokes[i], b = spokes[j];
+        if (a.spoke === b.spoke) continue;
+        // A through tag service already sells this O&D — don't double-book it.
+        let sharedTag = false;
+        for (const t of a.tagParents) { if (b.tagParents.has(t)) { sharedTag = true; break; } }
+        if (sharedTag) continue;
+
+        // Canonical (sorted) O&D so each market is emitted exactly once.
+        const [origin, dest] = a.spoke < b.spoke ? [a.spoke, b.spoke] : [b.spoke, a.spoke];
+        const legO = origin === a.spoke ? a : b;
+        const legD = dest   === a.spoke ? a : b;
+
+        const odDemand = baseCityPairDemand(origin, dest);
+        if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
+
+        const directKey    = [origin, dest].sort().join('-');
+        const directExists = directRouteKeys.has(directKey);
+        const totalPrice   = legO.price + legD.price;
+        const refP         = referencePrice(origin, dest) || totalPrice;
+        const minFreq      = Math.min(legO.freq, legD.freq);
+
+        const penalty     = CONNECTION_PENALTY.ownMetal;
+        const connectUtil = -penalty
+                            - PRICE_WEIGHT * (totalPrice / Math.max(refP, 1))
+                            + FREQ_WEIGHT  * Math.log1p(minFreq);
+        let connectionShare = 1.0;
+        if (directExists) {
+          const directUtil = -PRICE_WEIGHT * 1.0 + FREQ_WEIGHT * Math.log1p(7);
+          const mx = Math.max(connectUtil, directUtil);
+          const eC = Math.exp(connectUtil - mx);
+          const eD = Math.exp(directUtil  - mx);
+          connectionShare = eC / (eC + eD);
+        }
+
+        connections.push({
+          hub,
+          legOneOrigin: origin, legOneDest: hub, legTwoDest: dest,
+          leg1Owner: 'player', leg2Owner: 'player', partnershipType: 'ownMetal',
+          leg1Freq: legO.freq, leg2Freq: legD.freq,
+          leg1Price: legO.price, leg2Price: legD.price,
+          totalPrice, odDemand, directExists,
+          connectionShare, directShare: 1 - connectionShare,
+        });
+      }
+    }
+  }
+  return connections;
+}
+
 export function computeOwnMetalODRevenue(connections, options = {}) {
   const {
     hubs = {},
@@ -1179,7 +1278,10 @@ export function runNetworkTick(state) {
   const hubContestMap = buildHubContestMap(competitors, routeCountByAirport, hubs);
 
   // Own-metal itinerary revenue: real A→hub→C markets over designated hubs.
-  const ownMetalOD = computeOwnMetalODRevenue(connections, {
+  // Enumerated bidirectionally (routes are round trips) so hub connectivity does
+  // NOT depend on the stored origin/destination orientation of each spoke route.
+  const ownMetalConnections = buildOwnMetalConnections(routes);
+  const ownMetalOD = computeOwnMetalODRevenue(ownMetalConnections, {
     hubs,
     gameDate,
     competitorRouteIndex,
