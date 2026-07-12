@@ -1863,7 +1863,7 @@ function reducer(state, action) {
       // Decided from the PRIOR week's outcome (load factor + fares), gated by airline
       // size, then injected into this week's demand model so they split passengers.
       const { encroachments: updatedEncroachments, events: encroachEvents } = isMultiplayerWorld
-        ? { encroachments: state.encroachments ?? {}, events: [] }
+        ? { encroachments: {}, events: [] }  // MP: wipe — no AI encroachment ever persists or contests a route in multiplayer
         : tickEncroachment({
         // Dormant seasonal routes aren't in the market this month, so AI carriers
         // shouldn't contest them or count their (idle) frequency on the pair.
