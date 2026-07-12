@@ -161,11 +161,21 @@ function computeProjectWeek(state) {
   // ── Tax & bottom line ────────────────────────────────────────────────────────
   // Tax base is EBT = EBITDA − depreciation − interest − reactivation (loan
   // PRINCIPAL is not an expense and is NOT deductible). This matches the reducer.
-  const taxableIncome = ebit - interest - seasonalReactivation;
+  // Lease redelivery: a lease whose FINAL week is this projected week pays 4x rent
+  // on return — mirrors the reducer's leaseRedeliveryCost (deductible, like the
+  // seasonal reactivation fee) so the projection matches what advancing actually books.
+  let leaseRedelivery = 0;
+  for (const a of fleet) {
+    const rem = a.leaseRemainingWeeks ?? 0;
+    if (a.ownershipType === 'lease' && rem > 0 && rem - 1 <= 0) {
+      leaseRedelivery += (getAircraftType(a.typeId)?.weeklyLease ?? 0) * 4;
+    }
+  }
+  const taxableIncome = ebit - interest - seasonalReactivation - leaseRedelivery;
   const corporateTax  = Math.round(Math.max(0, taxableIncome) * CORPORATE_TAX_RATE);
   // Cash bottom line: operating cash − loan payments − reactivation − tax (matches
   // the `profit` stored in history). Depreciation is non-cash so it doesn't affect cash.
-  const preTaxProfit  = ebitda - loanPayments - seasonalReactivation;   // pre-tax CASH
+  const preTaxProfit  = ebitda - loanPayments - seasonalReactivation - leaseRedelivery;   // pre-tax CASH
   const netCash       = preTaxProfit - corporateTax;
   // Accrual view (proper P&L): EBIT − interest − tax. Principal excluded.
   const netIncomeAccrual = ebit - interest - corporateTax;
@@ -185,6 +195,7 @@ function computeProjectWeek(state) {
     principal,
     loanPayments,
     seasonalReactivation,
+    leaseRedelivery,
     preTaxProfit,
     corporateTax,
     netCash,

@@ -164,7 +164,7 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
   const acRoutes = state.routes.filter(r => r.aircraftId === route.aircraftId);
   const peakBlockHrs = Math.max(0, ...months.map(m =>
     acRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) =>
-      s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), freqOf(r), type), 0)));
+      s + routeBlockHours(r, type, freqOf(r)), 0)));
   if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return "Aircraft's weekly block-hour limit";
 
   // Gate slots at each endpoint, per-month peak.
@@ -771,7 +771,7 @@ function reducer(state, action) {
       const peakBlockHrs = Math.max(0, ...newMonths.map(m =>
         newBlockHrs + acRoutes
           .filter(r => isRouteActive(r, m))
-          .reduce((sum, r) => sum + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0)));
+          .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0)));
       if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return state;
 
       // ── Network-connectivity check: a plane that has already flown can only ───
@@ -1056,7 +1056,7 @@ function reducer(state, action) {
       // Block-hours across this freighter's existing cargo routes.
       const existingBlockHrs = (state.cargoRoutes ?? [])
         .filter(r => r.aircraftId === action.aircraftId)
-        .reduce((sum, r) => sum + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0);
+        .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0);
       if (existingBlockHrs + weeklyBlockHours(dist, weeklyFrequency, type) > MAX_WEEKLY_BLOCK_HOURS) return state;
 
       // Network connectivity: a freighter already flying can only extend from airports it serves.
@@ -1146,8 +1146,8 @@ function reducer(state, action) {
       if (type) {
         const otherBlockHrs = (state.cargoRoutes ?? [])
           .filter(r => r.aircraftId === targetRoute.aircraftId && r.id !== targetRoute.id)
-          .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0);
-        if (otherBlockHrs + weeklyBlockHours(routeDistanceKm(targetRoute.origin, targetRoute.destination), newFreq, type) > MAX_WEEKLY_BLOCK_HOURS) return state;
+          .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+        if (otherBlockHrs + routeBlockHours(targetRoute, type, newFreq) > MAX_WEEKLY_BLOCK_HOURS) return state;
 
         const gates = state.gates ?? {};
         const allOps = [...state.routes, ...(state.cargoRoutes ?? [])];

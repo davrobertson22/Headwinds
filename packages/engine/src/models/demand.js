@@ -572,9 +572,20 @@ export function computeMarketShare(market, offers) {
   const compressedBizRef = compressedRef * BUSINESS_PRICE_MULTIPLIER;
 
   const leisureUtils  = offers.map(o => computeUtility(o, market, 'leisure'));
-  const businessUtils = offers.map(o => computeUtility(o, market, 'business'));
+  // Business softmax EXCLUDES economy-only offers (no business cabin). Otherwise a
+  // cheap all-economy carrier captures business-segment share it cannot sell —
+  // phantom pax that earn $0, inflate its load factor, and (for player configs with
+  // totalSeats) eat its own leisure capacity, while starving full-service rivals of
+  // J demand. Zeroing their share renormalises the pool over business-capable
+  // carriers and propagates through avgBusinessPrice, marketBizCapture and the pax
+  // allocation below (all multiply by businessShares[i]). If NO carrier offers
+  // business, the whole segment is unserved here (shares all 0).
+  const bizCapable = offers.map(o => o.businessPrice != null);
+  const anyBiz = bizCapable.some(Boolean);
+  const businessUtils = offers.map((o, i) =>
+    anyBiz && !bizCapable[i] ? -Infinity : computeUtility(o, market, 'business'));
   const leisureShares  = softmax(leisureUtils);
-  const businessShares = softmax(businessUtils);
+  const businessShares = anyBiz ? softmax(businessUtils) : offers.map(() => 0);
 
   // Weighted-average prices across the market (share-weighted)
   const avgLeisurePrice  = offers.reduce((s, o, i) => s + o.economyPrice  * leisureShares[i],  0);
