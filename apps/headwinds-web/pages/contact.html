@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact — Headwinds Multiplayer Airline Game</title>
+  <meta name="description" content="Contact the Headwinds team: send a message with the form, report a bug, flag a player, suggest a feature, or join the community on Discord." />
+  <link rel="canonical" href="https://www.headwindsairlinegame.com/contact.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0b0e13; --panel:#141a23; --line:#263143; --text:#e8edf4; --muted:#8b98ab; --teal:#38c9b4; --teal-light:#5fe0cc; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--teal-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--teal-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:40px 0 12px; }
+    p { margin:0 0 16px; }
+    ul { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .cta { display:inline-block; background:var(--teal); color:#04211d; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 16px; }
+    form.contact { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px 24px; margin:0 0 20px; }
+    form.contact .row { margin:0 0 16px; }
+    form.contact label { display:block; font-weight:600; font-size:0.95rem; margin:0 0 6px; }
+    form.contact input, form.contact textarea { width:100%; background:#0b0e13; border:1px solid var(--line); border-radius:8px; color:var(--text); font-family:inherit; font-size:1rem; padding:11px 13px; line-height:1.5; }
+    form.contact input:focus, form.contact textarea:focus { outline:none; border-color:var(--teal); }
+    form.contact textarea { resize:vertical; min-height:130px; }
+    form.contact .hp { position:absolute; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+    button.submit { background:var(--teal); color:#04211d; font-weight:700; font-family:inherit; font-size:1rem; padding:12px 28px; border:none; border-radius:8px; cursor:pointer; }
+    button.submit:hover { background:var(--teal-light); }
+    button.submit:disabled { opacity:0.6; cursor:default; }
+    .form-result { margin:14px 0 0; font-size:0.98rem; min-height:1.2em; }
+    .form-result.ok { color:#6fe0b8; }
+    .form-result.err { color:#f0928f; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--teal-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Headwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/rules.html">Rules</a>
+      <a class="link" href="/play">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Contact</h1>
+    <p class="lede">Found a bug? Have a feature idea? Need to flag a player who's breaking the rules? Send us a message below, or join the community on Discord.</p>
+
+    <h2>Send us a message</h2>
+    <p>Fill in the form and it comes straight to the team. If you'd like a reply, leave an email address we can reach you at. To report a specific player, the quickest route is the in-game <strong>Report</strong> button — it tells us who and where automatically — but you're welcome to use the form for anything else.</p>
+
+    <!-- ▶ ACTIVATION REQUIRED: replace YOUR_WEB3FORMS_ACCESS_KEY below with the free
+         access key from https://web3forms.com (enter your email, the key is emailed to
+         you instantly). Until you do, the form will not deliver. Your email address is
+         never shown on the page — only this key is, and it is safe to expose. -->
+    <form class="contact" action="https://api.web3forms.com/submit" method="POST" id="contactForm">
+      <input type="hidden" name="access_key" value="YOUR_WEB3FORMS_ACCESS_KEY" />
+      <input type="hidden" name="subject" value="New message from the Headwinds contact form" />
+      <input type="hidden" name="from_name" value="Headwinds Contact Form" />
+      <input type="checkbox" name="botcheck" class="hp" tabindex="-1" autocomplete="off" />
+      <div class="row">
+        <label for="cf-name">Name</label>
+        <input type="text" id="cf-name" name="name" required autocomplete="name" />
+      </div>
+      <div class="row">
+        <label for="cf-email">Email <span style="color:var(--muted);font-weight:400;">(optional, if you'd like a reply)</span></label>
+        <input type="email" id="cf-email" name="email" autocomplete="email" />
+      </div>
+      <div class="row">
+        <label for="cf-message">Message</label>
+        <textarea id="cf-message" name="message" required></textarea>
+      </div>
+      <button type="submit" class="submit">Send message</button>
+      <p class="form-result" id="formResult" role="status" aria-live="polite"></p>
+      <noscript><p style="color:var(--muted);margin:12px 0 0;">Submitting this form requires JavaScript. If it's disabled, please reach us on <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a> instead.</p></noscript>
+    </form>
+
+    <div class="card">
+      <h2 style="margin-top:0;">Join the Discord community</h2>
+      <p>Headwinds and Tailwinds share a community on Discord, and it's often the fastest way to reach the team. Players find worlds to join, team up for alliances, share strategies, report bugs, and help shape where both games go next — and the developers read it daily.</p>
+      <p><a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer"><strong>Join the Headwinds Discord →</strong></a></p>
+    </div>
+
+    <h2>Reporting a player</h2>
+    <p>Headwinds only works when everyone plays straight. If someone is cheating, harassing, running multiple airlines in a world, or otherwise breaking the <a href="/rules.html">Fair Play Rules</a>, use the in-game <strong>Report</strong> button — it sends us the details along with who and where, so we can look into it. You can also describe the situation through the form above.</p>
+
+    <h2>What to include in a bug report</h2>
+    <p>Bugs get fixed fastest when we can reproduce them. If you can, include:</p>
+    <ul>
+      <li>What you were doing when it happened (opening a route, sending a message, checking the standings, etc.)</li>
+      <li>Which world you were in, and what you expected versus what actually happened</li>
+      <li>Your device and browser (e.g. iPhone/Safari, Windows/Chrome)</li>
+      <li>A screenshot, if the issue is visual</li>
+    </ul>
+
+    <h2>Feature ideas and feedback</h2>
+    <p>A lot of Headwinds took shape from player suggestions. If you have an idea — a mechanic, an alliance feature, an aircraft, an airport that deserves to be on the map — send it our way. We can't build everything, but we read everything.</p>
+
+    <h2>Privacy questions</h2>
+    <p>For questions about your account data and privacy, see our <a href="/privacy.html">Privacy Policy</a>, or ask through the form above and we'll point you to the right answer.</p>
+
+    <a class="cta" href="/play">Play Headwinds — It's Free →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/rules.html">Rules</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.</span>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var form = document.getElementById('contactForm');
+      var result = document.getElementById('formResult');
+      if (!form) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var btn = form.querySelector('button[type="submit"]');
+        var data = new FormData(form);
+        result.className = 'form-result';
+        result.textContent = 'Sending…';
+        if (btn) btn.disabled = true;
+        fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: data
+        }).then(function (res) {
+          return res.json().then(function (json) { return { ok: res.ok, json: json }; });
+        }).then(function (r) {
+          if (r.ok) {
+            form.reset();
+            result.className = 'form-result ok';
+            result.textContent = (r.json && r.json.message) || 'Thanks — your message has been sent.';
+          } else {
+            result.className = 'form-result err';
+            result.textContent = (r.json && r.json.message) || 'Something went wrong. Please try again, or reach us on Discord.';
+          }
+        }).catch(function () {
+          result.className = 'form-result err';
+          result.textContent = 'Network error. Please try again, or reach us on Discord.';
+        }).then(function () {
+          if (btn) btn.disabled = false;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

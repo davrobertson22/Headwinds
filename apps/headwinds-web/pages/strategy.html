@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Headwinds Strategy Guide — Competing Against Real Players</title>
+  <meta name="description" content="An in-depth strategy guide for Headwinds, the multiplayer airline game. Scout rivals, claim territory, win contested routes, use alliances and diplomacy, play the world clock, and finish a world on top." />
+  <link rel="canonical" href="https://www.headwindsairlinegame.com/strategy.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0b0e13; --panel:#141a23; --line:#263143; --text:#e8edf4; --muted:#8b98ab; --teal:#38c9b4; --teal-light:#5fe0cc; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--teal-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--teal-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:42px 0 12px; }
+    h3 { font-size:1.1rem; margin:26px 0 8px; }
+    p { margin:0 0 16px; }
+    ul,ol { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .cta { display:inline-block; background:var(--teal); color:#04211d; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    .tip { border-left:3px solid var(--teal); padding:4px 0 4px 16px; color:var(--muted); margin:0 0 16px; }
+    .toc { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 32px; }
+    .toc ul { margin:8px 0 0; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--teal-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Headwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/rules.html">Rules</a>
+      <a class="link" href="/play">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Headwinds Strategy Guide</h1>
+    <p class="lede">Headwinds runs the same deep simulation as its solo sibling — but the airlines across the table are people, not code. They scout you, adapt, cooperate, and occasionally act out of spite. That single fact reshapes every decision, and this guide is about playing the map <em>and</em> the players on it.</p>
+
+    <p>If you're still learning the fundamentals — hubs, fleet, routes, load factor — start with the <a href="/how-to-play.html">how-to-play guide</a> and the <a href="/glossary.html">glossary</a>, then come back here. And whatever you do, do it inside the <a href="/rules.html">Fair Play Rules</a>: competing hard is the whole point, cheating isn't.</p>
+
+    <div class="toc">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#scout">Scout before you fly</a></li>
+        <li><a href="#territory">Claim territory early</a></li>
+        <li><a href="#contested">Contested routes &amp; pricing</a></li>
+        <li><a href="#headtohead">Head-to-head tactics</a></li>
+        <li><a href="#alliances">Alliances &amp; diplomacy</a></li>
+        <li><a href="#clock">Playing the world clock</a></li>
+        <li><a href="#moats">Loyalty &amp; reputation as moats</a></li>
+        <li><a href="#finance">Finance under pressure</a></li>
+        <li><a href="#winning">Winning a world</a></li>
+      </ul>
+    </div>
+
+    <h2 id="scout">Scout before you fly</h2>
+    <p>In a world of real opponents, information is an edge you can act on. Before you commit aircraft, use the rival views and standings to read the room: who's already big, where their networks are concentrated, which hubs are crowded, and who's climbing fast. An airline that's expanding aggressively is a different threat from one sitting still on a fat home market. The map tells you where the fights will be — scout it, then choose battles you can win.</p>
+
+    <h2 id="territory">Claim territory early</h2>
+    <p>Open demand is a finite resource in a shared world, and early movers lock it up. The best opening isn't the flashiest market — it's the profitable one nobody has taken yet. Establish yourself in space where you're unopposed, bank the cash, and build a base before you ever pick a fight. Attacking an entrenched rival at their fortress hub in week two is how new airlines burn their runway; growing where they aren't is how you build one big enough to attack from later.</p>
+
+    <h2 id="contested">Contested routes &amp; pricing</h2>
+    <p>When two airlines fly the same city pair, the simulation divides the passengers between them by fare, frequency, service quality, and loyalty. The mechanics are familiar — but here the other operator is a person who will notice, and react. Undercut them and they may undercut back. Add frequency and they may match it. Because both sides adapt, the question isn't just "what splits this market today," but "what does my move provoke next week?"</p>
+    <h3>Read the load factor in context</h3>
+    <p>Load factor is still your fastest signal, but read it against who else is in the market. A route sagging to 55% because a rival just entered calls for a different response than one that was always thin. If the market can support both of you at a fair price, hold. If it can't, decide quickly whether to win it or leave it — a half-committed presence in a contested market bleeds you slowly.</p>
+
+    <h2 id="headtohead">Head-to-head tactics</h2>
+    <p>When a rival contests a route you care about, you have three honest responses — and one trap:</p>
+    <ul>
+      <li><strong>Defend</strong> the routes central to your hub by matching fares and adding frequency, accepting a thinner margin to keep your share and your connections intact.</li>
+      <li><strong>Differentiate</strong> by out-scheduling them — more departures, better connection timing — so you win the flyers who value convenience even at a similar fare.</li>
+      <li><strong>Redeploy</strong> when a route isn't worth the fight. Moving that aircraft to a market where you have the edge beats grinding two airlines into the dirt.</li>
+      <li><strong>The trap</strong> is the all-out price war. Against a human, it can turn personal: a spiteful rival may torch a route's fares well past the point of profit just to hurt you, and you both lose. Sometimes the strongest play is to stop fighting and make a deal.</li>
+    </ul>
+    <div class="tip">Against people, restraint is a weapon. The rival expecting a price war and getting a truce is off balance — and you've kept the capacity you'd have spent bleeding them.</div>
+
+    <h2 id="alliances">Alliances &amp; diplomacy</h2>
+    <p>Alliances in Headwinds are founded and run by players, and the in-game messaging system is where the real game between people happens. Used well, an alliance extends your reach into markets you don't fly, feeds passengers between partners, and turns would-be rivals into a bloc. The best partners <em>complement</em> your network rather than overlap it — a partner who hubs where you don't doubles your effective map; one who flies your routes is just a truce waiting to break.</p>
+    <p>Diplomacy cuts both ways. You can carve up a contested region so neither of you wastes capacity fighting the other, or rally a coalition to pen in a runaway leader before they're unstoppable. But the game enforces none of it — a handshake holds only as long as both sides want it to, and a partner is always free to walk away or turn on you. Treat every deal as leverage, not law, and keep an eye on the exits.</p>
+
+    <h2 id="clock">Playing the world clock</h2>
+    <p>The world advances on the server around the clock, so time management is strategy. Your network keeps flying — and your rivals keep moving — while you're offline, which rewards resilient design over constant micromanagement. Build routes that stay healthy without a hand on the wheel, keep a cash buffer so an unattended bad stretch can't end your run, and check in on a rhythm rather than in a panic. Late in a world, that same clock becomes a countdown: position for the final standings before it runs out, not after.</p>
+
+    <h2 id="moats">Loyalty &amp; reputation as moats</h2>
+    <p>A loyalty program and a strong brand are slow to build and, in multiplayer, hard for a rival to copy in time — which is exactly what makes them moats. Treat loyalty as a multi-year investment: members enroll over months, the program's value compounds over roughly a year and a half of steady funding, and the points you award are a real future debt, so a young program looks cheaper than it is. Start early and fund it consistently and, by mid-world, you'll hold repeat flyers that a late-arriving competitor simply can't pry loose before the clock stops. Reputation works on the same long timescale — reliable operations and sensible pricing build a brand that wins passengers at the margin and cushions you when you stumble.</p>
+
+    <h2 id="finance">Finance under pressure</h2>
+    <p>Cash is survival; debt is a tool — and in a live world, both are read against what your rivals might do. A thin cash balance that's fine in a quiet market becomes dangerous the moment a well-funded competitor opens a price war on your best route. Keep a deeper cushion than a solo player would, because you don't control when the pressure comes. Borrow to seize a genuine opening — a fleet for a new hub, an expansion before a rival beats you to it — but only against cash flow your existing network reliably produces. Own the metal on your proven core routes to lower costs; lease for the experiments and the land-grabs.</p>
+
+    <h2 id="winning">Winning a world</h2>
+    <p>Every world runs for a fixed span of game-years and ends with a final ranking, so there's an actual finish line — and everyone on the leaderboard is a person you out-flew or didn't. Play the scoreboard: track your standing and market value against the field, consolidate your strongest markets as the end approaches, and resist the classic blunder of a huge, debt-fuelled expansion right before the clock stops, when there's no time left for it to mature. The airline that finishes on top is usually the one that claimed good ground early, defended it intelligently, partnered wisely, and grew at a pace it could always digest.</p>
+
+    <p>Put it together and the playbook is clear: scout the field, take open territory before others do, fight only the battles worth winning, use alliances to extend and to contain, protect your position with loyalty and brand, keep a balance sheet that can absorb a rival's worst move, and steer toward the final standings the whole way. Do that better than the people around you, and you'll finish a world at the top of the table.</p>
+
+    <a class="cta" href="/play">Put It Into Practice — Play Now →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/rules.html">Rules</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.</span>
+    </div>
+  </footer>
+</body>
+</html>
