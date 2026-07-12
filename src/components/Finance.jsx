@@ -2857,7 +2857,15 @@ function Statistics() {
   })), [windowed]);
 
   const trackedWindow = useMemo(() => windowed.filter(r => !r.partial), [windowed]);
-  const trackedPoints = useMemo(() => downsampleStats(trackedWindow), [trackedWindow]);
+  // trackedPoints must carry the SAME derived fields as `points` (lfPct/yieldCents):
+  // the Operating-efficiency charts and the Load Factor KPI tile read those keys, so
+  // without this map Load factor and Yield plotted as 0 even though loadFactor/yield
+  // are recorded correctly. ASK reads the raw `ask` key so it was unaffected.
+  const trackedPoints = useMemo(() => downsampleStats(trackedWindow).map(p => ({
+    ...p,
+    lfPct: (p.loadFactor ?? 0) * 100,
+    yieldCents: (p.yield ?? 0) * 100,
+  })), [trackedWindow]);
   const wide = activeWeeks > 130 || (activeWeeks === Infinity && all.length > 130);
 
   if (all.length < 2) {
