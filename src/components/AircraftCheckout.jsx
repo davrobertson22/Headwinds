@@ -6,7 +6,8 @@ import {
   CLASS_FARE_MULTIPLIERS,
   CLASS_SPACE_MULTIPLIERS,
   SEAT_QUALITY_COST_PER_ROUTE,
-  SERVICE_QUALITY_COST_PER_ROUTE,
+  SEAT_QUALITY_FITTING_FEE,
+  cabinInstallFee,
   weekToGameDate,
   configRangeMod,
 } from '../utils/simulation.js';
@@ -171,8 +172,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const [biz,   setBizRaw]   = useState(0);
   const [prem,  setPremRaw]  = useState(0);
   const [eco,   setEcoRaw]   = useState(maxSeats);   // ← now user-controlled
-  const [seatQ, setSeatQ]    = useState('standard');
-  const [servQ, setServQ]    = useState('standard');
+  const [seatQ, setSeatQ]    = useState('basic');
 
   // Clamp economy whenever premium classes change to avoid over-allocation
   function clampEco(f, b, p, currentEco) {
@@ -196,8 +196,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     setBizRaw(b);
     setPremRaw(p);
     setEcoRaw(clampEco(f, b, p, Math.max(0, cfg.economy ?? 0)));
-    setSeatQ(cfg.seatQuality ?? 'standard');
-    setServQ(cfg.serviceQuality ?? 'standard');
+    setSeatQ(cfg.seatQuality ?? 'basic');
   }
 
   const usedUnits = first * CLASS_SPACE_MULTIPLIERS.firstClass
@@ -232,9 +231,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     + (eco   / totalPhysical) * CLASS_FARE_MULTIPLIERS.economy
     : 1;
 
-  const extraQualityCost =
-    (SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0) +
-    (SERVICE_QUALITY_COST_PER_ROUTE[servQ] ?? 0);
+  const extraQualityCost = SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0;
 
   // Freighters carry cargo, not passengers — no cabin layout to choose. Pass null
   // so delivery falls back to the (irrelevant) default config.
@@ -244,7 +241,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     premiumEconomy: prem,
     economy:        eco,
     seatQuality:    seatQ,
-    serviceQuality: servQ,
+    serviceQuality: 'standard',
   };
 
   // ── Engine / wingtip modifiers ────────────────────────────────────────────
@@ -305,10 +302,21 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const unitLeaseDeposit  = unitWeeklyLease * 12;   // 3 months (12 weeks) upfront
   const totalLeaseDeposit = unitLeaseDeposit * quantity;
 
-  const canAfford     = mode === 'buy' ? cash >= totalBuyPrice : cash >= totalLeaseDeposit;
+  // One-off upfront extras (per aircraft): seat-quality fitting fee for seats above
+  // basic economy + per-seat install fee for premium cabins (first/business/prem-eco).
+  const unitFittingFee  = SEAT_QUALITY_FITTING_FEE[seatQ] ?? 0;
+  const unitInstallFee  = cabinInstallFee(cabinConfig);
+  const unitExtras      = unitFittingFee + unitInstallFee;
+  const totalFittingFee = unitFittingFee * quantity;
+  const totalInstallFee = unitInstallFee * quantity;
+  const totalExtras     = unitExtras * quantity;
+  const buyTotalDue     = totalBuyPrice + totalExtras;
+  const leaseDepositDue = totalLeaseDeposit + totalExtras;
+
+  const canAfford     = mode === 'buy' ? cash >= buyTotalDue : cash >= leaseDepositDue;
   const maxAffordable = mode === 'buy'
-    ? Math.max(0, Math.floor(cash / unitBuyPrice))
-    : Math.max(0, Math.floor(cash / unitLeaseDeposit));
+    ? Math.max(0, Math.floor(cash / (unitBuyPrice + unitExtras)))
+    : Math.max(0, Math.floor(cash / (unitLeaseDeposit + unitExtras)));
 
   function setQty(n) { setQuantity(Math.max(1, Math.min(20, n))); }
 
@@ -543,7 +551,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             {/* Saved templates */}
             <CabinTemplatePicker
               typeId={typeId}
-              currentConfig={{ firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: servQ }}
+              currentConfig={{ firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: 'standard' }}
               onApply={applyTemplate}
             />
 
@@ -612,40 +620,22 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               </div>
             )}
 
-            {/* Seat & service quality */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Seat Quality</div>
-                <select
-                  value={seatQ} onChange={e => setSeatQ(e.target.value)}
-                  style={{ width: '100%', padding: '6px 8px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', cursor: 'pointer' }}
-                >
-                  {QUALITY_OPTIONS.map(o => (
-                    <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
-                  ))}
-                </select>
-                {SEAT_QUALITY_COST_PER_ROUTE[seatQ] > 0 && (
-                  <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 3 }}>
-                    +{formatMoney(SEAT_QUALITY_COST_PER_ROUTE[seatQ])}/route/wk
-                  </div>
-                )}
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Service Quality</div>
-                <select
-                  value={servQ} onChange={e => setServQ(e.target.value)}
-                  style={{ width: '100%', padding: '6px 8px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', cursor: 'pointer' }}
-                >
-                  {QUALITY_OPTIONS.map(o => (
-                    <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
-                  ))}
-                </select>
-                {SERVICE_QUALITY_COST_PER_ROUTE[servQ] > 0 && (
-                  <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 3 }}>
-                    +{formatMoney(SERVICE_QUALITY_COST_PER_ROUTE[servQ])}/route/wk
-                  </div>
-                )}
-              </div>
+            {/* Seat quality */}
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Seat Quality</div>
+              <select
+                value={seatQ} onChange={e => setSeatQ(e.target.value)}
+                style={{ width: '100%', padding: '6px 8px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', cursor: 'pointer' }}
+              >
+                {QUALITY_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
+                ))}
+              </select>
+              {seatQ !== 'basic' && (
+                <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 3 }}>
+                  One-off fit {formatMoney(SEAT_QUALITY_FITTING_FEE[seatQ] ?? 0)} · +{formatMoney(SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0)}/route/wk
+                </div>
+              )}
             </div>
 
             {/* Revenue preview */}
@@ -695,13 +685,25 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                     <span style={{ color: 'var(--text)' }}>{formatMoney(unitBuyPrice)} × {quantity}</span>
                   </div>
                 )}
+                {totalFittingFee > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
+                    <span>Seat fitting — one-off{quantity > 1 ? ` × ${quantity}` : ''}</span>
+                    <span style={{ color: 'var(--text)' }}>+{formatMoney(totalFittingFee)}</span>
+                  </div>
+                )}
+                {totalInstallFee > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
+                    <span>Premium cabin fit — one-off{quantity > 1 ? ` × ${quantity}` : ''}</span>
+                    <span style={{ color: 'var(--text)' }}>+{formatMoney(totalInstallFee)}</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--border)', fontWeight: 700, fontSize: 15 }}>
                   <span>Total{quantity > 1 ? ` (${quantity} aircraft)` : ''}</span>
-                  <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(totalBuyPrice)}</span>
+                  <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(buyTotalDue)}</span>
                 </div>
                 {!canAfford && (
                   <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, textAlign: 'right' }}>
-                    Need {formatMoney(totalBuyPrice - cash)} more{maxAffordable > 0 ? ` · can afford ${maxAffordable}` : ''}
+                    Need {formatMoney(buyTotalDue - cash)} more{maxAffordable > 0 ? ` · can afford ${maxAffordable}` : ''}
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, textAlign: 'right' }}>Full payment due at order</div>
@@ -740,11 +742,23 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', fontWeight: 700, fontSize: 14 }}>
                   <span>3-month deposit (due now)</span>
-                  <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(totalLeaseDeposit)}</span>
+                  <span style={{ color: 'var(--text)' }}>{formatMoney(totalLeaseDeposit)}</span>
                 </div>
+                {totalFittingFee > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontWeight: 700, fontSize: 14 }}>
+                    <span>Seat fitting — one-off (due now)</span>
+                    <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(totalFittingFee)}</span>
+                  </div>
+                )}
+                {totalInstallFee > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontWeight: 700, fontSize: 14 }}>
+                    <span>Premium cabin fit — one-off (due now)</span>
+                    <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(totalInstallFee)}</span>
+                  </div>
+                )}
                 {!canAfford && (
                   <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, textAlign: 'right' }}>
-                    Need {formatMoney(totalLeaseDeposit - cash)} more{maxAffordable > 0 ? ` · can afford ${maxAffordable}` : ''}
+                    Need {formatMoney(leaseDepositDue - cash)} more{maxAffordable > 0 ? ` · can afford ${maxAffordable}` : ''}
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, textAlign: 'right' }}>
@@ -780,7 +794,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             )}
 
             {/* Cabin summary callout */}
-            {(first + biz + prem > 0 || eco < maxEco || seatQ !== 'standard' || servQ !== 'standard') && (
+            {(first + biz + prem > 0 || eco < maxEco || seatQ !== 'basic') && (
               <div style={{ marginTop: 8, padding: '7px 10px', background: 'rgba(163,113,247,0.1)', borderRadius: 5, fontSize: 12, color: '#a98bff', border: '1px solid rgba(163,113,247,0.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span><Glyph e="💺" /></span>
                 <span>
@@ -790,7 +804,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                     prem  > 0 && `${prem}W`,
                     `${eco}Y`,
                   ].filter(Boolean).join(' / ')}
-                  {(seatQ !== 'standard' || servQ !== 'standard') && ` · ${seatQ} seats, ${servQ} service`}
+                  {seatQ !== 'basic' && ` · ${seatQ} seats`}
                   {' · '}revenue index <strong>{revenueIndex.toFixed(2)}×</strong>
                   {extraQualityCost > 0 && <span style={{ color: 'var(--red)' }}> · +{formatMoney(extraQualityCost)}/route/wk quality costs</span>}
                 </span>

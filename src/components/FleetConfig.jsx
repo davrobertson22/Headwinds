@@ -7,18 +7,17 @@ import {
   CLASS_FARE_MULTIPLIERS,
   CLASS_SPACE_MULTIPLIERS,
   SEAT_QUALITY_COST_PER_ROUTE,
-  SERVICE_QUALITY_COST_PER_ROUTE,
+  SEAT_QUALITY_FITTING_FEE,
+  CABIN_INSTALL_FEE_PER_SEAT,
   defaultConfig,
   formatMoney,
   configRangeMod,
   configSpaceQualityBonus,
 } from '../utils/simulation.js';
 
-const QUALITY_LEVELS = { basic: 0, standard: 1, premium: 2, luxury: 3 };
-
 const QUALITY_OPTIONS = [
-  { value: 'basic',    label: 'Basic',    desc: 'No frills. Saves weekly cost, costs quality points.' },
-  { value: 'standard', label: 'Standard', desc: 'Comfortable and no-nonsense.' },
+  { value: 'basic',    label: 'Basic',    desc: 'Slimline economy — the free baseline.' },
+  { value: 'standard', label: 'Standard', desc: 'Comfortable seats. Fitting fee + weekly charge.' },
   { value: 'premium',  label: 'Premium',  desc: 'Enhanced product. Boosts quality, adds weekly cost.' },
   { value: 'luxury',   label: 'Luxury',   desc: 'Flagship product. Big quality boost, premium cost.' },
 ];
@@ -33,20 +32,23 @@ function calcReconfCost(current, next) {
     Math.abs((next.businessClass  ?? 0) - (current.businessClass  ?? 0)) +
     Math.abs((next.premiumEconomy ?? 0) - (current.premiumEconomy ?? 0));
 
-  const seatQDiff = Math.abs(
-    (QUALITY_LEVELS[next.seatQuality    ?? 'standard'] ?? 1) -
-    (QUALITY_LEVELS[current.seatQuality ?? 'standard'] ?? 1)
-  );
-  const servQDiff = Math.abs(
-    (QUALITY_LEVELS[next.serviceQuality    ?? 'standard'] ?? 1) -
-    (QUALITY_LEVELS[current.serviceQuality ?? 'standard'] ?? 1)
+  // One-off fitting fee to UPGRADE seats above the current tier (downgrades are free).
+  const fitUpgrade = Math.max(
+    0,
+    (SEAT_QUALITY_FITTING_FEE[next.seatQuality    ?? 'basic'] ?? 0) -
+    (SEAT_QUALITY_FITTING_FEE[current.seatQuality ?? 'basic'] ?? 0)
   );
 
-  const anyChange = seatChanges > 0 || seatQDiff > 0 || servQDiff > 0;
-  if (!anyChange) return 0;
+  // One-off install fee for premium seats ADDED in this reconfigure (removals are free).
+  const premInstall =
+    Math.max(0, (next.firstClass     ?? 0) - (current.firstClass     ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.firstClass +
+    Math.max(0, (next.businessClass  ?? 0) - (current.businessClass  ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.businessClass +
+    Math.max(0, (next.premiumEconomy ?? 0) - (current.premiumEconomy ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
 
-  // $2,500 per seat moved + $30,000 per quality tier changed (both axes)
-  return Math.max(10_000, seatChanges * 2_500 + (seatQDiff + servQDiff) * 30_000);
+  if (seatChanges === 0 && fitUpgrade === 0 && premInstall === 0) return 0;
+
+  // $2,500 per seat moved + premium-seat install fee + seat-quality fitting fee
+  return Math.max(10_000, seatChanges * 2_500 + premInstall + fitUpgrade);
 }
 
 export default function FleetConfig({ aircraftId, aircraftIds = null, onClose }) {
@@ -68,8 +70,7 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
   const [biz,    setBiz]    = useState(current.businessClass  ?? 0);
   const [prem,   setPrem]   = useState(current.premiumEconomy ?? 0);
   const [ecoSeats, setEcoSeats] = useState(current.economy    ?? maxSeats);
-  const [seatQ,  setSeatQ]  = useState(current.seatQuality    ?? 'standard');
-  const [servQ,  setServQ]  = useState(current.serviceQuality ?? 'standard');
+  const [seatQ,  setSeatQ]  = useState(current.seatQuality    ?? 'basic');
 
   // Apply a saved cabin template (economy clamped to remaining floor space)
   function applyTemplate(cfg) {
@@ -84,8 +85,7 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
     setBiz(b);
     setPrem(p);
     setEcoSeats(Math.min(Math.max(0, cfg.economy ?? 0), maxE));
-    setSeatQ(cfg.seatQuality ?? 'standard');
-    setServQ(cfg.serviceQuality ?? 'standard');
+    setSeatQ(cfg.seatQuality ?? 'basic');
   }
 
   // Premium classes take more floor space: First=2×, Business=1.5×, PremEco=1.25×.
@@ -108,7 +108,7 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
 
   // Reconfiguration cost — in bulk mode each aircraft pays its own refit cost
   // (they may start from different current layouts).
-  const nextConfig = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: servQ };
+  const nextConfig = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: 'standard' };
   const perAircraftCosts = targets.map(a =>
     calcReconfCost(a.config ?? defaultConfig(maxSeats), nextConfig)
   );
@@ -137,9 +137,7 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
       (eco   / maxSeats) * CLASS_FARE_MULTIPLIERS.economy
     : 1;
 
-  const extraQualityCost =
-    (SEAT_QUALITY_COST_PER_ROUTE[seatQ]  ?? 0) +
-    (SERVICE_QUALITY_COST_PER_ROUTE[servQ] ?? 0);
+  const extraQualityCost = SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0;
 
   if (!aircraft || !type) return null;
 
@@ -173,7 +171,8 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           <div className="card-title">Cabin Layout</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
             Set each cabin's seat count. Leaving floor space empty trades seats for more
-            range and a roomier, higher-quality cabin. Each seat moved costs $2,500 to refit.
+            range and a roomier, higher-quality cabin. Each seat moved costs $2,500 to refit;
+            fitting premium seats adds a one-off $200 (prem-eco) / $500 (business) / $1,000 (first) each.
           </div>
 
           <CabinTemplatePicker
@@ -267,26 +266,23 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           )}
         </div>
 
-        {/* Quality */}
+        {/* Seat quality */}
         <div style={{ marginBottom: 22 }}>
-          <div className="card-title">Cabin Quality</div>
+          <div className="card-title">Seat Quality</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-            Upgrading or downgrading quality costs $30,000 per tier change and affects passenger demand.
+            Basic economy is free. Fitting better seats costs a one-off fee per aircraft
+            (added to the refit cost below) plus an ongoing weekly charge per route, and
+            lifts passenger demand.
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
             <QualityPicker
               label="Seat Quality"
               value={seatQ}
               onChange={setSeatQ}
-              current={current.seatQuality ?? 'standard'}
-              hint={`Weekly cost per route: ${extraQualityCost > 0 ? '+' + formatMoney(SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0) : 'none'}`}
-            />
-            <QualityPicker
-              label="Service Quality"
-              value={servQ}
-              onChange={setServQ}
-              current={current.serviceQuality ?? 'standard'}
-              hint={`Weekly cost per route: ${extraQualityCost > 0 ? '+' + formatMoney(SERVICE_QUALITY_COST_PER_ROUTE[servQ] ?? 0) : 'none'}`}
+              current={current.seatQuality ?? 'basic'}
+              hint={seatQ === 'basic'
+                ? 'Free — no fitting fee, no weekly charge'
+                : `One-off fit ${formatMoney(SEAT_QUALITY_FITTING_FEE[seatQ] ?? 0)} · +${formatMoney(SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0)}/route/wk`}
             />
           </div>
         </div>

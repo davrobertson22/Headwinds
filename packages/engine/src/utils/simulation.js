@@ -422,12 +422,35 @@ export function effectiveRangeKm(aircraft, type) {
 // (via cabinQualityPoints → computeQualityScore). `basic` SAVES money —
 // slimline seats and a stripped soft product are the LCC tradeoff: cheaper
 // to run, but they cost quality points.
+// Ongoing weekly operating cost per route from seat quality. `basic` economy is
+// now the FREE floor; anything above it carries a rising weekly charge.
 export const SEAT_QUALITY_COST_PER_ROUTE = {
-  basic:    -400,
-  standard: 0,
-  premium:  500,
-  luxury:   2_000,
+  basic:    0,
+  standard: 400,
+  premium:  900,
+  luxury:   2_400,
 };
+// One-off fitting fee (per aircraft) to install seats above basic economy —
+// charged at order time and, incrementally, when upgrading an existing cabin.
+export const SEAT_QUALITY_FITTING_FEE = {
+  basic:    0,
+  standard: 30_000,
+  premium:  80_000,
+  luxury:   180_000,
+};
+// One-off install fee per premium seat (charged at order + when a reconfigure ADDS
+// premium seats). Economy seats are free; premium cabins cost more to fit out.
+export const CABIN_INSTALL_FEE_PER_SEAT = {
+  premiumEconomy: 200,
+  businessClass:  500,
+  firstClass:     1_000,
+};
+/** Total one-off install fee for the premium seats in a cabin config (absolute). */
+export function cabinInstallFee(config) {
+  return (config?.firstClass     ?? 0) * CABIN_INSTALL_FEE_PER_SEAT.firstClass
+       + (config?.businessClass  ?? 0) * CABIN_INSTALL_FEE_PER_SEAT.businessClass
+       + (config?.premiumEconomy ?? 0) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
+}
 export const SERVICE_QUALITY_COST_PER_ROUTE = {
   basic:    -800,
   standard: 0,
@@ -747,7 +770,7 @@ export function defaultConfig(totalSeats) {
     businessClass:  0,
     premiumEconomy: 0,
     economy:        totalSeats,
-    seatQuality:    'standard',
+    seatQuality:    'basic',
     serviceQuality: 'standard',
   };
 }

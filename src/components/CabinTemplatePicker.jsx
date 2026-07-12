@@ -36,8 +36,8 @@ export default function CabinTemplatePicker({ typeId, currentConfig, onApply }) 
       cfg.premiumEconomy > 0 && `${cfg.premiumEconomy}W`,
       `${cfg.economy ?? 0}Y`,
     ].filter(Boolean).join('/');
-    const qual = (cfg.seatQuality !== 'standard' || cfg.serviceQuality !== 'standard')
-      ? ` · ${cfg.seatQuality ?? 'standard'} seats, ${cfg.serviceQuality ?? 'standard'} svc`
+    const qual = (cfg.seatQuality && cfg.seatQuality !== 'basic')
+      ? ` · ${cfg.seatQuality} seats`
       : '';
     return parts + qual;
   }

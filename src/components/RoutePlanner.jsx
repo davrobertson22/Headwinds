@@ -238,7 +238,7 @@ export function configSummary(cfg) {
 export function makePreset(kind, seats) {
   const base = {
     firstClass: 0, businessClass: 0, premiumEconomy: 0, economy: seats,
-    seatQuality: 'standard', serviceQuality: 'standard',
+    seatQuality: 'basic', serviceQuality: 'standard',
   };
   if (kind === 'twoClass') {
     const biz = Math.max(1, Math.floor((seats * 0.15) / CLASS_SPACE_MULTIPLIERS.businessClass));
@@ -381,7 +381,7 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
 
       {/* Quality selectors */}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-        {[['seatQuality', 'Seat quality'], ['serviceQuality', 'Service quality']].map(([key, label]) => (
+        {[['seatQuality', 'Seat quality']].map(([key, label]) => (
           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
             <select

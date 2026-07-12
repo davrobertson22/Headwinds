@@ -5,7 +5,7 @@
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, routeDistanceKm,
-  CLASS_FARE_MULTIPLIERS, maxFrequency, effectiveRangeKm, weekToGameDate,
+  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
@@ -437,6 +437,10 @@ function reducer(state, action) {
       let runningPending = [...(state.pendingOrders ?? [])];
       let runningFleet   = [...(state.fleet ?? [])];
       let cashBalance    = state.cash;
+      // One-off seat-quality fitting fee (per aircraft) for seats above basic economy,
+      // plus the per-seat install fee for any premium cabins (first/business/prem-eco).
+      const seatFittingFee = (SEAT_QUALITY_FITTING_FEE[action.config?.seatQuality ?? 'basic'] ?? 0)
+                           + cabinInstallFee(action.config);
       const newOrders       = [];
       const instantAircraft = [];
       const instantToasts   = [];
@@ -471,7 +475,7 @@ function reducer(state, action) {
         const leaseDeposit      = action.ownershipType === 'lease' ? unitWeeklyLease * 12 : 0;
 
         // Stop if we can't afford this unit (buy price or lease deposit)
-        const unitUpfrontCost = action.ownershipType === 'owned' ? unitTotalPrice : leaseDeposit;
+        const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice : leaseDeposit) + seatFittingFee;
         if (cashBalance < unitUpfrontCost) break;
 
         const serialNum = totalExisting + 1;

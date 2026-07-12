@@ -1,10 +1,10 @@
 {
-  "fullHash": "81e382d939eefa0bedc0ee6cb35fe4061223373a0f022e7388f4a44d410f1c1f",
+  "fullHash": "a91a86357b2a994900edc7fd0590fff0b717fe3a62c5402cdd83f899003c3133",
   "projection": {
     "week": 9,
     "year": 2,
     "phase": "bankrupt",
-    "cash": -37240340,
+    "cash": -37241110,
     "marketCap": 500000,
     "sharePrice": 0.005,
     "awareness": 38.3,
@@ -14,7 +14,7 @@
     "competitorCount": 25,
     "activeEvents": 0,
     "report": {
-      "revenue": 2009
+      "revenue": 1991
     }
   },
   "capturedWith": "tools/golden-master/harness.mjs",

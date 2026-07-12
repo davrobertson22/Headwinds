@@ -500,11 +500,9 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
             );
           })}
         </div>
-        {cfg?.seatQuality && cfg.seatQuality !== 'standard' && (
+        {cfg?.seatQuality && cfg.seatQuality !== 'basic' && (
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
             Seat quality: <span style={{ color: 'var(--yellow)', fontWeight: 600, textTransform: 'capitalize' }}>{cfg.seatQuality}</span>
-            {' · '}
-            Service: <span style={{ color: 'var(--yellow)', fontWeight: 600, textTransform: 'capitalize' }}>{cfg.serviceQuality}</span>
           </div>
         )}
       </div>
