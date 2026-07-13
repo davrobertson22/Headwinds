@@ -213,6 +213,16 @@ export function withRivals(state, view) {
   return {
     ...state,
     multiplayer: true,
+    // Starter Fleet perk gating. Airlines created before the perk shipped (and
+    // any other blob that never recorded the counter) arrive with
+    // starterDeliveriesUsed === undefined. Seed it the SAME way the solo
+    // reducer's reconcileState does — from the established fleet + pending
+    // orders — so a mid-game airline that already has aircraft is NOT handed the
+    // "first 2 aircraft deliver instantly" newbie perk. A brand-new airline
+    // (empty fleet, no pending) still seeds to 0 and keeps the perk, and a
+    // player who has already consumed it carries their real counter (?? keeps it).
+    starterDeliveriesUsed: state.starterDeliveriesUsed
+      ?? Math.min(2, (state.fleet?.length ?? 0) + (state.pendingOrders?.length ?? 0)),
     competitors: view?.competitors ?? [],
     humanRivals: view?.humanRivals ?? {},
     encroachments: {},               // AI encroachment never exists in Headwinds
