@@ -15,7 +15,9 @@ import {
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
-import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES } from './data/aircraft.js';
+import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES,
+         leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
+         leaseBuyoutPrice } from './data/aircraft.js';
 import { getAirport } from './data/airports.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget } from './data/labor.js';
 import {
@@ -432,7 +434,12 @@ function reducer(state, action) {
       // false and this behaves exactly as before.
       const isMultiplayerWorld   = state.multiplayer === true;
       const STARTER_DELIVERY_CAP = 2;
-      const DELIVERY_LEASE_TERMS = { 'Turboprop': 52, 'Regional Jet': 78, 'Narrow Body': 104, 'Wide Body': 156 };
+      // Lease term is now chosen by the player at order time (1–4 yr). Fall back to
+      // the neutral 2-year reference term for legacy/crafted orders that omit it.
+      const chosenLeaseTermWeeks = action.ownershipType === 'lease'
+        ? (action.leaseTermWeeks ?? DEFAULT_LEASE_TERM_WEEKS)
+        : undefined;
+      const leaseRateMult        = leaseTermRateMultiplier(chosenLeaseTermWeeks);
       let starterUsed    = state.starterDeliveriesUsed ?? 0;
       let runningPending = [...(state.pendingOrders ?? [])];
       let runningFleet   = [...(state.fleet ?? [])];
@@ -467,12 +474,13 @@ function reducer(state, action) {
           ? Math.round(unitBasePrice * enginePriceMod) + wingtipCost
           : 0;
 
-        // Lease: 3-month (12-week) upfront deposit required at order time
+        // Lease: term-adjusted weekly rate (longer term = lower rate) + 12-week
+        // upfront deposit due at order time.
         const baseWeeklyLease   = type.weeklyLease ?? 0;
         const engineLeaseAdj    = Math.round(baseWeeklyLease * (enginePriceMod - 1));
         const wingtipLeaseAdj   = (action.hasWingtips && wingtipDef) ? Math.round((wingtipDef.cost ?? 0) / 200) : 0;
-        const unitWeeklyLease   = baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj;
-        const leaseDeposit      = action.ownershipType === 'lease' ? unitWeeklyLease * 12 : 0;
+        const unitWeeklyLease   = Math.round((baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj) * leaseRateMult);
+        const leaseDeposit      = action.ownershipType === 'lease' ? unitWeeklyLease * LEASE_DEPOSIT_WEEKS : 0;
 
         // Stop if we can't afford this unit (buy price or lease deposit)
         const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice : leaseDeposit) + seatFittingFee;
@@ -499,6 +507,7 @@ function reducer(state, action) {
           totalPrice:    unitTotalPrice,
           leaseDeposit:  leaseDeposit,
           weeklyLease:   action.ownershipType === 'lease' ? unitWeeklyLease : 0,
+          leaseTermWeeks: chosenLeaseTermWeeks,   // player-chosen term (undefined for owned)
           orderedWeek:   state.week,
           orderedYear:   state.year,
         };
@@ -513,7 +522,7 @@ function reducer(state, action) {
           const usedTails  = runningFleet.map(a => a.tailNumber).filter(Boolean);
           const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
           const deliveredLeaseTerm = order.ownershipType === 'lease'
-            ? (DELIVERY_LEASE_TERMS[type.category] ?? 104)
+            ? (order.leaseTermWeeks ?? DELIVERY_LEASE_TERMS[type.category] ?? DEFAULT_LEASE_TERM_WEEKS)
             : undefined;
           const aircraft = {
             id:            uid(),
@@ -525,6 +534,7 @@ function reducer(state, action) {
             config:        order.config ?? defaultConfig(type.seats ?? 100),
             ownershipType: order.ownershipType,
             weeklyLease:         order.weeklyLease ?? 0,
+            leaseDeposit:        order.leaseDeposit ?? 0,
             leaseTermWeeks:      deliveredLeaseTerm,
             leaseRemainingWeeks: deliveredLeaseTerm,
             fuelMod:       order.fuelMod   ?? 1.0,
@@ -1533,12 +1543,59 @@ function reducer(state, action) {
     }
 
     case 'RENEW_LEASE': {
-      // action: { aircraftId } — reset lease countdown to full term (same rate)
+      // action: { aircraftId } — reset lease countdown to full term (same rate).
+      // Legacy action, kept for backward compatibility; the UI now uses EXTEND_LEASE.
       return {
         ...state,
         fleet: state.fleet.map(a =>
           a.id === action.aircraftId && a.ownershipType === 'lease'
-            ? { ...a, leaseRemainingWeeks: a.leaseTermWeeks ?? 104 }
+            ? { ...a, leaseRemainingWeeks: a.leaseTermWeeks ?? DEFAULT_LEASE_TERM_WEEKS }
+            : a
+        ),
+      };
+    }
+
+    case 'EXTEND_LEASE': {
+      // action: { aircraftId, addWeeks } — add weeks onto the CURRENT remaining term
+      // at the same weekly rate, available at any time, free. Remaining time is
+      // never lost (unlike a full reset). The nominal term grows to match so the
+      // remaining bar never exceeds the term.
+      const addWeeks = Math.max(0, Math.round(Number(action.addWeeks) || 0));
+      if (addWeeks === 0) return state;
+      return {
+        ...state,
+        fleet: state.fleet.map(a => {
+          if (a.id !== action.aircraftId || a.ownershipType !== 'lease') return a;
+          const newRemaining = (a.leaseRemainingWeeks ?? 0) + addWeeks;
+          const newTerm      = Math.max(a.leaseTermWeeks ?? 0, newRemaining);
+          return { ...a, leaseRemainingWeeks: newRemaining, leaseTermWeeks: newTerm };
+        }),
+      };
+    }
+
+    case 'BUY_OUT_LEASE': {
+      // action: { aircraftId } — purchase a leased aircraft outright. Price is the
+      // current depreciated market value (NAV) plus an early-buyout premium, minus
+      // the security deposit already on file. The tail converts to 'owned' (no more
+      // weekly rent, and it can later be sold like any owned jet).
+      const aircraft = state.fleet.find(a => a.id === action.aircraftId);
+      if (!aircraft || aircraft.ownershipType !== 'lease') return state;
+      const type        = getAircraftType(aircraft.typeId);
+      const buyoutPrice = leaseBuyoutPrice(aircraft, type, DEPRECIATION_YEARS);
+      if (state.cash < buyoutPrice) return state;   // can't afford — no-op
+      return {
+        ...state,
+        cash: state.cash - buyoutPrice,
+        fleet: state.fleet.map(a =>
+          a.id === action.aircraftId
+            ? {
+                ...a,
+                ownershipType:       'owned',
+                weeklyLease:         0,
+                leaseDeposit:        0,
+                leaseTermWeeks:      undefined,
+                leaseRemainingWeeks: undefined,
+              }
             : a
         ),
       };
@@ -2629,7 +2686,7 @@ function reducer(state, action) {
         const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
         const DELIVERY_LEASE_TERMS = { 'Turboprop': 52, 'Regional Jet': 78, 'Narrow Body': 104, 'Wide Body': 156 };
         const deliveredLeaseTerm = order.ownershipType === 'lease'
-          ? (DELIVERY_LEASE_TERMS[ordType?.category] ?? 104)
+          ? (order.leaseTermWeeks ?? DELIVERY_LEASE_TERMS[ordType?.category] ?? DEFAULT_LEASE_TERM_WEEKS)
           : undefined;
         deliveredAircraft.push({
           id:            uid(),
@@ -2641,6 +2698,7 @@ function reducer(state, action) {
           config:        order.config ?? defaultConfig(ordType?.seats ?? 100),
           ownershipType: order.ownershipType,
           weeklyLease:        order.weeklyLease ?? 0,
+          leaseDeposit:       order.leaseDeposit ?? 0,
           leaseTermWeeks:     deliveredLeaseTerm,
           leaseRemainingWeeks: deliveredLeaseTerm,
           fuelMod:       order.fuelMod   ?? 1.0,

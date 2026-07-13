@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { getAircraftType, effectivePurchasePrice, buyDiscount } from '../data/aircraft.js';
+import { getAircraftType, effectivePurchasePrice, buyDiscount,
+         LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier } from '../data/aircraft.js';
 import {
   formatMoney,
   CLASS_FARE_MULTIPLIERS,
@@ -164,6 +165,9 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   // ── Quantity ──────────────────────────────────────────────────────────────
   const [quantity, setQuantity] = useState(1);
 
+  // ── Lease term (only relevant when leasing) ───────────────────────────────
+  const [leaseTermWeeks, setLeaseTermWeeks] = useState(DEFAULT_LEASE_TERM_WEEKS);
+
   // ── Custom name (optional) ────────────────────────────────────────────────
   const [customName, setCustomName] = useState('');
 
@@ -294,10 +298,12 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const unitBuyPrice    = Math.round(baseUnitPrice * enginePriceMod) + wingtipCost;
   const totalBuyPrice   = unitBuyPrice * quantity;
 
+  const leaseRateMult    = leaseTermRateMultiplier(leaseTermWeeks);
   const baseWeeklyLease  = type.weeklyLease;
   const engineLeaseAdj   = Math.round(baseWeeklyLease * (enginePriceMod - 1));
   const wingtipLeaseAdj  = (hasWingtips && wingtipDef) ? Math.round((wingtipDef.cost ?? 0) / 200) : 0;
-  const unitWeeklyLease  = baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj;
+  // Term-adjusted weekly rate: longer commitments earn a lower rate (see LEASE_TERM_OPTIONS).
+  const unitWeeklyLease  = Math.round((baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj) * leaseRateMult);
   const totalWeeklyLease = unitWeeklyLease * quantity;
   const unitLeaseDeposit  = unitWeeklyLease * 12;   // 3 months (12 weeks) upfront
   const totalLeaseDeposit = unitLeaseDeposit * quantity;
@@ -330,6 +336,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
       quantity,
       config:        cabinConfig,
       name:          customName.trim() || null,
+      leaseTermWeeks: mode === 'lease' ? leaseTermWeeks : undefined,
     });
     onClose();
   }
@@ -710,10 +717,48 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               </div>
             ) : (
               <div style={{ fontSize: 13 }}>
+                {/* ── Lease term picker (longer term = lower weekly rate) ── */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 600 }}>Lease term</span>
+                    <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>longer term · lower weekly rate</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {LEASE_TERM_OPTIONS.map(o => {
+                      const selected = o.weeks === leaseTermWeeks;
+                      const pct      = Math.round((o.rateMult - 1) * 100);
+                      const hint     = pct === 0 ? 'std rate' : (pct > 0 ? `+${pct}%/wk` : `−${Math.abs(pct)}%/wk`);
+                      const hintCol  = pct === 0 ? 'var(--text-dim)' : (pct > 0 ? 'var(--red)' : 'var(--green)');
+                      return (
+                        <button
+                          key={o.weeks}
+                          onClick={() => setLeaseTermWeeks(o.weeks)}
+                          style={{
+                            flex: 1, padding: '8px 4px', borderRadius: 7, cursor: 'pointer',
+                            border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                            background: selected ? 'rgba(56,139,253,0.12)' : 'var(--surface2)',
+                            color: 'var(--text)', textAlign: 'center', transition: 'all 0.12s',
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{o.label}</div>
+                          <div style={{ fontSize: 10, color: selected ? hintCol : 'var(--text-dim)', marginTop: 2 }}>{hint}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
                   <span>Base weekly lease</span>
                   <span style={{ color: 'var(--text)' }}>{formatMoney(baseWeeklyLease)}/wk</span>
                 </div>
+                {leaseRateMult !== 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
+                    <span>{LEASE_TERM_OPTIONS.find(o => o.weeks === leaseTermWeeks)?.label} term adjustment</span>
+                    <span style={{ color: leaseRateMult < 1 ? 'var(--green)' : 'var(--red)' }}>
+                      {leaseRateMult < 1 ? '−' : '+'}{Math.abs(Math.round((leaseRateMult - 1) * 100))}%
+                    </span>
+                  </div>
+                )}
                 {engineLeaseAdj !== 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
                     <span>Engine: {selectedEngine?.label}</span>

@@ -2765,3 +2765,63 @@ export function efficiencyScore(type) {
     ((EFFICIENCY_WORST - e) / (EFFICIENCY_WORST - EFFICIENCY_BEST)) * 100
   );
 }
+
+// ── Lease terms ───────────────────────────────────────────────────────────────
+// Players choose a lease length when ordering. Longer commitments earn a lower
+// weekly rate (the lessor rewards the longer guaranteed income), shorter terms
+// pay a flexibility premium. The 2-year (104-week) term is the reference point
+// at ×1.0 so the published `type.weeklyLease` reads as the "standard" rate.
+//
+// Each option: weeks (term length), label (UI), rateMult (× applied to the base
+// weekly lease rate, before per-aircraft engine/wingtip adjustments).
+export const LEASE_TERM_OPTIONS = [
+  { weeks: 52,  years: 1, label: '1 yr', rateMult: 1.15 },
+  { weeks: 104, years: 2, label: '2 yr', rateMult: 1.00 },
+  { weeks: 156, years: 3, label: '3 yr', rateMult: 0.90 },
+  { weeks: 208, years: 4, label: '4 yr', rateMult: 0.83 },
+];
+
+// Default term used when an order omits one (keeps old saves / crafted actions
+// behaving sensibly) — the neutral 2-year reference term.
+export const DEFAULT_LEASE_TERM_WEEKS = 104;
+
+// Upfront security deposit, expressed in weeks of the (term-adjusted) weekly rate.
+export const LEASE_DEPOSIT_WEEKS = 12;
+
+// Early buyout premium over current market value when purchasing a jet out of its
+// lease (the lessor was expecting years of rent, so buying out costs a touch more
+// than a plain used-aircraft purchase). Deposit already on file is credited back.
+export const LEASE_BUYOUT_PREMIUM = 0.10;
+
+/**
+ * Weekly-rate multiplier for a chosen lease term (in weeks). Falls back to the
+ * nearest defined option, and to ×1.0 if the term is unknown, so callers never
+ * crash on an odd value.
+ */
+export function leaseTermRateMultiplier(weeks) {
+  if (weeks == null) return 1.0;
+  const exact = LEASE_TERM_OPTIONS.find(o => o.weeks === weeks);
+  if (exact) return exact.rateMult;
+  // Unknown term (e.g. a legacy category-based term): interpolate off the closest
+  // option so extreme lengths still trend the right direction.
+  const nearest = LEASE_TERM_OPTIONS.reduce((best, o) =>
+    Math.abs(o.weeks - weeks) < Math.abs(best.weeks - weeks) ? o : best,
+    LEASE_TERM_OPTIONS[0]);
+  return nearest.rateMult;
+}
+
+/**
+ * Cost to purchase a leased aircraft out of its lease: current depreciated market
+ * value (NAV) + early-buyout premium − the security deposit already on file.
+ * Shared by the reducer (BUY_OUT_LEASE) and the Fleet UI so the quoted price and
+ * the charged price can never diverge. `depreciationYears` defaults to 30 (the
+ * engine's DEPRECIATION_YEARS); pass it explicitly to stay in lock-step.
+ */
+export function leaseBuyoutPrice(aircraft, type, depreciationYears = 30) {
+  const ageYears  = (aircraft?.ageWeeks ?? 0) / 52;
+  const remaining = Math.max(0.1, 1 - ageYears / depreciationYears);
+  const nav       = Math.round((type?.purchasePrice ?? 0) * remaining);
+  const depositCredit = aircraft?.leaseDeposit
+    ?? ((aircraft?.weeklyLease ?? type?.weeklyLease ?? 0) * LEASE_DEPOSIT_WEEKS);
+  return Math.max(0, Math.round(nav * (1 + LEASE_BUYOUT_PREMIUM)) - depositCredit);
+}
