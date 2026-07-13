@@ -2741,9 +2741,17 @@ function StatChart({ points, series, height = 150, yFrom0 = true, format = fmtIn
 
   const onMove = e => {
     const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width === 0) return;
-    const relX = ((e.clientX - rect.left) / rect.width) * W;
-    let i = Math.round(((relX - PADL) / plotW) * (n - 1));
+    if (rect.width === 0 || rect.height === 0) return;
+    // The SVG (viewBox W x H) is drawn with the default xMidYMid-meet aspect
+    // ratio, so when the element is wider than the viewBox the graphic is
+    // scaled uniformly and CENTERED — leaving horizontal dead space. Undo that
+    // transform so the cursor maps to the visible plot, not the full element
+    // width (otherwise the last weeks land in the dead zone and you have to
+    // overshoot the graph to reach them).
+    const scale = Math.min(rect.width / W, rect.height / H);
+    const offX = (rect.width - W * scale) / 2;
+    const vbX = (e.clientX - rect.left - offX) / scale;   // cursor x in viewBox units
+    let i = Math.round(((vbX - PADL) / plotW) * (n - 1));
     i = Math.max(0, Math.min(n - 1, i));
     setHover({ i, px: e.clientX - rect.left, wpx: rect.width });
   };
@@ -2798,6 +2806,12 @@ function StatChart({ points, series, height = 150, yFrom0 = true, format = fmtIn
               <span style={{ fontWeight: 600 }}>{format(hp[se.key] ?? 0, se)}</span>
             </div>
           ))}
+          {areas.length > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, lineHeight: 1.5, marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--border)', fontWeight: 700 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Total</span>
+              <span>{format(areas.reduce((sum, se) => sum + (hp[se.key] ?? 0), 0))}</span>
+            </div>
+          )}
           {hp._n > 1 && <div style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 10 }}>avg of {hp._n} wks</div>}
         </div>
       )}
@@ -2905,6 +2919,9 @@ function Statistics() {
       </div>
 
       {/* KPI tiles */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+        Tiles below reflect your most recent week: <strong>{latest.label ?? '—'}</strong>{latest._n > 1 ? ` (avg of ${latest._n} wks)` : ''}
+      </div>
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         {[
           { label: 'Weekly Passengers', val: fmtInt(latest.paxTotal ?? 0), c: '' },
