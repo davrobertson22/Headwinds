@@ -580,7 +580,7 @@ export function computeMarketShare(market, offers) {
   // carriers and propagates through avgBusinessPrice, marketBizCapture and the pax
   // allocation below (all multiply by businessShares[i]). If NO carrier offers
   // business, the whole segment is unserved here (shares all 0).
-  const bizCapable = offers.map(o => o.businessPrice != null);
+  const bizCapable = offers.map(o => o.businessPrice != null && (o.businessSeats ?? 0) > 0);
   const anyBiz = bizCapable.some(Boolean);
   const businessUtils = offers.map((o, i) =>
     anyBiz && !bizCapable[i] ? -Infinity : computeUtility(o, market, 'business'));
@@ -663,7 +663,10 @@ export function computeMarketShare(market, offers) {
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 function _monopolyResult(market, offer) {
-  const noBusiness = offer.businessPrice == null;
+  // A business fare with ZERO business seats is not a real business cabin: treat it
+  // as economy-only, else unservable business demand spills into the leisure pool and
+  // inflates load to ~100% regardless of price/demand (phantom-demand bug).
+  const noBusiness = offer.businessPrice == null || !((offer.businessSeats ?? 0) > 0);
 
   // Loyalty/reputation blunt the elasticity exponent: less-price-sensitive
   // passengers punish above-reference fares less (and reward discounts less).
