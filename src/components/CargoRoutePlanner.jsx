@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { simulateCargoRoute, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
+import { simulateCargoRoute, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
@@ -178,8 +178,25 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     return { result, resultLaunch, type, netProfit };
   }, [routeData, selectedTypeId, frequency, effectiveYield, origin, dest]);
 
+  // A single freighter's 140h weekly block-hour budget caps how many round trips
+  // it can fly on this lane. On long-haul freight that ceiling lands near one
+  // departure/day — so clamp the slider to it (and nudge the current pick down)
+  // instead of letting players pick a frequency the engine will silently reject.
+  const freqCap = useMemo(() => {
+    if (!routeData || !selectedTypeId) return 14;
+    const type = getAircraftType(selectedTypeId);
+    if (!type) return 14;
+    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, type)));
+  }, [routeData, selectedTypeId]);
+
+  // Clamp the chosen frequency down when a longer lane / different freighter
+  // lowers the ceiling (mirrors this file's existing useMemo-as-effect pattern).
+  useMemo(() => {
+    if (frequency > freqCap) setFrequency(freqCap);
+  }, [freqCap]);
+
   function handleOpenRoute(aircraftId) {
-    dispatch({ type: 'ADD_CARGO_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: frequency, yieldPrice: effectiveYield });
+    dispatch({ type: 'ADD_CARGO_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: Math.min(frequency, freqCap), yieldPrice: effectiveYield });
     onOpened?.();
   }
   function handleSwap() { const o = origin; setOrigin(dest); setDest(o); setYieldPrice(null); }
@@ -279,9 +296,14 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                   <div>
                     <div className="form-label" style={{ marginBottom: 6 }}>Flights / week</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="range" min="1" max="14" step="1" value={frequency} onChange={e => setFrequency(Number(e.target.value))} style={{ width: 110, accentColor: ACCENT }} />
-                      <span style={{ fontWeight: 700, minWidth: 22 }}>{frequency}×</span>
+                      <input type="range" min="1" max={freqCap} step="1" value={Math.min(frequency, freqCap)} onChange={e => setFrequency(Number(e.target.value))} style={{ width: 110, accentColor: ACCENT }} />
+                      <span style={{ fontWeight: 700, minWidth: 22 }}>{Math.min(frequency, freqCap)}×</span>
                     </div>
+                    {freqCap < 14 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5, maxWidth: 190, lineHeight: 1.4 }}>
+                        Max <strong style={{ color: ACCENT }}>{freqCap}/wk</strong> for one {simulation?.type?.name ?? 'freighter'} on {routeData.dist.toLocaleString()} km — weekly block-hour limit. Add another freighter for more.
+                      </div>
+                    )}
                   </div>
                   {/* Yield */}
                   <div>

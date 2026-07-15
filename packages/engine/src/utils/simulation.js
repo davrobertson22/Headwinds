@@ -670,6 +670,50 @@ export function fleetAvgUtilization(fleet = [], routes = []) {
 }
 
 /**
+ * Which aircraft of a given type can be deployed to open (or join) a route.
+ *
+ * The reducer (ADD_ROUTE / ADD_CARGO_ROUTE) lets ONE aircraft fly several
+ * routes until it hits the weekly block-hour cap, provided every extra route
+ * touches an airport the aircraft already serves. This helper surfaces that to
+ * the UI so the route planners can offer a plane that already has a route but
+ * still has spare hours — not just fully-idle airframes.
+ *
+ * Block-hours are summed across the aircraft's existing routes (a conservative
+ * upper bound vs. the reducer's per-month peak, so anything this returns as
+ * eligible the reducer will also accept).
+ *
+ * @returns array of { aircraft, idle, usedBlockHrs, spareBlockHrs, newBlockHrs,
+ *   connectivityOk, hoursOk, eligible }, idle airframes first then most-spare.
+ */
+export function deployableFleetForRoute({
+  fleet = [], existingRoutes = [], typeId, origin, dest, distKm, weeklyFrequency,
+}) {
+  const type = getAircraftType(typeId);
+  if (!type) return [];
+  const newBH = weeklyBlockHours(distKm, weeklyFrequency, type);
+  return fleet
+    .filter(a => a.typeId === typeId && a.status !== 'grounded' && a.status !== 'retired')
+    .map(a => {
+      const acRoutes = existingRoutes.filter(r => r.aircraftId === a.id);
+      const usedBH   = acRoutes.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+      const served   = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
+      const connectivityOk = acRoutes.length === 0 || served.has(origin) || served.has(dest);
+      const hoursOk  = usedBH + newBH <= MAX_WEEKLY_BLOCK_HOURS + 1e-6;
+      return {
+        aircraft:      a,
+        idle:          a.status === 'idle',
+        usedBlockHrs:  usedBH,
+        spareBlockHrs: Math.max(0, MAX_WEEKLY_BLOCK_HOURS - usedBH),
+        newBlockHrs:   newBH,
+        connectivityOk,
+        hoursOk,
+        eligible:      connectivityOk && hoursOk,
+      };
+    })
+    .sort((x, y) => (x.idle !== y.idle) ? (x.idle ? -1 : 1) : (y.spareBlockHrs - x.spareBlockHrs));
+}
+
+/**
  * Legs-aware weekly landing + nav fees for a route. A round trip lands at every
  * stop — interior stops twice (once each direction) — which summing the existing
  * per-leg fee reproduces exactly: Σ legs (feeFrom + feeTo) × freq.

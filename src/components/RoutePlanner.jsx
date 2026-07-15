@@ -7,7 +7,7 @@ import {
   simulateRoute, formatMoney, formatPercent, weekToGameDate,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
-  buildEventDemandModel,
+  buildEventDemandModel, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import {
@@ -24,6 +24,7 @@ import TagRoutePlanner from './TagRoutePlanner.jsx';
 import RouteFinder from './RouteFinder.jsx';
 import InfoTip from './InfoTip.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 
 function weekToMonth(week) {
   return weekToGameDate(week).monthIndex;
@@ -410,7 +411,7 @@ export default function RoutePlanner() {
   const [dest,   setDest]         = useState('');
   const [selectedTypeId, setSelectedTypeId] = useState('');
   const [frequency, setFrequency] = useState(7);
-  const [price, setPrice]         = useState(null); // null = auto reference price
+  const [fares, setFares]         = useState({}); // per-cabin overrides; {} = all reference
   const [cateringLevel, setCateringLevel] = useState(normalizeCateringLevel(state.defaultCateringLevel));
   const [season, setSeason] = useState(null); // null = year-round; else { months:[..] }
   // Cabin configuration used for the forecast (defaults to an idle aircraft's real
@@ -440,7 +441,16 @@ export default function RoutePlanner() {
     return { dist, refP, market };
   }, [origin, dest, gameDate.month, ready, eventDemand]);
 
-  const effectivePrice = price ?? routeData?.refP ?? 200;
+  // Fares for every cabin: market reference unless the player overrides them in the
+  // fare editor. If the pair is ALREADY flown, its live shared fares apply instead
+  // (a second aircraft inherits the pair's pricing — first aircraft sets it).
+  const plannerPairKey = ready ? [origin, dest].sort().join('-') : null;
+  const existingFares  = plannerPairKey ? state.routePricing?.[plannerPairKey] : null;
+  const effectiveFares = useMemo(() => {
+    if (!ready) return null;
+    return { ...referenceClassPrices(origin, dest), ...(existingFares ?? fares) };
+  }, [ready, origin, dest, existingFares, fares]);
+  const effectivePrice = effectiveFares?.economy ?? routeData?.refP ?? 200;
 
   // Already operating this pair?
   const alreadyActive = useMemo(() =>
@@ -500,6 +510,25 @@ export default function RoutePlanner() {
     });
     return map;
   }, [state.fleet]);
+
+  // Aircraft that can actually be DEPLOYED to this lane, by type — includes
+  // planes already flying another route but with spare block-hours that touch an
+  // endpoint (the engine caps one plane at 140h/wk across routes, not one route).
+  const deployableByType = useMemo(() => {
+    if (!routeData) return {};
+    const map = {};
+    for (const t of reachableTypes) {
+      map[t.id] = deployableFleetForRoute({
+        fleet:          state.fleet,
+        existingRoutes: state.routes,
+        typeId:         t.id,
+        origin, dest,
+        distKm:         routeData.dist,
+        weeklyFrequency: frequency,
+      });
+    }
+    return map;
+  }, [state.fleet, state.routes, reachableTypes, routeData, origin, dest, frequency]);
 
   // All aircraft you own of the selected type (idle first) — used as config sources.
   const fleetOfType = useMemo(() => {
@@ -563,10 +592,10 @@ export default function RoutePlanner() {
     if (!type || routeData.dist > type.range) return null;
 
     const simAircraft = { id:'p', typeId: selectedTypeId, ageWeeks: 0, config: effectiveConfig ?? undefined };
-    // Premium cabins earn their multiplier fares (business 2.5×, first 5×, etc.) —
-    // matching defaultClassPrices, which is what ADD_ROUTE assigns when the route is
-    // opened. Without this the forecast would charge every cabin the economy fare.
-    const classPrices = defaultClassPrices(effectivePrice);
+    // Every cabin is priced in the fare editor — the forecast charges exactly the
+    // fares the player has set (reference fares until overridden), matching what
+    // ADD_ROUTE will assign when the route is opened.
+    const classPrices = effectiveFares ?? defaultClassPrices(effectivePrice);
 
     // Real operational inputs (morale, fleet utilization, earned satisfaction) so
     // the forecast quality matches what the engine will actually compute.
@@ -631,17 +660,16 @@ export default function RoutePlanner() {
     const playerShare  = shareResults.find(s => s.airlineId === 'player');
 
     return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare };
-  }, [routeData, selectedTypeId, frequency, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest]);
+  }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest]);
 
   function handleOpenRoute(aircraftId) {
-    dispatch({ type: 'ADD_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: frequency, ticketPrice: effectivePrice, cateringLevel, season });
+    dispatch({ type: 'ADD_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: frequency, ticketPrice: effectivePrice, classPrices: effectiveFares ?? undefined, cateringLevel, season });
   }
 
   function handleSwap() {
-    const o = origin; setOrigin(dest); setDest(o); setPrice(null);
+    const o = origin; setOrigin(dest); setDest(o); setFares({});
   }
 
-  const pricePct = routeData ? Math.round((effectivePrice / routeData.refP - 1) * 100) : 0;
   const totalDemand = routeData ? routeData.market.leisureDemand + routeData.market.businessDemand : 0;
 
   // Freight / multi-stop modes render their dedicated planners
@@ -659,12 +687,12 @@ export default function RoutePlanner() {
       <ModeToggle mode={mode} setMode={setMode} />
 
       {/* ── Route Finder: discover unserved routes by demand ── */}
-      <RouteFinder onPick={(o, d) => { setOrigin(o); setDest(d); setPrice(null); }} />
+      <RouteFinder onPick={(o, d) => { setOrigin(o); setDest(d); setFares({}); }} />
 
       {/* ── Route picker ── */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-          <AirportPicker label="From" value={origin} onChange={c => { setOrigin(c); setPrice(null); }} exclude={dest} />
+          <AirportPicker label="From" value={origin} onChange={c => { setOrigin(c); setFares({}); }} exclude={dest} />
           <button
             className="btn btn-ghost"
             style={{ padding: '8px 10px', marginBottom: 2, fontSize: 18, flexShrink: 0 }}
@@ -672,7 +700,7 @@ export default function RoutePlanner() {
             disabled={!origin || !dest}
             title="Swap airports"
           >⇄</button>
-          <AirportPicker label="To" value={dest} onChange={c => { setDest(c); setPrice(null); }} exclude={origin} />
+          <AirportPicker label="To" value={dest} onChange={c => { setDest(c); setFares({}); }} exclude={origin} />
         </div>
       </div>
 
@@ -836,10 +864,10 @@ export default function RoutePlanner() {
                       onChange={e => setSelectedTypeId(e.target.value)}
                     >
                       {reachableTypes.map(t => {
-                        const idle = idleByType[t.id]?.length ?? 0;
+                        const ready = (deployableByType[t.id] ?? []).filter(d => d.eligible).length;
                         return (
                           <option key={t.id} value={t.id}>
-                            {t.name} ({t.seats} seats){idle > 0 ? ` — ${idle} idle` : ''}
+                            {t.name} ({t.seats} seats){ready > 0 ? ` — ${ready} ready` : ''}
                           </option>
                         );
                       })}
@@ -860,31 +888,6 @@ export default function RoutePlanner() {
                     </div>
                   </div>
 
-                  {/* Price */}
-                  <div>
-                    <div className="form-label" style={{ marginBottom: 6 }}>Ticket price</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="range"
-                        min={Math.round(routeData.refP * 0.4)}
-                        max={Math.round(routeData.refP * 2.5)}
-                        step="5"
-                        value={effectivePrice}
-                        onChange={e => setPrice(Number(e.target.value))}
-                        style={{ width: 110, accentColor: 'var(--accent)' }}
-                      />
-                      <span style={{ fontWeight: 700, minWidth: 38 }}>${effectivePrice}</span>
-                      <span style={{ fontSize: 11, minWidth: 52,
-                        color: pricePct > 10 ? 'var(--red)' : pricePct < -10 ? 'var(--green)' : 'var(--text-muted)',
-                      }}>
-                        {pricePct >= 0 ? `+${pricePct}` : pricePct}% vs ref
-                      </span>
-                      {price !== null && (
-                        <button className="btn btn-ghost" style={{ padding: '2px 7px', fontSize: 11 }} onClick={() => setPrice(null)}>Reset</button>
-                      )}
-                    </div>
-                  </div>
-
                   {/* Cabin configuration */}
                   <CabinConfigPanel
                     type={getAircraftType(selectedTypeId)}
@@ -894,6 +897,38 @@ export default function RoutePlanner() {
                     onSourceChange={handleConfigSource}
                     fleetOptions={fleetOfType}
                   />
+
+                  {/* Fares — price every cabin here, before the route opens */}
+                  <div style={{ flexBasis: '100%' }}>
+                    <div className="form-label" style={{ marginBottom: 6 }}>
+                      Fares
+                      {existingFares && (
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6, fontSize: 11 }}>
+                          — this pair is already flown; fares are shared across it and can be edited on the Routes tab
+                        </span>
+                      )}
+                    </div>
+                    {existingFares ? (
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)' }}>
+                        {['firstClass', 'businessClass', 'premiumEconomy', 'economy']
+                          .filter(cls => (effectiveConfig?.[cls] ?? 0) > 0)
+                          .map(cls => (
+                            <span key={cls}>
+                              <span style={{ color: CLASS_COLORS[cls], fontWeight: 600 }}>{CLASS_LABELS[cls]}</span> ${existingFares[cls]}
+                            </span>
+                          ))}
+                      </div>
+                    ) : (
+                      <FareEditor
+                        key={`${origin}-${dest}`}
+                        origin={origin}
+                        dest={dest}
+                        config={effectiveConfig ?? { economy: getAircraftType(selectedTypeId)?.seats ?? 0 }}
+                        fares={fares}
+                        onCommit={(cls, value) => setFares(f => ({ ...f, [cls]: value }))}
+                      />
+                    )}
+                  </div>
 
                   {/* Catering */}
                   <div style={{ flexBasis: '100%' }}>
@@ -1007,10 +1042,15 @@ export default function RoutePlanner() {
 
                 {/* Open route CTA */}
                 {simulation && (() => {
-                  const idle       = idleByType[selectedTypeId] ?? [];
-                  // Deploy the aircraft you chose as the config source if it's idle,
-                  // so the plane that flies matches the forecast above.
-                  const preferred  = idle.find(a => a.id === configSource) ?? idle[0];
+                  const pool       = deployableByType[selectedTypeId] ?? [];
+                  const eligible   = pool.filter(d => d.eligible);
+                  // Deploy the aircraft you chose as the config source if it's
+                  // eligible, so the plane that flies matches the forecast above;
+                  // otherwise the best eligible one (idle first, then most spare).
+                  const preferredD = eligible.find(d => d.aircraft.id === configSource) ?? eligible[0];
+                  const preferred  = preferredD?.aircraft;
+                  const anySpare   = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
+                  const owned      = pool.length;
                   const lCost      = routeLaunchCost(routeData.dist);
                   const canAfford  = state.cash >= lCost;
                   const blocked    = !!routeRestriction;
@@ -1028,11 +1068,15 @@ export default function RoutePlanner() {
                             disabled={!canAfford}
                             onClick={() => handleOpenRoute(preferred.id)}
                           >
-                            Open Route with {preferred.tailNumber || preferred.name}
+                            Open Route with {preferred.tailNumber || preferred.name}{!preferredD.idle ? ' · shares hours' : ''}
                           </button>
                         ) : (
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                            No idle {simulation.type.name} available — lease one from the Market first.
+                            {owned === 0
+                              ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
+                              : anySpare
+                                ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — an aircraft can only add a route that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
+                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({MAX_WEEKLY_BLOCK_HOURS}h/wk) — no spare hours for another route. Lease another {simulation.type.name} to open this route.</>}
                           </div>
                         )}
                         {simulation.netProfit < 0 && (
