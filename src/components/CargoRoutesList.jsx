@@ -1,8 +1,9 @@
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, cargoFrequencyChangeBlockReason } from '../store/GameContext.jsx';
 import AirportLink from './AirportLink.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { simulateCargoRoute, formatMoney, formatPercent, currentGameDate } from '../utils/simulation.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import { useToast } from './ToastSystem.jsx';
 
 const ACCENT = '#e8833a';
 
@@ -28,6 +29,7 @@ export function PassengerBadge() {
 
 export default function CargoRoutesList() {
   const { state, dispatch } = useGame();
+  const addToast = useToast();
   const { cargoRoutes = [], fleet } = state;
   const gd = currentGameDate(state);
 
@@ -44,6 +46,12 @@ export default function CargoRoutesList() {
   }
 
   function adjFreq(route, delta) {
+    // Increases run through the exact engine guard so a blocked bump explains
+    // itself (block-hours / gate slots) instead of silently no-opping.
+    if (delta > 0) {
+      const reason = cargoFrequencyChangeBlockReason(state, route.id, route.weeklyFrequency + delta);
+      if (reason) { addToast({ type: 'warning', title: 'Can’t add a flight', message: reason }); return; }
+    }
     dispatch({ type: 'UPDATE_CARGO_FREQUENCY', routeId: route.id, weeklyFrequency: Math.max(1, route.weeklyFrequency + delta) });
   }
   function adjYield(route, delta) {
@@ -122,9 +130,25 @@ export default function CargoRoutesList() {
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Flights/wk</span>
-                <button className="btn btn-ghost" style={{ padding: '2px 9px' }} onClick={() => adjFreq(route, -1)}>−</button>
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '2px 9px', opacity: route.weeklyFrequency > 1 ? 1 : 0.4, cursor: route.weeklyFrequency > 1 ? 'pointer' : 'not-allowed' }}
+                  disabled={route.weeklyFrequency <= 1}
+                  title={route.weeklyFrequency > 1 ? 'One fewer flight per week' : 'At the minimum — use Close route to stand the freighter down'}
+                  onClick={() => adjFreq(route, -1)}
+                >−</button>
                 <span style={{ fontWeight: 700, minWidth: 22, textAlign: 'center' }}>{route.weeklyFrequency}</span>
-                <button className="btn btn-ghost" style={{ padding: '2px 9px' }} onClick={() => adjFreq(route, +1)}>+</button>
+                {(() => {
+                  const upBlock = cargoFrequencyChangeBlockReason(state, route.id, route.weeklyFrequency + 1);
+                  return (
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: '2px 9px', opacity: upBlock ? 0.4 : 1, cursor: upBlock ? 'not-allowed' : 'pointer' }}
+                      title={upBlock || 'One more flight per week'}
+                      onClick={() => adjFreq(route, +1)}
+                    >+</button>
+                  );
+                })()}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Yield $/t-km</span>

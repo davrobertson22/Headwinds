@@ -837,6 +837,17 @@ function reducer(state, action) {
       if (state.cash < launchCost) return state;   // can't afford to open route
 
       const basePrice = Math.max(1, Math.round(Number(action.ticketPrice) || 0));
+      // Full per-cabin fares set in the planner's fare editor. Each fare is
+      // sanitized and clamped to its own class ceiling; missing cabins fall back
+      // to the standard multipliers off the economy fare.
+      const addRefP = mktReferencePrice(action.origin, action.destination);
+      const requestedFares = defaultClassPrices(basePrice);
+      if (action.classPrices && typeof action.classPrices === 'object') {
+        for (const cls of Object.keys(requestedFares)) {
+          const v = Number(action.classPrices[cls]);
+          if (!isNaN(v) && v > 0) requestedFares[cls] = clampClassPrice(v, addRefP, cls);
+        }
+      }
       const newRoute = {
         id:              uid(),
         origin:          action.origin,
@@ -862,7 +873,7 @@ function reducer(state, action) {
       const routePricing = state.routePricing ?? {};
       const newRoutePricing = routePricing[pairKey]
         ? routePricing
-        : { ...routePricing, [pairKey]: defaultClassPrices(basePrice) };
+        : { ...routePricing, [pairKey]: requestedFares };
       const routeCatering = state.routeCatering ?? {};
       const newRouteCatering = routeCatering[pairKey]
         ? routeCatering
