@@ -181,6 +181,47 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
 }
 
 // ─────────────────────────────────────────────
+// CARGO FREQUENCY CHANGE GUARD (freight routes)
+// ─────────────────────────────────────────────
+// Freight sibling of frequencyChangeBlockReason. Returns null if `newFreq` is
+// allowed for the cargo route, else a short player-facing reason. Mirrors the
+// EXACT guards the UPDATE_CARGO_FREQUENCY reducer enforces (per-freighter
+// block-hours + gate slots across passenger + cargo ops) so the freight −/+
+// stepper can enable/disable and explain the ceiling instead of silently
+// no-opping. On long-haul lanes a single freighter's 140h block-hour budget
+// caps it near one daily rotation — the message points players at adding a
+// second freighter, which is how they scale frequency (each airframe = one more
+// daily round trip), exactly as a real cargo carrier would.
+export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
+  const route = (state.cargoRoutes ?? []).find(r => r.id === routeId);
+  if (!route) return 'Route not found';
+  const target = Math.max(1, Math.round(Number(newFreq) || 0));
+  if (target <= route.weeklyFrequency) return null; // reductions always allowed
+
+  const ac   = state.fleet.find(a => a.id === route.aircraftId);
+  const type = ac ? getAircraftType(ac.typeId) : null;
+  if (!type) return null; // no freighter/type → nothing to enforce
+
+  // Block-hours on this freighter, with this route at the new freq.
+  const otherBlockHrs = (state.cargoRoutes ?? [])
+    .filter(r => r.aircraftId === route.aircraftId && r.id !== route.id)
+    .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+  if (otherBlockHrs + routeBlockHours(route, type, target) > MAX_WEEKLY_BLOCK_HOURS)
+    return "Freighter's weekly block-hour limit — add another freighter for more frequency";
+
+  // Gate slots at each endpoint, counted across passenger + cargo ops.
+  const gates  = state.gates ?? {};
+  const allOps = [...state.routes, ...(state.cargoRoutes ?? [])];
+  const slotsAt = (code) => allOps
+    .filter(r => r.id !== route.id && (r.origin === code || r.destination === code))
+    .reduce((s, r) => s + r.weeklyFrequency, 0);
+  if (slotsAt(route.origin)      + target > (gates[route.origin]      ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.origin}`;
+  if (slotsAt(route.destination) + target > (gates[route.destination] ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.destination}`;
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
 // STATE SHAPE
 // ─────────────────────────────────────────────
 
