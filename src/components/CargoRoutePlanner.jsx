@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { simulateCargoRoute, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency } from '../utils/simulation.js';
+import { simulateCargoRoute, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
@@ -157,13 +157,25 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     }
   }, [reachableTypes]);
 
-  // Idle freighters by type
-  const idleByType = useMemo(() => {
+  // Freighters that can be deployed to THIS lane, by type. Includes aircraft
+  // already flying another route but with spare block-hours that touch an
+  // endpoint — the engine lets one freighter fly several routes up to the
+  // 140h/wk cap, so the planner should too (not idle-only).
+  const deployableByType = useMemo(() => {
+    if (!routeData) return {};
     const map = {};
-    state.fleet.filter(a => a.status === 'idle' && getAircraftType(a.typeId)?.freighter)
-      .forEach(a => { (map[a.typeId] = map[a.typeId] ?? []).push(a); });
+    for (const t of reachableTypes) {
+      map[t.id] = deployableFleetForRoute({
+        fleet:          state.fleet,
+        existingRoutes: state.cargoRoutes ?? [],
+        typeId:         t.id,
+        origin, dest,
+        distKm:         routeData.dist,
+        weeklyFrequency: frequency,
+      });
+    }
     return map;
-  }, [state.fleet]);
+  }, [state.fleet, state.cargoRoutes, reachableTypes, routeData, origin, dest, frequency]);
 
   const simulation = useMemo(() => {
     if (!routeData || !selectedTypeId) return null;
@@ -287,8 +299,8 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                     <div className="form-label" style={{ marginBottom: 6 }}>Freighter type</div>
                     <select className="form-select" value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)}>
                       {reachableTypes.map(t => {
-                        const idle = idleByType[t.id]?.length ?? 0;
-                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){idle > 0 ? ` — ${idle} idle` : ''}</option>;
+                        const ready = (deployableByType[t.id] ?? []).filter(d => d.eligible).length;
+                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){ready > 0 ? ` — ${ready} ready` : ''}</option>;
                       })}
                     </select>
                   </div>
@@ -347,7 +359,10 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
 
                 {/* CTA */}
                 {simulation && (() => {
-                  const idle      = idleByType[selectedTypeId] ?? [];
+                  const pool      = deployableByType[selectedTypeId] ?? [];
+                  const target    = pool.find(d => d.eligible);
+                  const anySpare  = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
+                  const owned     = pool.length;
                   const lCost     = routeLaunchCost(routeData.dist);
                   const canAfford = state.cash >= lCost;
                   const blocked   = !canAfford || !slotsOk;
@@ -360,13 +375,17 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                        {idle.length > 0 ? (
-                          <button className="btn btn-primary" style={{ padding: '8px 20px', background: ACCENT, borderColor: ACCENT, opacity: blocked ? 0.5 : 1 }} disabled={blocked} onClick={() => handleOpenRoute(idle[0].id)}>
-                            Open Cargo Route with {idle[0].name}
+                        {target ? (
+                          <button className="btn btn-primary" style={{ padding: '8px 20px', background: ACCENT, borderColor: ACCENT, opacity: blocked ? 0.5 : 1 }} disabled={blocked} onClick={() => handleOpenRoute(target.aircraft.id)}>
+                            Open Cargo Route with {target.aircraft.name}{!target.idle ? ' · shares hours' : ''}
                           </button>
                         ) : (
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                            No idle {simulation.type.name} available — lease one from the Market first.
+                            {owned === 0
+                              ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
+                              : anySpare
+                                ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — a freighter can only add a lane that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
+                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({MAX_WEEKLY_BLOCK_HOURS}h/wk) — no spare hours for another lane. Lease another {simulation.type.name} to open this route.</>}
                           </div>
                         )}
                         {simulation.result.profit < 0 && <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>}
