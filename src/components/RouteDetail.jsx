@@ -11,7 +11,7 @@ import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
-  buildEventDemandModel,
+  buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -277,7 +277,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
         const cp0  = r0.classPrices ?? {};
         const ecoP = Math.max(1, cp0.economy ?? r0.ticketPrice ?? 1);
         const bizP = hasBusinessCabin && cp0.businessClass != null
-          ? Math.max(1, cp0.businessClass) : hasBusinessCabin ? ecoP * 3.5 : null;
+          ? Math.max(1, cp0.businessClass) : hasBusinessCabin ? ecoP * CLASS_FARE_MULTIPLIERS.businessClass : null;
         const combinedOffer = {
           airlineId: 'player', origin, destination: dest,
           economyPrice: ecoP, businessPrice: bizP,

@@ -15,6 +15,7 @@ import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
 import { useToast } from './ToastSystem.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
+import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
   weeklyBlockHours, blockTimeHours, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
@@ -1192,7 +1193,7 @@ function ExpandedGroupPanel({ group, getResult, onClose, onPriceChange, onAddFli
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Aircraft', 'Tail', 'Freq', 'Seats/wk', 'Load', 'Revenue/wk', 'Op Cost/wk', 'Block hrs', 'Ticket', ''].map(h => (
+              {['Aircraft', 'Tail', 'Freq', 'Seats/wk', 'Load', 'Revenue/wk', 'Op Cost/wk', 'Block hrs', 'Fares', ''].map(h => (
                 <th key={h} style={{ padding: '4px 8px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
                   {h}
                 </th>
@@ -1398,7 +1399,7 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Aircraft', 'Tail', 'Freq', 'Seats/wk', 'Load', 'Revenue/wk', 'Op Cost/wk', 'Block hrs', 'Ticket', ''].map(h => (
+              {['Aircraft', 'Tail', 'Freq', 'Seats/wk', 'Load', 'Revenue/wk', 'Op Cost/wk', 'Block hrs', 'Fares', ''].map(h => (
                 <th key={h} style={{ padding: '4px 8px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
                   {h}
                 </th>
@@ -1438,20 +1439,7 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
 // ─── Per-aircraft table row ───────────────────────────────────────────────────
 
 // ─── Class metadata ───────────────────────────────────────────────────────────
-
-const CLASS_ORDER = ['firstClass', 'businessClass', 'premiumEconomy', 'economy'];
-const CLASS_LABELS = {
-  economy:        'Economy',
-  premiumEconomy: 'Premium Eco',
-  businessClass:  'Business',
-  firstClass:     'First',
-};
-const CLASS_COLORS = {
-  economy:        'var(--text-muted)',
-  premiumEconomy: 'var(--yellow)',
-  businessClass:  'var(--accent)',
-  firstClass:     'var(--purple)',
-};
+// (shared with the planner and fare editor — see FareEditor.jsx)
 
 // ─── Bulk pricing helpers ─────────────────────────────────────────────────────
 
@@ -1742,78 +1730,20 @@ function SelectionActionBar({ groups, onApplyToGroups, onSetCatering, onCloseGro
 function PricingPanel({ route, aircraft, type }) {
   const { dispatch } = useGame();
   const config = aircraft?.config ?? (type ? { economy: type.seats } : {});
-  const refP   = referencePrice(route.origin, route.destination);
-
-  const refPrices = {
-    economy:        refP,
-    premiumEconomy: Math.round(refP * 1.7),
-    businessClass:  Math.round(refP * 3.5),
-    firstClass:     Math.round(refP * 8.0),
-  };
-
-  // Only show classes the aircraft actually has seats in
-  const activeClasses = CLASS_ORDER.filter(cls => (config[cls] ?? 0) > 0);
-
-  const [draft, setDraft] = useState(() => {
-    const cp = route.classPrices ?? {};
-    const result = {};
-    for (const cls of activeClasses) {
-      result[cls] = String(cp[cls] ?? Math.round(refPrices[cls]));
-    }
-    return result;
-  });
-
-  // Per-class fare ceiling (3× the class's reference fare). The reducer clamps
-  // too, but clamping here gives the player immediate feedback in the field.
-  const maxPrices = {};
-  for (const cls of activeClasses) maxPrices[cls] = maxClassPrice(refP, cls);
-
-  function handleBlur(cls) {
-    const val = parseInt(draft[cls], 10);
-    if (!isNaN(val) && val > 0) {
-      const clamped = Math.min(val, maxPrices[cls]);
-      if (clamped !== val) setDraft(d => ({ ...d, [cls]: String(clamped) }));
-      dispatch({ type: 'UPDATE_CLASS_PRICES', routeId: route.id, updates: { [cls]: clamped } });
-    }
-  }
 
   return (
     <div style={{
-      display: 'flex', gap: 12, flexWrap: 'wrap', padding: '10px 12px',
+      padding: '10px 12px',
       background: 'var(--surface3)', borderRadius: 'var(--radius)', marginTop: 4,
     }}>
-      {activeClasses.map(cls => {
-        const current = parseInt(draft[cls], 10) || refPrices[cls];
-        const pct     = Math.round((current / refPrices[cls] - 1) * 100);
-        return (
-          <div key={cls} style={{ minWidth: 110 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: CLASS_COLORS[cls], textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-              {CLASS_LABELS[cls]}
-              <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 4 }}>
-                ({config[cls]} seats)
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>$</span>
-              <input
-                className="form-input"
-                type="number"
-                min="1"
-                max={maxPrices[cls]}
-                title={`Max $${maxPrices[cls].toLocaleString()} (cap: 3× reference)`}
-                style={{ width: 72, padding: '3px 6px', fontSize: 12 }}
-                value={draft[cls]}
-                onChange={e => setDraft(d => ({ ...d, [cls]: e.target.value }))}
-                onBlur={() => handleBlur(cls)}
-              />
-            </div>
-            <div style={{ fontSize: 10, color: pct > 0 ? 'var(--red)' : pct < 0 ? 'var(--green)' : 'var(--text-dim)', marginTop: 2 }}>
-              ref ${refPrices[cls]} {pct !== 0 && `(${pct > 0 ? '+' : ''}${pct}%)`}
-              <span style={{ color: 'var(--text-dim)', marginLeft: 4 }}>· max ${maxPrices[cls].toLocaleString()}</span>
-            </div>
-          </div>
-        );
-      })}
+      <FareEditor
+        origin={route.origin}
+        dest={route.destination}
+        config={config}
+        fares={route.classPrices}
+        onCommit={(cls, value) =>
+          dispatch({ type: 'UPDATE_CLASS_PRICES', routeId: route.id, updates: { [cls]: value } })}
+      />
     </div>
   );
 }
@@ -1934,9 +1864,10 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
           {blockHrs > 0 ? `${blockHrs.toFixed(1)}h` : '—'}
         </td>
         <td style={{ padding: '7px 8px' }}>
-          {/* Pricing toggle — shows economy price, click to expand all classes */}
+          {/* Fare editor toggle — one click opens every cabin's fare for this route */}
           <button
             onClick={() => setShowPricing(v => !v)}
+            title="Edit fares for every cabin on this route"
             style={{
               background: showPricing ? 'rgba(56,139,253,0.12)' : 'var(--surface3)',
               border: `1px solid ${showPricing ? 'var(--accent)' : 'var(--border)'}`,
@@ -1945,7 +1876,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
               display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
             }}
           >
-            ${econPrice}
+            <Glyph e="✏️" /> ${econPrice}
             <span style={{ fontSize: 10, opacity: 0.7 }}>{showPricing ? '▴' : '▾'}</span>
           </button>
         </td>
@@ -2031,7 +1962,7 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const [dest,   setDest]   = useState(initialDest   ?? '');
   const [aircraftId,  setAircraftId]  = useState(defaultAircraft?.id ?? '');
   const [frequency,   setFrequency]   = useState(7);
-  const [ticketPrice, setTicketPrice] = useState('');
+  const [fares,       setFares]       = useState({});   // per-cabin overrides; missing = reference
   const [season,      setSeason]      = useState(null); // null = year-round
 
   const aircraft = fleet.find(a => a.id === aircraftId);
@@ -2039,9 +1970,19 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
 
   const gd        = currentGameDate(state);
   const validDest = dest && dest !== origin && AIRPORTS.find(a => a.code === dest);
+
+  // Fares: reference per cabin unless the player has set their own. If the O&D pair
+  // is already flown, pricing is shared across the pair and edited from the route row.
+  const formPairKey    = validDest ? [origin, dest].sort().join('-') : null;
+  const existingFares  = formPairKey ? state.routePricing?.[formPairKey] : null;
+  const effectiveFares = validDest
+    ? { ...referenceClassPrices(origin, dest), ...(existingFares ?? fares) }
+    : null;
+  const cabinConfig    = aircraft?.config ?? (type ? { economy: type.seats } : null);
+
   const preview   = validDest && aircraft
     ? simulateRoute({ origin, destination: dest, aircraftId, weeklyFrequency: frequency,
-        ticketPrice: Number(ticketPrice) || referencePrice(origin, dest) }, aircraft, gd,
+        ticketPrice: effectiveFares.economy, classPrices: effectiveFares }, aircraft, gd,
         null, 1.0, null, [], null, null,
         buildEventDemandModel(state.activeEvents).multFor(origin, dest))
     : null;
@@ -2127,7 +2068,8 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
       destination: dest,
       aircraftId,
       weeklyFrequency: Number(frequency),
-      ticketPrice: Number(ticketPrice) || refP,
+      ticketPrice: effectiveFares?.economy ?? refP,
+      classPrices: effectiveFares ?? undefined,
       season,
     });
     onClose();
@@ -2241,19 +2183,39 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
             />
           </div>
 
-          {/* Ticket price */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Ticket Price ($) {refP ? `(ref: $${refP})` : ''}</label>
-            <input
-              className="form-input"
-              type="number"
-              min="1"
-              placeholder={refP ? String(refP) : 'Auto'}
-              value={ticketPrice}
-              onChange={e => setTicketPrice(e.target.value)}
-            />
-          </div>
         </div>
+
+        {/* Fares — every cabin priced up front, right here */}
+        {validDest && cabinConfig && (
+          <div style={{ marginBottom: 16 }}>
+            <div className="form-label" style={{ marginBottom: 6 }}>
+              Fares
+              {existingFares && (
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6, fontSize: 11 }}>
+                  — this pair is already flown; fares are shared and edited from the route row
+                </span>
+              )}
+            </div>
+            {existingFares ? (
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)' }}>
+                {CLASS_ORDER.filter(cls => (cabinConfig[cls] ?? 0) > 0).map(cls => (
+                  <span key={cls}>
+                    <span style={{ color: CLASS_COLORS[cls], fontWeight: 600 }}>{CLASS_LABELS[cls]}</span> ${existingFares[cls]}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <FareEditor
+                key={`${origin}-${dest}-${aircraftId}`}
+                origin={origin}
+                dest={dest}
+                config={cabinConfig}
+                fares={fares}
+                onCommit={(cls, value) => setFares(f => ({ ...f, [cls]: value }))}
+              />
+            )}
+          </div>
+        )}
 
         {/* Range warning */}
         {dist && !inRange && (
