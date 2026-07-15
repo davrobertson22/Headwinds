@@ -1809,7 +1809,6 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
   const curMonth = currentGameDate(state).month;
   const isDormant = !!route.season && !isRouteActive(route, curMonth);
   const [showPricing, setShowPricing] = useState(false);
-  const econPrice = route.classPrices?.economy ?? route.ticketPrice;
 
   const loadColor = result
     ? (result.loadFactor > 0.7 ? 'var(--green)' : result.loadFactor > 0.4 ? 'var(--yellow)' : 'var(--red)')
@@ -1876,7 +1875,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
               display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
             }}
           >
-            <Glyph e="✏️" /> ${econPrice}
+            <Glyph e="✏️" /> Edit
             <span style={{ fontSize: 10, opacity: 0.7 }}>{showPricing ? '▴' : '▾'}</span>
           </button>
         </td>
