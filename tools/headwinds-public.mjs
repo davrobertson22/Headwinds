@@ -212,6 +212,24 @@ function injectBrandLogo(html) {
   return s;
 }
 
+// Vercel Web Analytics on EVERY generated page. The tracking script route
+// (/_vercel/insights/*) is added to the deployment by Vercel once Analytics is
+// enabled on the project — without this tag no data is ever collected. The Vite
+// entry pages (index.html, play.html) carry the same snippet directly; this
+// covers the rebranded + hand-written info pages. Idempotent: skips any page
+// that already has it.
+const ANALYTICS_SNIPPET = `  <!-- Vercel Web Analytics -->
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+`;
+function injectAnalytics(html) {
+  if (html.includes('/_vercel/insights/script.js')) return html;
+  if (!html.includes('</head>')) { console.warn('  \u26a0 no </head> found; analytics snippet not injected'); return html; }
+  return html.replace('</head>', `${ANALYTICS_SNIPPET}</head>`);
+}
+
 // ── build ─────────────────────────────────────────────────────────────────────
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -265,7 +283,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectBrandLogo(injectRulesLink(before));
+  const after = injectAnalytics(injectBrandLogo(injectRulesLink(before)));
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 
