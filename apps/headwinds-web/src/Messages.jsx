@@ -4,6 +4,7 @@
 //   Alliance  your alliance's shared board
 // Headwinds-owned (not synced from Tailwinds) — safe to evolve freely.
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { authedApi } from './authedApi.js';
 import { ReportDialog } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
@@ -60,7 +61,10 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
 
   const openThread = (airlineId) => { setThread(airlineId); setTab('direct'); };
 
-  return (
+  // Portal to <body>: this drawer is mounted inside the game topbar, whose
+  // backdrop-filter makes it the containing block for position:fixed —
+  // rendered in place, the full-height drawer would be clipped to the topbar.
+  return createPortal(
     <div className="hw-msg-drawer">
       <div className="hw-msg-head">
         <div className="hw-msg-tabs">
@@ -143,7 +147,8 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
       {tab === 'alliance' && summary.alliance && (
         <AllianceBoard worldId={worldId} token={token} onSeen={refresh} />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 

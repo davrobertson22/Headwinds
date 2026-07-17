@@ -4,6 +4,7 @@
 // never prices, budgets or loans) plus system events (joins, alliances forming).
 // Headwinds-owned (not synced from Tailwinds) — safe to evolve freely.
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from './api.js';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
 
@@ -110,7 +111,11 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
         🌍 Activity
         {hasNew && !open && <span className="hw-msg-badge">•</span>}
       </button>
-      {open && (
+      {/* Portal to <body>: the button lives inside the game topbar, whose
+          backdrop-filter makes it the containing block for position:fixed —
+          rendered in place, the full-height drawer would be clipped to the
+          58px topbar. */}
+      {open && createPortal(
         <div className="hw-msg-drawer">
           <div className="hw-msg-head">
             <div style={{ fontWeight: 700, fontSize: 14, padding: '2px 4px' }}>This week in your world</div>
@@ -148,7 +153,8 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
