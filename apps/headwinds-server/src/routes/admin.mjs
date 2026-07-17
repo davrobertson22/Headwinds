@@ -215,23 +215,67 @@ export default async function adminRoutes(fastify) {
     return { ogs: ogs.map(accountSummary) };
   });
 
+  // Find an account by display name, email, or one of its airline names — so a
+  // Discord player ("give OG to Fonnesx") can be granted without knowing the
+  // email behind their sign-in. Admin-only, so surfacing the email here is fine
+  // (the admin needs it for moderation anyway; it never reaches other players).
+  fastify.get('/admin/accounts/search', {
+    preHandler: requireAdmin,
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['q'],
+        properties: { q: { type: 'string', minLength: 2, maxLength: 100 } },
+      },
+    },
+  }, async (request) => {
+    const q = request.query.q.trim();
+    const accounts = await prisma.account.findMany({
+      where: {
+        OR: [
+          { displayName: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+          { airlines: { some: { name: { contains: q, mode: 'insensitive' } } } },
+        ],
+      },
+      include: { airlines: { select: { name: true }, take: 5, orderBy: { createdAt: 'desc' } } },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+    });
+    return {
+      accounts: accounts.map((a) => ({
+        ...accountSummary(a),
+        airlines: a.airlines.map((x) => x.name),
+      })),
+    };
+  });
+
+  // Grant/revoke by accountId (from the search above) OR by email (legacy path,
+  // still handy when a player DMs their address directly).
   fastify.post('/admin/og', {
     preHandler: requireAdmin,
     schema: {
       body: {
         type: 'object',
-        required: ['email', 'og'],
+        required: ['og'],
         properties: {
+          accountId: { type: 'string', minLength: 1, maxLength: 60 },
           email: { type: 'string', minLength: 3, maxLength: 200 },
           og: { type: 'boolean' },
         },
       },
     },
   }, async (request) => {
-    const email = request.body.email.trim().toLowerCase();
-    const target = await prisma.account.findUnique({ where: { email } });
+    const { accountId } = request.body;
+    const email = request.body.email?.trim().toLowerCase();
+    if (!accountId && !email) throw httpError(400, 'Provide accountId or email');
+    const target = accountId
+      ? await prisma.account.findUnique({ where: { id: accountId } })
+      : await prisma.account.findUnique({ where: { email } });
     if (!target) {
-      throw httpError(404, `No account with email ${email} — they need to sign in to Headwinds at least once first`);
+      throw httpError(404, accountId
+        ? 'No such account'
+        : `No account with email ${email} — they need to sign in to Headwinds at least once first`);
     }
     if (target.isOG === request.body.og) {
       throw httpError(409, request.body.og

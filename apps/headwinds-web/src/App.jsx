@@ -723,7 +723,8 @@ function ModerationScreen({ token, me }) {
   const [reports, setReports] = useState(null);
   const [bans, setBans] = useState(null);
   const [ogs, setOgs] = useState(null);
-  const [ogEmail, setOgEmail] = useState('');
+  const [ogQuery, setOgQuery] = useState('');
+  const [ogResults, setOgResults] = useState(null); // account search results
   const [ogNote, setOgNote] = useState(null); // last grant/revoke confirmation
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -779,15 +780,28 @@ function ModerationScreen({ token, me }) {
     setBusyId(null);
   };
 
-  // Grant or revoke the OG veteran badge, keyed by the account's email (players
-  // DM it to the admin — Discord sign-ins also have an email behind them).
-  const setOg = async (email, og) => {
-    if (!og && !window.confirm(`Remove the OG badge from ${email}?`)) return;
-    setBusyId(email); setError(null); setOgNote(null);
+  // Find the player's account — by display name (Discord players usually match
+  // their Discord name), airline name, or email. Every account has an email
+  // behind it (even Discord sign-ins), but the admin shouldn't need to know it.
+  const searchAccounts = async (ev) => {
+    ev?.preventDefault();
+    const q = ogQuery.trim();
+    if (q.length < 2) return;
+    setError(null); setOgNote(null); setOgResults(null);
     try {
-      const res = await api('/admin/og', { method: 'POST', token, body: { email, og } });
+      const d = await api(`/admin/accounts/search?q=${encodeURIComponent(q)}`, { token });
+      setOgResults(d.accounts);
+    } catch (e) { setError(e); }
+  };
+
+  // Grant or revoke the OG veteran badge for a specific account.
+  const setOg = async (account, og) => {
+    if (!og && !window.confirm(`Remove the OG badge from ${account.displayName}?`)) return;
+    setBusyId(account.id); setError(null); setOgNote(null);
+    try {
+      const res = await api('/admin/og', { method: 'POST', token, body: { accountId: account.id, og } });
       setOgNote(`${og ? 'Granted' : 'Removed'} OG for ${res.account.displayName} (${res.account.email})`);
-      setOgEmail('');
+      setOgResults((rs) => rs?.map((r) => (r.id === account.id ? { ...r, isOG: og } : r)) ?? rs);
       load();
     } catch (e) { setError(e); }
     setBusyId(null);
@@ -885,20 +899,48 @@ function ModerationScreen({ token, me }) {
           <div className="card">
             <h3><OgBadge /> Grant the OG veteran badge</h3>
             <p className="muted small">
-              For players who've been flying since the original Tailwinds. They DM you the
-              email behind their sign-in (Google, Discord or magic link); the badge then shows
+              For players who've been flying since the original Tailwinds. Search by their
+              Discord/display name, airline name, or email — every account has an email behind
+              it (Discord sign-ins too), but you don't need to know it. The badge then shows
               beside every airline they fly, in every world. Airline names containing bracketed
               “OG” look-alikes are rejected at join, so the badge can't be faked in plain text.
             </p>
-            <form className="row" onSubmit={(e) => { e.preventDefault(); if (ogEmail.trim()) setOg(ogEmail.trim().toLowerCase(), true); }}>
+            <form className="row" onSubmit={searchAccounts}>
               <input
-                type="email" required placeholder="player@example.com"
-                value={ogEmail} onChange={(e) => setOgEmail(e.target.value)}
+                required minLength={2} placeholder="Discord name, airline, or email…"
+                value={ogQuery} onChange={(e) => setOgQuery(e.target.value)}
               />
-              <button className="btn primary" type="submit" disabled={!ogEmail.trim() || busyId === ogEmail.trim().toLowerCase()}>
-                Grant OG
+              <button className="btn primary" type="submit" disabled={ogQuery.trim().length < 2}>
+                Search
               </button>
             </form>
+            {ogResults != null && (
+              ogResults.length === 0 ? (
+                <p className="muted small">No matching account — they need to sign in to Headwinds at least once first.</p>
+              ) : (
+                <table className="worlds">
+                  <thead><tr><th>Player</th><th>Email</th><th>Airlines</th><th /></tr></thead>
+                  <tbody>
+                    {ogResults.map((a) => (
+                      <tr key={a.id}>
+                        <td>{a.displayName}{a.isOG ? <OgBadge /> : null}{a.bannedAt ? <span className="chip chip-banned"> banned</span> : null}</td>
+                        <td className="muted">{a.email}</td>
+                        <td className="muted small">{a.airlines?.length ? a.airlines.join(', ') : '—'}</td>
+                        <td>
+                          {a.isOG ? (
+                            <button className="btn danger small" disabled={busyId === a.id}
+                              onClick={() => setOg(a, false)}>Remove</button>
+                          ) : (
+                            <button className="btn primary small" disabled={busyId === a.id}
+                              onClick={() => setOg(a, true)}>Grant OG</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            )}
             {ogNote && <p className="muted small">✓ {ogNote}</p>}
           </div>
 
@@ -912,8 +954,8 @@ function ModerationScreen({ token, me }) {
                     <td>{o.displayName} <OgBadge /></td>
                     <td className="muted">{o.email}</td>
                     <td>
-                      <button className="btn danger small" disabled={busyId === o.email}
-                        onClick={() => setOg(o.email, false)}>Remove</button>
+                      <button className="btn danger small" disabled={busyId === o.id}
+                        onClick={() => setOg(o, false)}>Remove</button>
                     </td>
                   </tr>
                 ))}
