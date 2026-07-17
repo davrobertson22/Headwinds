@@ -1864,7 +1864,12 @@ export function weeklyTick(state) {
   // overcounting passengers by N×.  Instead, build ONE combined player offer
   // per route group, compute market share once, then split pax proportionally
   // by each aircraft's seat contribution.
-  const demandAllocations = new Map(); // aircraftId → demandResult override
+  // Keyed by ROUTE id — NOT aircraft id. One aircraft may fly several routes
+  // (e.g. a shared JFK-DEN pair plus solo JFK-RDU / JFK-CHS); keying by
+  // aircraft id leaked the shared pair's per-aircraft slice into the SAME
+  // aircraft's OTHER routes, capping their pax at the wrong pair's share
+  // (identical low load factors on unrelated routes).
+  const demandAllocations = new Map(); // routeId → demandResult override
 
   {
     // Group active routes by sorted routeKey
@@ -1981,7 +1986,7 @@ export function weeklyTick(state) {
         const ecoFrac = totalEcoSeats > 0 ? eco / totalEcoSeats : 1 / group.length;
         const bizFrac = totalBizSeats > 0 ? biz / totalBizSeats : 1 / group.length;
 
-        demandAllocations.set(aircraft.id, {
+        demandAllocations.set(route.id, {
           leisurePax:      Math.round(combinedResult.leisurePax  * ecoFrac),
           businessPax:     Math.round(combinedResult.businessPax * bizFrac),
           economyRevenue:  Math.round(combinedResult.economyRevenue  * ecoFrac),
@@ -2113,7 +2118,7 @@ export function weeklyTick(state) {
 
     const rkRoute = [route.origin, route.destination].sort().join('-');
     const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, labor, fuelMultiplier,
-      demandAllocations.get(aircraft.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
+      demandAllocations.get(route.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
       eventDemandMultFor(route.origin, route.destination));
     if (!result) continue;
 
@@ -2491,7 +2496,7 @@ export function weeklyTick(state) {
               routeId: rt.id, aircraftId: rt.aircraftId, freq: rt.weeklyFrequency,
               loadFactor: +(rr.loadFactor ?? 0).toFixed(3), passengers: rr.passengers,
               capacity: rr.configuredSeatsOneWay, capacityCapped: rr.capacityCapped,
-              pooled: demandAllocations.has(rt.aircraftId),
+              pooled: demandAllocations.has(rt.id),
               status: ac?.status, stops: rt.stops, season: rt.season ?? null,
               weeksOpen: rt.weeksOpen, config: ac?.config,
             };
