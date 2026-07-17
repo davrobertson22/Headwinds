@@ -52,7 +52,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(1.15 + Math.random() * 0.20);
       return {
         effects: { fuelMult: mult },
-        resolvedDesc: `Jet fuel costs up ${pct(mult, true)} — all routes more expensive to operate.`,
+        resolvedDesc: `Jet fuel costs up ${pct(mult, true)}. All routes more expensive to operate.`,
       };
     },
   },
@@ -69,7 +69,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(0.78 + Math.random() * 0.14);
       return {
         effects: { fuelMult: mult },
-        resolvedDesc: `Fuel costs down ${pct(mult, false)} — great week to fly more.`,
+        resolvedDesc: `Fuel costs down ${pct(mult, false)}. Great week to fly more.`,
       };
     },
   },
@@ -123,7 +123,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(1.18 + Math.random() * 0.12);
       return {
         effects: { globalDemandMult: mult },
-        resolvedDesc: `Holiday peak — loads up ${pct(mult, true)} this week.`,
+        resolvedDesc: `Holiday peak. Loads up ${pct(mult, true)} this week.`,
       };
     },
   },
@@ -198,7 +198,7 @@ export const EVENT_TEMPLATES = [
     type: 'disruption',
     name: 'LHR Ground Staff Strike',
     icon: '✊',
-    description: 'London Heathrow ground handlers on strike — capacity severely restricted.',
+    description: 'London Heathrow ground handlers on strike. Capacity severely restricted.',
     color: '#ff5d6c',
     probability: 0.02,
     duration: [1, 3],
@@ -247,7 +247,7 @@ export const EVENT_TEMPLATES = [
     generate() {
       return {
         effects: { globalDemandMult: clampImpact(0.70) },
-        resolvedDesc: 'Booking systems down — revenue impacted across all routes this week.',
+        resolvedDesc: 'Booking systems down. Revenue impacted across all routes this week.',
       };
     },
   },
@@ -314,7 +314,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(0.30 + Math.random() * 0.25);
       return {
         effects: { regionCodes: region.codes, regionDemandMult: mult },
-        resolvedDesc: `Volcanic ash closes ${region.label} airspace — routes severely disrupted.`,
+        resolvedDesc: `Volcanic ash closes ${region.label} airspace. Routes severely disrupted.`,
       };
     },
   },
@@ -339,7 +339,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(0.45 + Math.random() * 0.25);
       return {
         effects: { regionCodes: region.codes, regionDemandMult: mult },
-        resolvedDesc: `Natural disaster in ${region.label} causes ${pct(mult, false)} demand drop — emergency crews replacing tourists.`,
+        resolvedDesc: `Natural disaster in ${region.label} causes ${pct(mult, false)} demand drop. Emergency crews replacing tourists.`,
       };
     },
   },
@@ -363,7 +363,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(0.60 + Math.random() * 0.18);
       return {
         effects: { regionCodes: region.codes, regionDemandMult: mult },
-        resolvedDesc: `Political unrest in ${region.label} — travel advisories cut demand by ${pct(mult, false)}.`,
+        resolvedDesc: `Political unrest in ${region.label} cuts demand by ${pct(mult, false)} as travel advisories bite.`,
       };
     },
   },
@@ -387,7 +387,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(1.15 + Math.random() * 0.20);
       return {
         effects: { regionCodes: region.codes, regionDemandMult: mult },
-        resolvedDesc: `Tourism surge to ${region.label} — demand up ${pct(mult, true)}.`,
+        resolvedDesc: `Tourism surge to ${region.label}. Demand up ${pct(mult, true)} this week.`,
       };
     },
   },
@@ -404,7 +404,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(1.20 + Math.random() * 0.15);
       return {
         effects: { globalDemandMult: mult },
-        resolvedDesc: `Global conference boosts business travel — loads up ${pct(mult, true)} this week.`,
+        resolvedDesc: `Global conference boosts business travel. Loads up ${pct(mult, true)} this week.`,
       };
     },
   },
@@ -428,7 +428,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(0.65 + Math.random() * 0.18);
       return {
         effects: { regionCodes: codes, regionDemandMult: mult },
-        resolvedDesc: `Currency devaluation — outbound travel from affected region down ${pct(mult, false)}.`,
+        resolvedDesc: `Currency devaluation, outbound travel from affected region down ${pct(mult, false)}.`,
       };
     },
   },
@@ -445,7 +445,7 @@ export const EVENT_TEMPLATES = [
       const mult = clampImpact(1.10 + Math.random() * 0.15);
       return {
         effects: { globalDemandMult: mult },
-        resolvedDesc: `Extreme heat drives escape travel — load factors up ${pct(mult, true)} across leisure routes.`,
+        resolvedDesc: `Extreme heat drives escape travel, load factors up ${pct(mult, true)} across leisure routes.`,
       };
     },
   },
@@ -454,7 +454,7 @@ export const EVENT_TEMPLATES = [
     type: 'demand',
     name: 'Low-Cost Carrier Exits Market',
     icon: '📢',
-    description: 'A low-cost rival collapses — passengers scramble for alternatives on their routes.',
+    description: 'A low-cost rival collapses. Passengers scramble for alternatives on their routes.',
     color: '#38d39f',
     probability: 0.018,
     duration: [4, 8],
@@ -491,7 +491,7 @@ export const EVENT_TEMPLATES = [
     type: 'competition',
     name: 'Competitor Airline Crisis',
     icon: '🏚️',
-    description: 'A rival airline grounds its fleet — stranded passengers flood the market.',
+    description: 'A rival airline grounds its fleet, stranded passengers flood the market.',
     color: '#38d39f',
     probability: 0.015,
     duration: [4, 8],
@@ -514,7 +514,7 @@ export const EVENT_TEMPLATES = [
     type: 'disruption',
     name: 'Catering Contractor Meltdown',
     icon: '🍽️',
-    description: 'Your catering contractor fails health inspections — meals pulled fleet-wide, passengers furious.',
+    description: 'Your catering contractor fails health inspections. Meals pulled fleet-wide, passengers furious.',
     color: '#ff5d6c',
     probability: 0.015,
     duration: [1, 2],
@@ -522,7 +522,7 @@ export const EVENT_TEMPLATES = [
       const shock = -(5 + Math.floor(Math.random() * 3));   // −5…−7
       return {
         effects: { satisfactionShock: shock },
-        resolvedDesc: `Catering fiasco makes headlines — passenger satisfaction takes a ${Math.abs(shock)}-point hit.`,
+        resolvedDesc: `Catering fiasco makes headlines, passenger satisfaction takes a ${Math.abs(shock)}-point hit.`,
       };
     },
   },
@@ -539,7 +539,7 @@ export const EVENT_TEMPLATES = [
       const shock = -(4 + Math.floor(Math.random() * 3));   // −4…−6
       return {
         effects: { satisfactionShock: shock },
-        resolvedDesc: `Mountains of lost luggage go viral — passenger satisfaction drops ${Math.abs(shock)} points.`,
+        resolvedDesc: `Mountains of lost luggage go viral, passenger satisfaction drops ${Math.abs(shock)} points.`,
       };
     },
   },
@@ -556,7 +556,7 @@ export const EVENT_TEMPLATES = [
       const shock = 4 + Math.floor(Math.random() * 3);      // +4…+6
       return {
         effects: { satisfactionShock: shock },
-        resolvedDesc: `Feel-good crew story goes viral — passenger satisfaction jumps +${shock} points.`,
+        resolvedDesc: `Feel-good crew story goes viral, passenger satisfaction jumps +${shock} points.`,
       };
     },
   },
@@ -573,7 +573,7 @@ export const EVENT_TEMPLATES = [
       const shock = 5 + Math.floor(Math.random() * 3);      // +5…+7
       return {
         effects: { satisfactionShock: shock },
-        resolvedDesc: `Award-winning service makes the trade press — passenger satisfaction up +${shock} points.`,
+        resolvedDesc: `Award-winning service makes the trade press, passenger satisfaction up +${shock} points.`,
       };
     },
   },

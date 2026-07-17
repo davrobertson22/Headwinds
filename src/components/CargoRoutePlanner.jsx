@@ -300,7 +300,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                     <select className="form-select" value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)}>
                       {reachableTypes.map(t => {
                         const ready = (deployableByType[t.id] ?? []).filter(d => d.eligible).length;
-                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){ready > 0 ? ` — ${ready} ready` : ''}</option>;
+                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){ready > 0 ? ` · ${ready} ready` : ''}</option>;
                       })}
                     </select>
                   </div>
@@ -412,7 +412,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                         </div>
                       )}
                       <div style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>
-                        <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> One-time launch cost: <strong>{formatMoney(lCost)}</strong>{!canAfford && ' — insufficient cash'}
+                        <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> One-time launch cost: <strong>{formatMoney(lCost)}</strong>{!canAfford && ' · insufficient cash'}
                       </div>
                     </div>
                   );

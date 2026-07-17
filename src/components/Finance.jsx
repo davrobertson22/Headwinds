@@ -1,5 +1,6 @@
 import { useState, useMemo, Fragment, Component } from 'react';
 import { useGame } from '../store/GameContext.jsx';
+import { useConfirm } from './ConfirmModal.jsx';
 import {
   formatMoney, formatPercent,
   simulateRoute, maintenanceMultiplier, blockTimeHours,
@@ -164,18 +165,41 @@ function FinanceInner() {
     { id: 'routes',    label: '🗺️ By Route'       },
     { id: 'airports',  label: '🏢 By Airport'     },
   ];
+  const VIEW_BY_ID = Object.fromEntries(VIEWS.map(v => [v.id, v]));
+
+  // The 11 views are grouped so the bar reads as four areas instead of a wall of
+  // tabs. The active group is derived from the current view, so deep-links and
+  // in-tab navigation keep the right group highlighted.
+  const GROUPS = [
+    { id: 'statements', label: 'Statements', views: ['pl', 'cashflow', 'bs'] },
+    { id: 'planning',   label: 'Planning',   views: ['forecast', 'loans', 'fuel'] },
+    { id: 'analysis',   label: 'Analysis',   views: ['uniteco', 'trends', 'stats'] },
+    { id: 'breakdown',  label: 'Breakdown',  views: ['routes', 'airports'] },
+  ];
+  const activeGroup = GROUPS.find(g => g.views.includes(view)) ?? GROUPS[0];
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
-        {VIEWS.map(v => (
+      <div className="fin-group-tabs">
+        {GROUPS.map(g => (
           <button
-            key={v.id}
-            className={`btn ${view === v.id ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: 13 }}
-            onClick={() => setView(v.id)}
+            key={g.id}
+            className={`fin-group-tab ${activeGroup.id === g.id ? 'active' : ''}`}
+            onClick={() => { if (!g.views.includes(view)) setView(g.views[0]); }}
           >
-            <GlyphLabel text={v.label} size={13} />
+            {g.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+        {activeGroup.views.map(id => (
+          <button
+            key={id}
+            className={`btn ${view === id ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: 13 }}
+            onClick={() => setView(id)}
+          >
+            <GlyphLabel text={VIEW_BY_ID[id].label} size={13} />
           </button>
         ))}
       </div>
@@ -256,7 +280,7 @@ function ProfitWaterfall({ proj, report }) {
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <div className="card-title">Profit Waterfall — revenue to weekly cash</div>
+      <div className="card-title">Profit Waterfall · revenue to weekly cash</div>
       <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 110px', gap: '4px 12px', alignItems: 'center', fontSize: 12 }}>
         {rows.map((row, i) => (
           <Fragment key={i}>
@@ -906,7 +930,7 @@ function PLStatement({ proj }) {
               onToggle={() => toggleSection('flightOps')}
               summary={<TotalRow label="Flight Operations (collapsed)" prior={pw ? -pwFlightOps : undefined} weekly={-totFlightOps} ytd={-(ytdCrew + ytdLandingFees + ytdQual)} />}
             >
-              <LineItem label="Flight crew — variable duty pay"     prior={pw ? -(pw.crew ?? 0) : undefined}         weekly={-totCrew}        ytd={-ytdCrew} />
+              <LineItem label="Flight crew, variable duty pay"     prior={pw ? -(pw.crew ?? 0) : undefined}         weekly={-totCrew}        ytd={-ytdCrew} />
               <LineItem label="Landing &amp; navigation charges"    prior={pw ? -(pw.landingFees ?? 0) : undefined}  weekly={-totLandingFees} ytd={-ytdLandingFees} />
               {totQual > 0 && <LineItem label="In-flight service upgrades (quality extras)" prior={pw ? -(pw.quality ?? 0) : undefined} weekly={-totQual} ytd={-ytdQual} />}
               <TotalRow label="Total Flight Operations" prior={pw ? -pwFlightOps : undefined} weekly={-totFlightOps} ytd={-(ytdCrew + ytdLandingFees + ytdQual)} />
@@ -1286,7 +1310,7 @@ function PLStatement({ proj }) {
 
             <Spacer colSpan={pw ? 4 : 3} />
             <tr style={{ background: 'var(--surface2)', borderTop: '2px solid var(--border)' }}>
-              <td style={{ padding: '10px 16px', fontWeight: 700, fontSize: 13 }}>EBIT — Operating Income</td>
+              <td style={{ padding: '10px 16px', fontWeight: 700, fontSize: 13 }}>EBIT · Operating Income</td>
               {pw && <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 500, fontSize: 12, color: pwEbit >= 0 ? 'var(--green)' : 'var(--red)' }}>{pwEbit >= 0 ? '+' : ''}{formatMoney(pwEbit)}</td>}
               <td style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 700, fontSize: 13, color: ebit >= 0 ? 'var(--green)' : 'var(--red)' }}>
                 {ebit >= 0 ? '+' : ''}{formatMoney(ebit)}
@@ -1498,7 +1522,7 @@ function BalanceSheet() {
 
                 {ownedFleet.length > 0 && (
                   <>
-                    <BSSectionHeader label="Non-Current Assets — Fleet" />
+                    <BSSectionHeader label="Non-Current Assets · Fleet" />
                     {ownedFleet.map(({ aircraft, type, bookValue }) => {
                       const ageYrs = (aircraft.ageWeeks ?? 0) / 52;
                       const depPct = ageYrs / DEPRECIATION_YEARS;
@@ -1532,7 +1556,7 @@ function BalanceSheet() {
             <table>
               <tbody>
 
-                <BSSectionHeader label="Liabilities — Loans (outstanding principal)" />
+                <BSSectionHeader label="Liabilities · Loans (outstanding principal)" />
                 {loanLiabilities.length === 0 && <EmptyRow text="No debt outstanding" />}
                 {loanLiabilities.map(({ loan, balance }) => (
                   <BSRow
@@ -1588,7 +1612,7 @@ function BalanceSheet() {
 
           {/* Ratio notes */}
           <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            <strong>Current Ratio</strong> (cash ÷ loans + annual lease commitment): {isFinite(currentRatio) ? currentRatio.toFixed(2) : '∞'} — {currentRatio >= 1 ? 'solvent' : 'at risk'}<br />
+            <strong>Current Ratio</strong> (cash ÷ loans + annual lease commitment): {isFinite(currentRatio) ? currentRatio.toFixed(2) : '∞'} · {currentRatio >= 1 ? 'solvent' : 'at risk'}<br />
             <strong>Equity</strong> = total assets − liabilities (net book value); <strong>retained earnings</strong> = equity − paid-in capital = accumulated net income.<br />
             <strong>Fleet book value</strong> = purchase price × remaining life (straight-line, {DEPRECIATION_YEARS}yr). Operating leases are rent (a commitment), not a balance-sheet liability.
           </div>
@@ -2400,7 +2424,7 @@ function Forecast({ proj }) {
           {globalDemandMult !== 1 && <span>Events {globalDemandMult > 1 ? '+' : ''}{formatPercent(globalDemandMult - 1)}</span>}
           {awarenessMultiplier < 0.95 && <span>Awareness {formatPercent(awarenessMultiplier)} of max</span>}
           {awarenessMultiplier > 1 && <span>Awareness +{formatPercent(awarenessMultiplier - 1)}</span>}
-          <span style={{ color: 'var(--text-dim)' }}>Events end when they expire — future weeks may differ.</span>
+          <span style={{ color: 'var(--text-dim)' }}>Events end when they expire, future weeks may differ.</span>
         </div>
       )}
 
@@ -2412,7 +2436,7 @@ function Forecast({ proj }) {
       </div>
 
       <div className="card">
-        <div className="card-title">Projected Cash Balance — Next 12 Weeks</div>
+        <div className="card-title">Projected Cash Balance · Next 12 Weeks</div>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H }}>
           {zeroY > PAD && zeroY < H - PAD && (
             <line x1={0} y1={zeroY} x2={W} y2={zeroY} stroke="var(--red)" strokeDasharray="3,3" strokeWidth="1" opacity="0.5" />
@@ -2942,15 +2966,15 @@ function Statistics() {
 
       {/* ── Passengers (stacked) ── */}
       <div className="card">
-        <div className="card-title">Passengers per week — by source</div>
+        <div className="card-title">Passengers per week · by source</div>
         <StatChart points={points} wideLabels={wide} format={(v) => fmtInt(v)} series={[
           { key: 'paxOrganic',    label: 'Organic (direct)',        color: STAT_COLORS.organic,    kind: 'area' },
           { key: 'paxConnecting', label: 'Connecting (over your hubs)', color: STAT_COLORS.connecting, kind: 'area' },
           { key: 'paxInterline',  label: 'Interline / codeshare & gateway feed', color: STAT_COLORS.interline,  kind: 'area' },
         ]} />
         <StatLegend items={[
-          [STAT_COLORS.organic, 'Organic — direct O&D'],
-          [STAT_COLORS.connecting, 'Connecting — over your hubs (matches Hubs tab)'],
+          [STAT_COLORS.organic, 'Organic · direct O&D'],
+          [STAT_COLORS.connecting, 'Connecting · over your hubs (matches Hubs tab)'],
           [STAT_COLORS.interline, 'Interline / codeshare & non-hub gateway feed'],
         ]} />
       </div>
@@ -3126,6 +3150,7 @@ function outstandingBalance(loan) {
 
 function Loans({ proj }) {
   const { state, dispatch } = useGame();
+  const confirm = useConfirm();
   const { cash } = state;
   const activeLoans = state.loans ?? [];
 
@@ -3235,10 +3260,13 @@ function Loans({ proj }) {
                         className="btn btn-ghost"
                         style={{ fontSize: 11, padding: '3px 8px', color: canRepayEarly ? 'var(--red)' : 'var(--text-dim)' }}
                         disabled={!canRepayEarly}
-                        onClick={() => {
-                          if (window.confirm(`Repay early? You'll pay ${formatMoney(earlyTotal)} (balance ${formatMoney(balance)} + 2% penalty ${formatMoney(penalty)}).`)) {
-                            dispatch({ type: 'REPAY_LOAN', loanId: loan.id });
-                          }
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Repay this loan early?',
+                            body: `You'll pay ${formatMoney(earlyTotal)}: the ${formatMoney(balance)} balance plus a 2% early-repayment penalty of ${formatMoney(penalty)}.`,
+                            confirmLabel: 'Repay now',
+                          });
+                          if (ok) dispatch({ type: 'REPAY_LOAN', loanId: loan.id });
                         }}
                         title={canRepayEarly ? `Early repayment: ${formatMoney(earlyTotal)}` : 'Not enough cash'}
                       >

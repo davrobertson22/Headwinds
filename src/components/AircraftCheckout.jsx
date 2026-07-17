@@ -409,14 +409,14 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               <span>
                 {instantUnits > 0 && queuedUnits === 0 ? (
                   quantity === 1
-                    ? <>Delivered <strong>instantly</strong> — ready to fly now</>
-                    : <><strong>{quantity} aircraft</strong> delivered <strong>instantly</strong> — ready to fly now</>
+                    ? <>Delivered <strong>instantly</strong> · ready to fly now</>
+                    : <><strong>{quantity} aircraft</strong> delivered <strong>instantly</strong> · ready to fly now</>
                 ) : instantUnits > 0 ? (
                   <><strong>{instantUnits}</strong> delivered <strong>instantly</strong>, then <strong>{queuedUnits}</strong> from <strong>{lead}w</strong> apart (last in <strong>{lastDelivery - currentAbsWeek}w</strong>)</>
                 ) : quantity === 1 ? (
                   <>First delivery in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear})</>
                 ) : (
-                  <><strong>{quantity} aircraft</strong> — first in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear}), last in <strong>{lastDelivery - currentAbsWeek}w</strong> (Wk {lastWIM} {lastMon} Y{lastYear}) · every {lead}w</>
+                  <><strong>{quantity} aircraft</strong> · first in <strong>{firstDelivery - currentAbsWeek}w</strong> (Wk {firstWIM} {firstMon} Y{firstYear}), last in <strong>{lastDelivery - currentAbsWeek}w</strong> (Wk {lastWIM} {lastMon} Y{lastYear}) · every {lead}w</>
                 )}
                 {pendingOfType.length > 0 && (
                   <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {pendingOfType.length} already queued</span>
@@ -481,7 +481,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               value={customName}
               maxLength={40}
               onChange={e => setCustomName(e.target.value)}
-              placeholder={`e.g. "Spirit of ${type.manufacturer}" — defaults to ${type.name} #N`}
+              placeholder={`e.g. "Spirit of ${type.manufacturer}" · defaults to ${type.name} #N`}
               style={{
                 width: '100%', padding: '8px 12px', fontSize: 13,
                 background: 'var(--surface2)', color: 'var(--text)',
@@ -519,7 +519,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                         {fuelDelta !== 0 && <span style={{ color: fuelDelta < 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{fuelDelta < 0 ? '↓' : '↑'} {Math.abs(fuelDelta)}% fuel</span>}
                         {maintDelta !== 0 && <span style={{ color: maintDelta > 0 ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{maintDelta > 0 ? '↑' : '↓'} {Math.abs(maintDelta)}% maint</span>}
                         {priceDelta > 0 && <span style={{ color: 'var(--text-muted)' }}>+{priceDelta}% {mode === 'buy' ? 'unit price' : 'lease rate'}</span>}
-                        {fuelDelta === 0 && maintDelta === 0 && priceDelta === 0 && <span style={{ color: 'var(--text-muted)' }}>Standard — no premium</span>}
+                        {fuelDelta === 0 && maintDelta === 0 && priceDelta === 0 && <span style={{ color: 'var(--text-muted)' }}>Standard · no premium</span>}
                       </div>
                     </div>
                   </label>
@@ -791,13 +791,13 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                 </div>
                 {totalFittingFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontWeight: 700, fontSize: 14 }}>
-                    <span>Seat fitting — one-off (due now)</span>
+                    <span>Seat fitting, one-off (due now)</span>
                     <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(totalFittingFee)}</span>
                   </div>
                 )}
                 {totalInstallFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontWeight: 700, fontSize: 14 }}>
-                    <span>Premium cabin fit — one-off (due now)</span>
+                    <span>Premium cabin fit, one-off (due now)</span>
                     <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(totalInstallFee)}</span>
                   </div>
                 )}

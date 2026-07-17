@@ -27,7 +27,7 @@ const LABELS = {
 };
 
 function describe(e) {
-  if (e.kind === 'joined') return { who: e.airline, what: `joined the world${e.hub ? ` — hub ${e.hub}` : ''}`, icon: '🛬' };
+  if (e.kind === 'joined') return { who: e.airline, what: `joined the world${e.hub ? ` · hub ${e.hub}` : ''}`, icon: '🛬' };
   if (e.kind === 'alliance_founded') return { who: e.alliance, what: 'alliance founded', icon: '🤝' };
   if (e.kind === 'alliance_joined') return { who: e.airline, what: `joined the ${e.alliance} alliance`, icon: '🤝' };
   const label = LABELS[e.type];

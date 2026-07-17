@@ -399,6 +399,18 @@ export function SirenIcon({ size = 15 }) {
 
 
 // Emoji-string -> icon component lookup, for legacy inline/data glyphs
+export function TrashIcon({ size = 15 }) {
+  return <LI size={size}><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></LI>;
+}
+
+export function PlusIcon({ size = 15 }) {
+  return <LI size={size}><path d="M12 5v14"/><path d="M5 12h14"/></LI>;
+}
+
+export function GiftIcon({ size = 15 }) {
+  return <LI size={size}><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8"/><path d="M16.5 8a2.5 2.5 0 0 0 0-5C13 3 12 8 12 8"/></LI>;
+}
+
 const GLYPH_MAP = {
   '✈': PlaneIcon, '✈️': PlaneIcon, '🛫': PlaneIcon, '🛬': PlaneIcon, '🛩': PlaneIcon, '🛩️': PlaneIcon,
   '📦': PackageIcon,
@@ -409,7 +421,8 @@ const GLYPH_MAP = {
   '💡': BulbIcon,
   '⚔': SwordsIcon, '⚔️': SwordsIcon,
   '👥': UsersIcon,
-  '🧍': UserIcon, '🧑': UserIcon,
+  '🧍': UserIcon, '🧑': UserIcon, '🧑\u200d✈️': UserIcon, '🧑\u200d✈': UserIcon, '👨\u200d✈️': UserIcon, '👩\u200d✈️': UserIcon,
+  '🛎': UsersIcon, '🛎️': UsersIcon,
   '🏢': BuildingIcon, '🏛': BuildingIcon, '🏛️': BuildingIcon,
   '🏠': HouseIcon, '🏚': HouseIcon, '🏚️': HouseIcon,
   '🎯': TargetIcon,
@@ -431,7 +444,11 @@ const GLYPH_MAP = {
   '⛽': FuelIcon,
   '💺': SeatIcon,
   '🛒': CartIcon,
-  '✍': PenIcon, '✍️': PenIcon,
+  '✍': PenIcon, '✍️': PenIcon, '✏': PenIcon, '✏️': PenIcon, '✎': PenIcon,
+  '🗑': TrashIcon, '🗑️': TrashIcon,
+  '➕': PlusIcon, '＋': PlusIcon, '+': PlusIcon,
+  '🎁': GiftIcon,
+  '🏗': BuildingIcon, '🏗️': BuildingIcon,
   '🔗': LinkIcon,
   '🌴': PalmIcon,
   '💼': BriefcaseIcon,

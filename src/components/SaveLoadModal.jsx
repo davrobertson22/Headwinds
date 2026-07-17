@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useConfirm } from './ConfirmModal.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, weekToGameDate } from '../utils/simulation.js';
 import AirlineLogo from './AirlineLogo.jsx';
@@ -111,6 +112,7 @@ function SlotCard({ index, slot, mode, onSave, onLoad, onDelete }) {
 
 export default function SaveLoadModal({ mode, onClose }) {
   const { state, dispatch } = useGame();
+  const confirm = useConfirm();
   const [slots, setSlots] = useState(readAllSlots);
 
   function handleSave(i) {
@@ -125,8 +127,8 @@ export default function SaveLoadModal({ mode, onClose }) {
     onClose();
   }
 
-  function handleDelete(i) {
-    if (!window.confirm(`Delete slot ${i + 1}? This cannot be undone.`)) return;
+  async function handleDelete(i) {
+    if (!await confirm({ title: `Delete slot ${i + 1}?`, body: 'This cannot be undone.', danger: true, confirmLabel: 'Delete slot' })) return;
     deleteSlot(i);
     setSlots(readAllSlots());
   }

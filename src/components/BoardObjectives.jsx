@@ -7,7 +7,7 @@ import { Glyph } from './Icons.jsx';
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function phaseLabel(phase) {
-  return phase === 'strategic' ? 'Year 1 — Strategic' : 'Year 2+ — Financial';
+  return phase === 'strategic' ? 'Year 1 · Strategic' : 'Year 2+ · Financial';
 }
 
 function phaseColor(phase) {
@@ -67,10 +67,10 @@ export default function BoardObjectives() {
 
       {!collapsed && (
         <div style={{ marginTop: 14 }}>
-          <ObjectiveGroup label="Year 1 — Strategic" objectives={strategic} color="var(--accent)" />
-          <ObjectiveGroup label="Year 2+ — Financial" objectives={financial} color="var(--yellow)" style={{ marginTop: 14 }} />
+          <ObjectiveGroup label="Year 1 · Strategic" objectives={strategic} color="var(--accent)" />
+          <ObjectiveGroup label="Year 2+ · Financial" objectives={financial} color="var(--yellow)" style={{ marginTop: 14 }} />
           {empire.length > 0 && (
-            <ObjectiveGroup label="Empire — Endgame" objectives={empire} color="var(--green)" style={{ marginTop: 14 }} />
+            <ObjectiveGroup label="Empire · Endgame" objectives={empire} color="var(--green)" style={{ marginTop: 14 }} />
           )}
         </div>
       )}

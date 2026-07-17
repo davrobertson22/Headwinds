@@ -60,7 +60,7 @@ export function ReportDialog({ worldId, token, airlineId, airlineName, onClose }
             <label>Details <span className="muted small">(optional, helps us investigate)</span>
               <textarea
                 rows={4} maxLength={1000}
-                placeholder="What happened? Include anything that helps — e.g. what they said, or what looks wrong."
+                placeholder="What happened? Include anything that helps, like what they said or what looks wrong."
                 value={details} onChange={(e) => setDetails(e.target.value)}
               />
             </label>

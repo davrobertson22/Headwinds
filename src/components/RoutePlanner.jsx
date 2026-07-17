@@ -56,7 +56,7 @@ function SeasonPicker({ value, onChange, currentMonth }) {
     <div style={{ marginTop: 8 }}>
       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
         Operating window
-        <InfoTip text="Restrict this route to certain months. Off-season it goes dormant — no revenue or cost, and its aircraft and gate slots free up for a counter-seasonal route. Resuming service each season costs 1/3 of the launch cost; gate fees are billed year-round." />
+        <InfoTip text="Restrict this route to certain months. Off-season it goes dormant, no revenue or cost, and its aircraft and gate slots free up for a counter-seasonal route. Resuming service each season costs 1/3 of the launch cost; gate fees are billed year-round." />
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {SEASON_PRESETS.map(p => {
@@ -375,7 +375,7 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: over ? 'var(--red)' : 'var(--text-muted)', marginBottom: 10 }}>
         <span>
           {over
-            ? <GlyphLabel size={11} text={`⚠ Over by ${(usedUnits - maxSeats).toFixed(1)} seat units — reduce a class`} />
+            ? <GlyphLabel size={11} text={`⚠ Over by ${(usedUnits - maxSeats).toFixed(1)} seat units, reduce a class`} />
             : `${usedUnits.toFixed(1)} / ${maxSeats} seat units${emptyUnits >= 1 ? ` · ${emptyUnits.toFixed(0)} empty` : ''}`}
         </span>
         <span>{bodies} seats · {revenueIndex.toFixed(2)}× rev/seat{spaceBonus > 0 ? ` · +${spaceBonus} comfort` : ''}</span>
@@ -882,7 +882,7 @@ export default function RoutePlanner() {
                         const ready = (deployableByType[t.id] ?? []).filter(d => d.eligible).length;
                         return (
                           <option key={t.id} value={t.id}>
-                            {t.name} ({t.seats} seats){ready > 0 ? ` — ${ready} ready` : ''}
+                            {t.name} ({t.seats} seats){ready > 0 ? ` · ${ready} ready` : ''}
                           </option>
                         );
                       })}
@@ -1110,7 +1110,7 @@ export default function RoutePlanner() {
                       {!blocked && (
                         <div style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>
                           <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> One-time launch cost: <strong>{formatMoney(lCost)}</strong>
-                          {!canAfford && ' — insufficient cash'}
+                          {!canAfford && ' · insufficient cash'}
                           <span style={{ marginLeft: 8, color: 'var(--text-dim)' }}>
                             (regulatory filings, slot deposits, launch marketing)
                           </span>

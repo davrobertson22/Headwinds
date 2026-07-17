@@ -5,7 +5,7 @@
 // join, so the badge can't be faked in plain text). Styles: .og-badge in styles.css.
 export default function OgBadge() {
   return (
-    <span className="og-badge" title="OG — flying since the original Tailwinds">
+    <span className="og-badge" title="OG · flying since the original Tailwinds">
       <span className="og-badge-wing">✈</span>OG
     </span>
   );
@@ -17,7 +17,7 @@ export default function OgBadge() {
 // DEV look-alikes are rejected in airline names at join.
 export function DevBadge() {
   return (
-    <span className="dev-badge" title="DEV — Headwinds developer">
+    <span className="dev-badge" title="DEV · Headwinds developer">
       <span className="og-badge-wing">🛠</span>DEV
     </span>
   );

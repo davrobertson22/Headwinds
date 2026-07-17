@@ -33,7 +33,7 @@ const TIER_META = {
 export function OgChip({ size = 10 }) {
   return (
     <span
-      title="OG — flying since the original Tailwinds"
+      title="OG · flying since the original Tailwinds"
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle',
         fontSize: size, fontWeight: 800, letterSpacing: '0.08em', lineHeight: 1.5,
@@ -53,7 +53,7 @@ export function OgChip({ size = 10 }) {
 export function DevChip({ size = 10 }) {
   return (
     <span
-      title="DEV — Headwinds developer"
+      title="DEV · Headwinds developer"
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle',
         fontSize: size, fontWeight: 800, letterSpacing: '0.08em', lineHeight: 1.5,
@@ -151,12 +151,8 @@ export default function Competition() {
       {/* ── Contested routes ──────────────────────────────────────────────── */}
       <SectionHeader><Glyph e="⚔" /> Contested Routes</SectionHeader>
       {contestedKeys.length === 0 ? (
-        <div className="empty-state" style={{ marginBottom: 24 }}>
-          <div className="empty-state-icon"><Glyph e="🤝" /></div>
-          <div className="empty-state-text">No contested routes yet</div>
-          <div style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>
-            Open routes that competitors also fly to see head-to-head comparisons.
-          </div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', margin: '2px 0 24px' }}>
+          No contested routes yet. Open a route a rival also flies to see the head-to-head.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
@@ -175,13 +171,8 @@ export default function Competition() {
       {/* ── Full competitor networks ──────────────────────────────────────── */}
       <SectionHeader>{remote ? 'Rival Networks' : 'Competitor Networks'}</SectionHeader>
       {remote && competitors.length === 0 && (
-        <div className="empty-state">
-          <div className="empty-state-icon"><Glyph e="🌍" /></div>
-          <div className="empty-state-text">No active rivals right now</div>
-          <div style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>
-            Real players appear here when they join. Bankrupt and abandoned airlines
-            drop off this list but stay in the lobby standings.
-          </div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', margin: '2px 0' }}>
+          No active rivals right now. Real players show up here when they join; bankrupt and abandoned airlines drop off but stay in the lobby standings.
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -652,13 +643,13 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
     const qualDiff  = (playerQual ?? 0) - c.baseQualityScore;
 
     if (priceDiff > compPrice * 0.12)
-      hints.push({ type: 'warn', text: `Your price is ${Math.round(priceDiff / refP * 100)}% above ${c.name}'s — you may be losing price-sensitive passengers.` });
+      hints.push({ type: 'warn', text: `Your price is ${Math.round(priceDiff / refP * 100)}% above ${c.name}'s. You may be losing price-sensitive passengers.` });
 
     if (qualDiff < -20)
       hints.push({ type: 'info', text: `${c.name} has a ${Math.abs(qualDiff)}-point quality advantage. Consider upgrading seat or service quality in Fleet.` });
 
     if (priceDiff < -compPrice * 0.12 && qualDiff > 15)
-      hints.push({ type: 'good', text: `You lead ${c.name} on both price and quality — strong position.` });
+      hints.push({ type: 'good', text: `You lead ${c.name} on both price and quality, strong position.` });
   }
 
   if (hints.length === 0) return null;
@@ -738,7 +729,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
           )}
           {atWar && (
             <span
-              title="This carrier is waging a fare war on a route you share — it is pricing below cost to push you off."
+              title="This carrier is waging a fare war on a route you share. It is pricing below cost to push you off."
               style={{ fontSize: 11, fontWeight: 700, color: '#fb923c',
                        padding: '1px 7px', borderRadius: 10,
                        border: '1px solid rgba(251,146,60,0.5)', background: 'rgba(251,146,60,0.12)' }}>
@@ -1298,7 +1289,7 @@ function RivalDetailView({ carrier, onClose }) {
 
           {/* Head-to-head on contested routes */}
           {contestedEntries.length > 0 && (
-            <DetailSection title="Head-to-head — contested routes" right="you vs them">
+            <DetailSection title="Head-to-head · contested routes" right="you vs them">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {contestedEntries.map(([key, cfg]) => {
                   const [a, b] = key.split('-');
@@ -1423,10 +1414,10 @@ function AcquisitionModal({ target, playerCash, onConfirm, onCancel }) {
             color={target.fireSale ? 'var(--green)' : 'var(--yellow)'} />
           <DealRow label="Total acquisition cost" value={formatMoney(acquisitionCost)} bold />
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-          <DealRow label="You receive — their cash" value={`+${formatMoney(target.cash ?? 0)}`} color="var(--green)" />
-          <DealRow label="You receive — routes" value={`+${routeCount}`} color="var(--green)" />
-          <DealRow label="You receive — aircraft" value={`+${aircraftGained}`} color="var(--green)" />
-          <DealRow label="You receive — gate slots" value={`+${gatesGained}`} color="var(--green)" />
+          <DealRow label="You receive. Their cash" value={`+${formatMoney(target.cash ?? 0)}`} color="var(--green)" />
+          <DealRow label="You receive · routes" value={`+${routeCount}`} color="var(--green)" />
+          <DealRow label="You receive · aircraft" value={`+${aircraftGained}`} color="var(--green)" />
+          <DealRow label="You receive, gate slots" value={`+${gatesGained}`} color="var(--green)" />
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
           <DealRow label="Net cash outlay" value={formatMoney(netCost)} bold color={netCost > 0 ? '#f87171' : 'var(--green)'} />
           <DealRow label="Your cash after" value={formatMoney(playerCash - acquisitionCost + (target.cash ?? 0))}

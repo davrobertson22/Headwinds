@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import { ConfirmProvider } from '../../../src/components/ConfirmModal.jsx';
 import './styles.css';
 
 // Brand switch: the shared game UI reads its palette from CSS variables on
@@ -10,6 +11,8 @@ document.documentElement.dataset.brand = 'headwinds';
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>
   </React.StrictMode>
 );

@@ -1,4 +1,5 @@
 import { Glyph } from './Icons.jsx';
+import { useConfirm } from './ConfirmModal.jsx';
 import { useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
@@ -109,10 +110,10 @@ function CongestionMeter({ routesAt, gatesAt, tier }) {
   return (
     <div style={{ fontSize: 12, marginBottom: 12, color: congested ? 'var(--yellow)' : 'var(--text-muted)' }}>
       {congested ? <><Glyph e="⚠" /> Congested</> : <><Glyph e="✓" /> Uncongested</>}
-      {' — '}{routesAt} routes on {gatesAt} gates
+      {' · '}{routesAt} routes on {gatesAt} gates
       <span style={{ color: 'var(--text-dim)' }}>
         {' '}(handles {(threshold).toFixed(1)} routes/gate{congested
-          ? ` · connecting traffic at ${Math.round(factor * 100)}% — buy gates to relieve`
+          ? ` · connecting traffic at ${Math.round(factor * 100)}%. Buy gates to relieve`
           : ''})
       </span>
     </div>
@@ -123,6 +124,7 @@ function CongestionMeter({ routesAt, gatesAt, tier }) {
 
 function HubCard({ code, hubData, gateCount, routeCount, snap, lastReport }) {
   const { dispatch, state } = useGame();
+  const confirm = useConfirm();
   const airport = getAirport(code);
   const tier    = hubData.tier;
   const tierDef = HUB_TIERS[tier];
@@ -139,12 +141,12 @@ function HubCard({ code, hubData, gateCount, routeCount, snap, lastReport }) {
   const checklist  = canUpgrade ? hubUpgradeChecklist(snap, code, tier + 1) : null;
 
   function upgrade() { dispatch({ type: 'UPGRADE_HUB', airportCode: code }); }
-  function downgrade() {
+  async function downgrade() {
     const label = construction
-      ? `Cancel construction (50% refund: ${formatMoney(Math.round((construction.capex ?? 0) * 0.5))})`
-      : tier === 0 ? 'Remove focus city designation'
+      ? `Cancel construction and take a 50% refund of ${formatMoney(Math.round((construction.capex ?? 0) * 0.5))}`
+      : tier === 0 ? 'Remove the focus city designation'
       : `Downgrade to ${HUB_TIERS[tier - 1]?.name}`;
-    if (window.confirm(`${label} at ${code}?`)) {
+    if (await confirm({ title: `${label} at ${code}?`, danger: true, confirmLabel: 'Confirm' })) {
       dispatch({ type: 'DOWNGRADE_HUB', airportCode: code });
     }
   }
@@ -205,7 +207,7 @@ function HubCard({ code, hubData, gateCount, routeCount, snap, lastReport }) {
         <Stat label="Gates"           value={gateCount}   sub="at this airport" />
         <Stat label="Routes"          value={routeCount}  sub="through hub" />
         <Stat label="Connecting"      value={(throughput ?? 0).toLocaleString()}
-                                      sub={throughput != null ? 'pax/wk (last week)' : 'no data yet — updates weekly'}
+                                      sub={throughput != null ? 'pax/wk (last week)' : 'no data yet, updates weekly'}
                                       color="var(--accent)" />
         <Stat label="Quality Boost"   value={`+${tierDef.qualityBonus} pts`} sub="on hub routes" color={tierDef.color} />
         <Stat label="Cost Efficiency" value={`−${Math.round(tierDef.stationDiscount * 100)}% / −${Math.round(tierDef.layoverDiscount * 100)}%`}

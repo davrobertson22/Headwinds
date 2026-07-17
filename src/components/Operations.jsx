@@ -260,10 +260,10 @@ function NegotiationBanner({ negotiation, labor, fleetSize, complexityMult, disp
 function NegotiationOutcomeNote({ outcome }) {
   const group = LABOR_GROUP_MAP[outcome.group];
   const text = {
-    accepted:        `accepted their demand — pay is now ${outcome.newPay.toFixed(2)}× and the union is satisfied.`,
-    counterAccepted: `took your counter-offer of ${outcome.newPay.toFixed(2)}× — a fair deal, relations intact.`,
-    counterRejected: `pocketed your ${outcome.newPay.toFixed(2)}× counter but rejected the deal — they wanted ${outcome.demand.toFixed(2)}× and will be back sooner, angrier.`,
-    refused:         `were refused outright — morale took a hit and unrest is building.`,
+    accepted:        `accepted their demand. Pay is now ${outcome.newPay.toFixed(2)}× and the union is satisfied.`,
+    counterAccepted: `took your counter-offer of ${outcome.newPay.toFixed(2)}× · a fair deal, relations intact.`,
+    counterRejected: `pocketed your ${outcome.newPay.toFixed(2)}× counter but rejected the deal. They wanted ${outcome.demand.toFixed(2)}× and will be back sooner, angrier.`,
+    refused:         `were refused outright, morale took a hit and unrest is building.`,
   }[outcome.outcome];
   const color = outcome.outcome === 'accepted' || outcome.outcome === 'counterAccepted'
     ? 'var(--green)' : 'var(--red)';
@@ -294,7 +294,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }}>{group.emoji}</span>
+            <span style={{ fontSize: 18, display: 'inline-flex' }}><Glyph e={group.emoji} size={18} /></span>
             {group.name}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, maxWidth: 420 }}>
@@ -324,7 +324,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
           fontSize: 11, color: 'var(--text-dim)', background: 'var(--surface2)',
           borderRadius: 4, padding: '5px 10px', marginBottom: 10,
         }}>
-          ℹ Variable flight duty pay (hourly wages while airborne) is charged separately under Direct Operating Costs — this covers fixed overhead only.
+          ℹ Variable flight duty pay (hourly wages while airborne) is charged separately under Direct Operating Costs. This line is fixed overhead only.
         </div>
       )}
 
@@ -499,14 +499,14 @@ function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch })
           <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Impact</div>
           <div style={{ color: agingColor, fontSize: 11, fontStyle: 'italic' }}>
             {agingRate > 1.15
-              ? 'Aircraft aging significantly faster — higher maintenance costs ahead'
+              ? 'Aircraft aging significantly faster, higher maintenance costs ahead'
               : agingRate > 1.05
-              ? 'Slightly faster aging — monitor fleet condition'
+              ? 'Slightly faster aging, monitor fleet condition'
               : agingRate < 0.85
-              ? 'Aircraft condition well-maintained — extended service life'
+              ? 'Aircraft condition well-maintained, extended service life'
               : agingRate < 0.95
-              ? 'Slightly slowed aging — good for long-term economics'
-              : 'Standard schedule — balanced cost and longevity'}
+              ? 'Slightly slowed aging, good for long-term economics'
+              : 'Standard schedule, balanced cost and longevity'}
           </div>
         </div>
       </div>

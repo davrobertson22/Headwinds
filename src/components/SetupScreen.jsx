@@ -519,7 +519,7 @@ export default function SetupScreen() {
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                   {enableObjectives
                     ? 'Earn cash rewards by hitting strategic milestones and financial targets'
-                    : 'Sandbox mode — no objectives, play freely'}
+                    : 'Sandbox mode, no objectives, play freely'}
                 </div>
               </div>
             </button>

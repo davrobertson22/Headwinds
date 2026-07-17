@@ -1,4 +1,5 @@
 import { useGame, cargoFrequencyChangeBlockReason } from '../store/GameContext.jsx';
+import { useConfirm } from './ConfirmModal.jsx';
 import AirportLink from './AirportLink.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { simulateCargoRoute, formatMoney, formatPercent, currentGameDate } from '../utils/simulation.js';
@@ -29,6 +30,7 @@ export function PassengerBadge() {
 
 export default function CargoRoutesList() {
   const { state, dispatch } = useGame();
+  const confirm = useConfirm();
   const addToast = useToast();
   const { cargoRoutes = [], fleet } = state;
   const gd = currentGameDate(state);
@@ -57,8 +59,8 @@ export default function CargoRoutesList() {
   function adjYield(route, delta) {
     dispatch({ type: 'UPDATE_CARGO_YIELD', routeId: route.id, yieldPrice: Math.max(0.01, +(route.yieldPrice + delta).toFixed(3)) });
   }
-  function close(route) {
-    if (window.confirm(`Close cargo route ${route.origin} → ${route.destination}? The freighter will return to idle.`)) {
+  async function close(route) {
+    if (await confirm({ title: `Close cargo route ${route.origin} \u2192 ${route.destination}?`, body: 'The freighter returns to idle.', danger: true, confirmLabel: 'Close route' })) {
       dispatch({ type: 'CLOSE_CARGO_ROUTE', routeId: route.id });
     }
   }
@@ -103,7 +105,7 @@ export default function CargoRoutesList() {
                       background: 'rgba(248,81,73,0.15)', color: 'var(--red)',
                       border: '1px solid rgba(248,81,73,0.3)',
                       textTransform: 'uppercase', letterSpacing: '.04em',
-                    }} title="In repair — automatically resumes this route when fixed">
+                    }} title="In repair, automatically resumes this route when fixed">
                       <Glyph e="🔧" /> {aircraft.groundedWeeksLeft}w
                     </span>
                   )}
@@ -134,7 +136,7 @@ export default function CargoRoutesList() {
                   className="btn btn-ghost"
                   style={{ padding: '2px 9px', opacity: route.weeklyFrequency > 1 ? 1 : 0.4, cursor: route.weeklyFrequency > 1 ? 'pointer' : 'not-allowed' }}
                   disabled={route.weeklyFrequency <= 1}
-                  title={route.weeklyFrequency > 1 ? 'One fewer flight per week' : 'At the minimum — use Close route to stand the freighter down'}
+                  title={route.weeklyFrequency > 1 ? 'One fewer flight per week' : 'At the minimum. Use Close route to stand the freighter down'}
                   onClick={() => adjFreq(route, -1)}
                 >−</button>
                 <span style={{ fontWeight: 700, minWidth: 22, textAlign: 'center' }}>{route.weeklyFrequency}</span>

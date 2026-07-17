@@ -445,7 +445,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
               </div>
               {capacityLimited && (
                 <div
-                  title={`Aircraft are essentially full and ~${unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Add frequency/aircraft or raise fares — cutting price won't lift load.`}
+                  title={`Aircraft are essentially full and ~${unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Add frequency/aircraft or raise fares, cutting price won't lift load.`}
                   style={{ background: 'rgba(210,153,34,0.12)', border: '1px solid rgba(210,153,34,0.35)', borderRadius: 'var(--radius)', padding: '6px 14px', fontSize: 13, fontWeight: 600, color: 'var(--yellow)' }}
                 >
                   <Glyph e="⚠" /> Capacity-limited · {unmetDemandAll.toLocaleString()} unserved/wk
@@ -464,7 +464,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
 
       {capacityLimited && (
         <div style={{ background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
-          <Glyph e="⚠" /> <strong style={{ color: 'var(--yellow)' }}>Capacity-limited.</strong> Your aircraft are essentially full and ~{unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Cutting fares won't lift load here — you're seat-bound, not demand-bound. To carry more, add frequency or aircraft; to earn more on the seats you have, raise fares toward the point where load starts to dip.
+          <Glyph e="⚠" /> <strong style={{ color: 'var(--yellow)' }}>Capacity-limited.</strong> Your aircraft are essentially full and ~{unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Cutting fares won't lift load here · you're seat-bound, not demand-bound. To carry more, add frequency or aircraft; to earn more on the seats you have, raise fares toward the point where load starts to dip.
         </div>
       )}
 

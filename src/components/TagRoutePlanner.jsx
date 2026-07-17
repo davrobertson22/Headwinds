@@ -344,7 +344,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
                 Open Multi-stop Route
               </button>
               <span style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>
-                <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> Launch cost {formatMoney(launchCost)}{!canAfford ? ' — insufficient cash' : ''}
+                <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> Launch cost {formatMoney(launchCost)}{!canAfford ? ' · insufficient cash' : ''}
               </span>
               {preview && preview.profit - routeLandingFee(route, type, frequency) < 0 && (
                 <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>

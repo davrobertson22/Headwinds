@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useConfirm } from './ConfirmModal.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import {
   AIRCRAFT_TYPES,
@@ -567,6 +568,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
 
 export default function Marketplace() {
   const { state, dispatch } = useGame();
+  const confirm = useConfirm();
   const { cash, fleet, pendingOrders = [], year, week } = state;
 
   const [view, setView]                     = useState('browse'); // 'browse' | 'orders'
@@ -587,14 +589,13 @@ export default function Marketplace() {
   // Checkout modal state: { typeId, mode: 'lease'|'buy' } or null
   const [checkout, setCheckout] = useState(null);
 
-  function handleCancelOrder(order) {
-    const type    = getAircraftType(order.typeId);
+  async function handleCancelOrder(order) {
     const hasRefund = order.ownershipType === 'owned' && order.totalPrice > 0;
     const refund    = hasRefund ? Math.round(order.totalPrice * 0.95) : 0;
-    const msg = hasRefund
-      ? `Cancel order for ${order.name}? You will receive a refund of ${formatMoney(refund)} (5% cancellation fee deducted).`
-      : `Cancel lease order for ${order.name}? This is free to cancel before delivery.`;
-    if (window.confirm(msg)) {
+    const body = hasRefund
+      ? `You'll be refunded ${formatMoney(refund)} (a 5% cancellation fee applies).`
+      : `Lease orders are free to cancel before delivery.`;
+    if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
       dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
     }
   }

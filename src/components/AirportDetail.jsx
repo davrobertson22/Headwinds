@@ -290,9 +290,9 @@ export default function AirportDetail({ code, onBack }) {
             <div style={{ width: `${Math.round(gwScore * 100)}%`, height: '100%', background: 'var(--purple)', borderRadius: 3 }} />
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 12 }}>
-            {gwScore >= 0.65 ? 'Major international transit hub — high connecting traffic available' :
-             gwScore >= 0.45 ? 'Significant gateway airport — moderate connecting traffic' :
-             'Primary O&D airport — connecting traffic limited'}
+            {gwScore >= 0.65 ? 'Major international transit hub, high connecting traffic available' :
+             gwScore >= 0.45 ? 'Significant gateway airport, moderate connecting traffic' :
+             'Primary O&D airport, connecting traffic limited'}
           </div>
           {hubTier ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>

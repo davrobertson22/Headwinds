@@ -13,6 +13,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
 import InfoTip from './InfoTip.jsx';
+import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 
@@ -196,6 +197,7 @@ function ExtendLeaseModal({ aircraft, onClose }) {
 function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const { state, dispatch } = useGame();
   const { routes } = state;
+  const confirm = useConfirm();
 
   // Inline rename
   const [editingName, setEditingName] = useState(false);
@@ -215,20 +217,22 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
     setEditingName(false);
   }
 
-  function handleBuyout() {
+  async function handleBuyout() {
     const t     = getAircraftType(aircraft.typeId);
     const price = leaseBuyoutPrice(aircraft, t, DEPRECIATION_YEARS);
     if (state.cash < price) {
-      window.alert(`Buying ${aircraft.name} out of its lease costs ${formatMoney(price)}, but you only have ${formatMoney(state.cash)}.`);
+      await confirm.alert({
+        title: 'Not enough cash',
+        body: `Buying ${aircraft.name} out of its lease costs ${formatMoney(price)}, but you have ${formatMoney(state.cash)}.`,
+      });
       return;
     }
-    const msg = `Purchase ${aircraft.name} out of its lease for ${formatMoney(price)}?\n\n`
-      + `This is the aircraft's current market value plus a 10% early-buyout premium, `
-      + `with your security deposit credited back. It becomes an owned aircraft — no more weekly lease, `
-      + `and you can sell it later.`;
-    if (window.confirm(msg)) {
-      dispatch({ type: 'BUY_OUT_LEASE', aircraftId: aircraft.id });
-    }
+    const ok = await confirm({
+      title: `Buy out the lease on ${aircraft.name}?`,
+      body: `Costs ${formatMoney(price)} (market value plus a 10% early-buyout premium, with your deposit credited back). It becomes an owned aircraft with no weekly lease, and you can sell it later.`,
+      confirmLabel: 'Buy out lease',
+    });
+    if (ok) dispatch({ type: 'BUY_OUT_LEASE', aircraftId: aircraft.id });
   }
 
   const type = getAircraftType(aircraft.typeId);
@@ -921,6 +925,7 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
 
 export default function Fleet() {
   const { state, dispatch } = useGame();
+  const confirm = useConfirm();
   const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week } = state;
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
@@ -931,7 +936,7 @@ export default function Fleet() {
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
   const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
 
-  function handleSell(aircraftId) {
+  async function handleSell(aircraftId) {
     const aircraft     = fleet.find(a => a.id === aircraftId);
     const type         = getAircraftType(aircraft?.typeId);
     const activeRoutes = routes.filter(r => r.aircraftId === aircraftId);
@@ -941,22 +946,20 @@ export default function Fleet() {
     const fee          = Math.round(nav * 0.05);
     const proceeds     = nav - fee;
 
-    let msg = activeRoutes.length > 0
-      ? `${aircraft.name} is flying ${activeRoutes.length} route${activeRoutes.length > 1 ? 's' : ''} — selling it will close all of them.\n\n`
-      : '';
+    const body = (activeRoutes.length > 0
+      ? `${aircraft.name} is flying ${activeRoutes.length} route${activeRoutes.length > 1 ? 's' : ''}. Selling it closes them all.\n\n`
+      : '')
+      + `Sale price (NAV): ${formatMoney(nav)}\n`
+      + `Selling & admin fee (5%): −${formatMoney(fee)}\n`
+      + `Net proceeds: ${formatMoney(proceeds)}`;
 
-    msg += `Sale price (NAV):  ${formatMoney(nav)}\n`;
-    msg += `Selling & admin fee (5%):  −${formatMoney(fee)}\n`;
-    msg += `Net proceeds:  ${formatMoney(proceeds)}\n\n`;
-    msg += `Sell ${aircraft.name}?`;
-
-    if (window.confirm(msg)) {
+    if (await confirm({ title: `Sell ${aircraft.name}?`, body, danger: true, confirmLabel: 'Sell aircraft' })) {
       dispatch({ type: 'SELL_AIRCRAFT', aircraftId });
       setSelectedId(null);
     }
   }
 
-  function handleRetire(aircraftId) {
+  async function handleRetire(aircraftId) {
     const aircraft     = fleet.find(a => a.id === aircraftId);
     const type         = getAircraftType(aircraft?.typeId);
     const activeRoutes = routes.filter(r => r.aircraftId === aircraftId);
@@ -965,31 +968,38 @@ export default function Fleet() {
       ? Math.round((aircraft?.weeklyLease ?? type?.weeklyLease ?? 0) * weeksLeft * 0.5)
       : 0;
 
-    let msg = activeRoutes.length > 0
-      ? `${aircraft.name} is flying ${activeRoutes.length} route${activeRoutes.length > 1 ? 's' : ''} — returning it will close all of them.\n\n`
+    const routeNote = activeRoutes.length > 0
+      ? `${aircraft.name} is flying ${activeRoutes.length} route${activeRoutes.length > 1 ? 's' : ''}. Returning it closes them all.\n\n`
       : '';
-
-    if (aircraft?.ownershipType === 'lease' && weeksLeft > 0) {
-      msg += `Early termination penalty: ${formatMoney(penalty)} (${weeksLeft} weeks remaining × 50% of lease rate).\n\nReturn ${aircraft.name} and pay ${formatMoney(penalty)}?`;
-    } else if (aircraft?.ownershipType === 'lease') {
-      msg += `Lease has run its full term — no penalty. Return ${aircraft.name}?`;
+    const isLease = aircraft?.ownershipType === 'lease';
+    let title, body, label;
+    if (isLease && weeksLeft > 0) {
+      title = `Return ${aircraft.name} early?`;
+      body  = routeNote + `Early termination penalty: ${formatMoney(penalty)} (${weeksLeft} weeks remaining at 50% of the lease rate).`;
+      label = 'Return and pay penalty';
+    } else if (isLease) {
+      title = `Return ${aircraft.name}?`;
+      body  = routeNote + `The lease has run its full term, so there's no penalty.`;
+      label = 'Return aircraft';
     } else {
-      msg += `Retire ${aircraft.name}? Weekly charges will stop.`;
+      title = `Retire ${aircraft.name}?`;
+      body  = routeNote + `Weekly charges stop once it's retired.`;
+      label = 'Retire aircraft';
     }
 
-    if (window.confirm(msg)) {
+    if (await confirm({ title, body, danger: true, confirmLabel: label })) {
       dispatch({ type: 'RETIRE_AIRCRAFT', aircraftId });
       setSelectedId(null);
     }
   }
 
-  function handleCancelOrder(order) {
+  async function handleCancelOrder(order) {
     const hasRefund = order.ownershipType === 'owned' && order.totalPrice > 0;
     const refund    = hasRefund ? Math.round(order.totalPrice * 0.95) : 0;
-    const msg = hasRefund
-      ? `Cancel order for ${order.name}? You will receive a refund of ${formatMoney(refund)} (5% cancellation fee).`
-      : `Cancel lease order for ${order.name}? Free to cancel before delivery.`;
-    if (window.confirm(msg)) {
+    const body = hasRefund
+      ? `You'll be refunded ${formatMoney(refund)} (a 5% cancellation fee applies).`
+      : `Lease orders are free to cancel before delivery.`;
+    if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
       dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
     }
   }
@@ -1063,7 +1073,7 @@ export default function Fleet() {
     return nav - Math.round(nav * 0.05);
   }
 
-  function handleBulkSell() {
+  async function handleBulkSell() {
     if (checkedOwned.length === 0) return;
     const proceeds   = checkedOwned.reduce((s, a) => s + sellValue(a), 0);
     const routeCount = checkedOwned.reduce((s, a) =>
@@ -1072,20 +1082,18 @@ export default function Fleet() {
     const names = checkedOwned.slice(0, 8).map(a => a.name).join(', ')
                 + (checkedOwned.length > 8 ? `, +${checkedOwned.length - 8} more` : '');
 
-    let msg = '';
-    if (routeCount > 0) msg += `These aircraft fly ${routeCount} route${routeCount > 1 ? 's' : ''} — selling will close all of them.\n\n`;
-    msg += `${names}\n\n`;
-    msg += `Net proceeds (after 5% fee): ${formatMoney(proceeds)}\n\n`;
-    msg += `Sell ${checkedOwned.length} owned aircraft?`;
+    const body = (routeCount > 0 ? `These aircraft fly ${routeCount} route${routeCount > 1 ? 's' : ''}. Selling closes them all.\n\n` : '')
+      + `${names}\n\n`
+      + `Net proceeds after the 5% fee: ${formatMoney(proceeds)}`;
 
-    if (window.confirm(msg)) {
+    if (await confirm({ title: `Sell ${checkedOwned.length} owned aircraft?`, body, danger: true, confirmLabel: 'Sell aircraft' })) {
       for (const a of checkedOwned) dispatch({ type: 'SELL_AIRCRAFT', aircraftId: a.id });
       setCheckedIds([]);
       setSelectedId(null);
     }
   }
 
-  function handleBulkRetire() {
+  async function handleBulkRetire() {
     if (checkedAircraft.length === 0) return;
     let totalPenalty = 0;
     let routeCount   = 0;
@@ -1103,15 +1111,13 @@ export default function Fleet() {
     const names = checkedAircraft.slice(0, 8).map(a => a.name).join(', ')
                 + (checkedAircraft.length > 8 ? `, +${checkedAircraft.length - 8} more` : '');
 
-    let msg = '';
-    if (routeCount > 0) msg += `These aircraft fly ${routeCount} route${routeCount > 1 ? 's' : ''} — removing them will close all of them.\n\n`;
-    msg += `${names}\n\n`;
-    if (leasedCount > 0) msg += `${leasedCount} leased aircraft will be returned.\n`;
-    if (ownedCount  > 0) msg += `${ownedCount} owned aircraft will be retired (no sale proceeds — use Sell to get cash back).\n`;
-    if (totalPenalty > 0) msg += `\nTotal early lease termination penalties: ${formatMoney(totalPenalty)}\n`;
-    msg += `\nRemove ${checkedAircraft.length} aircraft from the fleet?`;
+    let body = (routeCount > 0 ? `These aircraft fly ${routeCount} route${routeCount > 1 ? 's' : ''}. Removing them closes them all.\n\n` : '')
+      + `${names}\n\n`;
+    if (leasedCount > 0) body += `${leasedCount} leased aircraft returned.\n`;
+    if (ownedCount  > 0) body += `${ownedCount} owned aircraft retired (no sale proceeds; use Sell to get cash back).\n`;
+    if (totalPenalty > 0) body += `\nTotal early lease termination penalties: ${formatMoney(totalPenalty)}`;
 
-    if (window.confirm(msg)) {
+    if (await confirm({ title: `Remove ${checkedAircraft.length} aircraft from the fleet?`, body: body.trim(), danger: true, confirmLabel: 'Remove aircraft' })) {
       for (const a of checkedAircraft) dispatch({ type: 'RETIRE_AIRCRAFT', aircraftId: a.id });
       setCheckedIds([]);
       setSelectedId(null);
@@ -1145,7 +1151,7 @@ export default function Fleet() {
         <div className="stat-box">
           <div className="stat-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             Idle Aircraft
-            <InfoTip side="bottom" text="Planes not assigned to any route. They still cost lease & maintenance but earn nothing — assign them via the Route Planner or Routes → Open Route." />
+            <InfoTip side="bottom" text="Planes not assigned to any route. They still cost lease & maintenance but earn nothing, assign them via the Route Planner or Routes → Open Route." />
           </div>
           <div className="stat-value yellow">{fleet.filter(a => a.status === 'idle').length}</div>
         </div>
@@ -1629,7 +1635,7 @@ export default function Fleet() {
                           </span>
                           <button
                             className="btn btn-ghost"
-                            title="Add 1 year to this lease (free) — or open the aircraft for more options"
+                            title="Add 1 year to this lease (free), or open the aircraft for more options"
                             style={{ fontSize: 10, padding: '1px 6px', color: 'var(--accent)' }}
                             onClick={e => { e.stopPropagation(); dispatch({ type: 'EXTEND_LEASE', aircraftId: aircraft.id, addWeeks: 52 }); }}
                           >

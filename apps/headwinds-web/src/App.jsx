@@ -1,4 +1,5 @@
 // Headwinds web client — sign in → browse worlds → join → play.
+import { useConfirm } from '../../../src/components/ConfirmModal.jsx';
 // Hash routes: '#/' world list · '#/w/<id>' world lobby · '#/w/<id>/play' the
 // full Tailwinds game UI running on server-authoritative state.
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } from 'react';
@@ -124,7 +125,7 @@ function SignIn() {
       <button className="btn discord wide" onClick={() => oauth('discord')}>Continue with Discord</button>
       <div className="divider">or</div>
       {sent ? (
-        <p>Check your email — we sent you a sign-in link.</p>
+        <p>Check your email. We sent you a sign-in link.</p>
       ) : (
         <form onSubmit={magicLink} className="row">
           <input
@@ -149,7 +150,7 @@ function JoinForm({ world, token, needsCode, onJoined }) {
   const [error, setError] = useState(null);
 
   const hubOptions = useMemo(
-    () => AIRPORTS.map((a) => ({ code: a.code, label: `${a.code} — ${a.city}` })),
+    () => AIRPORTS.map((a) => ({ code: a.code, label: `${a.code} · ${a.city}` })),
     []
   );
   const hubValid = AIRPORTS.some((a) => a.code === hub.toUpperCase());
@@ -263,7 +264,7 @@ function CreateWorld({ token, onCreated }) {
     <form className="card create-form" onSubmit={create}>
       <h3>New world</h3>
       <div className="row wrap">
-        <input maxLength={60} placeholder="Name (optional — we'll invent one)" value={name}
+        <input maxLength={60} placeholder="Name (optional, we'll invent one)" value={name}
           onChange={(e) => setName(e.target.value)} />
         <label>Length
           <select value={lengthSel} onChange={(e) => setLengthSel(e.target.value)}>
@@ -331,6 +332,7 @@ function CreateWorld({ token, onCreated }) {
 
 // Admin-only: manage every world (find archived/private ones, restore, delete).
 function AdminWorldsManager({ token }) {
+  const confirm = useConfirm();
   const [worlds, setWorlds] = useState(null);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
@@ -342,7 +344,7 @@ function AdminWorldsManager({ token }) {
   useEffect(() => { if (open) load(); }, [open, load]);
 
   const act = async (id, path, method, confirmMsg) => {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    if (confirmMsg && !(await confirm({ title: confirmMsg, danger: true }))) return;
     setBusyId(id); setError(null);
     try { await api(`/worlds/${id}${path}`, { method, token }); load(); }
     catch (e) { setError(e); }
@@ -427,8 +429,8 @@ function WorldsScreen({ token, me }) {
       {!worlds ? <p className="muted">Loading worlds…</p> : worlds.length === 0 ? (
         <p className="muted">
           {me?.account?.isAdmin
-            ? 'No public worlds yet — create one, or wait for the spawner.'
-            : 'No open worlds right now — a fresh one spins up shortly, check back in a minute.'}
+            ? 'No public worlds yet, create one, or wait for the spawner.'
+            : 'No open worlds right now, a fresh one spins up shortly, check back in a minute.'}
         </p>
       ) : (
         <table className="worlds">
@@ -441,7 +443,7 @@ function WorldsScreen({ token, me }) {
                 <td><a href={`#/w/${w.id}`}>{w.name}</a></td>
                 <td>{w.paceLabel}</td>
                 <td>{w.status === 'LOBBY'
-                  ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : 'Y1 — starts on first join'}</span>
+                  ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : 'Y1 · starts on first join'}</span>
                   : <>Y{w.progress.year}/{w.progress.totalYears} <span className="muted">({w.progress.percent}%)</span></>}</td>
                 <td>{w.playerCount}/{w.maxPlayers}</td>
                 <td><StatusChip status={w.status} /></td>
@@ -566,6 +568,7 @@ function RivalDetail({ worldId, airlineId, airlineName, token, canReport }) {
 // ── World detail / lobby ──────────────────────────────────────────────────────
 
 function WorldScreen({ worldId, token, me, refreshMe }) {
+  const confirm = useConfirm();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [openRival, setOpenRival] = useState(null); // airlineId of expanded row
@@ -590,7 +593,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
     && (world.playerCount ?? standings.length) < world.maxPlayers;
 
   const leave = async () => {
-    if (!window.confirm(`Abandon ${mine.name} in ${world.name}? This can't be undone.`)) return;
+    if (!(await confirm({ title: `Abandon ${mine.name} in ${world.name}?`, body: "This can't be undone.", danger: true, confirmLabel: 'Abandon airline' }))) return;
     try {
       await api(`/worlds/${world.id}/leave`, { method: 'POST', token });
       refreshMe(); load();
@@ -598,7 +601,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   };
 
   const archive = async () => {
-    if (!window.confirm(`Archive "${world.name}"? It'll be hidden from the lobby and stop ticking — you can unarchive it later.`)) return;
+    if (!(await confirm({ title: `Archive "${world.name}"?`, body: "It'll be hidden from the lobby and stop ticking. You can unarchive it later.", confirmLabel: 'Archive world' }))) return;
     try { await api(`/worlds/${world.id}/archive`, { method: 'POST', token }); load(); } catch (e) { setError(e); }
   };
   const unarchive = async () => {
@@ -606,10 +609,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   };
   const del = async () => {
     const n = world.playerCount ?? standings.length;
-    const msg = n > 0
-      ? `Permanently DELETE "${world.name}"? This removes the world and ALL ${n} player airline(s), standings and messages. This CANNOT be undone.`
-      : `Permanently DELETE "${world.name}"? This CANNOT be undone.`;
-    if (!window.confirm(msg)) return;
+    const body = n > 0
+      ? `This removes the world and all ${n} player airline(s), standings and messages. This cannot be undone.`
+      : `This cannot be undone.`;
+    if (!(await confirm({ title: `Permanently delete "${world.name}"?`, body, danger: true, confirmLabel: 'Delete world' }))) return;
     try { await api(`/worlds/${world.id}`, { method: 'DELETE', token }); refreshMe(); goTo('/'); } catch (e) { setError(e); }
   };
 
@@ -623,8 +626,8 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
             {world.paceLabel} ·{' '}
             {world.status === 'LOBBY'
               ? (world.scheduledStartAt
-                  ? `Year 1 — starts ${fmtStartTime(world.scheduledStartAt)}`
-                  : 'Year 1 — the clock starts when the first player joins')
+                  ? `Year 1, starts ${fmtStartTime(world.scheduledStartAt)}`
+                  : 'Year 1, the clock starts when the first player joins')
               : `Year ${world.progress.year} of ${world.progress.totalYears}`} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
@@ -666,7 +669,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
 
       <h3>Standings</h3>
       <p className="muted small">Every airline below is a real player. Click one to see their network, fleet and recent moves.</p>
-      {standings.length === 0 ? <p className="muted">No airlines yet — be the first to join.</p> : (
+      {standings.length === 0 ? <p className="muted">No airlines yet, be the first to join.</p> : (
         <table className="worlds">
           <thead>
             <tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Fleet</th><th>Cash</th><th>Market cap</th><th>Status</th></tr>
@@ -719,6 +722,7 @@ const fmtWhen = (t) => {
 };
 
 function ModerationScreen({ token, me }) {
+  const confirm = useConfirm();
   const [tab, setTab] = useState('OPEN'); // 'OPEN' | 'ALL' | 'BANS' | 'OGS'
   const [reports, setReports] = useState(null);
   const [bans, setBans] = useState(null);
@@ -754,14 +758,14 @@ function ModerationScreen({ token, me }) {
     setBusyId(accountId); setError(null);
     try {
       const res = await api(`/admin/accounts/${accountId}/ban`, { method: 'POST', token, body: { reason } });
-      window.alert(`Banned ${who}. Abandoned ${res.airlinesAbandoned} airline(s); closed ${res.reportsActioned} open report(s).`);
+      await confirm.alert({ title: `Banned ${who}`, body: `Abandoned ${res.airlinesAbandoned} airline(s) and closed ${res.reportsActioned} open report(s).` });
       load();
     } catch (e) { setError(e); }
     setBusyId(null);
   };
 
   const dismiss = async (reportId) => {
-    if (!window.confirm('Dismiss this report as not actionable?')) return;
+    if (!(await confirm({ title: 'Dismiss this report?', body: 'Marks it as not actionable.', confirmLabel: 'Dismiss report' }))) return;
     setBusyId(reportId); setError(null);
     try {
       await api(`/admin/reports/${reportId}/dismiss`, { method: 'POST', token, body: {} });
@@ -771,7 +775,7 @@ function ModerationScreen({ token, me }) {
   };
 
   const unban = async (accountId, who) => {
-    if (!window.confirm(`Unban ${who}? They'll be able to sign in and join worlds again (past airlines stay abandoned).`)) return;
+    if (!(await confirm({ title: `Unban ${who}?`, body: "They'll be able to sign in and join worlds again. Past airlines stay abandoned.", confirmLabel: 'Unban' }))) return;
     setBusyId(accountId); setError(null);
     try {
       await api(`/admin/accounts/${accountId}/unban`, { method: 'POST', token });
@@ -796,7 +800,7 @@ function ModerationScreen({ token, me }) {
 
   // Grant or revoke the OG veteran badge for a specific account.
   const setOg = async (account, og) => {
-    if (!og && !window.confirm(`Remove the OG badge from ${account.displayName}?`)) return;
+    if (!og && !(await confirm({ title: `Remove the OG badge from ${account.displayName}?`, danger: true, confirmLabel: 'Remove badge' }))) return;
     setBusyId(account.id); setError(null); setOgNote(null);
     try {
       const res = await api('/admin/og', { method: 'POST', token, body: { accountId: account.id, og } });
@@ -823,7 +827,7 @@ function ModerationScreen({ token, me }) {
 
       {tab === 'OPEN' || tab === 'ALL' ? (
         reports == null ? <p className="muted">Loading reports…</p> :
-        reports.length === 0 ? <p className="muted">{tab === 'OPEN' ? 'No open reports — all clear.' : 'No reports yet.'}</p> : (
+        reports.length === 0 ? <p className="muted">{tab === 'OPEN' ? 'No open reports, all clear.' : 'No reports yet.'}</p> : (
           <div className="mod-list">
             {reports.map((r) => (
               <div key={r.id} className={`card mod-report ${r.status !== 'OPEN' ? 'resolved' : ''}`}>
@@ -853,7 +857,7 @@ function ModerationScreen({ token, me }) {
                     {r.status === 'ACTIONED' ? 'Actioned' : 'Dismissed'}
                     {r.resolvedByEmail ? ` by ${r.resolvedByEmail}` : ''}
                     {r.resolvedAt ? ` · ${fmtWhen(r.resolvedAt)}` : ''}
-                    {r.resolutionNote ? ` — ${r.resolutionNote}` : ''}
+                    {r.resolutionNote ? ` · ${r.resolutionNote}` : ''}
                   </p>
                 )}
 
@@ -916,7 +920,7 @@ function ModerationScreen({ token, me }) {
             </form>
             {ogResults != null && (
               ogResults.length === 0 ? (
-                <p className="muted small">No matching account — they need to sign in to Headwinds at least once first.</p>
+                <p className="muted small">No matching account. They need to sign in to Headwinds at least once first.</p>
               ) : (
                 <table className="worlds">
                   <thead><tr><th>Player</th><th>Email</th><th>Airlines</th><th /></tr></thead>
@@ -1011,7 +1015,7 @@ function ReportScreen({ token, me }) {
     return (
       <div className="card">
         <h2>Report a player</h2>
-        <p className="muted">You can report players in the worlds you're competing in — you're not in any yet.</p>
+        <p className="muted">You can report players in the worlds you're competing in, you're not in any yet.</p>
         <a className="btn" href="#/">Browse worlds</a>
       </div>
     );

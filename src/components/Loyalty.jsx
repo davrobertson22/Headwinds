@@ -98,7 +98,7 @@ export default function Loyalty() {
           sub={
             members === 0 ? 'No members yet'
             : members > weeklyPassengers * 4 * 0.85
-              ? `At the 85% cap — inactive members lapsing · ${tierInfo.label} tier`
+              ? `At the 85% cap, inactive members lapsing · ${tierInfo.label} tier`
               : `${(penetration * 100).toFixed(1)}% of monthly pax · ${tierInfo.label} tier`
           }
           color="#3ea6ff"
@@ -107,9 +107,9 @@ export default function Loyalty() {
           label="Program Maturity"
           value={`${Math.round(maturity * 100)}%`}
           sub={
-            maturity >= 1 ? 'Fully mature — full effects unlocked'
+            maturity >= 1 ? 'Fully mature, full effects unlocked'
             : investment > 0 && weeksToMature ? `~${weeksToMature} wks of funding to full`
-            : maturity > 0 ? 'Unfunded — trust eroding fast'
+            : maturity > 0 ? 'Unfunded · trust eroding fast'
             : 'Fund the program to start building trust'
           }
           color={maturity >= 1 ? '#38d39f' : '#ffb43d'}
@@ -117,7 +117,7 @@ export default function Loyalty() {
         <StatCard
           label="Points Liability"
           value={formatMoney(liability)}
-          sub={liability > 0 ? `+${formatMoney(pointsEarned)} earned this wk — owed as future award seats` : 'No outstanding points'}
+          sub={liability > 0 ? `+${formatMoney(pointsEarned)} earned this wk, owed as future award seats` : 'No outstanding points'}
           color={liability > weeklyRevenue ? '#ff5d6c' : '#93a4ba'}
         />
         <StatCard
@@ -226,7 +226,7 @@ export default function Loyalty() {
             Program strength = penetration × maturity. Current strength:{' '}
             <strong style={{ color: 'var(--fg)' }}>{(strength * 100).toFixed(1)}%</strong>
             {maturity < 1 && penetration > 0 && (
-              <> — a young program delivers only part of its potential; the rest unlocks as maturity builds.</>
+              <> · a young program delivers only part of its potential; the rest unlocks as maturity builds.</>
             )}
           </p>
 
@@ -254,7 +254,7 @@ export default function Loyalty() {
           <EffectRow
             label="Points Redemption Cost"
             value={`−${formatMoney(pointsCost)}/wk`}
-            desc="Members redeeming accumulated points for award seats. Lags earn by months — a growing program looks cheap before the bill arrives. ~20% of points expire unused."
+            desc="Members redeeming accumulated points for award seats. Lags earn by months, a growing program looks cheap before the bill arrives. ~20% of points expire unused."
             color="#ff5d6c"
             active={pointsCost > 0}
           />

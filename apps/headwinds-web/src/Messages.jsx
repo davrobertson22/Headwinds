@@ -1,4 +1,5 @@
 // In-game messaging — a Messages button (with unread badge) for the
+import { useConfirm } from '../../../src/components/ConfirmModal.jsx';
 // multiplayer top bar, opening a slide-over inbox with two channels:
 //   Direct    airline-to-airline DMs, threaded, with block/unblock
 //   Alliance  your alliance's shared board
@@ -97,7 +98,7 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
           </div>
 
           {summary.conversations.length === 0 ? (
-            <p className="hw-msg-empty">No conversations yet. Every rival in this world is a real person — say hello, or talk some trash.</p>
+            <p className="hw-msg-empty">No conversations yet. Every rival in this world is a real person, say hello, or talk some trash.</p>
           ) : summary.conversations.map((c) => (
             <button key={c.airlineId} className="hw-msg-convo" onClick={() => openThread(c.airlineId)}>
               <span className="hw-msg-convo-name">
@@ -182,6 +183,7 @@ function Composer({ placeholder, disabled, onSend }) {
 }
 
 function DmThread({ worldId, token, airlineId, name, og = false, dev = false, onBack, onBlocked }) {
+  const confirm = useConfirm();
   const [messages, setMessages] = useState(null);
   const [error, setError] = useState(null);
   const [reporting, setReporting] = useState(false);
@@ -200,8 +202,8 @@ function DmThread({ worldId, token, airlineId, name, og = false, dev = false, on
   }, [load]);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages]);
 
-  const block = () => {
-    if (!window.confirm(`Block ${name}? Their messages will no longer reach you.`)) return;
+  const block = async () => {
+    if (!(await confirm({ title: `Block ${name}?`, body: 'Their messages will no longer reach you.', danger: true, confirmLabel: 'Block' }))) return;
     authedApi(`/worlds/${worldId}/messages/block`, {
       method: 'POST', token, body: { airlineId, blocked: true },
     }).then(onBlocked);
@@ -226,7 +228,7 @@ function DmThread({ worldId, token, airlineId, name, og = false, dev = false, on
       <div className="hw-msg-scroll">
         {error && !messages ? <p className="hw-msg-empty error">{String(error.message || error)}</p> :
          !messages ? <p className="hw-msg-empty">Loading…</p> :
-          messages.length === 0 ? <p className="hw-msg-empty">No messages yet — you're starting this conversation.</p> :
+          messages.length === 0 ? <p className="hw-msg-empty">No messages yet, you're starting this conversation.</p> :
           messages.map((m) => (
             <div key={m.id} className={`hw-msg-bubble ${m.fromMe ? 'mine' : ''}`}>
               <div>{m.body}</div>
