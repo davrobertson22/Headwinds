@@ -47,6 +47,11 @@ model Account {
   bannedAt      DateTime?
   banReason     String?
   bannedByEmail String? // which admin issued the ban (audit trail)
+  // ── OG veteran badge: playing since the original Tailwinds. Admin-granted
+  // (players DM their email/Discord; an admin flips it from the moderation
+  // panel). Account-wide: surfaces as a gold "✈ OG" chip beside every airline
+  // this account flies, in every world — standings, Rivals tab, feed, messages.
+  isOG Boolean @default(false)
   airlines    Airline[]
   reportsMade Report[]  @relation("ReportsMade")
   reportsAgainst Report[] @relation("ReportsAgainst")

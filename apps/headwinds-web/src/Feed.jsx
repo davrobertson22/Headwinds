@@ -5,6 +5,7 @@
 // Headwinds-owned (not synced from Tailwinds) — safe to evolve freely.
 import { useState, useEffect, useCallback } from 'react';
 import { api } from './api.js';
+import OgBadge, { DevBadge } from './OgBadge.jsx';
 
 const LABELS = {
   ADD_ROUTE:            (e) => `opened ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
@@ -134,7 +135,7 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
                 }}>
                   <span style={{ flexShrink: 0 }}>{d.icon}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <strong>{d.who}{mine ? ' (you)' : ''}</strong> {d.what}
+                    <strong>{d.who}</strong>{e.dev ? <DevBadge /> : null}{e.og ? <OgBadge /> : null}{mine ? <strong> (you)</strong> : ''} {d.what}
                     {e.week != null && <span style={{ opacity: 0.55 }}> · W{e.week}</span>}
                   </span>
                   <span style={{ flexShrink: 0, opacity: 0.55, fontSize: 11 }}>{fmtWhen(e.at)}</span>

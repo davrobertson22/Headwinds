@@ -133,6 +133,29 @@ table.compact td { padding: 4px 8px; font-size: 14px; }
   white-space: nowrap;
 }
 
+/* OG veteran badge — flying since the original Tailwinds. Gold on purpose:
+   Tailwinds' brand color, worn inside teal Headwinds. */
+.og-badge {
+  display: inline-flex; align-items: center; gap: 3px; vertical-align: middle;
+  margin-left: 7px; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 1.5;
+  color: #e8b64c; background: rgba(232, 182, 76, 0.14);
+  border: 1px solid rgba(232, 182, 76, 0.45);
+  white-space: nowrap;
+}
+.og-badge-wing { font-size: 10px; line-height: 1; }
+
+/* DEV badge — the game's operators (server-derived from ADMIN_EMAILS). Teal,
+   Headwinds' own color, so devs and gold OG veterans read differently. */
+.dev-badge {
+  display: inline-flex; align-items: center; gap: 3px; vertical-align: middle;
+  margin-left: 7px; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 1.5;
+  color: var(--accent, #38c9b4); background: rgba(56, 201, 180, 0.12);
+  border: 1px solid rgba(56, 201, 180, 0.45);
+  white-space: nowrap;
+}
+
 /* Full-game mount: the solo app brings its own index.css and owns the viewport;
    our only chrome is the thin bar above it. */
 .hw-gamebar {

@@ -27,6 +27,46 @@ const TIER_META = {
   premium: { label: 'Premium', color: '#a78bfa'         },
 };
 
+/** OG veteran badge — this player has been flying since the original Tailwinds.
+ *  Gold on purpose (Tailwinds' brand color). Driven by the account-level flag the
+ *  server sends on each competitor (`c.og`) — never part of the name string. */
+export function OgChip({ size = 10 }) {
+  return (
+    <span
+      title="OG — flying since the original Tailwinds"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle',
+        fontSize: size, fontWeight: 800, letterSpacing: '0.08em', lineHeight: 1.5,
+        padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+        color: '#e8b64c', background: 'rgba(232,182,76,0.14)',
+        border: '1px solid rgba(232,182,76,0.45)',
+      }}
+    >
+      <span style={{ fontSize: size, lineHeight: 1 }}>✈</span>OG
+    </span>
+  );
+}
+
+/** DEV badge — this player is one of the game's operators (server-derived from
+ *  ADMIN_EMAILS; never a DB flag). Teal — Headwinds' own color — so devs and
+ *  gold OG veterans read differently at a glance. */
+export function DevChip({ size = 10 }) {
+  return (
+    <span
+      title="DEV — Headwinds developer"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle',
+        fontSize: size, fontWeight: 800, letterSpacing: '0.08em', lineHeight: 1.5,
+        padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+        color: 'var(--accent, #38c9b4)', background: 'rgba(56,201,180,0.12)',
+        border: '1px solid rgba(56,201,180,0.45)',
+      }}
+    >
+      <span style={{ fontSize: size, lineHeight: 1 }}>🛠</span>DEV
+    </span>
+  );
+}
+
 /** Compute player's quality score for one route — same inputs the engine uses
  *  (real on-time rate from morale + utilization, seat AND service cabin points). */
 function playerQuality(route, fleet, laborFx) {
@@ -102,6 +142,8 @@ export default function Competition() {
         playerMarketCap={state.marketCap ?? null}
         playerSharePrice={state.sharePrice ?? null}
         playerProfitHistory={financialHistory.slice(-12).map(w => w.profit ?? 0)}
+        playerOG={state.accountOG === true}
+        playerDev={state.accountDev === true}
         remote={remote}
         onSelect={remote ? setDetailCarrier : null}
       />
@@ -164,8 +206,8 @@ export default function Competition() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerHub, playerCash,
-                        playerMarketCap, playerSharePrice, playerProfitHistory = [], remote = false,
-                        onSelect = null }) {
+                        playerMarketCap, playerSharePrice, playerProfitHistory = [], playerOG = false,
+                        playerDev = false, remote = false, onSelect = null }) {
   // Build unified list with player + competitors
   const entries = [
     {
@@ -175,6 +217,8 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       hub:         playerHub,
       cash:        playerCash,
       tier:        null,
+      og:          playerOG,
+      dev:         playerDev,
       weeklyProfit: playerLastWeek,
       marketCap:   playerMarketCap,
       sharePrice:  playerSharePrice,
@@ -190,6 +234,8 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       cash:        c.cash ?? null,
       // Humans don't have AI tiers — every rival is just an airline.
       tier:        c.human ? null : c.tier,
+      og:          c.og === true,   // OG veteran badge (account-level, from the server)
+      dev:         c.dev === true,  // DEV badge — game operator
       weeklyProfit: c.weeklyStats?.weeklyProfit ?? null,
       marketCap:   c.marketCap ?? null,
       sharePrice:  c.sharePrice ?? null,
@@ -271,6 +317,8 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{entry.name}</span>
+                  {entry.dev && <DevChip />}
+                  {entry.og && <OgChip />}
                   {entry.isPlayer && (
                     <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(59,130,246,0.2)', color: '#60a5fa', fontWeight: 700 }}>
                       YOU
@@ -656,6 +704,8 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
       >
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700 }}>{carrier.name}</span>
+          {carrier.dev === true && <DevChip />}
+          {carrier.og === true && <OgChip />}
           {tier && <span style={{ fontSize: 11, color: tier.color, fontWeight: 600 }}>{tier.label}</span>}
           {isHuman && (
             <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99,
@@ -1078,6 +1128,8 @@ function RivalDetailView({ carrier, onClose }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 800, fontSize: 18 }}>{carrier.name}</span>
+              {carrier.dev === true && <DevChip size={11} />}
+              {carrier.og === true && <OgChip size={11} />}
               {isHuman && (
                 <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99,
                                background: 'var(--accent-dim, var(--surface2))', color: 'var(--accent)', fontWeight: 700 }}>

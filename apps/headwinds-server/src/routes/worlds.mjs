@@ -2,6 +2,7 @@
 import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
+import { isDevEmail } from '../lib/humanRivals.mjs';
 import {
   serializeWorld, serializeAirline,
   MIN_LENGTH_YEARS, MAX_LENGTH_YEARS, MIN_WEEKS_PER_DAY, MAX_WEEKS_PER_DAY,
@@ -52,6 +53,9 @@ export default async function worldRoutes(fastify) {
       where: { worldId: world.id },
       orderBy: { marketCap: 'desc' },
       take: 100,
+      // OG + DEV badges ride on the ACCOUNT, never the name string. The email
+      // is only compared against ADMIN_EMAILS server-side — never emitted.
+      include: { account: { select: { isOG: true, email: true } } },
     });
 
     // Alliance tags for the standings (ACTIVE memberships only).
@@ -84,6 +88,8 @@ export default async function worldRoutes(fastify) {
         routes: a.state?.routes?.length ?? 0,
         fleet: a.state?.fleet?.length ?? 0,
         alliance: allianceNameByAirline.get(a.id) ?? null,
+        og: a.account?.isOG === true,
+        dev: isDevEmail(a.account?.email),
       })),
     };
   });
@@ -121,6 +127,7 @@ export default async function worldRoutes(fastify) {
   }, async (request, reply) => {
     const airline = await prisma.airline.findUnique({
       where: { id: request.params.airlineId },
+      include: { account: { select: { isOG: true, email: true } } },
     });
     if (!airline || airline.worldId !== request.params.id) {
       return reply.code(404).send({ error: 'No such airline in this world' });
@@ -161,7 +168,13 @@ export default async function worldRoutes(fastify) {
     ]);
 
     return {
-      airline: { ...serializeAirline(airline), routes: routes.length, fleet: (s.fleet ?? []).length },
+      airline: {
+        ...serializeAirline(airline),
+        routes: routes.length,
+        fleet: (s.fleet ?? []).length,
+        og: airline.account?.isOG === true,
+        dev: isDevEmail(airline.account?.email),
+      },
       hubs: Object.keys(s.hubs ?? {}),
       alliance: membership?.status === 'ACTIVE' ? membership.alliance.name : null,
       routeNetwork: routes,
@@ -210,7 +223,10 @@ export default async function worldRoutes(fastify) {
       }),
       prisma.airline.findMany({
         where: { worldId: world.id },
-        select: { id: true, name: true, hub: true, status: true, createdAt: true },
+        select: {
+          id: true, name: true, hub: true, status: true, createdAt: true,
+          account: { select: { isOG: true, email: true } },
+        },
       }),
       prisma.alliance.findMany({
         where: { worldId: world.id, ...beforeFilter },
@@ -230,6 +246,8 @@ export default async function worldRoutes(fastify) {
     ]);
 
     const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
+    const ogOf = new Map(airlines.map((a) => [a.id, a.account?.isOG === true]));
+    const devOf = new Map(airlines.map((a) => [a.id, isDevEmail(a.account?.email)]));
     const events = [
       ...decisions.map((d) => ({
         kind: 'move',
@@ -237,6 +255,8 @@ export default async function worldRoutes(fastify) {
         week: d.week,
         airlineId: d.airlineId,
         airline: nameOf.get(d.airlineId) ?? 'An airline',
+        og: ogOf.get(d.airlineId) ?? false,
+        dev: devOf.get(d.airlineId) ?? false,
         type: d.type,
         payload: publicPayload(d),
       })),
@@ -247,6 +267,8 @@ export default async function worldRoutes(fastify) {
           at: a.createdAt.toISOString(),
           airlineId: a.id,
           airline: a.name,
+          og: a.account?.isOG === true,
+          dev: isDevEmail(a.account?.email),
           hub: a.hub,
         })),
       ...alliances.map((al) => ({
@@ -262,6 +284,8 @@ export default async function worldRoutes(fastify) {
           at: m.createdAt.toISOString(),
           airlineId: m.airlineId,
           airline: nameOf.get(m.airlineId) ?? 'An airline',
+          og: ogOf.get(m.airlineId) ?? false,
+          dev: devOf.get(m.airlineId) ?? false,
           alliance: m.alliance.name,
         })),
     ]

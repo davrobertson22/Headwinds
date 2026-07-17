@@ -16,6 +16,7 @@ const accountSummary = (a) => ({
   id: a.id,
   email: a.email,
   displayName: a.displayName,
+  isOG: a.isOG,
   bannedAt: a.bannedAt,
   banReason: a.banReason,
   bannedByEmail: a.bannedByEmail,
@@ -198,6 +199,50 @@ export default async function adminRoutes(fastify) {
       take: 200,
     });
     return { bans: banned.map(accountSummary) };
+  });
+
+  // ── OG veteran badge ────────────────────────────────────────────────────────
+  // Players who've been flying since the original Tailwinds DM the admin their
+  // email (or the email behind their Discord sign-in); the admin grants the
+  // badge here BY EMAIL. Account-wide flag — the gold "✈ OG" chip then follows
+  // the player onto every airline they fly, in every world.
+  fastify.get('/admin/ogs', { preHandler: requireAdmin }, async () => {
+    const ogs = await prisma.account.findMany({
+      where: { isOG: true },
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+    });
+    return { ogs: ogs.map(accountSummary) };
+  });
+
+  fastify.post('/admin/og', {
+    preHandler: requireAdmin,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['email', 'og'],
+        properties: {
+          email: { type: 'string', minLength: 3, maxLength: 200 },
+          og: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (request) => {
+    const email = request.body.email.trim().toLowerCase();
+    const target = await prisma.account.findUnique({ where: { email } });
+    if (!target) {
+      throw httpError(404, `No account with email ${email} — they need to sign in to Headwinds at least once first`);
+    }
+    if (target.isOG === request.body.og) {
+      throw httpError(409, request.body.og
+        ? `${target.displayName} already has the OG badge`
+        : `${target.displayName} doesn't have the OG badge`);
+    }
+    const updated = await prisma.account.update({
+      where: { id: target.id },
+      data: { isOG: request.body.og },
+    });
+    return { ok: true, account: accountSummary(updated) };
   });
 
   // ── All worlds, for admin management (any status/visibility) ────────────────

@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { authedApi } from './authedApi.js';
 import { ReportDialog } from './Report.jsx';
+import OgBadge, { DevBadge } from './OgBadge.jsx';
 
 const fmtTime = (t) => {
   const d = new Date(t);
@@ -81,7 +82,8 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
             <select value={composeTo} onChange={(e) => setComposeTo(e.target.value)}>
               <option value="">New message to…</option>
               {summary.airlines.map((a) => (
-                <option key={a.id} value={a.id}>{a.name} ({a.hub})</option>
+                // <option> is text-only — badges render as plain markers here.
+                <option key={a.id} value={a.id}>{a.name}{a.dev ? ' 🛠DEV' : ''}{a.og ? ' ✈OG' : ''} ({a.hub})</option>
               ))}
             </select>
             <button className="btn small" disabled={!composeTo}
@@ -95,7 +97,7 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
           ) : summary.conversations.map((c) => (
             <button key={c.airlineId} className="hw-msg-convo" onClick={() => openThread(c.airlineId)}>
               <span className="hw-msg-convo-name">
-                {c.name}
+                {c.name}{c.dev ? <DevBadge /> : null}{c.og ? <OgBadge /> : null}
                 {c.unread > 0 && <span className="hw-msg-badge">{c.unread}</span>}
               </span>
               {c.lastMessage && (
@@ -129,6 +131,10 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
           worldId={worldId} token={token} airlineId={thread}
           name={summary.conversations.find((c) => c.airlineId === thread)?.name
             ?? summary.airlines.find((a) => a.id === thread)?.name ?? 'Airline'}
+          og={(summary.conversations.find((c) => c.airlineId === thread)?.og
+            ?? summary.airlines.find((a) => a.id === thread)?.og) === true}
+          dev={(summary.conversations.find((c) => c.airlineId === thread)?.dev
+            ?? summary.airlines.find((a) => a.id === thread)?.dev) === true}
           onBack={() => { setThread(null); refresh(); }}
           onBlocked={() => { setThread(null); refresh(); }}
         />
@@ -170,7 +176,7 @@ function Composer({ placeholder, disabled, onSend }) {
   );
 }
 
-function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
+function DmThread({ worldId, token, airlineId, name, og = false, dev = false, onBack, onBlocked }) {
   const [messages, setMessages] = useState(null);
   const [error, setError] = useState(null);
   const [reporting, setReporting] = useState(false);
@@ -200,7 +206,7 @@ function DmThread({ worldId, token, airlineId, name, onBack, onBlocked }) {
     <div className="hw-msg-body hw-msg-thread">
       <div className="hw-msg-thread-head">
         <button className="btn small" onClick={onBack}>← Inbox</button>
-        <strong>{name}</strong>
+        <strong>{name}{dev ? <DevBadge /> : null}{og ? <OgBadge /> : null}</strong>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
           <button className="btn small" onClick={() => setReporting(true)} title="Report this player to the admins">⚠ Report</button>
           <button className="btn danger small" onClick={block}>Block</button>
@@ -275,7 +281,7 @@ function AllianceBoard({ worldId, token, onSeen }) {
           ? <p className="hw-msg-empty">Nothing on the board yet. Coordinate routes, plan a fare war, or just chat.</p>
           : data.messages.map((m) => (
             <div key={m.id} className={`hw-msg-bubble ${m.fromMe ? 'mine' : ''}`}>
-              {!m.fromMe && <div className="hw-msg-from">{m.from}</div>}
+              {!m.fromMe && <div className="hw-msg-from">{m.from}{m.fromDev ? <DevBadge /> : null}{m.fromOG ? <OgBadge /> : null}</div>}
               <div>{m.body}</div>
               <div className="hw-msg-time">{fmtTime(m.at)}</div>
             </div>

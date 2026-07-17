@@ -64,6 +64,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // current states plus the world's alliance graph. No AI airlines exist.
   const airlines = await prisma.airline.findMany({
     where: { worldId: world.id, status: 'ACTIVE' },
+    include: { account: { select: { isOG: true, email: true } } }, // OG + DEV badges (email stays server-side)
   });
   const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines });
 

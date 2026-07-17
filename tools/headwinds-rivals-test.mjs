@@ -142,6 +142,81 @@ await test('toHumanCompetitor carries every field the Competition tab reads', ()
   assert.ok(c.routes[key].frequency > 0 && c.routes[key].priceMultiplier > 0);
 });
 
+console.log('\n── OG veteran badge ──────────────────────────────────────');
+
+await test('an OG account\'s airline carries og=true into rival views; others default false', () => {
+  const ogBob = { ...bob, account: { isOG: true } };
+  const views = buildRivalViews([alice, ogBob]);
+  assert.equal(views.get('a1').competitors[0].og, true, 'OG rival flagged');
+  assert.equal(views.get('a2').competitors[0].og, false, 'non-OG rival defaults false');
+});
+
+await test('withRivals injects the player\'s OWN badge as state.accountOG (set AND cleared)', () => {
+  const ogAlice = { ...alice, account: { isOG: true } };
+  const views = buildRivalViews([ogAlice, bob]);
+  assert.equal(withRivals(ogAlice.state, views.get('a1')).accountOG, true);
+  // Revoked badge clears on the next injection — never lingers from the blob.
+  const stale = { ...alice.state, accountOG: true };
+  assert.equal(withRivals(stale, buildRivalViews([alice, bob]).get('a1')).accountOG, false);
+});
+
+await test('og survives the weekly tick on injected competitors', () => {
+  const ogBob = { ...bob, account: { isOG: true } };
+  const views = buildRivalViews([alice, ogBob]);
+  const after = gameReducer(withRivals(alice.state, views.get('a1')), { type: 'ADVANCE_WEEK' });
+  assert.equal(after.competitors[0].og, true);
+});
+
+await test('the reserved-tag name pattern blocks OG/DEV look-alikes but not honest names', async () => {
+  const { OG_NAME_PATTERN } = await import('../apps/headwinds-server/src/lib/worldService.mjs');
+  for (const bad of ['Sky [OG]', '[og] Air', 'Air (OG)', '{0G} Jets', 'Sky [ O.G ]', 'Air <og>',
+                     '[DEV] Air', 'Sky (dev)', '{D3V} Jets', 'Air <DEV>', '[ d.e.v ] Air']) {
+    assert.ok(OG_NAME_PATTERN.test(bad), `should reject: ${bad}`);
+  }
+  for (const good of ['Skyline Atlantic', 'LOGAN Air', 'Golden Wings', 'OG-less Air', 'Origins Global',
+                      'Devon Airways', 'Delta Victor Air', 'Developer Express']) {
+    assert.ok(!OG_NAME_PATTERN.test(good), `should allow: ${good}`);
+  }
+});
+
+console.log('\n── DEV badge (ADMIN_EMAILS-derived) ─────────────────────');
+
+await test('an ADMIN_EMAILS account carries dev=true into views; everyone else false', () => {
+  const prev = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_EMAILS = 'Dave@Example.com, other@ops.dev';
+  try {
+    const devBob = { ...bob, account: { isOG: false, email: 'dave@example.com' } };
+    const plainAlice = { ...alice, account: { isOG: false, email: 'alice@example.com' } };
+    const views = buildRivalViews([plainAlice, devBob]);
+    assert.equal(views.get('a1').competitors[0].dev, true, 'dev rival flagged (case-insensitive)');
+    assert.equal(views.get('a1').competitors[0].og, false, 'dev is independent of og');
+    assert.equal(views.get('a2').competitors[0].dev, false, 'non-dev rival stays false');
+    // Own badge flows through withRivals as accountDev — set AND cleared.
+    assert.equal(withRivals(devBob.state, views.get('a2')).accountDev, true);
+    const stale = { ...plainAlice.state, accountDev: true };
+    assert.equal(withRivals(stale, views.get('a1')).accountDev, false);
+  } finally {
+    if (prev === undefined) delete process.env.ADMIN_EMAILS;
+    else process.env.ADMIN_EMAILS = prev;
+  }
+});
+
+await test('with no ADMIN_EMAILS set, nobody is a dev (and payloads never carry emails)', () => {
+  const prev = process.env.ADMIN_EMAILS;
+  delete process.env.ADMIN_EMAILS;
+  try {
+    const views = buildRivalViews([
+      { ...alice, account: { isOG: false, email: 'alice@example.com' } },
+      { ...bob, account: { isOG: true, email: 'bob@example.com' } },
+    ]);
+    const rival = views.get('a1').competitors[0];
+    assert.equal(rival.dev, false);
+    assert.ok(!('email' in rival) && !('account' in rival), 'competitor payload must never leak the email/account');
+  } finally {
+    if (prev !== undefined) process.env.ADMIN_EMAILS = prev;
+  }
+});
+
 console.log('\n── player alliances (engine benefits) ───────────────────');
 
 // Alice and Bob found "Test Pact": both ACTIVE members via the alliance map.

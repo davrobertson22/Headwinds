@@ -24,6 +24,18 @@ import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
 
+// ── DEV badge ─────────────────────────────────────────────────────────────────
+// The game's operators — accounts in ADMIN_EMAILS — wear a teal "🛠 DEV" chip so
+// players can see when a dev is flying in their world. Parsed straight from
+// process.env (lazily) rather than env.mjs, so this module stays importable with
+// no env at all (the engine test harnesses run it that way). Emails are only
+// ever compared server-side; payloads carry the boolean, never the address.
+const devEmails = () => (process.env.ADMIN_EMAILS ?? '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+export const isDevEmail = (email) => devEmails().includes((email ?? '').trim().toLowerCase());
+
 const DEFAULT_QUALITY = 62;
 const DEFAULT_SEATS = 170;
 
@@ -123,6 +135,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
   return {
     id: `human:${airlineRow.id}`,
     human: true,                     // marker — never treated as an AI carrier
+    // OG veteran badge (playing since the original Tailwinds) — account-level,
+    // present only when the airline row was loaded with its account included.
+    og: airlineRow.account?.isOG === true,
+    // DEV badge — this rival is one of the game's operators (ADMIN_EMAILS).
+    dev: isDevEmail(airlineRow.account?.email),
     name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
     homeHub: airlineRow.hub ?? s.hub ?? null,
     tier: 'legacy',                  // humans set real prices; tier only styles fallbacks
@@ -200,7 +217,14 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
         (humanRivals[key] ??= []).push(spec);
       }
     }
-    views.set(me.id, { competitors, humanRivals, alliance: allianceMap.get(me.id) ?? null });
+    views.set(me.id, {
+      competitors,
+      humanRivals,
+      alliance: allianceMap.get(me.id) ?? null,
+      // The player's OWN badges (shown on their leaderboard row in-game).
+      selfOG: me.account?.isOG === true,
+      selfDev: isDevEmail(me.account?.email),
+    });
   }
   return views;
 }
@@ -228,6 +252,10 @@ export function withRivals(state, view) {
     encroachments: {},               // AI encroachment never exists in Headwinds
     allianceMembership: view?.alliance?.membership ?? null,
     allianceDef: view?.alliance?.def ?? null,
+    // The player's own account badges — rebuilt on every injection (like the
+    // views above), so a grant/revoke shows up on the next read/tick.
+    accountOG: view?.selfOG === true,
+    accountDev: view?.selfDev === true,
   };
 }
 
@@ -236,6 +264,9 @@ export function withRivals(state, view) {
 export async function buildWorldRivalViews(prisma, worldId, { airlines = null } = {}) {
   const rows = airlines ?? await prisma.airline.findMany({
     where: { worldId, status: 'ACTIVE' },
+    // OG + DEV badges. The email never leaves the server — it's only compared
+    // against ADMIN_EMAILS here; payloads carry booleans.
+    include: { account: { select: { isOG: true, email: true } } },
   });
   const allianceMap = await loadAllianceMap(prisma, worldId);
   return buildRivalViews(rows, allianceMap);

@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } f
 import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
+import OgBadge, { DevBadge } from './OgBadge.jsx';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 
@@ -677,7 +678,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                 >
                   <td>{a.rank}</td>
                   <td>
-                    {a.name}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
+                    {a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
                     {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
                   </td>
                   <td>{a.hub}</td>
@@ -716,9 +717,12 @@ const fmtWhen = (t) => {
 };
 
 function ModerationScreen({ token, me }) {
-  const [tab, setTab] = useState('OPEN'); // 'OPEN' | 'ALL' | 'BANS'
+  const [tab, setTab] = useState('OPEN'); // 'OPEN' | 'ALL' | 'BANS' | 'OGS'
   const [reports, setReports] = useState(null);
   const [bans, setBans] = useState(null);
+  const [ogs, setOgs] = useState(null);
+  const [ogEmail, setOgEmail] = useState('');
+  const [ogNote, setOgNote] = useState(null); // last grant/revoke confirmation
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
@@ -729,6 +733,8 @@ function ModerationScreen({ token, me }) {
     setError(null);
     if (tab === 'BANS') {
       api('/admin/bans', { token }).then((d) => setBans(d.bans)).catch(setError);
+    } else if (tab === 'OGS') {
+      api('/admin/ogs', { token }).then((d) => setOgs(d.ogs)).catch(setError);
     } else {
       api(`/admin/reports?status=${tab}`, { token })
         .then((d) => setReports(d.reports)).catch(setError);
@@ -771,6 +777,20 @@ function ModerationScreen({ token, me }) {
     setBusyId(null);
   };
 
+  // Grant or revoke the OG veteran badge, keyed by the account's email (players
+  // DM it to the admin — Discord sign-ins also have an email behind them).
+  const setOg = async (email, og) => {
+    if (!og && !window.confirm(`Remove the OG badge from ${email}?`)) return;
+    setBusyId(email); setError(null); setOgNote(null);
+    try {
+      const res = await api('/admin/og', { method: 'POST', token, body: { email, og } });
+      setOgNote(`${og ? 'Granted' : 'Removed'} OG for ${res.account.displayName} (${res.account.email})`);
+      setOgEmail('');
+      load();
+    } catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
   return (
     <>
       <a href="#/" className="muted">← All worlds</a>
@@ -780,11 +800,12 @@ function ModerationScreen({ token, me }) {
           <button className={`btn small ${tab === 'OPEN' ? 'primary' : ''}`} onClick={() => setTab('OPEN')}>Open reports</button>
           <button className={`btn small ${tab === 'ALL' ? 'primary' : ''}`} onClick={() => setTab('ALL')}>All reports</button>
           <button className={`btn small ${tab === 'BANS' ? 'primary' : ''}`} onClick={() => setTab('BANS')}>Banned players</button>
+          <button className={`btn small ${tab === 'OGS' ? 'primary' : ''}`} onClick={() => setTab('OGS')}>OG badges</button>
         </div>
       </div>
       <ErrorNote error={error} />
 
-      {tab !== 'BANS' ? (
+      {tab === 'OPEN' || tab === 'ALL' ? (
         reports == null ? <p className="muted">Loading reports…</p> :
         reports.length === 0 ? <p className="muted">{tab === 'OPEN' ? 'No open reports — all clear.' : 'No reports yet.'}</p> : (
           <div className="mod-list">
@@ -837,7 +858,7 @@ function ModerationScreen({ token, me }) {
             ))}
           </div>
         )
-      ) : (
+      ) : tab === 'BANS' ? (
         bans == null ? <p className="muted">Loading…</p> :
         bans.length === 0 ? <p className="muted">No banned players.</p> : (
           <table className="worlds">
@@ -857,6 +878,47 @@ function ModerationScreen({ token, me }) {
             </tbody>
           </table>
         )
+      ) : (
+        <>
+          <div className="card">
+            <h3><OgBadge /> Grant the OG veteran badge</h3>
+            <p className="muted small">
+              For players who've been flying since the original Tailwinds. They DM you the
+              email behind their sign-in (Google, Discord or magic link); the badge then shows
+              beside every airline they fly, in every world. Airline names containing bracketed
+              “OG” look-alikes are rejected at join, so the badge can't be faked in plain text.
+            </p>
+            <form className="row" onSubmit={(e) => { e.preventDefault(); if (ogEmail.trim()) setOg(ogEmail.trim().toLowerCase(), true); }}>
+              <input
+                type="email" required placeholder="player@example.com"
+                value={ogEmail} onChange={(e) => setOgEmail(e.target.value)}
+              />
+              <button className="btn primary" type="submit" disabled={!ogEmail.trim() || busyId === ogEmail.trim().toLowerCase()}>
+                Grant OG
+              </button>
+            </form>
+            {ogNote && <p className="muted small">✓ {ogNote}</p>}
+          </div>
+
+          {ogs == null ? <p className="muted">Loading…</p> :
+            ogs.length === 0 ? <p className="muted">No OG badges granted yet.</p> : (
+            <table className="worlds">
+              <thead><tr><th>Player</th><th>Email</th><th /></tr></thead>
+              <tbody>
+                {ogs.map((o) => (
+                  <tr key={o.id}>
+                    <td>{o.displayName} <OgBadge /></td>
+                    <td className="muted">{o.email}</td>
+                    <td>
+                      <button className="btn danger small" disabled={busyId === o.email}
+                        onClick={() => setOg(o.email, false)}>Remove</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
     </>
   );
@@ -950,7 +1012,7 @@ function ReportScreen({ token, me }) {
                 {others.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      {a.name}
+                      {a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}
                       {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
                     </td>
                     <td>{a.hub}</td>
@@ -1013,7 +1075,11 @@ export default function App() {
         {session ? (
           <div className="row">
             {me?.account?.isAdmin && <a href="#/admin" className="btn small">🛡 Admin</a>}
-            <span className="muted">{me?.account?.displayName ?? session.user.email}</span>
+            <span className="muted">
+              {me?.account?.displayName ?? session.user.email}
+              {me?.account?.isAdmin ? <DevBadge /> : null}
+              {me?.account?.isOG ? <OgBadge /> : null}
+            </span>
             <button className="btn small" onClick={signOut}>Sign out</button>
           </div>
         ) : null}

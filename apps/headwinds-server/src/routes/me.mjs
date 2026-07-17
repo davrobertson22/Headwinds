@@ -19,6 +19,8 @@ export default async function meRoutes(fastify) {
         // Admins may create worlds; the web client shows the create UI on this.
         // The server is the real gate (requireAdmin on POST /worlds).
         isAdmin: isAdmin(account),
+        // OG veteran badge (playing since the original Tailwinds).
+        isOG: account.isOG === true,
       },
       // Your own worlds include their join code — you're a member.
       airlines: airlines.map((a) =>
