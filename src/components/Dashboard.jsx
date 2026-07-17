@@ -454,7 +454,7 @@ export default function Dashboard({ onNavigate }) {
           label="Network"
           value={`${airportCodes.length} airports`}
           color="blue"
-          sub={`${countries.length} countries`}
+          sub={`${countries.length} ${countries.length === 1 ? 'country' : 'countries'}`}
           onClick={canNavigate ? () => go('map') : undefined}
         />
         {networkStats.loadFactor != null && (
@@ -545,18 +545,23 @@ export default function Dashboard({ onNavigate }) {
 
       {/* ── Fleet utilization ────────────────────────────────────────────── */}
       {fleet.length > 0 && (() => {
-        const utilData = fleet.map(a => {
+        const utilEntries = fleet.map(a => {
           const type = getAircraftType(a.typeId);
           const bh = routes.filter(r => r.aircraftId === a.id).reduce((s, r) =>
             s + (type ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type) : 0), 0);
-          return Math.min(1, bh / MAX_WEEKLY_BLOCK_HOURS);
+          return { grounded: a.status === 'grounded', p: Math.min(1, bh / MAX_WEEKLY_BLOCK_HOURS) };
         });
+        const utilData = utilEntries.map(e => e.p);
         const avgPct  = utilData.reduce((s, p) => s + p, 0) / utilData.length;
+        // Grounded aircraft get their own bucket so "Idle" here matches the
+        // idle-aircraft alert above (status === 'idle', i.e. no routes, airworthy).
+        const flying  = utilEntries.filter(e => !e.grounded);
         const buckets = {
-          idle:  utilData.filter(p => p === 0).length,
-          low:   utilData.filter(p => p > 0 && p < 0.5).length,
-          good:  utilData.filter(p => p >= 0.5 && p < 0.9).length,
-          full:  utilData.filter(p => p >= 0.9).length,
+          idle:     flying.filter(e => e.p === 0).length,
+          grounded: utilEntries.filter(e => e.grounded).length,
+          low:      flying.filter(e => e.p > 0 && e.p < 0.5).length,
+          good:     flying.filter(e => e.p >= 0.5 && e.p < 0.9).length,
+          full:     flying.filter(e => e.p >= 0.9).length,
         };
         const avgColor = avgPct >= 0.75 ? 'var(--green)' : avgPct >= 0.4 ? 'var(--yellow)' : 'var(--red)';
         return (
@@ -576,10 +581,11 @@ export default function Dashboard({ onNavigate }) {
             {/* Bucket summary */}
             <div style={{ display: 'flex', gap: 20, fontSize: 12 }}>
               {[
-                { label: 'Idle',    count: buckets.idle,  color: 'var(--text-dim)' },
-                { label: '< 50%',   count: buckets.low,   color: 'var(--yellow)'   },
-                { label: '50–90%',  count: buckets.good,  color: 'var(--green)'    },
-                { label: 'Full',    count: buckets.full,  color: 'var(--red)'      },
+                { label: 'Idle',     count: buckets.idle,     color: 'var(--text-dim)' },
+                { label: 'Grounded', count: buckets.grounded, color: '#e8833a'         },
+                { label: '< 50%',    count: buckets.low,      color: 'var(--yellow)'   },
+                { label: '50–90%',   count: buckets.good,     color: 'var(--green)'    },
+                { label: 'Full',     count: buckets.full,     color: 'var(--red)'      },
               ].map(b => b.count > 0 && (
                 <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: b.color, flexShrink: 0 }} />

@@ -350,6 +350,20 @@ function generateTailNumber(hubCode, airlineName, usedTails = []) {
   return tail;
 }
 
+// Next auto-name number for an aircraft type: one past the highest "#N" suffix
+// in use across the fleet and pending orders (never below the current count of
+// that type). Count-based numbering reused numbers after a sale, producing two
+// aircraft both named "#18".
+function nextAircraftNumber(typeId, fleet = [], pendingOrders = []) {
+  const ofType = [...fleet, ...pendingOrders].filter(x => x && x.typeId === typeId);
+  let max = ofType.length;
+  for (const item of ofType) {
+    const m = /#(\d+)\s*$/.exec(item.name ?? '');
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return max + 1;
+}
+
 function reducer(state, action) {
   switch (action.type) {
 
@@ -376,7 +390,7 @@ function reducer(state, action) {
 
     case 'LEASE_AIRCRAFT': {
       const type       = getAircraftType(action.typeId);
-      const count      = state.fleet.filter(a => a.typeId === action.typeId).length + 1;
+      const count      = nextAircraftNumber(action.typeId, state.fleet, state.pendingOrders);
       const name       = action.name ?? `${type?.name ?? action.typeId} #${count}`;
       const usedTails  = state.fleet.map(a => a.tailNumber).filter(Boolean);
       const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
@@ -409,7 +423,7 @@ function reducer(state, action) {
       const alreadyOwned = state.fleet.filter(a => a.typeId === action.typeId).length;
       const price        = effectivePurchasePrice(type, alreadyOwned);
       if (state.cash < price) return state;  // can't afford — ignore silently
-      const count      = alreadyOwned + 1;
+      const count      = nextAircraftNumber(action.typeId, state.fleet, state.pendingOrders);
       const name       = action.name ?? `${type.name} #${count}`;
       const usedTails  = state.fleet.map(a => a.tailNumber).filter(Boolean);
       const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
@@ -527,7 +541,7 @@ function reducer(state, action) {
         const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice : leaseDeposit) + seatFittingFee;
         if (cashBalance < unitUpfrontCost) break;
 
-        const serialNum = totalExisting + 1;
+        const serialNum = nextAircraftNumber(action.typeId, runningFleet, runningPending);
         const customName = (action.name ?? '').trim();
         const orderName = customName
           ? (quantity > 1 ? `${customName} #${i + 1}` : customName)
@@ -589,8 +603,8 @@ function reducer(state, action) {
           instantAircraft.push(aircraft);
           instantToasts.push({
             type:     'success',
-            title:    `✈ Aircraft Delivered — ${order.name}`,
-            message:  `Your ${type.name} (${tailNumber}) arrived instantly — Starter Fleet perk (first ${STARTER_DELIVERY_CAP} aircraft). Later orders arrive on the normal delivery schedule.`,
+            title:    `Aircraft Delivered: ${order.name}`,
+            message:  `Your ${type.name} (${tailNumber}) arrived instantly thanks to the Starter Fleet perk (first ${STARTER_DELIVERY_CAP} aircraft). Later orders arrive on the normal delivery schedule.`,
             icon:     '✈',
             duration: 7000,
           });
@@ -2190,7 +2204,7 @@ function reducer(state, action) {
       // 4. Build failure toasts
       const failureToasts = newFailures.map(f => ({
         type:    'danger',
-        title:   `${f.icon} Mechanical Failure — ${f.aircraftName}`,
+        title:   `Mechanical Failure: ${f.aircraftName}`,
         message: `${f.label} detected on ${f.tailNumber || f.aircraftName}. Grounded for ${f.weeksGrounded} week${f.weeksGrounded !== 1 ? 's' : ''}.`,
         icon:    f.icon,
         duration: 8000,
@@ -2762,7 +2776,7 @@ function reducer(state, action) {
         });
         newToasts.push({
           type:     'success',
-          title:    `✈ Aircraft Delivered — ${order.name}`,
+          title:    `Aircraft Delivered: ${order.name}`,
           message:  `Your ${ordType?.name ?? order.name} (${tailNumber}) has arrived and is ready for service.`,
           icon:     '✈',
           duration: 7000,

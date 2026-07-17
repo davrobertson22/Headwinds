@@ -177,9 +177,10 @@ export default function Competition() {
       {remote && competitors.length === 0 && (
         <div className="empty-state">
           <div className="empty-state-icon"><Glyph e="🌍" /></div>
-          <div className="empty-state-text">You're the only airline in this world so far</div>
+          <div className="empty-state-text">No active rivals right now</div>
           <div style={{ fontSize: 13, marginTop: 6, color: 'var(--text-muted)' }}>
-            Rivals appear here as real players join. Share the world's join code from the lobby.
+            Real players appear here when they join. Bankrupt and abandoned airlines
+            drop off this list but stay in the lobby standings.
           </div>
         </div>
       )}
@@ -261,7 +262,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
 
   return (
     <div style={{ marginBottom: 28 }}>
-      <SectionHeader><Glyph e="🏆" /> Industry Leaderboard — Market Capitalisation</SectionHeader>
+      <SectionHeader><Glyph e="🏆" /> Industry Leaderboard · Market Capitalisation</SectionHeader>
       {onSelect && competitors.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 8 }}>
           Click any rival to open their full dossier — fleet, routes, trends and head-to-head.
