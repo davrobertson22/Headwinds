@@ -8,6 +8,7 @@ import {
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
   buildEventDemandModel, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS,
+  maxFrequency,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import {
@@ -502,6 +503,20 @@ export default function RoutePlanner() {
     }
   }, [reachableTypes]);
 
+  // Hard ceiling on flights/week for this aircraft on this route: one airframe
+  // has MAX_WEEKLY_BLOCK_HOURS flying hours a week, so longer sectors fit fewer
+  // round trips. The slider is capped here so you can't plan an impossible
+  // schedule; the default of 7 is simply one departure per day.
+  const freqCap = useMemo(() => {
+    const t = getAircraftType(selectedTypeId);
+    if (!routeData || !t) return 14;
+    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, t)));
+  }, [routeData, selectedTypeId]);
+
+  useEffect(() => {
+    if (frequency > freqCap) setFrequency(freqCap);
+  }, [freqCap, frequency]);
+
   // Idle aircraft in fleet, by type
   const idleByType = useMemo(() => {
     const map = {};
@@ -876,15 +891,22 @@ export default function RoutePlanner() {
 
                   {/* Frequency */}
                   <div>
-                    <div className="form-label" style={{ marginBottom: 6 }}>Flights / week</div>
+                    <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      Flights / week
+                      <InfoTip text={`Each aircraft can fly ${MAX_WEEKLY_BLOCK_HOURS} hours a week, so this route fits at most ${freqCap} round trips per aircraft. 7 means one departure a day. Flying near the max is fine, but a fleet with zero slack is more prone to delays.`} />
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
-                        type="range" min="1" max="14" step="1"
-                        value={frequency}
+                        type="range" min="1" max={freqCap} step="1"
+                        className="hw-range"
+                        value={Math.min(frequency, freqCap)}
                         onChange={e => setFrequency(Number(e.target.value))}
-                        style={{ width: 110, accentColor: 'var(--accent)' }}
+                        style={{ width: 110 }}
                       />
                       <span style={{ fontWeight: 700, minWidth: 22 }}>{frequency}×</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
+                      {frequency === 7 ? 'daily service' : frequency === 14 ? 'twice daily' : `${frequency} flights/wk`} · aircraft max {freqCap}×
                     </div>
                   </div>
 

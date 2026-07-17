@@ -227,9 +227,10 @@ export default function TagRoutePlanner({ mode, setMode }) {
               <div>
                 <div className="form-label" style={{ marginBottom: 6 }}>Flights / week</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input type="range" min="1" max="14" step="1" value={frequency}
+                  <input type="range" className="hw-range" min="1" max="14" step="1" value={frequency}
                     onChange={e => setFrequency(Number(e.target.value))}
-                    style={{ width: 120, accentColor: 'var(--accent)' }} />
+                    draggable={false} onDragStart={e => e.preventDefault()}
+                    style={{ width: 120 }} />
                   <span style={{ fontWeight: 700, minWidth: 24 }}>{frequency}×</span>
                 </div>
               </div>

@@ -308,7 +308,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                   <div>
                     <div className="form-label" style={{ marginBottom: 6 }}>Flights / week</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="range" min="1" max={freqCap} step="1" value={Math.min(frequency, freqCap)} onChange={e => setFrequency(Number(e.target.value))} style={{ width: 110, accentColor: ACCENT }} />
+                      <input type="range" className="hw-range" min="1" max={freqCap} step="1" value={Math.min(frequency, freqCap)} onChange={e => setFrequency(Number(e.target.value))} draggable={false} onDragStart={e => e.preventDefault()} style={{ width: 110, accentColor: ACCENT }} />
                       <span style={{ fontWeight: 700, minWidth: 22 }}>{Math.min(frequency, freqCap)}×</span>
                     </div>
                     {freqCap < 14 && (
@@ -321,8 +321,8 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                   <div>
                     <div className="form-label" style={{ marginBottom: 6 }}>Yield ($/tonne-km)</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="range" min={+(routeData.refYield * 0.4).toFixed(3)} max={+(routeData.refYield * 2).toFixed(3)} step="0.005"
-                        value={effectiveYield} onChange={e => setYieldPrice(Number(e.target.value))} style={{ width: 110, accentColor: ACCENT }} />
+                      <input type="range" className="hw-range" min={+(routeData.refYield * 0.4).toFixed(3)} max={+(routeData.refYield * 2).toFixed(3)} step="0.005"
+                        value={effectiveYield} onChange={e => setYieldPrice(Number(e.target.value))} draggable={false} onDragStart={e => e.preventDefault()} style={{ width: 110, accentColor: ACCENT }} />
                       <span style={{ fontWeight: 700, minWidth: 46 }}>${effectiveYield.toFixed(3)}</span>
                       <span style={{ fontSize: 11, minWidth: 90, color: yieldPct > 10 ? 'var(--red)' : yieldPct < -10 ? 'var(--green)' : 'var(--text-muted)' }}>
                         {yieldPct >= 0 ? `+${yieldPct}` : yieldPct}% · ${perKg.toFixed(2)}/kg

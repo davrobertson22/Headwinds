@@ -646,6 +646,161 @@ tr:hover td { background: rgba(62,166,255,.05); }
 }
 
 /* =============================================
+   Marketplace — view toggle + comparison table
+   ============================================= */
+
+.market-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.market-view-toggle button {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background var(--speed), color var(--speed);
+}
+.market-view-toggle button + button { border-left: 1px solid var(--border); }
+.market-view-toggle button.active {
+  background: var(--accent-dim);
+  color: var(--accent-bright);
+}
+
+.market-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  background: var(--surface);
+}
+.market-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 860px;
+}
+.market-table th {
+  padding: 9px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  white-space: nowrap;
+  user-select: none;
+  position: sticky;
+  top: 0;
+}
+.market-table th:hover { color: var(--text); }
+.market-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.market-table tbody tr:last-child td { border-bottom: none; }
+.market-table tbody tr:hover { background: rgba(255,255,255,.025); }
+
+.market-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-size: 9.5px;
+  font-weight: 700;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.market-chip-blue   { background: rgba(56,139,253,.15);  color: var(--accent); border: 1px solid rgba(56,139,253,.35); }
+.market-chip-yellow { background: rgba(210,153,34,.18);  color: var(--yellow); border: 1px solid rgba(210,153,34,.4); }
+.market-chip-green  { background: rgba(63,185,80,.15);   color: var(--green);  border: 1px solid rgba(63,185,80,.35); }
+
+/* =============================================
+   Cabin config — seat count stepper
+   ============================================= */
+
+.seat-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--surface2);
+}
+.seat-stepper button {
+  width: 28px;
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.seat-stepper button:hover:not(:disabled) { background: var(--surface3); color: var(--text); }
+.seat-stepper button:disabled { opacity: .35; cursor: default; }
+.seat-stepper input {
+  width: 52px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text);
+  border: none;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 4px 2px;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.seat-stepper input::-webkit-outer-spin-button,
+.seat-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.seat-stepper input:focus { outline: none; background: var(--surface2); }
+
+.seat-max-btn {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--accent);
+  cursor: pointer;
+}
+.seat-max-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-dim); }
+.seat-max-btn:disabled { opacity: .35; cursor: default; color: var(--text-dim); }
+
+/* =============================================
+   Range sliders — draggable, generous hit area
+   =============================================
+   Bare <input type="range"> with a 6px height is nearly impossible to grab:
+   the press slips off the input, text-selection drag kicks in, and the browser
+   shows the no-drop cursor. This keeps the native look (accent-color fill)
+   but gives the control a tall hit box and blocks selection/drag hijacking. */
+
+input[type="range"].hw-range {
+  accent-color: var(--accent);
+  height: 26px;
+  margin: -8px 0;          /* visually compact, physically tall */
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+input[type="range"].hw-range:active { cursor: grabbing; }
+input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 2px; }
+
+/* =============================================
    Marketplace — Aircraft Cards Grid
    ============================================= */
 

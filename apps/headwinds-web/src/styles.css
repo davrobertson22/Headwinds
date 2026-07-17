@@ -156,21 +156,15 @@ table.compact td { padding: 4px 8px; font-size: 14px; }
   white-space: nowrap;
 }
 
-/* Full-game mount: the solo app brings its own index.css and owns the viewport;
-   our only chrome is the thin bar above it. */
-.hw-gamebar {
-  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
-  padding: 6px 14px; font-size: 13px;
-  background: var(--panel); border-bottom: 1px solid var(--line);
+/* Full-game mount: the solo app brings its own index.css and owns the viewport.
+   Multiplayer chrome (lobby link, feed, messages, tick countdown) is rendered
+   INSIDE the game's own topbar via remoteChrome — no second header bar. */
+.hw-lobby-link {
+  font-size: 12px; white-space: nowrap;
+  color: var(--text-muted, #93a4ba); text-decoration: none;
+  padding: 4px 10px; border: 1px solid var(--line, #2b3947); border-radius: 6px;
 }
-.hw-gamebar-brand {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-weight: 800; letter-spacing: 1.5px; font-size: 13px;
-  color: var(--accent); text-decoration: none;
-  padding-right: 14px; margin-right: 2px; border-right: 1px solid var(--line);
-}
-.hw-gamebar-brand img { height: 20px; width: auto; display: block; }
-.hw-gamebar-brand:hover { opacity: .85; }
+.hw-lobby-link:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ── In-game messaging ─────────────────────────────────────────────────────── */
 .hw-msg-btn {

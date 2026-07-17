@@ -112,7 +112,7 @@ const LEVEL_TREATMENTS = {
 export const CATERING_LEVELS = {
   none: {
     id: 'none', name: 'No Service', short: 'None', color: 'var(--text-muted)',
-    desc: 'Nothing served. No catering cost, no revenue — but passengers notice, especially on longer flights.',
+    desc: 'Nothing served. No catering cost, no revenue. Passengers notice, especially on longer flights.',
   },
   paid: {
     id: 'paid', name: 'Paid Service', short: 'Paid', color: 'var(--yellow)',
@@ -128,7 +128,7 @@ export const CATERING_LEVELS = {
   },
   full: {
     id: 'full', name: 'Full Service', short: 'Full', color: 'var(--green)',
-    desc: 'Everyone fed with full meal service, no charge. Highest cost and highest quality — a big draw on long-haul.',
+    desc: 'Everyone fed with full meal service, no charge. Highest cost, highest quality, a big draw on long-haul.',
   },
 };
 

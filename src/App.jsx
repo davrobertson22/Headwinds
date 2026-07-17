@@ -107,7 +107,9 @@ function AppInner() {
   // `remote` is set only by Headwinds' RemoteGameProvider (multiplayer): the
   // server owns time and persistence there, so solo-only chrome (Next Week,
   // Save/Load, New Game) is hidden. Always falsy in the solo game.
-  const { state, dispatch, remote } = useGame();
+  // `remoteChrome` carries the multiplayer topbar extras (tick countdown,
+  // lobby link, feed + messages) so the game renders ONE header.
+  const { state, dispatch, remote, remoteChrome } = useGame();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showTour, setShowTour] = useState(false);
   const [saveLoadMode, setSaveLoadMode] = useState(null); // 'save' | 'load' | null
@@ -247,9 +249,13 @@ function AppInner() {
       <div className="topbar">
         <div className="topbar-logo">
           {remote ? (
-            <span style={{ fontWeight: 800, letterSpacing: 2, color: 'var(--accent)' }}>
-              HEADWINDS<span style={{ opacity: 0.55, fontWeight: 400, letterSpacing: 0 }}> · multiplayer</span>
-            </span>
+            <a href="#/" title="Headwinds home" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              fontWeight: 800, letterSpacing: 2, color: 'var(--accent)', textDecoration: 'none',
+            }}>
+              <img src="/headwinds-mark-color.png" alt="" style={{ height: 20, width: 'auto', display: 'block' }} />
+              HEADWINDS
+            </a>
           ) : (<>
             <span className="topbar-logo-icon"><TailwindsMark size={20} /></span>
             Tailwinds - Airline Manager
@@ -274,6 +280,11 @@ function AppInner() {
           <div className="topbar-kpi">
             <span className="topbar-kpi-label">DATE</span>
             <span className="topbar-kpi-value" style={{ fontSize: 13 }}>{formatGameDate(state)}</span>
+            {remote && remoteChrome?.clock && (
+              <span style={{ fontSize: 10, color: 'var(--text-dim)', lineHeight: 1, marginTop: 3, whiteSpace: 'nowrap' }}>
+                {remoteChrome.clock}
+              </span>
+            )}
           </div>
           <div className="topbar-kpi-divider" />
           <div className="topbar-kpi">
@@ -287,6 +298,11 @@ function AppInner() {
         <button className="btn-advance" onClick={handleAdvanceWeek} title="Advance now (auto-advances in the shown time)">
           Next Week › <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>{formatCountdown(timeUntilNextWeek)}</span>
         </button>
+        )}
+        {remote && remoteChrome?.right && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {remoteChrome.right}
+          </span>
         )}
         {!isMobile && (<>
         {!remote && (<>

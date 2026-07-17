@@ -25,6 +25,7 @@ import '../../../src/index.css';
 // Live countdown to the server's next weekly tick. Derived from worldClock
 // .nextTickAt; when it crosses zero we show "landing…" and the poller (below)
 // tightens up so the new week arrives promptly instead of "within 15s, maybe".
+// Rendered inside the game topbar's DATE tile (via remoteChrome).
 function TickCountdown({ nextTickAt, paceLabel }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -33,7 +34,7 @@ function TickCountdown({ nextTickAt, paceLabel }) {
   }, []);
   if (!nextTickAt) return null;
   const ms = new Date(nextTickAt).getTime() - now;
-  if (ms <= 0) return <span> · next week landing…</span>;
+  if (ms <= 0) return <span>next week landing…</span>;
   const totalSec = Math.ceil(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -41,7 +42,7 @@ function TickCountdown({ nextTickAt, paceLabel }) {
   const label = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
   return (
     <span title={paceLabel ? `World pace: ${paceLabel}` : undefined}>
-      {' '}· next week in <strong>{label}</strong>
+      next week in <strong>{label}</strong>
     </span>
   );
 }
@@ -180,6 +181,27 @@ export default function GamePlayScreen({ worldId, token }) {
       });
   }, [worldId, token, load]);
 
+  // Topbar content the shared App shell renders when remote — the game gets ONE
+  // header (brand · airline · date+countdown · cash · lobby/feed/messages)
+  // instead of a second bar stacked above its own topbar.
+  const remoteChrome = useMemo(() => ({
+    clock: meta?.worldStatus === 'RUNNING'
+      ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} />
+      : (meta?.worldStatus ? <span>world {String(meta.worldStatus).toLowerCase()}</span> : null),
+    right: (
+      <>
+        {error && (
+          <span className="error" style={{ fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {String(error.message || error)}
+          </span>
+        )}
+        <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← Lobby</a>
+        <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
+        <MessagesWidget worldId={worldId} token={token} />
+      </>
+    ),
+  }), [meta, error, worldId, token]);
+
   if (sessionExpired) {
     return (
       <div style={{ padding: 24 }}>
@@ -203,30 +225,7 @@ export default function GamePlayScreen({ worldId, token }) {
 
   return (
     <div className="hw-game">
-      <div className="hw-gamebar">
-        <a href="#/" className="hw-gamebar-brand" title="Headwinds">
-          <img src="/headwinds-mark-color.png" alt="Headwinds" />
-          <span>HEADWINDS</span>
-        </a>
-        <a href={`#/w/${worldId}`}>← World lobby</a>
-        <span className="muted">
-          Multiplayer — Y{meta?.worldClock?.year} W{meta?.worldClock?.week}
-          {meta?.worldStatus === 'RUNNING' && (
-            <TickCountdown
-              nextTickAt={meta?.worldClock?.nextTickAt}
-              paceLabel={meta?.worldClock?.paceLabel}
-            />
-          )}
-          {meta?.worldStatus !== 'RUNNING' ? ` · world ${meta?.worldStatus}` : ''}
-        </span>
-        {error && <span className="error">{String(error.message || error)}</span>}
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-          <a href="/rules.html" target="_blank" rel="noopener noreferrer" title="Headwinds fair play rules">Rules</a>
-          <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
-          <MessagesWidget worldId={worldId} token={token} />
-        </span>
-      </div>
-      <RemoteGameProvider state={state} dispatch={dispatch} remoteApi={remoteApi}>
+      <RemoteGameProvider state={state} dispatch={dispatch} remoteApi={remoteApi} remoteChrome={remoteChrome}>
         <SoloApp />
       </RemoteGameProvider>
     </div>

@@ -36,7 +36,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 320_000,
     supersonic: true,
     ticketPremium: 2.75,
-    description: 'The supersonic icon. Mach 2 transatlantic crossing in under 3.5 hours. Ticket premiums of 2.5× partially offset the extraordinary fuel burn — prestige over profit.',
+    description: 'The supersonic icon. Mach 2 across the Atlantic in under 3.5 hours. Charges 2.5× fares but burns fuel like nothing else. Prestige over profit.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/British_Airways_Concorde_G-BOAC_03.jpg/960px-British_Airways_Concorde_G-BOAC_03.jpg',
   },
 
@@ -924,7 +924,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 872.25,
     crewCostPerKm: 3.6,
     baseMaintenancePerWk: 215_000,
-    description: 'Worldliner. Can fly virtually anywhere nonstop — ideal for ultra-long-haul.',
+    description: 'Worldliner. Flies virtually anywhere nonstop, built for ultra-long-haul.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/94/Delta_Air_Lines_Boeing_777-200LR%3B_N709DN%40LAX%3B10.10.2011_622po_%286310355067%29.jpg/960px-Delta_Air_Lines_Boeing_777-200LR%3B_N709DN%40LAX%3B10.10.2011_622po_%286310355067%29.jpg',
   },
   {
@@ -1599,7 +1599,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 98.25,
     crewCostPerKm: 1.33,
     baseMaintenancePerWk: 9_600,
-    description: 'Fast 50-seat turboprop — nearly jet speed. Competes on thin short-haul routes.',
+    description: 'Fast 50-seat turboprop, nearly jet speed. Competes on thin short-haul routes.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Etihad_Saab_2000_take_off.jpg/960px-Etihad_Saab_2000_take_off.jpg',
   },
 
@@ -1760,7 +1760,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 781.25,
     crewCostPerKm: 3.6,
     baseMaintenancePerWk: 220_000,
-    description: 'The definitive modern long-haul freighter. Near-jumbo payload with twin-engine economics — the choice for ultra-long intercontinental cargo trunk routes.',
+    description: 'The definitive modern long-haul freighter. Near-jumbo payload with twin-engine running costs.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/D-ALFG_Lufthansa_Cargo_B777_FRA.jpg/960px-D-ALFG_Lufthansa_Cargo_B777_FRA.jpg',
   },
   {
@@ -1811,7 +1811,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 1182.5,
     crewCostPerKm: 4.14,
     baseMaintenancePerWk: 360_000,
-    description: 'The largest production freighter in the world. GEnx engines and a stretched upper deck give it more payload than the -400F with markedly better fuel burn per tonne — the modern flagship of dedicated cargo fleets.',
+    description: 'The largest production freighter in the world. Carries more than the -400F and burns less fuel per tonne doing it.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d8/Boeing_747-8R7F%2C_Cargolux_Airlines_International_JP7227015.jpg/960px-Boeing_747-8R7F%2C_Cargolux_Airlines_International_JP7227015.jpg',
   },
   {
@@ -1828,7 +1828,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 2183,
     crewCostPerKm: 5.4,
     baseMaintenancePerWk: 600_000,
-    description: 'The legend. Six engines, the highest payload of any aircraft ever flown, and a cargo hold built to carry the Buran shuttle. A halo machine for ultra-heavy outsize loads — staggering capability, ruinous economics, and only ever viable on the densest special-cargo corridors.',
+    description: 'The legend. Six engines, the biggest payload of anything that has ever flown, and a hold built for the Buran shuttle. Staggering capability with ruinous economics. Only pays on the densest special-cargo routes.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/Antonov_An-225_Mriya_front.jpg/960px-Antonov_An-225_Mriya_front.jpg',
   },
 
@@ -1863,7 +1863,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 980,
     crewCostPerKm: 2.16,
     baseMaintenancePerWk: 78_000,
-    description: 'Stretched four-engine long-haul classic of the 1960s — the first jet to exceed Mach 1 in a (test) dive.',
+    description: 'Stretched four-engine long-haul classic of the 1960s. Once exceeded Mach 1 in a test dive.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/Douglas_DC-8-63%2C_Capitol_Air_AN1002638.jpg/960px-Douglas_DC-8-63%2C_Capitol_Air_AN1002638.jpg',
   },
   {
@@ -1878,7 +1878,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 539.75,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 33_000,
-    description: 'Pioneering French short-haul jet — the first rear-engined airliner and a 1960s European staple.',
+    description: 'Pioneering French short-haul jet, the first with rear-mounted engines. A 1960s European staple.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/8/8b/Sud_SE-210_Caravelle_III%2C_F-BHRS%2C_Air_France_Manteufel-1.jpg',
   },
   {
@@ -1923,7 +1923,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 850,
     crewCostPerKm: 1.8,
     baseMaintenancePerWk: 50_000,
-    description: 'The fastest subsonic airliner of its era — speed bought at the cost of thirsty economics.',
+    description: 'The fastest subsonic airliner of its era. The speed came with thirsty engines.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Swissair_Convair_990_in_flight.jpg/1280px-Swissair_Convair_990_in_flight.jpg',
   },
   {
@@ -1938,7 +1938,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 700,
     crewCostPerKm: 1.71,
     baseMaintenancePerWk: 52_000,
-    description: 'The workhorse tri-jet of the Eastern bloc — rugged, fast, and built for rough strips.',
+    description: 'Rugged, fast tri-jet workhorse of the Eastern bloc, built for rough strips.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Tupolev_Tu-154M%2C_Iran_Air_Tours_JP6511800.jpg',
   },
   {
@@ -1983,7 +1983,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 1395,
     crewCostPerKm: 3.42,
     baseMaintenancePerWk: 110_000,
-    description: 'The Soviet Union\'s first widebody — thirsty engines limited it to medium-haul.',
+    description: 'The Soviet Union\'s first widebody. Thirsty engines kept it on medium-haul routes.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Aeroflot_RA_Ilyushin_Il-86_von_Wedelstaedt.jpg',
   },
   {
@@ -2028,7 +2028,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 82,
     crewCostPerKm: 1.17,
     baseMaintenancePerWk: 8_000,
-    description: 'Best-selling European turboprop of its generation — reliable workhorse of regional fleets.',
+    description: 'Best-selling European turboprop of its generation and a reliable regional workhorse.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/3/37/Fokker_F27_Friendship_US_Army_Golden_Knight.jpg',
   },
   {
@@ -2043,7 +2043,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 388.75,
     crewCostPerKm: 1.35,
     baseMaintenancePerWk: 22_000,
-    description: 'Dutch short-haul jet with built-in airstairs — forerunner of the Fokker 70/100.',
+    description: 'Dutch short-haul jet with built-in airstairs, forerunner of the Fokker 70/100.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/6/64/Piedmont_F-28-1000.jpg',
   },
   {
@@ -2058,7 +2058,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 813.75,
     crewCostPerKm: 1.8,
     baseMaintenancePerWk: 56_000,
-    description: 'A lighter, faster derivative of the 707 for shorter routes — Boeing\'s early jet-age stopgap.',
+    description: 'A lighter, faster 707 derivative for shorter routes. Boeing\'s early jet-age stopgap.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/a/aa/Cyprus_Airways_Boeing_720B_G-BCBB_LHR_1978-8-24.png',
   },
   {
@@ -2103,7 +2103,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 947,
     crewCostPerKm: 3.33,
     baseMaintenancePerWk: 120_000,
-    description: 'The world\'s first twin-engine widebody — the aircraft that launched Airbus.',
+    description: 'The world\'s first twin-engine widebody and the aircraft that launched Airbus.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Air_Afrique_Airbus_A300B4-203_TU-TAO_GVA_1982-5-20.png/960px-Air_Afrique_Airbus_A300B4-203_TU-TAO_GVA_1982-5-20.png',
   },
   {
@@ -2118,7 +2118,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 798,
     crewCostPerKm: 3.24,
     baseMaintenancePerWk: 125_000,
-    description: 'Shortened, advanced-wing A300 derivative — an efficient medium widebody for its day.',
+    description: 'Shortened A300 with an advanced wing. An efficient medium widebody for its day.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/5/5d/Air_Transat_A310_%28C-GTSF%29_%40_LHR%2C_Aug_2009.jpg',
   },
   {
@@ -2163,7 +2163,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 110,
     crewCostPerKm: 1.26,
     baseMaintenancePerWk: 8_500,
-    description: 'Turboprop conversion of the Convair 340/440 piston twins — a durable regional hauler.',
+    description: 'Turboprop conversion of the Convair 340/440 piston twins. A durable regional hauler.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/SAS_Convair_CV-440_Metropolitan%2C_Ivar_Viking_LN-KLB_in_the_air%2C_in_flight.jpg/1280px-SAS_Convair_CV-440_Metropolitan%2C_Ivar_Viking_LN-KLB_in_the_air%2C_in_flight.jpg',
   },
   {
@@ -2178,7 +2178,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 320,
     crewCostPerKm: 1.48,
     baseMaintenancePerWk: 56_000,
-    description: 'High-density MAX 8 with an extra exit pair — the low-cost-carrier workhorse (think Ryanair).',
+    description: 'High-density MAX 8 with an extra exit pair. The low-cost carrier workhorse (think Ryanair).',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Alaska_737_Max_9.jpg/1280px-Alaska_737_Max_9.jpg',
   },
   {
@@ -2193,7 +2193,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 798.25,
     crewCostPerKm: 3.42,
     baseMaintenancePerWk: 200_000,
-    description: 'The smaller, ultra-long-range neo — efficient new engines on the proven A330 airframe.',
+    description: 'The smaller, ultra-long-range neo. New, efficient engines on the proven A330 airframe.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Airbus_A330neo_F-WTTN_37.jpg/1280px-Airbus_A330neo_F-WTTN_37.jpg',
   },
   {
@@ -2223,7 +2223,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 360,
     crewCostPerKm: 1.44,
     baseMaintenancePerWk: 56_000,
-    description: 'Russian composite-wing narrowbody with domestic PD-14 engines — an A321neo competitor.',
+    description: 'Russian composite-wing narrowbody with domestic PD-14 engines, built to rival the A321neo.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/MC-21-300_maiden_flight_in_Irkutsk_%282%29.jpg/1280px-MC-21-300_maiden_flight_in_Irkutsk_%282%29.jpg',
   },
   {
@@ -2238,7 +2238,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 820,
     crewCostPerKm: 3.42,
     baseMaintenancePerWk: 200_000,
-    description: 'China\'s widebody ambition — a 280-seat twin aimed at the 787/A330neo class.',
+    description: 'China\'s widebody ambition, a 280-seat twin aimed at the 787 and A330neo.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/C929_model_at_2026_Singapore_Airshow_1.jpg/1280px-C929_model_at_2026_Singapore_Airshow_1.jpg',
   },
   {
@@ -2268,7 +2268,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 234.25,
     crewCostPerKm: 1.08,
     baseMaintenancePerWk: 12_000,
-    description: 'Jet-powered 328 — one of the smallest regional jets ever in airline service.',
+    description: 'Jet-powered 328, one of the smallest regional jets ever in airline service.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Dornier_328Jet%2C_SunAir.jpg/960px-Dornier_328Jet%2C_SunAir.jpg',
   },
   {
@@ -2283,7 +2283,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 42,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 3_600,
-    description: 'Rugged STOL commuter with a distinctive boxy fuselage — popular for island and bush work.',
+    description: 'Rugged STOL commuter with a boxy fuselage. Popular for island and bush work.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Do228NG_-_RIAT_2012_%2818649688613%29.jpg/1280px-Do228NG_-_RIAT_2012_%2818649688613%29.jpg',
   },
   {
@@ -2313,7 +2313,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 40,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 3_400,
-    description: '19-seat British commuter twin — a fixture of 1980s feeder networks.',
+    description: '19-seat British commuter twin, a fixture of 1980s feeder networks.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/British_Aerospace_Jetstream_3102_%E2%80%98G-NFLA.jpg/1280px-British_Aerospace_Jetstream_3102_%E2%80%98G-NFLA.jpg',
   },
   {
@@ -2328,7 +2328,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 62,
     crewCostPerKm: 1.04,
     baseMaintenancePerWk: 5_400,
-    description: 'Stretched Jetstream seating 29 — a step up into larger commuter markets.',
+    description: 'Stretched Jetstream seating 29, a step up into larger commuter markets.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Easternairways_j41_g-majx_arp.jpg/1280px-Easternairways_j41_g-majx_arp.jpg',
   },
   {
@@ -2343,7 +2343,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 66,
     crewCostPerKm: 1.12,
     baseMaintenancePerWk: 6_400,
-    description: 'Early-build Saab 340 — affordable 34-seat regional twin for thin routes.',
+    description: 'Early-build Saab 340. An affordable 34-seat regional twin for thin routes.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Saab_340_G-LGNC_IMG_3425_%2811712072893%29.jpg/1280px-Saab_340_G-LGNC_IMG_3425_%2811712072893%29.jpg',
   },
   {
@@ -2358,7 +2358,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 90.75,
     crewCostPerKm: 1.26,
     baseMaintenancePerWk: 9_000,
-    description: 'The original Dash 8 — STOL-capable 39-seat regional turboprop.',
+    description: 'The original Dash 8, a STOL-capable 39-seat regional turboprop.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/ASJ_Air_Canada_Jazz_-_De_Havilland_Canada_DHC-8-102_Dash_8_-_C-GION_-_832_-_Flight_JZA7792_YAM_-_YYZ_%289448827146%29.jpg/960px-ASJ_Air_Canada_Jazz_-_De_Havilland_Canada_DHC-8-102_Dash_8_-_C-GION_-_832_-_Flight_JZA7792_YAM_-_YYZ_%289448827146%29.jpg',
   },
   {
@@ -2433,7 +2433,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 48,
     crewCostPerKm: 0.94,
     baseMaintenancePerWk: 4_000,
-    description: 'New high-wing utility twin — 19 passengers or LD3-friendly freight for feeder operators.',
+    description: 'New high-wing utility twin. Carries 19 passengers or LD3-friendly freight for feeder operators.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/2021-07-27_CessnaSkyCourier.jpg/1280px-2021-07-27_CessnaSkyCourier.jpg',
   },
   {
@@ -2463,7 +2463,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 44,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 3_200,
-    description: 'Embraer\'s first airliner — a no-frills 18-seat utility commuter twin.',
+    description: 'Embraer\'s first airliner, a no-frills 18-seat utility commuter twin.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/Embraer_EMB_110_%28Forca_Aerea_Brasileira%29_%C3%81gata_7_%288780126305%29.jpg',
   },
   {
@@ -2480,7 +2480,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 250_000,
     freighter: true,
     payloadTonnes: 109,
-    description: 'Purpose-built widebody freighter on the A350 airframe — large main-deck door, efficient engines.',
+    description: 'Purpose-built freighter on the A350 airframe. Large main-deck door, efficient engines.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/EGLF_-_Airbus_A350-941_-_F-WZNW.jpg/1280px-EGLF_-_Airbus_A350-941_-_F-WZNW.jpg',
   },
   {
@@ -2497,7 +2497,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 250_000,
     freighter: true,
     payloadTonnes: 112,
-    description: 'Next-generation 777X freighter — the new flagship of the long-haul cargo fleet.',
+    description: 'Next-generation 777X freighter and the new flagship of the long-haul cargo fleet.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/777X_Roll-Out_%2840407373023%29_%28cropped%29.jpg/1280px-777X_Roll-Out_%2840407373023%29_%28cropped%29.jpg',
   },
   {
@@ -2514,7 +2514,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 85_000,
     freighter: true,
     payloadTonnes: 39,
-    description: 'Narrowbody express freighter — the backbone of integrators like UPS and FedEx.',
+    description: 'Narrowbody express freighter, the backbone of integrators like UPS and FedEx.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Boeing_757-24A%28PF%29%2C_United_Parcel_Service_%28UPS%29_JP6779815.jpg/960px-Boeing_757-24A%28PF%29%2C_United_Parcel_Service_%28UPS%29_JP6779815.jpg',
   },
   {
@@ -2548,7 +2548,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 140_000,
     freighter: true,
     payloadTonnes: 54,
-    description: 'Widebody freighter workhorse — FedEx\'s most numerous type for years.',
+    description: 'Widebody freighter workhorse and FedEx\'s most numerous type for years.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Fedex_Airbus_A300F4-600_N722FD_BWI_MD2.jpg/960px-Fedex_Airbus_A300F4-600_N722FD_BWI_MD2.jpg',
   },
   {
@@ -2582,7 +2582,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 52_000,
     freighter: true,
     payloadTonnes: 20,
-    description: 'Classic 737 converted to carry parcels — ubiquitous regional cargo hauler.',
+    description: 'Classic 737 converted to carry parcels. A ubiquitous regional cargo hauler.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/Sideral_Air_Cargo_Boeing_737-400SF_PR-SDJ.jpg/960px-Sideral_Air_Cargo_Boeing_737-400SF_PR-SDJ.jpg',
   },
   {
@@ -2650,7 +2650,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 33_000,
     freighter: true,
     payloadTonnes: 13,
-    description: 'Regional jet converted to freight — fills the gap below narrowbody cargo aircraft.',
+    description: 'Regional jet converted to freight, filling the gap below narrowbody cargo aircraft.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/KLM_Cityhopper_-_Embraer_190LR_-_AN2571563.jpg',
   },
   {
@@ -2667,7 +2667,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 50_000,
     freighter: true,
     payloadTonnes: 28,
-    description: 'Passenger-to-freighter A321 — efficient narrowbody capacity for e-commerce growth.',
+    description: 'A321 passenger-to-freighter conversion. Efficient narrowbody capacity for e-commerce.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/G-POWW_-_Airbus_A321-211%28P2F%29_-_Titan_Airways_STN_130124.jpg/960px-G-POWW_-_Airbus_A321-211%28P2F%29_-_Titan_Airways_STN_130124.jpg',
   },
   {
@@ -2684,7 +2684,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 140_000,
     freighter: true,
     payloadTonnes: 42,
-    description: 'Special-freighter 767-200 conversion — a favorite of Amazon Air feeder fleets.',
+    description: '767-200 special-freighter conversion, a favorite of Amazon Air feeder fleets.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Boeing_767-232%28SF%29%2C_Amerijet_International_JP7699998.jpg/960px-Boeing_767-232%28SF%29%2C_Amerijet_International_JP7699998.jpg',
   },
   {

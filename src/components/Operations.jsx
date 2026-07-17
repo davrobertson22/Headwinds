@@ -92,13 +92,9 @@ export function estimateHeadcount(groupId, fleet, routes) {
 }
 
 // ─── Shared slider styling ─────────────────────────────────────────────────────
+// Visuals + hit area live in .hw-range (index.css); this only sets the width.
 
-const sliderStyle = {
-  width: '100%',
-  accentColor: 'var(--accent)',
-  cursor: 'pointer',
-  height: 6,
-};
+const sliderStyle = { width: '100%' };
 
 // ─── Morale bar ───────────────────────────────────────────────────────────────
 
@@ -355,11 +351,14 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         <div style={{ position: 'relative' }}>
           <input
             type="range"
+            className="hw-range"
             min="0.5"
             max="2.0"
             step="0.05"
             value={payMultiplier}
             style={sliderStyle}
+            draggable={false}
+            onDragStart={e => e.preventDefault()}
             onChange={e => dispatch({
               type: 'SET_LABOR_PAY',
               group: group.id,
@@ -460,11 +459,14 @@ function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch })
         <div style={{ position: 'relative' }}>
           <input
             type="range"
+            className="hw-range"
             min="0.5"
             max="2.0"
             step="0.05"
             value={budget}
             style={sliderStyle}
+            draggable={false}
+            onDragStart={e => e.preventDefault()}
             onChange={e => dispatch({ type: 'SET_MAINTENANCE_BUDGET', multiplier: parseFloat(e.target.value) })}
           />
           <div style={{

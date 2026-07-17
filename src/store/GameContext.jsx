@@ -19,7 +19,7 @@ const SAVE_KEY = 'bbae_save_v2'; // bump version to avoid old-format conflicts
 // Routes hydrated with their per-pair price so every consumer can keep reading
 // route.classPrices / route.ticketPrice unchanged (the reducer stores the
 // normalized form — price only in state.routePricing).
-function hydratedValue(state, dispatch, remote = false, remoteApi = null) {
+function hydratedValue(state, dispatch, remote = false, remoteApi = null, remoteChrome = null) {
   return {
     state: {
       ...state,
@@ -31,6 +31,10 @@ function hydratedValue(state, dispatch, remote = false, remoteApi = null) {
     // without importing the Headwinds API): { fetchRivalProfile(airlineId) }.
     // Always null in solo.
     remoteApi,
+    // Multiplayer-only topbar content rendered by the shared App shell so the
+    // game has ONE header instead of a separate bar stacked on the topbar:
+    // { clock, right } — React nodes supplied by GamePlayScreen. Null in solo.
+    remoteChrome,
   };
 }
 
@@ -61,8 +65,11 @@ export function GameProvider({ children }) {
 // Headwinds web client passes server-authoritative state and a dispatch that
 // submits validated intents to the API. Every screen that calls useGame() works
 // unchanged on top of it. No localStorage: the server owns persistence.
-export function RemoteGameProvider({ state, dispatch, remoteApi = null, children }) {
-  const value = useMemo(() => hydratedValue(state, dispatch, true, remoteApi), [state, dispatch, remoteApi]);
+export function RemoteGameProvider({ state, dispatch, remoteApi = null, remoteChrome = null, children }) {
+  const value = useMemo(
+    () => hydratedValue(state, dispatch, true, remoteApi, remoteChrome),
+    [state, dispatch, remoteApi, remoteChrome]
+  );
   return (
     <GameContext.Provider value={value}>
       {children}

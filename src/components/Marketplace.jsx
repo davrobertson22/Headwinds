@@ -453,6 +453,116 @@ function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse }) 
   );
 }
 
+// ── Table (list) view ─────────────────────────────────────────────────────────
+
+const TABLE_COLS = [
+  { key: 'name',     label: 'Aircraft',     align: 'left'  },
+  { key: 'seats',    label: 'Seats',        align: 'right' },
+  { key: 'range',    label: 'Range',        align: 'right' },
+  { key: 'fuel',     label: 'Fuel/seat',    align: 'right', title: 'Litres per seat per 100 km (per tonne for freighters)' },
+  { key: 'eff',      label: 'Eff.',         align: 'right', title: 'Seat efficiency score, 0-100' },
+  { key: 'maint',    label: 'Maint/wk',     align: 'right' },
+  { key: 'lease',    label: 'Lease/wk',     align: 'right' },
+  { key: 'buy',      label: 'Buy',          align: 'right' },
+  { key: 'delivery', label: 'Delivery',     align: 'right' },
+  { key: null,       label: '',             align: 'right' },
+];
+
+function MarketTable({ rows, sort, setSort, onCheckout }) {
+  const sorted = [...rows].sort((a, b) => {
+    const { key, dir } = sort;
+    const av = a[key], bv = b[key];
+    if (typeof av === 'string') return av.localeCompare(bv) * dir;
+    return ((av ?? 0) - (bv ?? 0)) * dir;
+  });
+
+  function clickSort(key) {
+    if (!key) return;
+    setSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: key === 'name' ? 1 : -1 });
+  }
+
+  return (
+    <div className="market-table-wrap">
+      <table className="market-table">
+        <thead>
+          <tr>
+            {TABLE_COLS.map((c, i) => (
+              <th
+                key={i}
+                title={c.title}
+                style={{ textAlign: c.align, cursor: c.key ? 'pointer' : 'default' }}
+                onClick={() => clickSort(c.key)}
+              >
+                {c.label}{sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(r => {
+            const t = r.type;
+            return (
+              <tr key={t.id}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.catColor, flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {t.name}
+                        {r.owned > 0 && <span className="market-chip market-chip-blue">{r.owned} in fleet</span>}
+                        {r.onOrder > 0 && <span className="market-chip market-chip-yellow">{r.onOrder} ordered</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {t.manufacturer} · <span style={{ color: r.catColor }}>{CAT_LABELS[t.category] || t.category}</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right' }}>{t.freighter ? `${t.payloadTonnes}t` : t.seats}</td>
+                <td style={{ textAlign: 'right' }}>{t.range.toLocaleString()} km</td>
+                <td style={{ textAlign: 'right' }}>{r.fuel.toFixed(2)}</td>
+                <td style={{ textAlign: 'right', color: r.effColor, fontWeight: 600 }}>{t.freighter ? '–' : r.eff}</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(t.baseMaintenancePerWk)}</td>
+                <td style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{formatMoney(t.weeklyLease)}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <span style={{ color: r.canAffordBuy ? 'var(--green)' : 'var(--text-dim)', fontWeight: 600 }}>
+                    {formatMoney(r.buy)}
+                  </span>
+                  {r.discPct > 0 && <span className="market-chip market-chip-green">-{r.discPct}%</span>}
+                </td>
+                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{r.delivery}w</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button
+                    className="btn btn-primary"
+                    style={{ fontSize: 11, padding: '4px 10px', marginRight: 6 }}
+                    onClick={() => onCheckout({ typeId: t.id, mode: 'lease' })}
+                  >
+                    Lease
+                  </button>
+                  <button
+                    className="btn"
+                    style={{
+                      fontSize: 11, padding: '4px 10px',
+                      background: r.canAffordBuy ? 'rgba(63,185,80,0.15)' : 'var(--surface3)',
+                      color: r.canAffordBuy ? 'var(--green)' : 'var(--text-dim)',
+                      border: `1px solid ${r.canAffordBuy ? 'rgba(63,185,80,0.4)' : 'var(--border)'}`,
+                      cursor: r.canAffordBuy ? 'pointer' : 'not-allowed',
+                    }}
+                    disabled={!r.canAffordBuy}
+                    onClick={() => r.canAffordBuy && onCheckout({ typeId: t.id, mode: 'buy' })}
+                  >
+                    Buy
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Marketplace() {
@@ -462,6 +572,17 @@ export default function Marketplace() {
   const [view, setView]                     = useState('browse'); // 'browse' | 'orders'
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeMfr, setActiveMfr]           = useState('All');
+  const [query, setQuery]                   = useState('');
+  // Card gallery vs compact comparison table. Remembered across sessions.
+  const [layout, setLayoutState] = useState(() => {
+    try { return localStorage.getItem('market_layout') === 'table' ? 'table' : 'cards'; }
+    catch { return 'cards'; }
+  });
+  function setLayout(l) {
+    setLayoutState(l);
+    try { localStorage.setItem('market_layout', l); } catch { /* private mode */ }
+  }
+  const [sort, setSort] = useState({ key: 'name', dir: 1 });
 
   // Checkout modal state: { typeId, mode: 'lease'|'buy' } or null
   const [checkout, setCheckout] = useState(null);
@@ -502,9 +623,11 @@ export default function Marketplace() {
 
   const safeMfr = mfrsInCategory.includes(activeMfr) ? activeMfr : 'All';
 
+  const q = query.trim().toLowerCase();
   const filtered = AIRCRAFT_TYPES.filter(t =>
     (activeCategory === 'All' || t.category === activeCategory) &&
-    (safeMfr        === 'All' || t.manufacturer === safeMfr)
+    (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
+    (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q))
   );
 
   return (
@@ -555,8 +678,43 @@ export default function Marketplace() {
       {/* Header + category filter */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 14 }}>
-          Order aircraft to grow your fleet. New deliveries are staggered by type — widebodies take 4 weeks, narrowbodies 3, regional jets 2, turboprops 1.
+          Order aircraft to grow your fleet. Delivery times vary by size: turboprops 1 week, regional jets 2, narrowbodies 3, widebodies 4.
         </div>
+
+        {/* Search + view toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)', fontSize: 13, pointerEvents: 'none' }}>
+              <Glyph e="🔍" size={13} />
+            </span>
+            <input
+              type="search"
+              className="form-input"
+              placeholder="Search aircraft or manufacturer…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              style={{ width: '100%', paddingLeft: 32, fontSize: 13 }}
+              aria-label="Search aircraft"
+            />
+          </div>
+          <div className="market-view-toggle" role="group" aria-label="Market layout">
+            <button
+              className={layout === 'cards' ? 'active' : ''}
+              onClick={() => setLayout('cards')}
+              title="Card view with photos"
+            >
+              ▦ Cards
+            </button>
+            <button
+              className={layout === 'table' ? 'active' : ''}
+              onClick={() => setLayout('table')}
+              title="Compact table for comparing aircraft"
+            >
+              ☰ Table
+            </button>
+          </div>
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Filter by type
@@ -613,7 +771,58 @@ export default function Marketplace() {
         </div>
       </div>
 
+      {/* No matches */}
+      {filtered.length === 0 && (
+        <div style={{
+          textAlign: 'center', padding: '48px 20px',
+          background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 10,
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>No aircraft match</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            Try a different search term or clear the filters above.
+          </div>
+        </div>
+      )}
+
+      {/* Comparison table */}
+      {layout === 'table' && filtered.length > 0 && (() => {
+        const nowAbs = absoluteWeek(year, week);
+        const rows = filtered.map(type => {
+          const lead          = DELIVERY_LEAD[type.category] ?? 2;
+          const alreadyOwned  = ownedCounts[type.id] || 0;
+          const onOrder       = pendingCounts[type.id] || 0;
+          const buyPrice      = effectivePurchasePrice(type, alreadyOwned);
+          const effScore      = efficiencyScore(type) ?? 0;
+          const pendingOfType = pendingOrders.filter(o => o.typeId === type.id);
+          const maxExisting   = pendingOfType.length > 0
+            ? Math.max(...pendingOfType.map(o => o.deliverAbsWeek))
+            : nowAbs;
+          return {
+            type,
+            name:     type.name,
+            seats:    type.freighter ? (type.payloadTonnes ?? 0) : type.seats,
+            range:    type.range,
+            fuel:     type.freighter
+              ? type.fuelBurnPer100km / (type.payloadTonnes || 1)
+              : type.fuelBurnPer100km / (type.seats || 1),
+            eff:      effScore,
+            effColor: effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)',
+            maint:    type.baseMaintenancePerWk,
+            lease:    type.weeklyLease,
+            buy:      buyPrice,
+            discPct:  Math.round(buyDiscount(alreadyOwned) * 100),
+            delivery: Math.max(nowAbs + lead, maxExisting + lead) - nowAbs,
+            owned:    alreadyOwned,
+            onOrder,
+            canAffordBuy: cash >= buyPrice,
+            catColor: CAT_COLORS[type.category] || '#93a4ba',
+          };
+        });
+        return <MarketTable rows={rows} sort={sort} setSort={setSort} onCheckout={setCheckout} />;
+      })()}
+
       {/* Aircraft grid */}
+      {layout === 'cards' && filtered.length > 0 && (
       <div className="aircraft-market-grid">
         {filtered.map(type => {
           const currentAbsWeek = absoluteWeek(year, week);
@@ -817,6 +1026,7 @@ export default function Marketplace() {
           );
         })}
       </div>
+      )}
       </>
       )}
 
