@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useGame } from './store/GameContext.jsx';
 import { ToastProvider, useToast } from './components/ToastSystem.jsx';
 import { ConfirmProvider } from './components/ConfirmModal.jsx';
@@ -130,6 +131,7 @@ function AppInner() {
   const { state, dispatch, remote, remoteChrome } = useGame();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [openGroup, setOpenGroup] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
   const [showTour, setShowTour] = useState(false);
   const [saveLoadMode, setSaveLoadMode] = useState(null); // 'save' | 'load' | null
   const [showNewGameConfirm, setShowNewGameConfirm] = useState(false);
@@ -447,17 +449,22 @@ function AppInner() {
             <div key={grp.label} className="nav-group">
               <button
                 className={`nav-tab ${activeChild ? 'active' : ''} ${open ? 'open' : ''}`}
-                onClick={() => setOpenGroup(open ? null : grp.label)}
+                onClick={(e) => {
+                  if (open) { setOpenGroup(null); return; }
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setMenuPos({ top: r.bottom + 4, left: r.left });
+                  setOpenGroup(grp.label);
+                }}
                 aria-expanded={open}
               >
                 <GroupIcon size={14} />
                 <span>{grp.label}</span>
                 <span className="nav-caret" aria-hidden="true">▾</span>
               </button>
-              {open && (
+              {open && menuPos && createPortal(
                 <>
                   <div className="nav-group-backdrop" onClick={() => setOpenGroup(null)} />
-                  <div className="nav-group-menu" role="menu">
+                  <div className="nav-group-menu" role="menu" style={{ top: menuPos.top, left: menuPos.left }}>
                     {grp.children.map((cid) => {
                       const ct = TABS_BY_ID[cid];
                       const CIcon = ct.Icon;
@@ -474,7 +481,8 @@ function AppInner() {
                       );
                     })}
                   </div>
-                </>
+                </>,
+                document.body
               )}
             </div>
           );
