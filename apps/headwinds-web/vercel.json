@@ -4,6 +4,14 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "headwindsairlinegame.com" }],
+      "destination": "https://www.headwindsairlinegame.com/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/play", "destination": "/play.html" }
   ]

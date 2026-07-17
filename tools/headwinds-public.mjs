@@ -139,6 +139,12 @@ const CONTENT_PATCHES = [
     find: "Headwinds' AI competitors notice profitable markets and move in — the game models route encroachment directly.",
     replace: 'Your rivals are real players who notice profitable markets and move in — contested routes split demand between the airlines flying them.',
   },
+  // route-economics.html — the demand pool is contested by real people
+  {
+    file: 'route-economics.html',
+    find: "You're never pricing in a vacuum — you're competing for a finite pool.",
+    replace: "You're never pricing in a vacuum — in Headwinds you're competing for that finite pool against real players, and they price back.",
+  },
 ];
 
 function rebrand(html) {
@@ -308,8 +314,10 @@ writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
 // robots.txt + sitemap.xml for this domain.
 writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: https://${DOMAIN}/sitemap.xml\n`);
 const today = new Date().toISOString().slice(0, 10);
-const pages = ['', 'play', ...readdirSync(OUT).filter((f) => f.endsWith('.html')).sort()];
-const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : /^(how-to-play|strategy|devlog|rules)/.test(p) ? '0.8' : '0.6';
+// /play is the JS app shell (sign-in + lobby) — thin, low-value to index, so it
+// stays out of the sitemap. It remains reachable via the landing CTA + rewrite.
+const pages = ['', ...readdirSync(OUT).filter((f) => f.endsWith('.html')).sort()];
+const prio = (p) => p === '' ? '1.0' : /^(how-to-play|strategy|devlog|rules)/.test(p) ? '0.8' : '0.6';
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
   pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
