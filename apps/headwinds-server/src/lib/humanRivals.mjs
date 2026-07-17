@@ -259,15 +259,40 @@ export function withRivals(state, view) {
   };
 }
 
+// ── Rival-view cache (API process) ────────────────────────────────────────────
+// Every open game polls its airline read, and each uncached build loads EVERY
+// active airline's FULL state blob — the single biggest Supabase egress driver.
+// A world's rival views are identical for all its players, so build once and
+// share. Entries are validated by `stamp` (the caller's cheap sum-of-versions
+// aggregate — any decision, tick, join or abandon changes it) plus a short TTL
+// fallback for changes that don't bump an airline version (alliance moves).
+// The worker bypasses the cache entirely by passing preloaded `airlines`, and
+// runs in its own process anyway.
+export const RIVAL_VIEW_CACHE_TTL_MS = 30_000;
+const viewCache = new Map(); // worldId → { stamp, at, promise }
+
 // One-stop world view builder for API/tick call sites: loads active airlines
 // and the alliance graph, returns the per-airline view map.
-export async function buildWorldRivalViews(prisma, worldId, { airlines = null } = {}) {
-  const rows = airlines ?? await prisma.airline.findMany({
-    where: { worldId, status: 'ACTIVE' },
-    // OG + DEV badges. The email never leaves the server — it's only compared
-    // against ADMIN_EMAILS here; payloads carry booleans.
-    include: { account: { select: { isOG: true, email: true } } },
-  });
-  const allianceMap = await loadAllianceMap(prisma, worldId);
-  return buildRivalViews(rows, allianceMap);
+export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null } = {}) {
+  if (airlines) {
+    const allianceMap = await loadAllianceMap(prisma, worldId);
+    return buildRivalViews(airlines, allianceMap);
+  }
+  const hit = viewCache.get(worldId);
+  if (hit && stamp != null && hit.stamp === stamp && Date.now() - hit.at < RIVAL_VIEW_CACHE_TTL_MS) {
+    return hit.promise;
+  }
+  const promise = (async () => {
+    const rows = await prisma.airline.findMany({
+      where: { worldId, status: 'ACTIVE' },
+      // OG + DEV badges. The email never leaves the server — it's only compared
+      // against ADMIN_EMAILS here; payloads carry booleans.
+      include: { account: { select: { isOG: true, email: true } } },
+    });
+    const allianceMap = await loadAllianceMap(prisma, worldId);
+    return buildRivalViews(rows, allianceMap);
+  })();
+  viewCache.set(worldId, { stamp, at: Date.now(), promise });
+  promise.catch(() => viewCache.delete(worldId)); // never cache a failed read
+  return promise;
 }

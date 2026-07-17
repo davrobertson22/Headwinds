@@ -575,7 +575,9 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   }, [worldId, token]);
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
+    // 15s is plenty for a lobby leaderboard — this endpoint reads every airline
+    // row, so the poll rate is a direct multiplier on database egress.
+    const t = setInterval(load, 15000);
     return () => clearInterval(t);
   }, [load]);
 

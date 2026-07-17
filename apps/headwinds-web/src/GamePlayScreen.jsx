@@ -94,16 +94,24 @@ export default function GamePlayScreen({ worldId, token }) {
   stateRef.current = state;
   const metaRef = useRef(null);
   metaRef.current = meta;
+  // Change stamp from the last response — sent back on every poll so the server
+  // can answer "unchanged" from tiny reads instead of shipping the full state
+  // blob (+ every rival's blob) each time. This is the Supabase egress fix.
+  const stampRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
-      const d = await authedApi(`/worlds/${worldId}/airline`, { token });
+      const q = stampRef.current && stateRef.current
+        ? `?stamp=${encodeURIComponent(stampRef.current)}` : '';
+      const d = await authedApi(`/worlds/${worldId}/airline${q}`, { token });
       setMeta({ status: d.status, worldStatus: d.worldStatus, worldClock: d.worldClock, airlineId: d.airlineId });
+      if (d.stamp) stampRef.current = d.stamp;
+      setError(null); // a good poll clears any stale transient error
+      if (d.unchanged) return; // nothing moved server-side — keep what we have
       // Only replace local state when the server has genuinely moved on (a tick
       // landed or first load) — don't stomp optimistic edits between polls.
       const local = stateRef.current;
       if (!local || (d.state.week ?? 0) > (local.week ?? 0)) setState(withStatsBackfill(d.state));
-      setError(null); // a good poll clears any stale transient error
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);
       else setError(e);
@@ -113,14 +121,15 @@ export default function GamePlayScreen({ worldId, token }) {
   useEffect(() => {
     if (sessionExpired) return; // dead session — stop hitting the server
     load();
-    // Adaptive poll: every 15s normally, every 4s once the next tick is due —
-    // so the new week (and its debrief) lands moments after the server ticks.
+    // Adaptive poll: every 25s normally (idle polls short-circuit server-side
+    // via the stamp anyway), every 4s once the next tick is due — so the new
+    // week (and its debrief) still lands moments after the server ticks.
     const t = setInterval(() => {
       const due = metaRef.current?.worldClock?.nextTickAt;
       const nearTick = due && new Date(due).getTime() - Date.now() < 5000;
       if (nearTick) load();
     }, 4000);
-    const slow = setInterval(load, 15000);
+    const slow = setInterval(load, 25000);
     return () => { clearInterval(t); clearInterval(slow); };
   }, [load, sessionExpired]);
 
@@ -154,11 +163,17 @@ export default function GamePlayScreen({ worldId, token }) {
     // response landing after the weekly poll advanced us). Stale/out-of-order
     // responses are dropped; the next poll reconciles.
     authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload } })
-      .then((res) => setState((cur) => {
-        if (seq !== decisionSeq.current) return cur;
-        if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
-        return withStatsBackfill(res.state);
-      }))
+      .then((res) => {
+        // Adopt the post-write stamp so the next poll short-circuits instead of
+        // re-downloading the state we're about to render. A stale (out-of-order)
+        // response is skipped — the next poll's full fetch reconciles.
+        if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
+        setState((cur) => {
+          if (seq !== decisionSeq.current) return cur;
+          if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+          return withStatsBackfill(res.state);
+        });
+      })
       .catch((e) => {
         if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
         setError(e); load(); // rejected → resync from server

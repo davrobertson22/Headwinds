@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
-  buildRivalViews, withRivals, toHumanCompetitor, pairKeyOf,
+  buildRivalViews, buildWorldRivalViews, withRivals, toHumanCompetitor, pairKeyOf,
   playerAllianceDef,
 } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
@@ -177,6 +177,31 @@ await test('the reserved-tag name pattern blocks OG/DEV look-alikes but not hone
                       'Devon Airways', 'Delta Victor Air', 'Developer Express']) {
     assert.ok(!OG_NAME_PATTERN.test(good), `should allow: ${good}`);
   }
+});
+
+console.log('\n── rival-view cache (egress) ─────────────────────────────');
+
+await test('same world stamp serves everyone from one blob read; stamp change rebuilds', async () => {
+  let reads = 0;
+  const fake = {
+    airline: { findMany: async () => { reads++; return [alice, bob]; } },
+    alliance: { findMany: async () => [] },
+  };
+  const first = await buildWorldRivalViews(fake, 'wCache', { stamp: '7.2' });
+  const second = await buildWorldRivalViews(fake, 'wCache', { stamp: '7.2' });
+  assert.equal(reads, 1, 'second call with the same stamp must hit the cache');
+  assert.equal(second.get('a1').competitors.length, 1);
+  assert.equal(first.get('a1').competitors[0].name, 'Bob Airways');
+
+  await buildWorldRivalViews(fake, 'wCache', { stamp: '8.2' });
+  assert.equal(reads, 2, 'a changed stamp (decision/tick/join) must rebuild');
+
+  await buildWorldRivalViews(fake, 'wCache');
+  assert.equal(reads, 3, 'no stamp (legacy caller) must never serve from cache');
+
+  const preloaded = await buildWorldRivalViews(fake, 'wCache', { airlines: [alice], stamp: '8.2' });
+  assert.equal(reads, 3, 'preloaded airlines (the worker tick path) bypass the read entirely');
+  assert.equal(preloaded.get('a1').competitors.length, 0);
 });
 
 console.log('\n── DEV badge (ADMIN_EMAILS-derived) ─────────────────────');

@@ -49,14 +49,25 @@ export default async function worldRoutes(fastify) {
     });
     if (!world) return reply.code(404).send({ error: 'No such world' });
 
-    const airlines = await prisma.airline.findMany({
-      where: { worldId: world.id },
-      orderBy: { marketCap: 'desc' },
-      take: 100,
-      // OG + DEV badges ride on the ACCOUNT, never the name string. The email
-      // is only compared against ADMIN_EMAILS server-side — never emitted.
-      include: { account: { select: { isOG: true, email: true } } },
-    });
+    // Egress-aware: the lobby polls this endpoint, and the state blob is by far
+    // the heaviest thing on an airline row — but standings only need two counts
+    // from it. Compute those counts IN the database (jsonb_array_length) so the
+    // blobs never leave Supabase. OG + DEV badges ride on the ACCOUNT, never the
+    // name string; the email is only compared against ADMIN_EMAILS server-side —
+    // never emitted.
+    const airlines = await prisma.$queryRaw`
+      SELECT a.id, a."worldId", a."accountId", a.name, a.hub, a.cash, a."marketCap",
+             a.week, a.status::text AS status, a."joinedWeek",
+             CASE WHEN jsonb_typeof(a.state->'routes') = 'array'
+                  THEN jsonb_array_length(a.state->'routes') ELSE 0 END AS routes,
+             CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
+                  THEN jsonb_array_length(a.state->'fleet') ELSE 0 END AS fleet,
+             acc."isOG" AS og, acc.email AS email
+      FROM "Airline" a
+      JOIN "Account" acc ON acc.id = a."accountId"
+      WHERE a."worldId" = ${world.id}
+      ORDER BY a."marketCap" DESC
+      LIMIT 100`;
 
     // Alliance tags for the standings (ACTIVE memberships only).
     const worldAlliances = await prisma.alliance.findMany({
@@ -83,13 +94,21 @@ export default async function worldRoutes(fastify) {
       }),
       standings: airlines.map((a, i) => ({
         rank: i + 1,
-        ...serializeAirline(a),
-        // Public network-size signals for the rivals view.
-        routes: a.state?.routes?.length ?? 0,
-        fleet: a.state?.fleet?.length ?? 0,
+        id: a.id,
+        worldId: a.worldId,
+        name: a.name,
+        hub: a.hub,
+        cash: Number(a.cash),
+        marketCap: Number(a.marketCap),
+        week: a.week,
+        status: a.status,
+        joinedWeek: a.joinedWeek,
+        // Public network-size signals for the rivals view (computed in-DB).
+        routes: Number(a.routes),
+        fleet: Number(a.fleet),
         alliance: allianceNameByAirline.get(a.id) ?? null,
-        og: a.account?.isOG === true,
-        dev: isDevEmail(a.account?.email),
+        og: a.og === true,
+        dev: isDevEmail(a.email),
       })),
     };
   });

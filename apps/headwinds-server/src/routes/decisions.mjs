@@ -13,9 +13,23 @@ import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
 
-// Live rival view for one airline (fresh on every read — never stale-from-blob).
-async function rivalViewFor(airline) {
-  const views = await buildWorldRivalViews(prisma, airline.worldId);
+// A cheap change detector for a whole world: any decision or tick bumps an
+// airline's version, and joins/abandons change the active count, so this pair
+// moves whenever ANYTHING a client could see has changed. It costs one tiny
+// aggregate row from the DB — vs. the full state blobs it lets us skip.
+async function worldStampOf(worldId) {
+  const agg = await prisma.airline.aggregate({
+    where: { worldId, status: 'ACTIVE' },
+    _sum: { version: true },
+    _count: { _all: true },
+  });
+  return `${agg._sum.version ?? 0}.${agg._count._all}`;
+}
+
+// Live rival view for one airline (validated by the world stamp — never
+// stale-from-blob, and shared across every player polling this world).
+async function rivalViewFor(airline, worldStamp) {
+  const views = await buildWorldRivalViews(prisma, airline.worldId, { stamp: worldStamp });
   return views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
 }
 
@@ -59,30 +73,57 @@ async function loadMyAirline(request) {
 
 export default async function decisionRoutes(fastify) {
   // ── Your authoritative airline state (the full save blob) ─────────────────
+  // Egress-aware: the client passes back the `stamp` from its last response;
+  // when nothing in the world has changed (the overwhelmingly common case — the
+  // game polls every ~25s, worlds tick hourly) we answer from three tiny reads
+  // and never touch a state blob. Only a changed stamp pays for the full load.
   fastify.get('/worlds/:id/airline', {
     preHandler: requireAuth,
-    schema: { params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      querystring: {
+        type: 'object',
+        properties: { stamp: { type: 'string', maxLength: 80 } },
+      },
+    },
   }, async (request) => {
-    const airline = await loadMyAirline(request);
-    // Inject the CURRENT rival view so the Rivals tab and demand previews show
-    // other humans as they are right now, not as of the last tick.
-    const view = await rivalViewFor(airline);
-    const dueAt = nextTickAt(airline.world);
-    return {
-      airlineId: airline.id,
-      status: airline.status,
-      week: airline.week,
-      worldStatus: airline.world.status,
+    const slim = await prisma.airline.findUnique({
+      where: {
+        worldId_accountId: { worldId: request.params.id, accountId: request.account.id },
+      },
+      select: { id: true, worldId: true, version: true, status: true, week: true },
+    });
+    if (!slim) throw httpError(404, 'You have no airline in this world');
+
+    const world = await prisma.world.findUnique({ where: { id: slim.worldId } });
+    const worldStamp = await worldStampOf(slim.worldId);
+    const stamp = `${slim.version}:${worldStamp}`;
+    const dueAt = nextTickAt(world);
+    const base = {
+      airlineId: slim.id,
+      status: slim.status,
+      week: slim.week,
+      worldStatus: world.status,
       worldClock: {
-        week: airline.world.currentWeek,
-        year: airline.world.currentYear,
+        week: world.currentWeek,
+        year: world.currentYear,
         // Countdown material for the game bar: when the next week lands (null
         // for LOBBY/ENDED worlds) and the world's human-readable pace.
         nextTickAt: dueAt ? dueAt.toISOString() : null,
-        paceLabel: paceLabel(airline.world.weeksPerDay),
+        paceLabel: paceLabel(world.weeksPerDay),
       },
-      state: withRivals(airline.state, view),
+      stamp,
     };
+    if (request.query.stamp && request.query.stamp === stamp) {
+      return { ...base, unchanged: true };
+    }
+
+    // Something changed (or first load): full blob + the CURRENT rival view so
+    // the Rivals tab and demand previews show other humans as they are right
+    // now, not as of the last tick.
+    const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
+    const view = await rivalViewFor(airline, worldStamp);
+    return { ...base, state: withRivals(airline.state, view) };
   });
 
   // ── Submit a decision (validated intent → authoritative reducer) ───────────
@@ -127,7 +168,7 @@ export default async function decisionRoutes(fastify) {
     // Run it over the rival-injected view so (a) the stored blob is scrubbed of
     // any pre-humans-only AI competitors, and (b) the response the client
     // re-renders from shows the same rivals the read path does.
-    const view = await rivalViewFor(airline);
+    const view = await rivalViewFor(airline, await worldStampOf(airline.worldId));
     const next = gameReducer(withRivals(airline.state, view), { type, ...payload });
 
     try {
@@ -169,6 +210,9 @@ export default async function decisionRoutes(fastify) {
       // Engine convention: rejected/no-op intents leave state unchanged and often
       // set state.error / a toast. Surface a hint so the UI can show it.
       error: next.error ?? null,
+      // Post-write stamp (our version bumped by the transaction) so the client's
+      // next poll short-circuits instead of re-downloading what it already has.
+      stamp: `${airline.version + 1}:${await worldStampOf(airline.worldId)}`,
     });
   });
 }
