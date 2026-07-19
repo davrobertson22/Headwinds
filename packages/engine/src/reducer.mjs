@@ -1105,6 +1105,30 @@ function reducer(state, action) {
       return { ...state, routes: updatedRoutes, fleet: updatedFleet };
     }
 
+    // Batched close: remove many routes in ONE reducer pass. Semantically identical
+    // to dispatching CLOSE_ROUTE once per id, but a single action → a single state
+    // result → (in multiplayer) a single server write. Looping CLOSE_ROUTE instead
+    // fires N un-awaited decisions that all race the server's per-airline version
+    // check, so all but one 409 ("your airline just changed") and most routes never
+    // actually close. Accepts { routeIds: [...] } (or a lone { routeId }).
+    case 'CLOSE_ROUTES': {
+      const ids = new Set(action.routeIds ?? (action.routeId != null ? [action.routeId] : []));
+      if (ids.size === 0) return state;
+      const updatedRoutes = state.routes.filter(r => !ids.has(r.id));
+      // Aircraft that had at least one of the closed routes — only these can change
+      // status, and only to idle if they now have no remaining routes (pax or cargo).
+      const touched = new Set(
+        state.routes.filter(r => ids.has(r.id)).map(r => r.aircraftId)
+      );
+      const updatedFleet = state.fleet.map(a => {
+        if (!touched.has(a.id)) return a;
+        const stillActive = updatedRoutes.some(r => r.aircraftId === a.id)
+          || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
+        return { ...a, status: stillActive ? 'assigned' : 'idle' };
+      });
+      return { ...state, routes: updatedRoutes, fleet: updatedFleet };
+    }
+
     // ─── Cargo routes ───────────────────────────────────────────────────────────
     // Freighters fly a parallel cargo network. Mirrors ADD_ROUTE's guards (range,
     // gates, slots, block-hours, regulatory, connectivity) but with no cabins,

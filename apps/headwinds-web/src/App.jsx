@@ -1108,7 +1108,12 @@ export default function App() {
     if (!session) return <div className="shell"><SignIn /></div>;
     return (
       <Suspense fallback={<div className="shell"><p className="muted">Loading the game…</p></div>}>
-        <GamePlayScreen worldId={route.worldId} token={token} />
+        {/* key by world: hopping between airlines/worlds (or back/forward nav) must
+            remount the game, not reuse the instance. Without this the previous
+            airline's state and refs linger, and the week-gated state guards drop the
+            new airline's (lower-week) state — so you'd order your first aircraft and
+            nothing happens until a full page refresh. */}
+        <GamePlayScreen key={route.worldId} worldId={route.worldId} token={token} />
       </Suspense>
     );
   }

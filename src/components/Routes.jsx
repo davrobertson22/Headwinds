@@ -395,7 +395,10 @@ export default function Routes() {
       danger: true, confirmLabel: 'Close routes',
     });
     if (!ok) return;
-    for (const id of routeIds) dispatch({ type: 'CLOSE_ROUTE', routeId: id });
+    // One batched action — not a CLOSE_ROUTE per route. In multiplayer each dispatch
+    // is a separate server write guarded by an optimistic version check, so a loop
+    // here fires N racing writes and all but one 409; batching closes them atomically.
+    dispatch({ type: 'CLOSE_ROUTES', routeIds });
     addToast({
       type: 'success',
       title: 'Routes closed',

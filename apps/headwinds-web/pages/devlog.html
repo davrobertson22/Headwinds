@@ -54,6 +54,18 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">July 19, 2026</p>
+      <h2>Two multiplayer fixes: bulk route-closing and a fresh-airline hiccup</h2>
+      <p>Both of these came in from players on <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a> — thank you. They only touched the multiplayer game, where every move is checked and saved on the server as you make it.</p>
+      <ul>
+        <li><strong>Closing lots of routes at once now works.</strong> Selecting a big batch of routes and closing them together used to overwhelm the server: only one would actually close, and the rest bounced back with a "your airline just changed" error. Closing routes in bulk is now a single, instant action, however many you pick.</li>
+        <li><strong>No more refreshing to get going in a new airline.</strong> After hopping between worlds, a brand-new airline could open still showing a trace of your last one, so your very first aircraft order seemed to do nothing until you reloaded the page. Each airline now opens clean — first order and all.</li>
+        <li><strong>Bulk selling and retiring got the same treatment.</strong> The underlying fix covers any burst of moves, so selecting several aircraft to sell or retire at once now goes through reliably instead of quietly dropping some along the way.</li>
+      </ul>
+      <p>Hit a rough edge we missed? Tell us on <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a>.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">July 17, 2026</p>
       <h2>A polish pass: cleaner dialogs, grouped menus, less clutter</h2>
       <p>A sweep through the interface to make the whole game feel more finished. Nothing changes how the game plays; everything here is about it looking and feeling right.</p>

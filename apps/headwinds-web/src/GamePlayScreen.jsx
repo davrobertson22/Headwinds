@@ -153,6 +153,14 @@ export default function GamePlayScreen({ worldId, token }) {
   }), [worldId, token]);
 
   const decisionSeq = useRef(0);
+  // Serialize the authoritative writes. A burst of dispatches — bulk close/sell/
+  // retire, or just fast clicks — must reach POST /decisions ONE AT A TIME. Fired in
+  // parallel they all read the same airline `version` and race the server's
+  // optimistic-concurrency check, so all but one come back 409 and those actions
+  // silently no-op. The optimistic apply below still gives instant per-action
+  // feedback; only the network writes queue, each adopting the previous write's new
+  // version/stamp before the next goes out.
+  const writeChain = useRef(Promise.resolve());
   const dispatch = useCallback((action) => {
     const { type, ...payload } = action ?? {};
     if (!ALLOWED_PLAYER_ACTIONS.has(type)) return; // ADVANCE_WEEK etc. — server-owned
@@ -163,22 +171,24 @@ export default function GamePlayScreen({ worldId, token }) {
     // overwrite local state, and never roll the week backwards (a pre-tick
     // response landing after the weekly poll advanced us). Stale/out-of-order
     // responses are dropped; the next poll reconciles.
-    authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload } })
-      .then((res) => {
-        // Adopt the post-write stamp so the next poll short-circuits instead of
-        // re-downloading the state we're about to render. A stale (out-of-order)
-        // response is skipped — the next poll's full fetch reconciles.
-        if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
-        setState((cur) => {
-          if (seq !== decisionSeq.current) return cur;
-          if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
-          return withStatsBackfill(res.state);
-        });
-      })
-      .catch((e) => {
-        if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
-        setError(e); load(); // rejected → resync from server
-      });
+    writeChain.current = writeChain.current.then(() =>
+      authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload } })
+        .then((res) => {
+          // Adopt the post-write stamp so the next poll short-circuits instead of
+          // re-downloading the state we're about to render. A stale (out-of-order)
+          // response is skipped — the next poll's full fetch reconciles.
+          if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
+          setState((cur) => {
+            if (seq !== decisionSeq.current) return cur;
+            if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+            return withStatsBackfill(res.state);
+          });
+        })
+        .catch((e) => {
+          if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
+          setError(e); load(); // rejected → resync from server
+        })
+    );
   }, [worldId, token, load]);
 
   // Topbar content the shared App shell renders when remote — the game gets ONE
