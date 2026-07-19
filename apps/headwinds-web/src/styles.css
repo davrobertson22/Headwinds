@@ -292,3 +292,40 @@ table.compact td { padding: 4px 8px; font-size: 14px; }
 
 /* Footer cross-links: on-brand teal, not the default --blue link colour. */
 footer a { color: var(--accent); }
+
+/* =============================================================================
+   MOBILE (<= 640px) — lobby / worlds / sign-in / in-game chrome.
+   Additive and scoped; desktop is unchanged.
+   ============================================================================= */
+@media (max-width: 640px) {
+  .shell { padding: 12px 12px 40px; }
+  header { padding: 6px 0 12px; margin-bottom: 16px; }
+  .brand { font-size: 15px; letter-spacing: 1px; }
+  .brand-mark { height: 20px; }
+
+  /* 16px controls stop iOS Safari auto-zooming the page on focus. */
+  input, select, textarea, .btn { font-size: 16px; }
+  .hub-input { width: 100%; }
+
+  /* Stack forms / action rows instead of overflowing a narrow screen. */
+  .row.wrap { gap: 8px; }
+  label { width: 100%; }
+  .btn { padding: 10px 14px; }            /* bigger tap target */
+  .btn.wide { width: 100%; }
+  .list-head { flex-wrap: wrap; gap: 8px; }
+
+  /* Dense tables (worlds list, standings) scroll sideways rather than crushing
+     their columns into an unreadable mess. */
+  table.worlds, table.compact {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  .world-head { gap: 8px; }
+  .kpis { gap: 12px; flex-wrap: wrap; }
+  .mine { text-align: left; }
+  .rival-detail .grid { grid-template-columns: 1fr; }
+  .hw-msg-convo-preview { max-width: 76vw; }
+}

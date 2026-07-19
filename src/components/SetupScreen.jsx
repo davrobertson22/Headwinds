@@ -4,6 +4,7 @@ import { AIRPORTS, getCountryName } from '../data/airports.js';
 import AirlineLogo, { AIRLINE_LOGOS } from './AirlineLogo.jsx';
 import { Glyph } from './Icons.jsx';
 import { fileToLogoDataURL } from '../utils/logoImage.js';
+import useIsMobile from '../hooks/useIsMobile.js';
 
 // ── Accent colour palette ────────────────────────────────────────────────────
 // Ordered as a continuous rainbow spectrum (red → violet), then a neutral set.
@@ -71,6 +72,8 @@ export default function SetupScreen() {
   const [enableObjectives,  setEnableObjectives]  = useState(true);
   const [step,              setStep]              = useState(1);
   const fileInputRef = useRef(null);
+  const isMobile = useIsMobile();
+  const logoSize = isMobile ? 44 : 52;
 
   const usingCustom = logoId === 'custom' && customLogo;
 
@@ -185,9 +188,9 @@ export default function SetupScreen() {
             <label className="form-label">Airline Logo</label>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10,
-              padding: '14px',
+              gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)',
+              gap: isMobile ? 8 : 10,
+              padding: isMobile ? '10px' : '14px',
               background: 'var(--surface2)',
               borderRadius: 'var(--radius)',
               border: '1px solid var(--border)',
@@ -211,10 +214,10 @@ export default function SetupScreen() {
                 }}
               >
                 {usingCustom ? (
-                  <AirlineLogo customSrc={customLogo} size={52} radius={10} />
+                  <AirlineLogo customSrc={customLogo} size={logoSize} radius={10} />
                 ) : (
                   <div style={{
-                    width: 52, height: 52, borderRadius: 10,
+                    width: logoSize, height: logoSize, borderRadius: 10,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     border: '2px dashed var(--border)',
                     color: 'var(--text-dim)', fontSize: 22, fontWeight: 300,
@@ -260,7 +263,7 @@ export default function SetupScreen() {
                       transition: 'border-color .12s, background .12s',
                     }}
                   >
-                    <AirlineLogo id={logo.id} size={52} accentColor={accentColor} />
+                    <AirlineLogo id={logo.id} size={logoSize} accentColor={accentColor} />
                     <span style={{
                       fontSize: 10,
                       color: selected ? 'var(--accent)' : 'var(--text-dim)',

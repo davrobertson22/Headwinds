@@ -163,7 +163,12 @@ export default function Routes() {
   const [showCargoForm, setShowCargoForm] = useState(false);
 
   // View mode: 'table' (default — scales to hundreds of routes) | 'cards'
-  const [viewMode, setViewMode] = useState('table');
+  const [viewMode, setViewMode] = useState(() => {
+    // Phones default to the card view: the wide compare table is unwieldy
+    // on a narrow screen and cards are touch-friendly. Desktop unchanged.
+    try { return window.matchMedia('(max-width: 640px)').matches ? 'cards' : 'table'; }
+    catch { return 'table'; }
+  });
 
   const usedHrsFor = (a) => {
     const t = getAircraftType(a.typeId);

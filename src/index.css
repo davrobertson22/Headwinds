@@ -1610,5 +1610,58 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   .app-footer-inline {
     margin: 20px -12px -12px;
   }
+
+  /* === Deep mobile pass ======================================================
+     Onboarding ergonomics, tap targets, safe-area insets, dense-table scanning.
+     Still fully inside the =640px media query, so desktop is byte-for-byte
+     unchanged. === */
+
+  /* Safe-area insets keep chrome clear of the notch / home indicator on an
+     installed PWA. No-ops in a normal tab; needs viewport-fit=cover (index.html). */
+  .topbar {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .app-footer { padding-bottom: max(9px, env(safe-area-inset-bottom)); }
+  .topbar-menu { right: max(0px, env(safe-area-inset-right)); }
+
+  /* Onboarding / setup card: the desktop card is tuned for a 460-600px column
+     with 42px padding, which crushes the logo grid on a phone. Tighten the
+     shell, top-align it so a tall card scrolls cleanly, and drop the display
+     title a notch so it stops dominating the screen. */
+  .setup-screen   { padding: 14px 10px; align-items: flex-start; }
+  .setup-card     { padding: 22px 18px; }
+  .setup-title    { font-size: 22px; line-height: 1.18; }
+  .setup-subtitle { font-size: 13px; margin-bottom: 22px; }
+
+  /* Comfortable tap targets for the controls people poke on a phone. */
+  .nav-tab      { padding: 13px 14px; }
+  .btn-advance  { min-height: 40px; }
+  .btn          { min-height: 38px; }
+  .category-tab { padding: 11px 14px; white-space: nowrap; }
+
+  /* Horizontal chip/tab strips stay on one line and scroll instead of wrapping
+     into a ragged two-line block (e.g. the Market type filters). */
+  .category-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .category-tabs::-webkit-scrollbar { display: none; }
+
+  /* Dense tables scroll sideways (set above). Pin the first column so each row's
+     identity - aircraft, route, line item - stays on screen while the numbers
+     scroll. The header already sticks to the top. */
+  .main-content table th:first-child,
+  .main-content table td:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--surface);
+    z-index: 2;
+  }
+  .main-content table th:first-child { z-index: 3; }
+
+  /* A little padding back for cards now that the page gutter is tight. */
+  .card { padding: 16px 15px; }
 }
 
