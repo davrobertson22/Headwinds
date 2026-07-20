@@ -25,6 +25,145 @@ function TierBadge({ tier }) {
   );
 }
 
+// ─── Your Gates table (default view) ─────────────────────────────────────────
+//
+// Dense, sortable table so a large network (30+ airports of gates) fits on one
+// screen — mirrors the Routes page. The card view remains for phones.
+const GATE_COLUMNS = [
+  { id: 'airport', label: 'Airport', align: 'left'  },
+  { id: 'region',  label: 'Region',  align: 'left'  },
+  { id: 'gates',   label: 'Gates',   align: 'right' },
+  { id: 'slots',   label: 'Slots',   align: 'right' },
+  { id: 'util',    label: 'Use',     align: 'right' },
+  { id: 'cost',    label: 'Cost/wk', align: 'right' },
+];
+
+const GATE_SORTERS = {
+  airport: (a, b) => a.code.localeCompare(b.code),
+  region:  (a, b) => REGIONS.indexOf(a.region) - REGIONS.indexOf(b.region) || a.code.localeCompare(b.code),
+  gates:   (a, b) => a.count - b.count,
+  slots:   (a, b) => a.used - b.used,
+  util:    (a, b) => a.usagePct - b.usagePct,
+  cost:    (a, b) => a.weeklyCost - b.weeklyCost,
+};
+
+function utilColor(usagePct) {
+  return usagePct >= 0.9 ? 'var(--red)'
+       : usagePct >= 0.7 ? 'var(--yellow)'
+       : 'var(--green)';
+}
+
+function GateTable({ rows, onAdd, onRemove, onDetails }) {
+  const [sortCol, setSortCol] = useState(null);   // null = default order (region → hub → congestion)
+  const [sortDir, setSortDir] = useState('desc');
+
+  const sorted = (() => {
+    if (!sortCol) return rows;
+    const s = [...rows].sort(GATE_SORTERS[sortCol] ?? GATE_SORTERS.airport);
+    if (sortDir === 'desc') s.reverse();
+    return s;
+  })();
+
+  function clickHeader(id) {
+    if (sortCol === id) {
+      setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortCol(id);
+      setSortDir(id === 'airport' || id === 'region' ? 'asc' : 'desc');
+    }
+  }
+
+  const TH = {
+    padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11,
+    whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em',
+    borderBottom: '1px solid var(--border)', cursor: 'pointer', userSelect: 'none',
+  };
+  const TD = { padding: '6px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              {GATE_COLUMNS.map(c => (
+                <th key={c.id} onClick={() => clickHeader(c.id)} style={{ ...TH, textAlign: c.align }}>
+                  {c.label}{sortCol === c.id ? (sortDir === 'desc' ? ' ▾' : ' ▴') : ''}
+                </th>
+              ))}
+              <th style={{ ...TH, cursor: 'default' }} />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(r => {
+              const barColor = utilColor(r.usagePct);
+              return (
+                <tr key={r.code}>
+                  <td style={{ ...TD, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{r.code}</span>
+                    {r.isHub && <span title="Hub" style={{ color: 'var(--accent)', marginLeft: 4 }}>★</span>}
+                    <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{r.city}</span>
+                    <span style={{ marginLeft: 6 }}><TierBadge tier={r.tier} /></span>
+                  </td>
+                  <td style={{ ...TD, color: 'var(--text-muted)' }}>{r.region}</td>
+                  <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{r.count}</td>
+                  <td style={{ ...TD, textAlign: 'right', color: barColor, fontWeight: 600 }}>
+                    {r.used} / {r.capacity}
+                  </td>
+                  <td style={{ ...TD, textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ width: 50, height: 5, borderRadius: 3, background: 'var(--surface3)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, r.usagePct * 100)}%`, background: barColor, borderRadius: 3 }} />
+                      </div>
+                      <span style={{ color: barColor, fontWeight: 600, minWidth: 34, textAlign: 'right', display: 'inline-block' }}>
+                        {Math.round(r.usagePct * 100)}%
+                      </span>
+                    </div>
+                  </td>
+                  <td style={{ ...TD, textAlign: 'right', color: 'var(--red)' }}>{formatMoney(r.weeklyCost)}</td>
+                  <td style={{ ...TD, textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', gap: 4 }}>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                        onClick={() => onDetails(r.code)}
+                      >
+                        Details
+                      </button>
+                      <button
+                        className="btn"
+                        style={{
+                          padding: '2px 8px', fontSize: 12,
+                          opacity: r.canRemove ? 1 : 0.35,
+                          cursor: r.canRemove ? 'pointer' : 'not-allowed',
+                          background: 'rgba(248,81,73,0.1)', color: 'var(--red)',
+                          border: '1px solid rgba(248,81,73,0.3)',
+                        }}
+                        disabled={!r.canRemove}
+                        title={r.canRemove ? 'Remove one gate' : 'Routes are using all slot capacity'}
+                        onClick={() => onRemove(r.code)}
+                      >
+                        −
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: '2px 8px', fontSize: 12 }}
+                        onClick={() => onAdd(r.code)}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function Airports() {
   const { state, dispatch } = useGame();
   const { gates = {}, routes, cargoRoutes = [], cash, hubs = {} } = state;
@@ -32,6 +171,12 @@ export default function Airports() {
   const [regionFilter, setRegionFilter]           = useState(null); // null = show picker
   const [myGatesRegion, setMyGatesRegion]         = useState(null); // null = All
   const [selectedAirport, setSelectedAirport]     = useState(null);
+  // 'table' scales to a big network (30+ airports of gates); phones default to
+  // the card view, same convention as the Routes page.
+  const [gatesView, setGatesView] = useState(() => {
+    try { return window.matchMedia('(max-width: 640px)').matches ? 'cards' : 'table'; }
+    catch { return 'table'; }
+  });
 
   if (selectedAirport) {
     return <AirportDetail code={selectedAirport} onBack={() => setSelectedAirport(null)} />;
@@ -148,11 +293,56 @@ export default function Airports() {
             }}>
               Your Gates
             </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[{ id: 'table', label: '⊟ Table' }, { id: 'cards', label: '⊞ Cards' }].map(v => {
+                const active = gatesView === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => setGatesView(v.id)}
+                    style={{
+                      padding: '3px 10px', fontSize: 11, borderRadius: 20, cursor: 'pointer',
+                      fontWeight: active ? 700 : 400,
+                      background: active ? 'var(--accent)' : 'var(--surface2)',
+                      color: active ? '#fff' : 'var(--text-muted)',
+                      border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Region filter tabs — gates are shown one region at a time so a
-              large network never has to render every gate at once. */}
-          {(() => {
+          {/* Table view: every region at once — dense rows scale to any network */}
+          {gatesView === 'table' && (
+            <GateTable
+              rows={myGateEntries.map(({ code, count, airport }) => {
+                const used     = slotsUsedAt(code);
+                const capacity = count * SLOTS_PER_GATE;
+                return {
+                  code, count,
+                  city:       airport.city,
+                  tier:       airport.tier,
+                  region:     getRegion(airport.country),
+                  used, capacity,
+                  usagePct:   capacity > 0 ? used / capacity : 0,
+                  weeklyCost: Math.round(totalGateMonthlyFee(airport, count) / 4),
+                  canRemove:  used <= (count - 1) * SLOTS_PER_GATE,
+                  isHub:      !!hubs[code],
+                };
+              })}
+              onAdd={code => dispatch({ type: 'ADD_GATE', airportCode: code })}
+              onRemove={code => dispatch({ type: 'REMOVE_GATE', airportCode: code })}
+              onDetails={code => setSelectedAirport(code)}
+            />
+          )}
+
+          {/* Region filter tabs (card view) — gates are shown one region at a
+              time so a large network never has to render every card at once. */}
+          {gatesView === 'cards' && (() => {
             const heldRegions = [...new Set(myGateEntries.map(({ airport }) => getRegion(airport.country)))];
             if (heldRegions.length <= 1) return null;
             const activeRegion = myGatesRegion ?? heldRegions[0];
@@ -182,7 +372,7 @@ export default function Airports() {
             );
           })()}
 
-          {(() => {
+          {gatesView === 'cards' && (() => {
             const heldRegions  = [...new Set(myGateEntries.map(({ airport }) => getRegion(airport.country)))];
             // With multiple regions, only ever render the active one. A single
             // region renders directly (no filtering needed).
@@ -336,7 +526,7 @@ export default function Airports() {
             {/* Region filter tabs (with back/all option removed — just show active region + change link) */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, alignItems: 'center' }}>
               <button
-                onClick={() => { setRegionFilter(null); setSearch(''); }}
+                onClick={() => setRegionFilter(null)}
                 style={{
                   padding: '4px 10px', fontSize: 12, borderRadius: 20, cursor: 'pointer',
                   background: 'var(--surface2)', color: 'var(--text-muted)',
@@ -350,7 +540,7 @@ export default function Airports() {
                 return (
                   <button
                     key={r}
-                    onClick={() => { setRegionFilter(r); setSearch(''); }}
+                    onClick={() => setRegionFilter(r)}
                     style={{
                       padding: '4px 10px', fontSize: 12, borderRadius: 20, cursor: 'pointer',
                       fontWeight: active ? 700 : 400,
