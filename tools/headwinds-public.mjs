@@ -44,7 +44,7 @@ const CROSS_CANONICAL = new Set([
   'aircraft.html', 'aircraft-narrow-body.html', 'aircraft-wide-body.html',
   'aircraft-regional-jets.html', 'aircraft-turboprops.html',
   'aircraft-freighters.html', 'aircraft-flagships.html',
-  'route-economics.html', 'hub-strategy.html', 'fleet-planning.html', 'faq.html',
+  'fleet-planning.html', 'faq.html',
 ]);
 
 // Never copied from the shared public/ (Tailwinds-only concerns).
@@ -236,6 +236,30 @@ function injectBrandLogo(html) {
 // entry pages (index.html, play.html) carry the same snippet directly; this
 // covers the rebranded + hand-written info pages. Idempotent: skips any page
 // that already has it.
+// Open Graph + Twitter card meta on every generated page (rebranded + overrides).
+// og:url always points at THIS domain — even on cross-canonicaled pages, because
+// canonical is a signal for Google while og describes the Headwinds link people
+// actually paste into Discord/Reddit. Idempotent: skips pages carrying og:title.
+const OG_WEBSITE = new Set(['about.html', 'contact.html', 'privacy.html', 'terms.html', 'faq.html', 'rules.html']);
+function injectSocialMeta(html, file) {
+  if (html.includes('property="og:title"')) return html;
+  const t = html.match(/<title>([\s\S]*?)<\/title>/);
+  const d = html.match(/<meta name="description" content="([^"]*)"/);
+  if (!t || !d || !html.includes('</head>')) return html;
+  const title = t[1].trim().replace(/"/g, '&quot;');
+  const type = OG_WEBSITE.has(file) ? 'website' : 'article';
+  const block = `  <meta property="og:title" content="${title}" />
+  <meta property="og:description" content="${d[1]}" />
+  <meta property="og:type" content="${type}" />
+  <meta property="og:url" content="https://${DOMAIN}/${file}" />
+  <meta property="og:image" content="https://${DOMAIN}/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+`;
+  return html.replace('</head>', block + '</head>');
+}
+
 const ANALYTICS_SNIPPET = `  <!-- Vercel Web Analytics -->
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
@@ -309,7 +333,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectAnalytics(injectBrandLogo(injectRulesLink(before)));
+  const after = injectSocialMeta(injectAnalytics(injectBrandLogo(injectRulesLink(before))), f);
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 
