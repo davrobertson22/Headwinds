@@ -38,6 +38,9 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
   // Money & market
   'TAKE_LOAN', 'REPAY_LOAN', 'BUY_HEDGE', 'ACQUIRE_COMPETITOR',
+  // Stock market — the reducer prices trades from the server-injected rival
+  // view (never from the payload), so these are safe to expose as intents.
+  'BUY_STOCK', 'SELL_STOCK',
   // Marketing, loyalty, branding
   'SET_MARKETING_BUDGET', 'SET_TARGETED_MARKETING', 'SET_LOYALTY_INVESTMENT', 'SET_BRANDING',
   // Labor

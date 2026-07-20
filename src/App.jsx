@@ -12,10 +12,11 @@ import Fleet from './components/Fleet.jsx';
 import Routes from './components/Routes.jsx';
 import Marketplace from './components/Marketplace.jsx';
 import Finance from './components/Finance.jsx';
-import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon } from './components/Icons.jsx';
+import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon } from './components/Icons.jsx';
 import HubManagement from './components/HubManagement.jsx';
 import Reputation from './components/Reputation.jsx';
 import Competition from './components/Competition.jsx';
+import StockMarket from './components/StockMarket.jsx';
 import RoutePlanner from './components/RoutePlanner.jsx';
 import Airports from './components/Airports.jsx';
 import RouteMap from './components/RouteMap.jsx';
@@ -93,6 +94,7 @@ const TABS = [
   { id: 'loyalty',     label: 'Loyalty',       Icon: LoyaltyIcon     },
   { id: 'alliances',   label: 'Alliances',    Icon: AllianceIcon    },
   { id: 'competition', label: 'Competition',  Icon: CompetitionIcon   },
+  { id: 'stocks',      label: 'Stocks',       Icon: TrendUpIcon       },
   { id: 'finance',     label: 'Finance',       Icon: FinanceIcon     },
   { id: 'wiki',        label: 'Help',          Icon: HelpIcon        },
 ];
@@ -107,7 +109,7 @@ const NAV_GROUPS = [
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'planner', 'routes'] },
   { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
-  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'reputation', 'loyalty', 'alliances', 'competition'] },
+  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'reputation', 'loyalty', 'alliances', 'competition', 'stocks'] },
   { id: 'finance' },
   { id: 'wiki' },
 ];
@@ -265,6 +267,7 @@ function AppInner() {
     loyalty:     <Loyalty />,
     alliances:   <Alliances />,
     competition: <Competition />,
+    stocks:      <StockMarket />,
     finance:     <Finance />,
     wiki:        <Wiki />,
   };

@@ -13,7 +13,8 @@ import {
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
   isRouteActive, routeActiveMonths,
 } from './utils/simulation.js';
-import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield } from './utils/market.js';
+import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
+         VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
@@ -288,8 +289,10 @@ function freshState() {
     missedLoanPayments:       0,   // total weeks where loans were due and cash went negative
     consecutiveNegativeWeeks: 0,   // weeks in a row ending with negative cash (resets on recovery)
     bankruptcyReason:         null, // 'missed_loans' | 'consecutive_negative' | null
-    marketCap:         STARTING_CASH * 1.5,  // player market cap ($), updated each week
-    sharePrice:        STARTING_CASH * 1.5 / TOTAL_SHARES,  // player share price ($)
+    // Valuation v2: a fresh airline is worth BOOK_WEIGHT × net book (= cash).
+    marketCap:         STARTING_CASH * 0.85,  // player market cap ($), updated each week
+    sharePrice:        STARTING_CASH * 0.85 / TOTAL_SHARES,  // player share price ($)
+    portfolio:         emptyPortfolio(),      // stock held in rival airlines
     objectives:        [],   // [{ id, completed, completedWeek, completedYear }]
     objectivesEnabled: true, // can be disabled at setup
     cabinTemplates:    [],   // saved cabin configs: { id, name, typeId, config: { firstClass, businessClass, premiumEconomy, economy, seatQuality, serviceQuality } }
@@ -304,6 +307,23 @@ function freshState() {
 // never produces an ID that collides with IDs already stored in localStorage.
 function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// Depreciated value of the OWNED fleet ($) — same NAV math as SELL_AIRCRAFT
+// (purchase price × depreciation remaining, floored at 10%), without the 5%
+// selling fee. Feeds the valuation model's net book value so buying aircraft
+// converts cash into fleet value instead of vaporizing market cap (and selling
+// the fleet no longer pumps it).
+function fleetNAVOf(fleet) {
+  let total = 0;
+  for (const a of fleet ?? []) {
+    if (a.ownershipType !== 'owned' || a.status === 'retired') continue;
+    const type      = getAircraftType(a.typeId);
+    const ageYears  = (a.ageWeeks ?? 0) / 52;
+    const remaining = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
+    total += Math.round((type?.purchasePrice ?? 0) * remaining);
+  }
+  return total;
 }
 
 // ─────────────────────────────────────────────
@@ -1881,13 +1901,30 @@ function reducer(state, action) {
 
       const surplus = acquiredFleetFinal.length - assignedIds.size;
 
+      // If the player holds stock in the airline they just bought outright, the
+      // position cashes out at the deal's per-share price (you're paying the
+      // full acquisition cost, so the pro-rata slice comes straight back).
+      const acqPortfolio = state.portfolio ?? emptyPortfolio();
+      const acqHolding   = acqPortfolio.holdings?.[target.id];
+      const acqBuyout    = acqHolding?.shares > 0
+        ? Math.round(acqHolding.shares * (acquisitionCost / TOTAL_SHARES))
+        : 0;
+      const acqHoldings  = { ...(acqPortfolio.holdings ?? {}) };
+      delete acqHoldings[target.id];
+      const portfolioAfterAcquire = acqBuyout > 0
+        ? { ...acqPortfolio,
+            holdings:         acqHoldings,
+            realizedPnL:      (acqPortfolio.realizedPnL ?? 0) + acqBuyout - (acqHolding.costBasis ?? 0),
+            realizedThisWeek: (acqPortfolio.realizedThisWeek ?? 0) + acqBuyout - (acqHolding.costBasis ?? 0) }
+        : acqPortfolio;
+
       // ── Win condition: the last rival has been absorbed ────────────────────
       const remainingCompetitors = (state.competitors ?? []).filter(c => c.id !== target.id);
       const finalFleet  = [...state.fleet, ...acquiredFleetFinal];
       const hasWon      = remainingCompetitors.length === 0 && !state.gameWon;
       const victoryStats = hasWon ? {
         marketCap:    state.marketCap ?? null,
-        cash:         state.cash - acquisitionCost + (target.cash ?? 0),
+        cash:         state.cash - acquisitionCost + (target.cash ?? 0) + acqBuyout,
         fleetCount:   finalFleet.filter(a => a.status !== 'retired').length,
         routeCount:   state.routes.length + inheritedRoutes.length,
         airports:     Object.values(newGates).filter(n => n > 0).length,
@@ -1909,7 +1946,8 @@ function reducer(state, action) {
 
       return {
         ...state,
-        cash:                state.cash - acquisitionCost + (target.cash ?? 0),
+        cash:                state.cash - acquisitionCost + (target.cash ?? 0) + acqBuyout,
+        portfolio:           portfolioAfterAcquire,
         routes:              [...state.routes, ...inheritedRoutes],
         routePricing:        acquiredPricing,
         routeCatering:       acquiredCatering,
@@ -2510,8 +2548,16 @@ function reducer(state, action) {
         const stats            = computeCompetitorWeeklyStats(c, approxMonth, compPairCounts);
         const newCompCash      = (c.cash ?? 0) + retainedProfit(c.cash ?? 0, stats.weeklyProfit);
         const newProfitHistory = [...(c.profitHistory ?? []), stats.weeklyProfit].slice(-12);
+        // Valuation v2 for AI carriers too: same convergence/clamp/noise path so
+        // their prices are chartable and tradeable without single-week teleports.
+        // AI fleets/debt stay unvalued (their cash is semi-abstract and already
+        // stands in for the balance sheet) — symmetric across all AI carriers.
         const { marketCap: compMarketCap, sharePrice: compSharePrice } =
-          computeMarketCap(newProfitHistory, newCompCash, c.baseQualityScore);
+          computeMarketCap(newProfitHistory, newCompCash, c.baseQualityScore, {
+            prevMarketCap: c.marketCap ?? null,
+            noise:         (Math.random() * 2 - 1) * VALUATION.NOISE_PCT,
+            revenueHint:   stats.weeklyRevenue ?? 0,
+          });
         return {
           ...c,
           weeklyStats:   stats,
@@ -2519,6 +2565,9 @@ function reducer(state, action) {
           profitHistory: newProfitHistory,
           marketCap:     compMarketCap,
           sharePrice:    compSharePrice,
+          // Rolling price series for the Stocks tab chart (solo AI carriers; in
+          // multiplayer the server derives the equivalent from statsHistory).
+          priceHistory:  [...(c.priceHistory ?? []), compSharePrice].slice(-STOCK_MARKET.SHARE_PRICE_HISTORY_WEEKS),
         };
       });
 
@@ -2692,6 +2741,87 @@ function reducer(state, action) {
       };
       const newHistory = [...state.financialHistory, historyEntry].slice(-52);
 
+      // ── Stock portfolio: mark to market + delisting liquidations ─────────────
+      // Holdings are valued against the PREVIOUS tick's prices (state.competitors
+      // as injected/stored at tick start), never this week's — one pass, order-
+      // independent, and immune to A-holds-B-holds-A circularity. A held airline
+      // that vanished this week (MP: purged/abandoned rival; solo: AI bankruptcy
+      // or merger) is force-liquidated at a haircut of its last known price.
+      const prevPriceOf = new Map((state.competitors ?? []).map(c =>
+        [c.id, (c.sharePrice ?? (c.marketCap ?? 0) / TOTAL_SHARES) || 0]));
+      const liveCompIds = new Set(updatedCompetitors.map(c => c.id));
+      const bankruptCompIds = new Set(competitorEvents.filter(e => e.type === 'bankrupt').map(e => e.airlineId));
+      const mergedCompNames = new Set(competitorEvents.filter(e => e.type === 'merger').map(e => e.targetName));
+      const prevPortfolio  = state.portfolio ?? emptyPortfolio();
+      const newHoldings    = {};
+      let   portfolioValue = 0;
+      let   delistProceeds = 0;
+      let   delistRealized = 0;
+      for (const [heldId, h] of Object.entries(prevPortfolio.holdings ?? {})) {
+        if (!(h?.shares > 0)) continue;
+        const lastPrice = prevPriceOf.get(heldId) ?? h.lastPrice ?? 0;
+        if (!liveCompIds.has(heldId)) {
+          // Delisted this week. Bankruptcy pays 50%, an AI-vs-AI merger pays par
+          // (the buyer bought the equity), anything else (MP purge/abandon) 75%.
+          const haircut = bankruptCompIds.has(heldId) ? STOCK_MARKET.BANKRUPT_HAIRCUT
+                        : mergedCompNames.has(h.name) ? 1.0
+                        : STOCK_MARKET.DELIST_HAIRCUT;
+          const payout  = Math.round(h.shares * lastPrice * haircut);
+          delistProceeds += payout;
+          delistRealized += payout - (h.costBasis ?? 0);
+          newToasts.push({
+            type:     haircut >= 1 ? 'info' : 'warning',
+            icon:     '📉',
+            title:    `${h.name ?? 'A rival'} delisted`,
+            message:  haircut >= 1
+              ? `Your ${h.shares.toLocaleString()} shares were bought out at par — ${payout.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} credited.`
+              : `Your ${h.shares.toLocaleString()} shares were liquidated at a ${Math.round((1 - haircut) * 100)}% haircut — ${payout.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} credited.`,
+            duration: 9000,
+          });
+          continue;
+        }
+        const value = Math.round(h.shares * lastPrice);
+        portfolioValue += value;
+        newHoldings[heldId] = { ...h, lastPrice, lastValue: value };
+      }
+      const newPortfolio = {
+        holdings:         newHoldings,
+        realizedPnL:      (prevPortfolio.realizedPnL ?? 0) + delistRealized,
+        realizedThisWeek: 0,   // folded into this week's P&L line below
+        lastValuation:    portfolioValue,
+      };
+      const cashAfterInvesting = newCash + delistProceeds;
+      // Below-the-line P&L: realized trading gains/losses this week (sales made
+      // since the last tick + any forced liquidations just now). Recorded on the
+      // history entry for the Finance P&L, but NEVER part of `profit` — letting
+      // trades into operating profit would feed them back through the ×52 × P/E
+      // valuation loop the algorithm rework just closed.
+      historyEntry.investmentIncome = (prevPortfolio.realizedThisWeek ?? 0) + delistRealized;
+
+      // ── Player market cap (valuation v2) ─────────────────────────────────────
+      // Fundamentals (net book incl. fleet NAV & portfolio, minus debt; earnings
+      // with a confidence ramp) with convergence + clamp + noise. Multiplayer
+      // noise is server-seeded and injected via the tick action so every client
+      // sees the same authoritative print and none can predict or re-roll it;
+      // solo rolls locally.
+      const valuationNoise = isMultiplayerWorld
+        ? (Number.isFinite(action.valuationNoise) ? action.valuationNoise : 0)
+        : (Math.random() * 2 - 1) * VALUATION.NOISE_PCT;
+      const recentRevWeeks = newHistory.slice(-6);
+      const revenueHint    = recentRevWeeks.length
+        ? recentRevWeeks.reduce((s, h) => s + (h.revenue ?? 0), 0) / recentRevWeeks.length
+        : 0;
+      const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);
+      const { marketCap: newMarketCap, sharePrice: newSharePrice } =
+        computeMarketCap(playerProfitHistory, cashAfterInvesting, state.awareness ?? 5, {
+          fleetNAV:       fleetNAVOf(agedFleet),
+          debt:           loanOutstanding(updatedLoans),
+          portfolioValue,
+          prevMarketCap:  state.marketCap ?? null,
+          noise:          valuationNoise,
+          revenueHint,
+        });
+
       // ── Long-term statistics series (Finance ▸ Statistics page) ──────────────
       // A compact per-week KPI record retained far longer than financialHistory
       // (which stays capped at 52 weeks). Only lightweight scalars — no per-route
@@ -2735,7 +2865,12 @@ function reducer(state, action) {
         cargoRevenue:   report.totalCargoRevenue   ?? 0,
         cost:           historyEntry.totalCost,
         profit:         historyEntry.profit,
-        cash:           newCash,
+        cash:           cashAfterInvesting,
+        // Markets: this week's authoritative share price (drives price charts —
+        // own chart and, via the server rival payload, what rivals see) and the
+        // mark-to-market value of the stock portfolio.
+        sharePrice:     newSharePrice,
+        portfolioValue,
         // Efficiency
         loadFactor:     statAsk > 0 ? +(statRpk / statAsk).toFixed(4) : 0,
         yield:          statRpk > 0 ? +(statPaxRev / statRpk).toFixed(4) : 0,   // $ per RPK
@@ -2743,11 +2878,6 @@ function reducer(state, action) {
       };
       const statsCap = state.multiplayer ? STATS_HISTORY_CAP_MP : STATS_HISTORY_CAP;
       const newStats = [...(state.statsHistory ?? []), statsEntry].slice(-statsCap);
-
-      // ── Player market cap (trailing 12 weeks, using newHistory which includes this week) ──
-      const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);
-      const { marketCap: newMarketCap, sharePrice: newSharePrice } =
-        computeMarketCap(playerProfitHistory, newCash, state.awareness ?? 5);
 
       // ── Board objectives check ───────────────────────────────────────────────
       const objectivesEnabled = state.objectivesEnabled ?? true;
@@ -2759,7 +2889,7 @@ function reducer(state, action) {
         financialHistory: newHistory,
         lastReport:       report,
         weekProfit:       preTaxProfit - corporateTax,
-        cash:             newCash,
+        cash:             cashAfterInvesting,
         marketCap:        newMarketCap,
         year:             newYear,
         week:             newWeek,
@@ -2861,9 +2991,10 @@ function reducer(state, action) {
 
       return {
         ...state,
-        cash:              newCash + objectiveCashBonus,
+        cash:              cashAfterInvesting + objectiveCashBonus,
         week:              newWeek,
         year:              newYear,
+        portfolio:         newPortfolio,
         fleet:             finalFleet,
         routes:            finalRoutes,
         cargoRoutes:       finalCargoRoutes,
@@ -2919,7 +3050,7 @@ function reducer(state, action) {
         victoryAcknowledged: (rivalsGone && !state.gameWon) ? false : state.victoryAcknowledged,
         victoryStats:        (rivalsGone && !state.gameWon) ? {
           marketCap:   newMarketCap ?? state.marketCap ?? null,
-          cash:        newCash + objectiveCashBonus,
+          cash:        cashAfterInvesting + objectiveCashBonus,
           fleetCount:  finalFleet.filter(a => a.status !== 'retired').length,
           routeCount:  finalRoutes.length,
           airports:    Object.values(state.gates ?? {}).filter(n => n > 0).length,
@@ -2957,6 +3088,110 @@ function reducer(state, action) {
       return {
         ...state,
         hedgeContracts: [...(state.hedgeContracts ?? []), newContract],
+      };
+    }
+
+    case 'BUY_STOCK': {
+      // action: { targetId, shares }
+      // Buy shares in a rival airline at the current authoritative price. The
+      // price is NEVER taken from the action: it derives from state.competitors,
+      // which in multiplayer the server injects fresh from the DB before running
+      // the reducer (a client cannot fabricate it) and in solo is engine-owned.
+      // Friction (1% spread + 0.5% commission each way ≈ 3% round trip) makes
+      // churn and wash-trading lossy by construction.
+      const S      = STOCK_MARKET;
+      const target = (state.competitors ?? []).find(c => c.id === action.targetId);
+      const shares = Math.floor(Number(action.shares));
+      if (!target || !(shares > 0)) return state;
+      const price = (target.sharePrice ?? (target.marketCap ?? 0) / TOTAL_SHARES) || 0;
+      if (!(price > 0)) return state;
+
+      const portfolio  = state.portfolio ?? emptyPortfolio();
+      const held       = portfolio.holdings[action.targetId];
+      const heldShares = held?.shares ?? 0;
+
+      // Ownership cap: at most 20% of the rival's fixed 100M-share float.
+      if (heldShares + shares > S.MAX_OWNERSHIP_PCT * TOTAL_SHARES) return state;
+
+      const execPrice  = price * (1 + S.SPREAD_HALF);
+      const gross      = Math.round(shares * execPrice);
+      const commission = Math.round(gross * S.COMMISSION);
+      const totalCost  = gross + commission;
+      if (gross < S.MIN_TICKET) return state;          // no dust trades
+      if (state.cash < totalCost) return state;        // can't afford
+
+      // Sizing cap: total portfolio cost basis ≤ 40% of your own market cap —
+      // investing is a side-game; running the airline stays the main game.
+      const basisTotal = Object.values(portfolio.holdings ?? {})
+        .reduce((s, h) => s + (h?.costBasis ?? 0), 0);
+      if (basisTotal + totalCost > S.MAX_PORTFOLIO_PCT_OF_CAP * (state.marketCap ?? 0)) return state;
+
+      return {
+        ...state,
+        cash: state.cash - totalCost,
+        portfolio: {
+          ...portfolio,
+          holdings: {
+            ...portfolio.holdings,
+            [action.targetId]: {
+              shares:    heldShares + shares,
+              costBasis: (held?.costBasis ?? 0) + totalCost,   // commission included
+              name:      target.name ?? held?.name ?? 'Rival',
+              lastPrice: price,
+              lastValue: Math.round((heldShares + shares) * price),
+            },
+          },
+        },
+      };
+    }
+
+    case 'SELL_STOCK': {
+      // action: { targetId, shares } — sell at price × 0.99 minus 0.5% commission.
+      // No minimum ticket on sells: a residual position must always be exitable.
+      const S         = STOCK_MARKET;
+      const shares    = Math.floor(Number(action.shares));
+      const portfolio = state.portfolio ?? emptyPortfolio();
+      const held      = portfolio.holdings[action.targetId];
+      if (!held || !(shares > 0) || shares > held.shares) return state;
+      // Price from the live rival where possible; a rival mid-delisting falls
+      // back to the last marked price (the weekly tick will haircut anyway).
+      const target = (state.competitors ?? []).find(c => c.id === action.targetId);
+      const price  = target
+        ? ((target.sharePrice ?? (target.marketCap ?? 0) / TOTAL_SHARES) || 0)
+        : (held.lastPrice ?? 0);
+      if (!(price > 0)) return state;
+
+      const execPrice  = price * (1 - S.SPREAD_HALF);
+      const gross      = Math.round(shares * execPrice);
+      const commission = Math.round(gross * S.COMMISSION);
+      const proceeds   = gross - commission;
+      const avgCost    = held.costBasis / held.shares;
+      const realized   = proceeds - Math.round(avgCost * shares);
+      const remaining  = held.shares - shares;
+
+      const holdings = { ...portfolio.holdings };
+      if (remaining > 0) {
+        holdings[action.targetId] = {
+          ...held,
+          shares:    remaining,
+          costBasis: Math.round(held.costBasis - avgCost * shares),
+          lastPrice: price,
+          lastValue: Math.round(remaining * price),
+        };
+      } else {
+        delete holdings[action.targetId];
+      }
+      return {
+        ...state,
+        cash:      state.cash + proceeds,
+        portfolio: {
+          ...portfolio,
+          holdings,
+          realizedPnL:      (portfolio.realizedPnL ?? 0) + realized,
+          // Rolls into this week's P&L "investment income" line at the next tick
+          // (kept OUT of operating profit so trades can't feed the P/E valuation).
+          realizedThisWeek: (portfolio.realizedThisWeek ?? 0) + realized,
+        },
       };
     }
 
@@ -3205,6 +3440,10 @@ function reconcileState(parsed) {
     consecutiveNegativeWeeks: parsed.consecutiveNegativeWeeks ?? 0,
     bankruptcyReason:         parsed.bankruptcyReason         ?? null,
     cabinTemplates:           parsed.cabinTemplates           ?? [],
+    // Stock portfolio — added with the Markets feature; old saves start empty.
+    portfolio:                parsed.portfolio
+      ? { ...emptyPortfolio(), ...parsed.portfolio, holdings: { ...(parsed.portfolio.holdings ?? {}) } }
+      : emptyPortfolio(),
     // Market cap — compute on load if missing (old saves)
     marketCap:   parsed.marketCap   ?? (() => {
       const ph = (parsed.financialHistory ?? []).slice(-12).map(h => h.profit);

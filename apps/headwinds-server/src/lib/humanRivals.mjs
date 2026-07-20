@@ -148,6 +148,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     cash: Math.round(s.cash ?? 0),
     marketCap: Math.round(s.marketCap ?? 0),
     sharePrice: s.sharePrice ?? null,
+    // Markets tab: last 26 weekly share prices (tiny — ~26 floats per rival) so
+    // clients can chart every listed airline without extra reads.
+    sharePriceHistory: (s.statsHistory ?? [])
+      .slice(-26)
+      .map((e) => (typeof e.sharePrice === 'number' ? e.sharePrice : null)),
     profitHistory,
     weeklyStats: lastWeek
       ? {

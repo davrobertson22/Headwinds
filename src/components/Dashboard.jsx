@@ -442,6 +442,23 @@ export default function Dashboard({ onNavigate }) {
             onClick={canNavigate ? () => go('routes') : undefined}
           />
         )}
+        {(() => {
+          const holdings = Object.values(state.portfolio?.holdings ?? {}).filter(h => h?.shares > 0);
+          if (holdings.length === 0) return null;
+          const value = holdings.reduce((s, h) => s + Math.round((h.shares ?? 0) * (h.lastPrice ?? 0)), 0);
+          const basis = holdings.reduce((s, h) => s + (h.costBasis ?? 0), 0);
+          const pnl   = value - basis;
+          return (
+            <KpiBox
+              label="Stock Portfolio"
+              value={formatMoney(value)}
+              color={pnl >= 0 ? 'green' : 'red'}
+              sub={`${pnl >= 0 ? '+' : ''}${formatMoney(pnl)} unrealized · ${holdings.length} position${holdings.length !== 1 ? 's' : ''}`}
+              subColor={pnl >= 0 ? 'var(--green)' : 'var(--red)'}
+              onClick={canNavigate ? () => go('stocks') : undefined}
+            />
+          );
+        })()}
         <KpiBox
           label="Fleet"
           value={`${fleet.length} aircraft`}

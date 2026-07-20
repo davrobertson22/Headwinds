@@ -466,57 +466,175 @@ export function referencePrice(originCode, destCode) {
 export const TOTAL_SHARES = 100_000_000;
 
 /**
- * Compute market capitalisation and share price for an airline.
+ * Valuation model v2 — tunable constants (single source of truth; the stock
+ * market plan and any balance work reference these names).
+ */
+export const VALUATION = {
+  BOOK_WEIGHT:       0.85,     // fraction of net book value the market credits
+  FLEET_NAV_WEIGHT:  0.90,     // owned-fleet NAV haircut (illiquid asset)
+  BOOK_FLOOR:        0.40,     // fair value never drops below 40% of net book
+  MIN_EARNINGS_WEEKS: 4,       // earnings ignored entirely below this much history
+  EARNINGS_CONF_POW: 2,        // quadratic confidence ramp — short records barely count
+  LOSS_MULTIPLE:     4,        // distressed multiple on annualized losses
+  CONVERGENCE:       0.30,     // weekly convergence toward fair value
+  WEEKLY_MOVE_CLAMP: 0.20,     // max ±move per week (before noise)
+  NOISE_PCT:         0.015,    // ±1.5% weekly noise band
+  MIN_MARKET_CAP:    500_000,  // absolute floor
+};
+
+/**
+ * Outstanding balance of a loan book (present-value of remaining payments —
+ * the same math REPAY_LOAN and the weekly tick use). Pure over the engine's
+ * loan shape: { interestRate (annual), weeklyPayment, weeksRemaining }.
+ */
+export function loanOutstanding(loans) {
+  let total = 0;
+  for (const loan of loans ?? []) {
+    const n = loan.weeksRemaining ?? 0;
+    if (n <= 0) continue;
+    const weeklyRate = (loan.interestRate ?? 0) / 52;
+    total += weeklyRate > 0
+      ? Math.round(loan.weeklyPayment * (1 - Math.pow(1 + weeklyRate, -n)) / weeklyRate)
+      : Math.round((loan.weeklyPayment ?? 0) * n);
+  }
+  return total;
+}
+
+/**
+ * Compute market capitalisation and share price for an airline (valuation v2).
+ *
+ * Fundamentals: net book value (cash + discounted fleet NAV + stock portfolio
+ * − outstanding debt) plus an earnings component (annualized trailing profit ×
+ * a growth/quality P/E, scaled by a history-confidence ramp). The published
+ * price then CONVERGES toward that fair value — clamped to ±20% a week, with a
+ * small noise term — instead of teleporting, so single-week windfalls, loan
+ * draws, and asset shuffles can't spike the price (or the leaderboard, or the
+ * stock market) in one tick.
+ *
+ * Backward compatible: called with only (profitHistory, cash, qualityScore) it
+ * returns the pure fair value (no smoothing) — used for cold valuations such
+ * as save-load fallbacks and acquisition pricing.
  *
  * @param {number[]} profitHistory  Weekly profit figures, most-recent last (up to last 12 used).
  * @param {number}   cash           Current cash balance.
  * @param {number}   [qualityScore] 0–100 quality/reputation score; defaults to 50.
+ * @param {object}   [extras]
+ * @param {number}   [extras.fleetNAV]       Depreciated value of OWNED aircraft ($).
+ * @param {number}   [extras.debt]           Outstanding loan balance ($) — see loanOutstanding().
+ * @param {number}   [extras.portfolioValue] Mark-to-market value of stock held in rivals ($).
+ * @param {number}   [extras.prevMarketCap]  Last week's market cap — enables convergence/clamp.
+ * @param {number}   [extras.noise]          Pre-rolled noise fraction (e.g. ±0.015). Multiplayer
+ *                                           passes a server-seeded value; solo rolls locally.
+ * @param {number}   [extras.revenueHint]    Recent avg weekly revenue ($) — stabilises the growth
+ *                                           denominator and the loss-cliff interpolation width.
  * @returns {{ marketCap: number, sharePrice: number, peMultiple: number|null,
- *             annualizedProfit: number|null, growthRate: number|null }}
+ *             annualizedProfit: number|null, growthRate: number|null,
+ *             fairValue: number, netBook: number }}
  */
-export function computeMarketCap(profitHistory, cash, qualityScore = 50) {
+export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras = {}) {
+  const {
+    fleetNAV = 0, debt = 0, portfolioValue = 0,
+    prevMarketCap = null, noise = 0, revenueHint = 0,
+  } = extras;
+  const V = VALUATION;
+
+  // ── Net book value: what the airline is worth if it stopped flying ──────────
+  const netBook = (cash ?? 0)
+                + V.FLEET_NAV_WEIGHT * Math.max(0, fleetNAV)
+                + Math.max(0, portfolioValue)
+                - Math.max(0, debt);
+
   const weeks = (profitHistory ?? []).slice(-12);
 
-  // Not enough history — value purely on cash
-  if (weeks.length < 2) {
-    const marketCap = Math.max(cash * 1.5, 500_000);
-    return { marketCap, sharePrice: marketCap / TOTAL_SHARES, peMultiple: null, annualizedProfit: null, growthRate: null };
+  let peMultiple = null, annualizedProfit = null, growthRate = null, earningsValue = 0;
+  if (weeks.length >= V.MIN_EARNINGS_WEEKS) {
+    const trailingAvg = weeks.reduce((s, p) => s + p, 0) / weeks.length;
+    annualizedProfit  = Math.round(trailingAvg * 52);
+
+    // Confidence ramp (quadratic, min 4 weeks): a young airline is valued on
+    // book, not on (a few good weeks) × 52 × P/E — earnings only dominate once
+    // there's a real record. 4wks → 0.11, 6wks → 0.25, 12wks → 1.0.
+    const confidence = Math.pow(weeks.length / 12, V.EARNINGS_CONF_POW);
+
+    // Growth: recent 6 weeks vs the prior window, with the denominator floored
+    // (5% of weekly revenue, min $50k) so a near-zero prior can't explode it.
+    const recentSlice = weeks.slice(-6);
+    const priorSlice  = weeks.slice(0, Math.max(0, weeks.length - 6));
+    const recentAvg   = recentSlice.reduce((s, p) => s + p, 0) / recentSlice.length;
+    const priorAvg    = priorSlice.length > 0
+      ? priorSlice.reduce((s, p) => s + p, 0) / priorSlice.length
+      : 0;
+    const growthDenom = Math.max(Math.abs(priorAvg), 0.05 * Math.max(0, revenueHint), 50_000);
+    growthRate = Math.max(-1, Math.min(1, (recentAvg - priorAvg) / growthDenom));
+
+    // P/E multiple: base 12, growth bonus (−5..+15), quality bonus (0..+5)
+    const growthBonus     = Math.max(-5, Math.min(15, growthRate * 20));
+    const reputationBonus = (Math.max(0, Math.min(100, qualityScore)) / 100) * 5;
+    peMultiple            = 12 + growthBonus + reputationBonus;
+
+    // Smooth the profitable↔loss cliff: the effective multiple interpolates
+    // from LOSS_MULTIPLE (deep loss) to full P/E (solid profit) across a band
+    // of ±4 weeks' revenue, so crossing zero re-rates over several weeks
+    // instead of stepping 5× → 30× in one tick. Continuous at zero by
+    // construction (earnings term is 0 there regardless of multiple).
+    const band = Math.max(4 * Math.max(0, revenueHint), 1_000_000);
+    const t    = Math.max(0, Math.min(1, (annualizedProfit + band) / (2 * band)));
+    const mult = V.LOSS_MULTIPLE + (peMultiple - V.LOSS_MULTIPLE) * t;
+
+    earningsValue = annualizedProfit * mult * confidence;
   }
 
-  const trailing12Profit  = weeks.reduce((s, p) => s + p, 0);
-  const annualizedProfit  = Math.round(trailing12Profit * (52 / weeks.length));
+  // ── Fair value, floored ────────────────────────────────────────────────────
+  const fairValue = Math.max(
+    V.BOOK_WEIGHT * netBook + earningsValue,
+    V.BOOK_FLOOR * netBook,
+    V.MIN_MARKET_CAP,
+  );
 
-  // Growth: compare avg of most-recent 6 weeks vs avg of the prior window
-  const recentSlice = weeks.slice(-6);
-  const priorSlice  = weeks.slice(0, Math.max(0, weeks.length - 6));
-  const recentAvg   = recentSlice.reduce((s, p) => s + p, 0) / recentSlice.length;
-  const priorAvg    = priorSlice.length > 0
-    ? priorSlice.reduce((s, p) => s + p, 0) / priorSlice.length
-    : 0;
-  const growthRate  = priorAvg !== 0
-    ? (recentAvg - priorAvg) / Math.abs(priorAvg)
-    : (recentAvg > 0 ? 0.5 : 0);
-
-  // P/E multiple: base 12, ±growth bonus (−5 to +15), +quality bonus (0–5)
-  const growthBonus     = Math.max(-5, Math.min(15, growthRate * 20));
-  const reputationBonus = (Math.max(0, Math.min(100, qualityScore)) / 100) * 5;
-  const peMultiple      = 12 + growthBonus + reputationBonus;
-
-  // Profitable companies get full P/E; loss-making ones get 5× (distressed)
-  const profitComponent = annualizedProfit >= 0
-    ? annualizedProfit * peMultiple
-    : annualizedProfit * 5;
-
-  const marketCap  = Math.max(profitComponent + cash * 0.8, 500_000);
-  const sharePrice = marketCap / TOTAL_SHARES;
+  // ── Path-dependent price: converge, clamp, noise ───────────────────────────
+  // Without a previous cap (cold valuation) the fair value is published as-is.
+  let marketCap;
+  if (Number.isFinite(prevMarketCap) && prevMarketCap > 0) {
+    const target  = prevMarketCap + V.CONVERGENCE * (fairValue - prevMarketCap);
+    const clamped = Math.min(
+      prevMarketCap * (1 + V.WEEKLY_MOVE_CLAMP),
+      Math.max(prevMarketCap * (1 - V.WEEKLY_MOVE_CLAMP), target),
+    );
+    const n = Math.max(-V.NOISE_PCT, Math.min(V.NOISE_PCT, Number.isFinite(noise) ? noise : 0));
+    marketCap = Math.max(clamped * (1 + n), V.MIN_MARKET_CAP);
+  } else {
+    marketCap = fairValue;
+  }
 
   return {
     marketCap,
-    sharePrice,
-    peMultiple:       Math.round(peMultiple * 10) / 10,
+    sharePrice: marketCap / TOTAL_SHARES,
+    peMultiple: peMultiple != null ? Math.round(peMultiple * 10) / 10 : null,
     annualizedProfit,
     growthRate,
+    fairValue,
+    netBook,
   };
+}
+
+// ─── Stock market (trading rivals' shares) ─────────────────────────────────────
+// Constants shared by the engine reducer (BUY_STOCK / SELL_STOCK), the server
+// decision guard, and the trading UI. Round trip ≈ 3% (spread + commission both
+// ways) so churn and wash-trading are lossy by construction.
+export const STOCK_MARKET = {
+  SPREAD_HALF:              0.01,      // buy at price×1.01, sell at price×0.99
+  COMMISSION:               0.005,     // 0.5% of gross, each way
+  MAX_OWNERSHIP_PCT:        0.20,      // max fraction of one rival's shares you may own
+  MAX_PORTFOLIO_PCT_OF_CAP: 0.40,      // portfolio cost basis ≤ 40% of your own market cap
+  MIN_TICKET:               100_000,   // minimum gross per trade ($)
+  DELIST_HAIRCUT:           0.75,      // forced-liquidation payout on delisting (purge/abandon)
+  BANKRUPT_HAIRCUT:         0.50,      // payout when a held carrier goes bankrupt (solo AI)
+  SHARE_PRICE_HISTORY_WEEKS: 26,       // rival price history exposed to clients
+};
+
+/** Fresh empty portfolio (also the migration default for old saves). */
+export function emptyPortfolio() {
+  return { holdings: {}, realizedPnL: 0, lastValuation: 0 };
 }
 
 // ─── Cargo demand ───────────────────────────────────────────────────────────────

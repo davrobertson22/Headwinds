@@ -365,6 +365,26 @@ const WIKI = [
     ],
   },
   {
+    id: 'stocks',
+    icon: '📈',
+    title: 'Stock Market',
+    blurb: 'Buy shares in rival airlines',
+    blocks: [
+      { p: 'Every airline in the market is listed on the **Stocks** tab at a share price set by its fundamentals: profits and growth, cash, owned fleet, and debt. Prices move once per weekly tick — capped at **±20% a week** plus a little market noise — so they follow real performance rather than teleporting.' },
+      { h: 'Trading' },
+      { p: 'You can **buy and sell shares in any rival**. Buys execute 1% above the market price and sells 1% below (the spread), plus a **0.5% commission** each way — a round trip costs about 3%, so trading pays only when you\'re right about where an airline is headed. Study a rival\'s profit trend, fares and network in the Competition tab, then back your read with cash.' },
+      { h: 'Your portfolio' },
+      { ul: [
+        '**Unrealized gains** — your holdings are marked to market weekly and count toward your **own market cap** (they sit on your balance sheet as investments), so smart positions lift your rank.',
+        '**Realized gains** — selling turns paper profit into cash. Trading P&L shows on the Finance page as **investment income**, below the line: it never inflates your operating profit or your own P/E valuation.',
+        '**Limits** — you can own at most **20% of any one airline**, and your total invested cost is capped at **40% of your own market cap**. Minimum trade $100k.',
+      ] },
+      { h: 'Risk' },
+      { warn: 'If an airline you hold goes under or leaves the world, the position is force-liquidated at a haircut (half your marked value in a bankruptcy). A cheap, struggling airline can be a bargain turnaround bet — or a write-off.' },
+      { tip: 'Your own airline isn\'t tradeable — your share price IS the scoreboard. The same clean-fundamentals model prices everyone, so there\'s no pumping your cap with loans or asset shuffles: only real performance moves the price.' },
+    ],
+  },
+  {
     id: 'finance',
     icon: '💰',
     title: 'Finance',

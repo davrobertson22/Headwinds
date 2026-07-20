@@ -495,6 +495,9 @@ function PLStatement({ proj }) {
   const margin  = totRev > 0 ? ebit / totRev : 0;
   const corporateTax = proj.corporateTax;       // tax base matches the engine (EBT)
   const ytdCorporateTax = ytd(financialHistory, 'corporateTax');
+  // Realized stock-trading P&L (below the line — excluded from operating profit
+  // and from the valuation model's earnings; see the Stocks tab).
+  const ytdInvestmentIncome = ytd(financialHistory, 'investmentIncome');
   // Bottom line = the actual weekly cash change (matches the `profit` stored in
   // history): EBITDA − loan payments − tax. Depreciation is non-cash and shown
   // as a memo, NOT deducted (the engine never deducts it from cash).
@@ -1378,6 +1381,19 @@ function PLStatement({ proj }) {
               </td>
             </tr>
 
+            {/* ── Below the line: realized stock-market P&L ─────────────────── */}
+            {(ytdInvestmentIncome !== 0 || (pw?.investmentIncome ?? 0) !== 0) && (
+              <tr>
+                <td style={{ paddingLeft: 28, color: 'var(--text-muted)', fontSize: 13 }}>
+                  Investment income (stock trades)
+                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-dim)' }}>realized · below the line — not part of operating income</span>
+                </td>
+                {pw && <td style={{ textAlign: 'right', fontSize: 12, color: (pw.investmentIncome ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{(pw.investmentIncome ?? 0) !== 0 ? formatMoney(pw.investmentIncome) : '—'}</td>}
+                <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-dim)' }}>settles at tick</td>
+                <td style={{ textAlign: 'right', fontSize: 12, color: ytdInvestmentIncome >= 0 ? 'var(--green)' : 'var(--red)' }}>{ytdInvestmentIncome !== 0 ? formatMoney(ytdInvestmentIncome) : '—'}</td>
+              </tr>
+            )}
+
             {/* ── Reconciliation: accrual net income → actual weekly cash change ── */}
             <PLCategoryHeader label="Reconciliation to Cash" />
             <LineItem label="Net income (accrual)" weekly={netIncomeAccrual} ytd={null} prior={undefined} />
@@ -1460,7 +1476,10 @@ function BalanceSheet() {
     return { aircraft: a, type, bookValue: aircraftBookValue(a, type) };
   });
   const totalFleetValue = ownedFleet.reduce((s, f) => s + f.bookValue, 0);
-  const totalAssets = cash + totalFleetValue;
+  // Stock portfolio (shares held in rival airlines), at last mark-to-market.
+  const stockHoldings = Object.values(state.portfolio?.holdings ?? {}).filter(h => h?.shares > 0);
+  const totalInvestments = stockHoldings.reduce((s, h) => s + Math.round((h.shares ?? 0) * (h.lastPrice ?? 0)), 0);
+  const totalAssets = cash + totalFleetValue + totalInvestments;
 
   // Loan liabilities — outstanding balance on each active loan
   const activeLoans = state.loans ?? [];
@@ -1519,6 +1538,22 @@ function BalanceSheet() {
                 <BSSectionHeader label="Current Assets" />
                 <BSRow label="Cash and cash equivalents" value={cash} indent={1} bold />
                 <BSTotalRow label="Total Current Assets" value={cash} />
+
+                {stockHoldings.length > 0 && (
+                  <>
+                    <BSSectionHeader label="Investments · Stock in rival airlines (at market)" />
+                    {stockHoldings.map((h, i) => (
+                      <BSRow
+                        key={i}
+                        label={h.name ?? 'Rival airline'}
+                        sublabel={`${(h.shares ?? 0).toLocaleString()} shares · cost ${formatMoney(h.costBasis ?? 0)}`}
+                        value={Math.round((h.shares ?? 0) * (h.lastPrice ?? 0))}
+                        indent={1}
+                      />
+                    ))}
+                    <BSTotalRow label="Total Investments" value={totalInvestments} />
+                  </>
+                )}
 
                 {ownedFleet.length > 0 && (
                   <>

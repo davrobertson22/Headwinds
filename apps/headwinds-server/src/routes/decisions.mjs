@@ -179,14 +179,16 @@ export default async function decisionRoutes(fastify) {
     // Server-authoritative validation of economic values the solo client would
     // normally clamp in its UI (loan terms, cabin layout, reconfigure cost). The
     // client is untrusted in multiplayer; re-derive/bound these before the reducer.
-    guardDecision(type, payload, airline.state);
+    // Guards may also SANITIZE: the returned payload (e.g. stock trades come
+    // back whitelisted to { targetId, shares }) is what actually runs & journals.
+    const guarded = guardDecision(type, payload, airline.state) ?? payload;
 
     // Authoritative computation — same reducer as the solo game and the tick.
     // Run it over the rival-injected view so (a) the stored blob is scrubbed of
     // any pre-humans-only AI competitors, and (b) the response the client
     // re-renders from shows the same rivals the read path does.
     const view = await rivalViewFor(airline, await worldStampOf(airline.worldId));
-    const next = gameReducer(withRivals(airline.state, view), { type, ...payload });
+    const next = gameReducer(withRivals(airline.state, view), { type, ...guarded });
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -211,7 +213,7 @@ export default async function decisionRoutes(fastify) {
             airlineId: airline.id,
             week: weekIndex(airline.world),
             type,
-            payload,
+            payload: guarded,
           },
         });
       });

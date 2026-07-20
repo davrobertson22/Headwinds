@@ -9,6 +9,7 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
+import { VALUATION } from '@tailwinds/engine/utils/market.js';
 import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
@@ -118,9 +119,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const computed = [];
   for (const airline of airlines) {
     try {
+      // Valuation noise: seeded per (world, week, airline) — deterministic, so a
+      // retried tick reproduces the same print, but unknowable in advance, so
+      // nobody can compute next week's exact price and arb the stock market.
+      const valuationNoise = (seededRand(world.worldSeed ?? world.id, `mcnoise:${toIndex}:${airline.id}`) * 2 - 1) * VALUATION.NOISE_PCT;
       const next = gameReducer(
         withRivals(airline.state, rivalViews.get(airline.id)),
-        { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents },
+        { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise },
       );
       computed.push({
         airline,

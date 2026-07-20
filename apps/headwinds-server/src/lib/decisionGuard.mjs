@@ -132,11 +132,35 @@ function guardOrderAircraft(payload) {
 }
 
 // Dispatch. Mutates/returns the payload; throws GuardError (400) on violation.
+// ── Stock trades ─────────────────────────────────────────────────────────────
+// The economics are already server-authoritative: the reducer prices every
+// trade from the server-injected rival view and ignores any price field in the
+// payload. The guard's job is shape hygiene — sane ids, integer share counts —
+// and stripping fields a crafted client might add hoping a future reducer
+// version trusts them.
+const STOCK_MAX_SHARES = 100_000_000; // TOTAL_SHARES — one full float
+
+function guardStockTrade(payload) {
+  const targetId = payload.targetId;
+  if (typeof targetId !== 'string' || targetId.length === 0 || targetId.length > 80) {
+    throw new GuardError('Invalid trade target.');
+  }
+  const shares = Number(payload.shares);
+  if (!Number.isFinite(shares) || !Number.isInteger(shares) || shares <= 0 || shares > STOCK_MAX_SHARES) {
+    throw new GuardError('Invalid share count.');
+  }
+  // Whitelist the payload — anything else (pricePerShare, spread overrides,
+  // ...) is dropped before the reducer ever sees it.
+  return { targetId, shares };
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
+    case 'BUY_STOCK':
+    case 'SELL_STOCK':         return guardStockTrade(payload);
     default:                   return payload;
   }
 }
