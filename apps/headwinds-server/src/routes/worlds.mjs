@@ -3,6 +3,12 @@ import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
+import { allow } from '../lib/rateLimit.mjs';
+
+// Join/leave are rare, deliberate actions — 20 per minute per account is far
+// above any real use and stops join/leave churn from spamming inserts/deletes.
+const MEMBERSHIP_LIMIT   = 20;
+const MEMBERSHIP_WINDOWMS = 60_000;
 import {
   serializeWorld, serializeAirline,
   MIN_LENGTH_YEARS, MAX_LENGTH_YEARS, MIN_WEEKS_PER_DAY, MAX_WEEKS_PER_DAY,
@@ -364,6 +370,9 @@ export default async function worldRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
+    if (!allow(`join:${request.account.id}`, MEMBERSHIP_LIMIT, MEMBERSHIP_WINDOWMS)) {
+      return reply.code(429).send({ error: 'Too many join/leave attempts — try again shortly.' });
+    }
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
 
@@ -382,6 +391,9 @@ export default async function worldRoutes(fastify) {
     preHandler: requireAuth,
     schema: { params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
   }, async (request, reply) => {
+    if (!allow(`join:${request.account.id}`, MEMBERSHIP_LIMIT, MEMBERSHIP_WINDOWMS)) {
+      return reply.code(429).send({ error: 'Too many join/leave attempts — try again shortly.' });
+    }
     const airline = await prisma.airline.findUnique({
       where: { worldId_accountId: { worldId: request.params.id, accountId: request.account.id } },
     });

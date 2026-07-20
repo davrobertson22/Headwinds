@@ -259,6 +259,24 @@ export function withRivals(state, view) {
   };
 }
 
+// Inverse of withRivals for PERSISTENCE. The competitor/alliance/badge fields
+// injected above are rebuilt from scratch on every read and tick, so persisting
+// them bloats each airline's stored blob with a full copy of all its rivals'
+// state — O(P^2) storage and egress that grows with the player count. Strip them
+// before writing to the DB. withRivals always runs again before the reducer next
+// touches this blob, so the stripped fields are always re-injected in time.
+// Real gameplay fields that withRivals seeds (multiplayer, starterDeliveriesUsed)
+// are intentionally preserved.
+export function stripRivals(state) {
+  if (!state || typeof state !== 'object') return state;
+  const {
+    competitors, humanRivals, encroachments,
+    allianceMembership, allianceDef, accountOG, accountDev,
+    ...rest
+  } = state;
+  return rest;
+}
+
 // ── Rival-view cache (API process) ────────────────────────────────────────────
 // Every open game polls its airline read, and each uncached build loads EVERY
 // active airline's FULL state blob — the single biggest Supabase egress driver.

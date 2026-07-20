@@ -31,6 +31,10 @@ async function loadMyAirline(request) {
         accountId: request.account.id,
       },
     },
+    // Only the identity columns are used here (id/worldId/status) — never the
+    // large `state` JSONB. This handler is polled every ~20s for the unread
+    // badge, so shipping the full blob was a major, needless egress cost.
+    select: { id: true, worldId: true, status: true },
   });
   if (!airline) throw httpError(404, 'You have no airline in this world');
   return airline;

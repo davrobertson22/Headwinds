@@ -19,8 +19,12 @@ import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 // hand itself any save). Keep in sync with the reducer's `case` list when new
 // actions land in a Tailwinds sync.
 export const ALLOWED_PLAYER_ACTIONS = new Set([
-  // Fleet
-  'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT',
+  // Fleet — NOTE: LEASE_AIRCRAFT is intentionally NOT allowed. Its reducer case
+  // adds an aircraft with no cash check, deposit, or delivery lead time (free
+  // instant fleet). Multiplayer leasing goes through ORDER_AIRCRAFT, which charges
+  // the deposit + fitting fee and gates on affordability. The solo UI never
+  // dispatches LEASE_AIRCRAFT.
+  'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT',
   'RENEW_LEASE', 'EXTEND_LEASE', 'BUY_OUT_LEASE', 'ORDER_AIRCRAFT', 'CANCEL_ORDER', 'RENAME_ORDER',
   'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
   // Routes — passenger, cargo, tag

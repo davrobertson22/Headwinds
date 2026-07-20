@@ -25,6 +25,8 @@ async function loadMyAirline(request) {
         accountId: request.account.id,
       },
     },
+    // Alliance routes only need identity columns — never the large `state` blob.
+    select: { id: true, worldId: true, status: true },
   });
   if (!airline) throw httpError(404, 'You have no airline in this world');
   if (airline.status !== 'ACTIVE') throw httpError(409, `Your airline is ${airline.status}`);
@@ -68,6 +70,7 @@ export default async function allianceRoutes(fastify) {
       const account = await resolveAccount(request);
       myAirline = await prisma.airline.findUnique({
         where: { worldId_accountId: { worldId, accountId: account.id } },
+        select: { id: true },   // only .id is used below — skip the state blob
       });
     } catch { /* anonymous */ }
 

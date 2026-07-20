@@ -35,6 +35,21 @@ function bearerToken(request) {
   return token;
 }
 
+// ── Verified-token cache ──────────────────────────────────────────────────────
+// In-process cache of verified token → Account, so a player's frequent polls
+// (airline 25s, messages 20s, feed, lobby…) don't each pay a Supabase getUser()
+// network round-trip AND an Account upsert (a DB write). The token itself is the
+// key: a forged token can't seed the cache because it must clear getUser() once.
+// TTL is short so a ban / OG / admin change takes effect within seconds.
+const ACCOUNT_TTL_MS = 30_000;
+const accountCache = new Map(); // token -> { account, at }
+let lastAuthSweep = 0;
+function sweepAuthCache(now) {
+  if (now - lastAuthSweep < 60_000) return;
+  lastAuthSweep = now;
+  for (const [k, v] of accountCache) if (now - v.at > ACCOUNT_TTL_MS) accountCache.delete(k);
+}
+
 // A banned account is one an admin has locked out. The ban is account-wide, so
 // we enforce it here — one gate covers every authenticated route in the app.
 export function isBanned(account) {
@@ -47,6 +62,22 @@ export function isBanned(account) {
 export async function resolveAccount(request) {
   const token = bearerToken(request);
   if (!token) throw unauthorized('Missing Authorization: Bearer <token>');
+
+  // Fast path: token verified recently. Still re-checks the ban flag each time
+  // (on the cached row — at most TTL stale), so a fresh ban blocks within seconds.
+  const now = Date.now();
+  sweepAuthCache(now);
+  const hit = accountCache.get(token);
+  if (hit && now - hit.at < ACCOUNT_TTL_MS) {
+    if (isBanned(hit.account)) {
+      throw forbidden(
+        hit.account.banReason
+          ? `Your account has been banned: ${hit.account.banReason}`
+          : 'Your account has been banned.'
+      );
+    }
+    return hit.account;
+  }
 
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) throw unauthorized('Invalid or expired session');
@@ -64,7 +95,8 @@ export async function resolveAccount(request) {
     create: { authUserId: user.id, email, displayName },
   });
 
-  // Banned accounts are stopped here — before they can touch any world.
+  // Banned accounts are stopped here — before they can touch any world (and are
+  // NOT cached, so an unban takes effect on their next request).
   if (isBanned(account)) {
     throw forbidden(
       account.banReason
@@ -73,6 +105,7 @@ export async function resolveAccount(request) {
     );
   }
 
+  accountCache.set(token, { account, at: now });
   return account;
 }
 

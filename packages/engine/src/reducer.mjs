@@ -67,6 +67,12 @@ import { initialObjectives, initialObjectivesForState, checkObjectives, getObjec
 // longest period filter (30 years) with headroom. Only lightweight scalar fields
 // are stored per week, so even at the cap this is a small slice of the save.
 const STATS_HISTORY_CAP = 1820;
+// Multiplayer worlds sync/store this series inside every airline's state blob,
+// which is re-read on polls and re-read+re-written every tick — so an unbounded
+// series directly inflates Supabase egress. A season spans at most a few years,
+// so cap the multiplayer series far lower (260 weeks = 5 game years). Solo saves
+// keep the full 35-year history; the Statistics page has ample range in both.
+const STATS_HISTORY_CAP_MP = 260;
 
 // ─────────────────────────────────────────────
 // ROUTE TRANSFER (Fleet: move every route from one tail to another)
@@ -1616,10 +1622,12 @@ function reducer(state, action) {
     }
 
     case 'SET_MARKETING_BUDGET': {
-      // action: { amount } — weekly brand spend in dollars, 0 = no marketing
+      // action: { amount } — weekly brand spend in dollars, 0 = no marketing.
+      // Coerce first: a missing/non-numeric amount would make Math.max(0, NaN)
+      // NaN, which then poisons awareness/demand math (and JSON-degrades to null).
       return {
         ...state,
-        marketingBudget: Math.max(0, Math.round(action.amount)),
+        marketingBudget: Math.max(0, Math.round(Number(action.amount) || 0)),
       };
     }
 
@@ -1692,12 +1700,13 @@ function reducer(state, action) {
     }
 
     case 'SET_LOYALTY_INVESTMENT': {
-      // action: { amount } — weekly spend in dollars, 0 = no program
+      // action: { amount } — weekly spend in dollars, 0 = no program.
+      // Coerce first so a missing/non-numeric amount can't inject NaN.
       return {
         ...state,
         loyalty: {
           ...(state.loyalty ?? { members: 0 }),
-          weeklyInvestment: Math.max(0, Math.round(action.amount)),
+          weeklyInvestment: Math.max(0, Math.round(Number(action.amount) || 0)),
         },
       };
     }
@@ -1920,12 +1929,27 @@ function reducer(state, action) {
 
     case 'ADVANCE_WEEK': { try {
       // ── Events: tick existing, roll for new ──────────────────────────────
-      const { updated: survivingEvents, expired: expiredEvents } =
-        tickEvents(state.activeEvents ?? []);
-      // Headwinds multiplayer: suppress solo-only events that assume a fictional
-      // AI rival airline (see SOLO_ONLY_EVENTS in data/events.js). No-op in solo.
-      const newEvents  = rollEvents(survivingEvents, { multiplayer: state.multiplayer === true });
-      const allEvents  = [...survivingEvents, ...newEvents];
+      // Multiplayer: the world computes ONE shared event set per week (server
+      // tick) and injects it via action.worldEvents, so every airline in the
+      // world faces the same booms/crises that week — a fair shared economy.
+      // Solo (or any tick with no injected set) rolls its own as before.
+      // Headwinds also suppresses solo-only events that assume a fictional AI
+      // rival airline (see SOLO_ONLY_EVENTS in data/events.js). No-op in solo.
+      let survivingEvents, expiredEvents, newEvents, allEvents;
+      const injectedEvents = (state.multiplayer === true && Array.isArray(action.worldEvents))
+        ? action.worldEvents : null;
+      if (injectedEvents) {
+        const prevIds = new Set((state.activeEvents ?? []).map(e => e.id));
+        const nowIds  = new Set(injectedEvents.map(e => e.id));
+        survivingEvents = injectedEvents.filter(e => prevIds.has(e.id));
+        newEvents       = injectedEvents.filter(e => !prevIds.has(e.id));
+        expiredEvents   = (state.activeEvents ?? []).filter(e => !nowIds.has(e.id));
+        allEvents       = injectedEvents;
+      } else {
+        ({ updated: survivingEvents, expired: expiredEvents } = tickEvents(state.activeEvents ?? []));
+        newEvents  = rollEvents(survivingEvents, { multiplayer: state.multiplayer === true });
+        allEvents  = [...survivingEvents, ...newEvents];
+      }
 
       // ── Compute event effects on this week's finances ──────────────────
       // Fuel shocks scale the fuel multiplier below. Demand shocks (global +
@@ -1939,15 +1963,24 @@ function reducer(state, action) {
       }
 
       // ── Fuel price + hedging ──────────────────────────────────────────
-      const currentFuelIndex = state.fuelPrice?.index ?? 1.0;
+      // Multiplayer: the world computes a single shared fuel index per week
+      // (server tick, seeded from worldSeed) and injects it via
+      // action.worldFuelIndex, so every airline pays the same market price that
+      // week. Solo keeps its own per-save random walk.
+      const injectedFuel = (state.multiplayer === true
+        && typeof action.worldFuelIndex === 'number'
+        && Number.isFinite(action.worldFuelIndex))
+        ? action.worldFuelIndex : null;
+      const currentFuelIndex = injectedFuel ?? state.fuelPrice?.index ?? 1.0;
       const nowAbsWeek       = absoluteWeek(state.year, state.week);
       const allHedges        = state.hedgeContracts ?? [];
       const activeHedges     = allHedges.filter(h => h.expiryAbsWeek > nowAbsWeek);
       // effectiveFuelMultiplier blends hedged (locked price) + unhedged (market index),
       // then scaled by any active event fuel multiplier so the event flows through simulation
       const fuelMultiplier   = effectiveFuelMultiplier(currentFuelIndex, activeHedges) * fuelMult;
-      // Tick market price for NEXT week
-      const nextFuelIndex    = tickFuelPrice(currentFuelIndex);
+      // Next week's stored index: in MP the world injects it each tick, so persist
+      // the shared value; in solo, tick the per-save market price forward.
+      const nextFuelIndex    = injectedFuel != null ? injectedFuel : tickFuelPrice(currentFuelIndex);
       const fuelPriceHistory = [...(state.fuelPrice?.history ?? []), currentFuelIndex].slice(-52);
       // Drop contracts that have now expired
       const liveHedges       = allHedges.filter(h => h.expiryAbsWeek > nowAbsWeek);
@@ -2708,7 +2741,8 @@ function reducer(state, action) {
         yield:          statRpk > 0 ? +(statPaxRev / statRpk).toFixed(4) : 0,   // $ per RPK
         ask:            Math.round(statAsk),
       };
-      const newStats = [...(state.statsHistory ?? []), statsEntry].slice(-STATS_HISTORY_CAP);
+      const statsCap = state.multiplayer ? STATS_HISTORY_CAP_MP : STATS_HISTORY_CAP;
+      const newStats = [...(state.statsHistory ?? []), statsEntry].slice(-statsCap);
 
       // ── Player market cap (trailing 12 weeks, using newHistory which includes this week) ──
       const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);

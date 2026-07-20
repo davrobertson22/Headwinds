@@ -8,7 +8,14 @@ export default async function meRoutes(fastify) {
     const account = request.account;
     const airlines = await prisma.airline.findMany({
       where: { accountId: account.id },
-      include: { world: true },
+      // Select only the scalar columns serializeAirline needs — NOT the large
+      // `state` JSONB blob, which /me discards. Avoids pulling megabytes of state
+      // (one blob per world the account is in) on every app boot / join / leave.
+      select: {
+        id: true, worldId: true, name: true, hub: true,
+        cash: true, marketCap: true, week: true, status: true, joinedWeek: true,
+        world: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
     return {

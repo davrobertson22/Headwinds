@@ -9,8 +9,42 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
+import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
+import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
-import { buildWorldRivalViews, withRivals } from './humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
+
+// A commit that writes N airline blobs sequentially must not be capped by Prisma's
+// default 5s interactive-transaction timeout — at scale that timed out and rolled
+// the whole week back, so the world could never advance. Give it real headroom.
+const TICK_TX_OPTS = { timeout: 30_000, maxWait: 15_000 };
+
+// ── Shared world economy (fuel + events) ──────────────────────────────────────
+// Without this, each airline rolled its OWN fuel price and its OWN events, so two
+// rivals in the "same" world paid different fuel and saw different booms/crises —
+// the leaderboard partly reflected private dice. We now compute ONE fuel index
+// and ONE event set per world-week and inject them into every airline's tick.
+
+// Deterministic uniform [0,1) from a string seed + salt (xfnv1a hash → mulberry32).
+function seededRand(seedStr, salt) {
+  let h = 2166136261 >>> 0;
+  const s = `${seedStr}:${salt}`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h += 0x6d2b79f5;
+  let t = h >>> 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+// The world-shared fuel index at a given 1-based week — replayed from the base
+// index through the SAME OU walk the solo game uses, but with a per-world-week
+// seeded shock, so it's identical for every airline and reproducible.
+function worldFuelIndex(seed, weekIndex) {
+  let idx = FUEL_BASE_INDEX;
+  for (let w = 1; w <= weekIndex; w++) idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`));
+  return idx;
+}
 
 // A reducer bug that yields NaN/Infinity for cash or marketCap must not take down
 // the whole tick (BigInt(NaN) throws): coerce to a finite integer so the world
@@ -68,13 +102,26 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   });
   const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines });
 
+  // Shared world economy for THIS week: one fuel index (seeded from worldSeed) and
+  // one event set (aged from the world's own running list, stored in tickConfig).
+  // Every airline ticks against the same fuel + events, so the leaderboard reflects
+  // skill, not private RNG. Events roll ONCE here (not per airline).
+  const worldFuel = worldFuelIndex(world.worldSeed ?? world.id, fromIndex);
+  const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
+    ? world.tickConfig.runtimeEvents : [];
+  const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
+  const worldEvents = [...survivingWorldEvents, ...rollEvents(survivingWorldEvents, { multiplayer: true })];
+
   // Compute every airline's next state BEFORE touching the DB. An airline whose
   // reducer/serialization throws is skipped (logged) so one corrupt airline can
   // no longer abort the whole week.
   const computed = [];
   for (const airline of airlines) {
     try {
-      const next = gameReducer(withRivals(airline.state, rivalViews.get(airline.id)), { type: 'ADVANCE_WEEK' });
+      const next = gameReducer(
+        withRivals(airline.state, rivalViews.get(airline.id)),
+        { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents },
+      );
       computed.push({
         airline,
         next,
@@ -98,6 +145,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         data: {
           currentWeek: newWeek,
           currentYear: newYear,
+          // Persist the world's shared event list (preserving any other tickConfig
+          // keys, e.g. scheduledStartAt) so next week ages from it.
+          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: worldEvents },
           ...(ended ? { status: 'ENDED', endedAt: new Date() } : {}),
         },
       });
@@ -115,7 +165,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         const res = await tx.airline.updateMany({
           where: { id: c.airline.id, version: c.airline.version ?? 0 },
           data: {
-            state: c.next,
+            // Persist without the injected rival views (rebuilt every read/tick) —
+            // stops each airline's blob from storing a copy of all its rivals.
+            state: stripRivals(c.next),
             cash: BigInt(c.cash),
             marketCap: BigInt(c.marketCap),
             week: toIndex,
@@ -140,10 +192,12 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         });
       }
       return { lostRace: false, airlines: written.length };
-    });
+    }, TICK_TX_OPTS);
 
     if (outcome.lostRace) return { ok: false, reason: 'lost-race' };
-    return { ok: true, week: newWeek, year: newYear, ended, airlines: outcome.airlines };
+    // Return the new shared event list so a multi-week catch-up ages events from
+    // week to week (the in-memory `world` is threaded forward in runDueTicks).
+    return { ok: true, week: newWeek, year: newYear, ended, airlines: outcome.airlines, worldEvents };
   } catch (err) {
     log.error(`[tick] world ${world.id} week ${toIndex} failed:`, err);
     // The transaction rolled back — record the failure separately for the audit
@@ -205,7 +259,15 @@ export async function runDueTicks(prisma, { maxCatchUp = 12, log = console, now 
         ticked++;
         due--;
         // Refresh the in-memory clock for the next compare-and-set.
-        world = { ...world, currentWeek: res.week, currentYear: res.year, status: res.ended ? 'ENDED' : 'RUNNING' };
+        world = {
+          ...world,
+          currentWeek: res.week,
+          currentYear: res.year,
+          status: res.ended ? 'ENDED' : 'RUNNING',
+          // Carry the just-persisted shared event list forward so the next
+          // catch-up week ages from it instead of re-rolling the stale list.
+          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: res.worldEvents ?? world.tickConfig?.runtimeEvents ?? [] },
+        };
         if (res.ended) { log.info(`[tick] ${world.name} reached its final week — ENDED`); break; }
       }
     } catch (err) {

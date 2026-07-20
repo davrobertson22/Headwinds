@@ -11,7 +11,15 @@ import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel } from '../lib/worldConfig.mjs';
-import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, stripRivals } from '../lib/humanRivals.mjs';
+import { guardDecision } from '../lib/decisionGuard.mjs';
+import { allow } from '../lib/rateLimit.mjs';
+
+// Per-account decision throttle. Generous enough that no human bursting through
+// the UI is ever affected (60 in 10s ≈ 6/s), but a scripted flood hits 429 fast,
+// so it can't bloat the Decision table / Supabase egress or hammer rivals' locks.
+const DECISION_LIMIT   = 60;
+const DECISION_WINDOWMS = 10_000;
 
 // A cheap change detector for a whole world: any decision or tick bumps an
 // airline's version, and joins/abandons change the active count, so this pair
@@ -44,7 +52,7 @@ function httpError(statusCode, message) {
 // can't overflow cash or feed NaN into the reducer.
 function assertFinitePayload(v, path = 'payload') {
   if (typeof v === 'number') {
-    if (!Number.isFinite(v) || Math.abs(v) > 1e12) throw httpError(400, `Invalid numeric value at ${path}`);
+    if (!Number.isFinite(v) || Math.abs(v) > 1e10) throw httpError(400, `Invalid numeric value at ${path}`);
   } else if (Array.isArray(v)) {
     v.forEach((x, i) => assertFinitePayload(x, `${path}[${i}]`));
   } else if (v && typeof v === 'object') {
@@ -143,6 +151,10 @@ export default async function decisionRoutes(fastify) {
   }, async (request, reply) => {
     const { type, payload = {} } = request.body;
 
+    if (!allow(`dec:${request.account.id}`, DECISION_LIMIT, DECISION_WINDOWMS)) {
+      throw httpError(429, 'You are submitting actions too quickly — slow down a moment.');
+    }
+
     if (!ALLOWED_PLAYER_ACTIONS.has(type)) {
       throw httpError(403, `Action not allowed: ${type}`);
     }
@@ -164,6 +176,11 @@ export default async function decisionRoutes(fastify) {
     if (airline.status !== 'ACTIVE') throw httpError(409, `Your airline is ${airline.status}`);
     if (airline.world.status !== 'RUNNING') throw httpError(409, `This world is ${airline.world.status}`);
 
+    // Server-authoritative validation of economic values the solo client would
+    // normally clamp in its UI (loan terms, cabin layout, reconfigure cost). The
+    // client is untrusted in multiplayer; re-derive/bound these before the reducer.
+    guardDecision(type, payload, airline.state);
+
     // Authoritative computation — same reducer as the solo game and the tick.
     // Run it over the rival-injected view so (a) the stored blob is scrubbed of
     // any pre-humans-only AI competitors, and (b) the response the client
@@ -179,7 +196,9 @@ export default async function decisionRoutes(fastify) {
         const updated = await tx.airline.updateMany({
           where: { id: airline.id, version: airline.version },
           data: {
-            state: next,
+            // Persist WITHOUT the injected rival views (rebuilt on every read/tick).
+            // The client still gets the full `next` (with rivals) in the response.
+            state: stripRivals(next),
             cash: toBig(next.cash),
             marketCap: toBig(next.marketCap),
             version: { increment: 1 },

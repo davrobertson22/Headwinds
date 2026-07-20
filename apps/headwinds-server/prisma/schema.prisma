@@ -105,6 +105,7 @@ model Airline {
 
   @@unique([worldId, accountId]) // one airline per account per world
   @@index([worldId, cash])
+  @@index([worldId, marketCap]) // standings sort by marketCap DESC
 }
 
 // ── Phase-2-ready: created now, written when the tick lands ──────────────────
@@ -120,6 +121,8 @@ model Decision {
   world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
 
   @@index([worldId, week])
+  @@index([worldId, createdAt]) // world feed: filter worldId + type ORDER BY createdAt DESC
+  @@index([airlineId, createdAt]) // rival profile: filter airlineId ORDER BY createdAt DESC
 }
 
 model TickLog {
@@ -257,4 +260,5 @@ model Standing {
   world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
 
   @@index([worldId, week, rank])
+  @@index([airlineId, week]) // rank history: filter airlineId ORDER BY week DESC
 }
