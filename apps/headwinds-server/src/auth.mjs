@@ -85,7 +85,7 @@ export async function requireAuth(request) {
 // ── Admin gate ────────────────────────────────────────────────────────────────
 // Admins are the accounts listed in the ADMIN_EMAILS env var (comma-separated,
 // case-insensitive). For now ALL game worlds are operator-controlled: players
-// join worlds, only admins (and the worker's spawner) create them. Admins also
+// join worlds, only admins create them (no auto-spawner). Admins also
 // review player reports and issue/lift bans (routes/admin.mjs).
 
 export function isAdmin(account) {

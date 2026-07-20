@@ -319,8 +319,8 @@ export default async function worldRoutes(fastify) {
   });
 
   // ── Create a world (ADMIN ONLY) ───────────────────────────────────────────
-  // World supply is operator-controlled: the worker's spawner keeps public
-  // worlds topped up, and only ADMIN_EMAILS accounts may create them by hand.
+  // World supply is operator-controlled: only ADMIN_EMAILS accounts may create
+  // worlds (the auto-spawner was removed 2026-07-19 — admin-created only).
   fastify.post('/worlds', {
     preHandler: requireAdmin,
     schema: {

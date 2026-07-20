@@ -7,8 +7,8 @@ validated intents, the server runs the weekly tick for a whole world in lockstep
 Two services share this package:
 
 - **API** (`src/server.mjs`) — Fastify, player-facing: accounts + the world lobby.
-- **Worker** (`worker/index.mjs`) — background jobs: the staggered world spawner now,
-  the authoritative weekly tick in Phase 2.
+- **Worker** (`worker/index.mjs`) — background job: the authoritative weekly tick.
+  (World creation is admin-only — the auto world spawner was removed 2026-07-19.)
 
 State lives in **Postgres** (via Prisma); auth is **Supabase**. See
 `HEADWINDS_PHASE1_SCOPE.md` for the full plan.
@@ -17,7 +17,9 @@ State lives in **Postgres** (via Prisma); auth is **Supabase**. See
 
 ## Status
 
-Phase 1 done: accounts, the world data model, the lobby API, the staggered spawner.
+Phase 1 done: accounts, the world data model, the lobby API. (The staggered
+auto-spawner shipped in Phase 1 but was removed 2026-07-19 — worlds are now
+created only by admins, via the lobby's "+ Create a world" or `POST /worlds`.)
 Phase 2 done: the authoritative weekly tick — the worker advances every RUNNING
 world on its pace schedule (compare-and-set on the world clock for idempotency,
 capped catch-up after downtime, TickLog + weekly Standing snapshots) — and the
@@ -43,11 +45,12 @@ npm run -w @headwinds/server db:migrate
 
 # 4. Run the two services (separate terminals)
 npm run -w @headwinds/server dev      # API on :8787
-npm run -w @headwinds/server worker   # spawner — seeds joinable worlds
+npm run -w @headwinds/server worker   # weekly tick — advances RUNNING worlds
 ```
 
-`GET http://localhost:8787/health` should return `{ ok: true }`. After the worker
-runs once, `GET /worlds` lists the freshly spawned worlds.
+`GET http://localhost:8787/health` should return `{ ok: true }`. Create a world
+from an admin account (lobby "+ Create a world" / `POST /worlds`), then
+`GET /worlds` lists it.
 
 ---
 
@@ -102,8 +105,7 @@ World tiers (validated): `lengthYears ∈ {50, 100}`, `weeksPerDay ∈ {6, 12, 2
 | `src/lib/worldConfig.mjs` | tier constants, `endsAt`/tick derivations, serializers |
 | `src/lib/worldService.mjs` | create / join a world (seeds airlines from the engine) |
 | `src/routes/*` | `me`, `worlds` handlers |
-| `worker/index.mjs` | worker entrypoint (runs the spawner on an interval) |
-| `worker/spawner.mjs` | staggered world spawner (keeps fresh worlds joinable) |
+| `worker/index.mjs` | worker entrypoint (runs the weekly tick on an interval) |
 | `src/world.mjs` | tick + action allow-list — **used by the Phase-2 tick** |
 | `demo.mjs`, `src/store.mjs` | legacy zero-infra in-memory proof (independent) |
 

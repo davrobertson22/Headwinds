@@ -37,10 +37,6 @@ export const env = {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
-  // Spawner
-  spawnIntervalMinutes: Number(optional('SPAWN_INTERVAL_MINUTES', '30')),
-  spawnTargetOpenWorlds: Number(optional('SPAWN_TARGET_OPEN_WORLDS', '4')),
-  spawnYoungThresholdHours: Number(optional('SPAWN_YOUNG_THRESHOLD_HOURS', '48')),
   // Tick scheduler (worker)
   tickCheckSeconds: Number(optional('TICK_CHECK_SECONDS', '60')),
   tickMaxCatchUp: Number(optional('TICK_MAX_CATCHUP', '12')),

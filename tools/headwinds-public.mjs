@@ -35,6 +35,18 @@ const OUT   = path.join(APP, 'public');
 
 const DOMAIN = 'www.headwindsairlinegame.com';
 
+// Pages still ~80-90% identical to their Tailwinds originals (word-swap rebrand
+// only). Until each gets a hand-written override in apps/headwinds-web/pages/,
+// its canonical points at the Tailwinds original so Google doesn't read the two
+// sites as duplicates of each other (AdSense "low value content" trigger,
+// diagnosed 2026-07-19). Remove a file from this set when its override lands.
+const CROSS_CANONICAL = new Set([
+  'aircraft.html', 'aircraft-narrow-body.html', 'aircraft-wide-body.html',
+  'aircraft-regional-jets.html', 'aircraft-turboprops.html',
+  'aircraft-freighters.html', 'aircraft-flagships.html',
+  'route-economics.html', 'hub-strategy.html', 'fleet-planning.html', 'faq.html',
+]);
+
 // Never copied from the shared public/ (Tailwinds-only concerns).
 const EXCLUDE = new Set([
   'sw.js',                        // solo PWA service worker — Headwinds doesn't register one
@@ -254,6 +266,14 @@ for (const f of readdirSync(SRC)) {
         console.warn(`  ⚠ content patch missed in ${f}: "${p.find.slice(0, 60)}…"\n    (Tailwinds likely rewrote this passage — update CONTENT_PATCHES in tools/headwinds-public.mjs)`);
       }
     }
+    if (CROSS_CANONICAL.has(f)) {
+      const self = `<link rel="canonical" href="https://${DOMAIN}/${f}" />`;
+      if (html.includes(self)) {
+        html = html.replace(self, `<link rel="canonical" href="https://www.tailwindsairlinegame.com/${f}" />`);
+      } else {
+        console.warn(`  \u26a0 cross-canonical missed in ${f}: self-canonical tag not found`);
+      }
+    }
     writeFileSync(path.join(OUT, f), html);
     branded++;
   } else {
@@ -316,7 +336,9 @@ writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap:
 const today = new Date().toISOString().slice(0, 10);
 // /play is the JS app shell (sign-in + lobby) — thin, low-value to index, so it
 // stays out of the sitemap. It remains reachable via the landing CTA + rewrite.
-const pages = ['', ...readdirSync(OUT).filter((f) => f.endsWith('.html')).sort()];
+// Cross-canonicaled pages stay out of the sitemap — a sitemap should only list
+// URLs whose canonical is on this domain.
+const pages = ['', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
 const prio = (p) => p === '' ? '1.0' : /^(how-to-play|strategy|devlog|rules)/.test(p) ? '0.8' : '0.6';
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +

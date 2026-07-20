@@ -1,5 +1,5 @@
 // World-tier config, derivations, and JSON serializers.
-// Single home for the §3a rules so the API and the spawner agree.
+// Single home for the §3a rules (admin world creation + the tick worker).
 import { randomBytes, randomUUID } from 'node:crypto';
 
 export const WEEKS_PER_YEAR = 52;

@@ -1,5 +1,5 @@
-// World service: create a world, join a world. Shared by the API routes and the
-// worker's spawner so there's one code path for world creation. All gameplay
+// World service: create a world, join a world. One code path for world creation
+// (the admin-only POST /worlds — the auto-spawner is gone). All gameplay
 // state is produced by the SHARED engine — never reinvented here.
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 import {
