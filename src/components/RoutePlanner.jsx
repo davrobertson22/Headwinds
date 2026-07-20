@@ -474,7 +474,7 @@ export default function RoutePlanner() {
       .filter(r => [r.origin, r.destination].sort().join('-') === pairKey)
       .reduce((s, r) => s + r.weeklyFrequency, 0);
     return checkRouteRestrictions(origin, dest, routeData.dist, existingPairFreq + frequency, category,
-      { routes: state.routes, excludeKey: pairKey });
+      { routes: state.routes, excludeKey: pairKey, aircraftType: selectedType });
   }, [origin, dest, routeData, frequency, selectedTypeId, state.routes]);
 
   // Competitors on this route (use live state.competitors)

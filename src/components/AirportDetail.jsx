@@ -193,6 +193,11 @@ export default function AirportDetail({ code, onBack }) {
               {myGates} {myGates === 1 ? 'gate' : 'gates'}
             </span>
           )}
+          {airport?.runwayFt && (
+            <span title="Longest runway — aircraft that need more runway than this cannot operate here" style={{ background: 'var(--surface2)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'help' }}>
+              <Glyph e="🛬" /> {airport.runwayFt.toLocaleString()} ft runway
+            </span>
+          )}
           {restrictions.map((r, i) => (
             <span key={i} style={{ background: 'rgba(220,53,69,0.12)', color: 'var(--red)', border: '1px solid rgba(220,53,69,0.35)', borderRadius: 4, padding: '5px 12px', fontSize: 12, fontWeight: 600 }}>
               <Glyph e="🚫" /> {r.shortLabel}

@@ -460,6 +460,7 @@ const TABLE_COLS = [
   { key: 'name',     label: 'Aircraft',     align: 'left'  },
   { key: 'seats',    label: 'Seats',        align: 'right' },
   { key: 'range',    label: 'Range',        align: 'right' },
+  { key: 'runway',   label: 'Runway',       align: 'right', title: 'Minimum runway length required (ft)' },
   { key: 'fuel',     label: 'Fuel/seat',    align: 'right', title: 'Litres per seat per 100 km (per tonne for freighters)' },
   { key: 'eff',      label: 'Eff.',         align: 'right', title: 'Seat efficiency score, 0-100' },
   { key: 'maint',    label: 'Maint/wk',     align: 'right' },
@@ -521,6 +522,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                 </td>
                 <td style={{ textAlign: 'right' }}>{t.freighter ? `${t.payloadTonnes}t` : t.seats}</td>
                 <td style={{ textAlign: 'right' }}>{t.range.toLocaleString()} km</td>
+                <td style={{ textAlign: 'right' }}>{t.runwayFt ? `${t.runwayFt.toLocaleString()} ft` : '–'}</td>
                 <td style={{ textAlign: 'right' }}>{r.fuel.toFixed(2)}</td>
                 <td style={{ textAlign: 'right', color: r.effColor, fontWeight: 600 }}>{t.freighter ? '–' : r.eff}</td>
                 <td style={{ textAlign: 'right' }}>{formatMoney(t.baseMaintenancePerWk)}</td>
@@ -803,6 +805,7 @@ export default function Marketplace() {
             name:     type.name,
             seats:    type.freighter ? (type.payloadTonnes ?? 0) : type.seats,
             range:    type.range,
+            runway:   type.runwayFt ?? 0,
             fuel:     type.freighter
               ? type.fuelBurnPer100km / (type.payloadTonnes || 1)
               : type.fuelBurnPer100km / (type.seats || 1),
@@ -901,6 +904,10 @@ export default function Marketplace() {
                   <div className="aircraft-stat-pill">
                     <span className="aircraft-stat-pill-label">Range</span>
                     <span className="aircraft-stat-pill-value">{type.range.toLocaleString()} km</span>
+                  </div>
+                  <div className="aircraft-stat-pill">
+                    <span className="aircraft-stat-pill-label">Runway</span>
+                    <span className="aircraft-stat-pill-value">{type.runwayFt ? `${type.runwayFt.toLocaleString()} ft` : '–'}</span>
                   </div>
                   {!type.freighter && (
                     <div className="aircraft-stat-pill">

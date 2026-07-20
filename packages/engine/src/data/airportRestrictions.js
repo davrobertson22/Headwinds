@@ -164,15 +164,16 @@ const LCY_SMALL_AIRCRAFT = {
   shortLabel: 'SAp cert required',
   description:
     'London City\'s 5.5° instrument approach — nearly twice the standard glideslope — and ' +
-    '1,508m runway require aircraft with Steep Approach (SAp) type certification. Only ' +
-    'regional jets and turboprops currently hold this certification for LCY operations. ' +
-    'No narrowbody or widebody jets may operate here.',
+    '1,508m runway require aircraft with Steep Approach (SAp) type certification. ' +
+    'Regional jets, turboprops, and SAp-certified narrowbodies (A220-100, A318) hold ' +
+    'this certification for LCY operations. Other narrowbody and all widebody jets are barred.',
   type: 'aircraft_size',
   allowedCategories: ['Regional Jet', 'Turboprop'],
-  check(distKm, otherCode, weeklyFreq, aircraftCategory) {
+  check(distKm, otherCode, weeklyFreq, aircraftCategory, ctx) {
+    if (ctx?.aircraftType?.steepApproach) return null; // SAp type cert (A220-100, A318)
     if (aircraftCategory && !this.allowedCategories.includes(aircraftCategory)) {
-      return `LCY SAp Restriction: Only regional jets and turboprops hold steep-approach certification ` +
-             `for London City. ${aircraftCategory} aircraft are not permitted.`;
+      return `LCY SAp Restriction: Only regional jets, turboprops, and SAp-certified types ` +
+             `(A220-100, A318) may operate at London City. ${aircraftCategory} aircraft are not permitted.`;
     }
     return null;
   },
@@ -290,7 +291,36 @@ export const AIRPORT_RESTRICTIONS = {
  *                                   caps that depend on existing routes can be evaluated)
  * @returns {{ restriction, reason } | null}
  */
+// ─── Universal runway-length check ───────────────────────────────────────────
+// Every airport carries its longest runway (runwayFt); every aircraft type its
+// minimum required runway (runwayFt). An aircraft that needs more runway than
+// an endpoint offers cannot serve the route. Checked before any per-airport
+// regulatory rules. Routes opened before this rule existed are grandfathered
+// (the check only runs when opening a route or changing its aircraft).
+function runwayViolation(code, type) {
+  const apt = getAirport(code);
+  if (!apt?.runwayFt || !type?.runwayFt || type.runwayFt <= apt.runwayFt) return null;
+  return {
+    restriction: {
+      label: `${code} Runway Length Limit`,
+      shortLabel: 'Runway too short',
+      description: `${apt.name}'s longest runway is ${apt.runwayFt.toLocaleString()} ft. ` +
+        `The ${type.name} needs ${type.runwayFt.toLocaleString()} ft for safe operations.`,
+      type: 'runway_length',
+    },
+    reason: `${code} Runway Limit: the ${type.name} needs ${type.runwayFt.toLocaleString()} ft ` +
+      `of runway but ${code} offers only ${apt.runwayFt.toLocaleString()} ft.`,
+  };
+}
+
 export function checkRouteRestrictions(originCode, destCode, distKm, weeklyFreq, aircraftCategory, context = {}) {
+  const acType = context.aircraftType ?? null;
+  if (acType) {
+    for (const code of [originCode, destCode]) {
+      const v = runwayViolation(code, acType);
+      if (v) return v;
+    }
+  }
   for (const code of [originCode, destCode]) {
     const list = AIRPORT_RESTRICTIONS[code];
     if (!list) continue;

@@ -1328,6 +1328,17 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
               <Glyph e="⚠️" /> Disrupted
             </span>
           )}
+          {sims.some(({ type: t }) =>
+            t?.runwayFt && ((originAirport?.runwayFt && t.runwayFt > originAirport.runwayFt) ||
+                            (destAirport?.runwayFt  && t.runwayFt > destAirport.runwayFt))) && (
+            <span title="Opened before runway-length limits existed — grandfathered and allowed to keep flying, but this aircraft could not launch here today." style={{
+              fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+              background: 'rgba(210,153,34,0.12)', color: 'var(--yellow)',
+              border: '1px solid rgba(210,153,34,0.35)', cursor: 'help',
+            }}>
+              <Glyph e="⚠️" /> Runway waiver
+            </span>
+          )}
           <span style={{
             fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
             background: 'rgba(56,139,253,0.12)', color: 'var(--accent)',
@@ -2049,7 +2060,7 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
     const peakPairFreq = Math.max(0, ...newMonths.map(m =>
       pairRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) => s + r.weeklyFrequency, 0)));
     return checkRouteRestrictions(origin, dest, dist, peakPairFreq + Number(frequency), type.category,
-      { routes, excludeKey: pairKey });
+      { routes, excludeKey: pairKey, aircraftType: type });
   })() : null;
 
   // Launch cost applies only when this opens a NEW route; adding frequency to a

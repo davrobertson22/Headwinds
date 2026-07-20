@@ -207,9 +207,12 @@ await test('every allowed action exists in the reducer (sync guard)', () => {
   }
 });
 
-await test('allowed decision flows through the reducer (lease → route → tick earns revenue)', () => {
+await test('allowed decision flows through the reducer (route → tick earns revenue)', () => {
   let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'T', hub: 'JFK', enableObjectives: false });
-  assert.ok(ALLOWED_PLAYER_ACTIONS.has('LEASE_AIRCRAFT'));
+  // LEASE_AIRCRAFT is deliberately server-blocked (no cash check — see world.mjs);
+  // it still exists in the reducer for the solo game, so use it only as test setup.
+  assert.ok(!ALLOWED_PLAYER_ACTIONS.has('LEASE_AIRCRAFT'), 'LEASE_AIRCRAFT must stay server-blocked');
+  assert.ok(ALLOWED_PLAYER_ACTIONS.has('ADD_ROUTE'));
   s = gameReducer(s, { type: 'LEASE_AIRCRAFT', typeId: 'a320neo' });
   const ac = s.fleet[s.fleet.length - 1];
   assert.ok(ac, 'aircraft leased');
