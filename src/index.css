@@ -1525,6 +1525,8 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
      still identify the game), hide the DATE KPI (Cash is what matters), and the
      6 ghost buttons are replaced in JSX by a single "⋯" overflow menu. */
   .topbar { padding: 0 12px; gap: 8px; }
+  /* Belt & braces: nothing may pan the page sideways on a phone. */
+  html, body { overflow-x: hidden; }
   .topbar-logo { display: none; }          /* hide "Tailwinds - Airline Manager" brand */
   .topbar-sep  { display: none; }
   .topbar-airline {
@@ -1581,6 +1583,19 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
     cursor: pointer;
   }
   .topbar-menu > * + * { border-top: 1px solid var(--border-subtle); }
+  /* Non-interactive date/countdown row at the top of the overflow menu — the
+     DATE KPI is hidden from the bar itself on phones to save width. */
+  .topbar-menu-date {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 14px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.4px;
+    cursor: default;
+  }
   .topbar-menu > *:active { background: var(--surface3); }
   .topbar-menu-danger { color: var(--red); }
 

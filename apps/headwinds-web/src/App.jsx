@@ -181,7 +181,7 @@ function JoinForm({ world, token, needsCode, onJoined }) {
           value={airlineName} onChange={(e) => setAirlineName(e.target.value)}
         />
         <input
-          required list="hub-airports" placeholder="Hub (e.g. JFK)" className="hub-input"
+          required list="hub-airports" placeholder="Hub (JFK)" className="hub-input"
           value={hub} onChange={(e) => setHub(e.target.value)}
         />
         <datalist id="hub-airports">
@@ -632,7 +632,9 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
           </p>
-          <div className="progress"><div style={{ width: `${world.progress.percent}%` }} /></div>
+          {world.status !== 'LOBBY' && (
+            <div className="progress"><div style={{ width: `${world.progress.percent}%` }} /></div>
+          )}
         </div>
         {mine && (
           <div className="mine">

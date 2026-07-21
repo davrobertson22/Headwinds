@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment, Component } from 'react';
+import { useState, useMemo, useRef, useEffect, Fragment, Component } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import {
@@ -524,7 +524,8 @@ function PLStatement({ proj }) {
     - (h.catering ?? 0) - (h.groundHandling ?? 0) - (h.layover ?? 0) - (h.compensation ?? 0)
     - (h.leases ?? 0) - (h.maintenance ?? 0) - (h.familyCosts ?? 0)
     - (h.insurance ?? 0) - (h.labor ?? 0) - (h.gates ?? 0)
-    - (h.marketing ?? 0) - (h.distribution ?? 0) - (h.hqCost ?? 0) - (h.hubInvestment ?? 0);
+    - (h.marketing ?? 0) - (h.distribution ?? 0) - (h.hqCost ?? 0) - (h.hubInvestment ?? 0)
+    - (h.loyalty ?? 0) - (h.partnerFees ?? 0);
 
   const recentWeeks = financialHistory.slice(-3);   // up to 3 actual weeks
 
@@ -687,7 +688,7 @@ function PLStatement({ proj }) {
                         const dynColor = row.color ?? (v >= 0 ? 'var(--green)' : 'var(--red)');
                         return (
                           <td key={i} style={{ textAlign: 'right', color: dynColor, fontWeight: row.bold ? 600 : 400 }}>
-                            {row.sign}{formatMoney(Math.abs(v))}
+                            {row.sign ? `${row.sign}${formatMoney(Math.abs(v))}` : formatMoney(v)}
                           </td>
                         );
                       })}
@@ -697,7 +698,7 @@ function PLStatement({ proj }) {
                         const dynColor = row.color ?? (v >= 0 ? 'var(--green)' : 'var(--red)');
                         return (
                           <td style={{ textAlign: 'right', color: dynColor, fontWeight: row.bold ? 700 : 500 }}>
-                            {row.sign}{formatMoney(Math.abs(v))}
+                            {row.sign ? `${row.sign}${formatMoney(Math.abs(v))}` : formatMoney(v)}
                             {lastHistVal != null && (
                               <Delta val={row.cost ? -v : v} base={row.cost ? -lastHistVal : lastHistVal} />
                             )}
@@ -2307,7 +2308,7 @@ function UnitEconomics({ proj }) {
                     <strong>{route.origin}→{route.destination}</strong>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{type?.name} · {route.weeklyFrequency}×/wk · {result.distance.toLocaleString()}km</div>
                   </td>
-                  <td style={{ textAlign: 'right', fontSize: 12 }}>{(ue.ASK/1000).toFixed(0)}K</td>
+                  <td style={{ textAlign: 'right', fontSize: 12 }}>{ue.ASK >= 1_000_000 ? `${(ue.ASK / 1_000_000).toFixed(1)}M` : `${(ue.ASK / 1000).toFixed(0)}K`}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, fontFamily: 'monospace', color: 'var(--green)' }}>${ue.RASK.toFixed(3)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, fontFamily: 'monospace', color: 'var(--red)'   }}>${ue.CASKfull.toFixed(3)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, fontFamily: 'monospace', fontWeight: 600,
@@ -2752,7 +2753,22 @@ const fmtInt = v => Math.round(v).toLocaleString();
  *  kind 'area' entries stack; kind 'line' entries draw on top. */
 function StatChart({ points, series, height = 150, yFrom0 = true, format = fmtInt, wideLabels = false }) {
   const [hover, setHover] = useState(null);
-  const W = 660, H = height, PADL = 6, PADR = 6, PADT = 10, PADB = 18;
+  // Match the viewBox width to the rendered card width (same treatment as
+  // FinancialChart) — a fixed 660 viewBox in a wider card letterboxes the
+  // graphic into the middle with dead space either side.
+  const wrapRef = useRef(null);
+  const [measuredW, setMeasuredW] = useState(660);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0]?.contentRect?.width ?? 0);
+      if (w > 100) setMeasuredW(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const W = measuredW, H = height, PADL = 6, PADR = 6, PADT = 10, PADB = 18;
   const n = points.length;
   const areas = series.filter(s => s.kind === 'area');
   const lines = series.filter(s => s.kind !== 'area');
@@ -2818,7 +2834,7 @@ function StatChart({ points, series, height = 150, yFrom0 = true, format = fmtIn
   const hp = hover ? points[hover.i] : null;
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={wrapRef} style={{ position: 'relative' }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}
         onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
         {zeroY > PADT && zeroY < H - PADB && (

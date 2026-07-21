@@ -395,6 +395,12 @@ function AppInner() {
               <>
                 <div className="topbar-menu-backdrop" onClick={() => setShowMobileMenu(false)} />
                 <div className="topbar-menu" role="menu">
+                  <div className="topbar-menu-date" aria-hidden="true">
+                    <span>{formatGameDate(state)}</span>
+                    {remote && remoteChrome?.clock && (
+                      <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{remoteChrome.clock}</span>
+                    )}
+                  </div>
                   {!remote && (<>
                   <button role="menuitem" onClick={() => { setSaveLoadMode('save'); setShowMobileMenu(false); }}>
                     <SaveIcon size={14} /> Save game
@@ -455,7 +461,12 @@ function AppInner() {
                 onClick={(e) => {
                   if (open) { setOpenGroup(null); return; }
                   const r = e.currentTarget.getBoundingClientRect();
-                  setMenuPos({ top: r.bottom + 4, left: r.left });
+                  // Clamp inside the viewport: a partially-scrolled nav tab can
+                  // have r.left < 0 (menu clipped off the left edge on phones),
+                  // and a right-edge tab can push the 190px menu off the right.
+                  const menuW = 200;
+                  const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
+                  setMenuPos({ top: r.bottom + 4, left });
                   setOpenGroup(grp.label);
                 }}
                 aria-expanded={open}

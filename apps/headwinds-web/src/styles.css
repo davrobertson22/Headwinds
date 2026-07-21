@@ -328,4 +328,11 @@ footer a { color: var(--accent); }
   .mine { text-align: left; }
   .rival-detail .grid { grid-template-columns: 1fr; }
   .hw-msg-convo-preview { max-width: 76vw; }
+
+  /* In-game topbar chrome: icon-only buttons so the bar fits a phone without
+     the whole page panning sideways. Labels return above 640px. */
+  .hw-btn-label { display: none; }
+  .hw-msg-btn { padding: 4px 9px; }
+  .hw-lobby-link { padding: 4px 9px; }
+  .hw-topbar-err { display: none; }
 }

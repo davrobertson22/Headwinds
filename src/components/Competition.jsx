@@ -371,9 +371,15 @@ function ProfitSparkline({ history, width = 72, height = 24 }) {
   const y = (v) => height / 2 - (v / max) * (height / 2 - 2);
   const points = history.map((v, i) => `${(i * stepX).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const last = history[history.length - 1];
+  // Only draw the zero baseline when the series actually crosses it — for an
+  // all-negative (or all-positive) run the dashed line just reads as glitchy
+  // noise hugging the trend line.
+  const crossesZero = Math.min(...history) < 0 && Math.max(...history) > 0;
   return (
-    <svg width={width} height={height} style={{ flexShrink: 0 }} aria-label="profit trend">
-      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="var(--border)" strokeWidth="1" strokeDasharray="2 3" />
+    <svg width={width} height={height} style={{ flexShrink: 0, margin: '0 6px' }} aria-label="profit trend">
+      {crossesZero && (
+        <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="var(--border)" strokeWidth="1" strokeDasharray="2 3" />
+      )}
       <polyline
         points={points}
         fill="none"

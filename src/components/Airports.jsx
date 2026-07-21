@@ -399,7 +399,8 @@ export default function Airports() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                         <span style={{ fontWeight: 700, fontSize: 16 }}>{code}</span>
                         <span style={{ fontSize: 13, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {airport.city} · {airport.name}
+                          {/* "San Francisco · San Francisco Intl" truncates redundantly on phones — skip the city when the airport name already starts with it. */}
+                          {airport.name?.toLowerCase().startsWith((airport.city ?? '').toLowerCase()) ? airport.name : `${airport.city} · ${airport.name}`}
                         </span>
                         <TierBadge tier={airport.tier} />
                       </div>

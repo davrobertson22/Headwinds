@@ -41,7 +41,7 @@ export default function MessagesWidget({ worldId, token }) {
   return (
     <>
       <button className="hw-msg-btn" onClick={() => setOpen((o) => !o)} title="Messages">
-        ✉ Messages
+        ✉ <span className="hw-btn-label">Messages</span>
         {unread > 0 && <span className="hw-msg-badge">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && summary && (

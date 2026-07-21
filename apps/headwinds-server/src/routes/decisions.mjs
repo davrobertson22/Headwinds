@@ -183,6 +183,29 @@ export default async function decisionRoutes(fastify) {
     // back whitelisted to { targetId, shares }) is what actually runs & journals.
     const guarded = guardDecision(type, payload, airline.state) ?? payload;
 
+    // Journal enrichment: route-close payloads only carry ids, which mean
+    // nothing once the routes are gone. Resolve ids to origin/destination pairs
+    // from the PRE-reducer state so the world feed can say "closed SFO–MSP"
+    // instead of "closed ?–?". The enriched copy is journalled only; the
+    // reducer still runs on `guarded` untouched.
+    let journalled = guarded;
+    if (type === 'CLOSE_ROUTE' || type === 'CLOSE_ROUTES' || type === 'CLOSE_CARGO_ROUTE') {
+      const pool = type === 'CLOSE_CARGO_ROUTE'
+        ? (airline.state?.cargoRoutes ?? [])
+        : (airline.state?.routes ?? []);
+      const ids = type === 'CLOSE_ROUTES'
+        ? (guarded.routeIds ?? (guarded.routeId != null ? [guarded.routeId] : []))
+        : (guarded.routeId != null ? [guarded.routeId] : []);
+      const pairs = pool
+        .filter((r) => ids.includes(r.id))
+        .map((r) => ({ origin: r.origin, destination: r.destination }));
+      if (pairs.length === 1 && type !== 'CLOSE_ROUTES') {
+        journalled = { ...guarded, origin: pairs[0].origin, destination: pairs[0].destination };
+      } else if (pairs.length > 0) {
+        journalled = { ...guarded, routes: pairs.slice(0, 20), count: pairs.length };
+      }
+    }
+
     // Authoritative computation — same reducer as the solo game and the tick.
     // Run it over the rival-injected view so (a) the stored blob is scrubbed of
     // any pre-humans-only AI competitors, and (b) the response the client
@@ -213,7 +236,7 @@ export default async function decisionRoutes(fastify) {
             airlineId: airline.id,
             week: weekIndex(airline.world),
             type,
-            payload: guarded,
+            payload: journalled,
           },
         });
       });

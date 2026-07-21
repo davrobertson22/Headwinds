@@ -10,7 +10,17 @@ import OgBadge, { DevBadge } from './OgBadge.jsx';
 
 const LABELS = {
   ADD_ROUTE:            (e) => `opened ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
-  CLOSE_ROUTE:          (e) => `closed ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
+  CLOSE_ROUTE:          (e) => (e.payload?.origin && e.payload?.destination)
+                          ? `closed ${e.payload.origin}–${e.payload.destination}` : 'closed a route',
+  CLOSE_ROUTES:         (e) => {
+    const rs = Array.isArray(e.payload?.routes) ? e.payload.routes.filter(r => r?.origin && r?.destination) : [];
+    const n = e.payload?.count ?? rs.length;
+    if (rs.length) {
+      const shown = rs.slice(0, 3).map(r => `${r.origin}–${r.destination}`).join(', ');
+      return `closed ${shown}${n > rs.slice(0, 3).length ? ` +${n - 3} more` : ''}`;
+    }
+    return n > 1 ? `closed ${n} routes` : 'closed a route';
+  },
   ADD_CARGO_ROUTE:      (e) => `opened cargo lane ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
   CLOSE_CARGO_ROUTE:    (e) => `closed cargo lane ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
   LEASE_AIRCRAFT:       (e) => `leased ${e.payload?.typeId ? `a ${e.payload.typeId}` : 'an aircraft'}`,
@@ -108,7 +118,7 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
   return (
     <>
       <button className="hw-msg-btn" onClick={openDrawer} title="World activity">
-        🌍 Activity
+        🌍 <span className="hw-btn-label">Activity</span>
         {hasNew && !open && <span className="hw-msg-badge">•</span>}
       </button>
       {/* Portal to <body>: the button lives inside the game topbar, whose

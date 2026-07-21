@@ -106,9 +106,10 @@ export default function Reputation() {
           </div>
           <ScoreBar value={awareness} color={scoreColor(awareness)} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            How many travelers know you exist — reaching{' '}
+            How many travelers know you exist.{' '}
+            {awarenessMultiplier > 1 ? 'Strong branding amplifies demand to' : 'Reaching'}{' '}
             <span style={{ color: scoreColor(awareness), fontWeight: 600 }}>{formatPercent(awarenessMultiplier)}</span>
-            {' '}of potential demand. Built by marketing &amp; flying.
+            {' '}of {awarenessMultiplier > 1 ? 'baseline' : 'potential demand'}. Built by marketing &amp; flying.
           </div>
         </div>
       </div>
@@ -166,7 +167,7 @@ export default function Reputation() {
             label="Awareness"
             score={Math.round(awareness)}
             icon="📣"
-            detail={`${formatPercent(awarenessMultiplier)} of potential demand reached. Grows via passengers flown + brand marketing (with a lag); fades slowly without upkeep.`}
+            detail={`${formatPercent(awarenessMultiplier)} of ${awarenessMultiplier > 1 ? 'baseline demand (strong branding amplifies reach past 100%)' : 'potential demand'} reached. Grows via passengers flown + brand marketing (with a lag); fades slowly without upkeep.`}
             tip={awareness < 40 ? 'Increase marketing budget or fly more passengers to build awareness' : undefined}
           />
         </div>

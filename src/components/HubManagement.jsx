@@ -492,27 +492,28 @@ export default function HubManagement() {
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
             Building Toward Focus City Status
           </div>
-          <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
-            {building.map(([code, count], i) => {
+          {/* Compact grid — 43 one-gate airports as full-width rows left a
+              ~900px void between the name and the meter. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 8 }}>
+            {building.map(([code, count]) => {
               const airport = getAirport(code);
               const pct     = Math.round(count / FOCUS_MIN_GATES * 100);
               return (
                 <div key={code} style={{
-                  display: 'flex', alignItems: 'center', gap: 16, padding: '10px 16px',
-                  borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none',
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                  background: 'var(--surface2)', borderRadius: 'var(--radius)',
+                  border: '1px solid var(--border)', minWidth: 0,
                 }}>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <AirportLink code={code} style={{ fontWeight: 700, marginRight: 8 }} />
                     <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{airport?.city}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 100, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)', borderRadius: 3 }} />
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 70 }}>
-                      {count} / {FOCUS_MIN_GATES} gates
-                    </span>
+                  <div style={{ width: 56, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)', borderRadius: 3 }} />
                   </div>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
+                    {count}/{FOCUS_MIN_GATES}
+                  </span>
                 </div>
               );
             })}

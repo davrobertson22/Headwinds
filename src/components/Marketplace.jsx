@@ -749,8 +749,8 @@ export default function Marketplace() {
           </span>
         </div>
         <div style={{
-          display: 'flex', gap: 6, overflowX: 'auto',
-          paddingBottom: 4, marginTop: 6, scrollbarWidth: 'none',
+          display: 'flex', gap: 6, flexWrap: 'wrap',
+          paddingBottom: 4, marginTop: 6,
         }}>
           {mfrsInCategory.map(mfr => {
             const isActive = safeMfr === mfr;

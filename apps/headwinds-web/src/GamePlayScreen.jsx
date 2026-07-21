@@ -201,11 +201,11 @@ export default function GamePlayScreen({ worldId, token }) {
     right: (
       <>
         {error && (
-          <span className="error" style={{ fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span className="error hw-topbar-err" style={{ fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {String(error.message || error)}
           </span>
         )}
-        <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← Lobby</a>
+        <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
         <MessagesWidget worldId={worldId} token={token} />
       </>

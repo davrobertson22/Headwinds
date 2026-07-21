@@ -225,7 +225,7 @@ function PortfolioSummary({ state, listed }) {
       </div>
       {holdings.length === 0 && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-          You don't own stock in any rival yet. Buy into an airline below — its price follows
+          You don't own stock in any rival yet. Buy into an airline below. Its price follows
           its real performance, so back the operators you believe in (or the recoveries
           everyone else has written off).
         </div>
@@ -363,7 +363,7 @@ export default function StockMarket() {
             })}
             {listed.length === 0 && (
               <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12.5 }}>
-                No other airlines are listed yet{remote ? ' — rivals appear here as players join your world.' : '.'}
+                No tradeable rivals right now{remote ? '. Active players are listed here; bankrupt and abandoned airlines are delisted.' : '.'}
               </td></tr>
             )}
           </tbody>
@@ -372,7 +372,7 @@ export default function StockMarket() {
 
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
         <GlyphLabel size={11} text={
-          'ℹ Prices are set by each airline\'s fundamentals — profits, growth, cash, fleet and debt — and move once per weekly tick (max ±20% a week, plus a little market noise). '
+          'ℹ Prices are set by each airline\'s fundamentals (profits, growth, cash, fleet and debt) and move once per weekly tick (max ±20% a week, plus a little market noise). '
           + 'You may own up to 20% of any one airline, and your total invested cost is capped at 40% of your own market cap. '
           + 'If an airline you hold shuts down or leaves the world, the position is force-liquidated at a haircut.'
         } />

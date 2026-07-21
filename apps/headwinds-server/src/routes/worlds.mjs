@@ -125,7 +125,7 @@ export default async function worldRoutes(fastify) {
   // composition, rank history, and recent visible moves. Never exposes private
   // internals like cash-flow detail, loans, hedges, or marketing budgets.
   const PUBLIC_DECISIONS = new Set([
-    'ADD_ROUTE', 'CLOSE_ROUTE', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE',
+    'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE',
     'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'ORDER_AIRCRAFT',
     'ADD_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
     'JOIN_ALLIANCE', 'LEAVE_ALLIANCE',
@@ -139,6 +139,15 @@ export default async function worldRoutes(fastify) {
       ...(p.typeId ? { typeId: p.typeId } : {}),
       ...(p.airportCode ? { airportCode: p.airportCode } : {}),
       ...(p.allianceId ? { allianceId: p.allianceId } : {}),
+      // Batched route closes: pass through only scrubbed origin/destination
+      // pairs (public info) and the count — never raw ids or anything else.
+      ...(Array.isArray(p.routes) ? {
+        routes: p.routes
+          .filter((r) => r && r.origin && r.destination)
+          .slice(0, 20)
+          .map((r) => ({ origin: r.origin, destination: r.destination })),
+      } : {}),
+      ...(Number.isFinite(p.count) ? { count: p.count } : {}),
     };
   };
   fastify.get('/worlds/:id/rivals/:airlineId', {

@@ -1142,11 +1142,11 @@ export default function Fleet() {
         </div>
         <div className="stat-box">
           <div className="stat-label">Weekly Leases</div>
-          <div className="stat-value red">−{formatMoney(weeklyLeaseTotal)}</div>
+          <div className={`stat-value ${weeklyLeaseTotal > 0 ? 'red' : ''}`}>{weeklyLeaseTotal > 0 ? `−${formatMoney(weeklyLeaseTotal)}` : formatMoney(0)}</div>
         </div>
         <div className="stat-box">
           <div className="stat-label">Weekly Maintenance</div>
-          <div className="stat-value red">−{formatMoney(weeklyMaintTotal)}</div>
+          <div className={`stat-value ${weeklyMaintTotal > 0 ? 'red' : ''}`}>{weeklyMaintTotal > 0 ? `−${formatMoney(weeklyMaintTotal)}` : formatMoney(0)}</div>
         </div>
         <div className="stat-box">
           <div className="stat-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>

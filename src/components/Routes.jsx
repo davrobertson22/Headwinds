@@ -1157,7 +1157,7 @@ function RouteTableRow({ group: g, zebra, selected, expanded, onToggleSelect, on
           {g.totalProfit >= 0 ? '+' : ''}{formatMoney(g.totalProfit)}
         </td>
         <td style={{ ...RIGHT, fontWeight: 700, color: margColor }}>{Math.round(g.margin * 100)}%</td>
-        <td style={{ ...CELL, textAlign: 'center', color: 'var(--text-dim)', fontSize: 10 }}>
+        <td style={{ ...CELL, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
           {expanded ? '▴' : '▾'}
         </td>
       </tr>
