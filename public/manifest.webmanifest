@@ -31,7 +31,7 @@
   "screenshots": [
     {
       "src": "/screenshot-wide.png",
-      "sizes": "1960x928",
+      "sizes": "1568x742",
       "type": "image/png",
       "form_factor": "wide",
       "label": "Managing routes and fleet in Tailwinds"
