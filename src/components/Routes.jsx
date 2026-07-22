@@ -262,9 +262,18 @@ export default function Routes() {
     const margin    = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
     const totalFreq = group.routes.reduce((s, r) => s + r.weeklyFrequency, 0);
 
+    // Seat-weighted engine quality score across the aircraft on this pair —
+    // same number the demand model competes with (null if no result carries one,
+    // e.g. every aircraft grounded).
+    const qSims   = sims.filter(({ result }) => result?.qualityScore != null);
+    const qSeats  = qSims.reduce((s, { result }) => s + (result.configuredSeatsOneWay || 1), 0);
+    const quality = qSims.length > 0
+      ? qSims.reduce((s, { result }) => s + result.qualityScore * (result.configuredSeatsOneWay || 1), 0) / qSeats
+      : null;
+
     return {
       ...group, totalProfit, totalRevenue, totalPax, avgLoad, distance, classLoads,
-      hasDisrupted, hasDormant, regions, typeIds, margin, totalFreq,
+      hasDisrupted, hasDormant, regions, typeIds, margin, totalFreq, quality,
     };
   }), [routes, fleet, rrById]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -337,6 +346,7 @@ export default function Routes() {
   const visibleGroups = [...afterFilter].sort((a, b) => {
     if (sortBy === 'revenue')  return b.totalRevenue - a.totalRevenue;
     if (sortBy === 'load')     return b.avgLoad      - a.avgLoad;
+    if (sortBy === 'quality')  return (b.quality ?? -1) - (a.quality ?? -1);
     if (sortBy === 'distance') return b.distance     - a.distance;
     return b.totalProfit - a.totalProfit; // default
   });
@@ -649,6 +659,7 @@ export default function Routes() {
                 <option value="profit">Sort: Profit ↓</option>
                 <option value="revenue">Sort: Revenue ↓</option>
                 <option value="load">Sort: Load ↓</option>
+                <option value="quality">Sort: Quality ↓</option>
                 <option value="distance">Sort: Distance ↓</option>
               </select>
             )}
@@ -934,6 +945,7 @@ const TABLE_COLUMNS = [
   { id: 'dist',   label: 'Dist',         align: 'right' },
   { id: 'freq',   label: 'Freq',         align: 'right' },
   { id: 'load',   label: 'Load',         align: 'right' },
+  { id: 'quality', label: 'Quality',     align: 'right' },
   { id: 'pax',    label: 'Pax/wk',       align: 'right' },
   { id: 'rev',    label: 'Revenue/wk',   align: 'right' },
   { id: 'profit', label: 'Profit/wk',    align: 'right' },
@@ -945,6 +957,7 @@ const TABLE_SORTERS = {
   dist:   (a, b) => a.distance     - b.distance,
   freq:   (a, b) => a.totalFreq    - b.totalFreq,
   load:   (a, b) => a.avgLoad      - b.avgLoad,
+  quality: (a, b) => (a.quality ?? -1) - (b.quality ?? -1),
   pax:    (a, b) => a.totalPax     - b.totalPax,
   rev:    (a, b) => a.totalRevenue - b.totalRevenue,
   profit: (a, b) => a.totalProfit  - b.totalProfit,
@@ -1100,6 +1113,9 @@ function RouteTableRow({ group: g, zebra, selected, expanded, onToggleSelect, on
   const profColor = g.totalProfit >= 0 ? 'var(--green)' : 'var(--red)';
   const loadColor = g.avgLoad > 0.7 ? 'var(--green)' : g.avgLoad > 0.4 ? 'var(--yellow)' : 'var(--red)';
   const margColor = g.margin > 0.15 ? 'var(--green)' : g.margin > 0 ? 'var(--yellow)' : 'var(--red)';
+  // Same thresholds as the Route Detail quality breakdown panel.
+  const qualColor = g.quality == null ? 'var(--text-muted)'
+    : g.quality >= 70 ? 'var(--green)' : g.quality >= 45 ? 'var(--yellow)' : 'var(--red)';
 
   const CELL = { padding: '7px 10px' };
   const RIGHT = { ...CELL, textAlign: 'right' };
@@ -1151,6 +1167,12 @@ function RouteTableRow({ group: g, zebra, selected, expanded, onToggleSelect, on
           )}
         </td>
         <td style={{ ...RIGHT, fontWeight: 700, color: loadColor }}>{formatPercent(g.avgLoad)}</td>
+        <td
+          style={{ ...RIGHT, fontWeight: 700, color: qualColor }}
+          title="Quality score (0–100) — drives your share of passengers vs competitors. Open the route for the full breakdown."
+        >
+          {g.quality != null ? Math.round(g.quality) : '—'}
+        </td>
         <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{(g.totalPax ?? 0).toLocaleString()}</td>
         <td style={{ ...RIGHT, fontWeight: 600, color: 'var(--green)' }}>+{formatMoney(g.totalRevenue)}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: profColor }}>
@@ -1285,6 +1307,16 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
   const profitColor = totalProfit >= 0 ? 'var(--green)' : 'var(--red)';
   const loadColor   = blendedLoad > 0.7 ? 'var(--green)' : blendedLoad > 0.4 ? 'var(--yellow)' : 'var(--red)';
 
+  // Seat-weighted engine quality score across aircraft on the pair (same
+  // thresholds as the Route Detail breakdown panel).
+  const qSims    = sims.filter(({ result }) => result?.qualityScore != null);
+  const qSeats   = qSims.reduce((s, { result }) => s + (result.configuredSeatsOneWay || 1), 0);
+  const quality  = qSims.length > 0
+    ? qSims.reduce((s, { result }) => s + result.qualityScore * (result.configuredSeatsOneWay || 1), 0) / qSeats
+    : null;
+  const qualColor = quality == null ? 'var(--text-muted)'
+    : quality >= 70 ? 'var(--green)' : quality >= 45 ? 'var(--yellow)' : 'var(--red)';
+
   // ── Catering (per route, shown/edited at the city-pair level) ──────────────
   const catLevels      = [...new Set(routes.map(r => normalizeCateringLevel(r.cateringLevel)))];
   const groupCatLevel  = catLevels.length === 1 ? catLevels[0] : null;  // null = mixed
@@ -1364,6 +1396,10 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
               <span style={{ display: 'block', height: '100%', width: `${Math.min(100, blendedLoad * 100)}%`, background: loadColor, borderRadius: 3 }} />
             </span>
           </div>
+        </div>
+        <div title="Quality score (0–100) — drives your share of passengers vs competitors. Open the route for the full breakdown.">
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Quality</div>
+          <div style={{ fontWeight: 700, color: qualColor }}>{quality != null ? Math.round(quality) : '—'}</div>
         </div>
         <div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Pax / wk</div>
