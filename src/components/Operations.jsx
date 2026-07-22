@@ -31,6 +31,10 @@ import { Glyph } from './Icons.jsx';
 
 // ─── Headcount estimation ─────────────────────────────────────────────────────
 
+// Market-rate weekly wage (fully loaded) assumed for one in-house ground
+// staffer — used to derive a realistic headcount from the ground staff budget.
+const GROUND_STAFF_MARKET_WAGE_WK = 900;
+
 /**
  * Estimate headcount per labor group from actual fleet + route data.
  *
@@ -53,9 +57,6 @@ export function estimateHeadcount(groupId, fleet, routes) {
 
   // Average economy-equivalent seats per aircraft (for cabin crew sizing)
   const avgSeats = fleet.reduce((sum, a) => sum + (getAircraftType(a.typeId)?.seats ?? 100), 0) / n;
-
-  // Weekly departures (both directions, all routes)
-  const weeklyDeps = routes.reduce((s, r) => s + r.weeklyFrequency * 2, 0);
 
   switch (groupId) {
     case 'pilots': {
@@ -80,9 +81,16 @@ export function estimateHeadcount(groupId, fleet, routes) {
       const flying        = Math.ceil((totalBlockHrs / 30) * crewPerFlight * 1.15);
       return Math.max(minRetainer, flying);
     }
-    case 'groundStaff':
-      // ~3 staff per weekly departure (gate agent, check-in, ramp), plus base per aircraft
-      return Math.max(n * 4, Math.ceil(weeklyDeps * 3));
+    case 'groundStaff': {
+      // In-house core team only (gate leads, ops control, supervisors) —
+      // per-flight handling labor is outsourced and billed separately via the
+      // ground handling fee on each departure. Headcount is what the base
+      // (1.0×) budget employs at a market ground-staff wage (~$900/wk fully
+      // loaded), so displayed per-person pay stays realistic and scales with
+      // the pay slider instead of the fleet's departure count.
+      const baseBudget = (LABOR_GROUP_MAP.groundStaff?.baseWeeklyPerAircraft ?? 4000) * n;
+      return Math.max(n * 3, Math.round(baseBudget / GROUND_STAFF_MARKET_WAGE_WK));
+    }
     case 'maintenanceTeam':
       // ~1 line technician per 5 block hours + base staffing of 5 per airframe
       return Math.max(n * 5, Math.ceil(totalBlockHrs / 5) + n * 3);
