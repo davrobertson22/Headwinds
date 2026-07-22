@@ -4,8 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contact — Tailwinds Airline Management Game</title>
-  <meta name="description" content="How to reach the Tailwinds team: report bugs, suggest features, or talk airline strategy with the community on Discord." />
+  <meta name="description" content="Contact the Tailwinds team: send a message with the form, report a bug, suggest a feature, or talk airline strategy with the community on Discord." />
   <link rel="canonical" href="https://www.tailwindsairlinegame.com/contact.html" />
+  <meta property="og:title" content="Contact — Tailwinds Airline Management Game" />
+  <meta property="og:description" content="Contact the Tailwinds team: send a message with the form, report a bug, suggest a feature, or talk airline strategy with the community on Discord." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.tailwindsairlinegame.com/contact.html" />
+  <meta property="og:image" content="https://www.tailwindsairlinegame.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -29,6 +37,19 @@
     li { margin:0 0 8px; }
     .cta { display:inline-block; background:var(--gold); color:#20180a; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin:0 0 16px; }
+    form.contact { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px 24px; margin:0 0 20px; }
+    form.contact .row { margin:0 0 16px; }
+    form.contact label { display:block; font-weight:600; font-size:0.95rem; margin:0 0 6px; }
+    form.contact input, form.contact textarea { width:100%; background:#1b1b1f; border:1px solid var(--line); border-radius:8px; color:var(--text); font-family:inherit; font-size:1rem; padding:11px 13px; line-height:1.5; }
+    form.contact input:focus, form.contact textarea:focus { outline:none; border-color:var(--gold); }
+    form.contact textarea { resize:vertical; min-height:130px; }
+    form.contact .hp { position:absolute; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden; }
+    button.submit { background:var(--gold); color:#20180a; font-weight:700; font-family:inherit; font-size:1rem; padding:12px 28px; border:none; border-radius:8px; cursor:pointer; }
+    button.submit:hover { background:var(--gold-light); }
+    button.submit:disabled { opacity:0.6; cursor:default; }
+    .form-result { margin:14px 0 0; font-size:0.98rem; min-height:1.2em; }
+    .form-result.ok { color:#6fce9f; }
+    .form-result.err { color:#e88b8b; }
     footer.site { border-top:1px solid var(--line); }
     .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
     .footwrap a { color:var(--gold-light); text-decoration:none; }
@@ -49,11 +70,38 @@
 
   <main>
     <h1>Contact</h1>
-    <p class="lede">Found a bug? Have a feature idea? Want to argue about the best starter hub? Here's how to reach us.</p>
+    <p class="lede">Found a bug? Have a feature idea? Want to argue about the best starter hub? Send us a message below, or join the community on Discord.</p>
+
+    <h2>Send us a message</h2>
+    <p>Fill in the form and it comes straight to the team. If you'd like a reply, leave an email address we can reach you at. For bug reports, the more detail the better — see the tips further down.</p>
+
+    <!-- Web3Forms delivery — the access key below is public by design: it only
+         identifies the destination inbox, the address itself is never exposed. -->
+    <form class="contact" action="https://api.web3forms.com/submit" method="POST" id="contactForm">
+      <input type="hidden" name="access_key" value="f07808ae-4603-4f2f-8d12-aa55d52814bd" />
+      <input type="hidden" name="subject" value="New message from the Tailwinds contact form" />
+      <input type="hidden" name="from_name" value="Tailwinds Contact Form" />
+      <input type="checkbox" name="botcheck" class="hp" tabindex="-1" autocomplete="off" />
+      <div class="row">
+        <label for="cf-name">Name</label>
+        <input type="text" id="cf-name" name="name" required autocomplete="name" />
+      </div>
+      <div class="row">
+        <label for="cf-email">Email <span style="color:var(--muted);font-weight:400;">(optional, if you'd like a reply)</span></label>
+        <input type="email" id="cf-email" name="email" autocomplete="email" />
+      </div>
+      <div class="row">
+        <label for="cf-message">Message</label>
+        <textarea id="cf-message" name="message" required></textarea>
+      </div>
+      <button type="submit" class="submit">Send message</button>
+      <p class="form-result" id="formResult" role="status" aria-live="polite"></p>
+      <noscript><p style="color:var(--muted);margin:12px 0 0;">Submitting this form requires JavaScript. If it's disabled, please reach us on <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a> instead.</p></noscript>
+    </form>
 
     <div class="card">
       <h2 style="margin-top:0;">Join the Discord community</h2>
-      <p>The Tailwinds Discord is the heart of the community and the fastest way to reach the team. Players share strategies, report bugs, suggest features, and help shape where the game goes next — and the developers read it daily.</p>
+      <p>The Tailwinds Discord is the heart of the community and often the fastest way to reach the team. Players share strategies, report bugs, suggest features, and help shape where the game goes next — and the developers read it daily.</p>
       <p><a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer"><strong>Join the Tailwinds Discord →</strong></a></p>
     </div>
 
@@ -67,29 +115,67 @@
     </ul>
 
     <h2>Feature ideas and feedback</h2>
-    <p>Much of what's in Tailwinds today started as a player suggestion on Discord. If you have an idea — a mechanic, an aircraft, an airport that deserves to be on the map — post it in the suggestions channel. We can't build everything, but we read everything.</p>
+    <p>Much of what's in Tailwinds today started as a player suggestion. If you have an idea — a mechanic, an aircraft, an airport that deserves to be on the map — send it our way. We can't build everything, but we read everything.</p>
 
     <h2>Privacy questions</h2>
-    <p>For questions about data and privacy, see our <a href="/privacy.html">Privacy Policy</a>, or ask on Discord and we'll point you to the right answer.</p>
+    <p>For questions about data and privacy, see our <a href="/privacy.html">Privacy Policy</a>, or ask through the form above and we'll point you to the right answer.</p>
 
     <a class="cta" href="/">Play Tailwinds — It's Free →</a>
   </main>
 
   <footer class="site">
     <div class="footwrap">
-      <a href="/">Home</a>
+      <a href="/?home">Home</a>
       <a href="/how-to-play.html">How to Play</a>
       <a href="/strategy.html">Strategy</a>
       <a href="/aircraft.html">Aircraft</a>
       <a href="/glossary.html">Glossary</a>
       <a href="/faq.html">FAQ</a>
       <a href="/devlog.html">Devlog</a>
+      <a href="/best-airline-management-games.html">Best Airline Games</a>
       <a href="/about.html">About</a>
       <a href="/contact.html">Contact</a>
       <a href="/privacy.html">Privacy</a>
       <a href="/terms.html">Terms</a>
-      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser. Multiplayer: <a href="https://www.headwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Headwinds</a>.</span>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      var form = document.getElementById('contactForm');
+      var result = document.getElementById('formResult');
+      if (!form) return;
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var btn = form.querySelector('button[type="submit"]');
+        var data = new FormData(form);
+        result.className = 'form-result';
+        result.textContent = 'Sending…';
+        if (btn) btn.disabled = true;
+        fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: data
+        }).then(function (res) {
+          return res.json().then(function (json) { return { ok: res.ok, json: json }; });
+        }).then(function (r) {
+          if (r.ok) {
+            form.reset();
+            result.className = 'form-result ok';
+            result.textContent = (r.json && r.json.message) || 'Thanks — your message has been sent.';
+          } else {
+            result.className = 'form-result err';
+            result.textContent = (r.json && r.json.message) || 'Something went wrong. Please try again, or reach us on Discord.';
+          }
+        }).catch(function () {
+          result.className = 'form-result err';
+          result.textContent = 'Network error. Please try again, or reach us on Discord.';
+        }).then(function () {
+          if (btn) btn.disabled = false;
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

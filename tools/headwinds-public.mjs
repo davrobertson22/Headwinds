@@ -54,6 +54,7 @@ const EXCLUDE = new Set([
   'manifest.webmanifest',         // rewritten below for Headwinds
   'sitemap.xml',                  // regenerated below for this domain
   'robots.txt',                   // regenerated below for this domain
+  'llms.txt',                     // regenerated below for this domain
 ]);
 const isJunk = (f) => f === '.DS_Store' || f.startsWith('.fuse_hidden');
 
@@ -357,13 +358,42 @@ writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
 
 // robots.txt + sitemap.xml for this domain.
 writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: https://${DOMAIN}/sitemap.xml\n`);
+// llms.txt for this domain — a plain-language map of the site for AI crawlers/agents.
+writeFileSync(path.join(OUT, 'llms.txt'), `# Headwinds — Multiplayer Airline Management Game
+
+> Headwinds is a free, browser-based multiplayer airline management game. Persistent shared worlds run on a server clock 24/7, and every rival airline is a real player — no AI carriers. Build routes across 1,500+ real airports with 100+ real aircraft, found player-run alliances, and compete to top the final standings. Built on the same engine as the solo game Tailwinds (https://www.tailwindsairlinegame.com).
+
+Headwinds is free to play at https://${DOMAIN}/ — sign in with Google or an email link and join a world.
+
+## Start here
+
+- [How to Play](https://${DOMAIN}/how-to-play.html): joining a world, first aircraft, first routes
+- [Fair Play Rules](https://${DOMAIN}/rules.html): multiplayer conduct, multi-accounting, enforcement
+- [About](https://${DOMAIN}/about.html): what the game simulates and how it was made
+
+## Guides
+
+- [Strategy Guide](https://${DOMAIN}/strategy.html): competing against real players
+- [Route Economics](https://${DOMAIN}/route-economics.html): demand, fares, and contested routes
+- [Hub Strategy](https://${DOMAIN}/hub-strategy.html): building connecting banks under competition
+- [Competition & Alliances](https://${DOMAIN}/competition-and-alliances.html): rivalry, diplomacy, player alliances
+- [Glossary](https://${DOMAIN}/glossary.html): airline and multiplayer terms
+
+## Comparisons
+
+- [Best Multiplayer Airline Management Games in 2026](https://${DOMAIN}/best-airline-management-games.html): honest comparison of Headwinds, AirwaySim, AirlineSim, Airline Manager 4, Airline Mogul, and Tailwinds
+
+## Updates
+
+- [Devlog](https://${DOMAIN}/devlog.html): player-facing changelog
+`);
 const today = new Date().toISOString().slice(0, 10);
 // /play is the JS app shell (sign-in + lobby) — thin, low-value to index, so it
 // stays out of the sitemap. It remains reachable via the landing CTA + rewrite.
 // Cross-canonicaled pages stay out of the sitemap — a sitemap should only list
 // URLs whose canonical is on this domain.
 const pages = ['', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
-const prio = (p) => p === '' ? '1.0' : /^(how-to-play|strategy|devlog|rules)/.test(p) ? '0.8' : '0.6';
+const prio = (p) => p === '' ? '1.0' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
   pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +

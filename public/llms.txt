@@ -1,0 +1,29 @@
+# Tailwinds — Airline Management Game
+
+> Tailwinds is a free, browser-based airline management and strategy game. No download, no sign-up: build an airline from a $10M startup into a global carrier across 1,500+ real airports with 100+ real aircraft types. Single-player against AI competitors; progress saves in your browser. Its multiplayer sibling, Headwinds (https://www.headwindsairlinegame.com), runs persistent shared worlds where every rival is a real player.
+
+Tailwinds is free to play at https://www.tailwindsairlinegame.com — the game itself runs client-side in the browser (desktop and mobile).
+
+## Start here
+
+- [How to Play](https://www.tailwindsairlinegame.com/how-to-play.html): the basics — first aircraft, first routes, reading your weekly results
+- [FAQ](https://www.tailwindsairlinegame.com/faq.html): is it free (yes), accounts (none needed), saving, offline play
+- [About](https://www.tailwindsairlinegame.com/about.html): what the game simulates and how it was made
+
+## Guides
+
+- [Strategy Guide](https://www.tailwindsairlinegame.com/strategy.html): openings, growth, and late-game play
+- [Route Economics](https://www.tailwindsairlinegame.com/route-economics.html): demand, fares, load factors, and profitability
+- [Hub Strategy](https://www.tailwindsairlinegame.com/hub-strategy.html): building connecting banks and choosing a hub
+- [Fleet Planning](https://www.tailwindsairlinegame.com/fleet-planning.html): matching aircraft to routes
+- [Aircraft Guide](https://www.tailwindsairlinegame.com/aircraft.html): stats for 100+ real aircraft, by class
+- [Beginner Mistakes](https://www.tailwindsairlinegame.com/beginner-mistakes.html): common early-game errors
+- [Glossary](https://www.tailwindsairlinegame.com/glossary.html): airline and game terms
+
+## Comparisons
+
+- [Best Airline Management Games in 2026](https://www.tailwindsairlinegame.com/best-airline-management-games.html): honest comparison of Tailwinds, Headwinds, AirwaySim, AirlineSim, Airline Manager 4, and Airline Mogul
+
+## Updates
+
+- [Devlog](https://www.tailwindsairlinegame.com/devlog.html): player-facing changelog, updated with each release

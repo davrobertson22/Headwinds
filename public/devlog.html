@@ -6,6 +6,14 @@
   <title>Devlog — Tailwinds Airline Management Game Updates</title>
   <meta name="description" content="Development log for Tailwinds: what's new in the free browser airline management game — new features, balance changes, and fixes, update by update." />
   <link rel="canonical" href="https://www.tailwindsairlinegame.com/devlog.html" />
+  <meta property="og:title" content="Devlog — Tailwinds Airline Management Game Updates" />
+  <meta property="og:description" content="Development log for Tailwinds: what's new in the free browser airline management game — new features, balance changes, and fixes, update by update." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://www.tailwindsairlinegame.com/devlog.html" />
+  <meta property="og:image" content="https://www.tailwindsairlinegame.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -52,6 +60,116 @@
   <main>
     <h1>Devlog</h1>
     <p class="lede">What's changing in Tailwinds, update by update. The game ships improvements continuously — this page collects them into readable release notes. For discussion, bug reports, and sneak peeks, <a href="/contact.html">join the Discord</a>.</p>
+
+    <div class="entry">
+      <p class="date">July 21, 2026</p>
+      <h2>A polish pass across the whole game</h2>
+      <p>A full sweep of the interface &mdash; every screen reviewed on desktop and phone, and twenty rough edges smoothed out in one go.</p>
+      <ul>
+        <li>Big money finally reads like big money: balances past a billion now show as $1.49B instead of $1485.34M, everywhere amounts appear.</li>
+        <li>Phones behave: the page no longer wiggles sideways, the top bar fits, and the date and next-week countdown now live in the &#8942; menu. Menus opened from a scrolled tab bar stay on screen too.</li>
+        <li>Finance is more honest: the weekly P&amp;L comparison now shows real signs on EBITDA and net cash instead of stripping the minus, and its history math includes loyalty and partner costs so past weeks reconcile with the <a href="/route-economics.html">waterfall</a>.</li>
+        <li>Fleets with older duplicate aircraft names (two &ldquo;#18&rdquo;s) tidy themselves up automatically on the next week.</li>
+        <li>Lots of small polish: charts in Statistics fill their cards, manufacturer filters wrap instead of running off screen, the airports-in-progress list is a compact grid, expand arrows in the Routes table are actually visible, and a handful of confusing labels got rewritten.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 20, 2026</p>
+      <h2>Runways matter now</h2>
+      <p>Until today, any aircraft could serve any airport it could reach. No longer &mdash; every airport now has its longest runway on record, every aircraft has a minimum runway it needs, and the two have to agree before a route can open.</p>
+      <ul>
+        <li>Airport pages now show the longest runway in feet, and every type in the <a href="/aircraft.html">aircraft guide</a> and the in-game Marketplace lists the runway it requires. Shop accordingly.</li>
+        <li>You can no longer open a route &mdash; or swap in a different aircraft &mdash; if either airport is too short for the type. Routes you already fly are grandfathered: they keep operating, marked with a Runway waiver badge.</li>
+        <li>The numbers reflect real operations, not brochure figures. LaGuardia&rsquo;s 7,002 ft handles the A321s and 737-900ERs that really fly there; John Wayne&rsquo;s 5,701 ft takes a 737-800 with room to spare; short strips in the islands and mountains stay turboprop and regional-jet territory, which makes fleet choice on thin routes matter more &mdash; see <a href="/route-economics.html">route economics</a>.</li>
+        <li>London City gets the full treatment: its 4,948 ft runway and steep approach admit only certified types &mdash; regional jets, turboprops, and now the A220-100 and A318, matching their real-world certification.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 20, 2026</p>
+      <h2>A proper pass for phones and small screens</h2>
+      <p>Players told us the game felt cramped on a phone &mdash; the setup screen most of all. Here is a focused pass on small screens. Nothing about the desktop game changes.</p>
+      <ul>
+        <li><strong>Setting up your airline fits the screen now.</strong> The new-airline screen &mdash; name, logo, colour and home hub &mdash; was squeezed on phones, with the logo picker crushed and its labels cut off. It has been rebuilt for narrow screens: the logo grid reflows, every name is readable, and the whole flow is comfortable to tap through.</li>
+        <li><strong>Your routes open as cards on a phone.</strong> The wide route-comparison table is awkward on a small screen, so on phones the Routes page now opens in card view by default &mdash; still one tap to the full table when you want it.</li>
+        <li><strong>Tables stay readable.</strong> Where a table still scrolls sideways on a phone &mdash; your fleet, the finances &mdash; the first column (the aircraft, route or line item) now stays pinned while you scan the numbers, and the filter chips scroll in a single row instead of wrapping into a jumble.</li>
+        <li><strong>Sized for fingers, and notch-safe.</strong> Buttons, tabs and menus are bigger tap targets, and if you add Tailwinds to your home screen it now keeps clear of the notch and home indicator.</li>
+      </ul>
+      <p>Spotted something that still feels off on your phone? Let us know on the <a href="/contact.html">Discord</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 20, 2026</p>
+      <h2>A table view for your gates</h2>
+      <p>Player feedback strikes again: once an airline holds gates at thirty-plus airports, the Gates tab turned into a very long scroll. It now scales the same way the Routes page does.</p>
+      <ul>
+        <li><strong>New table view for Your Gates.</strong> The Gates tab now opens as a compact, sortable table &mdash; airport, region, gates held, slots used, a utilisation bar, and weekly cost, with add/remove and details buttons on every row. Click any column header to sort; the default order still puts your busiest, most congested airports first. Prefer the old look? A toggle switches back to cards, and phones keep the card view by default.</li>
+        <li><strong>Airport search survives region switches.</strong> When browsing airports to buy gates, switching between regions no longer clears the search box &mdash; type a city once and hop between regions to find it. More on gates and slots in the <a href="/route-economics.html">route economics guide</a>.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 19, 2026</p>
+      <h2>Codeshare partnerships are now unlimited</h2>
+      <p>The cap on bilateral codeshare agreements is gone &mdash; you can now partner with as many carriers as you like.</p>
+      <ul>
+        <li><strong>No more six-partner limit.</strong> Sign a codeshare with every worthwhile carrier on the board; there's no longer any ceiling on how many agreements you can hold at once.</li>
+        <li><strong>Build the network you want.</strong> Feed traffic in from partners across every region without cancelling one deal to make room for another. Each agreement still carries its own weekly fee, so weigh that against the connecting revenue a partner brings &mdash; see the <a href="/competition-and-alliances.html">competition &amp; alliances guide</a>.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 17, 2026</p>
+      <h2>Easier aircraft shopping and cabin planning</h2>
+      <p>A round of quality-of-life upgrades driven by player feedback, focused on the Market and the cabin configurator.</p>
+      <ul>
+        <li><strong>Search the aircraft market.</strong> A search box now sits above the filters &mdash; type a model or manufacturer and the list narrows instantly.</li>
+        <li><strong>New table view for comparing aircraft.</strong> Switch the Market between photo cards and a compact table with sortable columns (seats, range, fuel per seat, efficiency, maintenance, lease and purchase price, delivery time). Click any column header to sort. Your choice is remembered.</li>
+        <li><strong>Faster cabin configuration.</strong> Every class now has plus/minus steppers and a <em>Max</em> button that fills the remaining floor space with that class in one click &mdash; an all-first-class cabin is now one tap away. Each class also shows its revenue per unit of floor space so layout trade-offs are easier to judge; see the <a href="/aircraft.html">aircraft guide</a>.</li>
+        <li><strong>Flight frequency now shows its real limit.</strong> The route planner caps the flights-per-week slider at what one aircraft can physically fly on that distance (each airframe has 140 flying hours a week), and labels 7&times; as what it is: daily service. Freight routes get the same treatment; details in the <a href="/route-economics.html">route economics guide</a>.</li>
+        <li><strong>Sliders are actually draggable.</strong> The pay, maintenance, price, and frequency sliders had a tiny grab area that often started a text-selection drag instead. They now have a proper hit area and drag reliably.</li>
+        <li><strong>Copy cleanup.</strong> Aircraft descriptions and interface text were rewritten to be shorter and plainer.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 15, 2026</p>
+      <h2>Put idle hours to work: fly one plane on several routes</h2>
+      <p>An aircraft with spare weekly flying hours can now open additional routes straight from the route planner — you no longer need a brand-new, fully idle plane for every route. If a jet or freighter is only lightly used, the planner offers it for your next lane instead of telling you to lease another.</p>
+      <ul>
+        <li><strong>The aircraft-type dropdown now shows how many planes are &ldquo;ready&rdquo;</strong> for the lane you&rsquo;re viewing — counting idle aircraft <em>and</em> ones with hours to spare — not just fully-idle airframes.</li>
+        <li><strong>Reused planes are labelled &ldquo;shares hours,&rdquo;</strong> so it&rsquo;s clear when a route will run on an aircraft that&rsquo;s already flying elsewhere.</li>
+        <li><strong>Clearer guidance when a plane can&rsquo;t be used.</strong> If your only spare-capacity aircraft are working a different part of the map, the planner now explains that a plane can only add a route touching an airport it already serves — rather than just saying &ldquo;lease one.&rdquo; Aircraft still cap out at 140 flying hours a week; see the <a href="/route-economics.html">route economics guide</a>.</li>
+      </ul>
+      <p>This applies to both passenger and freight routes, and nothing changes for routes you already run — you simply have more ways to get value from the fleet you own.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 15, 2026</p>
+      <h2>Route demand rebalanced against real-world traffic</h2>
+      <p>We audited passenger demand on dozens of real city pairs against published airline traffic data — and the model needed work. The world's busiest real routes were tiny in the game, while some pairings that barely support a daily flight in reality were oversized. Demand between cities has been recalibrated from the ground up, so the map now rewards the same instincts that work for real airlines.</p>
+      <ul>
+        <li><strong>Captive corridors are now the giants they should be.</strong> Where flying is the only practical option — island routes like Seoul–Jeju and Tokyo–Sapporo, and no-rail trunks like Sydney–Melbourne or Jeddah–Riyadh — demand is dramatically higher. The busiest routes in the game now mirror the busiest routes on Earth.</li>
+        <li><strong>Borders and wealth matter.</strong> Domestic markets outdraw international ones of the same size, strong ties (UK–Ireland, Australia–New Zealand, Gulf worker corridors) keep demand high across borders, and routes between cities where few people fly no longer punch above their weight.</li>
+        <li><strong>Tourism finally counts.</strong> Destinations like Cancún, Orlando, Bali and Jeju now draw demand from their visitor traffic, not just their resident population.</li>
+        <li><strong>Very short hops got a reality check.</strong> City pairs under ~200 km where driving is easy support far fewer passengers — but island hops with no road alternative, like Hawaii inter-island flying, keep their full demand.</li>
+        <li><strong>Markets are bigger overall.</strong> Popular routes carry roughly 1.5–2x the passengers they used to, so expect higher demand on your existing network and room for more frequency — see the <a href="/route-economics.html">route economics guide</a> for how demand, fares and load factors interact.</li>
+      </ul>
+      <p>Existing saves pick up the new demand the next time you play a week — no reset needed. If a route suddenly looks much busier (or quieter), that's the world getting more honest.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 11, 2026</p>
+      <h2>Your airline, charted over time</h2>
+      <p>The Finance tab has a new <strong>Statistics</strong> page that turns your airline's history into charts — and lets you zoom from the last few weeks all the way out to decades.</p>
+      <ul>
+        <li><strong>Where your passengers come from.</strong> A stacked view splits every week's traffic three ways: travelers flying you point-to-point, passengers connecting over your own <a href="/route-economics.html">hubs</a>, and the feed your alliance and codeshare partners hand onto your flights.</li>
+        <li><strong>The numbers that matter, tracked.</strong> Revenue, costs and net profit; active routes, weekly departures, destinations served and fleet size; load factor, yield and capacity — each on its own chart, with details on hover.</li>
+        <li><strong>Any window you like.</strong> Filter from the last 4 weeks up through 6 months and a year, and on out to 3, 5, 10, 20 or 30 years. Longer views smooth the line so a decade of flying still reads at a glance.</li>
+        <li><strong>Builds as you fly.</strong> Your airline starts keeping these records the moment the update lands, so the picture grows richer with every week you play.</li>
+      </ul>
+    </div>
 
     <div class="entry">
       <p class="date">July 11, 2026</p>
@@ -287,18 +405,19 @@
 
   <footer class="site">
     <div class="footwrap">
-      <a href="/">Home</a>
+      <a href="/?home">Home</a>
       <a href="/how-to-play.html">How to Play</a>
       <a href="/strategy.html">Strategy</a>
       <a href="/aircraft.html">Aircraft</a>
       <a href="/glossary.html">Glossary</a>
       <a href="/faq.html">FAQ</a>
       <a href="/devlog.html">Devlog</a>
+      <a href="/best-airline-management-games.html">Best Airline Games</a>
       <a href="/about.html">About</a>
       <a href="/contact.html">Contact</a>
       <a href="/privacy.html">Privacy</a>
       <a href="/terms.html">Terms</a>
-      <span style="margin-left:auto;">© Tailwinds — free to play in your browser.</span>
+      <span style="margin-left:auto;">© Tailwinds — free to play in your browser. Multiplayer: <a href="https://www.headwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Headwinds</a>.</span>
     </div>
   </footer>
 </body>
