@@ -101,7 +101,10 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     type: 'START_GAME',
     airlineName: airlineName?.trim() || 'New Airline',
     hub,
-    enableObjectives: false,
+    // Multiplayer starter board: 10 objectives with cash bonuses (see
+    // MULTIPLAYER_OBJECTIVE_TEMPLATES in the engine's data/objectives.js).
+    enableObjectives: true,
+    objectiveSet: 'multiplayer',
   });
 
   // Scale the seeded opening balances to this world's starting capital. The engine

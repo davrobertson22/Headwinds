@@ -73,7 +73,10 @@ export function joinWorld(world, { accountId, airlineName, hub }) {
   if (world.status === 'ended') throw new Error('world ended');
   // Each airline starts from the identical solo-game starting position.
   const state = gameReducer(freshState(), {
-    type: 'START_GAME', airlineName, hub, enableObjectives: false,
+    type: 'START_GAME', airlineName, hub,
+    // Multiplayer starter board: 10 objectives with cash bonuses (see
+    // MULTIPLAYER_OBJECTIVE_TEMPLATES in the engine's data/objectives.js).
+    enableObjectives: true, objectiveSet: 'multiplayer',
   });
   world.airlines.set(accountId, state);
   return state;

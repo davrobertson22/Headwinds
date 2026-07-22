@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { OBJECTIVE_TEMPLATES } from '../data/objectives.js';
+import { OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_IDS } from '../data/objectives.js';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
 
@@ -25,8 +25,13 @@ export default function BoardObjectives() {
   // Hidden when objectives are disabled at setup, or not yet initialized
   if (!state.objectivesEnabled || objectives.length === 0) return null;
 
+  // Multiplayer worlds run the compact 10-objective starter board; solo runs
+  // the full three-phase board. Detect from the ids actually stored in state.
+  const isStarterBoard = objectives.some(o => MULTIPLAYER_OBJECTIVE_IDS.includes(o.id));
+  const templates = isStarterBoard ? MULTIPLAYER_OBJECTIVE_TEMPLATES : OBJECTIVE_TEMPLATES;
+
   // Merge template data with completion state
-  const merged = OBJECTIVE_TEMPLATES.map(tmpl => {
+  const merged = templates.map(tmpl => {
     const stateObj = objectives.find(o => o.id === tmpl.id) ?? { completed: false };
     return { ...tmpl, ...stateObj };
   });
@@ -34,6 +39,7 @@ export default function BoardObjectives() {
   const strategic = merged.filter(o => o.phase === 'strategic');
   const financial = merged.filter(o => o.phase === 'financial');
   const empire    = merged.filter(o => o.phase === 'empire');
+  const starter   = merged.filter(o => o.phase === 'starter');
 
   const totalCompleted = merged.filter(o => o.completed).length;
   const totalRewardEarned = merged
@@ -67,10 +73,16 @@ export default function BoardObjectives() {
 
       {!collapsed && (
         <div style={{ marginTop: 14 }}>
-          <ObjectiveGroup label="Year 1 · Strategic" objectives={strategic} color="var(--accent)" />
-          <ObjectiveGroup label="Year 2+ · Financial" objectives={financial} color="var(--yellow)" style={{ marginTop: 14 }} />
-          {empire.length > 0 && (
-            <ObjectiveGroup label="Empire · Endgame" objectives={empire} color="var(--green)" style={{ marginTop: 14 }} />
+          {isStarterBoard ? (
+            <ObjectiveGroup label="Getting Started · Cash Bonuses" objectives={starter} color="var(--accent)" />
+          ) : (
+            <>
+              <ObjectiveGroup label="Year 1 · Strategic" objectives={strategic} color="var(--accent)" />
+              <ObjectiveGroup label="Year 2+ · Financial" objectives={financial} color="var(--yellow)" style={{ marginTop: 14 }} />
+              {empire.length > 0 && (
+                <ObjectiveGroup label="Empire · Endgame" objectives={empire} color="var(--green)" style={{ marginTop: 14 }} />
+              )}
+            </>
           )}
         </div>
       )}

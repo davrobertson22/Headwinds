@@ -295,6 +295,7 @@ function freshState() {
     portfolio:         emptyPortfolio(),      // stock held in rival airlines
     objectives:        [],   // [{ id, completed, completedWeek, completedYear }]
     objectivesEnabled: true, // can be disabled at setup
+    paxAllTime:        0,    // cumulative passengers flown (starter pax objectives)
     cabinTemplates:    [],   // saved cabin configs: { id, name, typeId, config: { firstClass, businessClass, premiumEconomy, economy, seatQuality, serviceQuality } }
   };
 }
@@ -409,7 +410,8 @@ function reducer(state, action) {
         hubs:        { [action.hub]: { tier: 1 } },
         loans:       [],
         phase:             'playing',
-        objectives:        action.enableObjectives !== false ? initialObjectives() : [],
+        // objectiveSet: 'multiplayer' → the Headwinds 10-objective starter board
+        objectives:        action.enableObjectives !== false ? initialObjectives(action.objectiveSet) : [],
         objectivesEnabled: action.enableObjectives !== false,
       };
     }
@@ -2880,12 +2882,24 @@ function reducer(state, action) {
       const newStats = [...(state.statsHistory ?? []), statsEntry].slice(-statsCap);
 
       // ── Board objectives check ───────────────────────────────────────────────
-      const objectivesEnabled = state.objectivesEnabled ?? true;
+      // Multiplayer worlds always run the compact starter board (10 objectives).
+      // Worlds created before objectives shipped have objectivesEnabled: false —
+      // force-enable here; the initialObjectivesForState fallback below silently
+      // pre-marks anything already achieved, so there is NO back-pay: only new
+      // progress pays out (same rule as solo old-save upgrades).
+      const objectiveSet      = state.multiplayer ? 'multiplayer' : undefined;
+      const objectivesEnabled = state.multiplayer ? true : (state.objectivesEnabled ?? true);
+
+      // Cumulative passengers over the whole game — drives the starter pax
+      // milestones (10K/100K/1M). Existing saves start counting from 0 here.
+      const paxAllTime = (state.paxAllTime ?? 0) + (report.totalPassengers ?? 0);
 
       const objectiveSnap = {
         routes:           state.routes,   // current routes (weeksOpen not yet incremented — fine for checks)
         fleet:            agedFleet,      // fleet after aging tick, before deliveries
         gates:            state.gates ?? {},
+        hubs:             state.hubs ?? {},
+        paxAllTime,
         financialHistory: newHistory,
         lastReport:       report,
         weekProfit:       preTaxProfit - corporateTax,
@@ -2901,7 +2915,7 @@ function reducer(state, action) {
         ? []
         : state.objectives?.length
           ? state.objectives
-          : initialObjectivesForState(objectiveSnap);
+          : initialObjectivesForState(objectiveSnap, objectiveSet);
 
       let objectiveCashBonus = 0;
       let updatedObjectives = currentObjectives;
@@ -3055,6 +3069,7 @@ function reducer(state, action) {
         })(),
         objectives:               updatedObjectives,
         objectivesEnabled,
+        paxAllTime,
         showDebrief:              true,
         pendingToasts:            newToasts,
         phase:                    newPhase,

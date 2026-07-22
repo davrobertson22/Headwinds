@@ -293,20 +293,156 @@ export const OBJECTIVE_TEMPLATES = [
   },
 ];
 
+// ── Multiplayer starter objectives (Headwinds) ───────────────────────────────
+//
+// A compact 10-objective set used in multiplayer worlds instead of the solo
+// three-phase board. Goal: give a new player a guided on-ramp with cash
+// bonuses (~$6.8M total vs $15M starting capital) rather than a lifetime
+// achievement list — humans are the endgame in multiplayer.
+//
+// Extra snapshot fields used here (provided by ADVANCE_WEEK):
+//   hubs        { [code]: { tier, tierSince } } — every airline starts with a
+//               tier-1 hub at its base, so "Hub Investor" requires tier ≥ 2
+//   paxAllTime  cumulative passengers flown across the whole game (all weeks)
+
+export const MULTIPLAYER_OBJECTIVE_TEMPLATES = [
+
+  {
+    id:     'mp_first_route',
+    phase:  'starter',
+    title:  'First Departure',
+    desc:   'Launch your first route',
+    icon:   '✈️',
+    reward: 250_000,
+    check: ({ routes }) => routes.length >= 1,
+  },
+
+  {
+    id:     'mp_international',
+    phase:  'starter',
+    title:  'Border Crosser',
+    desc:   'Open your first international route',
+    icon:   '🌍',
+    reward: 350_000,
+    check: ({ routes }) => routes.some(r => {
+      const a = getAirport(r.origin)?.country;
+      const b = getAirport(r.destination)?.country;
+      return !!a && !!b && a !== b;
+    }),
+  },
+
+  {
+    id:     'mp_first_profit',
+    phase:  'starter',
+    title:  'In the Black',
+    desc:   'Achieve a profitable week',
+    icon:   '💚',
+    reward: 400_000,
+    check: ({ weekProfit }) => weekProfit > 0,
+  },
+
+  {
+    id:     'mp_routes_5',
+    phase:  'starter',
+    title:  'Network Builder',
+    desc:   'Operate 5 or more city pairs',
+    icon:   '🗺️',
+    reward: 500_000,
+    check: ({ routes }) => {
+      const pairs = new Set(routes.map(r => {
+        const [a, b] = [r.origin, r.destination].sort();
+        return `${a}-${b}`;
+      }));
+      return pairs.size >= 5;
+    },
+  },
+
+  {
+    id:     'mp_fleet_5',
+    phase:  'starter',
+    title:  'Growing Fleet',
+    desc:   'Operate 5 or more aircraft',
+    icon:   '🛫',
+    reward: 500_000,
+    check: ({ fleet }) => fleet.filter(a => a.status !== 'retired').length >= 5,
+  },
+
+  {
+    id:     'mp_fleet_10',
+    phase:  'starter',
+    title:  'Major Carrier',
+    desc:   'Operate 10 or more aircraft',
+    icon:   '🛩️',
+    reward: 1_000_000,
+    check: ({ fleet }) => fleet.filter(a => a.status !== 'retired').length >= 10,
+  },
+
+  {
+    id:     'mp_hub_tier2',
+    phase:  'starter',
+    title:  'Hub Investor',
+    desc:   'Upgrade a hub to Tier 2',
+    icon:   '🏗️',
+    reward: 750_000,
+    check: ({ hubs }) => Object.values(hubs ?? {}).some(h => (h?.tier ?? 0) >= 2),
+  },
+
+  {
+    id:     'mp_pax_10k',
+    phase:  'starter',
+    title:  '10,000 Passengers',
+    desc:   'Fly 10,000 passengers in total',
+    icon:   '👥',
+    reward: 300_000,
+    check: ({ paxAllTime }) => (paxAllTime ?? 0) >= 10_000,
+  },
+
+  {
+    id:     'mp_pax_100k',
+    phase:  'starter',
+    title:  '100,000 Passengers',
+    desc:   'Fly 100,000 passengers in total',
+    icon:   '🧳',
+    reward: 750_000,
+    check: ({ paxAllTime }) => (paxAllTime ?? 0) >= 100_000,
+  },
+
+  {
+    id:     'mp_pax_1m',
+    phase:  'starter',
+    title:  'Millionth Passenger',
+    desc:   'Fly 1,000,000 passengers in total',
+    icon:   '🏆',
+    reward: 2_000_000,
+    check: ({ paxAllTime }) => (paxAllTime ?? 0) >= 1_000_000,
+  },
+];
+
 /** All objective IDs in order */
 export const OBJECTIVE_IDS = OBJECTIVE_TEMPLATES.map(t => t.id);
 
-/** Look up a template by id */
+/** Multiplayer starter objective IDs in order */
+export const MULTIPLAYER_OBJECTIVE_IDS = MULTIPLAYER_OBJECTIVE_TEMPLATES.map(t => t.id);
+
+/** Template list for a named set ('multiplayer' → starter set, default solo board) */
+export function objectiveTemplatesForSet(set) {
+  return set === 'multiplayer' ? MULTIPLAYER_OBJECTIVE_TEMPLATES : OBJECTIVE_TEMPLATES;
+}
+
+/** Look up a template by id (searches solo + multiplayer sets; ids are unique) */
 export function getObjective(id) {
-  return OBJECTIVE_TEMPLATES.find(t => t.id === id) ?? null;
+  return OBJECTIVE_TEMPLATES.find(t => t.id === id)
+      ?? MULTIPLAYER_OBJECTIVE_TEMPLATES.find(t => t.id === id)
+      ?? null;
 }
 
 /**
  * Build the initial objectives array for a new game.
+ * Pass set='multiplayer' for the Headwinds starter board (default: solo board).
  * Returns [{ id, completed: false, completedWeek: null, completedYear: null }]
  */
-export function initialObjectives() {
-  return OBJECTIVE_TEMPLATES.map(t => ({
+export function initialObjectives(set) {
+  return objectiveTemplatesForSet(set).map(t => ({
     id:             t.id,
     completed:      false,
     completedWeek:  null,
@@ -319,8 +455,8 @@ export function initialObjectives() {
  * Any objective that is ALREADY met is silently pre-marked completed
  * (no reward, no toast) so the player only earns credit going forward.
  */
-export function initialObjectivesForState(snap) {
-  return OBJECTIVE_TEMPLATES.map(t => {
+export function initialObjectivesForState(snap, set) {
+  return objectiveTemplatesForSet(set).map(t => {
     let alreadyMet = false;
     try { alreadyMet = t.check(snap); } catch { /* ignore */ }
     return {
