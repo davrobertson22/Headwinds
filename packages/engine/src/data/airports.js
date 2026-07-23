@@ -19,6 +19,7 @@ export const AIRPORTS = [
   { code: 'ATL', name: 'Hartsfield-Jackson',         city: 'Atlanta',        country: 'US', lat: 33.64,  lon: -84.43,   population: 6.2,  tier: 'mega'    , runwayFt: 12390 },
   { code: 'DFW', name: 'Dallas/Fort Worth Intl',     city: 'Dallas',         country: 'US', lat: 32.90,  lon: -97.04,   population: 7.7,  tier: 'mega'    , runwayFt: 13401 },
   { code: 'DEN', name: 'Denver Intl',                city: 'Denver',         country: 'US', lat: 39.86,  lon: -104.67,  population: 2.9,  tier: 'major'   , runwayFt: 16000 },
+  { code: 'APA', name: 'Centennial Airport',         city: 'Englewood',      country: 'US', lat: 39.57,  lon: -104.85,  population: 1.2,  tier: 'regional', runwayFt: 10000 },
   { code: 'SFO', name: 'San Francisco Intl',         city: 'San Francisco',  country: 'US', lat: 37.62,  lon: -122.38,  population: 4.7,  tier: 'major',  effectivePop: 10, runwayFt: 11870 },
   { code: 'SEA', name: 'Seattle-Tacoma Intl',        city: 'Seattle',        country: 'US', lat: 47.45,  lon: -122.31,  population: 4.0,  tier: 'major'   , runwayFt: 11901 },
   { code: 'PAE', name: 'Paine Field (Snohomish County)', city: 'Everett',     country: 'US', lat: 47.91,  lon: -122.28,  population: 1.5,  tier: 'regional', runwayFt: 9010 },
@@ -2479,6 +2480,7 @@ export const AIRPORT_SCORES = {
   ATL: { businessScore: 65, leisureScore: 45 },
   DFW: { businessScore: 65, leisureScore: 38 },
   DEN: { businessScore: 58, leisureScore: 55 },   // ski + business
+  APA: { businessScore: 55, leisureScore: 35 },   // corporate/private-jet reliever, south Denver
   SFO: { businessScore: 72, leisureScore: 58 },   // tech corridor + Golden Gate tourism
   SEA: { businessScore: 65, leisureScore: 55 },   // tech hub (Amazon/Boeing)
   MIA: { businessScore: 60, leisureScore: 68 },   // trade hub + beach
