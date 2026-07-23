@@ -227,6 +227,7 @@ function CreateWorld({ token, onCreated }) {
   const [maxPlayers, setMaxPlayers] = useState(20);
   const [startingCapital, setStartingCapital] = useState(15000000);
   const [demandMultiplier, setDemandMultiplier] = useState(1);
+  const [gateScarcity, setGateScarcity] = useState(false);
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -248,6 +249,7 @@ function CreateWorld({ token, onCreated }) {
           maxPlayers: Number(maxPlayers),
           startingCapital: Math.round(Number(startingCapital)),
           demandMultiplier: Number(demandMultiplier),
+          ...(gateScarcity ? { gateScarcity: true } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
       });
@@ -310,6 +312,17 @@ function CreateWorld({ token, onCreated }) {
           <input type="number" min={0.5} max={3} step={0.1} value={demandMultiplier}
             onChange={(e) => setDemandMultiplier(e.target.value)} />
           <span className="muted">{Number(demandMultiplier).toFixed(1)}× global demand · 1.0× = normal</span>
+        </label>
+        <label style={{ alignItems: 'flex-start' }}>Gate scarcity
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={gateScarcity}
+              onChange={(e) => setGateScarcity(e.target.checked)} />
+            <span className="muted">{gateScarcity ? 'ON — finite gates, auctions, gate market' : 'Off — unlimited gates (classic)'}</span>
+          </span>
+          <span className="muted small">
+            Airports have 25–500 gates. Caps: 60% per airline, 80% per alliance. Full airports
+            auction gates yearly (sealed bids, wk 40). Unused gates forfeit after 24 wks.
+          </span>
         </label>
         <label>Scheduled start (optional)
           <input type="datetime-local" value={scheduledStart}
@@ -440,7 +453,15 @@ function WorldsScreen({ token, me }) {
           <tbody>
             {worlds.map((w) => (
               <tr key={w.id}>
-                <td><a href={`#/w/${w.id}`}>{w.name}</a></td>
+                <td>
+                  <a href={`#/w/${w.id}`}>{w.name}</a>
+                  {w.gateScarcity && (
+                    <span title="Gate scarcity: finite airport gates, auctions, gate market"
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(245,166,35,0.15)', color: '#f5a623', border: '1px solid rgba(245,166,35,0.4)', whiteSpace: 'nowrap' }}>
+                      ⛩ GATES
+                    </span>
+                  )}
+                </td>
                 <td>{w.paceLabel}</td>
                 <td>{w.status === 'LOBBY'
                   ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : 'Y1 · starts on first join'}</span>
@@ -621,7 +642,15 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       <a href="#/" className="muted">← All worlds</a>
       <div className="card world-head">
         <div>
-          <h2>{world.name} <StatusChip status={world.status} /></h2>
+          <h2>
+            {world.name} <StatusChip status={world.status} />
+            {world.gateScarcity && (
+              <span title="Gate scarcity: finite airport gates, ownership caps, yearly auctions, use-it-or-lose-it, and a player gate market"
+                style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(245,166,35,0.15)', color: '#f5a623', border: '1px solid rgba(245,166,35,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                ⛩ GATE SCARCITY
+              </span>
+            )}
+          </h2>
           <p className="muted">
             {world.paceLabel} ·{' '}
             {world.status === 'LOBBY'

@@ -27,8 +27,9 @@ export async function createWorld(prisma, {
   startingCapital,
   demandMultiplier,
   scheduledStartAt,
+  gateScarcity,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -36,6 +37,10 @@ export async function createWorld(prisma, {
   const tickConfig = {
     startingCapital: startingCapital ?? DEFAULT_STARTING_CAPITAL,
     demandMultiplier: demandMultiplier ?? DEFAULT_DEMAND_MULT,
+    // Optional gate scarcity: finite airport gate capacity, ownership caps,
+    // yearly auctions, use-it-or-lose-it, and the player gate market. Fixed at
+    // creation — flipping it mid-world would strand everyone's holdings.
+    ...(gateScarcity === true ? { gateScarcity: true } : {}),
     // Optional preset start instant (ISO). Present → the worker starts this world
     // at that time and joining does NOT start the clock (see joinWorld + tickService).
     ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),
@@ -122,6 +127,9 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     encroachments: {},
     // World-level demand multiplier, baked in at join (fixed at creation).
     worldDemandMult: demandMultiplier,
+    // Gate scarcity flag, baked in at join — the engine's capacity/cap/lockout
+    // checks and use-it-or-lose-it only run when this is true.
+    ...(tc.gateScarcity === true ? { gateScarcityWorld: true } : {}),
   };
 
   let airline;
@@ -145,6 +153,14 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     // return the clean 409 the pre-check would have, not a raw 500.
     if (e?.code === 'P2002') throw httpError(409, 'You already have an airline in this world');
     throw e;
+  }
+
+  // Gate scarcity: mirror the starter hub gate (seeded by START_GAME above)
+  // into the world's gate ledger. Part of the home-hub guarantee, so it seeds
+  // even at a full airport (the overshoot counts toward fullness).
+  if (tc.gateScarcity === true) {
+    const { seedHubGate } = await import('./gateService.mjs');
+    await seedHubGate(prisma, world.id, state.hub ?? hub, airline.id);
   }
 
   // First player starts the clock: LOBBY → RUNNING, startedAt = now. The

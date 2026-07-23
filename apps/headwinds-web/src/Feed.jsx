@@ -29,6 +29,7 @@ const LABELS = {
   SELL_AIRCRAFT:        () => 'sold an aircraft',
   RETIRE_AIRCRAFT:      () => 'retired an aircraft',
   ADD_GATE:             (e) => `added a gate${e.payload?.airportCode ? ` at ${e.payload.airportCode}` : ''}`,
+  REMOVE_GATE:          (e) => `released a gate${e.payload?.airportCode ? ` at ${e.payload.airportCode}` : ''}`,
   UPGRADE_HUB:          (e) => `upgraded ${e.payload?.airportCode ? `hub ${e.payload.airportCode}` : 'a hub'}`,
   DESIGNATE_HUB:        (e) => `designated ${e.payload?.airportCode ?? 'a new'} hub`,
   DESIGNATE_FOCUS_CITY: (e) => `made ${e.payload?.airportCode ?? 'an airport'} a focus city`,
@@ -40,6 +41,16 @@ function describe(e) {
   if (e.kind === 'joined') return { who: e.airline, what: `joined the world${e.hub ? ` · hub ${e.hub}` : ''}`, icon: '🛬' };
   if (e.kind === 'alliance_founded') return { who: e.alliance, what: 'alliance founded', icon: '🤝' };
   if (e.kind === 'alliance_joined') return { who: e.airline, what: `joined the ${e.alliance} alliance`, icon: '🤝' };
+  // Gate scarcity events
+  if (e.kind === 'gate_auction_opened') {
+    return { who: e.airport, what: `gate auction opened — ${e.lots} gate${e.lots > 1 ? 's' : ''} on offer (sealed bids, resolves at the new year)`, icon: '🔨' };
+  }
+  if (e.kind === 'gate_auction_won') {
+    return { who: e.airline, what: `won ${e.gates} gate${e.gates > 1 ? 's' : ''} at ${e.airport} for $${(e.pricePerGate ?? 0).toLocaleString()}/gate`, icon: '🔨' };
+  }
+  if (e.kind === 'gate_sold') {
+    return { who: e.airline, what: `sold a ${e.airport} gate to ${e.buyer} for $${(e.price ?? 0).toLocaleString()}`, icon: '🤝' };
+  }
   const label = LABELS[e.type];
   return { who: e.airline, what: label ? label(e) : e.type, icon: '✈️' };
 }

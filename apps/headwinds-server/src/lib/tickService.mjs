@@ -12,8 +12,13 @@ import { gameReducer } from '@tailwinds/engine/reducer';
 import { VALUATION } from '@tailwinds/engine/utils/market.js';
 import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
+import { GATE_AUCTION_OPEN_WEEK } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
+import {
+  isGateScarcity, reconcileForfeitures, releaseAllFor,
+  openDueAuctions, resolveDueAuctions,
+} from './gateService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
 // default 5s interactive-transaction timeout — at scale that timed out and rolled
@@ -101,7 +106,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     where: { worldId: world.id, status: 'ACTIVE' },
     include: { account: { select: { isOG: true, email: true } } }, // OG + DEV badges (email stays server-side)
   });
-  const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines });
+  const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines, world });
 
   // Shared world economy for THIS week: one fuel index (seeded from worldSeed) and
   // one event set (aged from the world's own running list, stored in tickConfig).
@@ -127,12 +132,26 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         withRivals(airline.state, rivalViews.get(airline.id)),
         { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise },
       );
+      // Gate scarcity: rule-5 forfeitures happen inside ADVANCE_WEEK (gates
+      // vanish from the blob). Diff pre/post so the world's gate ledger can be
+      // reconciled after the commit — only for airlines whose write lands.
+      let gateReleases = null;
+      if (isGateScarcity(world)) {
+        gateReleases = [];
+        const pre = airline.state?.gates ?? {};
+        const post = next.gates ?? {};
+        for (const [code, count] of Object.entries(pre)) {
+          const drop = (count ?? 0) - (post[code] ?? 0);
+          if (drop > 0) gateReleases.push({ airlineId: airline.id, airportCode: code, count: drop });
+        }
+      }
       computed.push({
         airline,
         next,
         cash: safeInt(next.cash),
         marketCap: safeInt(next.marketCap),
         bankrupt: next.phase === 'bankrupt',
+        gateReleases,
       });
     } catch (err) {
       log.error(`[tick] world ${world.id} airline ${airline.id} reducer threw — skipped this week:`, err?.message ?? err);
@@ -196,10 +215,34 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           })),
         });
       }
-      return { lostRace: false, airlines: written.length };
+      return { lostRace: false, airlines: written.length, written };
     }, TICK_TX_OPTS);
 
     if (outcome.lostRace) return { ok: false, reason: 'lost-race' };
+
+    // ── Gate scarcity post-commit hooks ─────────────────────────────────────
+    // Best-effort (CAS-retried inside): a failure here must never roll back the
+    // week — tools/reconcile-gates.mjs can repair any drift from blobs.
+    if (isGateScarcity(world)) {
+      try {
+        const writtenIds = new Set((outcome.written ?? []).map((w) => w.airlineId));
+        const releases = computed
+          .filter((c) => writtenIds.has(c.airline.id))
+          .flatMap((c) => c.gateReleases ?? []);
+        if (releases.length > 0) await reconcileForfeitures(prisma, world.id, releases, { log });
+        for (const c of computed) {
+          if (c.bankrupt && writtenIds.has(c.airline.id)) {
+            await releaseAllFor(prisma, world.id, c.airline.id, { log });
+          }
+        }
+        const tickedWorld = { ...world, currentWeek: newWeek, currentYear: newYear };
+        if (newWeek === GATE_AUCTION_OPEN_WEEK) await openDueAuctions(prisma, tickedWorld, { log });
+        if (newWeek === 1 && toIndex > 1) await resolveDueAuctions(prisma, tickedWorld, { log });
+      } catch (err) {
+        log.error(`[tick] world ${world.id} gate hooks failed (week still committed):`, err?.message ?? err);
+      }
+    }
+
     // Return the new shared event list so a multi-week catch-up ages events from
     // week to week (the in-memory `world` is threaded forward in runDueTicks).
     return { ok: true, week: newWeek, year: newYear, ended, airlines: outcome.airlines, worldEvents };

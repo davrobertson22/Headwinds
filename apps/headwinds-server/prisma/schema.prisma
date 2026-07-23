@@ -81,6 +81,9 @@ model World {
   alliances   Alliance[]
   messages    Message[]
   reports     Report[]
+  worldGates  WorldGate[]
+  gateAuctions GateAuction[]
+  gateListings GateListing[]
 
   @@index([status, visibility])
 }
@@ -247,6 +250,77 @@ model Report {
   @@index([status, createdAt]) // the admin queue
   @@index([reportedAccountId]) // "all reports about this player"
   @@index([worldId])
+}
+
+// ── Gate scarcity (optional per-world setting: tickConfig.gateScarcity) ───────
+// The world-level gate LEDGER. Airline blobs keep their state.gates mirror (the
+// engine's slot math is unchanged); these rows are the arbiter of AVAILABILITY —
+// updated atomically (version compare-and-set) in the same transaction as the
+// decision/tick they belong to, so two airlines can never both take the last gate.
+
+model WorldGate {
+  id          String @id @default(cuid())
+  worldId     String
+  airportCode String
+  baseSize    Int // 25 | 100 | 250 | 500 — gateCapacityOf() at first touch
+  capacity    Int // current capacity: baseSize + auction growth (≤ 2× baseSize)
+  taken       Int    @default(0) // gates currently held by all airlines
+  // { [airlineId]: { count, guaranteed, cooldownUntilWeek } } — guaranteed =
+  // home-hub entitlement gates (unsellable); cooldownUntilWeek = anti-flip.
+  holdings    Json   @default("{}")
+  version     Int    @default(0) // optimistic-concurrency guard
+  world       World  @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, airportCode])
+}
+
+model GateAuction {
+  id           String    @id @default(cuid())
+  worldId      String
+  airportCode  String
+  year         Int // game year the auction RESOLVES INTO (opens week 40 of year-1)
+  lots         Int // gates on offer
+  reserve      Int // per-gate minimum bid
+  opensWeek    Int // linear week index when bidding opened
+  resolvesWeek Int // linear week index of the year tick that resolves it
+  status       String    @default("OPEN") // OPEN | RESOLVED | CANCELLED
+  results      Json? // [{ airlineId, airline, gates, pricePerGate }] at resolution
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  bids         GateBid[]
+  world        World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, airportCode, year])
+  @@index([worldId, status])
+}
+
+model GateBid {
+  id        String      @id @default(cuid())
+  auctionId String
+  airlineId String
+  amount    Int // per-gate sealed bid
+  quantity  Int         @default(1) // 1–3, capped by the 60%/80% ownership caps
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  auction   GateAuction @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+
+  @@unique([auctionId, airlineId]) // one (updatable) sealed bid per airline
+}
+
+model GateListing {
+  id          String    @id @default(cuid())
+  worldId     String
+  airportCode String
+  sellerId    String // airlineId
+  askPrice    Int
+  status      String    @default("OPEN") // OPEN | SOLD | WITHDRAWN
+  buyerId     String? // airlineId, set when SOLD
+  createdAt   DateTime  @default(now())
+  soldAt      DateTime?
+  world       World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, status])
+  @@index([sellerId, status])
 }
 
 model Standing {

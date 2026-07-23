@@ -8,11 +8,12 @@
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
-import { gameReducer } from '@tailwinds/engine/reducer';
+import { gameReducer, gateLeaseDenial } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel } from '../lib/worldConfig.mjs';
-import { buildWorldRivalViews, withRivals, stripRivals } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
+import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 
 // Per-account decision throttle. Generous enough that no human bursting through
@@ -211,10 +212,42 @@ export default async function decisionRoutes(fastify) {
     // any pre-humans-only AI competitors, and (b) the response the client
     // re-renders from shows the same rivals the read path does.
     const view = await rivalViewFor(airline, await worldStampOf(airline.worldId));
-    const next = gameReducer(withRivals(airline.state, view), { type, ...guarded });
+    const injected = withRivals(airline.state, view);
+
+    // Gate scarcity worlds: surface a FRIENDLY reason instead of a silent no-op
+    // when a lease is not allowed (capacity / caps / lockout). The engine's own
+    // ADD_GATE check would just return state unchanged.
+    const scarcity = isGateScarcity(airline.world);
+    if (scarcity && type === 'ADD_GATE') {
+      const denial = gateLeaseDenial(injected, guarded.airportCode);
+      if (denial) throw httpError(400, denial);
+    }
+
+    const next = gameReducer(injected, { type, ...guarded });
+
+    // Did this decision actually change the airline's gate count? (The reducer
+    // no-ops rejected leases/removals — no ledger entry must be written then.)
+    const gateDelta = (type === 'ADD_GATE' || type === 'REMOVE_GATE')
+      ? ((next.gates?.[guarded.airportCode] ?? 0) - (airline.state?.gates?.[guarded.airportCode] ?? 0))
+      : 0;
+    const allianceMap = (scarcity && type === 'ADD_GATE' && gateDelta !== 0)
+      ? await loadAllianceMap(prisma, airline.worldId)
+      : new Map();
 
     try {
       await prisma.$transaction(async (tx) => {
+        // Gate scarcity: the world's gate ledger is the arbiter of availability.
+        // Same transaction as the blob write, version-guarded — two airlines can
+        // never both take the last gate. Throws GateError (400/409) on violation.
+        if (scarcity && gateDelta !== 0) {
+          await applyGateDecisionTx(tx, {
+            worldId: airline.worldId,
+            airportCode: guarded.airportCode,
+            type,
+            airline,
+            allianceMap,
+          });
+        }
         // Optimistic concurrency: only write if the airline is still at the version
         // we read. If the worker tick (or another decision) got there first, bail
         // with a 409 instead of silently clobbering it — the client re-GETs + retries.

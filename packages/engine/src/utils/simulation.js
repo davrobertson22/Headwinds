@@ -1,4 +1,4 @@
-import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
+import { getAirport, gateMonthlyFee, totalGateMonthlyFee, GATE_SURCHARGE_MULT } from '../data/airports.js';
 import { getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
@@ -2376,13 +2376,24 @@ export function weeklyTick(state) {
   }
 
   // 4. Gate rental fees (monthly fee billed pro-rata as weekly)
+  // Gate-scarcity worlds add a congestion surcharge: while an airport is >90%
+  // full (server-injected state.gateMarket marks it `surcharge: true`), every
+  // gate held there costs GATE_SURCHARGE_MULT× its normal weekly fee. Solo and
+  // non-scarcity worlds have no gateMarket, so this is inert there.
   let totalGateFees = 0;
+  let totalGateSurcharge = 0;
+  const surchargeMap = state.gateScarcityWorld ? state.gateMarket?.airports : null;
   for (const [code, count] of Object.entries(gates)) {
     if (!count) continue;
     const ap = getAirport(code);
     if (!ap) continue;
-    totalGateFees += Math.round(totalGateMonthlyFee(ap, count) / 4);
+    const weekly = Math.round(totalGateMonthlyFee(ap, count) / 4);
+    totalGateFees += weekly;
+    if (surchargeMap?.[code]?.surcharge) {
+      totalGateSurcharge += Math.round(weekly * (GATE_SURCHARGE_MULT - 1));
+    }
   }
+  totalGateFees += totalGateSurcharge;
 
   // 5. Fleet family MRO base costs (one fixed fee per active aircraft family, regardless of fleet size)
   const totalFamilyBaseCosts = fleet.length > 0 ? weeklyFamilyBaseCost(fleet) : 0;
@@ -2528,6 +2539,7 @@ export function weeklyTick(state) {
     totalLayover:           Math.round(totalLayover),
     totalCompensation:      Math.round(totalCompensation),
     totalGateFees:          Math.round(totalGateFees),
+    totalGateSurcharge:     Math.round(totalGateSurcharge), // congestion (>90% full) portion, already inside totalGateFees
     totalLaborCosts:        Math.round(totalLaborCosts),
     totalFamilyBaseCosts:   Math.round(totalFamilyBaseCosts),
     totalHubInvestment:     Math.round(totalHubInvestment),

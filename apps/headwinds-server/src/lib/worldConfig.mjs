@@ -67,8 +67,11 @@ export function paceLabel(weeksPerDay) {
 // Admins may pass custom length/pace/capital/demand — validated to bounds, not to
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
-  lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt,
+  lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
 }) {
+  if (gateScarcity != null && typeof gateScarcity !== 'boolean') {
+    throw badRequest('gateScarcity must be true or false');
+  }
   if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
     throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
   }
@@ -156,6 +159,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     startingCapital: world.tickConfig?.startingCapital ?? DEFAULT_STARTING_CAPITAL,
     demandMultiplier: world.tickConfig?.demandMultiplier ?? DEFAULT_DEMAND_MULT,
     scheduledStartAt: world.tickConfig?.scheduledStartAt ?? null,
+    // Optional gate scarcity (finite airport capacity, auctions, gate market).
+    gateScarcity: world.tickConfig?.gateScarcity === true,
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.

@@ -127,7 +127,7 @@ export default async function worldRoutes(fastify) {
   const PUBLIC_DECISIONS = new Set([
     'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE',
     'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'ORDER_AIRCRAFT',
-    'ADD_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
+    'ADD_GATE', 'REMOVE_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
     'JOIN_ALLIANCE', 'LEAVE_ALLIANCE',
   ]);
   // Only the payload fields that describe a PUBLIC move — never echo payloads raw.
@@ -245,7 +245,7 @@ export default async function worldRoutes(fastify) {
     const cutoff = before && !Number.isNaN(before.getTime()) ? before : null;
     const beforeFilter = cutoff ? { createdAt: { lt: cutoff } } : {};
 
-    const [decisions, airlines, alliances, allianceJoins] = await Promise.all([
+    const [decisions, airlines, alliances, allianceJoins, gateAuctions, gateSales] = await Promise.all([
       prisma.decision.findMany({
         where: {
           worldId: world.id,
@@ -275,6 +275,17 @@ export default async function worldRoutes(fastify) {
         },
         include: { alliance: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      // Gate scarcity events (empty tables — and so free — in other worlds).
+      prisma.gateAuction.findMany({
+        where: { worldId: world.id, ...(cutoff ? { createdAt: { lt: cutoff } } : {}) },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      prisma.gateListing.findMany({
+        where: { worldId: world.id, status: 'SOLD', ...(cutoff ? { soldAt: { lt: cutoff } } : {}) },
+        orderBy: { soldAt: 'desc' },
         take: limit,
       }),
     ]);
@@ -322,6 +333,39 @@ export default async function worldRoutes(fastify) {
           dev: devOf.get(m.airlineId) ?? false,
           alliance: m.alliance.name,
         })),
+      // Gate scarcity: auctions opening, and their winners once resolved.
+      ...gateAuctions.map((a) => ({
+        kind: 'gate_auction_opened',
+        at: a.createdAt.toISOString(),
+        airport: a.airportCode,
+        lots: a.lots,
+        reserve: a.reserve,
+      })),
+      ...gateAuctions
+        .filter((a) => a.status === 'RESOLVED' && Array.isArray(a.results) && a.resolvedAt
+          && (cutoff ? a.resolvedAt < cutoff : true))
+        .flatMap((a) => a.results.map((r) => ({
+          kind: 'gate_auction_won',
+          at: a.resolvedAt.toISOString(),
+          airlineId: r.airlineId,
+          airline: nameOf.get(r.airlineId) ?? r.airline ?? 'An airline',
+          og: ogOf.get(r.airlineId) ?? false,
+          dev: devOf.get(r.airlineId) ?? false,
+          airport: a.airportCode,
+          gates: r.gates,
+          pricePerGate: r.pricePerGate,
+        }))),
+      ...gateSales.map((l) => ({
+        kind: 'gate_sold',
+        at: (l.soldAt ?? l.createdAt).toISOString(),
+        airlineId: l.sellerId,
+        airline: nameOf.get(l.sellerId) ?? 'An airline',
+        og: ogOf.get(l.sellerId) ?? false,
+        dev: devOf.get(l.sellerId) ?? false,
+        buyer: nameOf.get(l.buyerId) ?? 'another airline',
+        airport: l.airportCode,
+        price: l.askPrice,
+      })),
     ]
       .sort((a, b) => (a.at < b.at ? 1 : -1))
       .slice(0, limit);
@@ -353,6 +397,8 @@ export default async function worldRoutes(fastify) {
           demandMultiplier: { type: 'number', minimum: MIN_DEMAND_MULT, maximum: MAX_DEMAND_MULT },
           // Optional scheduled start (ISO date-time string); real validation in worldConfig.
           scheduledStartAt: { type: 'string', maxLength: 40 },
+          // Optional gate scarcity (finite airport capacity, auctions, gate market).
+          gateScarcity: { type: 'boolean' },
         },
       },
     },
@@ -405,6 +451,7 @@ export default async function worldRoutes(fastify) {
     }
     const airline = await prisma.airline.findUnique({
       where: { worldId_accountId: { worldId: request.params.id, accountId: request.account.id } },
+      include: { world: true },
     });
     if (!airline) return reply.code(404).send({ error: 'You are not in this world' });
 
@@ -412,6 +459,12 @@ export default async function worldRoutes(fastify) {
       where: { id: airline.id },
       data: { status: 'ABANDONED' },
     });
+    // Gate scarcity: an abandoned airline's gates return to every airport's
+    // pool (and its open listings are withdrawn).
+    if (airline.world?.tickConfig?.gateScarcity === true) {
+      const { releaseAllFor } = await import('../lib/gateService.mjs');
+      await releaseAllFor(prisma, airline.worldId, airline.id);
+    }
     return { ok: true };
   });
 

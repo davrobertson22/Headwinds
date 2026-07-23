@@ -154,6 +154,18 @@ function guardStockTrade(payload) {
   return { targetId, shares };
 }
 
+// ── Gates ────────────────────────────────────────────────────────────────────
+// Shape hygiene only: the airport code is the sole legitimate field. The real
+// scarcity rules (capacity, 60%/80% caps, lockouts) are enforced against the
+// WorldGate ledger inside the decision transaction (see routes/decisions.mjs).
+function guardGate(payload) {
+  const code = payload.airportCode;
+  if (typeof code !== 'string' || code.length < 3 || code.length > 4) {
+    throw new GuardError('Invalid airport code.');
+  }
+  return { airportCode: code.toUpperCase() };
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
@@ -161,6 +173,8 @@ export function guardDecision(type, payload, state) {
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
     case 'BUY_STOCK':
     case 'SELL_STOCK':         return guardStockTrade(payload);
+    case 'ADD_GATE':
+    case 'REMOVE_GATE':        return guardGate(payload);
     default:                   return payload;
   }
 }

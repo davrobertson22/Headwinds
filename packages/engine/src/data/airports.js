@@ -2393,6 +2393,74 @@ export function totalGateMonthlyFee(airport, count) {
   return Math.round(base * (Math.pow(rate, count) - 1) / (rate - 1));
 }
 
+// ─── Gate scarcity (Headwinds multiplayer, optional per-world) ─────────────────
+//
+// In a world spawned with gate scarcity, every airport has a FINITE gate
+// capacity and airlines compete for it. All constants live here so the engine,
+// server and UI agree on one number. Solo games and non-scarcity worlds never
+// read any of this (everything is gated on state.gateScarcityWorld).
+
+/** Standard airport sizes (total leasable gates) — the four size classes. */
+export const GATE_CAPACITY_SIZES = [25, 100, 250, 500];
+
+/** No single airline may hold more than this share of an airport's capacity. */
+export const GATE_AIRLINE_CAP = 0.60;
+
+/** No alliance's ACTIVE members may together hold more than this share. */
+export const GATE_ALLIANCE_CAP = 0.80;
+
+/** Above this utilisation every holder pays the congestion surcharge. */
+export const GATE_SURCHARGE_THRESHOLD = 0.90;
+
+/** Weekly gate-fee multiplier at congested (>90% full) airports. */
+export const GATE_SURCHARGE_MULT = 1.2;
+
+/** Capacity can grow through auctions up to this multiple of the base size. */
+export const GATE_CAPACITY_GROWTH_CEILING = 2;
+
+/** Gates auctioned per year at an at-capacity airport, by BASE size. */
+export const GATE_AUCTION_LOTS_BY_SIZE = { 25: 2, 100: 5, 250: 10, 500: 15 };
+
+/** Auctions open at this week of the game year and resolve at the year tick. */
+export const GATE_AUCTION_OPEN_WEEK = 40;
+
+/** An airport must be at least this full at week 40 for an auction to open. */
+export const GATE_AUCTION_TRIGGER = 0.95;
+
+/** Consecutive weeks with no service before gates at an airport are forfeited. */
+export const GATE_IDLE_FORFEIT_WEEKS = 24;
+
+/** Weeks an airline is locked out of an airport after a forfeiture. */
+export const GATE_LOCKOUT_WEEKS = 24;
+
+/** Forfeiture warnings start at this many idle weeks. */
+export const GATE_IDLE_WARN_WEEKS = 16;
+
+/** Gates every airline may always lease at its HOME HUB, even when full. */
+export const GATE_HUB_GUARANTEE = 5;
+
+/** Weeks before a gate won at auction / bought from a rival can be re-listed. */
+export const GATE_ANTI_FLIP_WEEKS = 12;
+
+/**
+ * An airport's BASE gate capacity under scarcity, derived from data the airport
+ * records already carry (tier + demand-side population). Deterministic — no
+ * per-airport hand-tuning.
+ */
+export function gateCapacityOf(airport) {
+  if (!airport) return GATE_CAPACITY_SIZES[0];
+  if (airport.tier === 'mega')  return 500;
+  if (airport.tier === 'major') return 250;
+  const effectivePop = (airport.population ?? 0) + (airport.gateway ?? 0) + (airport.visitors ?? 0);
+  return effectivePop >= 2 ? 100 : 25;
+}
+
+/** Max gates one airline may hold at an airport of `capacity` current gates. */
+export const gateAirlineCapOf = (capacity) => Math.floor(GATE_AIRLINE_CAP * capacity);
+
+/** Max gates an alliance's members may together hold at `capacity` gates. */
+export const gateAllianceCapOf = (capacity) => Math.floor(GATE_ALLIANCE_CAP * capacity);
+
 // ─── Per-airport business / leisure scores ─────────────────────────────────────
 //
 // businessScore (0–100): how corporate/premium-oriented this airport is.

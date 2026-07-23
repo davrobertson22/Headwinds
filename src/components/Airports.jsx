@@ -1,10 +1,58 @@
 import { useState } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, gateLeaseDenial } from '../store/GameContext.jsx';
 import AirportDetail from './AirportDetail.jsx';
-import { AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName } from '../data/airports.js';
+import {
+  AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName,
+  gateCapacityOf, gateAirlineCapOf, GATE_HUB_GUARANTEE, GATE_SURCHARGE_MULT,
+} from '../data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
+
+// ─── Gate scarcity helpers (Headwinds worlds with the option on) ─────────────
+// state.gateMarket is the server-injected live view (capacity, taken, holdings,
+// open auction + your sealed bid, listings). Airports without an entry are
+// untouched — capacity derives locally, taken = 0.
+
+function marketFor(state, code) {
+  return state.gateMarket?.airports?.[code] ?? null;
+}
+
+function capacityInfo(state, code) {
+  const m = marketFor(state, code);
+  const capacity = m?.capacity ?? gateCapacityOf(getAirport(code));
+  const taken = m?.taken ?? 0;
+  return { capacity, taken, m, full: taken >= capacity, surcharge: m?.surcharge === true };
+}
+
+// Small colored chip used across the scarcity UI.
+function ScarcityChip({ color, bg, border, title, children }) {
+  return (
+    <span title={title} style={{
+      fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+      background: bg, color, border: `1px solid ${border}`,
+      textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function AvailabilityChips({ state, code }) {
+  if (!state.gateScarcityWorld) return null;
+  const { capacity, taken, m, full, surcharge } = capacityInfo(state, code);
+  const nearly = !full && taken >= 0.9 * capacity;
+  return (
+    <>
+      <span style={{ fontSize: 11, color: full ? 'var(--red)' : nearly ? 'var(--yellow)' : 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+        {taken}/{capacity} taken
+      </span>
+      {full && <ScarcityChip color="var(--red)" bg="rgba(248,81,73,0.12)" border="rgba(248,81,73,0.35)" title="Every gate is taken — win one at auction or buy one from another airline">FULL</ScarcityChip>}
+      {surcharge && <ScarcityChip color="var(--yellow)" bg="rgba(210,153,34,0.12)" border="rgba(210,153,34,0.4)" title={`Congestion surcharge: this airport is over 90% full — all gate fees here cost ${Math.round((GATE_SURCHARGE_MULT - 1) * 100)}% extra`}>+{Math.round((GATE_SURCHARGE_MULT - 1) * 100)}% fees</ScarcityChip>}
+      {m?.auction && <ScarcityChip color="var(--accent)" bg="rgba(56,201,180,0.12)" border="rgba(56,201,180,0.4)" title="A gate auction is open — place a sealed bid in the Gate Market below">🔨 Auction</ScarcityChip>}
+    </>
+  );
+}
 
 // Tier badge styling
 function TierBadge({ tier }) {
@@ -147,7 +195,13 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
                       </button>
                       <button
                         className="btn btn-primary"
-                        style={{ padding: '2px 8px', fontSize: 12 }}
+                        style={{
+                          padding: '2px 8px', fontSize: 12,
+                          opacity: r.addDenial ? 0.35 : 1,
+                          cursor: r.addDenial ? 'not-allowed' : 'pointer',
+                        }}
+                        disabled={!!r.addDenial}
+                        title={r.addDenial ?? 'Lease one more gate'}
                         onClick={() => onAdd(r.code)}
                       >
                         +
@@ -164,9 +218,175 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
   );
 }
 
+// ─── Gate Market (scarcity worlds): sealed auction bids + player listings ────
+function GateMarketSection({ state, remoteApi }) {
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [bidDrafts, setBidDrafts] = useState({});   // code → { amount, quantity }
+  const [sellCode, setSellCode] = useState('');
+  const [sellPrice, setSellPrice] = useState('');
+
+  if (!state.gateScarcityWorld || !remoteApi?.placeGateBid) return null;
+  const market = state.gateMarket?.airports ?? {};
+  const weekNow = state.gateMarket?.week ?? ((state.year - 1) * 52 + state.week);
+
+  const auctions = Object.entries(market)
+    .filter(([, m]) => m.auction)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const listings = Object.entries(market)
+    .flatMap(([code, m]) => (m.listings ?? []).map((l) => ({ ...l, code })))
+    .sort((a, b) => a.code.localeCompare(b.code) || a.askPrice - b.askPrice);
+  // Airports where you have an unlisted, non-guaranteed gate to sell.
+  const sellable = Object.entries(state.gates ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([code, count]) => {
+      const guaranteed = code === state.hub ? Math.min(count, GATE_HUB_GUARANTEE) : 0;
+      const myOpen = (market[code]?.listings ?? []).filter((l) => l.yours).length;
+      return { code, count, free: count - guaranteed - myOpen };
+    })
+    .filter((x) => x.free > 0);
+
+  if (auctions.length === 0 && listings.length === 0 && sellable.length === 0) return null;
+
+  const run = (fn) => {
+    setBusy(true); setErr(null);
+    fn().catch((e) => setErr(e?.message ?? String(e))).finally(() => setBusy(false));
+  };
+  const SUB = {
+    fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+    textTransform: 'uppercase', letterSpacing: '0.07em', margin: '14px 0 6px',
+  };
+  const INPUT = {
+    width: 110, padding: '3px 8px', fontSize: 12, borderRadius: 4,
+    background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
+  };
+
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8,
+      }}>
+        Gate Market
+      </div>
+      <div className="card" style={{ padding: '12px 16px' }}>
+        {err && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{err}</div>}
+
+        {/* Open auctions — sealed bids, highest wins at the year tick */}
+        {auctions.length > 0 && (
+          <>
+            <div style={{ ...SUB, marginTop: 0 }}>🔨 Open auctions — sealed bids, resolve at the new year</div>
+            {auctions.map(([code, m]) => {
+              const a = m.auction;
+              const weeksLeft = Math.max(0, a.closesWeek - weekNow);
+              const draft = bidDrafts[code] ?? { amount: a.yourBid?.amount ?? a.reserve, quantity: a.yourBid?.quantity ?? 1 };
+              return (
+                <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, minWidth: 36 }}>{code}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {a.lots} gate{a.lots > 1 ? 's' : ''} on offer · reserve {formatMoney(a.reserve)}/gate ·
+                    closes in {weeksLeft} wk{weeksLeft === 1 ? '' : 's'}
+                  </span>
+                  {a.yourBid && (
+                    <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>
+                      Your bid: {formatMoney(a.yourBid.amount)} × {a.yourBid.quantity}
+                    </span>
+                  )}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                    <input
+                      style={INPUT} type="number" min={a.reserve} step={10000}
+                      value={draft.amount}
+                      title="Your sealed per-gate bid (hidden from other airlines)"
+                      onChange={(e) => setBidDrafts((d) => ({ ...d, [code]: { ...draft, amount: e.target.value } }))}
+                    />
+                    <select
+                      style={{ ...INPUT, width: 58 }}
+                      value={draft.quantity}
+                      title="How many gates you're bidding for"
+                      onChange={(e) => setBidDrafts((d) => ({ ...d, [code]: { ...draft, quantity: Number(e.target.value) } }))}
+                    >
+                      {[1, 2, 3].map((n) => <option key={n} value={n}>×{n}</option>)}
+                    </select>
+                    <button className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 12 }} disabled={busy}
+                      onClick={() => run(() => remoteApi.placeGateBid(code, Math.round(Number(draft.amount)), draft.quantity))}>
+                      {a.yourBid ? 'Update bid' : 'Place bid'}
+                    </button>
+                    {a.yourBid && (
+                      <button className="btn btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} disabled={busy}
+                        onClick={() => run(() => remoteApi.withdrawGateBid(code))}>
+                        Withdraw
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* Player-to-player listings */}
+        {listings.length > 0 && (
+          <>
+            <div style={SUB}>🤝 Gates for sale</div>
+            {listings.map((l) => (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, minWidth: 36 }}>{l.code}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  1 gate · from {l.yours ? 'you' : l.seller}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{formatMoney(l.askPrice)}</span>
+                <span style={{ marginLeft: 'auto' }}>
+                  {l.yours ? (
+                    <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: 12 }} disabled={busy}
+                      onClick={() => run(() => remoteApi.withdrawGateListing(l.id))}>
+                      Withdraw listing
+                    </button>
+                  ) : (
+                    <button className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 12 }}
+                      disabled={busy || (state.cash ?? 0) < l.askPrice}
+                      title={(state.cash ?? 0) < l.askPrice ? 'Not enough cash' : `Buy this ${l.code} gate at the asking price`}
+                      onClick={() => run(() => remoteApi.buyGateListing(l.id))}>
+                      Buy
+                    </button>
+                  )}
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Sell one of yours */}
+        {sellable.length > 0 && (
+          <>
+            <div style={SUB}>💰 Sell a gate</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <select style={{ ...INPUT, width: 150 }} value={sellCode} onChange={(e) => setSellCode(e.target.value)}>
+                <option value="">Airport…</option>
+                {sellable.map((s) => <option key={s.code} value={s.code}>{s.code} ({s.free} sellable)</option>)}
+              </select>
+              <input style={INPUT} type="number" min={1} step={50000} placeholder="Asking price"
+                value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} />
+              <button className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 12 }}
+                disabled={busy || !sellCode || !(Number(sellPrice) > 0)}
+                onClick={() => run(() => remoteApi.listGate(sellCode, Math.round(Number(sellPrice))).then(() => { setSellCode(''); setSellPrice(''); }))}>
+                List for sale
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                Sold to whichever airline buys at your price. Your first {GATE_HUB_GUARANTEE} home-hub gates can't be sold; recently won/bought gates have a 12-wk cooldown.
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function Airports() {
-  const { state, dispatch } = useGame();
+  const { state, dispatch, remoteApi } = useGame();
   const { gates = {}, routes, cargoRoutes = [], cash, hubs = {} } = state;
+  const scarcity = !!state.gateScarcityWorld;
+  const addDenialFor = (code) => (scarcity ? gateLeaseDenial(state, code) : null);
   const [search, setSearch]                       = useState('');
   const [regionFilter, setRegionFilter]           = useState(null); // null = show picker
   const [myGatesRegion, setMyGatesRegion]         = useState(null); // null = All
@@ -280,6 +500,15 @@ export default function Airports() {
         <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'right' }}>
           Each gate: {SLOTS_PER_GATE} slots / wk<br />
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>1 slot = 1 departure / wk</span>
+          {scarcity && (
+            <>
+              <br />
+              <span style={{ fontSize: 11, color: 'var(--yellow)' }}
+                title={`Gate scarcity world: airports have finite gates (max 60% per airline, 80% per alliance). Full airports auction new gates yearly. Gates unused for 24 weeks are forfeited. Airports over 90% full charge +${Math.round((GATE_SURCHARGE_MULT - 1) * 100)}% fees.`}>
+                ⛩ Gate scarcity world — gates are limited
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -332,6 +561,7 @@ export default function Airports() {
                   weeklyCost: Math.round(totalGateMonthlyFee(airport, count) / 4),
                   canRemove:  used <= (count - 1) * SLOTS_PER_GATE,
                   isHub:      !!hubs[code],
+                  addDenial:  addDenialFor(code),
                 };
               })}
               onAdd={code => dispatch({ type: 'ADD_GATE', airportCode: code })}
@@ -419,8 +649,9 @@ export default function Airports() {
                           {used} / {capacity} slots
                         </span>
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                        {count} gate{count > 1 ? 's' : ''} · {formatMoney(weeklyCost)}/wk ({formatMoney(weeklyCost * 4)}/mo)
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{count} gate{count > 1 ? 's' : ''} · {formatMoney(weeklyCost)}/wk ({formatMoney(weeklyCost * 4)}/mo)</span>
+                        <AvailabilityChips state={state} code={code} />
                       </div>
                     </div>
 
@@ -433,13 +664,24 @@ export default function Airports() {
                       >
                         Details →
                       </button>
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: '4px 12px', fontSize: 12 }}
-                        onClick={() => dispatch({ type: 'ADD_GATE', airportCode: code })}
-                      >
-                        + Gate
-                      </button>
+                      {(() => {
+                        const denial = addDenialFor(code);
+                        return (
+                          <button
+                            className="btn btn-primary"
+                            style={{
+                              padding: '4px 12px', fontSize: 12,
+                              opacity: denial ? 0.35 : 1,
+                              cursor: denial ? 'not-allowed' : 'pointer',
+                            }}
+                            disabled={!!denial}
+                            title={denial ?? 'Lease one more gate'}
+                            onClick={() => dispatch({ type: 'ADD_GATE', airportCode: code })}
+                          >
+                            + Gate
+                          </button>
+                        );
+                      })()}
                       <button
                         className="btn"
                         style={{
@@ -466,6 +708,9 @@ export default function Airports() {
 
         </section>
       )}
+
+      {/* ── Gate market: auctions + player-to-player sales (scarcity worlds) ── */}
+      {scarcity && <GateMarketSection state={state} remoteApi={remoteApi} />}
 
       {/* ── Browse / add airports ─────────────────────────────────── */}
       <section>
@@ -617,8 +862,9 @@ export default function Airports() {
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2, paddingLeft: 42 }}>
-                        {formatMoney(weeklyCost)}/wk · {SLOTS_PER_GATE} slots/gate
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2, paddingLeft: 42, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{formatMoney(weeklyCost)}/wk · {SLOTS_PER_GATE} slots/gate</span>
+                        <AvailabilityChips state={state} code={airport.code} />
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 10 }}>
@@ -629,13 +875,24 @@ export default function Airports() {
                       >
                         Details
                       </button>
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: '3px 10px', fontSize: 12 }}
-                        onClick={() => dispatch({ type: 'ADD_GATE', airportCode: airport.code })}
-                      >
-                        + Gate
-                      </button>
+                      {(() => {
+                        const denial = addDenialFor(airport.code);
+                        return (
+                          <button
+                            className="btn btn-primary"
+                            style={{
+                              padding: '3px 10px', fontSize: 12,
+                              opacity: denial ? 0.35 : 1,
+                              cursor: denial ? 'not-allowed' : 'pointer',
+                            }}
+                            disabled={!!denial}
+                            title={denial ?? 'Lease a gate here'}
+                            onClick={() => dispatch({ type: 'ADD_GATE', airportCode: airport.code })}
+                          >
+                            + Gate
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 );

@@ -14,4 +14,4 @@
 // from the solo app's GameContext.jsx, which was the authoritative logic). The
 // solo app's React provider and the multiplayer server both import from here, so
 // they can never silently diverge. This file is a thin entrypoint over it.
-export { gameReducer, freshState, reconcileState } from './src/reducer.mjs';
+export { gameReducer, freshState, reconcileState, gateLeaseDenial } from './src/reducer.mjs';

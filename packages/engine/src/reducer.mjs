@@ -19,7 +19,11 @@ import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          leaseBuyoutPrice } from './data/aircraft.js';
-import { getAirport } from './data/airports.js';
+import {
+  getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
+  GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP, GATE_HUB_GUARANTEE,
+  GATE_IDLE_FORFEIT_WEEKS, GATE_IDLE_WARN_WEEKS, GATE_LOCKOUT_WEEKS,
+} from './data/airports.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget } from './data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
@@ -225,6 +229,50 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
   if (slotsAt(route.origin)      + target > (gates[route.origin]      ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.origin}`;
   if (slotsAt(route.destination) + target > (gates[route.destination] ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.destination}`;
 
+  return null;
+}
+
+// Why leasing one more gate at `airportCode` is NOT allowed right now, or null
+// when it is. Gate-scarcity worlds only (always null elsewhere). Reads the
+// server-injected market view (state.gateMarket) — the same data the server's
+// authoritative ledger check uses, so the optimistic apply and the server
+// agree. Exported for the UI (disable + explain the "+" button) and for the
+// server (a friendly 400 instead of a silent no-op).
+export function gateLeaseDenial(state, airportCode) {
+  if (!state?.gateScarcityWorld) return null;
+  const mkt      = state.gateMarket?.airports?.[airportCode];
+  const capacity = mkt?.capacity ?? gateCapacityOf(getAirport(airportCode));
+  const taken    = mkt?.taken ?? 0;
+  const yours    = (state.gates ?? {})[airportCode] ?? 0;
+  const isHome   = airportCode === state.hub;
+
+  // Rule-5 lockout (never applies at the home hub — it is forfeiture-exempt).
+  if (!isHome) {
+    const nowAbs      = absoluteWeek(state.year ?? 1, state.week ?? 1);
+    const lockedUntil = state.gateLockouts?.[airportCode] ?? 0;
+    if (lockedUntil > nowAbs) {
+      return `You are locked out of ${airportCode} for ${lockedUntil - nowAbs} more week${lockedUntil - nowAbs === 1 ? '' : 's'} (gates there were forfeited for non-use).`;
+    }
+  }
+
+  // Per-airline ownership cap (applies everywhere, hub included).
+  if (yours + 1 > gateAirlineCapOf(capacity)) {
+    return `No airline may hold more than ${Math.round(GATE_AIRLINE_CAP * 100)}% of ${airportCode}'s ${capacity} gates.`;
+  }
+
+  // Alliance combined cap — allianceTaken (all ACTIVE members incl. you) is
+  // computed server-side from the ledger + alliance graph; absent when unallied.
+  const allianceTaken = mkt?.allianceTaken;
+  if (allianceTaken != null && allianceTaken + 1 > gateAllianceCapOf(capacity)) {
+    return `Your alliance may not hold more than ${Math.round(GATE_ALLIANCE_CAP * 100)}% of ${airportCode}'s gates combined.`;
+  }
+
+  // Capacity — bypassed by the home-hub guarantee (first N hub gates are always
+  // available, even at a full airport; the overshoot counts toward fullness).
+  const hubGuarantee = isHome && yours < GATE_HUB_GUARANTEE;
+  if (!hubGuarantee && taken >= capacity) {
+    return `${airportCode} is at capacity (${taken}/${capacity} gates) — win one at auction or buy one from another airline.`;
+  }
   return null;
 }
 
@@ -1098,9 +1146,81 @@ function reducer(state, action) {
     case 'ADD_GATE': {
       const { airportCode } = action;
       const current = (state.gates ?? {})[airportCode] ?? 0;
+      // Gate scarcity worlds (optional Headwinds setting): the airport is a
+      // finite shared resource — capacity, ownership caps and lockouts are
+      // checked against the server-injected market view. The server re-verifies
+      // against its authoritative ledger; this check makes the optimistic /
+      // solo-path apply agree with it. Non-scarcity games skip all of it.
+      if (state.gateScarcityWorld && gateLeaseDenial(state, airportCode)) return state;
       return {
         ...state,
         gates: { ...(state.gates ?? {}), [airportCode]: current + 1 },
+        // A fresh acquisition restarts the use-it-or-lose-it clock.
+        ...(state.gateScarcityWorld
+          ? { gateIdleWeeks: { ...(state.gateIdleWeeks ?? {}), [airportCode]: 0 } }
+          : {}),
+      };
+    }
+
+    // ── Gate scarcity: SERVER-DISPATCHED gate transfers ───────────────────────
+    // These three are never in ALLOWED_PLAYER_ACTIONS — only the Headwinds
+    // server dispatches them (auction resolution and the player-to-player gate
+    // marketplace), exactly like alliance membership is server-governed. They
+    // keep ALL cash math inside the engine so client, API and worker agree.
+
+    case 'GATE_AWARDED': {
+      // Auction win: `gates` gates at airportCode for pricePerGate each.
+      const { airportCode, gates: won = 1, pricePerGate = 0 } = action;
+      const cost = won * pricePerGate;
+      const current = (state.gates ?? {})[airportCode] ?? 0;
+      return {
+        ...state,
+        cash:  state.cash - cost,
+        gates: { ...(state.gates ?? {}), [airportCode]: current + won },
+        gateIdleWeeks: { ...(state.gateIdleWeeks ?? {}), [airportCode]: 0 },
+        pendingToasts: [...(state.pendingToasts ?? []), {
+          type: 'success', title: '🔨 Auction won',
+          message: `You won ${won} gate${won > 1 ? 's' : ''} at ${airportCode} for $${Math.round(cost).toLocaleString()}.`,
+          duration: 9000,
+        }],
+      };
+    }
+
+    case 'GATE_PURCHASED': {
+      // Bought one gate from another airline at their asking price.
+      const { airportCode, price = 0 } = action;
+      const current = (state.gates ?? {})[airportCode] ?? 0;
+      return {
+        ...state,
+        cash:  state.cash - price,
+        gates: { ...(state.gates ?? {}), [airportCode]: current + 1 },
+        gateIdleWeeks: { ...(state.gateIdleWeeks ?? {}), [airportCode]: 0 },
+        pendingToasts: [...(state.pendingToasts ?? []), {
+          type: 'success', title: '🤝 Gate purchased',
+          message: `You bought a gate at ${airportCode} for $${Math.round(price).toLocaleString()}.`,
+          duration: 8000,
+        }],
+      };
+    }
+
+    case 'GATE_SOLD': {
+      // Sold one gate to another airline; proceeds arrive in full.
+      const { airportCode, proceeds = 0 } = action;
+      const gates   = state.gates ?? {};
+      const current = gates[airportCode] ?? 0;
+      if (current === 0) return state;
+      const newGates = { ...gates };
+      if (current === 1) delete newGates[airportCode];
+      else newGates[airportCode] = current - 1;
+      return {
+        ...state,
+        cash:  state.cash + proceeds,
+        gates: newGates,
+        pendingToasts: [...(state.pendingToasts ?? []), {
+          type: 'success', title: '💰 Gate sold',
+          message: `Your gate at ${airportCode} sold for $${Math.round(proceeds).toLocaleString()}.`,
+          duration: 8000,
+        }],
       };
     }
 
@@ -3021,6 +3141,55 @@ function reducer(state, action) {
         weeksOpen: (r.weeksOpen ?? 0) + 1,
       }));
 
+      // ── Gate scarcity: use-it-or-lose-it (scarcity worlds only) ───────────
+      // An airport you hold gates at but haven't served for GATE_IDLE_FORFEIT_
+      // WEEKS consecutive weeks takes its gates back and locks you out for
+      // GATE_LOCKOUT_WEEKS. The home hub is exempt. Warnings from week 16.
+      // The server reconciles any forfeiture into the world's gate ledger by
+      // diffing gates before/after this tick. Solo games never enter this block.
+      let finalGates       = state.gates ?? {};
+      let newGateIdleWeeks = state.gateIdleWeeks;
+      let newGateLockouts  = state.gateLockouts;
+      if (state.gateScarcityWorld) {
+        const nextAbsWeek = absoluteWeek(newYear, newWeek);
+        const served = new Set();
+        for (const r of finalRoutes)      for (const code of routeStops(r)) served.add(code);
+        for (const r of finalCargoRoutes) { served.add(r.origin); served.add(r.destination); }
+        const gatesNow = { ...finalGates };
+        const idle     = {};
+        const lockouts = { ...(state.gateLockouts ?? {}) };
+        for (const [code, exp] of Object.entries(lockouts)) {
+          if (!(exp > nextAbsWeek)) delete lockouts[code];   // expired lockouts clear
+        }
+        for (const [code, count] of Object.entries(gatesNow)) {
+          if (!count || code === state.hub) continue;        // home hub exempt
+          if (served.has(code)) continue;                    // any service resets the clock
+          const weeks = (state.gateIdleWeeks?.[code] ?? 0) + 1;
+          if (weeks >= GATE_IDLE_FORFEIT_WEEKS) {
+            delete gatesNow[code];
+            lockouts[code] = nextAbsWeek + GATE_LOCKOUT_WEEKS;
+            newToasts.push({
+              type: 'danger', title: '🛑 Gates forfeited',
+              message: `Your ${count} gate${count > 1 ? 's' : ''} at ${code} went unused for ${GATE_IDLE_FORFEIT_WEEKS} weeks and returned to the airport. You are locked out of ${code} for ${GATE_LOCKOUT_WEEKS} weeks.`,
+              duration: 10000,
+            });
+          } else {
+            idle[code] = weeks;
+            if (weeks >= GATE_IDLE_WARN_WEEKS) {
+              const left = GATE_IDLE_FORFEIT_WEEKS - weeks;
+              newToasts.push({
+                type: 'warning', title: '⚠️ Unused gates',
+                message: `No routes serve ${code}. Your ${count} gate${count > 1 ? 's' : ''} there will be forfeited in ${left} week${left === 1 ? '' : 's'} — open a route or release them.`,
+                duration: 8000,
+              });
+            }
+          }
+        }
+        finalGates       = gatesNow;
+        newGateIdleWeeks = idle;
+        newGateLockouts  = lockouts;
+      }
+
       return {
         ...state,
         cash:              cashAfterInvesting + objectiveCashBonus,
@@ -3030,6 +3199,13 @@ function reducer(state, action) {
         fleet:             finalFleet,
         routes:            finalRoutes,
         cargoRoutes:       finalCargoRoutes,
+        // Gate scarcity only — spread stays empty elsewhere so non-scarcity
+        // (and solo) states are byte-identical to before this feature.
+        ...(state.gateScarcityWorld ? {
+          gates:         finalGates,
+          gateIdleWeeks: newGateIdleWeeks ?? {},
+          gateLockouts:  newGateLockouts ?? {},
+        } : {}),
         pendingOrders:     remainingOrders,
         financialHistory:  newHistory,
         statsHistory:      newStats,

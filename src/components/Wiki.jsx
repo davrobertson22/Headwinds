@@ -212,6 +212,25 @@ const WIKI = [
     ],
   },
   {
+    id: 'gatescarcity',
+    icon: '⛩️',
+    title: 'Gate Scarcity (world option)',
+    blurb: 'Finite gates, auctions, and a gate market',
+    blocks: [
+      { p: 'Some multiplayer worlds are created with **gate scarcity** on (look for the ⛩ badge in the lobby). In those worlds every airport has a fixed number of gates — 25, 100, 250 or 500 by size — and airlines compete for them. In all other worlds, gates work classically (unlimited).' },
+      { ul: [
+        '**Capacity:** once every gate at an airport is taken, no more can be leased — the Airports tab shows each airport\'s availability.',
+        '**Ownership caps:** no airline may hold more than **60%** of an airport\'s gates, and an alliance\'s members no more than **80%** combined.',
+        '**Home-hub guarantee:** you can always lease up to **5 gates at your home hub**, even when it is full. Those first 5 hub gates can never be sold.',
+        '**Auctions:** an airport at capacity auctions new gates once a year — bidding opens at **week 40** with **sealed bids** (nobody sees yours) and resolves at the new year. Highest bids win and pay what they bid; exact ties are settled randomly. Won gates grow the airport.',
+        '**Gate market:** you can sell non-guaranteed gates to other airlines at your asking price, and buy theirs. Gates won at auction or bought have a 12-week cooldown before re-listing.',
+        '**Use it or lose it:** hold gates at an airport you haven\'t flown to for **24 straight weeks** and they are forfeited back to the pool — and you are locked out of that airport for 24 weeks. Warnings start at week 16.',
+        '**Congestion surcharge:** while an airport is more than **90% full**, every airline pays **+20%** on its gate fees there.',
+      ] },
+      { tip: 'In scarcity worlds gates ARE the strategy: grab capacity at growth airports early, keep every gate served (or sell it before the 24-week clock runs out), and save cash for the week-40 auctions at the airports that matter.' },
+    ],
+  },
+  {
     id: 'hubs',
     icon: '🏢',
     title: 'Hubs & Focus Cities',

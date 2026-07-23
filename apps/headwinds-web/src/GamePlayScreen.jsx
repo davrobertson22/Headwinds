@@ -113,6 +113,12 @@ export default function GamePlayScreen({ worldId, token }) {
       // landed or first load) — don't stomp optimistic edits between polls.
       const local = stateRef.current;
       if (!local || (d.state.week ?? 0) > (local.week ?? 0)) setState(withStatsBackfill(d.state));
+      // Same-week polls still refresh the gate market (a rival's new listing /
+      // an auction opening changes the world stamp but not our week). Server-
+      // derived, so adopting it never stomps an optimistic edit.
+      else if (d.state.gateMarket) {
+        setState((cur) => (cur ? { ...cur, gateMarket: d.state.gateMarket } : cur));
+      }
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);
       else setError(e);
@@ -138,9 +144,40 @@ export default function GamePlayScreen({ worldId, token }) {
   // alliances). Passed through RemoteGameProvider as `remoteApi` — always null
   // in solo. Alliances are managed HERE, in the game's Alliances tab — the
   // lobby only shows world details and the leaderboard.
+  // Gate scarcity: bid/listing responses carry a fresh personalized gateMarket —
+  // merge it into local state immediately (the poll's stamp short-circuit would
+  // otherwise hide our own bid/listing until something else changed).
+  const adoptGateMarket = useCallback((gateMarket) => {
+    if (!gateMarket) return;
+    setState((s) => (s ? { ...s, gateMarket } : s));
+  }, []);
+
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => authedApi(`/worlds/${worldId}/feed${params}`, { token }),
+    // ── Gate scarcity (worlds with the option on) ────────────────────────────
+    placeGateBid: (airportCode, amount, quantity = 1) =>
+      authedApi(`/worlds/${worldId}/gates/${airportCode}/bid`, { method: 'POST', token, body: { amount, quantity } })
+        .then((res) => { adoptGateMarket(res.gateMarket); return res; }),
+    withdrawGateBid: (airportCode) =>
+      authedApi(`/worlds/${worldId}/gates/${airportCode}/bid`, { method: 'DELETE', token })
+        .then((res) => { adoptGateMarket(res.gateMarket); return res; }),
+    listGate: (airportCode, askPrice) =>
+      authedApi(`/worlds/${worldId}/gates/listings`, { method: 'POST', token, body: { airportCode, askPrice } })
+        .then((res) => { adoptGateMarket(res.gateMarket); return res; }),
+    withdrawGateListing: (listingId) =>
+      authedApi(`/worlds/${worldId}/gates/listings/${listingId}`, { method: 'DELETE', token })
+        .then((res) => { adoptGateMarket(res.gateMarket); return res; }),
+    buyGateListing: (listingId) =>
+      authedApi(`/worlds/${worldId}/gates/listings/${listingId}/buy`, { method: 'POST', token })
+        .then((res) => {
+          // Full authoritative state (cash paid, gate added) — adopt it whole.
+          if (res.state) setState((cur) => {
+            if (res.state.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+            return withStatsBackfill({ ...res.state, gateMarket: res.gateMarket ?? res.state.gateMarket });
+          });
+          return res;
+        }),
     fetchAlliances: () => authedApi(`/worlds/${worldId}/alliances`, { token }),
     createAlliance: (name) =>
       authedApi(`/worlds/${worldId}/alliances`, { method: 'POST', token, body: { name } }),
@@ -150,7 +187,7 @@ export default function GamePlayScreen({ worldId, token }) {
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/requests/${airlineId}`, { method: 'POST', token, body: { decision } }),
     leaveAlliance: (allianceId) =>
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
-  }), [worldId, token]);
+  }), [worldId, token, adoptGateMarket]);
 
   const decisionSeq = useRef(0);
   // Serialize the authoritative writes. A burst of dispatches — bulk close/sell/

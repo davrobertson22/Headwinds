@@ -21,6 +21,7 @@
 import { referencePrice } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
+import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
 
@@ -242,6 +243,10 @@ export function withRivals(state, view) {
   return {
     ...state,
     multiplayer: true,
+    // Gate scarcity worlds only: the live gate-market view (airport capacities,
+    // holdings, open auctions + your sealed bid, marketplace listings). Rebuilt
+    // on every read/tick like the rival views; stripped before persistence.
+    ...(view?.gateMarket ? { gateMarket: view.gateMarket } : {}),
     // Starter Fleet perk gating. Airlines created before the perk shipped (and
     // any other blob that never recorded the counter) arrive with
     // starterDeliveriesUsed === undefined. Seed it the SAME way the solo
@@ -277,6 +282,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev,
+    gateMarket,
     ...rest
   } = state;
   return rest;
@@ -296,10 +302,21 @@ const viewCache = new Map(); // worldId → { stamp, at, promise }
 
 // One-stop world view builder for API/tick call sites: loads active airlines
 // and the alliance graph, returns the per-airline view map.
-export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null } = {}) {
+export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null } = {}) {
+  // Attach per-airline gate-market views on scarcity worlds (one extra world
+  // read when the caller didn't pass the row; non-scarcity worlds skip the
+  // gate tables entirely).
+  const attachGates = async (rows, allianceMap, views) => {
+    const w = world ?? await prisma.world.findUnique({ where: { id: worldId } });
+    if (!isGateScarcity(w)) return views;
+    const gateViews = await buildGateMarketViews(prisma, worldId, { airlines: rows, allianceMap, world: w });
+    for (const [id, view] of views) view.gateMarket = gateViews.get(id) ?? null;
+    return views;
+  };
+
   if (airlines) {
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return buildRivalViews(airlines, allianceMap);
+    return attachGates(airlines, allianceMap, buildRivalViews(airlines, allianceMap));
   }
   const hit = viewCache.get(worldId);
   if (hit && stamp != null && hit.stamp === stamp && Date.now() - hit.at < RIVAL_VIEW_CACHE_TTL_MS) {
@@ -313,7 +330,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
       include: { account: { select: { isOG: true, email: true } } },
     });
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return buildRivalViews(rows, allianceMap);
+    return attachGates(rows, allianceMap, buildRivalViews(rows, allianceMap));
   })();
   viewCache.set(worldId, { stamp, at: Date.now(), promise });
   promise.catch(() => viewCache.delete(worldId)); // never cache a failed read
