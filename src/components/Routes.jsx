@@ -1994,6 +1994,11 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // out of this form entirely; they're managed in the cargo planner.
   const paxFleet = fleet.filter(a => !getAircraftType(a.typeId)?.freighter);
   const hasHours = (a) => usedBlockHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS;
+  // Order the picker by most free block hours first, so planes with the most
+  // spare capacity surface at the top (fully-booked ones sink to the bottom).
+  const pickerFleet = [...paxFleet].sort(
+    (a, b) => usedBlockHrsFor(a) - usedBlockHrsFor(b)
+  );
 
   // Default aircraft. In add-flights mode, prefer one already flying this pair
   // (merges frequency, no launch cost), then one whose network touches an endpoint
@@ -2206,7 +2211,7 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
             <label className="form-label">Aircraft</label>
             <select className="form-select" value={aircraftId} onChange={e => setAircraftId(e.target.value)} required>
               {aircraftId === '' && <option value="">— Select aircraft —</option>}
-              {paxFleet.map(a => {
+              {pickerFleet.map(a => {
                 const t    = getAircraftType(a.typeId);
                 const used = usedBlockHrsFor(a);
                 const rem  = MAX_WEEKLY_BLOCK_HOURS - used;
