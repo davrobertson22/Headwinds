@@ -53,6 +53,18 @@ export default function AirportDetail({ code, onBack }) {
   // My routes at this airport
   const myRoutes = state.routes.filter(r => r.origin === code || r.destination === code);
   const myTotalFreq = myRoutes.reduce((s, r) => s + r.weeklyFrequency, 0);
+  // Group deployments into distinct city pairs (multiple aircraft on the same
+  // pair = one route), matching how the competitor rows below are counted.
+  // Every route here touches `code`, so the other endpoint identifies the pair.
+  const myPairs = Object.values(
+    myRoutes.reduce((m, r) => {
+      const other = r.origin === code ? r.destination : r.origin;
+      if (!m[other]) m[other] = { other, frequency: 0 };
+      m[other].frequency += r.weeklyFrequency;
+      return m;
+    }, {})
+  );
+  const myRouteCount = myPairs.length;
 
   // Top 15 city pairs involving this airport, by O&D demand
   const topPairs = useMemo(() => {
@@ -107,7 +119,7 @@ export default function AirportDetail({ code, onBack }) {
         id:        'player',
         name:      state.airlineName,
         tier:      null,
-        routes:    myRoutes.length,
+        routes:    myRouteCount,
         frequency: myTotalFreq,
         isPlayer:  true,
       });
@@ -239,7 +251,7 @@ export default function AirportDetail({ code, onBack }) {
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
                 <Stat label="Gates"         value={myGates} />
                 <Stat label="Slot Usage"    value={`${slotsUsed} / ${slotCap}`} sub="departures / wk" color={slotsUsed / slotCap > 0.8 ? 'var(--yellow)' : 'var(--text)'} />
-                <Stat label="Routes"        value={myRoutes.length} />
+                <Stat label="Routes"        value={myRouteCount} />
                 <Stat label="Flights/wk"   value={myTotalFreq + '×'} />
               </div>
               {/* Slot utilisation bar */}
@@ -257,16 +269,15 @@ export default function AirportDetail({ code, onBack }) {
               {/* My routes list */}
               {myRoutes.length > 0 && (
                 <div style={{ borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                  {myRoutes.map((r, i) => {
-                    const other = r.origin === code ? r.destination : r.origin;
-                    const otherAp = getAirport(other);
+                  {myPairs.map((p, i) => {
+                    const otherAp = getAirport(p.other);
                     return (
-                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
+                      <div key={p.other} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
                         <div style={{ flex: 1 }}>
-                          <span style={{ fontWeight: 700, fontSize: 14 }}>{code} ⇄ {other}</span>
+                          <span style={{ fontWeight: 700, fontSize: 14 }}>{code} ⇄ {p.other}</span>
                           <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 8 }}>{otherAp?.city}</span>
                         </div>
-                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.weeklyFrequency}× / wk</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{p.frequency}× / wk</span>
                       </div>
                     );
                   })}

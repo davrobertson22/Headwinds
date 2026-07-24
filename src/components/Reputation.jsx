@@ -42,6 +42,18 @@ export default function Reputation() {
   const pos = useMemo(() => calcPositioning(state), [state]);
   const strategy = strategyLabel(pos);
 
+  // One representative route per city pair (multiple aircraft on a pair share
+  // the same brand effect), so counts here match the Network Reach summary.
+  const uniquePairRoutes = useMemo(() => {
+    const seen = new Set();
+    return (routes ?? []).filter(r => {
+      const key = [r.origin, r.destination].sort().join('-');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [routes]);
+
   // Same functions the engine applies in weeklyTick (demand multiplier on route
   // revenue; elasticity reduction on the player offer's price sensitivity).
   const demandMultiplier = reputationDemandMultiplier(rep.overall);
@@ -153,7 +165,7 @@ export default function Reputation() {
             label="Network Reach"
             score={rep.network}
             icon="🌐"
-            detail={`${new Set(routes.flatMap(r => [r.origin, r.destination])).size} airports, ${routes.length} routes, ${routes.filter(r => r.origin === state.hub || r.destination === state.hub).length} hub routes.`}
+            detail={`${new Set(routes.flatMap(r => [r.origin, r.destination])).size} airports, ${new Set(routes.map(r => [r.origin, r.destination].sort().join('-'))).size} routes, ${new Set(routes.filter(r => r.origin === state.hub || r.destination === state.hub).map(r => [r.origin, r.destination].sort().join('-'))).size} hub routes.`}
             tip={rep.network < 40 ? 'Expand your route network to build brand presence' : undefined}
           />
           <DimensionRow
@@ -212,7 +224,7 @@ export default function Reputation() {
         <div className="card">
           <div className="card-title">How Reputation Affects Your Routes</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-            {routes.slice(0, 6).map(route => {
+            {uniquePairRoutes.slice(0, 6).map(route => {
               const aircraft = fleet.find(a => a.id === route.aircraftId);
               const origin = getAirport(route.origin);
               const dest   = getAirport(route.destination);
@@ -244,9 +256,9 @@ export default function Reputation() {
               );
             })}
           </div>
-          {routes.length > 6 && (
+          {uniquePairRoutes.length > 6 && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-              + {routes.length - 6} more routes (all benefit equally from brand reputation).
+              + {uniquePairRoutes.length - 6} more routes (all benefit equally from brand reputation).
             </div>
           )}
         </div>
