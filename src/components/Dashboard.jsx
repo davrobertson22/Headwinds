@@ -319,6 +319,18 @@ export default function Dashboard({ onNavigate }) {
     return [...c];
   }, [airportCodes]);
 
+  // Distinct city pairs (direction-agnostic), matching the Network page's
+  // grouping — so the Fleet card reads "10 routes" instead of counting each
+  // aircraft deployment separately (4 planes on one pair used to inflate it).
+  // Passenger and freight pairs are counted separately, as the Network page
+  // splits them into their own views.
+  const routeCount = useMemo(() => {
+    const pairKey = (r) => [r.origin, r.destination].sort().join('-');
+    const pax   = new Set(routes.map(pairKey));
+    const cargo = new Set(cargoRoutes.map(pairKey));
+    return pax.size + cargo.size;
+  }, [routes, cargoRoutes]);
+
   // ── Action alerts ────────────────────────────────────────────────────────
   const alerts = [];
   if (idleAircraft > 0)
@@ -463,7 +475,7 @@ export default function Dashboard({ onNavigate }) {
           label="Fleet"
           value={`${fleet.length} aircraft`}
           color="blue"
-          sub={idleAircraft > 0 ? `${idleAircraft} idle` : `${routes.length + cargoRoutes.length} routes`}
+          sub={idleAircraft > 0 ? `${idleAircraft} idle` : `${routeCount} route${routeCount !== 1 ? 's' : ''}`}
           subColor={idleAircraft > 0 ? 'var(--yellow)' : 'var(--text-dim)'}
           onClick={canNavigate ? () => go('fleet') : undefined}
         />
