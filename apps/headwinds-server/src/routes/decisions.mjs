@@ -14,6 +14,7 @@ import { paceLabel } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
+import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 
 // Per-account decision throttle. Generous enough that no human bursting through
@@ -272,6 +273,22 @@ export default async function decisionRoutes(fastify) {
             payload: journalled,
           },
         });
+        // Used-aircraft market: a completed SELL_AIRCRAFT lists that exact tail in
+        // the world Used Market at the NAV the sale was valued at (the reducer
+        // exposes it as next.lastSale). The seller already received NAV - 5%; the
+        // 5% spread is the shop's cut.
+        if (type === 'SELL_AIRCRAFT' && next.lastSale && next.lastSale.aircraftId === guarded.aircraftId) {
+          const sold = (airline.state?.fleet ?? []).find((a) => a.id === guarded.aircraftId);
+          if (sold && sold.ownershipType === 'owned') {
+            await listSoldAircraftTx(tx, {
+              worldId: airline.worldId,
+              sellerName: airline.name ?? airline.state?.airlineName ?? null,
+              aircraft: sold,
+              navPrice: next.lastSale.nav,
+              weekIdx: weekIndex(airline.world),
+            });
+          }
+        }
       });
     } catch (e) {
       if (e instanceof DecisionConflict) {

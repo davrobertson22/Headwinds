@@ -19,6 +19,7 @@ import {
   isGateScarcity, reconcileForfeitures, releaseAllFor,
   openDueAuctions, resolveDueAuctions,
 } from './gateService.mjs';
+import { scrapStale } from './aircraftMarketService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
 // default 5s interactive-transaction timeout — at scale that timed out and rolled
@@ -241,6 +242,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       } catch (err) {
         log.error(`[tick] world ${world.id} gate hooks failed (week still committed):`, err?.message ?? err);
       }
+    }
+
+    // Used-aircraft market: scrap listings unsold for 2 game-years (best-effort;
+    // never rolls back the committed week).
+    try {
+      const scrapped = await scrapStale(prisma, world.id, toIndex);
+      if (scrapped > 0) log.info?.('[tick] world ' + world.id + ' scrapped ' + scrapped + ' stale used-aircraft listing(s)');
+    } catch (err) {
+      log.error('[tick] world ' + world.id + ' used-market scrap failed (week still committed):', err?.message ?? err);
     }
 
     // Return the new shared event list so a multi-week catch-up ages events from

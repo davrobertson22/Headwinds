@@ -17,6 +17,7 @@ import HubManagement from './components/HubManagement.jsx';
 import Reputation from './components/Reputation.jsx';
 import Competition from './components/Competition.jsx';
 import StockMarket from './components/StockMarket.jsx';
+import UsedMarket from './components/UsedMarket.jsx';
 import RoutePlanner from './components/RoutePlanner.jsx';
 import Airports from './components/Airports.jsx';
 import RouteMap from './components/RouteMap.jsx';
@@ -87,6 +88,7 @@ const TABS = [
   { id: 'routes',      label: 'Routes',        Icon: RoutesIcon      },
   { id: 'fleet',       label: 'Fleet',         Icon: FleetIcon       },
   { id: 'market',      label: 'Market',        Icon: MarketIcon      },
+  { id: 'used',        label: 'Used Market',   Icon: PlaneIcon       },
   { id: 'airports',    label: 'Gates',         Icon: GateIcon          },
   { id: 'hubs',        label: 'Hubs',          Icon: HubIcon           },
   { id: 'operations',  label: 'Operations',   Icon: OperationsIcon    },
@@ -107,7 +109,7 @@ const TABS_BY_ID = Object.fromEntries(TABS.map(t => [t.id, t]));
 const NAV_GROUPS = [
   { id: 'dashboard' },
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'planner', 'routes'] },
-  { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market'] },
+  { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market', 'used'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
   { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'reputation', 'loyalty', 'alliances', 'competition', 'stocks'] },
   { id: 'finance' },
@@ -260,6 +262,7 @@ function AppInner() {
     routes:      <Routes />,
     fleet:       <Fleet />,
     market:      <Marketplace />,
+    used:        <UsedMarket />,
     airports:    <Airports />,
     hubs:        <HubManagement />,
     operations:  <Operations />,

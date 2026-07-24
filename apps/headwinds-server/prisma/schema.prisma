@@ -84,6 +84,7 @@ model World {
   worldGates  WorldGate[]
   gateAuctions GateAuction[]
   gateListings GateListing[]
+  usedAircraftListings UsedAircraftListing[]
 
   @@index([status, visibility])
 }
@@ -321,6 +322,23 @@ model GateListing {
 
   @@index([worldId, status])
   @@index([sellerId, status])
+}
+
+model UsedAircraftListing {
+  id         String    @id @default(cuid())
+  worldId    String
+  origin     String?   // ex-operator airline name (feed flavor)
+  typeId     String    // aircraft type key (into AIRCRAFT_TYPES)
+  snapshot   Json      // portable tail: frozen ageWeeks, config, engine mods, maintenance
+  navPrice   Int       // NAV fixed at sale time — never recomputed (age is paused)
+  listedWeek Int       // linear week index — drives the 2-yr scrap sweep
+  status     String    @default("OPEN") // OPEN | SOLD | SCRAPPED
+  buyerId    String?   // airlineId, set when SOLD
+  createdAt  DateTime  @default(now())
+  soldAt     DateTime?
+  world      World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, status])
 }
 
 model Standing {

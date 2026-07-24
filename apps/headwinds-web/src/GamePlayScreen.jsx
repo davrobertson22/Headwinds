@@ -155,6 +155,17 @@ export default function GamePlayScreen({ worldId, token }) {
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => authedApi(`/worlds/${worldId}/feed${params}`, { token }),
+    // Used aircraft market (all Headwinds worlds)
+    fetchUsedAircraft: () => authedApi(`/worlds/${worldId}/used-aircraft`, { token }),
+    buyUsedAircraft: (listingId) =>
+      authedApi(`/worlds/${worldId}/used-aircraft/${listingId}/buy`, { method: 'POST', token })
+        .then((res) => {
+          if (res.state) setState((cur) => {
+            if (res.state.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+            return withStatsBackfill(res.state);
+          });
+          return res;
+        }),
     // ── Gate scarcity (worlds with the option on) ────────────────────────────
     placeGateBid: (airportCode, amount, quantity = 1) =>
       authedApi(`/worlds/${worldId}/gates/${airportCode}/bid`, { method: 'POST', token, body: { amount, quantity } })
