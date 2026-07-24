@@ -1,3 +1,5 @@
+import { weeklyWearFailureProb, isOutOfService } from './maintenance.js';
+
 // ── Random event templates ────────────────────────────────────────────────────
 //
 // Each template has:
@@ -752,8 +754,8 @@ export function mechanicalFailureProb(ageWeeks, maintenanceBudget = 1.0) {
 export function rollMechanicalFailures(fleet, maintenanceBudget = 1.0) {
   const failures = [];
   for (const aircraft of fleet) {
-    if (aircraft.status === 'grounded') continue; // already out
-    const prob = mechanicalFailureProb(aircraft.ageWeeks ?? 0, maintenanceBudget);
+    if (isOutOfService(aircraft)) continue; // grounded or in a heavy check
+    const prob = weeklyWearFailureProb(aircraft, null, maintenanceBudget);
     if (Math.random() > prob) continue;
 
     const tmpl = FAILURE_TYPES[Math.floor(Math.random() * FAILURE_TYPES.length)];

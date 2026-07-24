@@ -172,8 +172,25 @@ function guardGate(payload) {
   return { airportCode: code.toUpperCase() };
 }
 
+function guardScheduleCheck(payload, state) {
+  const a = (state.fleet ?? []).find((x) => x.id === payload.aircraftId);
+  if (!a) throw new GuardError('Unknown aircraft.');
+  const checkType = payload.checkType === 'D' ? 'D' : 'C';
+  const out = { aircraftId: payload.aircraftId, checkType };
+  if (payload.startNow) {
+    out.startNow = true;
+  } else if (payload.startWeek != null) {
+    const w = Number(payload.startWeek);
+    if (!Number.isFinite(w) || w < 0) throw new GuardError('Invalid check start week.');
+    out.startWeek = Math.floor(w);
+  }
+  return out;
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
+    case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
+    case 'CANCEL_SCHEDULED_CHECK': return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);

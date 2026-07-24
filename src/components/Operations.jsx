@@ -15,6 +15,8 @@ import {
 } from '../data/families.js';
 import { formatMoney, weeklyBlockHours, routeDistanceKm } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { dueInfo } from '../data/maintenance.js';
+import { absoluteWeek } from '../utils/fuel.js';
 import {
   calcHQCost, hqBracket, weeklyInsuranceCost,
   awarenessDemandMultiplier, marketingAwarenessGain,
@@ -435,8 +437,9 @@ function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch })
             Maintenance Budget
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, maxWidth: 420 }}>
-            Controls spending on parts, components, and scheduled checks. Low budget cuts costs now but
-            accelerates airframe aging — raising future maintenance bills.
+            Line maintenance — A/B checks, parts, components. Low budget cuts costs now but raises
+            wear-related breakdown risk and accelerates airframe aging. Heavy C &amp; D checks are
+            scheduled per aircraft in the Fleet tab.
           </div>
         </div>
         {fleetMaintTotal > 0 && (
@@ -854,6 +857,36 @@ export default function Operations() {
         maintBudgetUsed={state.lastReport?.maintenanceBudgetUsed ?? 1.0}
         dispatch={dispatch}
       />
+
+      {(() => {
+        const mAbs = absoluteWeek(state.year, state.week);
+        const cs = (state.fleet ?? []).reduce((acc, a) => {
+          if (a.status === 'retired') return acc;
+          if (a.status === 'maintenance') { acc.inShop++; return acc; }
+          const di = dueInfo(a, getAircraftType(a.typeId), mAbs);
+          acc[di.state]++;
+          if (a.scheduledCheck) acc.booked++;
+          return acc;
+        }, { ok: 0, soon: 0, due: 0, overdue: 0, inShop: 0, booked: 0 });
+        if (cs.ok + cs.soon + cs.due + cs.overdue + cs.inShop === 0) return null;
+        const chip = (label, n, color) => n > 0 ? (
+          <span style={{ padding: '3px 9px', borderRadius: 6, fontSize: 12, background: 'var(--surface2)', border: '1px solid var(--border)', color }}>{label}: <b>{n}</b></span>
+        ) : null;
+        return (
+          <div className="card" style={{ padding: '12px 18px', marginTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><Glyph e="🔧" /> Heavy Checks (C / D)</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {chip('OK', cs.ok, 'var(--green)')}
+              {chip('Due soon', cs.soon, 'var(--yellow)')}
+              {chip('Due', cs.due, 'var(--red)')}
+              {chip('Overdue', cs.overdue, 'var(--red)')}
+              {chip('In shop', cs.inShop, 'var(--accent)')}
+              {chip('Booked', cs.booked, 'var(--text-muted)')}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Schedule from each aircraft's card in the Fleet tab. Overdue airframes get force-grounded by the regulator (longer downtime, +50% cost).</div>
+          </div>
+        );
+      })()}
 
       {/* Marketing budget section */}
       <div style={{

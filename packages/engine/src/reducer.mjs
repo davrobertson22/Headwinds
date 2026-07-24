@@ -11,7 +11,7 @@ import {
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
   MAX_ROUTE_STOPS,
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
-  isRouteActive, routeActiveMonths,
+  isRouteActive, routeActiveMonths, aircraftHubMaintFactor,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio } from './utils/market.js';
@@ -24,7 +24,10 @@ import {
   GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP, GATE_HUB_GUARANTEE,
   GATE_IDLE_FORFEIT_WEEKS, GATE_IDLE_WARN_WEEKS, GATE_LOCKOUT_WEEKS,
 } from './data/airports.js';
-import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget } from './data/labor.js';
+import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects } from './data/labor.js';
+import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
+         isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
+         FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX } from './data/maintenance.js';
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
@@ -334,6 +337,7 @@ function freshState() {
     codeshareAgreements:  [],    // [{ id, competitorId, competitorName, competitorTier, weeklyFee, signedWeek, weeksRemaining }]
     awareness: 5,                // 0–100: how well-known the airline is; gates demand
     satisfaction: null,          // 0–100 earned passenger satisfaction (null until first tick initializes it)
+    reputationPenalty: 0,        // transient reputation hit (e.g. forced grounding); decays weekly
     missedLoanPayments:       0,   // total weeks where loans were due and cash went negative
     consecutiveNegativeWeeks: 0,   // weeks in a row ending with negative cash (resets on recovery)
     bankruptcyReason:         null, // 'missed_loans' | 'consecutive_negative' | null
@@ -363,14 +367,15 @@ function uid() {
 // selling fee. Feeds the valuation model's net book value so buying aircraft
 // converts cash into fleet value instead of vaporizing market cap (and selling
 // the fleet no longer pumps it).
-function fleetNAVOf(fleet) {
+function fleetNAVOf(fleet, absWeek = null) {
   let total = 0;
   for (const a of fleet ?? []) {
     if (a.ownershipType !== 'owned' || a.status === 'retired') continue;
     const type      = getAircraftType(a.typeId);
     const ageYears  = (a.ageWeeks ?? 0) / 52;
     const remaining = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
-    total += Math.round((type?.purchasePrice ?? 0) * remaining);
+    const maintMod  = absWeek == null ? 1 : maintNavMultiplier(a, absWeek);
+    total += Math.round((type?.purchasePrice ?? 0) * remaining * maintMod);
   }
   return total;
 }
@@ -774,6 +779,35 @@ function reducer(state, action) {
       };
     }
 
+    case 'SCHEDULE_CHECK': {
+      // action: { aircraftId, checkType: 'C'|'D', startNow?, startWeek? (absolute week) }
+      const a = state.fleet.find(x => x.id === action.aircraftId);
+      if (!a || a.status === 'retired' || isOutOfService(a)) return state;
+      const mType = getAircraftType(a.typeId);
+      if (!mType) return state;
+      const ct     = action.checkType === 'D' ? 'D' : 'C';
+      const curAbs = absoluteWeek(state.year, state.week);
+      if (action.startNow) {
+        const cost = checkCost(mType, ct, { maintMod: a.maintMod ?? 1, laborMult: laborEffects(state.labor).maintenanceCostMultiplier, hubFactor: aircraftHubMaintFactor(a.id, state.routes, state.cargoRoutes, state.hubs) });
+        if (state.cash < cost) return { ...state, error: 'Not enough cash to start this check.' };
+        const dur = checkDurationWeeks(mType.category, ct);
+        return {
+          ...state,
+          cash:  state.cash - cost,
+          fleet: state.fleet.map(x => x.id === a.id ? startCheck(x, ct, dur) : x),
+        };
+      }
+      const startWeek = Math.max(curAbs, Math.min(curAbs + MAX_SCHEDULE_AHEAD_WEEKS, Math.round(Number(action.startWeek) || curAbs)));
+      return {
+        ...state,
+        fleet: state.fleet.map(x => x.id === a.id ? { ...x, scheduledCheck: { type: ct, startWeek } } : x),
+      };
+    }
+
+    case 'CANCEL_SCHEDULED_CHECK': {
+      return { ...state, fleet: state.fleet.map(x => x.id === action.aircraftId ? { ...x, scheduledCheck: null } : x) };
+    }
+
     case 'SELL_AIRCRAFT': {
       // Sell an owned aircraft at NAV minus 5% selling & admin fee.
       const aircraft      = state.fleet.find(a => a.id === action.aircraftId);
@@ -784,7 +818,8 @@ function reducer(state, action) {
       const type          = aircraft ? getAircraftType(aircraft.typeId) : null;
       const ageYears      = (aircraft?.ageWeeks ?? 0) / 52;
       const remaining     = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
-      const nav           = Math.round((type?.purchasePrice ?? 0) * remaining);
+      const sellAbsWeek   = absoluteWeek(state.year, state.week);
+      const nav           = Math.round((type?.purchasePrice ?? 0) * remaining * maintNavMultiplier(aircraft, sellAbsWeek));
       const fee           = Math.round(nav * 0.05);
       const proceeds      = nav - fee;
       const updatedRoutes = state.routes.filter(r => r.aircraftId !== action.aircraftId);
@@ -801,7 +836,37 @@ function reducer(state, action) {
         fleet:       reStatusFleet,
         routes:      updatedRoutes,
         cargoRoutes: updatedCargo,
+        // Used-aircraft market (MP): expose the exact NAV this sale was valued at
+        // so the server can list the tail in the world Used Market at NAV.
+        // Harmless in solo; stripped before persistence in multiplayer.
+        lastSale:    { aircraftId: action.aircraftId, nav },
       };
+    }
+
+    case 'BUY_USED_AIRCRAFT': {
+      // Server-only: dispatched by the used-aircraft market buy route, never a
+      // client (it is not on ALLOWED_PLAYER_ACTIONS). The buyer pays the price
+      // now; the used tail arrives on the NEXT weekly tick (one week), carried on
+      // the delivery queue like a factory order but flagged used so it
+      // materializes from its snapshot (real age / cabin / engines / maintenance)
+      // rather than as a fresh airframe.
+      const snap  = action.snapshot;
+      const price = Math.max(0, Math.round(Number(action.price) || 0));
+      if (!snap || !snap.typeId || state.cash < price) return state;
+      const usedType = getAircraftType(snap.typeId);
+      const usedOrder = {
+        id:             uid(),
+        typeId:         snap.typeId,
+        ownershipType:  'owned',
+        name:           snap.name || (usedType && usedType.name) || snap.typeId,
+        used:           true,
+        usedSnapshot:   snap,
+        deliverAbsWeek: absoluteWeek(state.year, state.week) + 1,
+        totalPrice:     price,
+        orderedWeek:    state.week,
+        orderedYear:    state.year,
+      };
+      return { ...state, cash: state.cash - price, pendingOrders: [...(state.pendingOrders ?? []), usedOrder] };
     }
 
     case 'TRANSFER_ROUTES': {
@@ -2169,19 +2234,31 @@ function reducer(state, action) {
       const mainBudgetPre = state.maintenanceBudget ?? 1.0;
       const agingRatePre  = Math.max(0.5, 1 + (1 - mainBudgetPre) * 0.5);
 
-      // Tick down existing grounded aircraft (decrement groundedWeeksLeft) so any
-      // aircraft returning from repair this week is 'assigned'/'idle' when passed to weeklyTick.
+      const curAbsWeek = absoluteWeek(state.year, state.week);
+
+      // Aircraft that COMPLETE a heavy check this week (detected from pre-tick state,
+      // mirroring the recovery detection) — used for toasts / debrief.
+      const completedChecks = state.fleet
+        .filter(a => a.status === 'maintenance' && (a.checkWeeksLeft ?? 1) <= 1)
+        .map(a => ({ id: a.id, name: a.name, tailNumber: a.tailNumber ?? '', checkType: a.checkType ?? 'C', forced: !!a.checkForced }));
+
+      // Tick down grounded aircraft AND in-shop maintenance so anything returning to
+      // service this week is 'assigned'/'idle' when passed to weeklyTick. A completed
+      // check resets its wear clocks (completeCheck).
       const tickedFleetPre = state.fleet.map(a => {
-        if (a.status !== 'grounded') return a;
-        const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
-        if (weeksLeft <= 0) {
-          // Check BOTH passenger and cargo routes — a freighter still assigned to a
-          // cargo route must come back 'assigned' (auto-resume), not 'idle'.
-          const hasRoute = state.routes.some(r => r.aircraftId === a.id)
-            || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
-          return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 };
+        const hasRoute = state.routes.some(r => r.aircraftId === a.id)
+          || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
+        if (a.status === 'grounded') {
+          const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
+          if (weeksLeft <= 0) return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 };
+          return { ...a, groundedWeeksLeft: weeksLeft };
         }
-        return { ...a, groundedWeeksLeft: weeksLeft };
+        if (a.status === 'maintenance') {
+          const left = (a.checkWeeksLeft ?? 1) - 1;
+          if (left <= 0) return completeCheck(a, curAbsWeek, hasRoute);
+          return { ...a, checkWeeksLeft: left };
+        }
+        return a;
       });
 
       // Current in-game month (1-12) drives seasonal demand. Must match the
@@ -2400,8 +2477,24 @@ function reducer(state, action) {
           duration: 7000,
         });
       }
+      // ── Heavy-maintenance: block-hours flown this week drive C/D wear ─────────
+      const acTypeById = new Map(tickedFleet.map(a => [a.id, getAircraftType(a.typeId)]));
+      const maintHoursById = new Map();
+      for (const r of [...state.routes, ...(state.cargoRoutes ?? [])]) {
+        if (!r.aircraftId || !isRouteActive(r, gameMonth)) continue;
+        const ty = acTypeById.get(r.aircraftId);
+        if (ty) maintHoursById.set(r.aircraftId, (maintHoursById.get(r.aircraftId) ?? 0) + routeBlockHours(r, ty, r.weeklyFrequency));
+      }
+      const maintLaborMult = laborEffects(state.labor).maintenanceCostMultiplier;
+      let maintCheckSpend = 0;
+      let forcedRepHit    = 0;
+      let runningCashForChecks = state.cash;
+      const checksStarted = [];
+      const checksForced  = [];
+
       const agedFleet = tickedFleet.map(a => {
-        const aged = { ...a, ageWeeks: (a.ageWeeks ?? 0) + agingRate };
+        let aged = { ...a, ageWeeks: (a.ageWeeks ?? 0) + agingRate };
+        aged = accrueMaintenance(aged, isOutOfService(a) ? 0 : (maintHoursById.get(a.id) ?? 0), curAbsWeek);
         if (failedIds.has(a.id)) {
           const failure = newFailures.find(f => f.aircraftId === a.id);
           return { ...aged, status: 'grounded', groundedWeeksLeft: failure.weeksGrounded };
@@ -2432,7 +2525,36 @@ function reducer(state, action) {
             });
             return null; // mark for removal
           }
-          return { ...aged, leaseRemainingWeeks: remaining };
+          aged = { ...aged, leaseRemainingWeeks: remaining };
+        }
+
+        // Heavy-check lifecycle (in-service aircraft only; leased included).
+        if (!isOutOfService(aged)) {
+          const mType = getAircraftType(aged.typeId);
+          const sc    = aged.scheduledCheck;
+          if (sc && curAbsWeek >= (sc.startWeek ?? curAbsWeek)) {
+            const ct   = sc.type === 'D' ? 'D' : 'C';
+            const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, state.routes, state.cargoRoutes, state.hubs) });
+            if (runningCashForChecks >= cost) {
+              runningCashForChecks -= cost; maintCheckSpend += cost;
+              const dur = checkDurationWeeks(mType?.category, ct);
+              checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur });
+              return startCheck(aged, ct, dur);
+            }
+            aged = { ...aged, scheduledCheck: null };
+          }
+          const di = dueInfo(aged, mType, curAbsWeek);
+          if (di.forcedType) {
+            const ct   = di.forcedType;
+            const dur  = checkDurationWeeks(mType?.category, ct);
+            const leaseSoonReturn = aged.ownershipType === 'lease' && (aged.leaseRemainingWeeks ?? 999) <= dur + 4;
+            if (!leaseSoonReturn) {
+              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, state.routes, state.cargoRoutes, state.hubs), forced: true });
+              maintCheckSpend += cost; forcedRepHit += FORCED_REP_HIT;
+              checksForced.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur });
+              return startCheck(aged, ct, dur, { forced: true });
+            }
+          }
         }
         return aged;
       }).filter(Boolean);
@@ -2463,7 +2585,12 @@ function reducer(state, action) {
       }));
 
       // Merge lease warnings, failures, and recovery toasts in (after agedFleet is built)
-      newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts);
+      const checkToasts = [
+        ...checksStarted.map(c => ({ type: 'info', title: `🔧 ${c.checkType} check started — ${c.name}`, message: `${c.tailNumber || c.name} is in the shop for ${c.weeks} week${c.weeks !== 1 ? 's' : ''}. Cost: ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`, icon: '🔧', duration: 7000 })),
+        ...checksForced.map(c => ({ type: 'danger', title: `⚠️ Forced grounding — ${c.name}`, message: `${c.tailNumber || c.name} blew past its ${c.checkType}-check window. Regulator-grounded ${c.weeks} week${c.weeks !== 1 ? 's' : ''}; rushed check ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`, icon: '⚠️', duration: 10000 })),
+        ...completedChecks.map(c => ({ type: 'success', title: `✅ ${c.checkType} check complete — ${c.name}`, message: `${c.tailNumber || c.name} has returned to service.`, icon: '✅', duration: 5000 })),
+      ];
+      newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts);
 
       // Encroachment notifications — a rival entering or leaving one of your routes.
       for (const ev of encroachEvents ?? []) {
@@ -2642,10 +2769,10 @@ function reducer(state, action) {
       // Seasonal reactivation fees are a deductible operating expense, treated like
       // lease redelivery: they reduce the tax base and flow through the weekly P&L
       // (so the debrief shows them as a cost line and cash reconciles exactly).
-      const taxableIncome   = adjustedCashDelta - weeklyDepreciation - totalLoanInterest - leaseRedeliveryCost - seasonalReactivationCost;
+      const taxableIncome   = adjustedCashDelta - weeklyDepreciation - totalLoanInterest - leaseRedeliveryCost - seasonalReactivationCost - maintCheckSpend;
       const corporateTax    = Math.round(Math.max(0, taxableIncome) * CORPORATE_TAX_RATE);
       // Cash movement: operating cash − full loan payment − reactivation fees − tax.
-      const preTaxProfit    = adjustedCashDelta - totalLoanPayments - leaseRedeliveryCost - seasonalReactivationCost;
+      const preTaxProfit    = adjustedCashDelta - totalLoanPayments - leaseRedeliveryCost - seasonalReactivationCost - maintCheckSpend;
       const newCash = state.cash + preTaxProfit - corporateTax;
       let newWeek = state.week + 1;
       let newYear = state.year;
@@ -2863,7 +2990,7 @@ function reducer(state, action) {
         eventDemandAdj:     Math.round(eventDemandAdj),
         // Revenue forfeited to cancelled flights during a labor strike.
         strikeLoss:         strikeRevenueLoss,
-        totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost,
+        totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + maintCheckSpend,
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
         fuelIndex:          currentFuelIndex,
@@ -2955,7 +3082,7 @@ function reducer(state, action) {
       const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);
       const { marketCap: newMarketCap, sharePrice: newSharePrice } =
         computeMarketCap(playerProfitHistory, cashAfterInvesting, state.awareness ?? 5, {
-          fleetNAV:       fleetNAVOf(agedFleet),
+          fleetNAV:       fleetNAVOf(agedFleet, curAbsWeek),
           debt:           loanOutstanding(updatedLoans),
           portfolioValue,
           prevMarketCap:  state.marketCap ?? null,
@@ -3091,6 +3218,25 @@ function reducer(state, action) {
           ...deliveredAircraft.map(a => a.tailNumber),
         ].filter(Boolean);
         const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
+        // Used-aircraft market delivery: rebuild the exact tail from its frozen
+        // snapshot (age / cabin / engines / maintenance) instead of a fresh build.
+        if (order.used && order.usedSnapshot) {
+          deliveredAircraft.push({
+            ...order.usedSnapshot,
+            id:            uid(),
+            tailNumber,
+            status:        'idle',
+            ownershipType: 'owned',
+          });
+          newToasts.push({
+            type:     'success',
+            title:    'Used Aircraft Delivered: ' + order.name,
+            message:  'Your used ' + ((ordType && ordType.name) ? ordType.name : order.name) + ' (' + tailNumber + ') has arrived and is ready for service.',
+            icon:     '✈',
+            duration: 7000,
+          });
+          continue;
+        }
         const DELIVERY_LEASE_TERMS = { 'Turboprop': 52, 'Regional Jet': 78, 'Narrow Body': 104, 'Wide Body': 156 };
         const deliveredLeaseTerm = order.ownershipType === 'lease'
           ? (order.leaseTermWeeks ?? DELIVERY_LEASE_TERMS[ordType?.category] ?? DEFAULT_LEASE_TERM_WEEKS)
@@ -3209,6 +3355,9 @@ function reducer(state, action) {
         newGateLockouts  = lockouts;
       }
 
+      let newReputationPenalty = (state.reputationPenalty ?? 0) * REP_PENALTY_DECAY + forcedRepHit;
+      newReputationPenalty = newReputationPenalty < 0.1 ? 0 : Math.min(REP_PENALTY_MAX, newReputationPenalty);
+
       return {
         ...state,
         cash:              cashAfterInvesting + objectiveCashBonus,
@@ -3216,6 +3365,7 @@ function reducer(state, action) {
         year:              newYear,
         portfolio:         newPortfolio,
         fleet:             finalFleet,
+        reputationPenalty: newReputationPenalty,
         routes:            finalRoutes,
         cargoRoutes:       finalCargoRoutes,
         // Gate scarcity only — spread stays empty elsewhere so non-scarcity
@@ -3234,8 +3384,8 @@ function reducer(state, action) {
           // lease redelivery, seasonal reactivation fees and corporate tax on top of
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
-          totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+          totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend,
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         hubs:              hubsAfterBuild,
@@ -3530,12 +3680,15 @@ function reconcileState(parsed) {
   //    flying only cargo routes must still come back 'assigned', not 'idle').
   //    Preserve 'grounded' so aircraft mid-repair survive a save/reload cycle.
   const assignedIds = new Set([...routes, ...cargoRoutes].map(r => r.aircraftId));
-  const cleanFleet  = fleet.map(a => ({
-    ...a,
-    status: a.status === 'grounded'
-      ? 'grounded'
-      : (assignedIds.has(a.id) ? 'assigned' : 'idle'),
-  }));
+  const cleanFleet  = fleet.map(a => {
+    const seeded = seedMaintenance(a, getAircraftType(a.typeId));
+    return {
+      ...seeded,
+      status: (a.status === 'grounded' || a.status === 'maintenance')
+        ? a.status
+        : (assignedIds.has(a.id) ? 'assigned' : 'idle'),
+    };
+  });
 
   // 4. Migrate missing competitors.
   const competitors = (parsed.competitors?.length > 0)

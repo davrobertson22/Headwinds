@@ -1,5 +1,6 @@
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee, GATE_SURCHARGE_MULT } from '../data/airports.js';
 import { getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
+import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
 import { LABOR_GROUPS, laborEffects } from '../data/labor.js';
@@ -658,7 +659,7 @@ export function fleetAvgUtilization(fleet = [], routes = []) {
   }
   let sum = 0, n = 0;
   for (const a of fleet) {
-    if (a.status === 'grounded') continue;
+    if (isOutOfService(a)) continue;
     const type = getAircraftType(a.typeId);
     if (!type) continue;
     const rs  = byAircraft.get(a.id) ?? [];
@@ -692,7 +693,7 @@ export function deployableFleetForRoute({
   if (!type) return [];
   const newBH = weeklyBlockHours(distKm, weeklyFrequency, type);
   return fleet
-    .filter(a => a.typeId === typeId && a.status !== 'grounded' && a.status !== 'retired')
+    .filter(a => a.typeId === typeId && !isOutOfService(a) && a.status !== 'retired')
     .map(a => {
       const acRoutes = existingRoutes.filter(r => r.aircraftId === a.id);
       const usedBH   = acRoutes.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
@@ -749,6 +750,25 @@ export function routeDistanceKm(originCode, destCode) {
 export function maintenanceMultiplier(ageWeeks) {
   const ageYears = (ageWeeks ?? 0) / 52;
   return 1 + Math.pow(ageYears / 20, 2) * 2;
+}
+
+/**
+ * Hub line-maintenance factor for an aircraft (≤1): the best maintFactor among
+ * T2+ hubs any of its routes touch. Mirrors hubCostFactorsFor()'s maint term so
+ * heavy C/D checks get the same in-house-base discount as weekly line maintenance.
+ */
+export function aircraftHubMaintFactor(aircraftId, routes = [], cargoRoutes = [], hubs = {}) {
+  let best = 1.0;
+  for (const r of [...(routes ?? []), ...(cargoRoutes ?? [])]) {
+    if (r.aircraftId !== aircraftId) continue;
+    const codes = r.stops ?? [r.origin, r.destination];
+    for (const c of codes) {
+      const t = hubs?.[c]?.tier;
+      const f = t != null ? (HUB_TIERS[t]?.maintFactor ?? 1.0) : 1.0;
+      if (f < best) best = f;
+    }
+  }
+  return best;
 }
 
 /**
@@ -1876,7 +1896,7 @@ export function weeklyTick(state) {
     const routeGroups = new Map(); // routeKey → [{ route, aircraft }]
     for (const route of routes) {
       const aircraft = fleet.find(a => a.id === route.aircraftId);
-      if (!aircraft || aircraft.status === 'grounded') continue;
+      if (!aircraft || isOutOfService(aircraft)) continue;
       if (!isRouteActive(route, gameDate.month)) continue;   // dormant this month
       if (isMultiStop(route)) continue;   // tag routes self-contain their O&D split
       const rk = [route.origin, route.destination].sort().join('-');
@@ -2003,7 +2023,7 @@ export function weeklyTick(state) {
   for (const route of routes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) continue;
-    if (aircraft.status === 'grounded') continue; // mechanical failure — no revenue this week
+    if (isOutOfService(aircraft)) continue; // grounded or in a heavy check — no revenue this week
     if (!isRouteActive(route, gameDate.month)) continue; // seasonal route dormant this month
 
     // ── Tag (multi-stop) route: self-contained O&D split via simulateTagRoute ──
@@ -2070,7 +2090,7 @@ export function weeklyTick(state) {
         : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
       const weeklyMaintCost = Math.round(
         (type?.baseMaintenancePerWk ?? 0)
-        * maintenanceMultiplier(aircraft.ageWeeks ?? 0)
+        * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft))
         * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)
         * (tagHcf?.maint ?? 1.0)
       );
@@ -2253,7 +2273,7 @@ export function weeklyTick(state) {
       : (aircraft.weeklyLease ?? acType?.weeklyLease ?? 0);
     const weeklyMaintCost  = Math.round(
       (acType?.baseMaintenancePerWk ?? 0)
-      * maintenanceMultiplier(aircraft.ageWeeks ?? 0)
+      * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft))
       * maintenanceBudget
       * maintenanceCostMultiplier
       * (aircraft.maintMod ?? 1.0)
@@ -2288,7 +2308,7 @@ export function weeklyTick(state) {
 
   for (const route of cargoRoutes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
-    if (!aircraft || aircraft.status === 'grounded') continue;
+    if (!aircraft || isOutOfService(aircraft)) continue;
 
     const result = simulateCargoRoute(route, aircraft, gameDate, labor, fuelMultiplier, awarenessMultiplier);
     if (!result) continue;
@@ -2321,7 +2341,7 @@ export function weeklyTick(state) {
       : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
     const weeklyMaintCost = Math.round(
       (type?.baseMaintenancePerWk ?? 0)
-      * maintenanceMultiplier(aircraft.ageWeeks ?? 0)
+      * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft))
       * maintenanceBudget
       * maintenanceCostMultiplier
       * (aircraft.maintMod ?? 1.0)
@@ -2346,7 +2366,7 @@ export function weeklyTick(state) {
   for (const aircraft of fleet) {
     const type = getAircraftType(aircraft.typeId);
     if (!type) continue;
-    const maintMult         = maintenanceMultiplier(aircraft.ageWeeks ?? 0);
+    const maintMult         = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
     const { maintenanceCostMultiplier } = laborEffects(labor);
     const maint             = Math.round(
       type.baseMaintenancePerWk * maintMult * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)

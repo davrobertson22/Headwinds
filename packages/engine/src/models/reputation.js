@@ -69,13 +69,14 @@ export function calcReputation(state, loyaltyBonus = 0, avgUtilization = null) {
   const profitBump   = Math.max(-10, Math.min(10, recentProfit / 200000 * 10));
   const moraleScore  = Math.round(Math.min(100, Math.max(0, avgMorale + profitBump)));
 
-  const overall = Math.min(100, Math.round(
+  const penalty = Math.max(0, state.reputationPenalty ?? 0);
+  const overall = Math.max(0, Math.min(100, Math.round(
     serviceScore * 0.35 +
     fleetScore   * 0.20 +
     networkScore * 0.20 +
     moraleScore  * 0.25 +
     loyaltyBonus
-  ));
+  ) - penalty));
 
   // Quality score as fed into the demand model (mirrors computeQualityScore inputs);
   // cabin points averaged across assigned aircraft — same seat/service points the

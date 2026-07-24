@@ -1,17 +1,19 @@
 import { useState, useMemo } from 'react';
 import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType, leaseBuyoutPrice, LEASE_TERM_OPTIONS } from '../data/aircraft.js';
+import { laborEffects } from '../data/labor.js';
 import { getAirport } from '../data/airports.js';
 import {
   formatMoney, formatPercent,
   maintenanceMultiplier, ageLabel,
   simulateRoute, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
-  MAX_WEEKLY_BLOCK_HOURS, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate,
+  MAX_WEEKLY_BLOCK_HOURS, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
+import { dueInfo, checkCost, checkDurationWeeks, isOutOfService, MAX_SCHEDULE_AHEAD_WEEKS } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
@@ -203,6 +205,8 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft]     = useState('');
   const [showTransfer, setShowTransfer] = useState(false);
+  const [bookWeeks, setBookWeeks] = useState(4);
+  const [bookType, setBookType]   = useState('C');
   const [showExtend, setShowExtend]     = useState(false);
 
   function startRename() {
@@ -267,6 +271,9 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
     return { route: r, result, blockHrs: bh };
   }).filter(Boolean);
 
+  const mAbsWeek = absoluteWeek(state.year, state.week);
+  const mDue     = dueInfo(aircraft, type, mAbsWeek);
+  const mCheckOpts = { maintMod: aircraft.maintMod ?? 1, laborMult: laborEffects(state.labor).maintenanceCostMultiplier, hubFactor: aircraftHubMaintFactor(aircraft.id, state.routes, state.cargoRoutes, state.hubs) };
   const ageWks   = aircraft.ageWeeks ?? 0;
   const ageYrs   = ageWks / 52;
   const maintMlt = maintenanceMultiplier(ageWks);
@@ -364,6 +371,26 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
                   animation: 'pulse 1.5s ease-in-out infinite',
                 }}>
                   <Glyph e="🔧" /> Grounded {aircraft.groundedWeeksLeft > 0 ? `(${aircraft.groundedWeeksLeft}w)` : ''}
+                </span>
+              )}
+              {aircraft.status === 'maintenance' && (
+                <span className="badge" style={{ background:'rgba(56,139,253,.15)', color:'var(--accent)', border:'1px solid rgba(56,139,253,.4)' }}>
+                  <Glyph e="🔧" /> {aircraft.checkType || 'C'} check {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}
+                </span>
+              )}
+              {!isOutOfService(aircraft) && mDue.state !== 'ok' && (
+                <span className="badge" style={{
+                  background: mDue.state === 'soon' ? 'rgba(210,153,34,.15)' : 'rgba(248,81,73,.15)',
+                  color: mDue.state === 'soon' ? 'var(--yellow)' : 'var(--red)',
+                  border: `1px solid ${mDue.state === 'soon' ? 'rgba(210,153,34,.4)' : 'rgba(248,81,73,.4)'}`,
+                  ...(mDue.state === 'overdue' ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
+                }}>
+                  {mDue.nextCheck} check {mDue.state === 'soon' ? 'due soon' : mDue.state === 'overdue' ? 'OVERDUE' : 'due'}
+                </span>
+              )}
+              {aircraft.scheduledCheck && !isOutOfService(aircraft) && (
+                <span className="badge" style={{ background:'rgba(139,148,158,.15)', color:'var(--text-muted)', border:'1px solid var(--border)' }}>
+                  <Glyph e="📅" /> {aircraft.scheduledCheck.type} booked ({Math.max(0, aircraft.scheduledCheck.startWeek - mAbsWeek)}w)
                 </span>
               )}
               <span className="badge" style={{
@@ -579,6 +606,57 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
       </div>
 
       {/* ── Actions ───────────────────────────────────────────────── */}
+      {/* ── Maintenance (heavy C/D checks) ─────────────────────────── */}
+      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Maintenance Checks</div>
+        {aircraft.status === 'maintenance' ? (
+          <div style={{ fontSize: 13, color: 'var(--accent)' }}>
+            <Glyph e="🔧" /> In {aircraft.checkType || 'C'} check — {aircraft.checkWeeksLeft || 1} week{(aircraft.checkWeeksLeft || 1) !== 1 ? 's' : ''} remaining{aircraft.checkForced ? ' (regulator-forced)' : ''}.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              <span>C check: <span style={{ color: (mDue.cSoon || mDue.cDue) ? 'var(--yellow)' : 'var(--text)' }}>{Math.round(mDue.cProgress * 100)}%</span> ({Math.round(mDue.hoursSinceC)}h · {mDue.weeksSinceC}w)</span>
+              <span>D check: <span style={{ color: (mDue.dSoon || mDue.dDue) ? 'var(--yellow)' : 'var(--text)' }}>{Math.round(mDue.dProgress * 100)}%</span> ({Math.round(mDue.hoursSinceD)}h · {mDue.weeksSinceD}w)</span>
+            </div>
+            {aircraft.scheduledCheck ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <span style={{ color: 'var(--text-muted)' }}><Glyph e="📅" /> {aircraft.scheduledCheck.type} check booked in {Math.max(0, aircraft.scheduledCheck.startWeek - mAbsWeek)}w</span>
+                <button className="btn" onClick={() => dispatch({ type: 'CANCEL_SCHEDULED_CHECK', aircraftId: aircraft.id })}>Cancel</button>
+              </div>
+            ) : (
+              <>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn" onClick={() => dispatch({ type: 'SCHEDULE_CHECK', aircraftId: aircraft.id, checkType: 'C', startNow: true })}>
+                  Start C check — {formatMoney(checkCost(type, 'C', mCheckOpts))} · {checkDurationWeeks(type?.category, 'C')}w
+                </button>
+                <button className="btn" onClick={() => dispatch({ type: 'SCHEDULE_CHECK', aircraftId: aircraft.id, checkType: 'D', startNow: true })}>
+                  Start D check — {formatMoney(checkCost(type, 'D', mCheckOpts))} · {checkDurationWeeks(type?.category, 'D')}w
+                </button>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap', fontSize: 13, color: 'var(--text-muted)' }}>
+                <span>or book ahead:</span>
+                <select value={bookType} onChange={e => setBookType(e.target.value)} style={{ background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', fontSize: 12 }}>
+                  <option value="C">C check</option>
+                  <option value="D">D check</option>
+                </select>
+                <span>in</span>
+                <input type="number" min={1} max={MAX_SCHEDULE_AHEAD_WEEKS} value={bookWeeks} onChange={e => setBookWeeks(Math.max(1, Math.min(MAX_SCHEDULE_AHEAD_WEEKS, parseInt(e.target.value, 10) || 1)))} style={{ width: 54, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', fontSize: 12 }} />
+                <span>weeks — {formatMoney(checkCost(type, bookType, mCheckOpts))}</span>
+                <button className="btn" onClick={() => dispatch({ type: 'SCHEDULE_CHECK', aircraftId: aircraft.id, checkType: bookType, startWeek: mAbsWeek + bookWeeks })}>Book</button>
+              </div>
+              </>
+            )}
+            {mDue.state !== 'ok' && (
+              <div style={{ fontSize: 12, color: mDue.state === 'soon' ? 'var(--yellow)' : 'var(--red)', marginTop: 8 }}>
+                {mDue.nextCheck} check {mDue.state === 'soon' ? 'due soon.' : mDue.state === 'overdue' ? 'OVERDUE — keep flying and the regulator will force a grounding (longer + 50% pricier).' : 'due now.'}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Actions ───────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={onConfigure}>Configure Cabin</button>
         {(aircraftRoutes.length > 0 || (state.cargoRoutes ?? []).some(r => r.aircraftId === aircraft.id)) && (
@@ -707,6 +785,18 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
                 background: `${catColor}14`, borderRadius: 8, padding: '4px 10px',
               }}>{count}</div>
             </div>
+
+            {(() => {
+              const inShop = aircraft.filter(a => a.status === 'maintenance').length;
+              const due = aircraft.filter(a => a.status !== 'maintenance' && a.status !== 'retired' && (dueInfo(a, type, 0).cDue || dueInfo(a, type, 0).dDue)).length;
+              if (inShop + due === 0) return null;
+              return (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                  {due > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, background: 'rgba(248,81,73,.12)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.3)' }}><Glyph e="🔧" /> {due} check{due !== 1 ? 's' : ''} due</span>}
+                  {inShop > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, background: 'rgba(56,139,253,.12)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.3)' }}><Glyph e="🔧" /> {inShop} in shop</span>}
+                </div>
+              );
+            })()}
 
             {/* Utilisation bar */}
             <div style={{ marginBottom: 12 }}>
@@ -859,6 +949,17 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
               <span style={{ fontWeight: 700, fontSize: 16, color: catColor }}>{cat}</span>
               <span style={{ fontWeight: 700, fontSize: 22, color: catColor, marginLeft: 'auto' }}>{catFleet.length}</span>
             </div>
+            {(() => {
+              const inShop = catFleet.filter(a => a.status === 'maintenance').length;
+              const due = catFleet.filter(a => a.status !== 'maintenance' && a.status !== 'retired' && (dueInfo(a, getAircraftType(a.typeId), 0).cDue || dueInfo(a, getAircraftType(a.typeId), 0).dDue)).length;
+              if (inShop + due === 0) return null;
+              return (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 18px 0' }}>
+                  {due > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, background: 'rgba(248,81,73,.12)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.3)' }}><Glyph e="🔧" /> {due} check{due !== 1 ? 's' : ''} due</span>}
+                  {inShop > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, background: 'rgba(56,139,253,.12)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.3)' }}><Glyph e="🔧" /> {inShop} in shop</span>}
+                </div>
+              );
+            })()}
 
             <div style={{ padding: '14px 18px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, marginBottom: 14 }}>
@@ -927,6 +1028,7 @@ export default function Fleet() {
   const { state, dispatch } = useGame();
   const confirm = useConfirm();
   const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week } = state;
+  const nowAbs = absoluteWeek(year, week);
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
   const [checkedIds,    setCheckedIds]    = useState([]);   // bulk selection
@@ -1625,6 +1727,14 @@ export default function Fleet() {
                       ) : (
                         <span className="badge badge-yellow">Idle</span>
                       )}
+                      {aircraft.status === 'maintenance' && (
+                        <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}><Glyph e="🔧" /> {aircraft.checkType || 'C'} check {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}</span>
+                      )}
+                      {!isOutOfService(aircraft) && (() => {
+                        const di = dueInfo(aircraft, type, nowAbs);
+                        if (di.state === 'ok') return aircraft.scheduledCheck ? (<span style={{ fontSize: 10, color: 'var(--text-dim)' }}><Glyph e="📅" size={10} /> {aircraft.scheduledCheck.type} booked</span>) : null;
+                        return <span style={{ fontSize: 10, fontWeight: 600, color: di.state === 'soon' ? 'var(--yellow)' : 'var(--red)' }}>{di.nextCheck} check {di.state === 'soon' ? 'due soon' : di.state === 'overdue' ? 'OVERDUE' : 'due'}</span>;
+                      })()}
                       {leaseRemaining !== null && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span style={{

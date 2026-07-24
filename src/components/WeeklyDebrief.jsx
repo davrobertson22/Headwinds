@@ -50,6 +50,7 @@ export default function WeeklyDebrief() {
   const expiredEvents      = lastReport.expiredEvents      ?? [];
   const compEvents         = lastReport.competitorEvents   ?? [];
   const mechanicalFailures = lastReport.mechanicalFailures ?? [];
+  const maintChecks        = lastReport.maintenanceChecks ?? { started: [], forced: [], completed: [], spend: 0 };
 
   const loyaltyMembers      = lastReport.loyaltyMembersTotal ?? 0;
   const loyaltyMemberDelta  = lastReport.loyaltyMemberDelta  ?? 0;
@@ -249,6 +250,34 @@ export default function WeeklyDebrief() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {(maintChecks.started.length + maintChecks.forced.length + maintChecks.completed.length) > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <SectionLabel>🔧 Maintenance Checks</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {maintChecks.forced.map((c, i) => (
+                <div key={'mf' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(248,81,73,.08)', border: '1px solid rgba(248,81,73,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>⚠️</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--red)' }}>{c.name}</span> <span style={{ color: 'var(--text-muted)' }}>regulator-forced {c.checkType} check</span></div>
+                  <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'rgba(248,81,73,.15)', color: 'var(--red)', whiteSpace: 'nowrap' }}>−{formatMoney(c.cost)} · {c.weeks}w</span>
+                </div>
+              ))}
+              {maintChecks.started.map((c, i) => (
+                <div key={'ms' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(56,139,253,.08)', border: '1px solid rgba(56,139,253,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>🔧</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--accent)' }}>{c.name}</span> <span style={{ color: 'var(--text-muted)' }}>{c.checkType} check started</span></div>
+                  <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'rgba(56,139,253,.15)', color: 'var(--accent)', whiteSpace: 'nowrap' }}>−{formatMoney(c.cost)} · {c.weeks}w</span>
+                </div>
+              ))}
+              {maintChecks.completed.map((c, i) => (
+                <div key={'mc' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(63,185,80,.08)', border: '1px solid rgba(63,185,80,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>✅</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--green)' }}>{c.name}</span> <span style={{ color: 'var(--text-muted)' }}>{c.checkType} check complete — back in service</span></div>
+                </div>
+              ))}
             </div>
           </div>
         )}
