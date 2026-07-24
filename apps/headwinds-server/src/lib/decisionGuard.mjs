@@ -124,6 +124,12 @@ function guardConfigureAircraft(payload, state) {
 }
 
 function guardOrderAircraft(payload) {
+  // Bound the order size (the reducer also clamps to 100) — reject absurd values early.
+  if (payload.quantity != null) {
+    const q = Number(payload.quantity);
+    if (!Number.isFinite(q) || q < 1) throw new GuardError('Invalid order quantity.');
+    payload.quantity = Math.min(100, Math.floor(q));
+  }
   // Orders may carry an initial cabin layout; bound it to the airframe.
   if (payload.config && typeof payload.config === 'object') {
     assertConfigFitsAirframe(payload.config, getAircraftType(payload.typeId));

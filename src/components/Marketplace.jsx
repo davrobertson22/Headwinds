@@ -794,7 +794,7 @@ export default function Marketplace() {
           const lead          = DELIVERY_LEAD[type.category] ?? 2;
           const alreadyOwned  = ownedCounts[type.id] || 0;
           const onOrder       = pendingCounts[type.id] || 0;
-          const buyPrice      = effectivePurchasePrice(type, alreadyOwned);
+          const buyPrice      = effectivePurchasePrice(type, 1);
           const effScore      = efficiencyScore(type) ?? 0;
           const pendingOfType = pendingOrders.filter(o => o.typeId === type.id);
           const maxExisting   = pendingOfType.length > 0
@@ -814,7 +814,7 @@ export default function Marketplace() {
             maint:    type.baseMaintenancePerWk,
             lease:    type.weeklyLease,
             buy:      buyPrice,
-            discPct:  Math.round(buyDiscount(alreadyOwned) * 100),
+            discPct:  0,
             delivery: Math.max(nowAbs + lead, maxExisting + lead) - nowAbs,
             owned:    alreadyOwned,
             onOrder,
@@ -838,8 +838,8 @@ export default function Marketplace() {
 
           const alreadyOwned  = ownedCounts[type.id] || 0;
           const onOrder       = pendingCounts[type.id] || 0;
-          const discount      = buyDiscount(alreadyOwned);
-          const buyPrice      = effectivePurchasePrice(type, alreadyOwned);
+          const discount      = 0;
+          const buyPrice      = effectivePurchasePrice(type, 1);
           const discPct       = Math.round(discount * 100);
           const effScore      = efficiencyScore(type) ?? 0;
           const effRaw        = (seatEfficiency(type) ?? 0).toFixed(2);

@@ -16,7 +16,7 @@ import {
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
-import { getAircraftType, effectivePurchasePrice, buyDiscount, AIRCRAFT_TYPES,
+import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          leaseBuyoutPrice } from './data/aircraft.js';
 import {
@@ -496,8 +496,9 @@ function reducer(state, action) {
     case 'BUY_AIRCRAFT': {
       const type         = getAircraftType(action.typeId);
       if (!type) return state;
-      const alreadyOwned = state.fleet.filter(a => a.typeId === action.typeId).length;
-      const price        = effectivePurchasePrice(type, alreadyOwned);
+      // Instant single-unit buy — no bulk-order discount (that requires a
+      // multi-unit ORDER_AIRCRAFT). Price at the single-frame tier.
+      const price        = effectivePurchasePrice(type, 1);
       if (state.cash < price) return state;  // can't afford — ignore silently
       const count      = nextAircraftNumber(action.typeId, state.fleet, state.pendingOrders);
       const name       = action.name ?? `${type.name} #${count}`;
@@ -533,7 +534,7 @@ function reducer(state, action) {
 
       const DELIVERY_LEAD = { 'Wide Body': 4, 'Narrow Body': 3, 'Regional Jet': 2, 'Turboprop': 1 };
       const lead     = DELIVERY_LEAD[type.category] ?? 2;
-      const quantity = Math.max(1, Math.min(20, action.quantity ?? 1));
+      const quantity = Math.max(1, Math.min(100, action.quantity ?? 1));
 
       const currentAbsWeek = absoluteWeek(state.year, state.week);
 
@@ -583,7 +584,27 @@ function reducer(state, action) {
       const instantAircraft = [];
       const instantToasts   = [];
 
-      for (let i = 0; i < quantity; i++) {
+      // ── Bulk-order discount (owned purchases only) ───────────────────────────
+      // Discount scales with how many frames you commit to in THIS order and is
+      // applied uniformly to every unit. Resolve the affordable quantity first so
+      // requesting 100 can't snag the 20% tier on a few affordable frames: the
+      // discount is non-decreasing in quantity, so dropping unaffordable frames
+      // only lowers the tier (raising unit price) — converge downward.
+      let orderQty  = quantity;
+      let orderDisc = 0;
+      if (action.ownershipType === 'owned') {
+        const unitCostAt = (disc) =>
+          Math.round(Math.round(type.purchasePrice * (1 - disc)) * enginePriceMod)
+          + wingtipCost + seatFittingFee;
+        while (orderQty > 0) {
+          orderDisc = orderDiscount(orderQty);
+          if (cashBalance >= unitCostAt(orderDisc) * orderQty) break;
+          orderQty--;
+        }
+        if (orderQty === 0) return state;   // can't afford even one frame
+      }
+
+      for (let i = 0; i < orderQty; i++) {
         const pendingOfType = runningPending.filter(o => o.typeId === action.typeId);
 
         // First-ever order of this type takes 2× lead; subsequent stack at +lead
@@ -594,12 +615,10 @@ function reducer(state, action) {
           ? currentAbsWeek + 2 * lead          // first in queue → 2× lead
           : maxExistingDelivery + lead;         // subsequent → +lead after last
 
-        // Price (fleet discount counts owned fleet — including any just-delivered
-        // starter aircraft — plus already-queued units)
-        const totalExisting  = runningFleet.filter(a => a.typeId === action.typeId).length
-                             + pendingOfType.length;
+        // Price: uniform bulk-order discount (orderDisc) applied to every frame in
+        // this order. Leases carry no purchase price.
         const unitBasePrice  = action.ownershipType === 'owned'
-          ? effectivePurchasePrice(type, totalExisting)
+          ? Math.round(type.purchasePrice * (1 - orderDisc))
           : 0;
         const unitTotalPrice = action.ownershipType === 'owned'
           ? Math.round(unitBasePrice * enginePriceMod) + wingtipCost

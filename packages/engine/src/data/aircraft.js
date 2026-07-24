@@ -529,8 +529,8 @@ export const AIRCRAFT_TYPES = [
     seats: 78,
     range: 1_528,
     runwayFt: 4200,
-    weeklyLease:       52_000,
-    purchasePrice:  26000000,
+    weeklyLease:       44_000,
+    purchasePrice:  22000000,
     fuelBurnPer100km: 122.75,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 14_000,
@@ -1265,8 +1265,8 @@ export const AIRCRAFT_TYPES = [
     seats: 192,
     range: 5_555,
     runwayFt: 6600,
-    weeklyLease:       150_000,
-    purchasePrice: 75000000,
+    weeklyLease:       104_000,
+    purchasePrice: 52000000,
     fuelBurnPer100km: 381,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 55_000,
@@ -2884,24 +2884,36 @@ export const AIRCRAFT_CATEGORIES = ['Turboprop', 'Regional Jet', 'Narrow Body', 
 // ─── Purchase pricing helpers ─────────────────────────────────────────────────
 
 /**
- * Fleet-commonality discount on purchase price.
- * Each additional unit of the same type you already own earns a slightly better deal.
- * alreadyOwned = units of this type in your fleet before this purchase.
+ * Bulk-order discount on purchase price.
+ * The more units of a type you commit to IN A SINGLE ORDER, the deeper the
+ * manufacturer discount — applied uniformly to every frame in that order.
+ * Tiered milestones, capping at 20% for a 100-frame order:
+ *   1–2 → 0%   3–5 → 3%   6–10 → 5%   11–25 → 8%
+ *   26–50 → 12%   51–99 → 16%   100+ → 20%
+ * (Replaces the old fleet-commonality discount, which scaled with how many of
+ * the type you already owned.)
  */
-export function buyDiscount(alreadyOwned) {
-  if (alreadyOwned >= 4) return 0.05;   // 5% — large fleet order
-  if (alreadyOwned >= 2) return 0.03;   // 3% — growing fleet
-  if (alreadyOwned >= 1) return 0.02;   // 2% — second unit
+export function orderDiscount(orderQuantity) {
+  const q = Math.max(1, Math.floor(orderQuantity ?? 1));
+  if (q >= 100) return 0.20;
+  if (q >= 51)  return 0.16;
+  if (q >= 26)  return 0.12;
+  if (q >= 11)  return 0.08;
+  if (q >= 6)   return 0.05;
+  if (q >= 3)   return 0.03;
   return 0;
 }
 
+/** @deprecated Renamed to orderDiscount (now order-quantity based, not fleet size). */
+export const buyDiscount = orderDiscount;
+
 /**
- * Actual price after fleet discount.
+ * Actual per-unit price after the bulk-order discount.
  * @param {object} type          - aircraft type object from AIRCRAFT_TYPES
- * @param {number} alreadyOwned  - units already in fleet
+ * @param {number} orderQuantity - units in this single order
  */
-export function effectivePurchasePrice(type, alreadyOwned) {
-  return Math.round(type.purchasePrice * (1 - buyDiscount(alreadyOwned)));
+export function effectivePurchasePrice(type, orderQuantity) {
+  return Math.round(type.purchasePrice * (1 - orderDiscount(orderQuantity)));
 }
 
 // ─── Efficiency metric ────────────────────────────────────────────────────────

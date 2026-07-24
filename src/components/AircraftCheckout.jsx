@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { getAircraftType, effectivePurchasePrice, buyDiscount,
+import { getAircraftType, effectivePurchasePrice, orderDiscount,
          LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier } from '../data/aircraft.js';
 import {
   formatMoney,
@@ -291,9 +291,9 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const fleetCountNow   = fleet.filter(a => a.typeId === typeId).length;
   const pendingCountNow = pendingOfType.length;
   const alreadyOwned    = fleetCountNow + pendingCountNow;
-  const discount        = buyDiscount(alreadyOwned);
+  const discount        = mode === 'buy' ? orderDiscount(quantity) : 0;
   const discPct         = Math.round(discount * 100);
-  const baseUnitPrice   = effectivePurchasePrice(type, alreadyOwned);
+  const baseUnitPrice   = effectivePurchasePrice(type, mode === 'buy' ? quantity : 1);
   const enginePriceAdj  = Math.round(baseUnitPrice * (enginePriceMod - 1));
   const unitBuyPrice    = Math.round(baseUnitPrice * enginePriceMod) + wingtipCost;
   const totalBuyPrice   = unitBuyPrice * quantity;
@@ -324,7 +324,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     ? Math.max(0, Math.floor(cash / (unitBuyPrice + unitExtras)))
     : Math.max(0, Math.floor(cash / (unitLeaseDeposit + unitExtras)));
 
-  function setQty(n) { setQuantity(Math.max(1, Math.min(20, n))); }
+  function setQty(n) { setQuantity(Math.max(1, Math.min(100, n))); }
 
   function handleConfirm() {
     dispatch({
@@ -463,10 +463,10 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                 <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{quantity}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>aircraft</div>
               </div>
-              <button onClick={() => setQty(quantity + 1)} disabled={quantity >= 20 || (mode === 'buy' && quantity >= maxAffordable)}
-                style={{ width: 34, height: 34, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: (quantity >= 20 || (mode === 'buy' && quantity >= maxAffordable)) ? 'var(--text-dim)' : 'var(--text)', fontSize: 18, cursor: (quantity >= 20 || (mode === 'buy' && quantity >= maxAffordable)) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+              <button onClick={() => setQty(quantity + 1)} disabled={quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)}
+                style={{ width: 34, height: 34, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: (quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)) ? 'var(--text-dim)' : 'var(--text)', fontSize: 18, cursor: (quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
               <div style={{ display: 'flex', gap: 4, marginLeft: 4 }}>
-                {[1, 3, 5, 10].filter(n => n <= (mode === 'buy' ? maxAffordable : 20)).map(n => (
+                {[1, 5, 10, 25, 50, 100].filter(n => n <= (mode === 'buy' ? maxAffordable : 100)).map(n => (
                   <button key={n} onClick={() => setQty(n)} style={{ padding: '4px 9px', borderRadius: 5, border: `1px solid ${quantity === n ? 'var(--accent)' : 'var(--border)'}`, background: quantity === n ? 'rgba(56,139,253,0.15)' : 'var(--surface2)', color: quantity === n ? 'var(--accent)' : 'var(--text-muted)', fontSize: 12, fontWeight: quantity === n ? 600 : 400, cursor: 'pointer' }}>{n}</button>
                 ))}
               </div>
@@ -667,7 +667,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
             {mode === 'buy' ? (
               <div style={{ fontSize: 13 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
-                  <span>Base price per aircraft{discPct > 0 && <span style={{ marginLeft: 5, fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>(−{discPct}% fleet)</span>}</span>
+                  <span>Base price per aircraft{discPct > 0 && <span style={{ marginLeft: 5, fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>(−{discPct}% bulk)</span>}</span>
                   <span style={{ color: 'var(--text)' }}>{formatMoney(baseUnitPrice)}</span>
                 </div>
                 {enginePriceAdj !== 0 && (
