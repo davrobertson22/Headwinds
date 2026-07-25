@@ -2168,7 +2168,8 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
                 <label className="form-label">Origin</label>
                 <select className="form-select" value={origin} onChange={e => setOrigin(e.target.value)}>
                   {REGION_ORDER.map(region => {
-                    const airports = AIRPORTS.filter(a => (gates[a.code] ?? 0) > 0 && airportRegion(a) === region);
+                    const airports = AIRPORTS.filter(a => (gates[a.code] ?? 0) > 0 && airportRegion(a) === region)
+                      .sort((x, y) => (gates[y.code] ?? 0) - (gates[x.code] ?? 0) || x.city.localeCompare(y.city));
                     if (!airports.length) return null;
                     return (
                       <optgroup key={region} label={region}>
@@ -2189,7 +2190,7 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
                   {REGION_ORDER.map(region => {
                     const airports = AIRPORTS.filter(a =>
                       a.code !== origin && (gates[a.code] ?? 0) > 0 && airportRegion(a) === region
-                    );
+                    ).sort((x, y) => (gates[y.code] ?? 0) - (gates[x.code] ?? 0) || x.city.localeCompare(y.city));
                     if (!airports.length) return null;
                     return (
                       <optgroup key={region} label={region}>
