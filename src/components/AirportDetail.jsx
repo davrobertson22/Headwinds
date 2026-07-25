@@ -380,11 +380,13 @@ export default function AirportDetail({ code, onBack }) {
                 Real connecting passengers you carried over {code} last week, by origin → destination.
               </div>
             </div>
-          ) : lastReport && hubTier ? (
+          ) : (
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-dim)' }}>
-              No passengers connected over {code} last week — add spoke routes feeding both into and out of this hub so itineraries can form here.
+              {hubTier
+                ? <>No passengers connected over {code} last week — add spoke routes feeding both into and out of this hub so itineraries can form here.</>
+                : <>No connecting itineraries over {code} yet — this fills in each week once {code} is a designated hub with spoke routes feeding through it.</>}
             </div>
-          ) : null}
+          )}
         </div>
 
         {/* Airlines at this airport */}
