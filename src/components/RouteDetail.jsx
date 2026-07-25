@@ -761,6 +761,15 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
               </div>
             </div>
           )}
+          {/* These per-hub cards are the gateway-feed estimate, NOT a split of the headline total. */}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Gateway feed by hub
+          </div>
+          {(lastConn?.itineraryPax ?? 0) > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8 }}>
+              Extra partner/gateway feed each hub adds — the {lastConn.itineraryPax} hub-itinerary pax above are counted separately, not split here.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {[{ label: origin, side: connecting.origin }, { label: dest, side: connecting.destination }].map(({ label, side }) =>
               side.pax > 0 && (

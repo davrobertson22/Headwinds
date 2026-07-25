@@ -26,7 +26,7 @@ import {
 } from '../data/overhead.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { getAirport } from '../data/airports.js';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import { Glyph } from './Icons.jsx';
@@ -525,6 +525,44 @@ function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch })
   );
 }
 
+// ─── Reusable money input ──────────────────────────────────────────────────────
+// Keeps its own text while focused, so deleting a digit that momentarily makes
+// the value 0 (or empty) never resets the field or unmounts its row. Commits the
+// parsed dollar amount via onCommit. When allowZeroCommit is false (targeted
+// campaigns, where a 0 deletes the campaign), a transient 0/empty is held locally
+// and NOT committed — removal happens only via the explicit End button, and
+// blurring an empty field restores the last committed value.
+function MoneyInput({ value, onCommit, allowZeroCommit = true, ...rest }) {
+  const [text, setText]       = useState(value ? String(value) : '');
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setText(value ? String(value) : '');
+  }, [value, focused]);
+  return (
+    <input
+      type="number"
+      value={text}
+      onFocus={() => setFocused(true)}
+      onChange={e => {
+        const raw = e.target.value;
+        setText(raw);
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n) && n > 0) onCommit(n);
+        else if (allowZeroCommit)        onCommit(0);
+      }}
+      onBlur={() => {
+        setFocused(false);
+        const n = parseInt(text, 10);
+        if (!(Number.isFinite(n) && n > 0)) {
+          if (allowZeroCommit) { onCommit(0); setText(''); }
+          else                   setText(value ? String(value) : '');
+        }
+      }}
+      {...rest}
+    />
+  );
+}
+
 // ─── Marketing budget card ────────────────────────────────────────────────────
 
 function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, campaignStrength, routes, competitors, dispatch }) {
@@ -584,14 +622,13 @@ function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, ca
             {v === 0 ? 'None' : v >= 1_000_000 ? `$${v/1_000_000}M` : `$${v/1000}k`}
           </button>
         ))}
-        <input
-          type="number"
+        <MoneyInput
           className="input"
           placeholder="Custom $"
           min="0"
           step="10000"
-          value={budget || ''}
-          onChange={e => dispatch({ type: 'SET_MARKETING_BUDGET', amount: parseInt(e.target.value) || 0 })}
+          value={budget}
+          onCommit={amount => dispatch({ type: 'SET_MARKETING_BUDGET', amount })}
           style={{ width: 120, fontSize: 12, padding: '4px 8px' }}
         />
       </div>
@@ -661,13 +698,13 @@ function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, ca
               <div style={{ width: 150, fontWeight: 600 }}>
                 {code} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{ap?.city ?? ''}</span>
               </div>
-              <input
-                type="number"
+              <MoneyInput
                 className="input"
                 min="0"
                 step="10000"
-                value={spend || ''}
-                onChange={e => dispatch({ type: 'SET_TARGETED_MARKETING', airport: code, amount: parseInt(e.target.value) || 0 })}
+                value={spend}
+                allowZeroCommit={false}
+                onCommit={amount => dispatch({ type: 'SET_TARGETED_MARKETING', airport: code, amount })}
                 style={{ width: 110, fontSize: 12, padding: '3px 8px' }}
               />
               <span style={{ color: 'var(--text-dim)' }}>/wk</span>

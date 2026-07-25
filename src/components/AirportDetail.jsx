@@ -176,6 +176,30 @@ export default function AirportDetail({ code, onBack }) {
     return map;
   }, [myRoutes, code, state.competitors]);
 
+  // ── Transit flows over this airport (real A→hub→C itineraries) ────────────────
+  // The weekly network tick enumerates the actual connecting passengers you carry
+  // over each of your hubs and saves the top itineraries onto lastReport. Filter to
+  // the airport being viewed → an honest "who's connecting here, from where to
+  // where" list. Only populated for YOUR designated hubs, after the first tick.
+  const lastReport = state.lastReport;
+  const transitFlows = useMemo(() => {
+    return (lastReport?.ownMetalOD?.entries ?? [])
+      .filter(e => e.hub === code)
+      .map(e => {
+        const [from, to] = String(e.od ?? '').split('→');
+        return { ...e, from, to };
+      })
+      .filter(e => e.from && e.to)
+      .sort((a, b) => b.pax - a.pax);
+  }, [lastReport, code]);
+  const hubTransit = lastReport?.ownMetalOD?.byHub?.[code] ?? null;
+  const partnerTransitPax = useMemo(() => {
+    return (lastReport?.partnerODRevenue?.entries ?? [])
+      .filter(e => e.hub === code)
+      .reduce((s, e) => s + (e.pax ?? 0), 0);
+  }, [lastReport, code]);
+  const maxTransitPax = transitFlows[0]?.pax ?? 1;
+
   return (
     <div>
       {/* Back + header */}
@@ -324,6 +348,43 @@ export default function AirportDetail({ code, onBack }) {
               Buy gates here, then designate as a hub to unlock connecting traffic.
             </div>
           )}
+          {transitFlows.length > 0 ? (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                Connecting itineraries over {code}
+                {hubTransit && <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text-dim)' }}> — {hubTransit.pax.toLocaleString()} pax · {formatMoney(hubTransit.revenue)}/wk across {hubTransit.markets} {hubTransit.markets === 1 ? 'market' : 'markets'}</span>}
+              </div>
+              <div style={{ borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                {transitFlows.slice(0, 12).map((e, i) => {
+                  const barPct = Math.round(e.pax / maxTransitPax * 100);
+                  const fromAp = getAirport(e.from);
+                  const toAp   = getAirport(e.to);
+                  return (
+                    <div key={`${e.od}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, minWidth: 108 }} title={`${fromAp?.city ?? e.from} → ${toAp?.city ?? e.to}`}>{e.from} → {e.to}</span>
+                      <div style={{ flex: 1, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', minWidth: 24 }}>
+                        <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--purple)', borderRadius: 3, opacity: 0.85 }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 62, textAlign: 'right' }}>{e.pax.toLocaleString()} pax</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 54, textAlign: 'right' }}>{formatMoney(e.revenue)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {partnerTransitPax > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                  +{partnerTransitPax.toLocaleString()} pax/wk via partner-fed connections
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                Real connecting passengers you carried over {code} last week, by origin → destination.
+              </div>
+            </div>
+          ) : lastReport && hubTier ? (
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-dim)' }}>
+              No passengers connected over {code} last week — add spoke routes feeding both into and out of this hub so itineraries can form here.
+            </div>
+          ) : null}
         </div>
 
         {/* Airlines at this airport */}
