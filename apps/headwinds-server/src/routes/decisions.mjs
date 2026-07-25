@@ -235,6 +235,14 @@ export default async function decisionRoutes(fastify) {
       ? await loadAllianceMap(prisma, airline.worldId)
       : new Map();
 
+    // Keep the DB `name` column in sync with the in-game airline name. Renames
+    // (SET_BRANDING) only mutate the save blob's `airlineName`; the world feed,
+    // standings and rival views all read the top-level `airline.name` column, so
+    // without this they keep showing the ORIGINAL name after a rename. Heal on
+    // any decision whenever the two diverge (covers players who already renamed).
+    const nextName = typeof next.airlineName === 'string' ? next.airlineName.trim().slice(0, 40) : '';
+    const nameChanged = nextName && nextName !== airline.name;
+
     try {
       await prisma.$transaction(async (tx) => {
         // Gate scarcity: the world's gate ledger is the arbiter of availability.
@@ -260,6 +268,7 @@ export default async function decisionRoutes(fastify) {
             state: stripRivals(next),
             cash: toBig(next.cash),
             marketCap: toBig(next.marketCap),
+            ...(nameChanged ? { name: nextName } : {}),
             version: { increment: 1 },
           },
         });
