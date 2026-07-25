@@ -96,7 +96,7 @@ export const ELASTICITY = {
   // travelers substitute driving, rail, or simply not going). At 2.0, pricing
   // a monopoly route 25% over reference cuts leisure demand ~36%, so gouging
   // costs revenue rather than printing it.
-  leisure: 2.0,    // was 1.8 (originally 1.5)
+  leisure: 2.2,    // was 1.8 (originally 1.5)
   business: 0.7,   // was 0.6 — business is inelastic, but not immune (~-0.7)
   connecting: 1.2, // was 1.0 — connecting pax have hub alternatives; less captive
 };

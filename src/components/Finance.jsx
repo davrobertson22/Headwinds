@@ -306,6 +306,7 @@ function ProfitWaterfall({ proj, report }) {
         {(report.totalConnecting ?? 0) > 0 && <span>Connecting feed <strong>{formatMoney(report.totalConnecting)}</strong></span>}
         {(report.totalPartnerRevenue ?? 0) > 0 && <span>Partner O&amp;D <strong>{formatMoney(report.totalPartnerRevenue)}</strong></span>}
         {(report.totalCateringRevenue ?? 0) > 0 && <span>Catering ancillary <strong>{formatMoney(report.totalCateringRevenue)}</strong></span>}
+        {(report.totalAncillaryRevenue ?? 0) > 0 && <span>Ancillary fees <strong>{formatMoney(report.totalAncillaryRevenue)}</strong></span>}
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8 }}>
         Bars show the running balance; green/red = step adds/subtracts. Depreciation is non-cash and excluded from the cash result.
@@ -464,6 +465,8 @@ function PLStatement({ proj }) {
   const totCatering     = report.totalCatering;
   const totCateringRev  = report.totalCateringRevenue ?? 0;
   const ytdCateringRev  = ytd(financialHistory, 'cateringRevenue');
+  const totAncillaryRev = report.totalAncillaryRevenue ?? 0;
+  const ytdAncillaryRev = ytd(financialHistory, 'ancillaryRevenue');
   const totLayover      = report.totalLayover;
   const totCompensation = report.totalCompensation;
   const ytdCatering     = ytd(financialHistory, 'catering');
@@ -894,6 +897,17 @@ function PLStatement({ proj }) {
                   {pw && <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{pw.cateringRevenue ? formatMoney(pw.cateringRevenue) : '—'}</td>}
                   <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{formatMoney(totCateringRev)}</td>
                   <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{ytdCateringRev ? formatMoney(ytdCateringRev) : '—'}</td>
+                </tr>
+              )}
+              {totAncillaryRev > 0 && (
+                <tr>
+                  <td style={{ paddingLeft: 28, color: 'var(--text-dim)', fontSize: 12, fontStyle: 'italic' }}>
+                    of which à la carte ancillary fees
+                    <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-dim)' }}>bags, seats, Wi-Fi, extras — set in Operations → Ancillaries (already in passenger revenue above)</span>
+                  </td>
+                  {pw && <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{pw.ancillaryRevenue ? formatMoney(pw.ancillaryRevenue) : '—'}</td>}
+                  <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{formatMoney(totAncillaryRev)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{ytdAncillaryRev ? formatMoney(ytdAncillaryRev) : '—'}</td>
                 </tr>
               )}
               {Math.abs(proj.eventDemandAdj) >= 1 && (

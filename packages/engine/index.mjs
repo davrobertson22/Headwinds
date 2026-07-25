@@ -38,6 +38,7 @@ export * as aircraft            from './src/data/aircraft.js';
 export * as labor               from './src/data/labor.js';
 export * as families            from './src/data/families.js';
 export * as catering            from './src/data/catering.js';
+export * as ancillaries         from './src/data/ancillaries.js';
 export * as alliances           from './src/data/alliances.js';
 export * as overhead            from './src/data/overhead.js';
 export * as objectives          from './src/data/objectives.js';

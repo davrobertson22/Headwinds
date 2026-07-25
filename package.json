@@ -11,6 +11,7 @@
     "test:multistop-edge": "node tools/multistop-edge-test.mjs",
     "test:multistop-reducer": "node tools/reducer-tag-test.mjs",
     "test:seasonal": "node tools/seasonal-test.mjs",
+    "test:ancillaries": "node tools/ancillaries-test.mjs",
     "test:ui": "node --import ./tools/_register-loader.mjs tools/ui-smoke-test.mjs",
     "test:route-config": "node --import ./tools/_register-loader.mjs tools/route-config-test.mjs",
     "test:bulk-pricing": "node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs",
@@ -23,7 +24,7 @@
     "server:start": "npm run start -w @headwinds/server",
     "worker:start": "npm run worker -w @headwinds/server",
     "db:deploy": "npm run db:deploy -w @headwinds/server",
-    "test": "node tools/cargo-test.mjs && node tools/multistop-test.mjs && node tools/multistop-edge-test.mjs && node tools/reducer-tag-test.mjs && node tools/seasonal-test.mjs && node --import ./tools/_register-loader.mjs tools/ui-smoke-test.mjs && node --import ./tools/_register-loader.mjs tools/route-config-test.mjs && node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs && node tools/transfer-routes-test.mjs && node --import ./tools/_register-loader.mjs tools/headwinds-web-smoke-test.mjs && node tools/headwinds-tick-test.mjs"
+    "test": "node tools/cargo-test.mjs && node tools/multistop-test.mjs && node tools/multistop-edge-test.mjs && node tools/reducer-tag-test.mjs && node tools/seasonal-test.mjs && node tools/ancillaries-test.mjs && node --import ./tools/_register-loader.mjs tools/ui-smoke-test.mjs && node --import ./tools/_register-loader.mjs tools/route-config-test.mjs && node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs && node tools/transfer-routes-test.mjs && node --import ./tools/_register-loader.mjs tools/headwinds-web-smoke-test.mjs && node tools/headwinds-tick-test.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

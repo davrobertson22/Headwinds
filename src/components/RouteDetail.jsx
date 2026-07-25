@@ -65,6 +65,7 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
     { label: 'Fleet age',           pts: bd.agePts,      sub: 'newer aircraft score higher' },
     { label: 'Cabin space',         pts: bd.spacePts,    sub: 'floor left unfilled = more room' },
     { label: 'Catering',            pts: bd.cateringPts, sub: 'matters more on long flights' },
+    { label: 'Ancillaries',         pts: bd.ancillaryPts ?? 0, sub: 'à la carte generosity · Operations → Ancillaries' },
     { label: 'Ground staff',        pts: bd.groundPts,   sub: 'morale bonus / penalty' },
     { label: 'Hub investment',      pts: bd.hubPts,      sub: 'from hub tier at endpoints' },
   ].filter(r => r.pts !== 0 || ['On-time performance', 'Customer rating', 'Cabin product', 'Fleet age'].includes(r.label));
@@ -360,6 +361,8 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   // Catering — per-route setting, edited here for the whole pair
   const catRev    = playerSims.reduce((s, { result }) => s + (result.cateringRevenue ?? 0), 0);
   const catCost   = playerSims.reduce((s, { result }) => s + (result.cateringCost    ?? 0), 0);
+  // À la carte ancillary revenue attributed to this pair (airline-wide policy).
+  const ancRev    = playerSims.reduce((s, { result }) => s + (result.ancillaryRevenue ?? 0), 0);
   const catLevels = [...new Set(playerRoutes.map(r => normalizeCateringLevel(r.cateringLevel)))];
   const catLevel  = catLevels.length === 1 ? catLevels[0] : null;
   const setRouteCatering = (level) =>
@@ -559,6 +562,14 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
               sub={`+${formatMoney(catRev)} rev · −${formatMoney(catCost)} cost`}
               color={catRev - catCost >= 0 ? 'var(--green)' : 'var(--red)'}
             />
+            {ancRev > 0 && (
+              <Stat
+                label="Ancillary rev/wk"
+                value={`+${formatMoney(ancRev)}`}
+                sub="bags, seats, extras · airline-wide"
+                color="var(--green)"
+              />
+            )}
           </div>
           {/* Fixed cost indicator */}
           {(() => {
