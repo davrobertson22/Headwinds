@@ -45,7 +45,7 @@ test('quality: generous > standard(~neutral) > aggressive; capped', () => {
 
   const standard = ancillaryQualityBonus(DEFAULT_ANCILLARIES); // all at ref
   assert.ok(generous > standard, 'free is better than market pricing');
-  assert.ok(Math.abs(standard) <= 3, `market pricing ~neutral, got ${standard}`);
+  assert.ok(standard < 0 && standard <= -4, `market pricing should dent quality, got ${standard}`);
 
   const aggressive = defaultAncillaries();
   for (const p of ANCILLARY_PRODUCTS) aggressive[p.id] = { offered: !p.provisioned, price: p.maxPrice };

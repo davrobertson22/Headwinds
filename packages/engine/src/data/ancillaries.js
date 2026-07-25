@@ -36,7 +36,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // How sharply the take-rate falls as the fee rises above reference (and rises as
 // it falls below). take = baseTake × (1 − ELASTICITY × (fee/ref − 1)), bounded.
-export const ANC_ELASTICITY = 0.7;
+export const ANC_ELASTICITY = 0.9;
 
 // The net airline-wide quality delta is clamped to this band so ancillaries stay
 // a meaningful SECONDARY lever (cabin product + catering remain primary).
@@ -67,63 +67,63 @@ export const ANCILLARY_PRODUCTS = [
     provisioned: false,
     blurb: 'Fee for checked baggage. Bags-fly-free is a powerful loyalty draw; steep bag fees are the classic nickel-and-dime that travellers resent.',
     refPrice: 35, maxPrice: 90, presets: [0, 25, 35, 50, 75],
-    baseTake: 0.55, elig: { economy: 1.0, premiumEconomy: 0.85, businessClass: 0.45, firstClass: 0.35 },
+    baseTake: 0.34, elig: { economy: 1.0, premiumEconomy: 0.85, businessClass: 0.45, firstClass: 0.35 },
     unitCost: 4, provisionCost: 0,
-    qFree: 3.0, qAtRef: -0.8, absentQ: 0, qFloor: -6,
+    qFree: 2.5, qAtRef: -2.2, absentQ: 0, qFloor: -8,
   },
   {
     id: 'seat', name: 'Seat Selection', short: 'Seats', icon: '💺',
     provisioned: false,
     blurb: 'Fee to choose a seat in advance. Free seat selection feels generous; charging for it is common but mildly disliked.',
     refPrice: 16, maxPrice: 45, presets: [0, 8, 16, 25, 35],
-    baseTake: 0.40, elig: { economy: 1.0, premiumEconomy: 0.7, businessClass: 0.3, firstClass: 0.2 },
+    baseTake: 0.24, elig: { economy: 1.0, premiumEconomy: 0.7, businessClass: 0.3, firstClass: 0.2 },
     unitCost: 0, provisionCost: 0,
-    qFree: 2.0, qAtRef: -0.6, absentQ: 0, qFloor: -5,
+    qFree: 1.8, qAtRef: -1.8, absentQ: 0, qFloor: -7,
   },
   {
     id: 'priority', name: 'Priority Boarding', short: 'Priority', icon: '🎫',
     provisioned: false,
     blurb: 'Fee to board early with overhead-bin certainty. A minor upsell — modest revenue, modest goodwill effect.',
     refPrice: 12, maxPrice: 35, presets: [0, 6, 12, 20, 30],
-    baseTake: 0.28, elig: { economy: 0.8, premiumEconomy: 0.6, businessClass: 0.2, firstClass: 0.1 },
+    baseTake: 0.16, elig: { economy: 0.8, premiumEconomy: 0.6, businessClass: 0.2, firstClass: 0.1 },
     unitCost: 0, provisionCost: 0,
-    qFree: 0.8, qAtRef: -0.2, absentQ: 0, qFloor: -3,
+    qFree: 0.7, qAtRef: -0.7, absentQ: 0, qFloor: -4,
   },
   {
     id: 'wifi', name: 'Wi-Fi & Streaming', short: 'Wi-Fi', icon: '📶',
     provisioned: true,
     blurb: 'Onboard connectivity & entertainment. Increasingly expected — free Wi-Fi is a real draw, and having none at all is noticed. Costs bandwidth to run whether free or paid.',
     refPrice: 10, maxPrice: 30, presets: [0, 5, 10, 15, 25],
-    baseTake: 0.30, elig: { economy: 1.0, premiumEconomy: 1.0, businessClass: 1.0, firstClass: 1.0 },
+    baseTake: 0.18, elig: { economy: 1.0, premiumEconomy: 1.0, businessClass: 1.0, firstClass: 1.0 },
     unitCost: 1.0, provisionCost: 1.4,
-    qFree: 3.0, qAtRef: -0.3, absentQ: -3.0, qFloor: -5,
+    qFree: 2.5, qAtRef: -1.0, absentQ: -3.5, qFloor: -6,
   },
   {
     id: 'legroom', name: 'Extra-Legroom Seats', short: 'Legroom', icon: '📏',
     provisioned: true,
     blurb: 'A block of extra-pitch economy seats sold at a premium. Offering the choice is a plus even at a fee; not offering it costs you a little differentiation.',
     refPrice: 45, maxPrice: 120, presets: [0, 25, 45, 70, 100],
-    baseTake: 0.16, elig: { economy: 1.0, premiumEconomy: 0.5, businessClass: 0.1, firstClass: 0.05 },
+    baseTake: 0.10, elig: { economy: 1.0, premiumEconomy: 0.5, businessClass: 0.1, firstClass: 0.05 },
     unitCost: 0, provisionCost: 0,
-    qFree: 1.2, qAtRef: 0.2, absentQ: -0.5, qFloor: -3,
+    qFree: 1.0, qAtRef: -0.3, absentQ: -0.8, qFloor: -4,
   },
   {
     id: 'lounge', name: 'Lounge Passes', short: 'Lounge', icon: '🛋️',
     provisioned: true,
     blurb: 'Day passes to an airport lounge. A premium signal that lifts brand perception; running lounges costs money per guest.',
     refPrice: 50, maxPrice: 120, presets: [0, 30, 50, 75, 100],
-    baseTake: 0.10, elig: { economy: 0.35, premiumEconomy: 0.5, businessClass: 0.3, firstClass: 0.2 },
+    baseTake: 0.06, elig: { economy: 0.35, premiumEconomy: 0.5, businessClass: 0.3, firstClass: 0.2 },
     unitCost: 18, provisionCost: 3,
-    qFree: 2.0, qAtRef: 0.3, absentQ: -1.0, qFloor: -3,
+    qFree: 1.6, qAtRef: -0.5, absentQ: -1.5, qFloor: -4,
   },
   {
     id: 'flex', name: 'Flexible Tickets', short: 'Flex', icon: '🔄',
     provisioned: false,
     blurb: 'The price of change/cancel flexibility. Cheap or free changes build enormous goodwill; punishing change fees are among the most-hated airline practices.',
     refPrice: 40, maxPrice: 120, presets: [0, 20, 40, 75, 100],
-    baseTake: 0.16, elig: { economy: 0.5, premiumEconomy: 0.7, businessClass: 1.0, firstClass: 1.0 },
+    baseTake: 0.10, elig: { economy: 0.5, premiumEconomy: 0.7, businessClass: 1.0, firstClass: 1.0 },
     unitCost: 0, provisionCost: 0,
-    qFree: 2.5, qAtRef: -0.5, absentQ: 0, qFloor: -6,
+    qFree: 2.2, qAtRef: -2.0, absentQ: 0, qFloor: -8,
   },
 ];
 
