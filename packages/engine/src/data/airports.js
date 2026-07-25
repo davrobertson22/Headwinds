@@ -1579,7 +1579,7 @@ export const AIRPORTS = [
   { code: 'VBY', name: 'Visby', city: 'Visby', country: 'SE', lat: 57.66, lon: 18.35, population: 0.03, tier: 'regional', visitors: 0.6, runwayFt: 6562 },
   { code: 'EVE', name: 'Harstad Narvik', city: 'Harstad', country: 'NO', lat: 68.49, lon: 16.68, population: 0.04, tier: 'regional', runwayFt: 9236 },
   { code: 'FKQ', name: 'Fakfak Torea', city: 'Fakfak', country: 'ID', lat: -2.92, lon: 132.27, population: 0.04, tier: 'regional', runwayFt: 3415 },
-  { code: 'AEY', name: 'Akureyri', city: 'Akureyri', country: 'IS', lat: 65.66, lon: 18.07, population: 0.02, tier: 'regional', visitors: 0.4, runwayFt: 8858 },
+  { code: 'AEY', name: 'Akureyri', city: 'Akureyri', country: 'IS', lat: 65.66, lon: -18.07, population: 0.02, tier: 'regional', visitors: 0.4, runwayFt: 8858 },
   { code: 'NYM', name: 'Nadym', city: 'Nadym', country: 'RU', lat: 65.48, lon: 72.7, population: 0.045, tier: 'regional', runwayFt: 8360 },
   { code: 'KRN', name: 'Kiruna', city: 'Kiruna', country: 'SE', lat: 67.82, lon: 20.34, population: 0.02, tier: 'regional', visitors: 0.4, runwayFt: 8209 },
   { code: 'FTE', name: 'El Calafate', city: 'El Calafate', country: 'AR', lat: -50.28, lon: -72.05, population: 0.03, tier: 'regional', visitors: 1, runwayFt: 8366 },
@@ -2339,6 +2339,17 @@ export const AIRPORTS = [
   { code: 'IGU', name: 'Foz do Iguaçu / Cataratas Intl', city: 'Foz do Iguaçu', country: 'BR', lat: -25.60, lon: -54.49, population: 0.26, tier: 'regional', visitors: 1.0, runwayFt: 8875 },
   { code: 'CGR', name: 'Campo Grande Intl',           city: 'Campo Grande',   country: 'BR', lat: -20.47, lon: -54.67, population: 0.9,   tier: 'regional', runwayFt: 8530 },
   { code: 'PGZ', name: "Sant'Ana",                    city: 'Ponta Grossa',   country: 'BR', lat: -25.18, lon: -50.14, population: 0.35,  tier: 'regional', runwayFt: 4692 },
+  // ── Canada – regional / secondary airports (community request) ─────────────
+  { code: 'YTZ', name: 'Billy Bishop Toronto City', city: 'Toronto', country: 'CA', lat: 43.6283, lon: -79.3961, population: 3.0, tier: 'regional', runwayFt: 4000 },
+  { code: 'YHU', name: 'Montréal-Saint-Hubert', city: 'Montreal', country: 'CA', lat: 45.5181, lon: -73.4169, population: 1.2, tier: 'regional', runwayFt: 7808 },
+  { code: 'YMX', name: 'Montréal-Mirabel Intl', city: 'Mirabel', country: 'CA', lat: 45.6797, lon: -74.0386, population: 0.4, tier: 'regional', runwayFt: 12000 },
+  { code: 'YCD', name: 'Nanaimo Airport', city: 'Nanaimo', country: 'CA', lat: 49.0544, lon: -123.8700, population: 0.1, tier: 'regional', runwayFt: 6600 },
+  { code: 'YXC', name: 'Canadian Rockies Intl', city: 'Cranbrook', country: 'CA', lat: 49.6122, lon: -115.7819, population: 0.03, tier: 'regional', visitors: 0.2, runwayFt: 8000 },
+  { code: 'YDF', name: 'Deer Lake Regional', city: 'Deer Lake', country: 'CA', lat: 49.2092, lon: -57.3944, population: 0.02, tier: 'regional', visitors: 0.2, runwayFt: 8005 },
+  { code: 'YFB', name: 'Iqaluit Intl', city: 'Iqaluit', country: 'CA', lat: 63.7567, lon: -68.5561, population: 0.008, tier: 'regional', runwayFt: 8605 },
+  { code: 'YQY', name: 'J.A. Douglas McCurdy Sydney', city: 'Sydney NS', country: 'CA', lat: 46.1614, lon: -60.0478, population: 0.1, tier: 'regional', runwayFt: 7070 },
+  { code: 'YQI', name: 'Yarmouth Airport', city: 'Yarmouth', country: 'CA', lat: 43.8269, lon: -66.0881, population: 0.02, tier: 'regional', runwayFt: 6000 },
+  { code: 'YZP', name: "Sandspit (K'il Kun Xidgwang Daanaay)", city: 'Sandspit', country: 'CA', lat: 53.2542, lon: -131.8138, population: 0.002, tier: 'regional', visitors: 0.05, runwayFt: 5112 },
 ];
 
 export function getAirport(code) {
@@ -2825,6 +2836,7 @@ export const AIRPORT_SCORES = {
   KKN: { businessScore: 16, leisureScore: 88 },
   HOR: { businessScore: 16, leisureScore: 88 },
   MLO: { businessScore: 16, leisureScore: 88 },
+  YTZ: { businessScore: 70, leisureScore: 40 },   // Billy Bishop – downtown business STOL airport
 };
 
 // ── Region mapping ────────────────────────────────────────────────────────────
@@ -3095,6 +3107,7 @@ export const CARGO_SCORES = {
   MEL:  50,  // Melbourne
   AKL:  48,  // Auckland – perishables
   EZE:  50,  // Buenos Aires
+  YMX:  60,  // Montréal-Mirabel – Montreal's dedicated cargo airport
 };
 
 /**
