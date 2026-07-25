@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType, leaseBuyoutPrice, LEASE_TERM_OPTIONS } from '../data/aircraft.js';
 import { laborEffects } from '../data/labor.js';
@@ -208,6 +208,13 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const [bookWeeks, setBookWeeks] = useState(4);
   const [bookType, setBookType]   = useState('C');
   const [showExtend, setShowExtend]     = useState(false);
+
+  // In-panel section navigation — jump straight to a section instead of scrolling.
+  const routesRef  = useRef(null);
+  const cabinRef   = useRef(null);
+  const maintRef   = useRef(null);
+  const actionsRef = useRef(null);
+  const jumpTo = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   function startRename() {
     setNameDraft(aircraft.name);
@@ -420,6 +427,28 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
         </div>
       </div>
 
+      {/* Quick-nav — jump to a section instead of scrolling the whole panel */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+        {[
+          { label: aircraftRoutes.length > 0 ? `Routes (${aircraftRoutes.length})` : 'Routes', ref: routesRef },
+          { label: 'Cabin', ref: cabinRef },
+          { label: 'Maintenance', ref: maintRef, due: (!isOutOfService(aircraft) && mDue.state !== 'ok') ? mDue.state : null },
+          { label: 'Actions', ref: actionsRef },
+        ].map(({ label, ref, due }) => (
+          <button
+            key={label}
+            className="btn btn-ghost"
+            onClick={() => jumpTo(ref)}
+            style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            {label}
+            {due && (
+              <span style={{ width: 7, height: 7, borderRadius: '50%', display: 'inline-block', background: due === 'soon' ? 'var(--yellow)' : 'var(--red)' }} />
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* ── Key metrics ──────────────────────────────────────────── */}
       <div style={{
         display: 'grid',
@@ -492,7 +521,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
       </div>
 
       {/* ── Route breakdown ───────────────────────────────────────── */}
-      <div style={{ marginBottom: 20 }}>
+      <div ref={routesRef} style={{ marginBottom: 20, scrollMarginTop: 70 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
           Route Performance {routeResults.length > 1 && `(${routeResults.length} routes)`}
         </div>
@@ -559,7 +588,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
       </div>
 
       {/* ── Cabin configuration ───────────────────────────────────── */}
-      <div style={{ marginBottom: 20 }}>
+      <div ref={cabinRef} style={{ marginBottom: 20, scrollMarginTop: 70 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
           Cabin Configuration
         </div>
@@ -607,7 +636,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
 
       {/* ── Actions ───────────────────────────────────────────────── */}
       {/* ── Maintenance (heavy C/D checks) ─────────────────────────── */}
-      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      <div ref={maintRef} style={{ paddingTop: 16, borderTop: '1px solid var(--border)', scrollMarginTop: 70 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Maintenance Checks</div>
         {aircraft.status === 'maintenance' ? (
           <div style={{ fontSize: 13, color: 'var(--accent)' }}>
@@ -657,7 +686,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
       </div>
 
       {/* ── Actions ───────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+      <div ref={actionsRef} style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap', scrollMarginTop: 70 }}>
         <button className="btn btn-primary" onClick={onConfigure}>Configure Cabin</button>
         {(aircraftRoutes.length > 0 || (state.cargoRoutes ?? []).some(r => r.aircraftId === aircraft.id)) && (
           <button className="btn" onClick={() => setShowTransfer(true)}>
@@ -1037,6 +1066,16 @@ export default function Fleet() {
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
   const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
+  const [showOnOrder,   setShowOnOrder]   = useState(false); // collapsible "On Order" panel
+
+  // When a plane is picked from the list, bring its detail panel into view so the
+  // player doesn't have to hunt for it below a long roster.
+  const detailRef = useRef(null);
+  useEffect(() => {
+    if (selectedId && detailRef.current) {
+      detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedId]);
 
   async function handleSell(aircraftId) {
     const aircraft     = fleet.find(a => a.id === aircraftId);
@@ -1234,6 +1273,47 @@ export default function Fleet() {
     owned:    fleet.filter(a => a.ownershipType === 'owned').length,
   };
 
+  // ── Fleet-wide heavy maintenance ────────────────────────────────────────
+  // A serviceable aircraft is one that's flying (not already in the shop, not
+  // grounded, not already booked). dueInfo.primaryDue is 'D' when a D check is
+  // due (a D also covers the C clock) else 'C' — so the two lists never overlap
+  // and together cover every aircraft that has a heavy check due right now.
+  const maintLaborMult = laborEffects(state.labor).maintenanceCostMultiplier;
+  const checkOptsFor = (a) => ({
+    maintMod:  a.maintMod ?? 1,
+    laborMult: maintLaborMult,
+    hubFactor: aircraftHubMaintFactor(a.id, routes, cargoRoutes, state.hubs),
+  });
+  const maintServiceable = fleet.filter(a => !isOutOfService(a) && !a.scheduledCheck && a.status !== 'retired');
+  const maintDue = maintServiceable
+    .map(a => ({ a, di: dueInfo(a, getAircraftType(a.typeId), nowAbs) }))
+    .filter(x => x.di.primaryDue);
+  const cDueList = maintDue.filter(x => x.di.primaryDue === 'C').map(x => x.a);
+  const dDueList = maintDue.filter(x => x.di.primaryDue === 'D').map(x => x.a);
+  const inShopCount = fleet.filter(a => a.status === 'maintenance').length;
+  const cDueCost = cDueList.reduce((s, a) => s + checkCost(getAircraftType(a.typeId), 'C', checkOptsFor(a)), 0);
+  const dDueCost = dDueList.reduce((s, a) => s + checkCost(getAircraftType(a.typeId), 'D', checkOptsFor(a)), 0);
+  const checkedServiceable = checkedAircraft.filter(a => !isOutOfService(a) && !a.scheduledCheck);
+
+  async function handleBulkCheck(list, checkType, onDone) {
+    if (list.length === 0) return false;
+    const cost  = list.reduce((s, a) => s + checkCost(getAircraftType(a.typeId), checkType, checkOptsFor(a)), 0);
+    const names = list.slice(0, 8).map(a => a.name).join(', ') + (list.length > 8 ? `, +${list.length - 8} more` : '');
+    const overCash = cost > state.cash;
+    const body =
+      `${list.length} aircraft will enter a ${checkType} check and be out of service while it runs. `
+      + `They keep their routes and resume flying automatically once the check completes.\n\n`
+      + `${names}\n\n`
+      + `Total cost: ${formatMoney(cost)}`
+      + (overCash ? `\n\n⚠ That's more than your ${formatMoney(state.cash)} cash on hand.` : '');
+    if (await confirm({ title: `Start ${checkType} check on ${list.length} aircraft?`, body, confirmLabel: `Start ${checkType} check${list.length > 1 ? 's' : ''}` })) {
+      for (const a of list) dispatch({ type: 'SCHEDULE_CHECK', aircraftId: a.id, checkType, startNow: true });
+      onDone?.();
+      return true;
+    }
+    return false;
+  }
+
   return (
     <div>
       {/* Summary stats */}
@@ -1408,15 +1488,29 @@ export default function Fleet() {
       {/* ── On Order panel ─────────────────────────────────────────────────── */}
       {pendingOrders.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-          <div style={{
-            padding: '10px 16px',
-            borderBottom: '1px solid var(--border)',
-            fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
-            textTransform: 'uppercase', letterSpacing: '0.07em',
-            display: 'flex', alignItems: 'center', gap: 8,
+          <div
+            onClick={() => setShowOnOrder(v => !v)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowOnOrder(v => !v); } }}
+            style={{
+              padding: '10px 16px',
+              borderBottom: showOnOrder ? '1px solid var(--border)' : 'none',
+              fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+              textTransform: 'uppercase', letterSpacing: '0.07em',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 8, cursor: 'pointer', userSelect: 'none',
           }}>
-            <span><Glyph e="📦" /></span><span>On Order ({pendingOrders.length})</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span><Glyph e="📦" /></span><span>On Order ({pendingOrders.length})</span>
+            </span>
+            <span style={{
+              fontSize: 10, color: 'var(--text-dim)',
+              transform: showOnOrder ? 'rotate(90deg)' : 'none',
+              transition: 'transform 0.15s',
+            }}>▶</span>
           </div>
+          {showOnOrder && (
           <table>
             <thead>
               <tr>
@@ -1503,6 +1597,7 @@ export default function Fleet() {
               })}
             </tbody>
           </table>
+          )}
         </div>
       )}
 
@@ -1518,6 +1613,46 @@ export default function Fleet() {
 
       {/* Aircraft list + detail panel */}
       {viewMode === 'list' && <>
+      {/* ── Fleet maintenance bar ─────────────────────────────────── */}
+      {(cDueList.length + dDueList.length + inShopCount) > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          padding: '10px 14px', marginBottom: 10, borderRadius: 8,
+          background: 'rgba(210,153,34,0.07)', border: '1px solid rgba(210,153,34,0.3)',
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Glyph e="🔧" /> Maintenance
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {(cDueList.length + dDueList.length) > 0
+              ? `${cDueList.length + dDueList.length} check${(cDueList.length + dDueList.length) !== 1 ? 's' : ''} due`
+              : 'no checks due'}
+            {inShopCount > 0 && ` · ${inShopCount} in shop`}
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {cDueList.length > 0 && (
+              <button
+                className="btn"
+                style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(210,153,34,0.14)', color: 'var(--yellow)', border: '1px solid rgba(210,153,34,0.4)' }}
+                title="Send every aircraft with a C check due into the shop now"
+                onClick={() => handleBulkCheck(cDueList, 'C')}
+              >
+                Do all due C checks ({cDueList.length}) · {formatMoney(cDueCost)}
+              </button>
+            )}
+            {dDueList.length > 0 && (
+              <button
+                className="btn"
+                style={{ fontSize: 12, padding: '5px 12px', background: 'rgba(248,81,73,0.1)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.35)' }}
+                title="Send every aircraft with a D check due into the shop now (a D also resets the C-check clock)"
+                onClick={() => handleBulkCheck(dDueList, 'D')}
+              >
+                Do all due D checks ({dDueList.length}) · {formatMoney(dDueCost)}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* Bulk action bar */}
       {checkedAircraft.length > 0 && (
         <div style={{
@@ -1546,6 +1681,36 @@ export default function Fleet() {
               onClick={() => canBulkConfigure && setBulkConfigIds(checkedAircraft.map(a => a.id))}
             >
               <Glyph e="⚙" /> Configure ({checkedAircraft.length})
+            </button>
+            <button
+              className="btn"
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: checkedServiceable.length > 0 ? 'rgba(210,153,34,0.14)' : 'var(--surface3)',
+                color: checkedServiceable.length > 0 ? 'var(--yellow)' : 'var(--text-dim)',
+                border: `1px solid ${checkedServiceable.length > 0 ? 'rgba(210,153,34,0.4)' : 'var(--border)'}`,
+                cursor: checkedServiceable.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+              disabled={checkedServiceable.length === 0}
+              title={checkedServiceable.length > 0 ? 'Send the selected aircraft into a C check now' : 'Selected aircraft are already in the shop or booked'}
+              onClick={() => handleBulkCheck(checkedServiceable, 'C', () => setCheckedIds([]))}
+            >
+              <Glyph e="🔧" /> C check ({checkedServiceable.length})
+            </button>
+            <button
+              className="btn"
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: checkedServiceable.length > 0 ? 'rgba(248,81,73,0.08)' : 'var(--surface3)',
+                color: checkedServiceable.length > 0 ? 'var(--red)' : 'var(--text-dim)',
+                border: `1px solid ${checkedServiceable.length > 0 ? 'rgba(248,81,73,0.3)' : 'var(--border)'}`,
+                cursor: checkedServiceable.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+              disabled={checkedServiceable.length === 0}
+              title={checkedServiceable.length > 0 ? 'Send the selected aircraft into a D check now' : 'Selected aircraft are already in the shop or booked'}
+              onClick={() => handleBulkCheck(checkedServiceable, 'D', () => setCheckedIds([]))}
+            >
+              <Glyph e="🔧" /> D check ({checkedServiceable.length})
             </button>
             <button
               className="btn"
@@ -1768,7 +1933,7 @@ export default function Fleet() {
 
       {/* Detail panel */}
       {selectedAircraft && (
-        <div style={{ marginTop: 16 }}>
+        <div ref={detailRef} style={{ marginTop: 16, scrollMarginTop: 60 }}>
           <AircraftDetail
             aircraft={selectedAircraft}
             onClose={() => setSelectedId(null)}
