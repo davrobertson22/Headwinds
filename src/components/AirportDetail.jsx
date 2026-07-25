@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { AIRPORTS, getAirport } from '../data/airports.js';
+import { AIRPORTS, getAirport, gateCapacityOf } from '../data/airports.js';
 import {
   baseCityPairDemand, referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE,
   cargoSlotsUsedAt,
@@ -49,6 +49,20 @@ export default function AirportDetail({ code, onBack }) {
     + cargoSlotsUsedAt(code, state.cargoRoutes);
 
   const gwScore = AIRPORT_GATEWAY_SCORES[code] ?? 0.20;
+
+  // ── Gate situation (scarcity worlds only) ────────────────────────────────
+  // In gate-scarcity worlds the server injects a live per-airport view with
+  // capacity, how many gates are taken, and who holds them. Untouched airports
+  // have no entry, so we fall back to the derived capacity and (at least) our
+  // own holdings.
+  const scarcity   = !!state.gateScarcityWorld;
+  const gateMkt    = state.gateMarket?.airports?.[code] ?? null;
+  const gateCap    = scarcity ? (gateMkt?.capacity ?? gateCapacityOf(airport)) : 0;
+  const gateTaken  = gateMkt?.taken ?? myGates;
+  const gateAvail  = Math.max(0, gateCap - gateTaken);
+  const gateHolders = (gateMkt?.holders && gateMkt.holders.length > 0)
+    ? gateMkt.holders
+    : (myGates > 0 ? [{ name: state.airlineName, count: myGates, yours: true }] : []);
 
   // My routes at this airport
   const myRoutes = state.routes.filter(r => r.origin === code || r.destination === code);

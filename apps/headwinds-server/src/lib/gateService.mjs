@@ -124,6 +124,12 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
         maxYours:  b.maxYours,
         surcharge: b.surcharge,
         yours:     holdingsCount({ holdings: b.holdings }, me.id),
+        // Per-airline breakdown of who holds gates here (name + count),
+        // busiest holder first. Powers the Airport Details gate table.
+        holders: Object.entries(b.holdings ?? {})
+          .map(([id, h]) => ({ name: nameOf.get(id) ?? 'An airline', count: h?.count ?? 0, yours: id === me.id }))
+          .filter((h) => h.count > 0)
+          .sort((x, y) => y.count - x.count || x.name.localeCompare(y.name)),
         cooldownUntilWeek: b.holdings?.[me.id]?.cooldownUntilWeek ?? null,
         allianceTaken: roster
           ? roster.reduce((s, id) => s + (b.holdings?.[id]?.count ?? 0), 0)

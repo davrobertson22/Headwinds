@@ -582,6 +582,14 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
             <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Total across all routes:</span>
             <span style={{ color: 'var(--green)' }}>+{formatMoney(totalRevenue)} revenue</span>
             <span style={{ color: 'var(--red)' }}>−{formatMoney(totalOpCost)} op cost</span>
+            {weeklyLease > 0 && <span style={{ color: 'var(--red)' }}>−{formatMoney(weeklyLease)} lease</span>}
+            <span style={{ color: 'var(--red)' }}>−{formatMoney(weeklyMaint)} maint</span>
+            <span
+              style={{ fontWeight: 700, color: profitColor, cursor: 'help' }}
+              title="True weekly profit: revenue minus operating cost, aircraft lease and maintenance. This is the number that reflects whether the aircraft actually pays for itself."
+            >
+              = {weeklyProfit >= 0 ? '+' : ''}{formatMoney(weeklyProfit)} true profit
+            </span>
             <span>{routeResults.reduce((s, { result }) => s + result.passengers, 0).toLocaleString()} pax/wk</span>
           </div>
         )}

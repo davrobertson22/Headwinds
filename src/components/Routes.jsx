@@ -212,6 +212,46 @@ export default function Routes() {
     return simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
   };
 
+  // Per-aircraft weekly fixed cost (lease + maintenance), ALLOCATED across the
+  // routes that aircraft flies by frequency share. The engine attaches the full
+  // per-aircraft lease/maint to every one of that aircraft's route results, so
+  // naively summing it per route would double-count a plane that serves several
+  // city pairs. Allocating by frequency makes the per-route slices sum back to
+  // exactly one plane's fixed cost.
+  const fixedByRoute = useMemo(() => {
+    const acFixed = {};   // aircraftId -> weekly lease + maintenance
+    const acFreq  = {};   // aircraftId -> total weekly frequency across its routes
+    const routeAc = {};   // routeId    -> aircraftId
+    for (const route of routes) {
+      const ac = fleet.find(a => a.id === route.aircraftId);
+      if (!ac) continue;
+      routeAc[route.id] = ac.id;
+      acFreq[ac.id] = (acFreq[ac.id] ?? 0) + (route.weeklyFrequency ?? 0);
+      if (acFixed[ac.id] == null) {
+        const rr = rrById[route.id];
+        if (rr && (rr.weeklyLeaseCost != null || rr.weeklyMaintCost != null)) {
+          acFixed[ac.id] = (rr.weeklyLeaseCost ?? 0) + (rr.weeklyMaintCost ?? 0);
+        } else {
+          // Fallback for grounded/dormant routes the engine skips: a leased plane
+          // still owes its lease + base maintenance even when it isn't flying.
+          const type  = getAircraftType(ac.typeId);
+          const lease = ac.ownershipType === 'owned' ? 0 : (ac.weeklyLease ?? type?.weeklyLease ?? 0);
+          const maint = type?.baseMaintenancePerWk ?? 0;
+          acFixed[ac.id] = lease + maint;
+        }
+      }
+    }
+    const out = {};
+    for (const route of routes) {
+      const acId = routeAc[route.id];
+      if (acId == null) { out[route.id] = 0; continue; }
+      const totFreq = acFreq[acId] || 1;
+      const share   = (route.weeklyFrequency ?? 0) / totFreq;
+      out[route.id] = (acFixed[acId] ?? 0) * share;
+    }
+    return out;
+  }, [routes, fleet, rrById]);
+
   // Per-group stats for filtering + sorting
   const groupsWithStats = useMemo(() => routeGroups.map(group => {
     const sims = group.routes.map(route => {
@@ -219,9 +259,15 @@ export default function Routes() {
       const result = engineResultFor(route, ac);
       return { route, result };
     });
-    // Direct cost = operating cost + landing fee, so profit matches Finance "By Route".
+    // True cost = variable operating cost + landing fee + the aircraft's own weekly
+    // lease + maintenance (allocated per route by frequency). This makes PROFIT/WK
+    // and MARGIN a fully-loaded operating profit instead of a contribution margin
+    // that used to flatter thin, half-empty routes (a plane at 42% load could show
+    // 62% "margin" because its ownership cost never touched the route P&L).
     const totalRevenue = sims.reduce((s, { result }) => s + (result?.revenue   ?? 0), 0);
-    const totalCost    = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0) + (result?.landingFee ?? 0), 0);
+    const totalOpCost  = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0) + (result?.landingFee ?? 0), 0);
+    const totalFixed   = group.routes.reduce((s, r) => s + (fixedByRoute[r.id] ?? 0), 0);
+    const totalCost    = totalOpCost + totalFixed;
     const totalProfit  = totalRevenue - totalCost;
     const totalPax     = sims.reduce((s, { result }) => s + (result?.passengers ?? 0), 0);
     const totalSeats   = sims.reduce((s, { result }) => s + (result?.configuredSeatsOneWay ?? 0), 0);
@@ -274,8 +320,9 @@ export default function Routes() {
     return {
       ...group, totalProfit, totalRevenue, totalPax, avgLoad, distance, classLoads,
       hasDisrupted, hasDormant, regions, typeIds, margin, totalFreq, quality,
+      totalOpCost, totalFixed,
     };
-  }), [routes, fleet, rrById]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [routes, fleet, rrById, fixedByRoute]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Aircraft types present across all groups (for the type filter dropdown).
   // NOTE: must stay above the detailPair early-return — hooks can't be conditional.
@@ -1035,8 +1082,11 @@ function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectM
           Op profit: {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}/wk
         </span>
         {totalRev > 0 && (
-          <span style={{ color: 'var(--text-muted)' }}>
-            Margin: {Math.round((totalProfit / totalRev) * 100)}%
+          <span
+            style={{ color: 'var(--text-muted)', cursor: 'help' }}
+            title="Fully-loaded operating margin — revenue minus fuel, crew, catering, ground, landing fees AND each aircraft's weekly lease + maintenance."
+          >
+            Margin: {Math.round((totalProfit / totalRev) * 100)}% <span style={{ opacity: 0.6, fontSize: 11 }}>(incl. lease + maint)</span>
           </span>
         )}
         <span style={{ color: 'var(--text-muted)' }}>Pax: {totalPax.toLocaleString()}/wk</span>
