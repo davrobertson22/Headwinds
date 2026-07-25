@@ -29,7 +29,6 @@ import { getAirport } from '../data/airports.js';
 import { useState, useEffect } from 'react';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
-import Ancillaries from './Ancillaries.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Headcount estimation ─────────────────────────────────────────────────────
@@ -772,7 +771,6 @@ function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, ca
 
 export default function Operations() {
   const { state, dispatch } = useGame();
-  const [opsTab, setOpsTab] = useState('company');
   const {
     fleet, routes = [], labor = DEFAULT_LABOR_STATE,
     maintenanceBudget = DEFAULT_MAINTENANCE_BUDGET,
@@ -815,30 +813,6 @@ export default function Operations() {
 
   return (
     <div>
-      {/* Sub-tab bar: Company Ops vs Ancillaries */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
-        {[['company', 'Company Ops'], ['ancillaries', 'Ancillaries']].map(([id, label]) => {
-          const on = opsTab === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setOpsTab(id)}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                padding: '8px 14px', fontSize: 13, fontWeight: on ? 700 : 500,
-                color: on ? 'var(--accent)' : 'var(--text-muted)',
-                borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}`,
-                marginBottom: -1,
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-
-      {opsTab === 'ancillaries' ? <Ancillaries /> : (<>
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
@@ -1136,7 +1110,6 @@ export default function Operations() {
         Low maintenance budget accelerates aging: aircraft with higher {'>'}ageWeeks trigger steeper maintenance cost multipliers,
         compounding over time.
       </div>
-      </>)}
     </div>
   );
 }

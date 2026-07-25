@@ -277,6 +277,74 @@ export default function AirportDetail({ code, onBack }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
 
+        {/* GATE_SITUATION_CARD — who holds the gates here (scarcity worlds) */}
+        {scarcity && (
+          <div className="card">
+            <div style={{ fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span>Gate Availability</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: gateAvail === 0 ? 'var(--red)' : gateTaken >= 0.9 * gateCap ? 'var(--yellow)' : 'var(--green)', background: gateAvail === 0 ? 'rgba(248,81,73,0.12)' : gateTaken >= 0.9 * gateCap ? 'rgba(210,153,34,0.12)' : 'rgba(63,185,80,0.12)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px' }}>
+                {gateAvail === 0 ? 'FULL' : `${gateAvail} open`}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
+              <Stat label="Total Gates" value={gateCap} sub="airport capacity" />
+              <Stat label="Taken" value={gateTaken} color={gateTaken >= 0.9 * gateCap ? 'var(--yellow)' : 'var(--text)'} />
+              <Stat label="Available" value={gateAvail} color={gateAvail === 0 ? 'var(--red)' : 'var(--green)'} />
+              {myGates > 0 && <Stat label="Yours" value={myGates} color="var(--accent)" />}
+            </div>
+            {/* Capacity bar */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ height: 8, background: 'var(--surface3)', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
+                {gateCap > 0 && (
+                  <div style={{ width: `${Math.min(100, Math.round(myGates / gateCap * 100))}%`, height: '100%', background: 'var(--accent)' }} />
+                )}
+                {gateCap > 0 && (
+                  <div style={{ width: `${Math.min(100, Math.round(Math.max(0, gateTaken - myGates) / gateCap * 100))}%`, height: '100%', background: 'var(--text-dim)', opacity: 0.6 }} />
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>
+                <span style={{ color: 'var(--accent)' }}>■</span> your gates · <span style={{ color: 'var(--text-dim)' }}>■</span> other airlines · empty = available
+              </div>
+            </div>
+            {/* Who holds gates here */}
+            {gateHolders.length > 0 ? (
+              <div style={{ borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', padding: '6px 12px', background: 'var(--surface2)', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  <span style={{ flex: 1 }}>Gate holder</span>
+                  <span>Gates</span>
+                </div>
+                {gateHolders.map((h, i) => {
+                  const pct = gateCap > 0 ? Math.round(h.count / gateCap * 100) : 0;
+                  return (
+                    <div key={h.name + i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)', background: h.yours ? 'rgba(56,139,253,0.06)' : 'transparent' }}>
+                      <span style={{ flex: 1, fontWeight: h.yours ? 700 : 400, color: h.yours ? 'var(--accent)' : 'var(--text)', fontSize: 13 }}>
+                        {h.yours && '▶ '}{h.name}
+                      </span>
+                      <div style={{ width: 80, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: h.yours ? 'var(--accent)' : 'var(--text-dim)', opacity: h.yours ? 0.9 : 0.6, borderRadius: 3 }} />
+                      </div>
+                      <span style={{ minWidth: 28, textAlign: 'right', fontWeight: 600, fontSize: 13 }}>{h.count}</span>
+                    </div>
+                  );
+                })}
+                {gateAvail > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--border-subtle)' }}>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>Unclaimed / available</span>
+                    <div style={{ width: 80, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${gateCap > 0 ? Math.round(gateAvail / gateCap * 100) : 0}%`, height: '100%', background: 'var(--green)', opacity: 0.5, borderRadius: 3 }} />
+                    </div>
+                    <span style={{ minWidth: 28, textAlign: 'right', fontWeight: 600, fontSize: 13, color: 'var(--green)' }}>{gateAvail}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                No airline holds a gate here yet — all {gateCap} are available.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Your presence */}
         <div className="card">
           <div style={{ fontWeight: 600, marginBottom: 12 }}>Your Presence</div>

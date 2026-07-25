@@ -22,6 +22,7 @@ import RoutePlanner from './components/RoutePlanner.jsx';
 import Airports from './components/Airports.jsx';
 import RouteMap from './components/RouteMap.jsx';
 import Operations from './components/Operations.jsx';
+import Ancillaries from './components/Ancillaries.jsx';
 import Loyalty from './components/Loyalty.jsx';
 import Alliances from './components/Alliances.jsx';
 import Wiki from './components/Wiki.jsx';
@@ -71,6 +72,16 @@ function AllianceIcon({ size = 15 }) {
   );
 }
 
+function AncillaryIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="12" y1="11" x2="12" y2="16" />
+    </svg>
+  );
+}
+
 function HelpIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -92,6 +103,7 @@ const TABS = [
   { id: 'airports',    label: 'Gates',         Icon: GateIcon          },
   { id: 'hubs',        label: 'Hubs',          Icon: HubIcon           },
   { id: 'operations',  label: 'Operations',   Icon: OperationsIcon    },
+  { id: 'ancillaries', label: 'Ancillaries',  Icon: AncillaryIcon     },
   { id: 'reputation',  label: 'Reputation',    Icon: RepIcon         },
   { id: 'loyalty',     label: 'Loyalty',       Icon: LoyaltyIcon     },
   { id: 'alliances',   label: 'Alliances',    Icon: AllianceIcon    },
@@ -111,7 +123,7 @@ const NAV_GROUPS = [
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'planner', 'routes'] },
   { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market', 'used'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
-  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'reputation', 'loyalty', 'alliances', 'competition', 'stocks'] },
+  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'ancillaries', 'reputation', 'loyalty', 'alliances', 'competition', 'stocks'] },
   { id: 'finance' },
   { id: 'wiki' },
 ];
@@ -266,6 +278,7 @@ function AppInner() {
     airports:    <Airports />,
     hubs:        <HubManagement />,
     operations:  <Operations />,
+    ancillaries: <Ancillaries />,
     reputation:  <Reputation />,
     loyalty:     <Loyalty />,
     alliances:   <Alliances />,
