@@ -2350,6 +2350,7 @@ export const AIRPORTS = [
   { code: 'YQY', name: 'J.A. Douglas McCurdy Sydney', city: 'Sydney NS', country: 'CA', lat: 46.1614, lon: -60.0478, population: 0.1, tier: 'regional', runwayFt: 7070 },
   { code: 'YQI', name: 'Yarmouth Airport', city: 'Yarmouth', country: 'CA', lat: 43.8269, lon: -66.0881, population: 0.02, tier: 'regional', runwayFt: 6000 },
   { code: 'YZP', name: "Sandspit (K'il Kun Xidgwang Daanaay)", city: 'Sandspit', country: 'CA', lat: 53.2542, lon: -131.8138, population: 0.002, tier: 'regional', visitors: 0.05, runwayFt: 5112 },
+  { code: 'YYG', name: 'Charlottetown Alexander B. Campbell', city: 'Charlottetown', country: 'CA', lat: 46.2900, lon: -63.1211, population: 0.08, tier: 'regional', visitors: 0.4, runwayFt: 7000 },
 ];
 
 export function getAirport(code) {
@@ -2837,6 +2838,7 @@ export const AIRPORT_SCORES = {
   HOR: { businessScore: 16, leisureScore: 88 },
   MLO: { businessScore: 16, leisureScore: 88 },
   YTZ: { businessScore: 70, leisureScore: 40 },   // Billy Bishop – downtown business STOL airport
+  YYG: { businessScore: 30, leisureScore: 68 },   // Charlottetown PEI – summer leisure island destination
 };
 
 // ── Region mapping ────────────────────────────────────────────────────────────
