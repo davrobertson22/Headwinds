@@ -1792,10 +1792,17 @@ export function weeklyTick(state) {
   // Pre-count how many routes the player has at each airport (hub feed, congestion,
   // contest weights). Dormant seasonal routes don't operate this month.
   const routeCountByAirport = {};
+  // Slot utilisation: weekly aircraft departures touching each airport. Drives
+  // gate congestion (a low-frequency spoke costs far fewer slots than a daily
+  // one), while routeCountByAirport still feeds hub contest / feed weighting.
+  const slotsByAirport = {};
   for (const r of routes) {
     if (!isRouteActive(r, gameDate.month)) continue;
+    const freq = r.weeklyFrequency ?? 7;
     routeCountByAirport[r.origin]      = (routeCountByAirport[r.origin]      ?? 0) + 1;
     routeCountByAirport[r.destination] = (routeCountByAirport[r.destination] ?? 0) + 1;
+    slotsByAirport[r.origin]      = (slotsByAirport[r.origin]      ?? 0) + freq;
+    slotsByAirport[r.destination] = (slotsByAirport[r.destination] ?? 0) + freq;
   }
 
   // ── Network O&D cannibalization + itinerary revenue + hub competition ──────
@@ -1812,6 +1819,7 @@ export function weeklyTick(state) {
     hubs,
     gates,
     routeCountByAirport,
+    slotsByAirport,
     demandMultFor: eventDemandMultFor,   // world-event shocks hit itinerary O&Ds too
   });
   const {
@@ -2195,8 +2203,8 @@ export function weeklyTick(state) {
       route.origin,
       route.destination,
       hubs,
-      routeCountByAirport[route.origin]      ?? 0,
-      routeCountByAirport[route.destination] ?? 0,
+      slotsByAirport[route.origin]      ?? 0,
+      slotsByAirport[route.destination] ?? 0,
       connectingPrice,
       { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes, gates, contestFactors },
     );

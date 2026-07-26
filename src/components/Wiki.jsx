@@ -252,7 +252,7 @@ const WIKI = [
       ] },
       { h: 'Congestion & competition' },
       { ul: [
-        'Each tier handles a set **routes-per-gate ratio** (1.5 at Hub, up to 2.5 at Gateway). Exceed it and connecting traffic suffers. Buy gates to relieve congestion.',
+        'Congestion is based on **slot utilisation** — weekly aircraft departures vs gate capacity, not route count. Each gate handles a set number of weekly departures (about 12 at a Hub, up to 20 at a Gateway); exceed it and connecting traffic suffers. A few low-frequency spokes barely register, while many daily flights fill your slots fast. Buy gates (or trim frequency) to relieve congestion.',
         'Competitors hubbing at the same airport **contest the connecting pool**. Dominate an International Gateway with over 60% share and it becomes a **fortress hub**: +2 quality and pricing power on every route touching it.',
       ] },
       { tip: 'Hubs reward density. The more spokes you fly into a hub, the more connections become possible, the value compounds as the network grows. When gates run short, that is the game telling you to open a second hub.' },

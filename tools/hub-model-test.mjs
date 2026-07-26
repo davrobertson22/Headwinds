@@ -35,12 +35,14 @@ ok('HUB_TIER_COUNT unchanged (3)', HUB_TIER_COUNT === 3);
 
 // ── 2. Gate congestion ────────────────────────────────────────────────────────
 console.log('\n── Gate congestion ──────────────────────');
-ok('below threshold → 1.0', hubCongestionFactor(10, 10, 1) === 1.0);        // 1.0 ratio ≤ 1.5
-ok('at threshold → 1.0', hubCongestionFactor(15, 10, 1) === 1.0);           // 1.5 ratio
-ok('above threshold declines', hubCongestionFactor(30, 10, 1) < 1.0);
-ok('floored at 0.55', hubCongestionFactor(500, 10, 1) === 0.55);
-ok('higher tier tolerates more', hubCongestionFactor(22, 10, 3) === 1.0 && hubCongestionFactor(22, 10, 1) < 1.0);
-ok('unknown gates → no penalty', hubCongestionFactor(30, 0, 1) === 1.0);
+// Slot-based: Hub gate handles ~12 weekly departures, Gateway ~20.
+ok('below capacity → 1.0', hubCongestionFactor(100, 10, 1) === 1.0);        // 100 / (10*12) = 0.83
+ok('at capacity → 1.0', hubCongestionFactor(120, 10, 1) === 1.0);           // exactly 100% util
+ok('above capacity declines', hubCongestionFactor(240, 10, 1) < 1.0);       // 200% util
+ok('low-freq spokes stay uncongested', hubCongestionFactor(55, 7, 1) === 1.0); // 11 spokes ~5/wk on 7 gates
+ok('floored at 0.80', hubCongestionFactor(100000, 10, 1) === 0.80);
+ok('higher tier tolerates more', hubCongestionFactor(200, 10, 3) === 1.0 && hubCongestionFactor(200, 10, 1) < 1.0);
+ok('unknown gates → no penalty', hubCongestionFactor(240, 0, 1) === 1.0);
 
 // ── 3. Prerequisite checklist ─────────────────────────────────────────────────
 console.log('\n── hubUpgradeChecklist ──────────────────');
@@ -150,7 +152,8 @@ console.log('\n── computeConnectingDemand ───────────�
   ok('internal pool removed', (hub.origin.internalPax ?? 0) === 0);
   ok('focus city captures ~10% of hub', focus.origin.pax > 0 && focus.origin.pax < hub.origin.pax * 0.25);
   ok('undesignated gateway still yields partner feed', noHub.origin.pax > 0 && noHub.origin.yield === 0.8);
-  const congested = computeConnectingDemand('DXB', 'LHR', { DXB: { tier: 1 } }, 30, 2, price, { gates: { DXB: 10 } });
+  // 200 weekly departures on 10 gates (cap 120) → clearly over slot capacity
+  const congested = computeConnectingDemand('DXB', 'LHR', { DXB: { tier: 1 } }, 200, 2, price, { gates: { DXB: 10 } });
   ok('congestion trims external feed', congested.origin.pax < hub.origin.pax);
   const contested = computeConnectingDemand('DXB', 'LHR', { DXB: { tier: 1 } }, 8, 2, price,
     { gates: { DXB: 10 }, contestFactors: { DXB: 0.4 } });

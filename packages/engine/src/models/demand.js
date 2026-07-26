@@ -853,7 +853,7 @@ export const COMPETITOR_AIRLINES = [
  * stationDiscount:  discount on ground handling + catering cost at this endpoint
  * layoverDiscount:  discount on crew layover cost (crews based here sleep at home)
  * maintFactor:      multiplier on weekly aircraft maintenance for routes touching it
- * gateRatioThreshold: routes-per-gate the hub handles before congestion sets in
+ * gateSlotsPerWeek: weekly departures per gate the hub handles before congestion sets in
  */
 export const HUB_TIERS = {
   0: {
@@ -872,7 +872,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.04,
     layoverDiscount:  0.08,
     maintFactor:      1.0,
-    gateRatioThreshold: 1.2,
+    gateSlotsPerWeek:   10,   // ~10 weekly departures per gate
     color:            '#4cc38a',   // var(--green)
   },
   1: {
@@ -891,7 +891,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.08,
     layoverDiscount:  0.15,
     maintFactor:      1.0,
-    gateRatioThreshold: 1.5,
+    gateSlotsPerWeek:   12,   // ~12 weekly departures per gate
     color:            '#3ea6ff',   // var(--accent)
   },
   2: {
@@ -910,7 +910,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.12,
     layoverDiscount:  0.25,
     maintFactor:      0.95,
-    gateRatioThreshold: 2.0,
+    gateSlotsPerWeek:   16,   // ~16 weekly departures per gate
     color:            '#ffb43d',   // var(--yellow)
   },
   3: {
@@ -929,7 +929,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.16,
     layoverDiscount:  0.35,
     maintFactor:      0.92,
-    gateRatioThreshold: 2.5,
+    gateSlotsPerWeek:   20,   // ~20 weekly departures per gate
     color:            '#a98bff',   // var(--purple)
   },
 };
@@ -939,15 +939,19 @@ export const HUB_MIN_GATES   = 10;   // minimum gates to designate a full hub
 export const FOCUS_MIN_GATES = 5;    // minimum gates to designate a focus city
 
 /**
- * Gate-based hub congestion (replaces the old raw route-count curve).
- * Below the tier's routes-per-gate threshold: 1.0 (no penalty). Above it,
- * efficiency declines smoothly, floored at 0.55. Applies to CONNECTING capture
- * only — direct O&D demand is unaffected. Buying gates relieves it.
+ * Gate-slot hub congestion. Driven by SLOT UTILISATION — weekly aircraft
+ * departures relative to gate capacity — not raw route count, so a handful of
+ * low-frequency spokes no longer congest a hub the way a wall of daily flights
+ * does. Each gate absorbs a tier-defined number of weekly departures
+ * (gateSlotsPerWeek); at/under 100% utilisation there is no penalty, above it
+ * connecting capture declines smoothly, floored at CONGESTION_FLOOR. Applies to
+ * CONNECTING capture only — direct O&D demand is unaffected. Buying gates (or
+ * trimming frequency) relieves it.
  *
- * @param {number} routesAt  - player routes touching the airport
- * @param {number} gatesAt   - player gates at the airport
- * @param {number} tier      - hub tier 0–3
- * @returns {number} 0.55–1.0
+ * @param {number} slotsAt  - player weekly departures touching the airport
+ * @param {number} gatesAt  - player gates at the airport
+ * @param {number} tier     - hub tier 0–3
+ * @returns {number} CONGESTION_FLOOR–1.0
  */
 /** Player routes touching an airport (tag-route stops included). */
 export function playerRoutesAtAirport(routes, code) {
@@ -957,6 +961,16 @@ export function playerRoutesAtAirport(routes, code) {
     if (stops.includes(code)) n++;
   }
   return n;
+}
+
+/** Player weekly departures (slots) touching an airport (tag-route stops included). */
+export function playerSlotsAtAirport(routes, code) {
+  let slots = 0;
+  for (const r of routes ?? []) {
+    const stops = Array.isArray(r.stops) && r.stops.length >= 2 ? r.stops : [r.origin, r.destination];
+    if (stops.includes(code)) slots += (r.weeklyFrequency ?? 7);
+  }
+  return slots;
 }
 
 /** Distinct international destinations served nonstop-or-tag from an airport. */
@@ -1045,13 +1059,21 @@ export function hubUpgradeChecklist(snap, code, targetTier) {
   return { ok: checks.every(c => c.met), checks };
 }
 
-export function hubCongestionFactor(routesAt, gatesAt, tier) {
+// Congestion curve tuning knobs (kept gentle — the debuff is a nudge to spread
+// frequency across gates, not a wall). FLOOR = worst-case connecting retention;
+// EXP = how fast the penalty ramps once a hub is over capacity.
+export const CONGESTION_FLOOR = 0.80;
+export const CONGESTION_EXP   = 0.5;
+
+export function hubCongestionFactor(slotsAt, gatesAt, tier) {
   if (!gatesAt || gatesAt <= 0) return 1.0;   // gates unknown (e.g. UI preview) — no penalty
-  const tierDef   = HUB_TIERS[tier] ?? HUB_TIERS[1];
-  const threshold = tierDef.gateRatioThreshold ?? 1.5;
-  const ratio     = (routesAt ?? 0) / gatesAt;
-  if (ratio <= threshold) return 1.0;
-  return Math.max(0.55, Math.pow(threshold / ratio, 0.6));
+  const tierDef  = HUB_TIERS[tier] ?? HUB_TIERS[1];
+  const perGate  = tierDef.gateSlotsPerWeek ?? 12;
+  const capacity = gatesAt * perGate;
+  if (capacity <= 0) return 1.0;
+  const util = (slotsAt ?? 0) / capacity;      // weekly departures ÷ slot capacity
+  if (util <= 1.0) return 1.0;                  // at/under capacity → no penalty
+  return Math.max(CONGESTION_FLOOR, Math.pow(1 / util, CONGESTION_EXP));
 }
 
 // ─── Connecting passengers ────────────────────────────────────────────────────
@@ -1091,7 +1113,7 @@ const BASE_GATEWAY_POOL = 800;
  *
  * @param {string}   airportCode       - the airport to evaluate
  * @param {object}   hubs              - player's hub map: { [code]: { tier: 1|2|3 } }
- * @param {number}   playerRoutesHere  - how many player routes touch this airport (incl. this one)
+ * @param {number}   playerSlotsHere   - player weekly departures touching this airport
  * @param {number}   ticketPrice       - one-way ticket price on the route ($)
  * @param {object}   [opts]
  * @param {number}   [opts.weeklyFrequency=7]  - one-way departures per week on this route
@@ -1100,7 +1122,7 @@ const BASE_GATEWAY_POOL = 800;
  *                                               (one entry per partner; duplicates allowed)
  * @returns {{ pax, revenue, yield, source, tier?, externalPax?, internalPax?, freqMult?, factors? }}
  */
-function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, {
+function connectingAtEndpoint(airportCode, hubs, playerSlotsHere, ticketPrice, {
   weeklyFrequency = 7,
   distKm = 0,
   partnerHubCodes = [],
@@ -1123,7 +1145,7 @@ function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, 
     // The external base rate is halved accordingly (0.15 → 0.075) so the
     // residual pool only represents feed the itinerary model can't see.
     //
-    // Congestion is gate-based (routes per gate vs the tier's threshold) and
+    // Congestion is slot-based (weekly departures per gate vs the tier's capacity) and
     // relieved by buying gates. Contest: competitors hubbing at the same
     // airport siphon the external pool (contestFactor from network.js).
 
@@ -1140,7 +1162,7 @@ function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, 
     // for feed arriving from partners/gateway traffic.
     const freqMult = Math.min(1.5, 0.4 + (Math.log1p(weeklyFrequency) / Math.log1p(7)) * 0.6);
 
-    const congestion = hubCongestionFactor(playerRoutesHere, gatesHere, hubInfo.tier);
+    const congestion = hubCongestionFactor(playerSlotsHere, gatesHere, hubInfo.tier);
 
     const externalPax = Math.round(
       pool * tierDef.captureRate * (0.075 + distBonus) * (1 + partnerBoost)
@@ -1182,8 +1204,8 @@ function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, 
  * @param {string}   origin
  * @param {string}   destination
  * @param {object}   hubs                   - { [airportCode]: { tier: 1|2|3 } }
- * @param {number}   playerRoutesAtOrigin   - # of player routes at origin (incl. this one)
- * @param {number}   playerRoutesAtDest     - # of player routes at destination (incl. this one)
+ * @param {number}   playerSlotsAtOrigin    - player weekly departures at origin
+ * @param {number}   playerSlotsAtDest      - player weekly departures at destination
  * @param {number}   ticketPrice
  * @param {object}   [options]
  * @param {number}   [options.weeklyFrequency=7]  - one-way departures/week on this route
@@ -1197,7 +1219,7 @@ function connectingAtEndpoint(airportCode, hubs, playerRoutesHere, ticketPrice, 
  */
 export function computeConnectingDemand(
   origin, destination, hubs,
-  playerRoutesAtOrigin, playerRoutesAtDest,
+  playerSlotsAtOrigin, playerSlotsAtDest,
   ticketPrice,
   options = {}
 ) {
@@ -1225,14 +1247,14 @@ export function computeConnectingDemand(
   const priceFactor = connectingPriceFactor(ticketPrice, refPrice);
 
   const originSide = _scaleConnecting(
-    connectingAtEndpoint(origin, hubsMap, playerRoutesAtOrigin, ticketPrice, {
+    connectingAtEndpoint(origin, hubsMap, playerSlotsAtOrigin, ticketPrice, {
       weeklyFrequency, distKm, partnerHubCodes,
       gatesHere: gates[origin] ?? 0, contestFactor: contestFactors[origin] ?? 1.0,
     }),
     priceFactor
   );
   const destSide = _scaleConnecting(
-    connectingAtEndpoint(destination, hubsMap, playerRoutesAtDest, ticketPrice, {
+    connectingAtEndpoint(destination, hubsMap, playerSlotsAtDest, ticketPrice, {
       weeklyFrequency, distKm, partnerHubCodes,
       gatesHere: gates[destination] ?? 0, contestFactor: contestFactors[destination] ?? 1.0,
     }),

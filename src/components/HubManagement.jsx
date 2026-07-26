@@ -9,7 +9,7 @@ import { absoluteWeek } from '../utils/fuel.js';
 import {
   HUB_TIERS, HUB_MIN_GATES, HUB_TIER_COUNT, FOCUS_MIN_GATES,
   AIRPORT_GATEWAY_SCORES, hubUpgradeChecklist, hubCongestionFactor,
-  playerRoutesAtAirport,
+  playerRoutesAtAirport, playerSlotsAtAirport,
 } from '../models/demand.js';
 
 // ─── Tier pill ────────────────────────────────────────────────────────────────
@@ -102,17 +102,19 @@ function ContestBar({ contest, tier }) {
 
 // ─── Congestion meter ─────────────────────────────────────────────────────────
 
-function CongestionMeter({ routesAt, gatesAt, tier }) {
-  const threshold = HUB_TIERS[tier]?.gateRatioThreshold ?? 1.5;
-  const factor    = hubCongestionFactor(routesAt, gatesAt, tier);
+function CongestionMeter({ slotsAt, gatesAt, tier }) {
+  const perGate   = HUB_TIERS[tier]?.gateSlotsPerWeek ?? 12;
+  const capacity  = gatesAt * perGate;
+  const factor    = hubCongestionFactor(slotsAt, gatesAt, tier);
   const congested = factor < 1.0;
   if (!gatesAt) return null;
+  const util = capacity > 0 ? Math.round((slotsAt / capacity) * 100) : 0;
   return (
     <div style={{ fontSize: 12, marginBottom: 12, color: congested ? 'var(--yellow)' : 'var(--text-muted)' }}>
       {congested ? <><Glyph e="⚠" /> Congested</> : <><Glyph e="✓" /> Uncongested</>}
-      {' · '}{routesAt} routes on {gatesAt} gates
+      {' · '}{slotsAt} weekly departures on {gatesAt} gates ({util}% of slots)
       <span style={{ color: 'var(--text-dim)' }}>
-        {' '}(handles {(threshold).toFixed(1)} routes/gate{congested
+        {' '}(each gate handles ~{perGate}/wk{congested
           ? ` · connecting traffic at ${Math.round(factor * 100)}%. Buy gates to relieve`
           : ''})
       </span>
@@ -122,7 +124,7 @@ function CongestionMeter({ routesAt, gatesAt, tier }) {
 
 // ─── Hub card ─────────────────────────────────────────────────────────────────
 
-function HubCard({ code, hubData, gateCount, routeCount, snap, lastReport }) {
+function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastReport }) {
   const { dispatch, state } = useGame();
   const confirm = useConfirm();
   const airport = getAirport(code);
@@ -216,7 +218,7 @@ function HubCard({ code, hubData, gateCount, routeCount, snap, lastReport }) {
       </div>
 
       {/* Congestion + contest */}
-      <CongestionMeter routesAt={routeCount} gatesAt={gateCount} tier={tier} />
+      <CongestionMeter slotsAt={slotCount} gatesAt={gateCount} tier={tier} />
       <ContestBar contest={contest} tier={tier} />
 
       {/* Top connecting markets over this hub */}
@@ -390,6 +392,14 @@ export default function HubManagement() {
     return map;
   }, [state.routes, hubs, gates]);
 
+  // Weekly departures (slots) per airport — drives the congestion meter
+  const slotsByAirport = useMemo(() => {
+    const map = {};
+    const codes = new Set([...Object.keys(hubs), ...Object.keys(gates)]);
+    for (const code of codes) map[code] = playerSlotsAtAirport(state.routes, code);
+    return map;
+  }, [state.routes, hubs, gates]);
+
   const hubCodes    = Object.keys(hubs);
   const totalConn   = hubCodes.reduce((s, c) => s + (lastReport?.hubThroughput?.[c] ?? 0), 0);
   const totalInvest = hubCodes.reduce((s, c) => s + (HUB_TIERS[hubs[c]?.tier]?.weeklyInvestment ?? 0), 0);
@@ -423,7 +433,7 @@ export default function HubManagement() {
           Designations unlock connecting traffic between your routes — real one-stop itineraries sold over the hub — plus quality bonuses and operating-cost savings from your own ground staff, kitchens and crew bases.
           <strong style={{ color: 'var(--text)' }}> Focus cities</strong> ({FOCUS_MIN_GATES}+ gates) are cheap starter bases, allowed anywhere (max 1 per foreign country).
           <strong style={{ color: 'var(--text)' }}> Hubs</strong> ({HUB_MIN_GATES}+ gates) capture far more feed but cost real capex, take weeks to build, and demand a network to match — 20 routes for a Major Hub, 50 for an International Gateway.
-          Watch congestion: each tier handles a set routes-per-gate ratio before connections suffer.
+          Watch congestion: each gate handles a set number of weekly departures before connections suffer.
           {homeCountry && (
             <span> <Glyph e="🔒" /> Full hubs may only be built in your home country (<strong style={{ color: 'var(--text)' }}>{homeCountry}</strong>).</span>
           )}
@@ -466,6 +476,7 @@ export default function HubManagement() {
                 hubData={hubs[code]}
                 gateCount={gates[code] ?? 0}
                 routeCount={routeCountByAirport[code] ?? 0}
+                slotCount={slotsByAirport[code] ?? 0}
                 snap={snap}
                 lastReport={lastReport}
               />

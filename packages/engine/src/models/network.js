@@ -1064,6 +1064,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     competitorRouteIndex = null,
     contestMap = {},
     routeCountByAirport = {},
+    slotsByAirport = {},
     gates = {},
     demandMultFor = null,   // (origin, dest) → world-event demand multiplier
   } = options;
@@ -1170,9 +1171,10 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
       // Player's own direct on this O&D steals per the logit split (this replaces
       // the blunt per-routeKey cannibalization multiplier for own-metal flows).
       const directFactor = conn.directExists ? conn.connectionShare : 1.0;
-      // Gate congestion at the hub throttles transfer capacity.
+      // Gate congestion at the hub throttles transfer capacity (slot-based:
+      // weekly departures vs gate slot capacity, not raw route count).
       const congestion = hubCongestionFactor(
-        routeCountByAirport[conn.hub] ?? 0, gates[conn.hub] ?? 0, tier
+        slotsByAirport[conn.hub] ?? 0, gates[conn.hub] ?? 0, tier
       );
 
       const pax = Math.round(r.totalPax * CONNECTION_LOAD_FACTOR * directFactor * congestion);
@@ -1249,7 +1251,8 @@ export function runNetworkTick(state) {
     gameDate             = { month: 6 },
     hubs                 = {},   // { [code]: { tier } } — designated hubs/focus cities
     gates                = {},   // { [code]: gateCount } — for congestion
-    routeCountByAirport  = {},   // player routes per airport
+    routeCountByAirport  = {},   // player routes per airport (contest / hub feed)
+    slotsByAirport       = {},   // player weekly departures per airport (congestion)
     demandMultFor        = null, // (origin, dest) → world-event demand multiplier
   } = state;
 
@@ -1287,6 +1290,7 @@ export function runNetworkTick(state) {
     competitorRouteIndex,
     contestMap: hubContestMap,
     routeCountByAirport,
+    slotsByAirport,
     gates,
     demandMultFor,
   });
