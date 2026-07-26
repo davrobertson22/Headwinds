@@ -6,6 +6,7 @@ import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT,
 } from './worldConfig.mjs';
+import { rebaseStateCalendar } from './calendar.mjs';
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -132,19 +133,42 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     ...(tc.gateScarcity === true ? { gateScarcityWorld: true } : {}),
   };
 
+  // ── One world, one calendar ─────────────────────────────────────────────────
+  // Everyone in a world shares a date. A fresh blob is seeded at Year 1 Week 1
+  // (the solo opening), so a player joining a world already at Y3W12 would
+  // otherwise run their own private calendar for the rest of the season — the
+  // top bar would read a different date to their rivals', and because the engine
+  // derives seasonality from state.week, they would literally be flying a
+  // different season in the same market. Rebase the seeded blob onto the world
+  // clock instead: a late joiner starts in the world's here-and-now.
+  //
+  // rebaseStateCalendar also shifts anything scheduled in absolute weeks, which
+  // costs nothing on a fresh blob (no orders, no hedges, no history yet) but
+  // keeps this identical to the backfill path in tools/rebase-airline-calendars.mjs.
+  const { state: worldDatedState } = rebaseStateCalendar(state, {
+    year: world.currentYear,
+    week: world.currentWeek,
+  });
+
   let airline;
   try {
     airline = await prisma.airline.create({
       data: {
         worldId: world.id,
         accountId: account.id,
-        name: state.airlineName,
-        hub: state.hub ?? hub,
-        state,
-        cash: BigInt(Math.round(state.cash ?? 0)),
-        marketCap: BigInt(Math.round(state.marketCap ?? 0)),
-        week: state.week ?? world.currentWeek,
-        joinedWeek: world.currentWeek,
+        name: worldDatedState.airlineName,
+        hub: worldDatedState.hub ?? hub,
+        state: worldDatedState,
+        cash: BigInt(Math.round(worldDatedState.cash ?? 0)),
+        marketCap: BigInt(Math.round(worldDatedState.marketCap ?? 0)),
+        // Linear week index, matching what the tick writes (see tickService's
+        // weekIndex) — NOT the week-of-year, which would read as week 1 for a
+        // world in its first January of year 5.
+        week: (world.currentYear - 1) * 52 + world.currentWeek,
+        // Also the LINEAR index, so "joined at week 137 of a 520-week world" is
+        // answerable. It used to store the week-of-year, which threw the year
+        // away (a join in year 3 recorded as "week 12").
+        joinedWeek: (world.currentYear - 1) * 52 + world.currentWeek,
         status: 'ACTIVE',
       },
     });
@@ -160,7 +184,7 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   // even at a full airport (the overshoot counts toward fullness).
   if (tc.gateScarcity === true) {
     const { seedHubGate } = await import('./gateService.mjs');
-    await seedHubGate(prisma, world.id, state.hub ?? hub, airline.id);
+    await seedHubGate(prisma, world.id, worldDatedState.hub ?? hub, airline.id);
   }
 
   // First player starts the clock: LOBBY → RUNNING, startedAt = now. The

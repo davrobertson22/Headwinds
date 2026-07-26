@@ -80,6 +80,11 @@ export function joinWorld(world, { accountId, airlineName, hub }) {
     // MULTIPLAYER_OBJECTIVE_TEMPLATES in the engine's data/objectives.js).
     enableObjectives: true, objectiveSet: 'multiplayer',
   });
+  // One world, one calendar: a mid-season joiner starts on the world's date, not
+  // at Y1W1. (The DB-backed path does the same via lib/calendar.mjs, which also
+  // shifts absolute-week schedules — a freshly seeded blob has none.)
+  state.week = world.week;
+  state.year = world.year;
   world.airlines.set(accountId, state);
   return state;
 }

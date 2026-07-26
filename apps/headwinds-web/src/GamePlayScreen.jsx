@@ -59,6 +59,14 @@ function TickCountdown({ nextTickAt, paceLabel }) {
 // passenger charts render immediately. Real entries the server records (with the
 // passenger split, network-size and efficiency detail) take precedence; the rest
 // are flagged `partial` and fill in with detail as new weeks tick.
+
+// The state blob's `week` is the week OF THE YEAR (1–52), so comparing raw
+// weeks to decide "has the server moved on?" breaks at every New Year: week 52
+// -> week 1 reads as going BACKWARDS, the client rejects the newer state, and the
+// UI wedges on December W4 until the player reloads the page. Always compare the
+// linear week index instead.
+const absWeekOfState = (s) => (((s?.year ?? 1) - 1) * 52) + (s?.week ?? 0);
+
 function withStatsBackfill(state) {
   if (!state) return state;
   const real = Array.isArray(state.statsHistory) ? state.statsHistory : [];
@@ -112,7 +120,7 @@ export default function GamePlayScreen({ worldId, token }) {
       // Only replace local state when the server has genuinely moved on (a tick
       // landed or first load) — don't stomp optimistic edits between polls.
       const local = stateRef.current;
-      if (!local || (d.state.week ?? 0) > (local.week ?? 0)) setState(withStatsBackfill(d.state));
+      if (!local || absWeekOfState(d.state) > absWeekOfState(local)) setState(withStatsBackfill(d.state));
       // Same-week polls still refresh the gate market (a rival's new listing /
       // an auction opening changes the world stamp but not our week). Server-
       // derived, so adopting it never stomps an optimistic edit.
@@ -161,7 +169,7 @@ export default function GamePlayScreen({ worldId, token }) {
       authedApi(`/worlds/${worldId}/used-aircraft/${listingId}/buy`, { method: 'POST', token })
         .then((res) => {
           if (res.state) setState((cur) => {
-            if (res.state.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+            if (res.state.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
             return withStatsBackfill(res.state);
           });
           return res;
@@ -184,7 +192,7 @@ export default function GamePlayScreen({ worldId, token }) {
         .then((res) => {
           // Full authoritative state (cash paid, gate added) — adopt it whole.
           if (res.state) setState((cur) => {
-            if (res.state.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+            if (res.state.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
             return withStatsBackfill({ ...res.state, gateMarket: res.gateMarket ?? res.state.gateMarket });
           });
           return res;
@@ -228,7 +236,7 @@ export default function GamePlayScreen({ worldId, token }) {
           if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
           setState((cur) => {
             if (seq !== decisionSeq.current) return cur;
-            if (res.state?.week != null && cur?.week != null && res.state.week < cur.week) return cur;
+            if (res.state?.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
             return withStatsBackfill(res.state);
           });
         })

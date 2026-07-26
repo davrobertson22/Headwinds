@@ -378,6 +378,7 @@ const WIKI = [
       ] },
       { h: 'How contested routes work' },
       { p: 'When two or more airlines fly the same city pair, the pair\'s passenger pool is **split between them** based on price, quality and frequency · the same demand model as everywhere else in the game. Undercut a rival and you take their passengers; let your quality slip and they take yours.' },
+      { p: 'Head-to-head figures cover your **whole operation** on a pair: if you fly it with three aircraft, the flights and seats per week shown are all three added together, and the fare and quality are blended across them. Seasonal routes only count in the months they actually operate.' },
       { tip: 'Everything about your network is public information, fares, frequencies, fleet. Assume your rivals are watching the same numbers about you that you watch about them.' },
       { h: 'Talking to rivals' },
       { p: 'Use **✉ Messages** in the bar above the game to message any player directly, or your alliance\'s shared board. Coordinate, negotiate, or declare your fare war in person.' },

@@ -40,8 +40,10 @@ export const isDevEmail = (email) => devEmails().includes((email ?? '').trim().t
 const DEFAULT_QUALITY = 62;
 const DEFAULT_SEATS = 170;
 
-// Average configured seats per flight across the rival's fleet assigned to a
-// route; falls back to the aircraft type's seat count, then a sane default.
+// Seats on the specific tail assigned to a route; falls back to a sane default.
+// NOTE: a city pair can be flown by several aircraft of different sizes, so
+// callers must weight this by each route's frequency rather than applying one
+// tail's seat count to the pair's whole schedule.
 function seatsForRoute(state, route) {
   const aircraft = (state.fleet ?? []).find((a) => a.id === route.aircraftId);
   const type = aircraft ? getAircraftType(aircraft.typeId) : null;
@@ -120,14 +122,25 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     const econ = s.routePricing?.[key]?.economy ?? r.ticketPrice ?? null;
     const ref = referencePrice(r.origin, r.destination);
     const freq = r.weeklyFrequency ?? 0;
+    const typeId = (s.fleet ?? []).find((a) => a.id === r.aircraftId)?.typeId ?? null;
     const prev = routes[key];
+    const frequency = (prev?.frequency ?? 0) + freq;
+    // Capacity has to be summed PER AIRCRAFT — one pair can be flown by a
+    // widebody and a turboprop, and `seats × totalFrequency` is wrong for both.
+    const seatsPerWeek = (prev?.seatsPerWeek ?? 0) + seatsForRoute(s, r) * freq;
+    const aircraftTypes = prev?.aircraftTypes ? [...prev.aircraftTypes] : [];
+    if (typeId && !aircraftTypes.includes(typeId)) aircraftTypes.push(typeId);
     routes[key] = {
-      frequency: (prev?.frequency ?? 0) + freq,
+      frequency,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : (prev?.priceMultiplier ?? 1),
       // Open book: rivals see the ACTUAL fare, not a reverse-engineered multiple.
       economyFare: econ != null ? Math.round(econ) : (prev?.economyFare ?? null),
-      seats: prev?.seats ?? seatsForRoute(s, r),
-      aircraftType: prev?.aircraftType ?? (s.fleet ?? []).find((a) => a.id === r.aircraftId)?.typeId ?? null,
+      // Total weekly capacity on the pair, plus the blended seats-per-flight
+      // (`seats`) kept for older clients that still do seats × frequency.
+      seatsPerWeek,
+      seats: frequency > 0 ? Math.round(seatsPerWeek / frequency) : (prev?.seats ?? DEFAULT_SEATS),
+      aircraftTypes,
+      aircraftType: aircraftTypes[0] ?? null,
     };
   }
   const history = (s.financialHistory ?? []).slice(-12);
@@ -189,10 +202,21 @@ export function toRivalSpecs(airlineRow) {
       qualityScore: quality,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,
-      seatsPerFlight: seatsForRoute(s, r),
+      seatsPerFlight: 0,
+      _seatsPerWeek: 0,
     };
-    spec.frequency += r.weeklyFrequency ?? 0;
+    const freq = r.weeklyFrequency ?? 0;
+    spec.frequency += freq;
+    // Mixed fleets: blend seats-per-flight by frequency instead of letting the
+    // first aircraft found stand in for every flight on the pair.
+    spec._seatsPerWeek += seatsForRoute(s, r) * freq;
     byPair[key] = spec;
+  }
+  for (const spec of Object.values(byPair)) {
+    spec.seatsPerFlight = spec.frequency > 0
+      ? Math.round(spec._seatsPerWeek / spec.frequency)
+      : DEFAULT_SEATS;
+    delete spec._seatsPerWeek;
   }
   return byPair;
 }
