@@ -33,15 +33,34 @@ export class MarketError extends Error {
 }
 
 /**
+ * Canonical pool-ledger key for an airline.
+ *
+ * The same airline is addressed by TWO ids depending on the caller: rival-view
+ * payloads (and therefore trades, whose targetId comes off a competitor entry)
+ * use `human:<dbId>`, while capital actions and dividend plumbing use the raw
+ * DB id. The pool ledger MUST NOT split one airline's inventory across two
+ * keys — that made buybacks invisible to trades and vice versa — so every read
+ * and write normalises to the raw DB id here.
+ */
+export function poolKeyOf(id) {
+  return String(id ?? '').replace(/^human:/, '');
+}
+
+/**
  * The pool's share inventory for one airline.
  *
  * The pool starts holding every airline's entire free float (everything outside
  * the founder block) and hands it out as players buy. A missing entry therefore
  * means "untouched", not "empty" — otherwise no airline would ever be buyable.
+ *
+ * Reads are prefix-tolerant: ledgers written before key normalisation hold
+ * entries under `human:<id>`, which stay readable (canonical key wins if both
+ * somehow exist) until a write migrates them.
  */
 export function poolSharesFor(market, airlineId, shareState) {
   const holdings = (market?.holdings && typeof market.holdings === 'object') ? market.holdings : {};
-  const recorded = airlineId != null ? Number(holdings[airlineId]) : NaN;
+  const key = airlineId != null ? poolKeyOf(airlineId) : null;
+  const recorded = key != null ? Number(holdings[key] ?? holdings[`human:${key}`]) : NaN;
   if (Number.isFinite(recorded)) return Math.max(0, recorded);
   return Math.max(0, Math.round(freeFloatOf(shareState)));
 }
@@ -127,7 +146,9 @@ export async function applyTradeToPoolTx(tx, { market, trade, targetState }) {
   const nextShares = isBuy ? available - trade.shares : available + trade.shares;
 
   const holdings = { ...(market.holdings && typeof market.holdings === 'object' ? market.holdings : {}) };
-  holdings[trade.targetId] = Math.max(0, Math.round(nextShares));
+  const key = poolKeyOf(trade.targetId);
+  holdings[key] = Math.max(0, Math.round(nextShares));
+  delete holdings[`human:${key}`];   // migrate any pre-normalisation entry
 
   const res = await tx.worldMarket.updateMany({
     where: { id: market.id, version: market.version },
@@ -179,7 +200,9 @@ export async function applyCapitalActionToPoolTx(tx, { market, action, airlineId
   const nextShares = isBuyback ? held - action.shares : held + action.shares;
 
   const holdings = { ...(market.holdings && typeof market.holdings === 'object' ? market.holdings : {}) };
-  holdings[airlineId] = Math.max(0, Math.round(nextShares));
+  const key = poolKeyOf(airlineId);
+  holdings[key] = Math.max(0, Math.round(nextShares));
+  delete holdings[`human:${key}`];   // migrate any pre-normalisation entry
 
   const res = await tx.worldMarket.updateMany({
     where: { id: market.id, version: market.version },
@@ -282,10 +305,16 @@ export function splitDividend({ perShare, totalPaid, payerId, holders }) {
  * @param {Array} airlines  [{ id, state }] every active airline in the world
  */
 export function holdersOf(airlines, payerId) {
+  // Portfolio holdings are keyed by the COMPETITOR id the holder traded against
+  // (`human:<dbId>`), while payers are identified by raw DB id — so the lookup
+  // must try both spellings or it finds no holders at all (which silently sent
+  // every dividend's rival-holder slice out of the world).
+  const key = poolKeyOf(payerId);
   const out = [];
   for (const a of airlines ?? []) {
-    if (!a || a.id === payerId) continue;
-    const held = a.state?.portfolio?.holdings?.[payerId];
+    if (!a || poolKeyOf(a.id) === key) continue;
+    const holdings = a.state?.portfolio?.holdings;
+    const held = holdings?.[key] ?? holdings?.[`human:${key}`];
     if (held?.shares > 0) out.push({ airlineId: a.id, shares: Number(held.shares) });
   }
   return out;

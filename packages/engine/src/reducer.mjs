@@ -3672,12 +3672,22 @@ function reducer(state, action) {
       // issuance and buybacks move, so this is read per-airline, never assumed).
       if (heldShares + shares > S.MAX_OWNERSHIP_PCT * targetShares) return state;
 
+      // Privately held rivals have no float to buy. The rival view marks them
+      // (isPublic === false); older payloads without the flag stay tradeable.
+      if (target.isPublic === false) return state;
+
       // Float pool: shares come FROM the pool's inventory, so it has to hold
       // them. `worldMarket` is injected by the server (never persisted, never
-      // client-supplied); solo has none and keeps the legacy counterparty.
+      // client-supplied). The CLIENT'S optimistic run has no worldMarket, so it
+      // falls back to the rival view's `poolShares` — without that fallback a
+      // buy the pool cannot fill "succeeded" locally and then reversed when the
+      // authoritative state came back. Solo has neither and keeps the legacy
+      // unbounded counterparty.
       const buyMarket = state.worldMarket;
-      if (buyMarket && Number.isFinite(buyMarket.sharesAvailable)
-          && shares > buyMarket.sharesAvailable) return state;
+      const buyAvailable = (buyMarket && Number.isFinite(buyMarket.sharesAvailable))
+        ? buyMarket.sharesAvailable
+        : (Number.isFinite(Number(target.poolShares)) ? Number(target.poolShares) : null);
+      if (buyAvailable != null && shares > buyAvailable) return state;
 
       // Execution price includes the order's OWN weight against the free float:
       // a large stake cannot be accumulated at the marked price.
@@ -3737,7 +3747,12 @@ function reducer(state, action) {
       // to how much of the free float you are unloading — plus an extra discount
       // when the world's pool is short of cash (a market with no buyers left).
       const sellFloat  = target ? freeFloatOf(target) : freeFloatOf(held);
-      const sellMarket = state.worldMarket;
+      // Authoritative pool view where the server injected one; the client's
+      // optimistic run falls back to the server-derived stockPool summary so a
+      // sale the pool cannot fund is rejected locally too (matching the server)
+      // instead of appearing to succeed and then reversing.
+      const sellMarket = state.worldMarket
+        ?? (Number.isFinite(Number(state.stockPool?.poolCash)) ? state.stockPool : null);
       const liqDiscount = sellMarket
         ? poolLiquidityDiscount(sellMarket.poolCash, sellMarket.seedCash)
         : 0;

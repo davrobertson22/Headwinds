@@ -100,6 +100,19 @@ export default function GamePlayScreen({ worldId, token }) {
   const [state, setState] = useState(null);
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
+  // A decision the SERVER rejected (409 etc.). Kept separate from transport
+  // `error` because a good poll wipes that one almost instantly — which made
+  // rejection messages ("only N shares available…") flash for a fraction of a
+  // second while the optimistic state visibly reversed, unreadable. This one
+  // stays up until dismissed or replaced (auto-clears after 15s).
+  const [actionNotice, setActionNotice] = useState(null);
+  const actionNoticeTimer = useRef(null);
+  const showActionNotice = useCallback((msg) => {
+    setActionNotice(msg);
+    if (actionNoticeTimer.current) clearTimeout(actionNoticeTimer.current);
+    actionNoticeTimer.current = setTimeout(() => setActionNotice(null), 15000);
+  }, []);
+  useEffect(() => () => { if (actionNoticeTimer.current) clearTimeout(actionNoticeTimer.current); }, []);
   const [sessionExpired, setSessionExpired] = useState(false);
   const stateRef = useRef(null);
   stateRef.current = state;
@@ -305,7 +318,11 @@ export default function GamePlayScreen({ worldId, token }) {
         .catch((e) => {
           writesInFlight.current -= 1;
           if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
-          setError(e);
+          // A real server rejection carries the reason the action reversed —
+          // show it somewhere the player can actually read it. Transport
+          // failures keep the transient-error / reconnecting treatment.
+          if (isTransientError(e)) setError(e);
+          else showActionNotice(String(e.message || e));
           // Rejected → resync from the server. If it failed on the wire we may
           // have missed ticks too, so let resync() decide how deep to go.
           if (isTransientError(e)) resync(); else load();
@@ -324,6 +341,26 @@ export default function GamePlayScreen({ worldId, token }) {
       <>
         {/* Connection state beats the raw error text: "reconnecting" is what
             the player can act on (or wait out), and it used to be invisible. */}
+        {actionNotice ? (
+          <span
+            className="error hw-topbar-err"
+            title={actionNotice}
+            style={{
+              fontSize: 12, maxWidth: 340, display: 'inline-flex', alignItems: 'center', gap: 6,
+              overflow: 'hidden', whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{actionNotice}</span>
+            <button
+              onClick={() => setActionNotice(null)}
+              aria-label="Dismiss"
+              style={{
+                background: 'none', border: 'none', color: 'inherit', cursor: 'pointer',
+                padding: 0, fontSize: 12, lineHeight: 1, flexShrink: 0,
+              }}
+            >✕</button>
+          </span>
+        ) : null}
         {connLost ? (
           <span
             className="error hw-topbar-err hw-reconnecting"
@@ -342,7 +379,7 @@ export default function GamePlayScreen({ worldId, token }) {
         <MessagesWidget worldId={worldId} token={token} />
       </>
     ),
-  }), [meta, error, connLost, worldId, token]);
+  }), [meta, error, connLost, actionNotice, worldId, token]);
 
   if (sessionExpired) {
     return (

@@ -72,6 +72,11 @@ function PriceSparkline({ history, width = 84, height = 26 }) {
 function TradeModal({ carrier, side, state, onSubmit, onClose }) {
   const S          = STOCK_MARKET;
   const price      = priceOf(carrier);
+  // Float-pool visibility (multiplayer): how many of this carrier's shares the
+  // market can actually sell you, and how much investor cash is left to absorb
+  // a sale. Server-derived; absent in solo (no caps there).
+  const poolShares = Number.isFinite(Number(carrier.poolShares)) ? Number(carrier.poolShares) : null;
+  const pool       = state.stockPool ?? null;
   // The ownership cap is a share of THIS carrier's float, which issuance and
   // buybacks move — never a global constant.
   const targetShares = sharesOf(carrier);
@@ -93,7 +98,12 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
   const ownCapBudget = S.MAX_PORTFOLIO_PCT_OF_CAP * (state.marketCap ?? 0);
   let blocked = null;
   if (price == null)                        blocked = 'No price for this airline yet.';
+  else if (carrier.isPublic === false)      blocked = `${carrier.name} is privately held — its shares aren't on the market yet.`;
   else if (shares <= 0)                     blocked = null; // nothing entered yet
+  else if (isBuy && poolShares != null && poolShares <= 0)
+    blocked = 'No shares available — other investors hold the entire float.';
+  else if (isBuy && poolShares != null && shares > poolShares)
+    blocked = `Only ${fmtShares(poolShares)} shares are available from other investors right now.`;
   else if (isBuy && gross < S.MIN_TICKET)   blocked = `Minimum trade is ${formatMoney(S.MIN_TICKET)}.`;
   else if (isBuy && heldShares + shares > S.MAX_OWNERSHIP_PCT * targetShares)
     blocked = `You can own at most ${Math.round(S.MAX_OWNERSHIP_PCT * 100)}% of an airline (${fmtShares(Math.floor(S.MAX_OWNERSHIP_PCT * targetShares))} shares).`;
@@ -101,6 +111,8 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
     blocked = `Portfolio limit: your total invested cost can't exceed ${Math.round(S.MAX_PORTFOLIO_PCT_OF_CAP * 100)}% of your own market cap (${formatMoney(ownCapBudget)}).`;
   else if (isBuy && total > state.cash)     blocked = 'Not enough cash.';
   else if (!isBuy && shares > heldShares)   blocked = `You only hold ${fmtShares(heldShares)} shares.`;
+  else if (!isBuy && pool && Number.isFinite(Number(pool.poolCash)) && gross > pool.poolCash)
+    blocked = `The market can only absorb about ${formatMoney(pool.poolCash)} right now — try a smaller sale.`;
 
   const ready = shares > 0 && !blocked;
 
@@ -110,7 +122,10 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
     const byCash  = Math.floor((state.cash * 0.999) / (price * (1 + S.SPREAD_HALF) * (1 + S.COMMISSION)));
     const byOwn   = Math.floor(S.MAX_OWNERSHIP_PCT * targetShares - heldShares);
     const byLimit = Math.floor(Math.max(0, ownCapBudget - basisTotal) / (price * (1 + S.SPREAD_HALF) * (1 + S.COMMISSION)));
-    return Math.max(0, Math.min(byCash, byOwn, byLimit));
+    // The pool can't sell you shares it no longer holds — cap Max by what's
+    // actually left, so a max-fill order can't come back rejected.
+    const byPool  = poolShares != null ? poolShares : Infinity;
+    return Math.max(0, Math.min(byCash, byOwn, byLimit, byPool));
   })();
 
   return (
@@ -127,6 +142,7 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Market price {fmtPrice(price)} · you hold {fmtShares(heldShares)} shares
+              {isBuy && poolShares != null && <> · {fmtShares(poolShares)} available to buy</>}
             </div>
           </div>
           <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
@@ -554,6 +570,12 @@ export default function StockMarket() {
               const price = priceOf(c);
               const held  = portfolio.holdings?.[c.id];
               const stakeValue = held?.shares > 0 && price != null ? held.shares * price : null;
+              const cPool = Number.isFinite(Number(c.poolShares)) ? Number(c.poolShares) : null;
+              const isPrivate = c.isPublic === false;
+              const soldOut   = !isPrivate && cPool != null && cPool <= 0;
+              const buyTitle  = isPrivate ? 'Privately held — not on the market yet'
+                : soldOut ? 'No shares available — other investors hold the entire float'
+                : cPool != null ? `${cPool.toLocaleString()} shares available` : undefined;
               return (
                 <tr key={c.id} style={{ borderTop: '1px solid var(--border)' }}>
                   <td style={{ padding: '9px 14px' }}>
@@ -582,8 +604,11 @@ export default function StockMarket() {
                   </td>
                   <td style={{ textAlign: 'right', padding: '9px 14px', whiteSpace: 'nowrap' }}>
                     <button className="btn" style={{ fontSize: 11.5, padding: '3px 10px', marginRight: 6 }}
-                      disabled={price == null}
-                      onClick={() => setTicket({ carrier: c, side: 'buy' })}>Buy</button>
+                      disabled={price == null || isPrivate || soldOut}
+                      title={buyTitle}
+                      onClick={() => setTicket({ carrier: c, side: 'buy' })}>
+                      {isPrivate ? 'Private' : soldOut ? 'Sold out' : 'Buy'}
+                    </button>
                     <button className="btn btn-ghost" style={{ fontSize: 11.5, padding: '3px 10px' }}
                       disabled={!(held?.shares > 0)}
                       onClick={() => setTicket({ carrier: c, side: 'sell' })}>Sell</button>

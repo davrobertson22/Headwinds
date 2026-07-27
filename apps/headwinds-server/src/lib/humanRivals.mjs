@@ -22,6 +22,7 @@ import { referencePrice, TOTAL_SHARES } from '@tailwinds/engine/utils/market.js'
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
+import { poolSharesFor, poolSummary } from './marketService.mjs';
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
 
@@ -166,6 +167,12 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // client's ownership caps and mark-to-market must read it rather than assume
     // a fixed float. Falls back to the founder count for pre-rework blobs.
     shares: Number(s.equity?.shares ?? TOTAL_SHARES),
+    // Real equity structure, when the blob has one. Without these the engine's
+    // freeFloatOf() falls back to assuming a 30% float — which invented a
+    // tradeable float for PRIVATE airlines and misstated it for listed ones.
+    ...(Number.isFinite(Number(s.equity?.founderShares))
+      ? { founderShares: Number(s.equity.founderShares) } : {}),
+    ...(s.equity ? { isPublic: s.equity.isPublic !== false } : {}),
     // Markets tab: last 26 weekly share prices (tiny — ~26 floats per rival) so
     // clients can chart every listed airline without extra reads.
     sharePriceHistory: (s.statsHistory ?? [])
@@ -255,6 +262,7 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
       competitors,
       humanRivals,
       alliance: allianceMap.get(me.id) ?? null,
+      stockPool: null,   // filled in by attachStockPool (worlds with a float pool)
       // The player's OWN badges (shown on their leaderboard row in-game).
       selfOG: me.account?.isOG === true,
       selfDev: isDevEmail(me.account?.email),
@@ -271,6 +279,10 @@ export function withRivals(state, view) {
   return {
     ...state,
     multiplayer: true,
+    // Float-pool summary (investor cash left, liquidity state) so the Stocks tab
+    // can explain sell-side liquidity BEFORE the server rejects a trade. Server-
+    // derived like the views; stripped before persistence.
+    stockPool: view?.stockPool ?? null,
     // Gate scarcity worlds only: the live gate-market view (airport capacities,
     // holdings, open auctions + your sealed bid, marketplace listings). Rebuilt
     // on every read/tick like the rival views; stripped before persistence.
@@ -310,7 +322,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev,
-    gateMarket, worldMarket,
+    gateMarket, worldMarket, stockPool,
     ...rest
   } = state;
   return rest;
@@ -342,9 +354,32 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     return views;
   };
 
+  // Float pool visibility: every competitor entry carries `poolShares` (how many
+  // of its shares the pool can still sell to a buyer) and each view carries a
+  // `stockPool` summary. Without this the CLIENT had no idea what was buyable —
+  // the trade ticket happily submitted orders for shares other investors already
+  // held, which came back as a confusing 409 and a reverted purchase. Competitor
+  // objects are shared across views, so one pass over the map covers everyone.
+  // No pool row yet (no trade ever happened) → poolShares falls back to the free
+  // float, which is exactly what the settle path assumes too.
+  const attachStockPool = async (views) => {
+    const market = await prisma.worldMarket.findUnique({ where: { worldId } }).catch(() => null);
+    const summary = poolSummary(market);
+    const seen = new Set();
+    for (const view of views.values()) {
+      view.stockPool = summary;
+      for (const c of view.competitors) {
+        if (!c || seen.has(c.id)) continue;
+        seen.add(c.id);
+        c.poolShares = poolSharesFor(market, c.id, c);
+      }
+    }
+    return views;
+  };
+
   if (airlines) {
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachGates(airlines, allianceMap, buildRivalViews(airlines, allianceMap));
+    return attachStockPool(await attachGates(airlines, allianceMap, buildRivalViews(airlines, allianceMap)));
   }
   const hit = viewCache.get(worldId);
   if (hit && stamp != null && hit.stamp === stamp && Date.now() - hit.at < RIVAL_VIEW_CACHE_TTL_MS) {
@@ -358,7 +393,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
       include: { account: { select: { isOG: true, email: true } } },
     });
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachGates(rows, allianceMap, buildRivalViews(rows, allianceMap));
+    return attachStockPool(await attachGates(rows, allianceMap, buildRivalViews(rows, allianceMap)));
   })();
   viewCache.set(worldId, { stamp, at: Date.now(), promise });
   promise.catch(() => viewCache.delete(worldId)); // never cache a failed read

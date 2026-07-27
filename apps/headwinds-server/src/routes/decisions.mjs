@@ -239,9 +239,10 @@ export default async function decisionRoutes(fastify) {
     const isCapitalAction = type === 'GO_PUBLIC' || type === 'ISSUE_SHARES'
                          || type === 'BUY_BACK_SHARES';
     let market = null;
+    let tradeTarget = null;
     if (isStockTrade || isCapitalAction) {
       market = await ensureWorldMarket(prisma, airline.worldId);
-      const tradeTarget = (injected.competitors ?? []).find((c) => c.id === guarded.targetId);
+      tradeTarget = (injected.competitors ?? []).find((c) => c.id === guarded.targetId);
       injected.worldMarket = marketViewFor(market, tradeTarget, {
         id: airline.id, ...(injected.equity ?? {}),
       });
@@ -262,14 +263,37 @@ export default async function decisionRoutes(fastify) {
     }
 
     // A trade the pool could not support comes back as an unchanged state. Say why
-    // instead of returning a silent no-op the player reads as a broken button.
+    // instead of returning a silent no-op the player reads as a broken button —
+    // including PARTIAL availability, which previously reverted with no message
+    // at all (the engine rejects rather than fills short, so an ask one share
+    // over the pool's inventory looked identical to a successful buy until the
+    // authoritative state snapped back).
     if (isStockTrade && market && next === injected) {
       const view = injected.worldMarket;
-      if (type === 'SELL_STOCK' && view && view.poolCash <= 0) {
-        throw httpError(409, 'There are no buyers left in this market right now.');
+      const name = tradeTarget?.name ?? 'that airline';
+      const fmtN = (n) => Math.max(0, Math.floor(n)).toLocaleString('en-US');
+      if (type === 'SELL_STOCK' && view) {
+        if (view.poolCash <= 0) {
+          throw httpError(409, 'There are no buyers left in this market right now.');
+        }
+        // Only blame liquidity when liquidity is actually the blocker — a sell
+        // can also no-op because the ask exceeds the held position (the client
+        // guards that, but the server must not mislabel it).
+        const heldSh = injected.portfolio?.holdings?.[guarded.targetId]?.shares ?? 0;
+        if (Number(guarded.shares) > 0 && Number(guarded.shares) <= heldSh) {
+          throw httpError(409, `The market can only absorb about $${fmtN(view.poolCash)} right now — try a smaller sale.`);
+        }
       }
-      if (type === 'BUY_STOCK' && view && view.sharesAvailable <= 0) {
-        throw httpError(409, 'None of that airline\'s float is available — other investors hold it all.');
+      if (type === 'BUY_STOCK' && view) {
+        if (tradeTarget?.isPublic === false) {
+          throw httpError(409, `${name} is privately held — its shares are not on the market yet.`);
+        }
+        if (view.sharesAvailable <= 0) {
+          throw httpError(409, `None of ${name}'s float is available right now — other investors hold it all.`);
+        }
+        if (Number(guarded.shares) > view.sharesAvailable) {
+          throw httpError(409, `Only ${fmtN(view.sharesAvailable)} shares of ${name} are available right now — other investors hold the rest.`);
+        }
       }
     }
 
@@ -368,7 +392,6 @@ export default async function decisionRoutes(fastify) {
         // next.lastStockTrade (what actually executed) — never the request, which
         // the reducer may have filled short or rejected outright.
         if (isStockTrade && market && next.lastStockTrade?.shares > 0) {
-          const tradeTarget = (injected.competitors ?? []).find((c) => c.id === guarded.targetId);
           await applyTradeToPoolTx(tx, {
             market, trade: next.lastStockTrade, targetState: tradeTarget,
           });
