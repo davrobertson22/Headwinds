@@ -69,6 +69,7 @@ function describe(e) {
     };
     case 'gate_auction_opened': return { who: d.airport, what: `gate auction opened — ${plural(d.lots ?? 1, 'gate', 'gates')} on offer`, icon: '🔨' };
     case 'gate_auction_won':    return { who: e.airline, what: `won ${plural(d.gates ?? 1, 'gate', 'gates')} at ${d.airport}`, icon: '🔨' };
+    case 'gate_auction_unsold': return { who: d.airport, what: 'gate auction closed — no gates sold', icon: '🔨' };
     case 'gate_sold':           return { who: e.airline, what: `sold a ${d.airport} gate to ${d.buyer}`, icon: '🤝' };
     case 'used_aircraft_sold':  return { who: e.airline, what: `picked up a used ${typeName(d.typeId)}`, icon: '🏷️' };
     case 'joined':              return { who: e.airline, what: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}`, icon: '🛬' };

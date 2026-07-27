@@ -332,6 +332,9 @@ model GateAuction {
   resolvesWeek Int // linear week index of the year tick that resolves it
   status       String    @default("OPEN") // OPEN | RESOLVED | CANCELLED
   results      Json? // [{ airlineId, airline, gates, pricePerGate }] at resolution
+  // One entry per BID at resolution — winners and losers alike, each with the
+  // reason it went that way. Null on auctions resolved before this existed.
+  outcomes     Json? // [{ airlineId, airline, amount, quantity, gates, reason, detail }]
   resolvedAt   DateTime?
   createdAt    DateTime  @default(now())
   bids         GateBid[]

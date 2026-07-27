@@ -37,6 +37,7 @@ const PAGE = 40;
 const NAV_TARGET = {
   gate_auction_opened: { tab: 'airports', focus: 'gate-market', cta: 'Place a sealed bid' },
   gate_auction_won:    { tab: 'airports', focus: 'gate-market' },
+  gate_auction_unsold: { tab: 'airports', focus: 'gate-market' },
   gate_sold:           { tab: 'airports', focus: 'gate-market' },
 };
 
@@ -167,6 +168,14 @@ export function compose(item) {
         icon: '🔨',
         headline: `won ${plural(d.gates ?? 1, 'gate', 'gates')} at ${d.airport}`,
         sub: d.pricePerGate ? `${formatMoney(d.pricePerGate)} per gate` : null,
+      };
+    case 'gate_auction_unsold':
+      return {
+        icon: '🔨',
+        subject: d.airport,
+        headline: `gate auction closed — no gates sold${d.lots ? ` (${plural(d.lots, 'gate', 'gates')} were on offer)` : ''}`,
+        sub: d.bids ? `${plural(d.bids, 'bid', 'bids')} placed, none could be awarded.` : 'No bids were placed.',
+        standalone: true,
       };
     case 'gate_sold':
       return {

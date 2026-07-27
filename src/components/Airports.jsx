@@ -218,6 +218,22 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
   );
 }
 
+// Why a sealed bid did or didn't turn into gates. Mirrors the reasons the
+// server records on GateAuction.outcomes at resolution.
+const AUCTION_OUTCOME = {
+  WON:               'won',
+  OUTBID:            'outbid — the gates went to higher bids',
+  BELOW_RESERVE:     'below the reserve price, so it never qualified',
+  INSUFFICIENT_CASH: 'won on price but voided — bids are not escrowed, and the cash has to be there when the auction resolves',
+  OWNERSHIP_CAP:     'voided by the single-airline ownership cap',
+  ALLIANCE_CAP:      'voided by the alliance ownership cap',
+  LOCKED_OUT:        'voided — you were locked out of this airport',
+  AIRLINE_INACTIVE:  'voided — your airline was not active at resolution',
+  NO_LEDGER_ROW:     'voided — the airport had no gate ledger to award from',
+  WRITE_CONFLICT:    'voided — your airline changed mid-award; nothing was charged',
+  NOT_RECORDED:      'did not win (this auction predates per-bid result tracking)',
+};
+
 // ─── Gate Market (scarcity worlds): sealed auction bids + player listings ────
 function GateMarketSection({ state, remoteApi }) {
   const [err, setErr] = useState(null);
@@ -233,6 +249,12 @@ function GateMarketSection({ state, remoteApi }) {
   const auctions = Object.entries(market)
     .filter(([, m]) => m.auction)
     .sort(([a], [b]) => a.localeCompare(b));
+  // Sealed auctions used to leave no trace once they resolved: the section
+  // simply stopped rendering them, so "did I win?" had no answer anywhere in
+  // the game. The server now returns recent results, newest first.
+  const pastAuctions = Object.entries(market)
+    .filter(([, m]) => m.lastAuction)
+    .sort(([, a], [, b]) => b.lastAuction.resolvedWeek - a.lastAuction.resolvedWeek);
   const listings = Object.entries(market)
     .flatMap(([code, m]) => (m.listings ?? []).map((l) => ({ ...l, code })))
     .sort((a, b) => a.code.localeCompare(b.code) || a.askPrice - b.askPrice);
@@ -246,7 +268,7 @@ function GateMarketSection({ state, remoteApi }) {
     })
     .filter((x) => x.free > 0);
 
-  if (auctions.length === 0 && listings.length === 0 && sellable.length === 0) return null;
+  if (auctions.length === 0 && pastAuctions.length === 0 && listings.length === 0 && sellable.length === 0) return null;
 
   const run = (fn) => {
     setBusy(true); setErr(null);
@@ -329,6 +351,49 @@ function GateMarketSection({ state, remoteApi }) {
                       </button>
                     )}
                   </span>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* Resolved auctions — including the ones that sold nothing, which is
+            precisely the case that used to produce no signal at all. */}
+        {pastAuctions.length > 0 && (
+          <>
+            <div style={SUB}>📜 Recent auction results</div>
+            {pastAuctions.map(([code, m]) => {
+              const r = m.lastAuction;
+              const weeksAgo = Math.max(0, weekNow - r.resolvedWeek);
+              return (
+                <div key={`past-${code}`} style={{ padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, minWidth: 36 }}>{code}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {r.sold > 0
+                        ? `${r.sold} of ${r.lots} gate${r.lots > 1 ? 's' : ''} sold`
+                        : `no gates sold — ${r.bidCount === 0 ? 'nobody bid' : 'no bid could be awarded'}`}
+                      {' · '}resolved {weeksAgo === 0 ? 'this week' : `${weeksAgo} wk${weeksAgo === 1 ? '' : 's'} ago`}
+                    </span>
+                  </div>
+                  {r.winners.length > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, paddingLeft: 46 }}>
+                      {r.winners.map((w, i) => (
+                        <span key={i} style={{ marginRight: 12, color: w.yours ? 'var(--accent)' : undefined, fontWeight: w.yours ? 600 : 400 }}>
+                          {w.yours ? 'You' : w.name} ×{w.gates} at {formatMoney(w.pricePerGate)}/gate
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {r.yours && (
+                    <div style={{
+                      fontSize: 11, marginTop: 4, paddingLeft: 46, fontWeight: 600,
+                      color: r.yours.reason === 'WON' ? 'var(--accent)' : 'var(--amber, var(--text-muted))',
+                    }}>
+                      Your bid ({formatMoney(r.yours.amount ?? 0)}/gate × {r.yours.quantity ?? 1}): {AUCTION_OUTCOME[r.yours.reason] ?? 'did not win'}
+                      {r.yours.detail ? ` — ${r.yours.detail}` : ''}
+                    </div>
+                  )}
                 </div>
               );
             })}

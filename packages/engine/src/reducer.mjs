@@ -1265,6 +1265,38 @@ function reducer(state, action) {
     // marketplace), exactly like alliance membership is server-governed. They
     // keep ALL cash math inside the engine so client, API and worker agree.
 
+    case 'GATE_BID_LOST': {
+      // Sealed-bid loser's notice. No state changes hands — this exists purely
+      // so a losing bid is not silent. Before it, an auction you bid in and did
+      // not win produced nothing at all: no toast, no feed item, and the auction
+      // itself dropped out of the Airports tab the moment it resolved.
+      const { airportCode, reason, detail, amount = 0, quantity = 1 } = action;
+      const bid = `$${Math.round(amount).toLocaleString()}/gate × ${quantity}`;
+      const message = ({
+        OUTBID:
+          `Your ${bid} bid at ${airportCode} was outbid — the gates went to higher bids.`,
+        BELOW_RESERVE:
+          `Your ${bid} bid at ${airportCode} was below the reserve price and did not qualify.`,
+        INSUFFICIENT_CASH:
+          `Your ${bid} bid at ${airportCode} won on price but was voided: bids are not escrowed and the cash has to be there when the auction resolves.`,
+        OWNERSHIP_CAP:
+          `Your ${bid} bid at ${airportCode} was voided by the single-airline ownership cap.`,
+        ALLIANCE_CAP:
+          `Your ${bid} bid at ${airportCode} was voided by the alliance ownership cap.`,
+        LOCKED_OUT:
+          `Your ${bid} bid at ${airportCode} was voided — you are locked out of that airport after a forfeited gate.`,
+      })[reason] ?? `Your ${bid} bid at ${airportCode} did not win.`;
+      return {
+        ...state,
+        pendingToasts: [...(state.pendingToasts ?? []), {
+          type: reason === 'OUTBID' || reason === 'BELOW_RESERVE' ? 'info' : 'warning',
+          title: '🔨 Auction lost',
+          message: detail ? `${message} (${detail})` : message,
+          duration: 11000,
+        }],
+      };
+    }
+
     case 'GATE_AWARDED': {
       // Auction win: `gates` gates at airportCode for pricePerGate each.
       const { airportCode, gates: won = 1, pricePerGate = 0 } = action;

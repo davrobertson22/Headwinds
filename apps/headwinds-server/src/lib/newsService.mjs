@@ -109,6 +109,7 @@ function baseTier(item) {
     case 'event_started': case 'event_ended':
     case 'bankruptcy': case 'abandoned': case 'rank_change':
     case 'alliance_founded': case 'gate_auction_won':
+    case 'gate_auction_unsold':
     case 'hub_designated': case 'hub_upgraded':
       return 1;
     case 'joined':
@@ -468,6 +469,27 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
         ...who(r.airlineId),
         data: { airport: a.airportCode, gates: r.gates, pricePerGate: r.pricePerGate },
       }))),
+
+    // An auction that sold nothing used to be pure silence: the "opened" item
+    // stayed in the feed forever with no sequel, and the airport's gate count
+    // never moved. Close the loop explicitly.
+    ...gateAuctions
+      .filter((a) => a.status === 'RESOLVED' && a.resolvedAt
+        && (cutoff ? a.resolvedAt < cutoff : true) && a.resolvedAt >= minAt
+        && (!Array.isArray(a.results) || a.results.length === 0))
+      .map((a) => ({
+        id: `gau:${a.id}`,
+        at: iso(a.resolvedAt),
+        category: 'airports',
+        kind: 'gate_auction_unsold',
+        airlineId: null,
+        airline: null,
+        data: {
+          airport: a.airportCode,
+          lots: a.lots,
+          bids: Array.isArray(a.outcomes) ? a.outcomes.length : null,
+        },
+      })),
 
     ...gateSales.map((l) => ({
       id: `gs:${l.id}`,

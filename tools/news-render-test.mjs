@@ -148,7 +148,7 @@ test('composes a real sentence for every item kind the server emits', async () =
     'event_started', 'event_ended', 'bankruptcy', 'rank_change',
     'routes_opened', 'routes_closed', 'fleet_in', 'fleet_out',
     'gates_added', 'gates_removed', 'hub_designated', 'hub_upgraded', 'focus_city',
-    'stock_tape', 'gate_auction_opened', 'gate_auction_won', 'gate_sold',
+    'stock_tape', 'gate_auction_opened', 'gate_auction_won', 'gate_auction_unsold', 'gate_sold',
     'used_aircraft_sold', 'joined', 'alliance_founded', 'alliance_joined', 'alliance_left',
   ];
   for (const kind of KINDS) {

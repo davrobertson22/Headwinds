@@ -17,7 +17,8 @@ import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
   GATE_FEE_BY_TIER, GATE_HUB_GUARANTEE, GATE_ANTI_FLIP_WEEKS,
   GATE_AUCTION_LOTS_BY_SIZE, GATE_AUCTION_OPEN_WEEK, GATE_AUCTION_TRIGGER,
-  GATE_BID_MAX_QTY, GATE_CAPACITY_GROWTH_CEILING, GATE_SURCHARGE_THRESHOLD,
+  GATE_AUCTION_RESULT_WEEKS, GATE_BID_MAX_QTY, GATE_CAPACITY_GROWTH_CEILING,
+  GATE_SURCHARGE_THRESHOLD,
 } from '@tailwinds/engine/data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '@tailwinds/engine/utils/simulation.js';
 
@@ -61,10 +62,65 @@ const holdingsCount = (row, airlineId) => row?.holdings?.[airlineId]?.count ?? 0
 // yourBid / listings ownership). Sparse: only airports with a ledger row, an
 // open auction, or an open listing appear — the client derives capacity for
 // untouched airports itself via gateCapacityOf.
+// One resolved auction, from the point of view of a single airline: what sold,
+// to whom, and — the part that was missing entirely — what became of YOUR bid.
+// `outcomes` is null on auctions resolved before it was recorded; the view then
+// falls back to what can still be derived from the winners list.
+function lastAuctionView(auction, meId, nameOf) {
+  const results = Array.isArray(auction.results) ? auction.results : [];
+  const outcomes = Array.isArray(auction.outcomes) ? auction.outcomes : null;
+  const myBid = (auction.bids ?? []).find((b) => b.airlineId === meId) ?? null;
+  const won = results.find((r) => r.airlineId === meId) ?? null;
+
+  let yours = null;
+  if (outcomes) {
+    const mine = outcomes.find((o) => o.airlineId === meId);
+    if (mine) {
+      yours = {
+        reason: mine.reason, detail: mine.detail ?? null, gates: mine.gates ?? 0,
+        amount: mine.amount ?? null, quantity: mine.quantity ?? null,
+      };
+    }
+  } else if (won) {
+    yours = { reason: 'WON', detail: null, gates: won.gates, amount: won.pricePerGate, quantity: won.gates };
+  } else if (myBid) {
+    yours = { reason: 'NOT_RECORDED', detail: null, gates: 0, amount: myBid.amount, quantity: myBid.quantity };
+  }
+
+  return {
+    year: auction.year,
+    lots: auction.lots,
+    reserve: auction.reserve,
+    resolvedWeek: auction.resolvesWeek,
+    bidCount: (auction.bids ?? []).length,
+    sold: results.reduce((n, r) => n + (r.gates ?? 0), 0),
+    winners: results.map((r) => ({
+      name: r.airline ?? nameOf.get(r.airlineId) ?? 'An airline',
+      gates: r.gates,
+      pricePerGate: r.pricePerGate,
+      yours: r.airlineId === meId,
+    })),
+    yours,
+  };
+}
+
 export async function buildGateMarketViews(prisma, worldId, { airlines, allianceMap = new Map(), world }) {
-  const [rows, auctions, listings] = await Promise.all([
+  // A resolved auction used to disappear from this view the moment it flipped
+  // status, so the only trace left of a sealed auction you bid in was silence.
+  // Recent results ride along and the client shows them for a few weeks.
+  const nowWeek = world ? worldWeekIndex(world) : null;
+  const [rows, auctions, resolved, listings] = await Promise.all([
     prisma.worldGate.findMany({ where: { worldId } }),
     prisma.gateAuction.findMany({ where: { worldId, status: 'OPEN' }, include: { bids: true } }),
+    prisma.gateAuction.findMany({
+      where: {
+        worldId,
+        status: 'RESOLVED',
+        ...(nowWeek === null ? {} : { resolvesWeek: { gte: nowWeek - GATE_AUCTION_RESULT_WEEKS } }),
+      },
+      include: { bids: true },
+      orderBy: { resolvesWeek: 'desc' },
+    }),
     prisma.gateListing.findMany({ where: { worldId, status: 'OPEN' } }),
   ]);
   const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
@@ -89,13 +145,15 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
     };
   }
   const auctionsByCode = new Map(auctions.map((a) => [a.airportCode, a]));
+  const resolvedByCode = new Map();
+  for (const a of resolved) if (!resolvedByCode.has(a.airportCode)) resolvedByCode.set(a.airportCode, a);
   const listingsByCode = new Map();
   for (const l of listings) {
     if (!listingsByCode.has(l.airportCode)) listingsByCode.set(l.airportCode, []);
     listingsByCode.get(l.airportCode).push(l);
   }
   // Airports that only exist as an auction/listing still need a base entry.
-  for (const code of [...auctionsByCode.keys(), ...listingsByCode.keys()]) {
+  for (const code of [...auctionsByCode.keys(), ...resolvedByCode.keys(), ...listingsByCode.keys()]) {
     if (!base[code]) {
       const cap = gateCapacityOf(getAirport(code));
       base[code] = { capacity: cap, baseSize: cap, taken: 0, maxYours: gateAirlineCapOf(cap), surcharge: false, holdings: {} };
@@ -110,6 +168,7 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
     for (const [code, b] of Object.entries(base)) {
       const auction = auctionsByCode.get(code);
       const myBid = auction?.bids.find((bd) => bd.airlineId === me.id);
+      const past = resolvedByCode.get(code);
       const codeListings = (listingsByCode.get(code) ?? []).map((l) => ({
         id: l.id,
         airportCode: code,
@@ -143,6 +202,7 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
           closesWeek:  auction.resolvesWeek,
           yourBid:     myBid ? { amount: myBid.amount, quantity: myBid.quantity } : null,
         } : null,
+        lastAuction: past ? lastAuctionView(past, me.id, nameOf) : null,
         listings: codeListings,
       };
     }
@@ -343,6 +403,13 @@ export async function openDueAuctions(prisma, world, { log = console } = {}) {
 // award pay-as-bid, add won gates to BOTH capacity and the winner's holding.
 // Winners must have the cash at resolution (bids are not escrowed) — a broke
 // winner is voided and the next bidder moves up.
+//
+// EVERY bid ends with a recorded outcome (auction.outcomes) and every losing
+// bidder is told, in game, why. Before that, a bid voided here — by the cash
+// check, an ownership cap, a lockout, or a lost CAS race — vanished without a
+// word: the auction flipped to RESOLVED, dropped out of the open-auction view,
+// and the feed only ever carried winners. "Nobody won and nothing was added"
+// was indistinguishable from "the auction never ran".
 export async function resolveDueAuctions(prisma, world, { log = console } = {}) {
   const weekIdx = worldWeekIndex(world);
   const due = await prisma.gateAuction.findMany({
@@ -359,31 +426,52 @@ export async function resolveDueAuctions(prisma, world, { log = console } = {}) 
 
   for (const auction of due) {
     const seed = world.worldSeed ?? world.id;
-    const ranked = [...auction.bids]
-      .filter((b) => b.amount >= auction.reserve)
+    const qualifying = auction.bids.filter((b) => b.amount >= auction.reserve);
+    const ranked = [...qualifying]
       .sort((a, b) => (b.amount - a.amount)
         || (seededRand(seed, `gatetie:${auction.id}:${b.airlineId}`)
           - seededRand(seed, `gatetie:${auction.id}:${a.airlineId}`)));
 
     let lotsLeft = auction.lots;
     const results = [];
+    const outcomes = [];
+    // placeBid refuses anything under the reserve, so these only exist if the
+    // reserve moved after the fact — record them rather than drop them.
+    for (const b of auction.bids) {
+      if (b.amount < auction.reserve) {
+        outcomes.push({
+          airlineId: b.airlineId, airline: null, amount: b.amount, quantity: b.quantity,
+          gates: 0, reason: 'BELOW_RESERVE', detail: null,
+        });
+      }
+    }
+
     for (const bid of ranked) {
-      if (lotsLeft <= 0) break;
+      const out = {
+        airlineId: bid.airlineId, airline: null, amount: bid.amount,
+        quantity: bid.quantity, gates: 0, reason: null, detail: null,
+      };
+      outcomes.push(out);
+
+      if (lotsLeft <= 0) { out.reason = 'OUTBID'; continue; }
+
       // Re-read the airline fresh — cash and caps as of RIGHT NOW.
-      const airline = await prisma.airline.findUnique({ where: { id: bid.airlineId } });
-      if (!airline || airline.status !== 'ACTIVE') continue;
+      let airline = await prisma.airline.findUnique({ where: { id: bid.airlineId } });
+      out.airline = airline?.name ?? null;
+      if (!airline || airline.status !== 'ACTIVE') { out.reason = 'AIRLINE_INACTIVE'; continue; }
 
       const row = await prisma.worldGate.findUnique({
         where: { worldId_airportCode: { worldId: world.id, airportCode: auction.airportCode } },
       });
-      if (!row) continue;
+      if (!row) { out.reason = 'NO_LEDGER_ROW'; continue; }
 
       // Clamp quantity to lots left and to the ownership caps AT THE GROWN
       // capacity (each awarded gate raises capacity by one as it lands).
       let q = Math.max(1, Math.min(GATE_BID_MAX_QTY, bid.quantity ?? 1));
       q = Math.min(q, lotsLeft);
       const mine = holdingsCount(row, bid.airlineId);
-      while (q > 0 && mine + q > gateAirlineCapOf(row.capacity + q)) q--;
+      let capBlock = null;
+      while (q > 0 && mine + q > gateAirlineCapOf(row.capacity + q)) { q--; capBlock = 'OWNERSHIP_CAP'; }
       const myAlliance = allianceMap.get(bid.airlineId);
       if (myAlliance && q > 0) {
         const allianceId = myAlliance.membership.allianceId;
@@ -391,28 +479,52 @@ export async function resolveDueAuctions(prisma, world, { log = console } = {}) 
         for (const [aid, m] of allianceMap) {
           if (m.membership.allianceId === allianceId) allianceTaken += row.holdings?.[aid]?.count ?? 0;
         }
-        while (q > 0 && allianceTaken + q > gateAllianceCapOf(row.capacity + q)) q--;
+        while (q > 0 && allianceTaken + q > gateAllianceCapOf(row.capacity + q)) { q--; capBlock = 'ALLIANCE_CAP'; }
       }
-      if (q <= 0) continue;
+      if (q <= 0) {
+        out.reason = capBlock ?? 'OWNERSHIP_CAP';
+        out.detail = out.reason === 'ALLIANCE_CAP'
+          ? `your alliance may hold at most ${gateAllianceCapOf(row.capacity + 1)} of ${row.capacity + 1} gates here`
+          : `you may hold at most ${gateAirlineCapOf(row.capacity + 1)} of ${row.capacity + 1} gates here, and already hold ${mine}`;
+        continue;
+      }
       // Lockout check: an airline locked out of this airport cannot win here.
       const lockedUntil = airline.state?.gateLockouts?.[auction.airportCode] ?? 0;
-      if (lockedUntil > weekIdx) continue;
+      if (lockedUntil > weekIdx) {
+        out.reason = 'LOCKED_OUT';
+        out.detail = `locked out until week ${lockedUntil}`;
+        continue;
+      }
       // Cash check — no escrow; broke winners are voided.
-      if ((airline.state?.cash ?? 0) < bid.amount * q) continue;
+      if ((airline.state?.cash ?? 0) < bid.amount * q) {
+        out.reason = 'INSUFFICIENT_CASH';
+        out.detail = `${q} gate${q > 1 ? 's' : ''} cost $${(bid.amount * q).toLocaleString()}, you held $${Math.round(airline.state?.cash ?? 0).toLocaleString()}`;
+        continue;
+      }
 
-      // Apply through the engine (cash math stays in the reducer), CAS both writes.
-      const next = gameReducer(airline.state, {
-        type: 'GATE_AWARDED', airportCode: auction.airportCode, gates: q, pricePerGate: bid.amount,
-      });
-      const wrote = await prisma.airline.updateMany({
-        where: { id: airline.id, version: airline.version },
-        data: {
-          state: next,
-          cash: BigInt(Math.round(next.cash ?? 0)),
-          version: { increment: 1 },
-        },
-      });
-      if (wrote.count === 0) continue; // the airline moved under us — skip; bid stands unresolved
+      // Apply through the engine (cash math stays in the reducer), CAS both
+      // writes. A lost race means a player decision landed between the read and
+      // the write — re-read once and try again rather than silently voiding a
+      // bid that was good.
+      let awarded = false;
+      for (let attempt = 0; attempt < 2 && !awarded; attempt++) {
+        const next = gameReducer(airline.state, {
+          type: 'GATE_AWARDED', airportCode: auction.airportCode, gates: q, pricePerGate: bid.amount,
+        });
+        const wrote = await prisma.airline.updateMany({
+          where: { id: airline.id, version: airline.version },
+          data: {
+            state: next,
+            cash: BigInt(Math.round(next.cash ?? 0)),
+            version: { increment: 1 },
+          },
+        });
+        if (wrote.count > 0) { awarded = true; break; }
+        const fresh = await prisma.airline.findUnique({ where: { id: bid.airlineId } });
+        if (!fresh || fresh.status !== 'ACTIVE' || (fresh.state?.cash ?? 0) < bid.amount * q) break;
+        airline = fresh;
+      }
+      if (!awarded) { out.reason = 'WRITE_CONFLICT'; continue; }
 
       const led = await mutateWorldGate(prisma, world.id, auction.airportCode, (r) => {
         const holdings = { ...(r.holdings ?? {}) };
@@ -425,17 +537,60 @@ export async function resolveDueAuctions(prisma, world, { log = console } = {}) 
       if (!led.ok) log.error?.(`[gates] award ledger update lost races at ${auction.airportCode}`);
 
       lotsLeft -= q;
+      out.gates = q;
+      out.reason = 'WON';
+      if (q < (bid.quantity ?? 1)) out.detail = `you bid for ${bid.quantity}, ${q} could be awarded`;
       results.push({ airlineId: airline.id, airline: airline.name, gates: q, pricePerGate: bid.amount });
+    }
+
+    // Tell the losers. Winners already get their toast from GATE_AWARDED; a
+    // losing bid used to produce nothing at all, which is the whole reason a
+    // resolved auction felt like it had never happened.
+    for (const out of outcomes) {
+      if (out.reason === 'WON') continue;
+      await notifyLosingBidder(prisma, {
+        airportCode: auction.airportCode, worldId: world.id, outcome: out, log,
+      });
     }
 
     await prisma.gateAuction.update({
       where: { id: auction.id },
-      data: { status: 'RESOLVED', results, resolvedAt: new Date() },
+      data: { status: 'RESOLVED', results, outcomes, resolvedAt: new Date() },
     });
-    log.info?.(`[gates] ${world.name}: auction at ${auction.airportCode} resolved — ${results.length ? results.map((r) => `${r.airline}×${r.gates}@$${r.pricePerGate}`).join(', ') : 'no qualifying bids'}`);
+    log.info?.(`[gates] ${world.name}: auction at ${auction.airportCode} resolved — ${results.length ? results.map((r) => `${r.airline}×${r.gates}@$${r.pricePerGate}`).join(', ') : 'no qualifying bids'}${outcomes.length ? ` (${outcomes.length} bid(s): ${outcomes.map((o) => o.reason).join(', ')})` : ''}`);
   }
   return { resolved: due.length };
 }
+
+// Best-effort toast into a losing bidder's blob. Never throws: a failure here
+// must not stop the rest of the auction resolving, and the outcome is still
+// recorded on the auction row either way.
+async function notifyLosingBidder(prisma, { airportCode, worldId, outcome, log }) {
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const airline = await prisma.airline.findUnique({ where: { id: outcome.airlineId } });
+      if (!airline || airline.worldId !== worldId || airline.status !== 'ACTIVE') return;
+      if (!outcome.airline) outcome.airline = airline.name;
+      const next = gameReducer(airline.state, {
+        type: 'GATE_BID_LOST',
+        airportCode,
+        reason: outcome.reason,
+        detail: outcome.detail,
+        amount: outcome.amount,
+        quantity: outcome.quantity,
+      });
+      const wrote = await prisma.airline.updateMany({
+        where: { id: airline.id, version: airline.version },
+        data: { state: next, version: { increment: 1 } },
+      });
+      if (wrote.count > 0) return;
+    }
+    log?.error?.(`[gates] could not deliver a losing-bid notice at ${airportCode}`);
+  } catch (err) {
+    log?.error?.(`[gates] losing-bid notice failed at ${airportCode}:`, err?.message ?? err);
+  }
+}
+
 
 // ── Sealed bids ──────────────────────────────────────────────────────────────
 
