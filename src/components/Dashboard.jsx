@@ -1,6 +1,6 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { TOTAL_SHARES } from '../utils/market.js';
+import { sharesOf } from '../utils/market.js';
 import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAircraftType } from '../data/aircraft.js';
@@ -462,7 +462,7 @@ export default function Dashboard({ onNavigate }) {
           // last marked price only if it has been delisted — matches the Stocks tab so the two never disagree.
           const stockById = new Map((state.competitors ?? []).map(c => [c.id, c]));
           const livePrice = (c) => {
-            const p = c?.sharePrice ?? (c?.marketCap != null ? c.marketCap / TOTAL_SHARES : null);
+            const p = c?.sharePrice ?? (c?.marketCap != null ? c.marketCap / sharesOf(c) : null);
             return Number.isFinite(p) && p > 0 ? p : null;
           };
           const value = holdings.reduce((s, [id, h]) => s + Math.round((h.shares ?? 0) * (livePrice(stockById.get(id)) ?? h.lastPrice ?? 0)), 0);

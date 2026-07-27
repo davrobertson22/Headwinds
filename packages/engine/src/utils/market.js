@@ -462,8 +462,72 @@ export function referencePrice(originCode, destCode) {
 
 // ─── Market capitalisation ─────────────────────────────────────────────────────
 
-/** Fixed share count used for all airlines (player + competitors). */
+/**
+ * Founder share count every airline is incorporated with.
+ *
+ * This is no longer "the" share count — since the capital-markets rework each
+ * airline carries its OWN count in `state.equity.shares`, which share issuance
+ * and buybacks move. TOTAL_SHARES remains the universal starting value (and the
+ * migration default for saves written before `state.equity` existed), so it is
+ * still the right fallback wherever a share count is missing.
+ *
+ * Deliberately kept at 100M for every airline, new and migrated: a uniform
+ * founder count means share prices are directly comparable inside a world with
+ * no per-world configuration, no reverse-split migration, and no need for stock
+ * splits later (a $12.75M startup opens near $0.13 and a mature $2.7B carrier
+ * lands near $27 — a realistic range for a whole airline's life).
+ */
 export const TOTAL_SHARES = 100_000_000;
+
+/** Scale factor for packing a per-share dollar figure into an integer score. */
+export const SVPS_SCALE = 10_000;
+
+/** Fresh equity block (also the migration default for saves without one). */
+export function emptyEquity() {
+  return {
+    shares:               TOTAL_SHARES,  // shares outstanding
+    founderShares:        TOTAL_SHARES,  // never-issued block, for float math
+    isPublic:             true,          // flips to false-by-default when GO_PUBLIC ships
+    cumDividendsPerShare: 0,             // lifetime dividends per share ($)
+    ipoWeek:              null,          // absolute week of listing
+    offeringsThisYear:    0,             // secondary-offering throttle
+  };
+}
+
+/** Shares outstanding for an airline state / rival payload, with safe fallback. */
+export function sharesOf(x) {
+  const n = Number(x?.equity?.shares ?? x?.shares);
+  return Number.isFinite(n) && n > 0 ? n : TOTAL_SHARES;
+}
+
+/**
+ * Shareholder Value Per Share — the world leaderboard metric.
+ *
+ * SVPS = share price + lifetime dividends per share.
+ *
+ * Market cap measures how BIG an airline got, which is why it rewarded raising
+ * capital and punished ever returning it (a dividend or a buyback spends cash,
+ * so it shrinks the cap and therefore the old score). SVPS measures value
+ * created per unit of ownership instead, so issuing shares only wins if the
+ * capital out-earns the dilution, buybacks win when the stock is cheap, and
+ * dividends are rank-neutral by construction via the add-back term.
+ *
+ * Because every airline is incorporated with the same founder share count and
+ * the same starting capital, SVPS is equivalent to a total-return index on a
+ * common base — a late joiner starts where everyone started and simply has less
+ * time to compound.
+ */
+export function svpsOf(x) {
+  const price = Number(x?.sharePrice);
+  const divs  = Number(x?.equity?.cumDividendsPerShare ?? x?.cumDividendsPerShare ?? 0);
+  return (Number.isFinite(price) ? price : 0) + (Number.isFinite(divs) ? divs : 0);
+}
+
+/** SVPS packed as an integer for the standings table (ten-thousandths of $1). */
+export function svpsScore(svps) {
+  const n = Math.round((Number.isFinite(svps) ? svps : 0) * SVPS_SCALE);
+  return Number.isFinite(n) ? n : 0;
+}
 
 /**
  * Valuation model v2 — tunable constants (single source of truth; the stock
@@ -473,12 +537,33 @@ export const VALUATION = {
   BOOK_WEIGHT:       0.85,     // fraction of net book value the market credits
   FLEET_NAV_WEIGHT:  0.90,     // owned-fleet NAV haircut (illiquid asset)
   BOOK_FLOOR:        0.40,     // fair value never drops below 40% of net book
+  // Earnings multiple band. Real airlines are the lowest-multiple, most cyclical
+  // sector there is (P/E 6-10, EV/Sales well under 1.5). The old 12 + (-5..+15)
+  // + (0..+5) band topped out at 32x, which meant every extra $100k/week of
+  // profit added ~$166M of market cap — one good route was worth a quarter
+  // billion. Band is now 5..13.
+  PE_BASE:           8,
+  PE_GROWTH_SPAN:    3,        // growth contributes -3..+3
+  PE_REP_SPAN:       2,        // reputation contributes 0..+2
+  // Hard backstop: the earnings term can never exceed this multiple of
+  // annualized revenue, so a valuation cannot run away from the actual
+  // business however implausible the margin. This is the single change that
+  // kills the money printer (a 53%-net-margin carrier re-rates ~8x down).
+  EARNINGS_SALES_CAP: 1.20,
+  // Lazy-balance-sheet penalty: cash beyond what an airline of this size would
+  // sensibly hold is credited at a fraction of face value. Idle cash stops
+  // being free market cap, which is what gives buybacks and dividends a reason
+  // to exist. Never applied to cold valuations (revenueHint 0) or below the
+  // floor, so startup capital is never treated as idle.
+  IDLE_CASH_REV_FRAC: 0.20,    // "sensible" = 20% of annualized revenue...
+  IDLE_CASH_FLOOR:   25_000_000,  // ...but never less than $25M
+  IDLE_CASH_WEIGHT:  0.25,     // excess credited at 25c on the dollar
   MIN_EARNINGS_WEEKS: 4,       // earnings ignored entirely below this much history
   EARNINGS_CONF_POW: 2,        // quadratic confidence ramp — short records barely count
   LOSS_MULTIPLE:     4,        // distressed multiple on annualized losses
   CONVERGENCE:       0.30,     // weekly convergence toward fair value
-  WEEKLY_MOVE_CLAMP: 0.20,     // max ±move per week (before noise)
-  NOISE_PCT:         0.015,    // ±1.5% weekly noise band
+  WEEKLY_MOVE_CLAMP: 0.08,     // max ±move per week (before noise)
+  NOISE_PCT:         0.035,    // ±3.5% weekly noise band
   MIN_MARKET_CAP:    500_000,  // absolute floor
 };
 
@@ -526,7 +611,12 @@ export function loanOutstanding(loans) {
  * @param {number}   [extras.noise]          Pre-rolled noise fraction (e.g. ±0.015). Multiplayer
  *                                           passes a server-seeded value; solo rolls locally.
  * @param {number}   [extras.revenueHint]    Recent avg weekly revenue ($) — stabilises the growth
- *                                           denominator and the loss-cliff interpolation width.
+ *                                           denominator and the loss-cliff interpolation width, and
+ *                                           sets the idle-cash threshold + earnings sales cap.
+ * @param {number}   [extras.marketFactor]   World market overlay (see marketValuationFactor);
+ *                                           1 = neutral. Defaults to 1 for cold valuations.
+ * @param {number}   [extras.shares]         Shares outstanding, for the share-price divisor.
+ *                                           Defaults to TOTAL_SHARES (the founder count).
  * @returns {{ marketCap: number, sharePrice: number, peMultiple: number|null,
  *             annualizedProfit: number|null, growthRate: number|null,
  *             fairValue: number, netBook: number }}
@@ -534,12 +624,26 @@ export function loanOutstanding(loans) {
 export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras = {}) {
   const {
     fleetNAV = 0, debt = 0, portfolioValue = 0,
-    prevMarketCap = null, noise = 0, revenueHint = 0,
+    prevMarketCap = null, noise = 0, revenueHint = 0, marketFactor = 1,
+    shares = TOTAL_SHARES,
   } = extras;
   const V = VALUATION;
 
   // ── Net book value: what the airline is worth if it stopped flying ──────────
-  const netBook = (cash ?? 0)
+  // Cash counts at face value up to a sensible working balance; anything beyond
+  // that is idle and credited at IDLE_CASH_WEIGHT. Skipped entirely when there's
+  // no revenue signal (cold valuations, brand-new airlines) so the 3-argument
+  // call path and fresh saves are unaffected.
+  const rawCash    = cash ?? 0;
+  const annualRev  = Math.max(0, revenueHint) * 52;
+  const idleFloor  = annualRev > 0
+    ? Math.max(V.IDLE_CASH_REV_FRAC * annualRev, V.IDLE_CASH_FLOOR)
+    : Infinity;
+  const creditedCash = rawCash > idleFloor
+    ? idleFloor + V.IDLE_CASH_WEIGHT * (rawCash - idleFloor)
+    : rawCash;
+
+  const netBook = creditedCash
                 + V.FLEET_NAV_WEIGHT * Math.max(0, fleetNAV)
                 + Math.max(0, portfolioValue)
                 - Math.max(0, debt);
@@ -567,10 +671,11 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
     const growthDenom = Math.max(Math.abs(priorAvg), 0.05 * Math.max(0, revenueHint), 50_000);
     growthRate = Math.max(-1, Math.min(1, (recentAvg - priorAvg) / growthDenom));
 
-    // P/E multiple: base 12, growth bonus (−5..+15), quality bonus (0..+5)
-    const growthBonus     = Math.max(-5, Math.min(15, growthRate * 20));
-    const reputationBonus = (Math.max(0, Math.min(100, qualityScore)) / 100) * 5;
-    peMultiple            = 12 + growthBonus + reputationBonus;
+    // P/E multiple: base 8, growth bonus (−3..+3), quality bonus (0..+2) → 5..13.
+    const growthBonus     = Math.max(-V.PE_GROWTH_SPAN,
+                                     Math.min(V.PE_GROWTH_SPAN, growthRate * V.PE_GROWTH_SPAN));
+    const reputationBonus = (Math.max(0, Math.min(100, qualityScore)) / 100) * V.PE_REP_SPAN;
+    peMultiple            = V.PE_BASE + growthBonus + reputationBonus;
 
     // Smooth the profitable↔loss cliff: the effective multiple interpolates
     // from LOSS_MULTIPLE (deep loss) to full P/E (solid profit) across a band
@@ -582,12 +687,25 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
     const mult = V.LOSS_MULTIPLE + (peMultiple - V.LOSS_MULTIPLE) * t;
 
     earningsValue = annualizedProfit * mult * confidence;
+
+    // Sales backstop: however good the margin, the earnings term is capped at a
+    // multiple of actual revenue. Only bites on the upside — a loss-making
+    // carrier keeps its full (negative) earnings term.
+    if (earningsValue > 0 && annualRev > 0) {
+      earningsValue = Math.min(earningsValue, V.EARNINGS_SALES_CAP * annualRev);
+    }
   }
 
-  // ── Fair value, floored ────────────────────────────────────────────────────
+  // ── Fair value, market-adjusted and floored ────────────────────────────────
+  // marketFactor is the world's shared sentiment/fuel overlay (see
+  // marketValuationFactor) — one number every airline in the world is multiplied
+  // by, so sector-wide drawdowns exist and a rising price can mean the market
+  // rose rather than that you did well.
   const fairValue = Math.max(
-    V.BOOK_WEIGHT * netBook + earningsValue,
-    V.BOOK_FLOOR * netBook,
+    Math.max(0, marketFactor) * Math.max(
+      V.BOOK_WEIGHT * netBook + earningsValue,
+      V.BOOK_FLOOR * netBook,
+    ),
     V.MIN_MARKET_CAP,
   );
 
@@ -608,13 +726,82 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
 
   return {
     marketCap,
-    sharePrice: marketCap / TOTAL_SHARES,
+    sharePrice: marketCap / (Number.isFinite(shares) && shares > 0 ? shares : TOTAL_SHARES),
     peMultiple: peMultiple != null ? Math.round(peMultiple * 10) / 10 : null,
     annualizedProfit,
     growthRate,
     fairValue,
     netBook,
   };
+}
+
+// ─── World market index ────────────────────────────────────────────────────────
+// A single sentiment number per world, shared by every airline, so the stock
+// market has correlated risk instead of being N uncorrelated savings accounts.
+// Deliberately zero-drift: over a long world it neither creates nor destroys
+// value, it just makes timing matter.
+//
+// Structured exactly like the fuel index (utils/fuel.js): an Ornstein-Uhlenbeck
+// walk the caller can seed. Multiplayer replays it per world-week from the world
+// seed in tickService so every player sees the same market; solo ticks its own.
+
+export const MARKET_BASE_INDEX     = 1.00;   // long-run equilibrium
+export const MARKET_MIN_INDEX      = 0.70;   // deep bear market
+export const MARKET_MAX_INDEX      = 1.30;   // frothy bull market
+export const MARKET_MEAN_REVERSION = 0.05;   // θ: weekly pull toward base
+export const MARKET_VOLATILITY     = 0.025;  // σ: weekly shock magnitude
+
+/**
+ * Sensitivity of airline valuations to the fuel price. Airline equities are
+ * famously fuel-levered: every 10% that fuel sits above baseline knocks ~4% off
+ * sector valuations. This is an overlay rather than part of the walk, so a
+ * sustained fuel crisis keeps depressing prices instead of being mean-reverted
+ * away after a few weeks.
+ */
+export const MARKET_FUEL_BETA = 0.40;
+
+/** Combined overlay is clamped to this band so no scenario zeroes a company out. */
+export const MARKET_FACTOR_MIN = 0.55;
+export const MARKET_FACTOR_MAX = 1.45;
+
+/**
+ * Advance the world market index by one week.
+ *
+ * @param {number} currentIndex  this week's index
+ * @param {number} [rand]        uniform [0,1); pass a seeded value in multiplayer
+ * @returns {number}             next week's index, clamped to [MIN, MAX]
+ */
+export function tickMarketIndex(currentIndex, rand = Math.random()) {
+  const base  = Number.isFinite(currentIndex) ? currentIndex : MARKET_BASE_INDEX;
+  const drift = MARKET_MEAN_REVERSION * (MARKET_BASE_INDEX - base);
+  const shock = (rand * 2 - 1) * MARKET_VOLATILITY * 2.5;
+  const next  = base + drift + shock;
+  return parseFloat(Math.max(MARKET_MIN_INDEX, Math.min(MARKET_MAX_INDEX, next)).toFixed(4));
+}
+
+/**
+ * The number every airline's fair value is multiplied by: market sentiment,
+ * levered by how far fuel sits from baseline.
+ *
+ * @param {number} marketIndex  world market index (MARKET_BASE_INDEX if unknown)
+ * @param {number} fuelIndex    world fuel index (FUEL_BASE_INDEX 1.0 = baseline)
+ * @returns {number}            multiplier in [MARKET_FACTOR_MIN, MARKET_FACTOR_MAX]
+ */
+export function marketValuationFactor(marketIndex, fuelIndex = 1) {
+  const m = Number.isFinite(marketIndex) ? marketIndex : MARKET_BASE_INDEX;
+  const f = Number.isFinite(fuelIndex)   ? fuelIndex   : 1;
+  const raw = m * (1 - MARKET_FUEL_BETA * (f - 1));
+  return parseFloat(Math.max(MARKET_FACTOR_MIN, Math.min(MARKET_FACTOR_MAX, raw)).toFixed(4));
+}
+
+/** Human-readable label for the market index (UI). */
+export function marketIndexStatus(index) {
+  const i = Number.isFinite(index) ? index : MARKET_BASE_INDEX;
+  if (i >= 1.18) return { label: 'Bull market',   tone: 'good' };
+  if (i >= 1.06) return { label: 'Optimistic',    tone: 'good' };
+  if (i >  0.94) return { label: 'Steady',        tone: 'neutral' };
+  if (i >  0.82) return { label: 'Cautious',      tone: 'warn' };
+  return { label: 'Bear market', tone: 'bad' };
 }
 
 // ─── Stock market (trading rivals' shares) ─────────────────────────────────────

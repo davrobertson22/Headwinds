@@ -3,6 +3,10 @@ import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
+// The public-move allowlist and payload scrubber are shared with the news feed
+// (lib/newsService.mjs) — one definition of "what a rival may see", not two.
+import { PUBLIC_DECISIONS, publicPayload } from '../lib/publicDecisions.mjs';
+import { buildNews } from '../lib/newsService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 
 // Join/leave are rare, deliberate actions — 20 per minute per account is far
@@ -63,6 +67,7 @@ export default async function worldRoutes(fastify) {
     // never emitted.
     const airlines = await prisma.$queryRaw`
       SELECT a.id, a."worldId", a."accountId", a.name, a.hub, a.cash, a."marketCap",
+             a.shares, a.svps,
              a.week, a.status::text AS status, a."joinedWeek",
              CASE WHEN jsonb_typeof(a.state->'routes') = 'array'
                   THEN jsonb_array_length(a.state->'routes') ELSE 0 END AS routes,
@@ -72,7 +77,7 @@ export default async function worldRoutes(fastify) {
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
-      ORDER BY a."marketCap" DESC
+      ORDER BY a."svps" DESC
       LIMIT 100`;
 
     // Alliance tags for the standings (ACTIVE memberships only).
@@ -106,6 +111,9 @@ export default async function worldRoutes(fastify) {
         hub: a.hub,
         cash: Number(a.cash),
         marketCap: Number(a.marketCap),
+        shares: Number(a.shares),
+        // Per-share shareholder value in dollars — what `rank` is ordered by.
+        svps: Number(a.svps) / 10_000,
         week: a.week,
         status: a.status,
         joinedWeek: a.joinedWeek,
@@ -124,32 +132,6 @@ export default async function worldRoutes(fastify) {
   // with fares and frequencies (public information at any real airport), fleet
   // composition, rank history, and recent visible moves. Never exposes private
   // internals like cash-flow detail, loans, hedges, or marketing budgets.
-  const PUBLIC_DECISIONS = new Set([
-    'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE',
-    'LEASE_AIRCRAFT', 'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'ORDER_AIRCRAFT',
-    'ADD_GATE', 'REMOVE_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
-    'JOIN_ALLIANCE', 'LEAVE_ALLIANCE',
-  ]);
-  // Only the payload fields that describe a PUBLIC move — never echo payloads raw.
-  const publicPayload = (d) => {
-    const p = d.payload ?? {};
-    return {
-      ...(p.origin ? { origin: p.origin } : {}),
-      ...(p.destination ? { destination: p.destination } : {}),
-      ...(p.typeId ? { typeId: p.typeId } : {}),
-      ...(p.airportCode ? { airportCode: p.airportCode } : {}),
-      ...(p.allianceId ? { allianceId: p.allianceId } : {}),
-      // Batched route closes: pass through only scrubbed origin/destination
-      // pairs (public info) and the count — never raw ids or anything else.
-      ...(Array.isArray(p.routes) ? {
-        routes: p.routes
-          .filter((r) => r && r.origin && r.destination)
-          .slice(0, 20)
-          .map((r) => ({ origin: r.origin, destination: r.destination })),
-      } : {}),
-      ...(Number.isFinite(p.count) ? { count: p.count } : {}),
-    };
-  };
   fastify.get('/worlds/:id/rivals/:airlineId', {
     schema: {
       params: {
@@ -221,18 +203,19 @@ export default async function worldRoutes(fastify) {
     };
   });
 
-  // ── World activity feed: everyone's PUBLIC moves, newest first ─────────────
-  // "This week in your world": route openings/closings, fleet moves, hub and
-  // gate expansion, plus system events (players joining, alliances forming).
-  // Built on the same PUBLIC_DECISIONS allowlist + payload scrubber as the
-  // rival profile — nothing private (prices, budgets, loans) ever leaks here.
+  // ── World activity ticker (legacy alias) ───────────────────────────────────
+  // Superseded by GET /worlds/:id/news, which composes the same sources but
+  // rolls related moves into one item, tiers them by importance, and adds the
+  // world economy, the used-aircraft market, bankruptcies, rank changes and the
+  // share tape. This endpoint stays so a browser tab left open on an older build
+  // keeps working; it returns the top headlines under the legacy `events` key.
   fastify.get('/worlds/:id/feed', {
     schema: {
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       querystring: {
         type: 'object',
         properties: {
-          before: { type: 'string' },                        // ISO cursor (createdAt)
+          before: { type: 'string' },
           limit: { type: 'integer', minimum: 1, maximum: 100 },
         },
       },
@@ -240,141 +223,12 @@ export default async function worldRoutes(fastify) {
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
-    const limit = request.query.limit ?? 40;
-    const before = request.query.before ? new Date(request.query.before) : null;
-    const cutoff = before && !Number.isNaN(before.getTime()) ? before : null;
-    const beforeFilter = cutoff ? { createdAt: { lt: cutoff } } : {};
-
-    const [decisions, airlines, alliances, allianceJoins, gateAuctions, gateSales] = await Promise.all([
-      prisma.decision.findMany({
-        where: {
-          worldId: world.id,
-          type: { in: [...PUBLIC_DECISIONS] },
-          ...beforeFilter,
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
-      prisma.airline.findMany({
-        where: { worldId: world.id },
-        select: {
-          id: true, name: true, hub: true, status: true, createdAt: true,
-          account: { select: { isOG: true, email: true } },
-        },
-      }),
-      prisma.alliance.findMany({
-        where: { worldId: world.id, ...beforeFilter },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
-      prisma.allianceMember.findMany({
-        where: {
-          status: 'ACTIVE',
-          alliance: { worldId: world.id },
-          ...beforeFilter,
-        },
-        include: { alliance: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
-      // Gate scarcity events (empty tables — and so free — in other worlds).
-      prisma.gateAuction.findMany({
-        where: { worldId: world.id, ...(cutoff ? { createdAt: { lt: cutoff } } : {}) },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
-      prisma.gateListing.findMany({
-        where: { worldId: world.id, status: 'SOLD', ...(cutoff ? { soldAt: { lt: cutoff } } : {}) },
-        orderBy: { soldAt: 'desc' },
-        take: limit,
-      }),
-    ]);
-
-    const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
-    const ogOf = new Map(airlines.map((a) => [a.id, a.account?.isOG === true]));
-    const devOf = new Map(airlines.map((a) => [a.id, isDevEmail(a.account?.email)]));
-    const events = [
-      ...decisions.map((d) => ({
-        kind: 'move',
-        at: d.createdAt.toISOString(),
-        week: d.week,
-        airlineId: d.airlineId,
-        airline: nameOf.get(d.airlineId) ?? 'An airline',
-        og: ogOf.get(d.airlineId) ?? false,
-        dev: devOf.get(d.airlineId) ?? false,
-        type: d.type,
-        payload: publicPayload(d),
-      })),
-      ...airlines
-        .filter((a) => (cutoff ? a.createdAt < cutoff : true))
-        .map((a) => ({
-          kind: 'joined',
-          at: a.createdAt.toISOString(),
-          airlineId: a.id,
-          airline: a.name,
-          og: a.account?.isOG === true,
-          dev: isDevEmail(a.account?.email),
-          hub: a.hub,
-        })),
-      ...alliances.map((al) => ({
-        kind: 'alliance_founded',
-        at: al.createdAt.toISOString(),
-        alliance: al.name,
-      })),
-      // Founders are covered by alliance_founded — only report genuine joins.
-      ...allianceJoins
-        .filter((m) => m.role !== 'FOUNDER')
-        .map((m) => ({
-          kind: 'alliance_joined',
-          at: m.createdAt.toISOString(),
-          airlineId: m.airlineId,
-          airline: nameOf.get(m.airlineId) ?? 'An airline',
-          og: ogOf.get(m.airlineId) ?? false,
-          dev: devOf.get(m.airlineId) ?? false,
-          alliance: m.alliance.name,
-        })),
-      // Gate scarcity: auctions opening, and their winners once resolved.
-      ...gateAuctions.map((a) => ({
-        kind: 'gate_auction_opened',
-        at: a.createdAt.toISOString(),
-        airport: a.airportCode,
-        lots: a.lots,
-        reserve: a.reserve,
-      })),
-      ...gateAuctions
-        .filter((a) => a.status === 'RESOLVED' && Array.isArray(a.results) && a.resolvedAt
-          && (cutoff ? a.resolvedAt < cutoff : true))
-        .flatMap((a) => a.results.map((r) => ({
-          kind: 'gate_auction_won',
-          at: a.resolvedAt.toISOString(),
-          airlineId: r.airlineId,
-          airline: nameOf.get(r.airlineId) ?? r.airline ?? 'An airline',
-          og: ogOf.get(r.airlineId) ?? false,
-          dev: devOf.get(r.airlineId) ?? false,
-          airport: a.airportCode,
-          gates: r.gates,
-          pricePerGate: r.pricePerGate,
-        }))),
-      ...gateSales.map((l) => ({
-        kind: 'gate_sold',
-        at: (l.soldAt ?? l.createdAt).toISOString(),
-        airlineId: l.sellerId,
-        airline: nameOf.get(l.sellerId) ?? 'An airline',
-        og: ogOf.get(l.sellerId) ?? false,
-        dev: devOf.get(l.sellerId) ?? false,
-        buyer: nameOf.get(l.buyerId) ?? 'another airline',
-        airport: l.airportCode,
-        price: l.askPrice,
-      })),
-    ]
-      .sort((a, b) => (a.at < b.at ? 1 : -1))
-      .slice(0, limit);
-
-    return {
-      events,
-      // Pass the oldest timestamp back as ?before= to page further into history.
-      nextBefore: events.length === limit ? events[events.length - 1].at : null,
-    };
+    const { items, nextBefore } = await buildNews(prisma, {
+      world,
+      before: request.query.before,
+      limit: request.query.limit ?? 40,
+    });
+    return { events: items, nextBefore };
   });
 
   // ── Create a world (ADMIN ONLY) ───────────────────────────────────────────

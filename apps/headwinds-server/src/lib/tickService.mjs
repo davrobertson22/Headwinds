@@ -9,7 +9,8 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
-import { VALUATION } from '@tailwinds/engine/utils/market.js';
+import { VALUATION, tickMarketIndex, MARKET_BASE_INDEX,
+         svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK } from '@tailwinds/engine/data/airports.js';
@@ -20,6 +21,9 @@ import {
   openDueAuctions, resolveDueAuctions,
 } from './gateService.mjs';
 import { scrapStale } from './aircraftMarketService.mjs';
+import {
+  NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
+} from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
 // default 5s interactive-transaction timeout — at scale that timed out and rolled
@@ -51,6 +55,20 @@ function worldFuelIndex(seed, weekIndex) {
   let idx = FUEL_BASE_INDEX;
   for (let w = 1; w <= weekIndex; w++) idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`));
   return idx;
+}
+
+// The world-shared MARKET index at a given 1-based week — pure sentiment, replayed
+// from the world seed exactly like the fuel index above, so every airline is valued
+// against the same market that week and a retried tick reproduces it.
+//
+// The fuel lever is NOT part of this walk: the engine applies it at valuation time
+// via marketValuationFactor(marketIndex, fuelIndex), using the same world-shared
+// fuel index injected alongside this one. Keeping it out of the walk means a
+// sustained fuel crisis keeps prices depressed instead of being mean-reverted away.
+function worldMarketIndex(seed, weekIndex) {
+  let mkt = MARKET_BASE_INDEX;
+  for (let w = 1; w <= weekIndex; w++) mkt = tickMarketIndex(mkt, seededRand(seed, `mkt:${w}`));
+  return mkt;
 }
 
 // A reducer bug that yields NaN/Infinity for cash or marketCap must not take down
@@ -114,6 +132,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // Every airline ticks against the same fuel + events, so the leaderboard reflects
   // skill, not private RNG. Events roll ONCE here (not per airline).
   const worldFuel = worldFuelIndex(world.worldSeed ?? world.id, fromIndex);
+  const worldMarket = worldMarketIndex(world.worldSeed ?? world.id, fromIndex);
   const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
     ? world.tickConfig.runtimeEvents : [];
   const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
@@ -131,7 +150,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       const valuationNoise = (seededRand(world.worldSeed ?? world.id, `mcnoise:${toIndex}:${airline.id}`) * 2 - 1) * VALUATION.NOISE_PCT;
       const next = gameReducer(
         withRivals(airline.state, rivalViews.get(airline.id)),
-        { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise },
+        { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
+          marketIndex: worldMarket },
       );
       // Gate scarcity: rule-5 forfeitures happen inside ADVANCE_WEEK (gates
       // vanish from the blob). Diff pre/post so the world's gate ledger can be
@@ -146,11 +166,20 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           if (drop > 0) gateReleases.push({ airlineId: airline.id, airportCode: code, count: drop });
         }
       }
+      const svps = svpsOf(next);
       computed.push({
         airline,
         next,
         cash: safeInt(next.cash),
         marketCap: safeInt(next.marketCap),
+        // Leaderboard metric: per-share value including lifetime dividends.
+        // Packed to ten-thousandths of a dollar so it survives the BigInt column.
+        svps,
+        svpsScore: svpsScore(svps),
+        shares: safeInt(next.equity?.shares),
+        // A private airline has no traded share price, so it is not ranked (it
+        // still ticks, still shows in the world, and starts ranking on listing).
+        isPublic: next.equity?.isPublic !== false,
         bankrupt: next.phase === 'bankrupt',
         gateReleases,
       });
@@ -158,6 +187,14 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       log.error(`[tick] world ${world.id} airline ${airline.id} reducer threw — skipped this week:`, err?.message ?? err);
     }
   }
+
+  // Last week's top 5, for the news feed's rank-change items. Read outside the
+  // transaction: it is one tiny indexed query and the commit stays short.
+  const prevTop5 = (await prisma.standing.findMany({
+    where: { worldId: world.id, week: fromIndex, rank: { lte: 5 } },
+    orderBy: { rank: 'asc' },
+    select: { airlineId: true },
+  })).map((r) => r.airlineId);
 
   // ── Atomic commit ───────────────────────────────────────────────────────────
   // Advance the clock (compare-and-set), write every airline, and snapshot the
@@ -195,16 +232,27 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             state: stripRivals(c.next),
             cash: BigInt(c.cash),
             marketCap: BigInt(c.marketCap),
+            shares: BigInt(c.shares > 0 ? c.shares : 100_000_000),
+            svps: BigInt(c.svpsScore),
             week: toIndex,
             version: { increment: 1 },
             ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
           },
         });
-        if (res.count > 0) written.push({ airlineId: c.airline.id, name: c.airline.name, marketCap: c.marketCap });
+        if (res.count > 0) written.push({
+          airlineId: c.airline.id, name: c.airline.name,
+          marketCap: c.marketCap, svpsScore: c.svpsScore, isPublic: c.isPublic,
+        });
         else log.error(`[tick] world ${world.id} airline ${c.airline.id} changed under the tick — skipped, catches up next pass`);
       }
 
-      const ranked = [...written].sort((a, b) => b.marketCap - a.marketCap);
+      // Standings rank on SVPS (per-share shareholder value), not market cap.
+      // Market cap measures size, so it rewarded raising capital and punished
+      // returning it — every buyback and dividend was score-negative under it.
+      // Private airlines are excluded: with no traded share price they have
+      // nothing comparable to rank, and they start ranking when they list.
+      const ranked = [...written].filter((r) => r.isPublic)
+        .sort((a, b) => b.svpsScore - a.svpsScore);
       if (ranked.length > 0) {
         await tx.standing.createMany({
           data: ranked.map((r, i) => ({
@@ -212,10 +260,47 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             airlineId: r.airlineId,
             week: toIndex,
             rank: i + 1,
-            score: BigInt(r.marketCap),
+            score: BigInt(r.svpsScore),
           })),
         });
       }
+      // ── World news ────────────────────────────────────────────────────────
+      // Written HERE, inside the week's own transaction, because none of these
+      // survive anywhere else: `tickConfig.runtimeEvents` keeps only the current
+      // event set, and bankruptcies and rank changes are computed and discarded.
+      // Same transaction = the news can never describe a week that rolled back.
+      const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
+      const nextTop5 = ranked.slice(0, 5).map((r) => r.airlineId);
+      const writtenIds = new Set(written.map((w) => w.airlineId));
+      const newsRows = [
+        ...worldEventNewsRows({
+          worldId: world.id, week: toIndex,
+          prevEvents: prevWorldEvents, nextEvents: worldEvents,
+        }),
+        ...bankruptcyNewsRows({
+          worldId: world.id, week: toIndex,
+          bankrupt: computed
+            .filter((c) => c.bankrupt && writtenIds.has(c.airline.id))
+            .map((c) => ({
+              airlineId: c.airline.id,
+              name: c.airline.name,
+              routes: (c.next.routes ?? []).length,
+              fleet: (c.next.fleet ?? []).length,
+            })),
+        }),
+        ...rankChangeNewsRows({
+          worldId: world.id, week: toIndex, prevTop5, nextTop5, nameOf,
+        }),
+      ];
+      if (newsRows.length > 0) await tx.worldNews.createMany({ data: newsRows });
+
+      // Retention sweep: news older than the readable window is unreachable, so
+      // there is no reason to keep paying to store it. Player moves (Decision)
+      // are NOT swept — rival profiles and audit depend on them.
+      await tx.worldNews.deleteMany({
+        where: { worldId: world.id, week: { lt: toIndex - NEWS_WINDOW_WEEKS } },
+      });
+
       return { lostRace: false, airlines: written.length, written };
     }, TICK_TX_OPTS);
 

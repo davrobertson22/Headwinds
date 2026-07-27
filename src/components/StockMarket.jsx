@@ -12,7 +12,7 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney } from '../utils/simulation.js';
-import { STOCK_MARKET, TOTAL_SHARES } from '../utils/market.js';
+import { STOCK_MARKET, sharesOf } from '../utils/market.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { OgChip, DevChip } from './Competition.jsx';
 import { GlyphLabel } from './Icons.jsx';
@@ -27,7 +27,7 @@ const fmtShares = (n) => (n ?? 0).toLocaleString();
 const fmtSigned = (v) => `${v >= 0 ? '+' : '−'}${formatMoney(Math.abs(Math.round(v)))}`;
 
 function priceOf(c) {
-  const p = c?.sharePrice ?? (c?.marketCap != null ? c.marketCap / TOTAL_SHARES : null);
+  const p = c?.sharePrice ?? (c?.marketCap != null ? c.marketCap / sharesOf(c) : null);
   return Number.isFinite(p) && p > 0 ? p : null;
 }
 
@@ -69,6 +69,9 @@ function PriceSparkline({ history, width = 84, height = 26 }) {
 function TradeModal({ carrier, side, state, onSubmit, onClose }) {
   const S          = STOCK_MARKET;
   const price      = priceOf(carrier);
+  // The ownership cap is a share of THIS carrier's float, which issuance and
+  // buybacks move — never a global constant.
+  const targetShares = sharesOf(carrier);
   const portfolio  = state.portfolio ?? { holdings: {}, realizedPnL: 0 };
   const held       = portfolio.holdings?.[carrier.id];
   const heldShares = held?.shares ?? 0;
@@ -89,8 +92,8 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
   if (price == null)                        blocked = 'No price for this airline yet.';
   else if (shares <= 0)                     blocked = null; // nothing entered yet
   else if (isBuy && gross < S.MIN_TICKET)   blocked = `Minimum trade is ${formatMoney(S.MIN_TICKET)}.`;
-  else if (isBuy && heldShares + shares > S.MAX_OWNERSHIP_PCT * TOTAL_SHARES)
-    blocked = `You can own at most ${Math.round(S.MAX_OWNERSHIP_PCT * 100)}% of an airline (${fmtShares(S.MAX_OWNERSHIP_PCT * TOTAL_SHARES)} shares).`;
+  else if (isBuy && heldShares + shares > S.MAX_OWNERSHIP_PCT * targetShares)
+    blocked = `You can own at most ${Math.round(S.MAX_OWNERSHIP_PCT * 100)}% of an airline (${fmtShares(Math.floor(S.MAX_OWNERSHIP_PCT * targetShares))} shares).`;
   else if (isBuy && basisTotal + total > ownCapBudget)
     blocked = `Portfolio limit: your total invested cost can't exceed ${Math.round(S.MAX_PORTFOLIO_PCT_OF_CAP * 100)}% of your own market cap (${formatMoney(ownCapBudget)}).`;
   else if (isBuy && total > state.cash)     blocked = 'Not enough cash.';
@@ -102,7 +105,7 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
   const maxBuyable = (() => {
     if (price == null) return 0;
     const byCash  = Math.floor((state.cash * 0.999) / (price * (1 + S.SPREAD_HALF) * (1 + S.COMMISSION)));
-    const byOwn   = Math.floor(S.MAX_OWNERSHIP_PCT * TOTAL_SHARES - heldShares);
+    const byOwn   = Math.floor(S.MAX_OWNERSHIP_PCT * targetShares - heldShares);
     const byLimit = Math.floor(Math.max(0, ownCapBudget - basisTotal) / (price * (1 + S.SPREAD_HALF) * (1 + S.COMMISSION)));
     return Math.max(0, Math.min(byCash, byOwn, byLimit));
   })();
@@ -345,7 +348,7 @@ export default function StockMarket() {
                       <div>
                         <div style={{ fontWeight: 600 }}>{formatMoney(Math.round(stakeValue ?? 0))}</div>
                         <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
-                          {fmtShares(held.shares)} sh · {((held.shares / TOTAL_SHARES) * 100).toFixed(1)}%
+                          {fmtShares(held.shares)} sh · {((held.shares / sharesOf(c)) * 100).toFixed(1)}%
                         </div>
                       </div>
                     ) : <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>—</span>}

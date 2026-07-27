@@ -14,7 +14,9 @@ import {
   isRouteActive, routeActiveMonths, aircraftHubMaintFactor,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
-         VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio } from './utils/market.js';
+         VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
+         tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
+         emptyEquity, sharesOf, svpsOf } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
@@ -330,6 +332,7 @@ function freshState() {
     statsHistory: [],      // compact long-term KPI series (Statistics page) — see STATS_HISTORY_CAP
     lastReport: null,
     fuelPrice: { index: 1.0, history: [] },  // fuel price index + 52-week history
+    marketIndex: MARKET_BASE_INDEX,          // world equity-market sentiment index
     hedgeContracts: [],                       // active fuel hedge contracts
     loans: [],             // active loans: { id, principal, interestRate, termWeeks, weeklyPayment, weeksRemaining, totalInterestPaid, takenWeek }
     phase: 'setup',  // 'setup' | 'playing' | 'bankrupt'
@@ -346,6 +349,11 @@ function freshState() {
     // Valuation v2: a fresh airline is worth BOOK_WEIGHT × net book (= cash).
     marketCap:         STARTING_CASH * 0.85,  // player market cap ($), updated each week
     sharePrice:        STARTING_CASH * 0.85 / TOTAL_SHARES,  // player share price ($)
+    // Share count, listing status and lifetime dividends. Share count is per
+    // airline now (issuance/buybacks move it), so nothing may assume TOTAL_SHARES.
+    equity:            emptyEquity(),
+    // Shareholder Value Per Share — the leaderboard metric (see svpsOf).
+    svps:              STARTING_CASH * 0.85 / TOTAL_SHARES,
     portfolio:         emptyPortfolio(),      // stock held in rival airlines
     objectives:        [],   // [{ id, completed, completedWeek, completedYear }]
     objectivesEnabled: true, // can be disabled at setup
@@ -2143,7 +2151,7 @@ function reducer(state, action) {
       const acqPortfolio = state.portfolio ?? emptyPortfolio();
       const acqHolding   = acqPortfolio.holdings?.[target.id];
       const acqBuyout    = acqHolding?.shares > 0
-        ? Math.round(acqHolding.shares * (acquisitionCost / TOTAL_SHARES))
+        ? Math.round(acqHolding.shares * (acquisitionCost / sharesOf(target)))
         : 0;
       const acqHoldings  = { ...(acqPortfolio.holdings ?? {}) };
       delete acqHoldings[target.id];
@@ -2246,6 +2254,24 @@ function reducer(state, action) {
         && Number.isFinite(action.worldFuelIndex))
         ? action.worldFuelIndex : null;
       const currentFuelIndex = injectedFuel ?? state.fuelPrice?.index ?? 1.0;
+
+      // World market index: the same shape as the fuel index above. Multiplayer
+      // replays one shared walk per world-week (action.marketIndex, seeded from
+      // worldSeed in tickService) so every player's valuation moves with the same
+      // market; solo keeps its own walk. Zero drift by construction — it makes
+      // timing matter without creating or destroying value over a long world.
+      const injectedMarket = (state.multiplayer === true
+        && typeof action.marketIndex === 'number'
+        && Number.isFinite(action.marketIndex))
+        ? action.marketIndex : null;
+      const currentMarketIndex = injectedMarket ?? state.marketIndex ?? MARKET_BASE_INDEX;
+      const nextMarketIndex    = injectedMarket != null
+        ? injectedMarket
+        : tickMarketIndex(currentMarketIndex);
+      // Sentiment levered by fuel — one multiplier applied to every airline in
+      // the world, the player included.
+      const marketFactor = marketValuationFactor(currentMarketIndex, currentFuelIndex);
+
       const nowAbsWeek       = absoluteWeek(state.year, state.week);
       const allHedges        = state.hedgeContracts ?? [];
       const activeHedges     = allHedges.filter(h => h.expiryAbsWeek > nowAbsWeek);
@@ -2855,6 +2881,7 @@ function reducer(state, action) {
             prevMarketCap: c.marketCap ?? null,
             noise:         (Math.random() * 2 - 1) * VALUATION.NOISE_PCT,
             revenueHint:   stats.weeklyRevenue ?? 0,
+            marketFactor,
           });
         return {
           ...c,
@@ -3048,7 +3075,7 @@ function reducer(state, action) {
       // that vanished this week (MP: purged/abandoned rival; solo: AI bankruptcy
       // or merger) is force-liquidated at a haircut of its last known price.
       const prevPriceOf = new Map((state.competitors ?? []).map(c =>
-        [c.id, (c.sharePrice ?? (c.marketCap ?? 0) / TOTAL_SHARES) || 0]));
+        [c.id, (c.sharePrice ?? (c.marketCap ?? 0) / sharesOf(c)) || 0]));
       const liveCompIds = new Set(updatedCompetitors.map(c => c.id));
       const bankruptCompIds = new Set(competitorEvents.filter(e => e.type === 'bankrupt').map(e => e.airlineId));
       const mergedCompNames = new Set(competitorEvents.filter(e => e.type === 'merger').map(e => e.targetName));
@@ -3120,6 +3147,8 @@ function reducer(state, action) {
           prevMarketCap:  state.marketCap ?? null,
           noise:          valuationNoise,
           revenueHint,
+          marketFactor,
+          shares: sharesOf(state),
         });
 
       // ── Long-term statistics series (Finance ▸ Statistics page) ──────────────
@@ -3170,7 +3199,10 @@ function reducer(state, action) {
         // own chart and, via the server rival payload, what rivals see) and the
         // mark-to-market value of the stock portfolio.
         sharePrice:     newSharePrice,
+        svps:           svpsOf({ sharePrice: newSharePrice, equity: state.equity }),
+        shares:         sharesOf(state),
         portfolioValue,
+        marketIndex:    currentMarketIndex,
         // Efficiency
         loadFactor:     statAsk > 0 ? +(statRpk / statAsk).toFixed(4) : 0,
         yield:          statRpk > 0 ? +(statPaxRev / statRpk).toFixed(4) : 0,   // $ per RPK
@@ -3417,7 +3449,7 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, fuelIndex: currentFuelIndex, fuelMultiplier, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         hubs:              hubsAfterBuild,
@@ -3429,6 +3461,7 @@ function reducer(state, action) {
         maintenanceBudget: mainBudget,
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory },
+        marketIndex:       nextMarketIndex,
         hedgeContracts:      liveHedges,
         loyalty:             updatedLoyalty,
         codeshareAgreements: tickedCodeshares,
@@ -3455,6 +3488,8 @@ function reducer(state, action) {
         consecutiveNegativeWeeks: newConsecutiveNegativeWeeks,
         marketCap:                newMarketCap,
         sharePrice:               newSharePrice,
+        // Leaderboard metric: per-share value including lifetime dividends.
+        svps:                     svpsOf({ sharePrice: newSharePrice, equity: state.equity }),
         // Last rival collapsed or was absorbed → the player owns the skies.
         gameWon:             state.gameWon || rivalsGone,
         victoryAcknowledged: (rivalsGone && !state.gameWon) ? false : state.victoryAcknowledged,
@@ -3513,15 +3548,17 @@ function reducer(state, action) {
       const target = (state.competitors ?? []).find(c => c.id === action.targetId);
       const shares = Math.floor(Number(action.shares));
       if (!target || !(shares > 0)) return state;
-      const price = (target.sharePrice ?? (target.marketCap ?? 0) / TOTAL_SHARES) || 0;
+      const targetShares = sharesOf(target);
+      const price = (target.sharePrice ?? (target.marketCap ?? 0) / targetShares) || 0;
       if (!(price > 0)) return state;
 
       const portfolio  = state.portfolio ?? emptyPortfolio();
       const held       = portfolio.holdings[action.targetId];
       const heldShares = held?.shares ?? 0;
 
-      // Ownership cap: at most 20% of the rival's fixed 100M-share float.
-      if (heldShares + shares > S.MAX_OWNERSHIP_PCT * TOTAL_SHARES) return state;
+      // Ownership cap: at most 20% of the rival's OWN shares outstanding (which
+      // issuance and buybacks move, so this is read per-airline, never assumed).
+      if (heldShares + shares > S.MAX_OWNERSHIP_PCT * targetShares) return state;
 
       const execPrice  = price * (1 + S.SPREAD_HALF);
       const gross      = Math.round(shares * execPrice);
@@ -3567,7 +3604,7 @@ function reducer(state, action) {
       // back to the last marked price (the weekly tick will haircut anyway).
       const target = (state.competitors ?? []).find(c => c.id === action.targetId);
       const price  = target
-        ? ((target.sharePrice ?? (target.marketCap ?? 0) / TOTAL_SHARES) || 0)
+        ? ((target.sharePrice ?? (target.marketCap ?? 0) / sharesOf(target)) || 0)
         : (held.lastPrice ?? 0);
       if (!(price > 0)) return state;
 
@@ -3836,6 +3873,8 @@ function reconcileState(parsed) {
         }
       : { weeklyInvestment: 0, effInvestment: 0, members: 0, maturity: 0, pointsLiability: 0 },
     fuelPrice:        parsed.fuelPrice        ?? { index: 1.0, history: [] },
+    // Added with the capital-markets rework; old saves start at neutral sentiment.
+    marketIndex:      Number.isFinite(parsed.marketIndex) ? parsed.marketIndex : MARKET_BASE_INDEX,
     allianceMembership:       parsed.allianceMembership       ?? null,
     codeshareAgreements:      parsed.codeshareAgreements      ?? [],
     marketingBudget:          parsed.marketingBudget          ?? 0,
@@ -3854,6 +3893,15 @@ function reconcileState(parsed) {
     consecutiveNegativeWeeks: parsed.consecutiveNegativeWeeks ?? 0,
     bankruptcyReason:         parsed.bankruptcyReason         ?? null,
     cabinTemplates:           parsed.cabinTemplates           ?? [],
+    // Equity block — added with the capital-markets rework. Old saves are
+    // incorporated at the founder share count, already public, no dividend history,
+    // which reproduces their pre-rework share price exactly.
+    equity:                   parsed.equity
+      ? { ...emptyEquity(), ...parsed.equity }
+      : emptyEquity(),
+    svps:                     Number.isFinite(parsed.svps)
+      ? parsed.svps
+      : svpsOf({ sharePrice: parsed.sharePrice, equity: parsed.equity }),
     // Stock portfolio — added with the Markets feature; old saves start empty.
     portfolio:                parsed.portfolio
       ? { ...emptyPortfolio(), ...parsed.portfolio, holdings: { ...(parsed.portfolio.holdings ?? {}) } }

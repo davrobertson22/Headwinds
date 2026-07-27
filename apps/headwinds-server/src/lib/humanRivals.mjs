@@ -18,7 +18,7 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
-import { referencePrice } from '@tailwinds/engine/utils/market.js';
+import { referencePrice, TOTAL_SHARES } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
@@ -162,6 +162,10 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     cash: Math.round(s.cash ?? 0),
     marketCap: Math.round(s.marketCap ?? 0),
     sharePrice: s.sharePrice ?? null,
+    // Shares outstanding — per-airline since the capital-markets rework, so the
+    // client's ownership caps and mark-to-market must read it rather than assume
+    // a fixed float. Falls back to the founder count for pre-rework blobs.
+    shares: Number(s.equity?.shares ?? TOTAL_SHARES),
     // Markets tab: last 26 weekly share prices (tiny — ~26 floats per rival) so
     // clients can chart every listed airline without extra reads.
     sharePriceHistory: (s.statsHistory ?? [])

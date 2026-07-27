@@ -85,6 +85,7 @@ model World {
   gateAuctions GateAuction[]
   gateListings GateListing[]
   usedAircraftListings UsedAircraftListing[]
+  news                 WorldNews[]
 
   @@index([status, visibility])
 }
@@ -99,6 +100,12 @@ model Airline {
   state       Json // ← the existing solo save blob (JSONB)
   cash        BigInt        @default(0)
   marketCap   BigInt        @default(0)
+  // Shares outstanding. Per-airline since the capital-markets rework: issuance
+  // and buybacks move it, so nothing may assume a fixed float.
+  shares      BigInt        @default(100000000)
+  // Shareholder Value Per Share — the leaderboard metric — in ten-thousandths of
+  // a dollar (SVPS_SCALE). Market cap is kept as a displayed stat, not the rank.
+  svps        BigInt        @default(0)
   week        Int           @default(1)
   version     Int           @default(0) // optimistic-concurrency guard: tick vs player decision
   status      AirlineStatus @default(ACTIVE)
@@ -109,7 +116,8 @@ model Airline {
 
   @@unique([worldId, accountId]) // one airline per account per world
   @@index([worldId, cash])
-  @@index([worldId, marketCap]) // standings sort by marketCap DESC
+  @@index([worldId, marketCap]) // still shown as a stat ("largest airline")
+  @@index([worldId, svps])      // standings sort by svps DESC
 }
 
 // ── Phase-2-ready: created now, written when the tick lands ──────────────────
@@ -353,4 +361,32 @@ model Standing {
 
   @@index([worldId, week, rank])
   @@index([airlineId, week]) // rank history: filter airlineId ORDER BY week DESC
+}
+
+// ── World news ───────────────────────────────────────────────────────────────
+// Durable home for the news items that have no other source. Player moves come
+// from Decision, gate events from GateAuction/GateListing, trades from
+// UsedAircraftListing — all already persisted. But the world's SHARED economy
+// events live only in `World.tickConfig.runtimeEvents`, which holds the CURRENT
+// set: once a fuel spike expires it is gone forever. Same for a bankruptcy or a
+// change at the top of the table — both are computed during the tick and then
+// discarded. These rows are written inside the tick's own transaction, so the
+// news is atomic with the week it describes.
+//
+// Volume is tiny: 0-2 event rows a week (MAX_ACTIVE_EVENTS = 2), plus the rare
+// bankruptcy or top-5 change. A weekly sweep prunes past the news window.
+model WorldNews {
+  id        String   @id @default(cuid())
+  worldId   String
+  week      Int // linear week index (matches Decision.week)
+  category  String // world | standings
+  kind      String // event_started | event_ended | bankruptcy | abandoned | rank_change
+  airlineId String? // subject, when the item is about one airline
+  payload   Json     @default("{}")
+  tier      Int      @default(2) // 1 = headline, 2 = ordinary, 3 = background
+  createdAt DateTime @default(now())
+  world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, createdAt]) // news feed: filter worldId ORDER BY createdAt DESC
+  @@index([worldId, week]) // retention sweep
 }
