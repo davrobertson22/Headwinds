@@ -11,6 +11,7 @@ import { env } from './env.mjs';
 import { prisma } from './db.mjs';
 import meRoutes from './routes/me.mjs';
 import worldRoutes from './routes/worlds.mjs';
+import newsRoutes from './routes/news.mjs';
 import decisionRoutes from './routes/decisions.mjs';
 import gateRoutes from './routes/gates.mjs';
 import aircraftMarketRoutes from './routes/aircraftMarket.mjs';
@@ -38,6 +39,7 @@ export function buildServer() {
 
   app.register(meRoutes);
   app.register(worldRoutes);
+  app.register(newsRoutes);
   app.register(decisionRoutes);
   app.register(gateRoutes);
   app.register(aircraftMarketRoutes);

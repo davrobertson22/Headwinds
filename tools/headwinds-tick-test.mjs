@@ -28,6 +28,7 @@ function fakePrisma({ world, airlines }) {
     airlines: airlines.map((a) => ({ ...a })),
     tickLogs: [],
     standings: [],
+    news: [],
   };
   let logId = 0;
   const p = {
@@ -81,6 +82,21 @@ function fakePrisma({ world, airlines }) {
     },
     standing: {
       createMany: async ({ data }) => { db.standings.push(...data); return { count: data.length }; },
+      // Last week's top 5, read by the tick to spot rank changes for the news feed.
+      findMany: async ({ where = {} }) => db.standings
+        .filter((r) => r.week === where.week && (where.rank?.lte == null || r.rank <= where.rank.lte))
+        .sort((x, y) => x.rank - y.rank),
+    },
+    // World news: economy events, bankruptcies and top-5 changes are written
+    // inside the tick's transaction, then swept past the retention window.
+    worldNews: {
+      createMany: async ({ data }) => { db.news.push(...data); return { count: data.length }; },
+      deleteMany: async ({ where = {} }) => {
+        const before = db.news.length;
+        const lt = where.week?.lt;
+        if (lt != null) db.news = db.news.filter((n) => !(n.week < lt));
+        return { count: before - db.news.length };
+      },
     },
     // Player alliances: the tick's rival-view builder queries these; an empty
     // world simply has none.

@@ -163,6 +163,11 @@ export default function GamePlayScreen({ worldId, token }) {
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => authedApi(`/worlds/${worldId}/feed${params}`, { token }),
+    // World news (News tab + the topbar ticker). `airlineId` rides along so the
+    // shared UI can mark your own moves and promote items that touch your
+    // network without the server needing to know who is asking.
+    fetchNews: (params = '') => authedApi(`/worlds/${worldId}/news${params}`, { token }),
+    airlineId: meta?.airlineId ?? null,
     // Used aircraft market (all Headwinds worlds)
     fetchUsedAircraft: () => authedApi(`/worlds/${worldId}/used-aircraft`, { token }),
     buyUsedAircraft: (listingId) =>
@@ -206,7 +211,7 @@ export default function GamePlayScreen({ worldId, token }) {
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/requests/${airlineId}`, { method: 'POST', token, body: { decision } }),
     leaveAlliance: (allianceId) =>
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
-  }), [worldId, token, adoptGateMarket]);
+  }), [worldId, token, adoptGateMarket, meta?.airlineId]);
 
   const decisionSeq = useRef(0);
   // Serialize the authoritative writes. A burst of dispatches — bulk close/sell/

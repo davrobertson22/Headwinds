@@ -16,6 +16,7 @@ import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
+import { sharesOf } from '@tailwinds/engine/utils/market.js';
 
 // Per-account decision throttle. Generous enough that no human bursting through
 // the UI is ever affected (60 in 10s ≈ 6/s), but a scripted flood hits 429 fast,
@@ -225,6 +226,43 @@ export default async function decisionRoutes(fastify) {
     }
 
     const next = gameReducer(injected, { type, ...guarded });
+
+    // Journal enrichment (post-reducer): the public share tape needs the size the
+    // trade actually executed at and the resulting stake, and NEITHER is in the
+    // request — the guard whitelists stock payloads down to { targetId, shares },
+    // and the reducer may fill less than asked (ownership cap, portfolio cap,
+    // funds, minimum ticket) or nothing at all. Read the truth off `next`.
+    //
+    // A rejected trade is journalled with shares: 0 so the news builder can tell
+    // it apart from a real one and print nothing, rather than reporting a trade
+    // that never happened.
+    if (type === 'BUY_STOCK' || type === 'SELL_STOCK') {
+      const target      = (injected.competitors ?? []).find((c) => c.id === guarded.targetId);
+      const heldBefore  = injected.portfolio?.holdings?.[guarded.targetId]?.shares ?? 0;
+      const heldAfter   = next.portfolio?.holdings?.[guarded.targetId]?.shares ?? 0;
+      const traded      = Math.abs(heldAfter - heldBefore);
+      // Divide by the TARGET's own share count, not a global constant: since the
+      // capital-markets rework each airline's float moves with issuance and
+      // buybacks, so a fixed divisor would misstate the stake.
+      const float       = sharesOf(target);
+      const price       = target?.sharePrice ?? ((target?.marketCap ?? 0) / float);
+      const pct         = (n) => Math.round((n / float) * 1000) / 10;   // 0.1% resolution
+      journalled = traded > 0
+        ? {
+            ...journalled,
+            targetId:       guarded.targetId,
+            targetName:     target?.name ?? null,
+            shares:         traded,
+            pricePerShare:  Math.round(price),
+            value:          Math.round(traded * price),
+            // Stake before and after, so the news layer can tell whether this
+            // dealing crossed a disclosure threshold without re-deriving the
+            // float (which may have changed since).
+            stakePctBefore: pct(heldBefore),
+            stakePct:       pct(heldAfter),
+          }
+        : { ...journalled, shares: 0 };
+    }
 
     // Did this decision actually change the airline's gate count? (The reducer
     // no-ops rejected leases/removals — no ledger entry must be written then.)

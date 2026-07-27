@@ -1,58 +1,79 @@
-// World activity feed — "this week in your world".
-// A 🌍 Activity button for the multiplayer top bar opening a slide-over feed of
-// every player's PUBLIC moves (server-filtered: route/fleet/hub/alliance events,
-// never prices, budgets or loans) plus system events (joins, alliances forming).
-// Headwinds-owned (not synced from Tailwinds) — safe to evolve freely.
+// World activity TICKER — the 🌍 button in the multiplayer topbar.
+// ----------------------------------------------------------------------------
+// This used to be the whole news surface: a slide-over drawer holding an
+// unrolled, unranked list of every public move in the world. Players told us it
+// read as noise, and they were right — a bulk route opening filled it, and joins
+// from months ago competed with this week's headlines.
+//
+// The full story now lives in the in-game News tab (src/components/News.jsx),
+// which groups, filters and ranks. What is left here is what a ticker is for:
+// the handful of tier-1 headlines, an unread dot, and a way through to the tab.
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api.js';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
+import { getAircraftType } from '../../../src/data/aircraft.js';
 
-const LABELS = {
-  ADD_ROUTE:            (e) => `opened ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
-  CLOSE_ROUTE:          (e) => (e.payload?.origin && e.payload?.destination)
-                          ? `closed ${e.payload.origin}–${e.payload.destination}` : 'closed a route',
-  CLOSE_ROUTES:         (e) => {
-    const rs = Array.isArray(e.payload?.routes) ? e.payload.routes.filter(r => r?.origin && r?.destination) : [];
-    const n = e.payload?.count ?? rs.length;
-    if (rs.length) {
-      const shown = rs.slice(0, 3).map(r => `${r.origin}–${r.destination}`).join(', ');
-      return `closed ${shown}${n > rs.slice(0, 3).length ? ` +${n - 3} more` : ''}`;
-    }
-    return n > 1 ? `closed ${n} routes` : 'closed a route';
-  },
-  ADD_CARGO_ROUTE:      (e) => `opened cargo lane ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
-  CLOSE_CARGO_ROUTE:    (e) => `closed cargo lane ${e.payload?.origin ?? '?'}–${e.payload?.destination ?? '?'}`,
-  LEASE_AIRCRAFT:       (e) => `leased ${e.payload?.typeId ? `a ${e.payload.typeId}` : 'an aircraft'}`,
-  BUY_AIRCRAFT:         (e) => `bought ${e.payload?.typeId ? `a ${e.payload.typeId}` : 'an aircraft'}`,
-  ORDER_AIRCRAFT:       (e) => `ordered ${e.payload?.typeId ? `a ${e.payload.typeId}` : 'an aircraft'}`,
-  SELL_AIRCRAFT:        () => 'sold an aircraft',
-  RETIRE_AIRCRAFT:      () => 'retired an aircraft',
-  ADD_GATE:             (e) => `added a gate${e.payload?.airportCode ? ` at ${e.payload.airportCode}` : ''}`,
-  REMOVE_GATE:          (e) => `released a gate${e.payload?.airportCode ? ` at ${e.payload.airportCode}` : ''}`,
-  UPGRADE_HUB:          (e) => `upgraded ${e.payload?.airportCode ? `hub ${e.payload.airportCode}` : 'a hub'}`,
-  DESIGNATE_HUB:        (e) => `designated ${e.payload?.airportCode ?? 'a new'} hub`,
-  DESIGNATE_FOCUS_CITY: (e) => `made ${e.payload?.airportCode ?? 'an airport'} a focus city`,
-  JOIN_ALLIANCE:        () => 'joined an alliance',
-  LEAVE_ALLIANCE:       () => 'left an alliance',
-};
+const TICKER_LIMIT = 8;
 
+const plural = (n, one, many) => `${Number(n ?? 0).toLocaleString()} ${n === 1 ? one : many}`;
+const typeName = (id) => getAircraftType(id)?.name ?? id ?? 'an aircraft';
+
+// A deliberately terse echo of News.jsx's composer: the ticker has one line per
+// item, so it says what happened and leaves the detail to the tab.
 function describe(e) {
-  if (e.kind === 'joined') return { who: e.airline, what: `joined the world${e.hub ? ` · hub ${e.hub}` : ''}`, icon: '🛬' };
-  if (e.kind === 'alliance_founded') return { who: e.alliance, what: 'alliance founded', icon: '🤝' };
-  if (e.kind === 'alliance_joined') return { who: e.airline, what: `joined the ${e.alliance} alliance`, icon: '🤝' };
-  // Gate scarcity events
-  if (e.kind === 'gate_auction_opened') {
-    return { who: e.airport, what: `gate auction opened — ${e.lots} gate${e.lots > 1 ? 's' : ''} on offer (sealed bids, resolves at the new year)`, icon: '🔨' };
+  const d = e.data ?? {};
+  switch (e.kind) {
+    case 'event_started': return { who: d.name ?? 'World event', what: '', icon: d.icon ?? '🌍' };
+    case 'event_ended':   return { who: d.name ?? 'World event', what: 'has passed', icon: d.icon ?? '🌍' };
+    case 'bankruptcy':    return { who: e.airline, what: 'has gone under', icon: '📉' };
+    case 'rank_change':   return {
+      who: e.airline,
+      what: d.direction === 'in' ? `climbed into the top 5 — now #${d.rank}` : 'dropped out of the top 5',
+      icon: d.direction === 'in' ? '📈' : '📉',
+    };
+    case 'routes_opened': return {
+      who: e.airline,
+      what: d.total === 1 && d.pairs?.[0]
+        ? `opened ${d.pairs[0].origin}–${d.pairs[0].destination}`
+        : `opened ${plural(d.total, 'route', 'routes')}${d.commonOrigin ? ` from ${d.commonOrigin}` : ''}`,
+      icon: '🛫',
+    };
+    case 'routes_closed': return {
+      who: e.airline,
+      what: d.total === 1 && d.pairs?.[0]
+        ? `closed ${d.pairs[0].origin}–${d.pairs[0].destination}`
+        : `closed ${plural(d.total, 'route', 'routes')}`,
+      icon: '🛬',
+    };
+    case 'fleet_in': {
+      const [top] = Object.entries(d.byType ?? {}).sort((a, b) => b[1] - a[1]);
+      const what = top
+        ? `${d.ordered ? 'ordered' : 'bought'} ${top[1] > 1 ? `${top[1]}× ` : 'a '}${typeName(top[0])}`
+        : `${d.ordered ? 'ordered' : 'bought'} ${plural(d.total, 'aircraft', 'aircraft')}`;
+      return { who: e.airline, what, icon: '✈️' };
+    }
+    case 'fleet_out':     return { who: e.airline, what: `${d.retired ? 'retired' : 'sold'} ${plural(d.total, 'aircraft', 'aircraft')}`, icon: '🛠️' };
+    case 'gates_added':   return { who: e.airline, what: `took ${plural(d.total, 'gate', 'gates')}${d.airportCode ? ` at ${d.airportCode}` : ''}`, icon: '🛄' };
+    case 'gates_removed': return { who: e.airline, what: `released ${plural(d.total, 'gate', 'gates')}${d.airportCode ? ` at ${d.airportCode}` : ''}`, icon: '🛄' };
+    case 'hub_designated': return { who: e.airline, what: `designated ${d.airportCode ?? 'a new'} hub`, icon: '🏛️' };
+    case 'hub_upgraded':   return { who: e.airline, what: `upgraded ${d.airportCode ? `its ${d.airportCode} hub` : 'a hub'}`, icon: '🏛️' };
+    case 'focus_city':     return { who: e.airline, what: `made ${d.airportCode ?? 'an airport'} a focus city`, icon: '📍' };
+    case 'stock_tape':     return {
+      who: e.airline,
+      what: `${d.direction === 'buy' ? 'bought into' : 'sold down'} ${d.targetName ?? 'a rival'}${d.stakePct ? ` — now ${d.stakePct}%` : ''}`,
+      icon: '📊',
+    };
+    case 'gate_auction_opened': return { who: d.airport, what: `gate auction opened — ${plural(d.lots ?? 1, 'gate', 'gates')} on offer`, icon: '🔨' };
+    case 'gate_auction_won':    return { who: e.airline, what: `won ${plural(d.gates ?? 1, 'gate', 'gates')} at ${d.airport}`, icon: '🔨' };
+    case 'gate_sold':           return { who: e.airline, what: `sold a ${d.airport} gate to ${d.buyer}`, icon: '🤝' };
+    case 'used_aircraft_sold':  return { who: e.airline, what: `picked up a used ${typeName(d.typeId)}`, icon: '🏷️' };
+    case 'joined':              return { who: e.airline, what: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}`, icon: '🛬' };
+    case 'alliance_founded':    return { who: d.alliance, what: 'alliance founded', icon: '🤝' };
+    case 'alliance_joined':     return { who: e.airline, what: `joined the ${d.alliance} alliance`, icon: '🤝' };
+    case 'alliance_left':       return { who: e.airline, what: 'left its alliance', icon: '🤝' };
+    default:                    return { who: e.airline, what: e.kind, icon: '•' };
   }
-  if (e.kind === 'gate_auction_won') {
-    return { who: e.airline, what: `won ${e.gates} gate${e.gates > 1 ? 's' : ''} at ${e.airport} for $${(e.pricePerGate ?? 0).toLocaleString()}/gate`, icon: '🔨' };
-  }
-  if (e.kind === 'gate_sold') {
-    return { who: e.airline, what: `sold a ${e.airport} gate to ${e.buyer} for $${(e.price ?? 0).toLocaleString()}`, icon: '🤝' };
-  }
-  const label = LABELS[e.type];
-  return { who: e.airline, what: label ? label(e) : e.type, icon: '✈️' };
 }
 
 const fmtWhen = (iso) => {
@@ -66,43 +87,36 @@ const fmtWhen = (iso) => {
 
 const LAST_SEEN_KEY = (worldId) => `hw_feed_seen_${worldId}`;
 
-export default function FeedWidget({ worldId, token, myAirlineId = null }) {
+// The ticker lives in the topbar, which the shared App shell renders — it has no
+// handle on the App's active tab. A DOM event is the least-coupled way across:
+// App listens for it and navigates. (See the 'hw:navigate' listener in App.jsx.)
+const openNewsTab = () => {
+  window.dispatchEvent(new CustomEvent('hw:navigate', { detail: 'news' }));
+};
+
+export default function FeedWidget({ worldId, token, myAirlineId = null, onOpenNews = openNewsTab }) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState(null);
-  const [nextBefore, setNextBefore] = useState(null);
   const [error, setError] = useState(null);
   const [hasNew, setHasNew] = useState(false);
-  const [paginated, setPaginated] = useState(false);
 
   const load = useCallback(() => {
-    api(`/worlds/${worldId}/feed`, { token })
+    // tier=1 only: the ticker carries headlines, not the full record.
+    api(`/worlds/${worldId}/news?tier=1&limit=${TICKER_LIMIT}`, { token })
       .then((d) => {
         setError(null);
-        const latest = d.events[0]?.at;
+        const items = d.items ?? [];
+        const latest = items[0]?.at;
         const seen = localStorage.getItem(LAST_SEEN_KEY(worldId));
         setHasNew(Boolean(latest && latest !== seen));
-        if (paginated) {
-          // User loaded older pages — a full replace would wipe that history and
-          // reset scroll. Prepend only genuinely-new events; leave nextBefore
-          // (the older-page cursor) untouched.
-          setEvents((prev) => {
-            if (!prev || prev.length === 0) return d.events;
-            const newest = prev[0]?.at;
-            const fresh = newest ? d.events.filter((e) => e.at > newest) : d.events;
-            return fresh.length ? [...fresh, ...prev] : prev;
-          });
-        } else {
-          setEvents(d.events);
-          setNextBefore(d.nextBefore);
-        }
+        setEvents(items);
       })
       .catch(setError);
-  }, [worldId, token, paginated]);
+  }, [worldId, token]);
 
-  // Light poll for the "new activity" dot; full refresh while open.
   useEffect(() => {
     load();
-    const t = setInterval(load, open ? 15000 : 60000);
+    const t = setInterval(load, open ? 20000 : 60000);
     return () => clearInterval(t);
   }, [load, open]);
 
@@ -115,20 +129,9 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
     }
   };
 
-  const loadMore = () => {
-    if (!nextBefore) return;
-    setPaginated(true);
-    api(`/worlds/${worldId}/feed?before=${encodeURIComponent(nextBefore)}`, { token })
-      .then((d) => {
-        setEvents((prev) => [...(prev ?? []), ...d.events]);
-        setNextBefore(d.nextBefore);
-      })
-      .catch(setError);
-  };
-
   return (
     <>
-      <button className="hw-msg-btn" onClick={openDrawer} title="World activity">
+      <button className="hw-msg-btn" onClick={openDrawer} title="World headlines">
         🌍 <span className="hw-btn-label">Activity</span>
         {hasNew && !open && <span className="hw-msg-badge">•</span>}
       </button>
@@ -139,7 +142,7 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
       {open && createPortal(
         <div className="hw-msg-drawer">
           <div className="hw-msg-head">
-            <div style={{ fontWeight: 700, fontSize: 14, padding: '2px 4px' }}>This week in your world</div>
+            <div style={{ fontWeight: 700, fontSize: 14, padding: '2px 4px' }}>Headlines</div>
             <button className="hw-msg-close" onClick={() => setOpen(false)} title="Close">×</button>
           </div>
           {error && <p className="error" style={{ padding: '0 14px' }}>{String(error.message || error)}</p>}
@@ -147,32 +150,35 @@ export default function FeedWidget({ worldId, token, myAirlineId = null }) {
             {!events && <p className="muted" style={{ padding: '8px 4px' }}>Loading…</p>}
             {events && events.length === 0 && (
               <p className="muted" style={{ padding: '8px 4px' }}>
-                Nothing yet — moves show up here as players act.
+                Quiet so far — big moves show up here as players make them.
               </p>
             )}
-            {events && events.map((e, i) => {
+            {events && events.map((e) => {
               const d = describe(e);
               const mine = myAirlineId && e.airlineId === myAirlineId;
               return (
-                <div key={`${e.at}-${i}`} style={{
+                <div key={e.id} style={{
                   display: 'flex', gap: 8, alignItems: 'baseline',
                   padding: '7px 4px', borderBottom: '1px solid var(--border, rgba(255,255,255,0.08))',
                   fontSize: 13, lineHeight: 1.5,
                 }}>
                   <span style={{ flexShrink: 0 }}>{d.icon}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <strong>{d.who}</strong>{e.dev ? <DevBadge /> : null}{e.og ? <OgBadge /> : null}{mine ? <strong> (you)</strong> : ''} {d.what}
+                    <strong>{d.who}</strong>{e.dev ? <DevBadge /> : null}{e.og ? <OgBadge /> : null}{mine ? <strong> (you)</strong> : ''}
+                    {d.what ? ` ${d.what}` : ''}
                     {e.week != null && <span style={{ opacity: 0.55 }}> · W{e.week}</span>}
                   </span>
                   <span style={{ flexShrink: 0, opacity: 0.55, fontSize: 11 }}>{fmtWhen(e.at)}</span>
                 </div>
               );
             })}
-            {nextBefore && (
-              <button className="hw-msg-btn" style={{ margin: '10px auto', display: 'block' }} onClick={loadMore}>
-                Load older
-              </button>
-            )}
+            <button
+              className="hw-msg-btn"
+              style={{ margin: '12px auto', display: 'block' }}
+              onClick={() => { setOpen(false); onOpenNews?.(); }}
+            >
+              See all news →
+            </button>
           </div>
         </div>,
         document.body

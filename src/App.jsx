@@ -12,11 +12,13 @@ import Fleet from './components/Fleet.jsx';
 import Routes from './components/Routes.jsx';
 import Marketplace from './components/Marketplace.jsx';
 import Finance from './components/Finance.jsx';
-import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon } from './components/Icons.jsx';
+import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
+} from './components/Icons.jsx';
 import HubManagement from './components/HubManagement.jsx';
 import Reputation from './components/Reputation.jsx';
 import Competition from './components/Competition.jsx';
 import StockMarket from './components/StockMarket.jsx';
+import News from './components/News.jsx';
 import UsedMarket from './components/UsedMarket.jsx';
 import RoutePlanner from './components/RoutePlanner.jsx';
 import Airports from './components/Airports.jsx';
@@ -110,6 +112,7 @@ const TABS = [
   { id: 'competition', label: 'Competition',  Icon: CompetitionIcon   },
   { id: 'stocks',      label: 'Stocks',       Icon: TrendUpIcon       },
   { id: 'finance',     label: 'Finance',       Icon: FinanceIcon     },
+  { id: 'news',        label: 'News',          Icon: NewsIcon        },
   { id: 'wiki',        label: 'Help',          Icon: HelpIcon        },
 ];
 
@@ -120,6 +123,7 @@ const TABS_BY_ID = Object.fromEntries(TABS.map(t => [t.id, t]));
 // fold into four dropdown groups so the bar fits without cutting anything off.
 const NAV_GROUPS = [
   { id: 'dashboard' },
+  { id: 'news' },   // multiplayer only — filtered out in solo (see navGroups)
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'planner', 'routes'] },
   { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market', 'used'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
@@ -265,7 +269,23 @@ function AppInner() {
   // In multiplayer the Competition tab shows the OTHER HUMANS in your world, so
   // "Rivals" is the accurate label there.
   const tabLabel = (id) => (remote && id === 'competition') ? 'Rivals' : TABS_BY_ID[id]?.label;
+
+  // News is a multiplayer surface: it reports what OTHER players are doing, and
+  // solo has no other players. Hidden entirely rather than shown empty.
+  const navGroups = remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news');
   const navigate = (id) => { setActiveTab(id); setOpenGroup(null); };
+
+  // Multiplayer chrome rendered by this shell (the 🌍 headlines ticker) sits
+  // outside the tab system and has no handle on activeTab. It asks to navigate
+  // by dispatching 'hw:navigate' — see apps/headwinds-web/src/Feed.jsx.
+  useEffect(() => {
+    const onNavigate = (e) => {
+      const id = e?.detail;
+      if (typeof id === 'string' && TABS_BY_ID[id]) navigate(id);
+    };
+    window.addEventListener('hw:navigate', onNavigate);
+    return () => window.removeEventListener('hw:navigate', onNavigate);
+  }, []);
 
   const tabContent = {
     dashboard:   <Dashboard onNavigate={navigate} />,
@@ -285,6 +305,7 @@ function AppInner() {
     competition: <Competition />,
     stocks:      <StockMarket />,
     finance:     <Finance />,
+    news:        <News />,
     wiki:        <Wiki />,
   };
 
@@ -452,7 +473,7 @@ function AppInner() {
 
       {/* Nav tabs (grouped) */}
       <div className="nav-tabs">
-        {NAV_GROUPS.map((grp) => {
+        {navGroups.map((grp) => {
           if (!grp.children) {
             const t = TABS_BY_ID[grp.id];
             const Icon = t.Icon;
