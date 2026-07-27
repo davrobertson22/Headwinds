@@ -55,6 +55,30 @@
 
     <div class="entry">
       <p class="date">July 27, 2026</p>
+      <h2>The gate auction stops hiding &mdash; and you can&rsquo;t bid for gates that don&rsquo;t exist</h2>
+      <p>Gate auctions are the one thing in a scarcity world you cannot come back to later. Bidding opens at week 40, resolves at the new year, and if you miss the window the gates are simply gone for a game year. Two things were making that easier to miss than it should have been.</p>
+      <ul>
+        <li><strong>The bid quantity now matches the lots on offer.</strong> The quantity selector always offered &times;1, &times;2 and &times;3 &mdash; even at a small airport where only <strong>two</strong> gates were going under the hammer. A three-gate bid there was quietly trimmed to two at resolution, which meant you had committed to a price for a number of gates you were never going to get. The selector now only offers what the auction can actually fill, and a bid for more than the lot count is refused up front with the real number in the message. Bids placed before this landed display against what they can win, so nothing shows you a phantom third gate.</li>
+        <li><strong>The Gate Market comes to you while an auction is running.</strong> It used to sit below your gate list, which on a large network meant scrolling past everything you already own to find the thing with a deadline on it. While any auction in the world is live, the Gate Market now floats to the top of the Airports tab instead.</li>
+        <li><strong>News items about gates are now doors.</strong> When an auction opens, the item in your <strong>News</strong> feed is clickable &mdash; it carries a <em>Place a sealed bid</em> prompt and takes you straight to the Gate Market, scrolling it into view and flashing it so you land on the auction rather than at the top of a tab. Gates won and gates sold link the same way.</li>
+      </ul>
+      <p>Bids are still sealed, still capped at three gates per bid, and still resolve highest-first with ties settled by coin flip &mdash; and the per-airline ownership cap still applies on top, so a winning bid gets trimmed if it would take you over it. See the Wiki&rsquo;s gate section for the full auction rules.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 27, 2026</p>
+      <h2>Also landing from the shared engine</h2>
+      <p>Headwinds runs the same simulation as <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, and a batch of engine and interface work shipped to both games in the same run. The short version, with the full write-ups on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>:</p>
+      <ul>
+        <li><strong>Hub congestion was measuring against the wrong gate.</strong> A gate holds 50 departures a week &mdash; the number the game enforces and the Airports tab quotes &mdash; but the congestion warning was measuring against roughly 16. Every hub you actually used read &ldquo;Congested&rdquo; at about a third of its real capacity, and pinned at the worst-case penalty. Thresholds now run 30 to 45 departures per gate depending on tier, the penalty ramps with how overloaded you really are, and buying a gate moves the meter immediately.</li>
+        <li><strong>The aircraft picker only offers aircraft that can fly the route.</strong> The dropdown used to list your whole passenger fleet, including aircraft the game was always going to refuse. It now shows only what's genuinely eligible, re-evaluates when you change airports, and explains the rule when nothing qualifies.</li>
+        <li><strong>Contested routes count your whole operation.</strong> If you worked a city pair with more than one aircraft, the Competition tab was only counting one of them &mdash; so a rival could look like they were burying you on a pair you were winning. Frequency and seats now add up across every aircraft on the pair, in both directions, with fares and quality blended by frequency. In Headwinds this also fixed what your <em>human</em> rivals look like to you.</li>
+        <li><strong>Filter the Routes page by airport, and a table view for freight.</strong> Scope the whole page &mdash; passenger, multi-stop and cargo together &mdash; to one airport, with one-click chips for your hubs. Cargo routes gain the sortable table the passenger list already had.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 27, 2026</p>
       <h2>Capital markets: your share price is the scoreboard now</h2>
       <p><strong>Read this one before you next open your airline, because your numbers are going to move.</strong> Valuations across every live world have been rebased, and most airlines will see their market cap drop by roughly half on the next tick. Nothing has gone wrong and you haven&rsquo;t lost anything &mdash; the old valuation was simply wrong, in a way that made the stock market a money printer.</p>
       <p>Here is what was broken. An airline&rsquo;s value was built on its profit multiplied by up to 32, which meant every extra $100k a week of profit added something like $166M of market cap. One good route was worth a quarter of a billion dollars. Prices then climbed toward that number at a capped 20% a week &mdash; smoothly, predictably, for weeks on end. A stock that reliably returns 20% a week against a 3% round trip isn&rsquo;t an investment, it&rsquo;s a vending machine.</p>
@@ -99,6 +123,21 @@
       </ul>
       <p>News is kept for one game year. Nothing private is reported &mdash; cash, loans, budgets and route profit stay yours; the feed carries only what an observer at the airport could see anyway.</p>
       <p>Thanks to Kat for the push. If something in the game reads as noise to you, say so in <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a> &mdash; that&rsquo;s how this one got fixed.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 27, 2026</p>
+      <h2>One world, one calendar</h2>
+      <p>Players kept reporting that they and their rivals were seeing different dates in the same world, and they were right. This one is worth explaining, because it was doing more damage than a wrong number in the top bar.</p>
+      <p>A new airline was always created at <strong>Year 1, Week 1</strong>, no matter what the world clock said. Join a world sitting at Year 3, Week 12 and you didn&rsquo;t join it in the spring of year three &mdash; you started your own private January and ran it alongside everyone else&rsquo;s calendar for the rest of the game. Because the simulation reads the season off your week, that wasn&rsquo;t cosmetic: you were flying <strong>a different season to your rivals in the same market</strong>, catching the summer peak on transatlantic routes while the carrier competing with you was in the depths of February. Anything scheduled by date &mdash; aircraft deliveries, fuel hedges, the quarterly rhythm &mdash; was keyed to your calendar rather than the world&rsquo;s.</p>
+      <ul>
+        <li><strong>You now join in the world&rsquo;s here-and-now.</strong> A late joiner lands on the current world date, in the current season, on the same week as everyone else.</li>
+        <li><strong>Existing worlds have been corrected.</strong> Airlines already running on a private calendar were rebased onto the world clock, with anything scheduled ahead of them shifted to match, so nothing pending was lost in the move.</li>
+        <li><strong>&ldquo;Joined at&rdquo; means something now.</strong> Your join date used to record the week of the year and throw the year away &mdash; someone joining in year three was filed as having joined at week 12. It records the real point in the world&rsquo;s history.</li>
+      </ul>
+      <h3>And the December Week 4 freeze</h3>
+      <p>The same investigation turned up the cause of a bug several of you had reported and none of us could pin down: the game appearing to <strong>stop dead at December, Week 4</strong>, with ticks landing on the server but nothing moving on screen until you reloaded the page.</p>
+      <p>The client decides whether to accept a new week by checking that it&rsquo;s later than the one on screen &mdash; and it was comparing the week <em>of the year</em>. Every New Year, week 52 became week 1, which reads as time running backwards, so the client rejected the new week as stale and sat there. It now compares the actual position in the world&rsquo;s history, so the year rolls over without you touching anything. If you have been reloading every December to unstick your world, you can stop.</p>
     </div>
 
     <div class="entry">
