@@ -2444,6 +2444,10 @@ export const GATE_AUCTION_OPEN_WEEK = 40;
 /** An airport must be at least this full at week 40 for an auction to open. */
 export const GATE_AUCTION_TRIGGER = 0.95;
 
+/** How long a resolved auction's result stays on the Airports tab. A sealed
+ *  auction that vanishes the instant it resolves reads as if it never ran. */
+export const GATE_AUCTION_RESULT_WEEKS = 12;
+
 /** Consecutive weeks with no service before gates at an airport are forfeited. */
 export const GATE_IDLE_FORFEIT_WEEKS = 24;
 
@@ -2923,6 +2927,9 @@ export const COUNTRY_REGION = {
   CV: 'Africa', ST: 'Africa',
   // Additional Middle East
   YE: 'Middle East',
+  // Overseas territories / dependencies
+  GP: 'North America', MQ: 'North America', TC: 'North America',
+  VG: 'North America', MP: 'Oceania',
 };
 
 export const REGIONS = [

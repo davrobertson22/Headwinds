@@ -10,6 +10,7 @@ import { AIRPORTS, getAirport, getRegion, REGIONS } from '../data/airports.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
+import AirportSelect from './AirportSelect.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
@@ -2139,28 +2140,11 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
   );
 }
 
-// ─── Region helpers for grouped selects ──────────────────────────────────────
-
-const REGION_MAP = {
-  US: 'North America', CA: 'North America', MX: 'North America',
-  GB: 'Europe', FR: 'Europe', DE: 'Europe', NL: 'Europe',
-  ES: 'Europe', IT: 'Europe', TR: 'Europe',
-  AE: 'Middle East & Asia', SG: 'Middle East & Asia', HK: 'Middle East & Asia',
-  JP: 'Middle East & Asia', KR: 'Middle East & Asia', CN: 'Middle East & Asia',
-  IN: 'Middle East & Asia', AU: 'Middle East & Asia',
-  BR: 'South America', AR: 'South America',
-};
-const REGION_ORDER = ['North America', 'Europe', 'Middle East & Asia', 'South America', 'Other'];
-
-function airportRegion(airport) {
-  return REGION_MAP[airport?.country] ?? 'Other';
-}
-
 // ─── Add-route / add-flights form ─────────────────────────────────────────────
 
 function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const { state, dispatch } = useGame();
-  const { fleet, routes, hub, gates = {}, cargoRoutes = [] } = state;
+  const { fleet, routes, hub, gates = {}, cargoRoutes = [], hubs = EMPTY_HUBS } = state;
 
   const isAddingFlights = initialOrigin != null && initialDest != null;
 
@@ -2348,43 +2332,19 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
             <>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Origin</label>
-                <select className="form-select" value={origin} onChange={e => setOrigin(e.target.value)}>
-                  {REGION_ORDER.map(region => {
-                    const airports = AIRPORTS.filter(a => (gates[a.code] ?? 0) > 0 && airportRegion(a) === region)
-                      .sort((x, y) => (gates[y.code] ?? 0) - (gates[x.code] ?? 0) || x.city.localeCompare(y.city));
-                    if (!airports.length) return null;
-                    return (
-                      <optgroup key={region} label={region}>
-                        {airports.map(a => (
-                          <option key={a.code} value={a.code}>
-                            {a.code} — {a.city} ({gates[a.code]} {gates[a.code] === 1 ? 'gate' : 'gates'})
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
+                <AirportSelect value={origin} onChange={setOrigin} gates={gates} hubs={hubs} />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Destination</label>
-                <select className="form-select" value={dest} onChange={e => setDest(e.target.value)} required>
-                  <option value="">— Select destination —</option>
-                  {REGION_ORDER.map(region => {
-                    const airports = AIRPORTS.filter(a =>
-                      a.code !== origin && (gates[a.code] ?? 0) > 0 && airportRegion(a) === region
-                    ).sort((x, y) => (gates[y.code] ?? 0) - (gates[x.code] ?? 0) || x.city.localeCompare(y.city));
-                    if (!airports.length) return null;
-                    return (
-                      <optgroup key={region} label={region}>
-                        {airports.map(a => (
-                          <option key={a.code} value={a.code}>
-                            {a.code} — {a.city} ({gates[a.code]} {gates[a.code] === 1 ? 'gate' : 'gates'})
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
+                <AirportSelect
+                  value={dest}
+                  onChange={setDest}
+                  gates={gates}
+                  hubs={hubs}
+                  exclude={origin}
+                  placeholder="— Select destination —"
+                  required
+                />
               </div>
             </>
           )}

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { AIRPORTS, getAirport } from '../data/airports.js';
+import { getAirport } from '../data/airports.js';
 import { getAircraftType, AIRCRAFT_TYPES } from '../data/aircraft.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -13,36 +13,23 @@ import {
 } from '../utils/simulation.js';
 import { ModeToggle } from './CargoRoutePlanner.jsx';
 import AddGateButton from './AddGateButton.jsx';
+import AirportSelect from './AirportSelect.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Region-grouped airport <select> (only airports with a gate) ───────────────
 
-const REGION_MAP = {
-  US: 'North America', CA: 'North America', MX: 'North America',
-  GB: 'Europe', FR: 'Europe', DE: 'Europe', NL: 'Europe', ES: 'Europe', IT: 'Europe', TR: 'Europe',
-  AE: 'Middle East & Asia', SG: 'Middle East & Asia', HK: 'Middle East & Asia', JP: 'Middle East & Asia',
-  KR: 'Middle East & Asia', CN: 'Middle East & Asia', IN: 'Middle East & Asia', AU: 'Middle East & Asia',
-  BR: 'South America', AR: 'South America',
-};
-const REGION_ORDER = ['North America', 'Europe', 'Middle East & Asia', 'South America', 'Other'];
-const regionOf = (a) => REGION_MAP[a?.country] ?? 'Other';
+const EMPTY_HUBS = {};
 
-function StopSelect({ value, onChange, gates, placeholder }) {
+function StopSelect({ value, onChange, gates, hubs, placeholder }) {
   return (
-    <select className="form-select" value={value} onChange={e => onChange(e.target.value)}>
-      <option value="">{placeholder ?? '— Select airport —'}</option>
-      {REGION_ORDER.map(region => {
-        const list = AIRPORTS.filter(a => (gates[a.code] ?? 0) > 0 && regionOf(a) === region);
-        if (!list.length) return null;
-        return (
-          <optgroup key={region} label={region}>
-            {list.map(a => (
-              <option key={a.code} value={a.code}>{a.code} — {a.city}</option>
-            ))}
-          </optgroup>
-        );
-      })}
-    </select>
+    <AirportSelect
+      value={value}
+      onChange={onChange}
+      gates={gates}
+      hubs={hubs}
+      showGates={false}
+      placeholder={placeholder ?? '— Select airport —'}
+    />
   );
 }
 
@@ -50,7 +37,7 @@ function StopSelect({ value, onChange, gates, placeholder }) {
 
 export default function TagRoutePlanner({ mode, setMode }) {
   const { state, dispatch } = useGame();
-  const { fleet, routes, gates = {}, hub, cash, cargoRoutes = [] } = state;
+  const { fleet, routes, gates = {}, hub, cash, cargoRoutes = [], hubs = EMPTY_HUBS } = state;
   const gd = currentGameDate(state);
 
   // Ordered stops: a tag flight needs ≥3 (origin + ≥1 stop + destination).
@@ -188,7 +175,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
                   {role}
                 </div>
                 <div style={{ flex: 1, minWidth: 180 }}>
-                  <StopSelect value={code} onChange={(c) => setStop(i, c)} gates={gates} />
+                  <StopSelect value={code} onChange={(c) => setStop(i, c)} gates={gates} hubs={hubs} />
                 </div>
                 {isInterior && stops.length > 3 && (
                   <button className="btn btn-ghost" style={{ padding: '6px 10px', fontSize: 13 }}
