@@ -5,7 +5,7 @@
 
 import {
   HUB_TIERS, HUB_TIER_COUNT, HUB_MIN_GATES, FOCUS_MIN_GATES,
-  hubCongestionFactor, hubUpgradeChecklist,
+  hubCongestionFactor, hubUpgradeChecklist, GATE_SLOT_CAP,
   playerRoutesAtAirport, intlDestinationsFrom,
   computeConnectingDemand,
 } from '../src/models/demand.js';
@@ -35,14 +35,28 @@ ok('HUB_TIER_COUNT unchanged (3)', HUB_TIER_COUNT === 3);
 
 // ── 2. Gate congestion ────────────────────────────────────────────────────────
 console.log('\n── Gate congestion ──────────────────────');
-// Slot-based: Hub gate handles ~12 weekly departures, Gateway ~20.
-ok('below capacity → 1.0', hubCongestionFactor(100, 10, 1) === 1.0);        // 100 / (10*12) = 0.83
-ok('at capacity → 1.0', hubCongestionFactor(120, 10, 1) === 1.0);           // exactly 100% util
-ok('above capacity declines', hubCongestionFactor(240, 10, 1) < 1.0);       // 200% util
+// Slot-based, calibrated against the HARD gate cap (GATE_SLOT_CAP = 50/wk):
+// congestion bites at 30/35/40/45 departures per gate by tier, i.e. 60–90% of
+// the physical limit. Tier 1 (Hub) = 35/gate, so 10 gates → capacity 350.
+ok('below capacity → 1.0', hubCongestionFactor(100, 10, 1) === 1.0);        // 100 / (10*35) = 0.29
+ok('at capacity → 1.0', hubCongestionFactor(350, 10, 1) === 1.0);           // exactly 100% util
+ok('above capacity declines', hubCongestionFactor(700, 10, 1) < 1.0);       // 200% util
 ok('low-freq spokes stay uncongested', hubCongestionFactor(55, 7, 1) === 1.0); // 11 spokes ~5/wk on 7 gates
 ok('floored at 0.80', hubCongestionFactor(100000, 10, 1) === 0.80);
-ok('higher tier tolerates more', hubCongestionFactor(200, 10, 3) === 1.0 && hubCongestionFactor(200, 10, 1) < 1.0);
-ok('unknown gates → no penalty', hubCongestionFactor(240, 0, 1) === 1.0);
+ok('higher tier tolerates more', hubCongestionFactor(400, 10, 3) === 1.0 && hubCongestionFactor(400, 10, 1) < 1.0);
+ok('unknown gates → no penalty', hubCongestionFactor(700, 0, 1) === 1.0);
+
+// Thresholds must stay tied to the hard slot cap — the old numbers (10/12/16/20)
+// congested every hub at ~a third of its physical capacity.
+const tiersAsc = [0, 1, 2, 3].map(t => HUB_TIERS[t].gateSlotsPerWeek);
+ok('GATE_SLOT_CAP matches SLOTS_PER_GATE (50)', GATE_SLOT_CAP === 50);
+ok('every tier threshold below the hard cap', tiersAsc.every(v => v < GATE_SLOT_CAP));
+ok('thresholds rise with tier', tiersAsc.every((v, i) => i === 0 || v > tiersAsc[i - 1]));
+ok('congestion starts past half the hard cap', tiersAsc.every(v => v / GATE_SLOT_CAP >= 0.5));
+// A hub legally full to the wall should be penalised, but not pinned at the floor
+// the instant it crosses — the curve needs room to ramp.
+ok('full-to-the-wall hub is congested', hubCongestionFactor(10 * GATE_SLOT_CAP, 10, 1) < 1.0);
+ok('and not already at the floor', hubCongestionFactor(10 * GATE_SLOT_CAP, 10, 1) > 0.80);
 
 // ── 3. Prerequisite checklist ─────────────────────────────────────────────────
 console.log('\n── hubUpgradeChecklist ──────────────────');
@@ -152,8 +166,8 @@ console.log('\n── computeConnectingDemand ───────────�
   ok('internal pool removed', (hub.origin.internalPax ?? 0) === 0);
   ok('focus city captures ~10% of hub', focus.origin.pax > 0 && focus.origin.pax < hub.origin.pax * 0.25);
   ok('undesignated gateway still yields partner feed', noHub.origin.pax > 0 && noHub.origin.yield === 0.8);
-  // 200 weekly departures on 10 gates (cap 120) → clearly over slot capacity
-  const congested = computeConnectingDemand('DXB', 'LHR', { DXB: { tier: 1 } }, 200, 2, price, { gates: { DXB: 10 } });
+  // 700 weekly departures on 10 gates (cap 350) → clearly over slot capacity
+  const congested = computeConnectingDemand('DXB', 'LHR', { DXB: { tier: 1 } }, 700, 2, price, { gates: { DXB: 10 } });
   ok('congestion trims external feed', congested.origin.pax < hub.origin.pax);
   const contested = computeConnectingDemand('DXB', 'LHR', { DXB: { tier: 1 } }, 8, 2, price,
     { gates: { DXB: 10 }, contestFactors: { DXB: 0.4 } });

@@ -103,7 +103,7 @@ function ContestBar({ contest, tier }) {
 // ─── Congestion meter ─────────────────────────────────────────────────────────
 
 function CongestionMeter({ slotsAt, gatesAt, tier }) {
-  const perGate   = HUB_TIERS[tier]?.gateSlotsPerWeek ?? 12;
+  const perGate   = HUB_TIERS[tier]?.gateSlotsPerWeek ?? 35;
   const capacity  = gatesAt * perGate;
   const factor    = hubCongestionFactor(slotsAt, gatesAt, tier);
   const congested = factor < 1.0;

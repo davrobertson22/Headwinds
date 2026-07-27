@@ -853,8 +853,19 @@ export const COMPETITOR_AIRLINES = [
  * stationDiscount:  discount on ground handling + catering cost at this endpoint
  * layoverDiscount:  discount on crew layover cost (crews based here sleep at home)
  * maintFactor:      multiplier on weekly aircraft maintenance for routes touching it
- * gateSlotsPerWeek: weekly departures per gate the hub handles before congestion sets in
+ * gateSlotsPerWeek: weekly departures per gate the hub absorbs before congestion
+ *                   sets in. Expressed as a share of GATE_SLOT_CAP (the hard
+ *                   physical slot limit) — better hubs use their gates more
+ *                   efficiently, so congestion bites closer to the wall.
  */
+/**
+ * Physical slot capacity of one gate per week — the HARD cap the reducer
+ * enforces when adding routes. Must stay in sync with SLOTS_PER_GATE in
+ * utils/simulation.js; that module imports from this one, so importing it back
+ * here would create a cycle. Congestion thresholds below are shares of this.
+ */
+export const GATE_SLOT_CAP = 50;
+
 export const HUB_TIERS = {
   0: {
     name: 'Focus City',
@@ -872,7 +883,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.04,
     layoverDiscount:  0.08,
     maintFactor:      1.0,
-    gateSlotsPerWeek:   10,   // ~10 weekly departures per gate
+    gateSlotsPerWeek:   30,   // 60% of GATE_SLOT_CAP — smallest hubs clog first
     color:            '#4cc38a',   // var(--green)
   },
   1: {
@@ -891,7 +902,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.08,
     layoverDiscount:  0.15,
     maintFactor:      1.0,
-    gateSlotsPerWeek:   12,   // ~12 weekly departures per gate
+    gateSlotsPerWeek:   35,   // 70% of GATE_SLOT_CAP
     color:            '#3ea6ff',   // var(--accent)
   },
   2: {
@@ -910,7 +921,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.12,
     layoverDiscount:  0.25,
     maintFactor:      0.95,
-    gateSlotsPerWeek:   16,   // ~16 weekly departures per gate
+    gateSlotsPerWeek:   40,   // 80% of GATE_SLOT_CAP
     color:            '#ffb43d',   // var(--yellow)
   },
   3: {
@@ -929,7 +940,7 @@ export const HUB_TIERS = {
     stationDiscount:  0.16,
     layoverDiscount:  0.35,
     maintFactor:      0.92,
-    gateSlotsPerWeek:   20,   // ~20 weekly departures per gate
+    gateSlotsPerWeek:   45,   // 90% of GATE_SLOT_CAP — gateways absorb the most
     color:            '#a98bff',   // var(--purple)
   },
 };
@@ -1068,7 +1079,7 @@ export const CONGESTION_EXP   = 0.5;
 export function hubCongestionFactor(slotsAt, gatesAt, tier) {
   if (!gatesAt || gatesAt <= 0) return 1.0;   // gates unknown (e.g. UI preview) — no penalty
   const tierDef  = HUB_TIERS[tier] ?? HUB_TIERS[1];
-  const perGate  = tierDef.gateSlotsPerWeek ?? 12;
+  const perGate  = tierDef.gateSlotsPerWeek ?? 35;   // Hub-tier default
   const capacity = gatesAt * perGate;
   if (capacity <= 0) return 1.0;
   const util = (slotsAt ?? 0) / capacity;      // weekly departures ÷ slot capacity
