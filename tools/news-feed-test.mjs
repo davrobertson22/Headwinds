@@ -146,6 +146,67 @@ await test('eight route openings in one week are ONE item', async () => {
   assert.equal(items[0].detail.length, 8, 'the individual routes stay available');
 });
 
+// The reported bug: "Otter Air opened 4 routes from JFK · JFK–LHR, JFK–LHR,
+// JFK–LHR, JFK–NRT". Three tails on one pair is three route RECORDS but one
+// route, so the feed must count city pairs and fold the repeats into a count.
+await test('repeat openings on one pair count ONCE, with a count', async () => {
+  const pairs = [['JFK', 'LHR'], ['JFK', 'LHR'], ['JFK', 'LHR'], ['JFK', 'NRT']];
+  const prisma = makePrisma({
+    airlines: AIRLINES,
+    decisions: pairs.map(([o, d], i) => dec({
+      id: `d${i}`, mins: 10 + i,
+      payload: { origin: o, destination: d },
+    })),
+  });
+  const { items } = await buildNews(prisma, { world: WORLD, categories: ['routes'] });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].data.total, 2, 'two city pairs, not four decisions');
+  assert.equal(items[0].data.services, 4, 'all four services stay countable');
+  assert.equal(items[0].data.commonOrigin, 'JFK');
+  assert.deepEqual(items[0].data.pairs, [
+    { origin: 'JFK', destination: 'LHR', count: 3 },
+    { origin: 'JFK', destination: 'NRT', count: 1 },
+  ]);
+});
+
+// A pair is a pair whichever way it was entered — same rule as the Routes page
+// airport filter. The first orientation seen labels the line.
+await test('reverse openings fold into the same pair', async () => {
+  const prisma = makePrisma({
+    airlines: AIRLINES,
+    decisions: [
+      dec({ id: 'd0', mins: 10, payload: { origin: 'JFK', destination: 'LHR' } }),
+      dec({ id: 'd1', mins: 11, payload: { origin: 'LHR', destination: 'JFK' } }),
+    ],
+  });
+  const { items } = await buildNews(prisma, { world: WORLD, categories: ['routes'] });
+  assert.equal(items[0].data.total, 1);
+  assert.deepEqual(items[0].data.pairs, [{ origin: 'JFK', destination: 'LHR', count: 2 }]);
+});
+
+// A batched close journals `count` even when its pair list was trimmed at 20.
+// Pairs we cannot see are assumed distinct — never under-report the move.
+await test('a trimmed batch close still reports its declared size', async () => {
+  const prisma = makePrisma({
+    airlines: AIRLINES,
+    decisions: [dec({
+      id: 'd0', mins: 10, type: 'CLOSE_ROUTES',
+      payload: {
+        count: 25,
+        routes: [
+          { origin: 'DEN', destination: 'BOI' },
+          { origin: 'DEN', destination: 'BOI' },
+          { origin: 'DEN', destination: 'TUS' },
+        ],
+      },
+    })],
+  });
+  const { items } = await buildNews(prisma, { world: WORLD, categories: ['routes'] });
+  assert.equal(items[0].kind, 'routes_closed');
+  assert.equal(items[0].data.services, 25);
+  assert.equal(items[0].data.total, 2 + 22, 'two visible pairs plus the unseen remainder');
+});
+
 await test('the same moves in DIFFERENT weeks stay separate items', async () => {
   const prisma = makePrisma({
     airlines: AIRLINES,

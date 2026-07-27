@@ -124,6 +124,25 @@ test('composes a real sentence for every item kind the server emits', async () =
     data: { total: 1, commonOrigin: 'DEN', pairs: [{ origin: 'DEN', destination: 'BOI' }] },
   }), 'Condor Air opened DEN–BOI');
 
+  // Three tails on one pair is ONE route flown three times, not three routes.
+  assert.equal(say({
+    ...ITEMS[1],
+    data: {
+      total: 2, services: 4, commonOrigin: 'JFK',
+      pairs: [
+        { origin: 'JFK', destination: 'LHR', count: 3 },
+        { origin: 'JFK', destination: 'NRT', count: 1 },
+      ],
+    },
+  }), 'Condor Air opened 2 routes from JFK');
+  assert.equal(say({
+    ...ITEMS[1],
+    data: {
+      total: 1, services: 3, commonOrigin: 'JFK',
+      pairs: [{ origin: 'JFK', destination: 'LHR', count: 3 }],
+    },
+  }), 'Condor Air opened JFK–LHR ×3');
+
   // Every kind the builder can emit composes something non-empty.
   const KINDS = [
     'event_started', 'event_ended', 'bankruptcy', 'rank_change',

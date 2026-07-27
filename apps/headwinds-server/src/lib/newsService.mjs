@@ -202,21 +202,46 @@ function composeGroup(g) {
   };
 
   if (family === 'routes_opened' || family === 'routes_closed') {
-    const pairs = [];
+    const raw = [];
     for (const m of members) {
       const p = m.payload;
-      if (Array.isArray(p.routes) && p.routes.length) pairs.push(...p.routes);
-      else if (p.origin && p.destination) pairs.push({ origin: p.origin, destination: p.destination });
+      if (Array.isArray(p.routes) && p.routes.length) raw.push(...p.routes);
+      else if (p.origin && p.destination) raw.push({ origin: p.origin, destination: p.destination });
     }
-    // A batched close journals `count` even when the pair list was trimmed.
+
+    // COUNT CITY PAIRS, NOT DECISIONS. A player putting three aircraft on
+    // JFK–LHR files three ADD_ROUTE decisions — the engine keeps one route
+    // record per tail — but to everyone else that is ONE route, flown three
+    // times. Reporting it as "opened 4 routes from JFK · JFK–LHR, JFK–LHR,
+    // JFK–LHR, JFK–NRT" read as a bug. Repeats fold into a `count` the client
+    // renders as "JFK–LHR ×3".
+    //
+    // Direction-agnostic, like the Routes page airport filter: a pair entered
+    // as LHR–JFK is the same route as JFK–LHR. The first orientation seen wins
+    // the label, so the line reads the way the airline flew it first.
+    const byPair = new Map();
+    for (const r of raw) {
+      const key = [r.origin, r.destination].sort().join('-');
+      const seen = byPair.get(key);
+      if (seen) seen.count += 1;
+      else byPair.set(key, { origin: r.origin, destination: r.destination, count: 1 });
+    }
+    const pairs = [...byPair.values()];
+
+    // A batched close journals `count` even when the pair list was trimmed at
+    // 20. Pairs beyond the list are unknown, so assume the worst case (all
+    // distinct) rather than under-reporting the size of the move.
     const declared = members.reduce((s, m) => s + (m.payload.count ?? 0), 0);
-    const total = Math.max(pairs.length, declared);
+    const untrimmed = Math.max(0, declared - raw.length);
+    const total = pairs.length + untrimmed;
     // "opened 6 routes from DEN" only when they genuinely share one endpoint.
     const origins = new Set(pairs.map((r) => r.origin));
     return {
       ...base,
       data: {
         total,
+        // Every service flown, repeats included — what `total` used to count.
+        services: Math.max(raw.length, declared),
         pairs: pairs.slice(0, 20),
         commonOrigin: origins.size === 1 ? [...origins][0] : null,
         cargo: members.every((m) => m.type.includes('CARGO')),

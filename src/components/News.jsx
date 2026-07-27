@@ -47,6 +47,10 @@ const goTo = (t) => window.dispatchEvent(
 const typeName = (id) => getAircraftType(id)?.name ?? id ?? 'an aircraft';
 const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
+// One city pair, with the "×3" that means three tails fly it. The server rolls
+// repeats on a pair into `count` — the feed counts ROUTES, not route records.
+const pairLabel = (p) => `${p.origin}–${p.destination}${p.count > 1 ? ` ×${p.count}` : ''}`;
+
 const fmtWhen = (iso) => {
   const d = new Date(iso);
   const mins = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
@@ -97,14 +101,14 @@ export function compose(item) {
     case 'routes_opened': {
       const what = d.cargo ? 'cargo lane' : 'route';
       const head = d.total === 1 && d.pairs[0]
-        ? `opened ${d.pairs[0].origin}–${d.pairs[0].destination}`
+        ? `opened ${pairLabel(d.pairs[0])}`
         : `opened ${plural(d.total, what, `${what}s`)}${d.commonOrigin ? ` from ${d.commonOrigin}` : ''}`;
       return { icon: '🛫', headline: head, pairs: d.pairs, total: d.total };
     }
     case 'routes_closed': {
       const what = d.cargo ? 'cargo lane' : 'route';
       const head = d.total === 1 && d.pairs[0]
-        ? `closed ${d.pairs[0].origin}–${d.pairs[0].destination}`
+        ? `closed ${pairLabel(d.pairs[0])}`
         : `closed ${plural(d.total, what, `${what}s`)}`;
       return { icon: '🛬', headline: head, pairs: d.pairs, total: d.total };
     }
@@ -423,14 +427,14 @@ export default function News() {
                       <div style={{ opacity: 0.75, fontSize: 12.5, marginTop: 2 }}>
                         {c.pairs.map((p, i) => (
                           <span key={`${p.origin}-${p.destination}-${i}`}>
-                            {i > 0 ? ', ' : ''}{p.origin}–{p.destination}
+                            {i > 0 ? ', ' : ''}{pairLabel(p)}
                           </span>
                         ))}
                       </div>
                     )}
                     {!isOpen && (
                       <div style={{ opacity: 0.6, fontSize: 12.5 }}>
-                        {c.pairs.slice(0, 3).map((p) => `${p.origin}–${p.destination}`).join(', ')}
+                        {c.pairs.slice(0, 3).map(pairLabel).join(', ')}
                         {c.total > 3 ? ` +${c.total - 3} more` : ''}
                       </div>
                     )}

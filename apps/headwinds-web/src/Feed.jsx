@@ -18,6 +18,9 @@ const TICKER_LIMIT = 8;
 
 const plural = (n, one, many) => `${Number(n ?? 0).toLocaleString()} ${n === 1 ? one : many}`;
 const typeName = (id) => getAircraftType(id)?.name ?? id ?? 'an aircraft';
+// `count` is how many tails fly the pair — the server counts routes, not route
+// records, so three aircraft on JFK–LHR is one route "×3", not three routes.
+const pairLabel = (p) => `${p.origin}–${p.destination}${p.count > 1 ? ` ×${p.count}` : ''}`;
 
 // A deliberately terse echo of News.jsx's composer: the ticker has one line per
 // item, so it says what happened and leaves the detail to the tab.
@@ -35,14 +38,14 @@ function describe(e) {
     case 'routes_opened': return {
       who: e.airline,
       what: d.total === 1 && d.pairs?.[0]
-        ? `opened ${d.pairs[0].origin}–${d.pairs[0].destination}`
+        ? `opened ${pairLabel(d.pairs[0])}`
         : `opened ${plural(d.total, 'route', 'routes')}${d.commonOrigin ? ` from ${d.commonOrigin}` : ''}`,
       icon: '🛫',
     };
     case 'routes_closed': return {
       who: e.airline,
       what: d.total === 1 && d.pairs?.[0]
-        ? `closed ${d.pairs[0].origin}–${d.pairs[0].destination}`
+        ? `closed ${pairLabel(d.pairs[0])}`
         : `closed ${plural(d.total, 'route', 'routes')}`,
       icon: '🛬',
     };
