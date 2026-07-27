@@ -46,6 +46,11 @@ export default function BoardObjectives() {
     .filter(o => o.completed)
     .reduce((s, o) => s + (o.reward ?? 0), 0);
 
+  // Board retires itself: once every objective is complete there is nothing
+  // left to chase, so drop the card instead of leaving a wall of green ticks
+  // parked at the top of the dashboard.
+  if (merged.length > 0 && totalCompleted === merged.length) return null;
+
   return (
     <div className="card" style={{ marginBottom: 16 }}>
       {/* Header */}
