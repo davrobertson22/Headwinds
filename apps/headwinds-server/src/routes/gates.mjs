@@ -4,6 +4,7 @@
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { allow } from '../lib/rateLimit.mjs';
+import { GATE_BID_MAX_QTY } from '@tailwinds/engine/data/airports.js';
 import { buildWorldRivalViews, withRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
 import {
   isGateScarcity, buildGateMarketViews, gateWorldSummary,
@@ -74,7 +75,8 @@ export default async function gateRoutes(fastify) {
         required: ['amount'],
         properties: {
           amount: { type: 'number', minimum: 1 },
-          quantity: { type: 'integer', minimum: 1, maximum: 3 },
+          // Outer bound only — placeBid() also caps at the auction's lot count.
+          quantity: { type: 'integer', minimum: 1, maximum: GATE_BID_MAX_QTY },
         },
       },
     },

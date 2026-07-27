@@ -3,7 +3,7 @@ import { useGame, gateLeaseDenial } from '../store/GameContext.jsx';
 import AirportDetail from './AirportDetail.jsx';
 import {
   AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName,
-  gateCapacityOf, gateAirlineCapOf, GATE_HUB_GUARANTEE, GATE_SURCHARGE_MULT,
+  gateCapacityOf, gateAirlineCapOf, GATE_HUB_GUARANTEE, GATE_SURCHARGE_MULT, GATE_BID_MAX_QTY,
 } from '../data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
 import { formatMoney } from '../utils/simulation.js';
@@ -262,7 +262,7 @@ function GateMarketSection({ state, remoteApi }) {
   };
 
   return (
-    <section style={{ marginBottom: 28 }}>
+    <section id="gate-market" style={{ marginBottom: 28 }}>
       <div style={{
         fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
         textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8,
@@ -279,7 +279,11 @@ function GateMarketSection({ state, remoteApi }) {
             {auctions.map(([code, m]) => {
               const a = m.auction;
               const weeksLeft = Math.max(0, a.closesWeek - weekNow);
-              const draft = bidDrafts[code] ?? { amount: a.yourBid?.amount ?? a.reserve, quantity: a.yourBid?.quantity ?? 1 };
+              // Never offer a quantity the auction can't fill — you can't win
+              // 3 gates out of a 2-gate lot. Clamps stale drafts too.
+              const maxQty = Math.max(1, Math.min(GATE_BID_MAX_QTY, a.lots));
+              const saved = bidDrafts[code] ?? { amount: a.yourBid?.amount ?? a.reserve, quantity: a.yourBid?.quantity ?? 1 };
+              const draft = { ...saved, quantity: Math.max(1, Math.min(Number(saved.quantity) || 1, maxQty)) };
               return (
                 <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, minWidth: 36 }}>{code}</span>
@@ -289,7 +293,9 @@ function GateMarketSection({ state, remoteApi }) {
                   </span>
                   {a.yourBid && (
                     <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>
-                      Your bid: {formatMoney(a.yourBid.amount)} × {a.yourBid.quantity}
+                      {/* Show the number you can actually win — a bid placed
+                          before the cap existed may ask for more lots than exist. */}
+                      Your bid: {formatMoney(a.yourBid.amount)} × {Math.min(a.yourBid.quantity, maxQty)}
                     </span>
                   )}
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
@@ -299,14 +305,19 @@ function GateMarketSection({ state, remoteApi }) {
                       title="Your sealed per-gate bid (hidden from other airlines)"
                       onChange={(e) => setBidDrafts((d) => ({ ...d, [code]: { ...draft, amount: e.target.value } }))}
                     />
-                    <select
-                      style={{ ...INPUT, width: 58 }}
-                      value={draft.quantity}
-                      title="How many gates you're bidding for"
-                      onChange={(e) => setBidDrafts((d) => ({ ...d, [code]: { ...draft, quantity: Number(e.target.value) } }))}
-                    >
-                      {[1, 2, 3].map((n) => <option key={n} value={n}>×{n}</option>)}
-                    </select>
+                    {maxQty > 1 ? (
+                      <select
+                        style={{ ...INPUT, width: 58 }}
+                        value={draft.quantity}
+                        title={`How many gates you're bidding for (${a.lots} on offer)`}
+                        onChange={(e) => setBidDrafts((d) => ({ ...d, [code]: { ...draft, quantity: Number(e.target.value) } }))}
+                      >
+                        {Array.from({ length: maxQty }, (_, i) => i + 1)
+                          .map((n) => <option key={n} value={n}>×{n}</option>)}
+                      </select>
+                    ) : (
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }} title="Only one gate is on offer">×1</span>
+                    )}
                     <button className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 12 }} disabled={busy}
                       onClick={() => run(() => remoteApi.placeGateBid(code, Math.round(Number(draft.amount)), draft.quantity))}>
                       {a.yourBid ? 'Update bid' : 'Place bid'}
@@ -386,6 +397,10 @@ export default function Airports() {
   const { state, dispatch, remoteApi } = useGame();
   const { gates = {}, routes, cargoRoutes = [], cash, hubs = {} } = state;
   const scarcity = !!state.gateScarcityWorld;
+  // An open auction is time-boxed and easy to miss, so while one is running the
+  // Gate Market jumps above your gate list instead of sitting below it.
+  const liveAuction = scarcity
+    && Object.values(state.gateMarket?.airports ?? {}).some((m) => m?.auction);
   const addDenialFor = (code) => (scarcity ? gateLeaseDenial(state, code) : null);
   const [search, setSearch]                       = useState('');
   const [regionFilter, setRegionFilter]           = useState(null); // null = show picker
@@ -511,6 +526,9 @@ export default function Airports() {
           )}
         </div>
       </div>
+
+      {/* ── Gate market, floated up while an auction is live ───────── */}
+      {liveAuction && <GateMarketSection state={state} remoteApi={remoteApi} />}
 
       {/* ── My gates ──────────────────────────────────────────────── */}
       {myGateEntries.length > 0 && (
@@ -710,7 +728,7 @@ export default function Airports() {
       )}
 
       {/* ── Gate market: auctions + player-to-player sales (scarcity worlds) ── */}
-      {scarcity && <GateMarketSection state={state} remoteApi={remoteApi} />}
+      {scarcity && !liveAuction && <GateMarketSection state={state} remoteApi={remoteApi} />}
 
       {/* ── Browse / add airports ─────────────────────────────────── */}
       <section>

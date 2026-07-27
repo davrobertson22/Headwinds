@@ -31,6 +31,19 @@ const CATEGORIES = [
 
 const PAGE = 40;
 
+// Items you can act on link straight to the screen that does the acting. The
+// shell owns the tab state, so we ask it to move via 'hw:navigate' (App.jsx);
+// `focus` is the id of the section it should scroll to and flash.
+const NAV_TARGET = {
+  gate_auction_opened: { tab: 'airports', focus: 'gate-market', cta: 'Place a sealed bid' },
+  gate_auction_won:    { tab: 'airports', focus: 'gate-market' },
+  gate_sold:           { tab: 'airports', focus: 'gate-market' },
+};
+
+const goTo = (t) => window.dispatchEvent(
+  new CustomEvent('hw:navigate', { detail: { tab: t.tab, focus: t.focus } }),
+);
+
 const typeName = (id) => getAircraftType(id)?.name ?? id ?? 'an aircraft';
 const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
@@ -340,6 +353,7 @@ export default function News() {
         const isOpen = expanded.has(it.id);
         const mine = myAirlineId && it.airlineId === myAirlineId;
         const canExpand = (c.pairs?.length ?? 0) > 1;
+        const nav = NAV_TARGET[it.kind];
 
         return (
           <div key={it.id}>
@@ -355,13 +369,25 @@ export default function News() {
                 Year {it.year} · Week {it.week}
               </div>
             )}
-            <div style={{
-              display: 'flex', gap: 10, alignItems: 'baseline',
-              padding: '9px 6px', borderBottom: '1px solid var(--border, rgba(255,255,255,0.07))',
-              fontSize: 13.5, lineHeight: 1.55,
-              borderLeft: it.effectiveTier === 1 ? '2px solid var(--accent)' : '2px solid transparent',
-              paddingLeft: 10,
-            }}>
+            <div
+              {...(nav ? {
+                role: 'button',
+                tabIndex: 0,
+                title: 'Open the Gate Market',
+                onClick: () => goTo(nav),
+                onKeyDown: (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTo(nav); }
+                },
+              } : {})}
+              style={{
+                display: 'flex', gap: 10, alignItems: 'baseline',
+                padding: '9px 6px', borderBottom: '1px solid var(--border, rgba(255,255,255,0.07))',
+                fontSize: 13.5, lineHeight: 1.55,
+                borderLeft: it.effectiveTier === 1 ? '2px solid var(--accent)' : '2px solid transparent',
+                paddingLeft: 10,
+                cursor: nav ? 'pointer' : undefined,
+              }}
+            >
               <span style={{ flexShrink: 0, fontSize: 15 }}>{c.icon}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <strong>{c.standalone ? (c.subject ?? '') : (it.airline ?? c.subject ?? '')}</strong>
@@ -370,14 +396,22 @@ export default function News() {
                 {c.sub && (
                   <div style={{ opacity: 0.65, fontSize: 12.5 }}>{c.sub}</div>
                 )}
+                {nav?.cta && (
+                  <div style={{ color: 'var(--accent)', fontSize: 12.5, fontWeight: 600 }}>
+                    {nav.cta} →
+                  </div>
+                )}
                 {canExpand && (
                   <div>
                     <button
-                      onClick={() => setExpanded((p) => {
-                        const n = new Set(p);
-                        if (n.has(it.id)) n.delete(it.id); else n.add(it.id);
-                        return n;
-                      })}
+                      onClick={(e) => {
+                        e.stopPropagation();   // don't also follow the row's link
+                        setExpanded((p) => {
+                          const n = new Set(p);
+                          if (n.has(it.id)) n.delete(it.id); else n.add(it.id);
+                          return n;
+                        });
+                      }}
                       style={{
                         background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                         color: 'var(--accent)', fontSize: 12,

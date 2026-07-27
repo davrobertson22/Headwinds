@@ -2434,6 +2434,10 @@ export const GATE_CAPACITY_GROWTH_CEILING = 2;
 /** Gates auctioned per year at an at-capacity airport, by BASE size. */
 export const GATE_AUCTION_LOTS_BY_SIZE = { 25: 2, 100: 5, 250: 10, 500: 15 };
 
+/** Most gates one airline may bid for in a single auction (anti-monopoly).
+ *  The effective cap is min(this, lots on offer) - see placeBid(). */
+export const GATE_BID_MAX_QTY = 3;
+
 /** Auctions open at this week of the game year and resolve at the year tick. */
 export const GATE_AUCTION_OPEN_WEEK = 40;
 

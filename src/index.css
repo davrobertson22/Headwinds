@@ -1680,3 +1680,19 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   .card { padding: 16px 15px; }
 }
 
+
+/* Deep-linked section highlight — a news item that says "an auction opened"
+   navigates to the Gate Market and flashes it, so the eye lands on the row
+   rather than the top of the page. See focusSection() in App.jsx. */
+.focus-flash {
+  animation: focus-flash 1.8s ease-out;
+  border-radius: 8px;
+}
+@keyframes focus-flash {
+  0%   { box-shadow: 0 0 0 3px var(--accent); background: rgba(56, 201, 180, 0.10); }
+  60%  { box-shadow: 0 0 0 3px rgba(56, 201, 180, 0.25); background: rgba(56, 201, 180, 0.05); }
+  100% { box-shadow: 0 0 0 3px rgba(56, 201, 180, 0); background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-flash { animation: none; box-shadow: 0 0 0 2px var(--accent); }
+}

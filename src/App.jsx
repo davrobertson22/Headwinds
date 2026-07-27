@@ -132,6 +132,23 @@ const NAV_GROUPS = [
   { id: 'wiki' },
 ];
 
+// Scroll a section of the tab we just switched to into view and flash it, so a
+// deep link from the news feed lands ON the thing it was talking about rather
+// than at the top of the page. The tab hasn't painted yet when we're called,
+// so retry across a few frames until the element exists.
+function focusSection(id, tries = 0) {
+  requestAnimationFrame(() => {
+    const el = document.getElementById(id);
+    if (!el) {
+      if (tries < 12) focusSection(id, tries + 1);
+      return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('focus-flash');
+    setTimeout(() => el.classList.remove('focus-flash'), 1800);
+  });
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -280,8 +297,14 @@ function AppInner() {
   // by dispatching 'hw:navigate' — see apps/headwinds-web/src/Feed.jsx.
   useEffect(() => {
     const onNavigate = (e) => {
-      const id = e?.detail;
-      if (typeof id === 'string' && TABS_BY_ID[id]) navigate(id);
+      // detail is either a tab id, or { tab, focus } to also scroll a named
+      // section of that tab into view once it renders.
+      const d = e?.detail;
+      const id = typeof d === 'string' ? d : d?.tab;
+      if (typeof id !== 'string' || !TABS_BY_ID[id]) return;
+      navigate(id);
+      const focus = typeof d === 'object' && d ? d.focus : null;
+      if (focus) focusSection(focus);
     };
     window.addEventListener('hw:navigate', onNavigate);
     return () => window.removeEventListener('hw:navigate', onNavigate);

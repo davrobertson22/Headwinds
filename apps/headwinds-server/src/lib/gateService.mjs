@@ -17,7 +17,7 @@ import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
   GATE_FEE_BY_TIER, GATE_HUB_GUARANTEE, GATE_ANTI_FLIP_WEEKS,
   GATE_AUCTION_LOTS_BY_SIZE, GATE_AUCTION_OPEN_WEEK, GATE_AUCTION_TRIGGER,
-  GATE_CAPACITY_GROWTH_CEILING, GATE_SURCHARGE_THRESHOLD,
+  GATE_BID_MAX_QTY, GATE_CAPACITY_GROWTH_CEILING, GATE_SURCHARGE_THRESHOLD,
 } from '@tailwinds/engine/data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '@tailwinds/engine/utils/simulation.js';
 
@@ -380,7 +380,7 @@ export async function resolveDueAuctions(prisma, world, { log = console } = {}) 
 
       // Clamp quantity to lots left and to the ownership caps AT THE GROWN
       // capacity (each awarded gate raises capacity by one as it lands).
-      let q = Math.max(1, Math.min(3, bid.quantity ?? 1));
+      let q = Math.max(1, Math.min(GATE_BID_MAX_QTY, bid.quantity ?? 1));
       q = Math.min(q, lotsLeft);
       const mine = holdingsCount(row, bid.airlineId);
       while (q > 0 && mine + q > gateAirlineCapOf(row.capacity + q)) q--;
@@ -450,7 +450,14 @@ export async function placeBid(prisma, { world, airline, airportCode, amount, qu
     throw new GateError(`Bids at ${airportCode} start at $${auction.reserve.toLocaleString()} per gate.`);
   }
   if (amt > 1e10) throw new GateError('Bid is implausibly large.');
-  if (!Number.isInteger(q) || q < 1 || q > 3) throw new GateError('You may bid for 1–3 gates.');
+  // Nobody can win more gates than are on offer, so don't let anyone bid for
+  // more: the cap is the anti-monopoly limit or the lot count, whichever bites.
+  const maxQ = Math.max(1, Math.min(GATE_BID_MAX_QTY, auction.lots));
+  if (!Number.isInteger(q) || q < 1 || q > maxQ) {
+    throw new GateError(maxQ === 1
+      ? `Only 1 gate is on offer at ${airportCode} — you can bid for 1.`
+      : `You may bid for 1–${maxQ} gates at ${airportCode} (${auction.lots} on offer).`);
+  }
   const weekIdx = worldWeekIndex(world);
   const lockedUntil = airline.state?.gateLockouts?.[airportCode] ?? 0;
   if (lockedUntil > weekIdx) {
