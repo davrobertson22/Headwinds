@@ -56,6 +56,22 @@ export const RECENT_D_WINDOW_WEEKS = 104;
 // ─── Scheduling ───────────────────────────────────────────────────────────────
 export const MAX_SCHEDULE_AHEAD_WEEKS = 26;
 
+// ─── Auto-scheduling ──────────────────────────────────────────────────────────
+// A well-funded maintenance org books its own heavy checks. When the
+// maintenance TEAM is paid at or above this multiple of market rate AND the
+// line-maintenance BUDGET is at or above this level, any C/D check that comes
+// due is started automatically that week — planned cost, planned downtime, no
+// regulator. Drop either slider below the bar and you're back to booking
+// checks by hand.
+export const AUTO_SCHEDULE_PAY_MIN    = 1.3;
+export const AUTO_SCHEDULE_BUDGET_MIN = 1.3;
+
+/** True when heavy-check auto-scheduling is active for this airline. */
+export function autoSchedulingActive(labor, maintenanceBudget) {
+  return (labor?.maintenanceTeam?.payMultiplier ?? 1.0) >= AUTO_SCHEDULE_PAY_MIN
+      && (maintenanceBudget ?? 1.0) >= AUTO_SCHEDULE_BUDGET_MIN;
+}
+
 // ─── Reputation hit from a forced grounding (persistent, decays weekly) ───────
 export const REP_PENALTY_DECAY = 0.92;  // multiplicative decay per week
 export const REP_PENALTY_MAX   = 25;    // cap so repeated forced groundings can't zero reputation forever

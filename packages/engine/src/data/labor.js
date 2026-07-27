@@ -58,7 +58,7 @@ export const LABOR_GROUPS = [
     id:   'maintenanceTeam',
     name: 'Maintenance Team',
     emoji: '🔩',
-    description: 'Engineers and technicians. Morale multiplies all maintenance costs. Unhappy mechanics cost more.',
+    description: 'Engineers and technicians. Morale multiplies all maintenance costs. Unhappy mechanics cost more. Pay them ≥1.30× (with a ≥1.30× maintenance budget) and they auto-schedule heavy C/D checks as they come due.',
     baseWeeklyPerAircraft: 6_000,
     effectDescription: (morale) => {
       const mult = (1.4 - morale / 200).toFixed(2);

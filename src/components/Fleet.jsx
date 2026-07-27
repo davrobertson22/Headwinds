@@ -13,7 +13,7 @@ import {
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
-import { dueInfo, checkCost, checkDurationWeeks, isOutOfService, MAX_SCHEDULE_AHEAD_WEEKS } from '../data/maintenance.js';
+import { dueInfo, checkCost, checkDurationWeeks, isOutOfService, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
@@ -1371,6 +1371,7 @@ export default function Fleet() {
   // due (a D also covers the C clock) else 'C' — so the two lists never overlap
   // and together cover every aircraft that has a heavy check due right now.
   const maintLaborMult = laborEffects(state.labor).maintenanceCostMultiplier;
+  const maintAuto = autoSchedulingActive(state.labor, state.maintenanceBudget);
   const checkOptsFor = (a) => ({
     maintMod:  a.maintMod ?? 1,
     laborMult: maintLaborMult,
@@ -1715,6 +1716,14 @@ export default function Fleet() {
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--yellow)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Glyph e="🔧" /> Maintenance
           </span>
+          {maintAuto && (
+            <span
+              title={`Maintenance pay and budget are both ≥${AUTO_SCHEDULE_PAY_MIN.toFixed(2)}× — due C/D checks are booked automatically at planned cost.`}
+              style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', background: 'rgba(63,185,80,0.12)', border: '1px solid rgba(63,185,80,0.35)', borderRadius: 999, padding: '2px 9px' }}
+            >
+              ⚙ Auto-scheduling on
+            </span>
+          )}
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {(cDueList.length + dDueList.length) > 0
               ? `${cDueList.length + dDueList.length} check${(cDueList.length + dDueList.length) !== 1 ? 's' : ''} due`

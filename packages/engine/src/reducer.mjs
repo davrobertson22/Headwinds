@@ -32,7 +32,8 @@ import {
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects } from './data/labor.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
-         FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX } from './data/maintenance.js';
+         FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
+         autoSchedulingActive } from './data/maintenance.js';
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
@@ -2577,6 +2578,10 @@ function reducer(state, action) {
         if (ty) maintHoursById.set(r.aircraftId, (maintHoursById.get(r.aircraftId) ?? 0) + routeBlockHours(r, ty, r.weeklyFrequency));
       }
       const maintLaborMult = laborEffects(state.labor).maintenanceCostMultiplier;
+      // Auto-scheduling: a maintenance org paid ≥1.3× market with a ≥1.3× line
+      // budget books its own heavy checks the week they come due (planned cost,
+      // planned downtime) — no waking up to regulator groundings.
+      const autoMaintActive = autoSchedulingActive(state.labor, state.maintenanceBudget);
       let maintCheckSpend = 0;
       let forcedRepHit    = 0;
       let runningCashForChecks = state.cash;
@@ -2635,6 +2640,23 @@ function reducer(state, action) {
             aged = { ...aged, scheduledCheck: null };
           }
           const di = dueInfo(aged, mType, curAbsWeek);
+          // Auto-scheduling: start a due check at planned cost/duration before
+          // it can ever reach the regulator. Respects a player's own future
+          // booking, skips leases about to be returned, and falls through to
+          // the normal due/forced flow when cash can't cover the check.
+          if (autoMaintActive && di.primaryDue && !aged.scheduledCheck) {
+            const ct  = di.primaryDue;
+            const dur = checkDurationWeeks(mType?.category, ct);
+            const leaseSoonReturn = aged.ownershipType === 'lease' && (aged.leaseRemainingWeeks ?? 999) <= dur + 4;
+            if (!leaseSoonReturn) {
+              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, state.routes, state.cargoRoutes, state.hubs) });
+              if (runningCashForChecks >= cost) {
+                runningCashForChecks -= cost; maintCheckSpend += cost;
+                checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur, auto: true });
+                return startCheck(aged, ct, dur);
+              }
+            }
+          }
           if (di.forcedType) {
             const ct   = di.forcedType;
             const dur  = checkDurationWeeks(mType?.category, ct);
@@ -2677,7 +2699,7 @@ function reducer(state, action) {
 
       // Merge lease warnings, failures, and recovery toasts in (after agedFleet is built)
       const checkToasts = [
-        ...checksStarted.map(c => ({ type: 'info', title: `🔧 ${c.checkType} check started — ${c.name}`, message: `${c.tailNumber || c.name} is in the shop for ${c.weeks} week${c.weeks !== 1 ? 's' : ''}. Cost: ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`, icon: '🔧', duration: 7000 })),
+        ...checksStarted.map(c => ({ type: 'info', title: `🔧 ${c.checkType} check ${c.auto ? 'auto-scheduled' : 'started'} — ${c.name}`, message: `${c.tailNumber || c.name} is in the shop for ${c.weeks} week${c.weeks !== 1 ? 's' : ''}. Cost: ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.${c.auto ? ' Booked automatically by your maintenance team.' : ''}`, icon: '🔧', duration: 7000 })),
         ...checksForced.map(c => ({ type: 'danger', title: `⚠️ Forced grounding — ${c.name}`, message: `${c.tailNumber || c.name} blew past its ${c.checkType}-check window. Regulator-grounded ${c.weeks} week${c.weeks !== 1 ? 's' : ''}; rushed check ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`, icon: '⚠️', duration: 10000 })),
         ...completedChecks.map(c => ({ type: 'success', title: `✅ ${c.checkType} check complete — ${c.name}`, message: `${c.tailNumber || c.name} has returned to service.`, icon: '✅', duration: 5000 })),
       ];

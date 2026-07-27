@@ -15,7 +15,7 @@ import {
 } from '../data/families.js';
 import { formatMoney, weeklyBlockHours, routeDistanceKm } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
-import { dueInfo } from '../data/maintenance.js';
+import { dueInfo, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import {
   calcHQCost, hqBracket, weeklyInsuranceCost,
@@ -439,7 +439,8 @@ function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch })
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, maxWidth: 420 }}>
             Line maintenance — A/B checks, parts, components. Low budget cuts costs now but raises
             wear-related breakdown risk and accelerates airframe aging. Heavy C &amp; D checks are
-            scheduled per aircraft in the Fleet tab.
+            scheduled per aircraft in the Fleet tab — or automatically, once this budget and
+            maintenance-team pay are both ≥1.30×.
           </div>
         </div>
         {fleetMaintTotal > 0 && (
@@ -967,6 +968,17 @@ export default function Operations() {
               {chip('Booked', cs.booked, 'var(--text-muted)')}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Schedule from each aircraft's card in the Fleet tab. Overdue airframes get force-grounded by the regulator (longer downtime, +50% cost).</div>
+            {(() => {
+              const autoOn  = autoSchedulingActive(labor, maintenanceBudget);
+              const payMult = labor?.maintenanceTeam?.payMultiplier ?? 1.0;
+              return (
+                <div style={{ fontSize: 11, marginTop: 6, color: autoOn ? 'var(--green)' : 'var(--text-dim)' }}>
+                  {autoOn
+                    ? `⚙ Auto-scheduling active — maintenance pay (${payMult.toFixed(2)}×) and budget (${maintenanceBudget.toFixed(2)}×) are both ≥${AUTO_SCHEDULE_PAY_MIN.toFixed(2)}×, so due C/D checks are booked automatically at planned cost.`
+                    : `⚙ Auto-scheduling off — pay the maintenance team ≥${AUTO_SCHEDULE_PAY_MIN.toFixed(2)}× AND set the maintenance budget ≥${AUTO_SCHEDULE_BUDGET_MIN.toFixed(2)}× and due C/D checks will be booked automatically (currently ${payMult.toFixed(2)}× pay / ${maintenanceBudget.toFixed(2)}× budget).`}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
