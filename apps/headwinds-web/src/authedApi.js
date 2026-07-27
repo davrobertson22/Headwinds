@@ -14,8 +14,14 @@
 //
 // It deliberately does NOT loop: one refresh, one retry, then give up. That
 // keeps a genuinely-dead session from hammering the server.
+//
+// The one thing it must never do is treat a NETWORK failure as a dead session.
+// SessionExpiredError is a permanent latch in the caller (polling stops, the
+// player is shown "sign in again"), so a refreshSession() that failed only
+// because the browser was offline would end the session over a wifi blip.
+// Those come back as a transient NetworkError instead, and the poller retries.
 import { supabase } from './supabase.js';
-import { api } from './api.js';
+import { api, NetworkError, isTransientError } from './api.js';
 
 export class SessionExpiredError extends Error {
   constructor() {
@@ -31,15 +37,31 @@ export class SessionExpiredError extends Error {
 // in parallel can invalidate it). Everyone awaits the same in-flight promise.
 let refreshInFlight = null;
 
+// Supabase surfaces an unreachable auth server as AuthRetryableFetchError (or a
+// thrown TypeError from fetch). Anything that smells like transport, not
+// rejection, is retryable — we must not sign the player out over it.
+const isTransientAuthFailure = (error) =>
+  Boolean(
+    (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+    (error && (
+      error.name === 'AuthRetryableFetchError' ||
+      error.name === 'TypeError' ||
+      error.name === 'AbortError' ||
+      error.status === 0 ||
+      error.status === 429 ||
+      (error.status >= 500 && error.status <= 599)
+    )),
+  );
+
 async function refreshOnce() {
   if (!refreshInFlight) {
     refreshInFlight = supabase.auth
       .refreshSession()
       .then(({ data, error }) => {
-        if (error || !data?.session?.access_token) return null;
-        return data.session.access_token;
+        if (data?.session?.access_token) return { token: data.session.access_token };
+        return { token: null, transient: isTransientAuthFailure(error) };
       })
-      .catch(() => null)
+      .catch((error) => ({ token: null, transient: isTransientAuthFailure(error) }))
       .finally(() => { refreshInFlight = null; });
   }
   return refreshInFlight;
@@ -52,8 +74,13 @@ export async function authedApi(path, opts = {}) {
     // Only try to recover from auth failures, and only when we have a client
     // able to refresh. Everything else propagates unchanged.
     if (e.status !== 401 || !supabase) throw e;
-    const freshToken = await refreshOnce();
-    if (!freshToken) throw new SessionExpiredError();
+    const { token: freshToken, transient } = await refreshOnce();
+    if (!freshToken) {
+      if (transient) throw new NetworkError('Lost contact with the sign-in service — retrying…', e);
+      throw new SessionExpiredError();
+    }
     return api(path, { ...opts, token: freshToken });
   }
 }
+
+export { isTransientError };

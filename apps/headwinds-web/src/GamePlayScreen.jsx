@@ -15,7 +15,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SoloApp from '../../../src/App.jsx';
 import { RemoteGameProvider, gameReducer } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
-import { api } from './api.js';
+import { api, isTransientError } from './api.js';
+import { shouldFastPoll, isStaleContact } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
 import { supabase } from './supabase.js';
 import MessagesWidget from './Messages.jsx';
@@ -26,7 +27,7 @@ import '../../../src/index.css';
 // .nextTickAt; when it crosses zero we show "landing…" and the poller (below)
 // tightens up so the new week arrives promptly instead of "within 15s, maybe".
 // Rendered inside the game topbar's DATE tile (via remoteChrome).
-function TickCountdown({ nextTickAt, paceLabel }) {
+function TickCountdown({ nextTickAt, paceLabel, stale }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -34,7 +35,8 @@ function TickCountdown({ nextTickAt, paceLabel }) {
   }, []);
   if (!nextTickAt) return null;
   const ms = new Date(nextTickAt).getTime() - now;
-  if (ms <= 0) return <span>next week landing…</span>;
+  // Overdue AND out of contact is not "landing" — it's us, not the world.
+  if (ms <= 0) return <span>{stale ? 'waiting for the server…' : 'next week landing…'}</span>;
   const totalSec = Math.ceil(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -108,11 +110,26 @@ export default function GamePlayScreen({ worldId, token }) {
   // blob (+ every rival's blob) each time. This is the Supabase egress fix.
   const stampRef = useRef(null);
 
-  const load = useCallback(async () => {
+  // Timestamp of the last poll that actually reached the server. Everything
+  // about "are we still connected?" is derived from this.
+  const lastOkRef = useRef(Date.now());
+  const [connLost, setConnLost] = useState(false);
+  // Authoritative writes in flight. A reconnect resync adopts the server blob
+  // wholesale, so hold that off while a decision is still on the wire — its
+  // response is about to replace local state anyway.
+  const writesInFlight = useRef(0);
+
+  // `full` drops the stamp (forcing a complete state fetch) and adopts whatever
+  // the server returns, week comparison bypassed. Used after a gap in contact:
+  // local state may be arbitrarily stale AND may still hold optimistic edits
+  // whose writes never landed, so the server is the only trustworthy version.
+  const load = useCallback(async ({ full = false } = {}) => {
     try {
-      const q = stampRef.current && stateRef.current
+      const q = !full && stampRef.current && stateRef.current
         ? `?stamp=${encodeURIComponent(stampRef.current)}` : '';
       const d = await authedApi(`/worlds/${worldId}/airline${q}`, { token });
+      lastOkRef.current = Date.now();
+      setConnLost(false);
       setMeta({ status: d.status, worldStatus: d.worldStatus, worldClock: d.worldClock, airlineId: d.airlineId });
       if (d.stamp) stampRef.current = d.stamp;
       setError(null); // a good poll clears any stale transient error
@@ -120,7 +137,7 @@ export default function GamePlayScreen({ worldId, token }) {
       // Only replace local state when the server has genuinely moved on (a tick
       // landed or first load) — don't stomp optimistic edits between polls.
       const local = stateRef.current;
-      if (!local || absWeekOfState(d.state) > absWeekOfState(local)) setState(withStatsBackfill(d.state));
+      if (!local || full || absWeekOfState(d.state) > absWeekOfState(local)) setState(withStatsBackfill(d.state));
       // Same-week polls still refresh the gate market (a rival's new listing /
       // an auction opening changes the world stamp but not our week). Server-
       // derived, so adopting it never stomps an optimistic edit.
@@ -129,9 +146,23 @@ export default function GamePlayScreen({ worldId, token }) {
       }
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);
-      else setError(e);
+      else {
+        setError(e);
+        // Transport failure — say so, but only once we've been out of contact
+        // long enough that it isn't just one unlucky request.
+        if (isTransientError(e) && isStaleContact(lastOkRef.current)) setConnLost(true);
+      }
     }
   }, [worldId, token]);
+
+  // Re-establish contact: a full resync if we've been dark, a cheap stamped
+  // poll otherwise.
+  const resync = useCallback(() => {
+    const stale = isStaleContact(lastOkRef.current);
+    // `<= 0` not `=== 0`: the counter must never be able to strand us on
+    // shallow resyncs if a handler ever double-settles.
+    load({ full: stale && writesInFlight.current <= 0 });
+  }, [load]);
 
   useEffect(() => {
     if (sessionExpired) return; // dead session — stop hitting the server
@@ -140,13 +171,35 @@ export default function GamePlayScreen({ worldId, token }) {
     // via the stamp anyway), every 4s once the next tick is due — so the new
     // week (and its debrief) still lands moments after the server ticks.
     const t = setInterval(() => {
-      const due = metaRef.current?.worldClock?.nextTickAt;
-      const nearTick = due && new Date(due).getTime() - Date.now() < 5000;
-      if (nearTick) load();
+      if (shouldFastPoll(metaRef.current?.worldClock?.nextTickAt)) load();
+      // Nothing has reached the server in a while. Flag it here rather than
+      // firing extra requests — the 25s poll below keeps retrying on its own,
+      // and a wedged client that retries harder only wedges harder.
+      else if (isStaleContact(lastOkRef.current)) setConnLost(true);
     }, 4000);
-    const slow = setInterval(load, 25000);
+    const slow = setInterval(() => load(), 25000);
     return () => { clearInterval(t); clearInterval(slow); };
   }, [load, sessionExpired]);
+
+  // Reconnect signals. The interval poll recovers on its own eventually — but
+  // only eventually, and only if its request is answered. These make coming back
+  // from a sleeping laptop, a dropped wifi or a backgrounded tab immediate, and
+  // force a FULL resync when we've been out of contact, so the date on screen
+  // can't sit a week (or five) behind the world.
+  useEffect(() => {
+    if (sessionExpired) return;
+    const onOnline = () => resync();
+    const onOffline = () => setConnLost(true);
+    const onVisible = () => { if (document.visibilityState === 'visible') resync(); };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [resync, sessionExpired]);
 
   // World-scoped capabilities for the shared UI (Rivals tab profiles, player
   // alliances). Passed through RemoteGameProvider as `remoteApi` — always null
@@ -232,9 +285,13 @@ export default function GamePlayScreen({ worldId, token }) {
     // overwrite local state, and never roll the week backwards (a pre-tick
     // response landing after the weekly poll advanced us). Stale/out-of-order
     // responses are dropped; the next poll reconciles.
+    writesInFlight.current += 1;
     writeChain.current = writeChain.current.then(() =>
-      authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload } })
+      // A longer leash than a poll: a bulk close/sell can be a heavy write, and
+      // timing out a decision the server actually applied is worse than waiting.
+      authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload }, timeoutMs: 25000 })
         .then((res) => {
+          writesInFlight.current -= 1;
           // Adopt the post-write stamp so the next poll short-circuits instead of
           // re-downloading the state we're about to render. A stale (out-of-order)
           // response is skipped — the next poll's full fetch reconciles.
@@ -246,32 +303,46 @@ export default function GamePlayScreen({ worldId, token }) {
           });
         })
         .catch((e) => {
+          writesInFlight.current -= 1;
           if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
-          setError(e); load(); // rejected → resync from server
+          setError(e);
+          // Rejected → resync from the server. If it failed on the wire we may
+          // have missed ticks too, so let resync() decide how deep to go.
+          if (isTransientError(e)) resync(); else load();
         })
     );
-  }, [worldId, token, load]);
+  }, [worldId, token, load, resync]);
 
   // Topbar content the shared App shell renders when remote — the game gets ONE
   // header (brand · airline · date+countdown · cash · lobby/feed/messages)
   // instead of a second bar stacked above its own topbar.
   const remoteChrome = useMemo(() => ({
     clock: meta?.worldStatus === 'RUNNING'
-      ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} />
+      ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost} />
       : (meta?.worldStatus ? <span>world {String(meta.worldStatus).toLowerCase()}</span> : null),
     right: (
       <>
-        {error && (
+        {/* Connection state beats the raw error text: "reconnecting" is what
+            the player can act on (or wait out), and it used to be invisible. */}
+        {connLost ? (
+          <span
+            className="error hw-topbar-err hw-reconnecting"
+            title="Not reaching the server. The game will catch up on its own as soon as the connection is back — no refresh needed."
+            style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+          >
+            ⚠ reconnecting…
+          </span>
+        ) : error ? (
           <span className="error hw-topbar-err" style={{ fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {String(error.message || error)}
           </span>
-        )}
+        ) : null}
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
         <MessagesWidget worldId={worldId} token={token} />
       </>
     ),
-  }), [meta, error, worldId, token]);
+  }), [meta, error, connLost, worldId, token]);
 
   if (sessionExpired) {
     return (

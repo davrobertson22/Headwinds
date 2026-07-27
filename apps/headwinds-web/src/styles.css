@@ -336,3 +336,21 @@ footer a { color: var(--accent); }
   .hw-lobby-link { padding: 4px 9px; }
   .hw-topbar-err { display: none; }
 }
+
+/* ── Connection-lost chip (game topbar) ──────────────────────────────────────
+   The old failure mode was silent: a dropped connection left the countdown
+   sitting on "next week landing…" with nothing on screen to say the client had
+   stopped hearing from the server. This is short enough to survive the phone
+   layout, where the generic .hw-topbar-err text is hidden — being disconnected
+   is the one thing worth telling the player about at every screen size. */
+.hw-reconnecting {
+  opacity: .9;
+  animation: hw-recon-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hw-recon-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .hw-reconnecting { animation: none; opacity: 1; }
+}
+@media (max-width: 640px) {
+  .hw-reconnecting { display: inline; }
+}
