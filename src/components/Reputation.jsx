@@ -95,7 +95,7 @@ export default function Reputation() {
         <div className="stat-box">
           <div className="stat-label">Reputation</div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
-            <span style={{ fontSize: 32, fontWeight: 800, color: scoreColor(rep.overall) }}>{rep.overall}</span>
+            <span style={{ fontSize: 32, fontWeight: 800, color: scoreColor(rep.overall) }}>{Math.round(rep.overall)}</span>
             <span style={{ fontSize: 14, color: 'var(--text-muted)', paddingBottom: 4 }}>/100</span>
           </div>
           <ScoreBar value={rep.overall} color={scoreColor(rep.overall)} />
