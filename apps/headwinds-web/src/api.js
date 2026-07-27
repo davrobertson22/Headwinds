@@ -29,8 +29,24 @@ export class NetworkError extends Error {
   }
 }
 
+// Gateway statuses mean "something upstream of the game is unavailable", not
+// "your request was wrong": 502/504 from a proxy, and 503 from our own API when
+// the Supabase auth service is unreachable (headwinds-server/src/auth.mjs).
+//
+// THE BUG THIS EXISTS TO PREVENT: on 2026-07-27 Supabase's GoTrue answered
+// /auth/v1/user in 35s or not at all. The server turned that into 401 "Invalid
+// or expired session", the client believed it, and an outage that had nothing to
+// do with the player's session could sign them out mid-game. A 500 is
+// deliberately NOT in this set — that is our own bug, and it should surface.
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+
 export const isTransientError = (e) =>
-  Boolean(e && (e.offline || e.status === 0 || e.name === 'NetworkError'));
+  Boolean(e && (
+    e.offline ||
+    e.status === 0 ||
+    e.name === 'NetworkError' ||
+    TRANSIENT_STATUSES.has(e.status)
+  ));
 
 export async function api(path, { method = 'GET', body, token, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const controller = new AbortController();

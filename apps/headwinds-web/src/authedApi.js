@@ -53,10 +53,30 @@ const isTransientAuthFailure = (error) =>
     )),
   );
 
+// refreshSession() goes straight to Supabase and has NO timeout of its own, so
+// a wedged auth service can hold it open far longer than the request budget
+// api() enforces — which is exactly what happened on 2026-07-27, when GoTrue
+// took 35s to answer. Time-box it and treat the timeout as transient: the poller
+// tries again on the next tick instead of the screen sitting frozen.
+export const REFRESH_TIMEOUT_MS = 10000;
+
+function timeBox(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const e = new Error('Sign-in service timed out');
+      e.name = 'AbortError';
+      reject(e);
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 async function refreshOnce() {
   if (!refreshInFlight) {
-    refreshInFlight = supabase.auth
-      .refreshSession()
+    refreshInFlight = timeBox(supabase.auth.refreshSession(), REFRESH_TIMEOUT_MS)
       .then(({ data, error }) => {
         if (data?.session?.access_token) return { token: data.session.access_token };
         return { token: null, transient: isTransientAuthFailure(error) };

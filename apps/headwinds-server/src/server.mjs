@@ -7,6 +7,7 @@
 // is the player-facing API: accounts, the world lobby, and gameplay decisions.
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import compress from '@fastify/compress';
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
 import meRoutes from './routes/me.mjs';
@@ -26,6 +27,14 @@ export function buildServer() {
   });
 
   app.register(cors, { origin: env.corsOrigins, credentials: true });
+
+  // The airline state blob is the biggest thing this API sends: a week-109
+  // airline measured 3.66 MB of JSON, uncompressed, on every changed poll. JSON
+  // that repetitive compresses roughly 10:1, so this is the single cheapest way
+  // to cut both the time a player waits for a world to load and the Supabase
+  // egress bill. `threshold` leaves the small lobby/stamp responses alone, where
+  // the compression round-trip would cost more than it saves.
+  app.register(compress, { global: true, encodings: ['br', 'gzip', 'deflate'], threshold: 4096 });
 
   // Uniform error shape. Respect an error's statusCode (set by our helpers /
   // Fastify's validation); default to 500 and log unexpected ones.
