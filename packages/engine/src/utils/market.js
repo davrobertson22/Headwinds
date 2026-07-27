@@ -486,11 +486,16 @@ export const SVPS_SCALE = 10_000;
 export function emptyEquity() {
   return {
     shares:               TOTAL_SHARES,  // shares outstanding
-    founderShares:        TOTAL_SHARES,  // never-issued block, for float math
+    // Founder block — the part NOT publicly traded. The remainder is the free
+    // float other players can buy (DEFAULT_FREE_FLOAT_PCT of the shares).
+    founderShares:        Math.round(TOTAL_SHARES * 0.70),
     isPublic:             true,          // flips to false-by-default when GO_PUBLIC ships
     cumDividendsPerShare: 0,             // lifetime dividends per share ($)
     ipoWeek:              null,          // absolute week of listing
-    offeringsThisYear:    0,             // secondary-offering throttle
+    offeringsThisYear:    0,             // secondary-offering throttle (per game year)
+    buybacksThisYear:     0,             // buyback throttle (per game year)
+    buybacksEver:         0,             // ever returned capital? (better offering price)
+    dividendPolicy:       0,             // payout ratio of trailing-quarter profit
   };
 }
 
@@ -812,16 +817,220 @@ export const STOCK_MARKET = {
   SPREAD_HALF:              0.01,      // buy at price×1.01, sell at price×0.99
   COMMISSION:               0.005,     // 0.5% of gross, each way
   MAX_OWNERSHIP_PCT:        0.20,      // max fraction of one rival's shares you may own
+  // Fraction of an airline's shares that are publicly held (and therefore
+  // buyable) at incorporation. The rest is the founder block. Set above
+  // MAX_OWNERSHIP_PCT so one player taking their full 20% still leaves float
+  // for everybody else.
+  DEFAULT_FREE_FLOAT_PCT:   0.30,
+  // Price impact: an order's own weight moves the price against it, in
+  // proportion to how much of the free float it represents. Buying two thirds
+  // of a carrier's float costs ~23% in slippage on top of the spread, which is
+  // what stops large stakes from being accumulated at the marked price.
+  IMPACT_K:                 0.35,
+  IMPACT_MAX:               0.25,      // slippage is capped so a fat order can't price absurdly
+  // Tax on REALIZED gains. Money leaves the world entirely — the sink that
+  // offsets the float pool. Losses are untaxed and carry no credit.
+  CAPITAL_GAINS_TAX:        0.25,
   MAX_PORTFOLIO_PCT_OF_CAP: 0.40,      // portfolio cost basis ≤ 40% of your own market cap
   MIN_TICKET:               100_000,   // minimum gross per trade ($)
-  DELIST_HAIRCUT:           0.75,      // forced-liquidation payout on delisting (purge/abandon)
-  BANKRUPT_HAIRCUT:         0.50,      // payout when a held carrier goes bankrupt (solo AI)
+  DELIST_HAIRCUT:           0.75,      // forced-liquidation payout when a held carrier delists
+  // ── Float pool (the money loop) ──────────────────────────────────────────
+  // Trades no longer face an infinite off-world counterparty. Each world has ONE
+  // pool with finite cash and a finite share inventory: your buys pay cash INTO
+  // it, your sells draw cash OUT of it. Net exogenous cash entering a world is
+  // therefore bounded by the pool's seed forever, which is the whole fix for
+  // "the cash comes from outside the game".
+  POOL_SEED_MULT:           5,         // seed = 5 x (players x starting capital)
+  POOL_REFILL_PER_YEAR:     0.02,      // heals 2% of seed a game year, capped at seed
+  // As the pool's cash runs down, sellers get worse fills — a market that has
+  // run out of buyers. At a fully drained pool this is the whole discount.
+  POOL_LIQUIDITY_K:         0.20,
   SHARE_PRICE_HISTORY_WEEKS: 26,       // rival price history exposed to clients
 };
 
+// ─── Capital actions ───────────────────────────────────────────────────────────
+// The company side of the market: raising equity, returning it, and paying it out.
+// This is what makes the issuer a real participant rather than a scoreboard entry —
+// and under the SVPS leaderboard each of these is a genuine trade-off rather than
+// the free score (issue) or self-harm (return) that market-cap ranking made them.
+
+export const CAPITAL = {
+  // ── IPO ──────────────────────────────────────────────────────────────────
+  // You have to have a business before the market will price one.
+  IPO_MIN_ABS_WEEK:        26,
+  IPO_MIN_HISTORY_WEEKS:   12,
+  IPO_MIN_FRACTION:        0.10,   // of post-issue shares
+  IPO_MAX_FRACTION:        0.35,
+  // Real IPOs are underpriced, and more so for a short or shaky track record.
+  IPO_DISCOUNT_MIN:        0.05,
+  IPO_DISCOUNT_MAX:        0.15,
+  IPO_CONFIDENCE_WEEKS:    52,     // history length at which you get the best price
+
+  // ── Secondary offerings ─────────────────────────────────────────────────
+  OFFERING_MAX_PCT_PER_YEAR: 0.15, // of shares outstanding, per game year
+  OFFERING_DISCOUNT_BASE:    0.04,
+  // The discount WIDENS the more you have already tapped the market this year:
+  // going back repeatedly is progressively more expensive.
+  OFFERING_DISCOUNT_SLOPE:   0.50,
+  // ...and NARROWS with a record of returning capital. Dividends and buybacks buy
+  // you cheaper equity later, which is the long-game reason to bother with them.
+  OFFERING_LOYALTY_CREDIT:   0.03,
+
+  // ── Buybacks ────────────────────────────────────────────────────────────
+  BUYBACK_MAX_PCT_PER_YEAR:  0.15,
+  BUYBACK_PREMIUM:           0.01, // you cross the spread to retire stock
+  // Never buy back (or pay a dividend) down to the point of insolvency.
+  MIN_CASH_WEEKS_COVER:      4,
+
+  // ── Dividends ───────────────────────────────────────────────────────────
+  DIVIDEND_MAX_PAYOUT:       0.60, // of trailing-quarter net profit
+  DIVIDEND_PERIOD_WEEKS:     13,
+  DIVIDEND_TRAILING_WEEKS:   13,
+};
+
+/**
+ * IPO discount for an airline: worst case for a raw startup, best for a carrier
+ * with a year of trading behind it.
+ *
+ * @param {number} historyWeeks  weeks of financial history
+ * @param {number} profitable    fraction of recent weeks that were profitable (0..1)
+ */
+export function ipoDiscount(historyWeeks, profitable = 0.5) {
+  const C = CAPITAL;
+  const tenure = Math.max(0, Math.min(1, (Number(historyWeeks) || 0) / C.IPO_CONFIDENCE_WEEKS));
+  const record = Math.max(0, Math.min(1, Number(profitable) || 0));
+  const confidence = 0.6 * tenure + 0.4 * record;
+  return C.IPO_DISCOUNT_MAX - (C.IPO_DISCOUNT_MAX - C.IPO_DISCOUNT_MIN) * confidence;
+}
+
+/**
+ * Discount on a secondary offering. Widens with how much of the annual allowance
+ * you have already used, narrows with a record of returning capital.
+ *
+ * @param {number} issuedFracThisYear  shares issued this year / shares outstanding
+ * @param {number} returnedCapital     1 if you have ever paid a dividend or bought
+ *                                     back stock, else 0 (or a 0..1 blend)
+ */
+export function offeringDiscount(issuedFracThisYear, returnedCapital = 0) {
+  const C = CAPITAL;
+  const used = Math.max(0, Number(issuedFracThisYear) || 0);
+  const loyal = Math.max(0, Math.min(1, Number(returnedCapital) || 0));
+  const raw = C.OFFERING_DISCOUNT_BASE
+            + C.OFFERING_DISCOUNT_SLOPE * used
+            - C.OFFERING_LOYALTY_CREDIT * loyal;
+  return Math.max(0, Math.min(0.30, raw));
+}
+
+/**
+ * Dividend per share for a payout, given the trailing profit and who actually
+ * gets paid.
+ *
+ * The founder block is NOT paid — paying yourself is a wash, and skipping it means
+ * a dividend costs you in proportion to how much of yourself you have sold. So the
+ * total cash leaving the company is `perShare x (shares - founderShares)`.
+ *
+ * @param {number} trailingProfit  net profit over the trailing quarter
+ * @param {number} payoutRatio     0..DIVIDEND_MAX_PAYOUT
+ * @param {number} shares          shares outstanding
+ * @returns {number} dividend per share ($)
+ */
+export function dividendPerShare(trailingProfit, payoutRatio, shares) {
+  const profit = Number(trailingProfit) || 0;
+  const ratio = Math.max(0, Math.min(CAPITAL.DIVIDEND_MAX_PAYOUT, Number(payoutRatio) || 0));
+  const n = Number(shares);
+  if (profit <= 0 || ratio <= 0 || !(n > 0)) return 0;
+  return (profit * ratio) / n;
+}
+
 /** Fresh empty portfolio (also the migration default for old saves). */
 export function emptyPortfolio() {
-  return { holdings: {}, realizedPnL: 0, lastValuation: 0 };
+  return { holdings: {}, realizedPnL: 0, lastValuation: 0, taxPaid: 0 };
+}
+
+/**
+ * Publicly held (buyable) shares of an airline — everything outside the founder
+ * block. Reads a player state or a rival payload.
+ */
+export function freeFloatOf(x) {
+  const shares  = sharesOf(x);
+  const founder = Number(x?.equity?.founderShares ?? x?.founderShares);
+  const held    = Number.isFinite(founder) && founder >= 0 && founder <= shares
+    ? founder
+    : shares * (1 - STOCK_MARKET.DEFAULT_FREE_FLOAT_PCT);
+  return Math.max(0, shares - held);
+}
+
+/**
+ * Slippage fraction for an order of `shares` against a free float of `float`.
+ * Zero for a zero-size order, capped at IMPACT_MAX.
+ */
+export function priceImpact(shares, float) {
+  const n = Number(shares), f = Number(float);
+  if (!(n > 0) || !(f > 0)) return 0;
+  return Math.min(STOCK_MARKET.IMPACT_MAX, STOCK_MARKET.IMPACT_K * (n / f));
+}
+
+/**
+ * Execution price for a trade, including half-spread and the order's own impact.
+ *
+ * @param {number}  price   last published price
+ * @param {number}  shares  order size
+ * @param {number}  float   the carrier's free float
+ * @param {boolean} isBuy   true to pay up, false to sell down
+ */
+export function executionPrice(price, shares, float, isBuy) {
+  const edge = STOCK_MARKET.SPREAD_HALF + priceImpact(shares, float);
+  return price * (isBuy ? 1 + edge : Math.max(0, 1 - edge));
+}
+
+/**
+ * Extra discount a SELLER eats because the pool is short of cash — a market with
+ * no buyers left. 0 when the pool is full, POOL_LIQUIDITY_K when fully drained.
+ *
+ * Buys are unaffected: putting money in never needs the pool to have any.
+ *
+ * @param {number} poolCash  cash the pool has left
+ * @param {number} seedCash  the pool's seed (its full-strength level)
+ */
+export function poolLiquidityDiscount(poolCash, seedCash) {
+  const cash = Number(poolCash), seed = Number(seedCash);
+  if (!(seed > 0)) return 0;                      // no pool configured → no discount
+  const drawn = Math.max(0, Math.min(1, 1 - Math.max(0, cash) / seed));
+  return STOCK_MARKET.POOL_LIQUIDITY_K * drawn;
+}
+
+/**
+ * The world's float pool as injected onto state by the server (never persisted,
+ * never client-supplied). Absent in solo, where trading keeps its legacy
+ * unbounded counterparty.
+ *
+ * @typedef {{ poolCash: number, seedCash: number, sharesAvailable: number }} WorldMarketView
+ */
+
+/** Pool seed for a world: POOL_SEED_MULT x players x starting capital. */
+export function poolSeedFor(playerCount, startingCash) {
+  const n = Math.max(1, Number(playerCount) || 1);
+  const c = Math.max(0, Number(startingCash) || 0);
+  return Math.round(STOCK_MARKET.POOL_SEED_MULT * n * c);
+}
+
+/** Weekly refill amount for a pool, capped so it can never exceed its seed. */
+export function poolRefill(poolCash, seedCash) {
+  const cash = Math.max(0, Number(poolCash) || 0);
+  const seed = Math.max(0, Number(seedCash) || 0);
+  if (!(seed > 0) || cash >= seed) return 0;
+  const weekly = (seed * STOCK_MARKET.POOL_REFILL_PER_YEAR) / 52;
+  return Math.round(Math.min(weekly, seed - cash));
+}
+
+/**
+ * Capital gains tax on a realized gain. Gains only — a loss is untaxed and earns
+ * no credit against future gains (deliberately simple, and it means churning a
+ * position is never a tax strategy).
+ */
+export function capitalGainsTax(grossRealized) {
+  const g = Number(grossRealized);
+  return g > 0 ? Math.round(g * STOCK_MARKET.CAPITAL_GAINS_TAX) : 0;
 }
 
 // ─── Cargo demand ───────────────────────────────────────────────────────────────

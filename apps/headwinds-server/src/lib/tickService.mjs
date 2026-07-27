@@ -21,6 +21,7 @@ import {
   openDueAuctions, resolveDueAuctions,
 } from './gateService.mjs';
 import { scrapStale } from './aircraftMarketService.mjs';
+import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
 } from './newsService.mjs';
@@ -127,6 +128,22 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   });
   const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines, world });
 
+  // Dividends owed to these airlines from previous weeks. Read BEFORE the
+  // transaction and injected into each airline's tick, then consumed inside the
+  // commit only for airlines whose write actually lands — so a skipped airline
+  // collects next week instead of the money vanishing. See DividendCredit.
+  const pendingCredits = await prisma.dividendCredit.findMany({
+    where: { worldId: world.id, consumed: false },
+    select: { id: true, airlineId: true, amount: true },
+  });
+  const creditsByAirline = new Map();
+  for (const c of pendingCredits) {
+    const entry = creditsByAirline.get(c.airlineId) ?? { total: 0, ids: [] };
+    entry.total += Number(c.amount);
+    entry.ids.push(c.id);
+    creditsByAirline.set(c.airlineId, entry);
+  }
+
   // Shared world economy for THIS week: one fuel index (seeded from worldSeed) and
   // one event set (aged from the world's own running list, stored in tickConfig).
   // Every airline ticks against the same fuel + events, so the leaderboard reflects
@@ -151,7 +168,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       const next = gameReducer(
         withRivals(airline.state, rivalViews.get(airline.id)),
         { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
-          marketIndex: worldMarket },
+          marketIndex: worldMarket,
+          incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0 },
       );
       // Gate scarcity: rule-5 forfeitures happen inside ADVANCE_WEEK (gates
       // vanish from the blob). Diff pre/post so the world's gate ledger can be
@@ -170,6 +188,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       computed.push({
         airline,
         next,
+        // A dividend this airline just declared, for cross-player settlement below.
+        dividend: next.lastReport?.dividend ?? null,
+        consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
         cash: safeInt(next.cash),
         marketCap: safeInt(next.marketCap),
         // Leaderboard metric: per-share value including lifetime dividends.
@@ -242,9 +263,55 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         if (res.count > 0) written.push({
           airlineId: c.airline.id, name: c.airline.name,
           marketCap: c.marketCap, svpsScore: c.svpsScore, isPublic: c.isPublic,
+          dividend: c.dividend, consumedCreditIds: c.consumedCreditIds,
         });
         else log.error(`[tick] world ${world.id} airline ${c.airline.id} changed under the tick — skipped, catches up next pass`);
       }
+
+      // ── Dividend settlement ─────────────────────────────────────────────
+      // Both halves happen here, inside the same transaction as the blob writes,
+      // and BOTH are gated on the write having landed:
+      //
+      //   • consume the credits an airline just collected (its blob already has
+      //     the cash, via action.incomingDividends)
+      //   • issue new credits for a dividend an airline just declared (its blob
+      //     has already been debited the full amount)
+      //
+      // A skipped airline consumes nothing and issues nothing, so it simply
+      // re-collects or re-pays next week. Money is conserved on every path.
+      const collectedIds = written.flatMap((r) => r.consumedCreditIds ?? []);
+      if (collectedIds.length > 0) {
+        await tx.dividendCredit.updateMany({
+          where: { id: { in: collectedIds } },
+          data: { consumed: true },
+        });
+      }
+
+      const newCredits = [];
+      for (const r of written) {
+        const div = r.dividend;
+        if (!div || !(div.total > 0)) continue;
+        // Holders are read from the PRE-tick blobs, matching the tick-start prices
+        // the portfolio is marked against — one consistent snapshot.
+        const holders = holdersOf(airlines, r.airlineId);
+        const { credits } = splitDividend({
+          perShare: div.perShare, totalPaid: div.total, payerId: r.airlineId, holders,
+        });
+        for (const cr of credits) {
+          newCredits.push({
+            worldId: world.id,
+            airlineId: cr.airlineId,
+            fromId: r.airlineId,
+            fromName: r.name ?? null,
+            amount: BigInt(cr.amount),
+            week: toIndex,
+          });
+        }
+        // The remainder (`toOutside`) is the slice held by outside investors and by
+        // rounding: it leaves the world entirely. Deliberately NOT credited to the
+        // pool — a dividend must be able to destroy money, never create it.
+      }
+      if (newCredits.length > 0) await tx.dividendCredit.createMany({ data: newCredits });
 
       // Standings rank on SVPS (per-share shareholder value), not market cap.
       // Market cap measures size, so it rewarded raising capital and punished
@@ -305,6 +372,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     }, TICK_TX_OPTS);
 
     if (outcome.lostRace) return { ok: false, reason: 'lost-race' };
+
+    // ── Float pool refill ───────────────────────────────────────────────────
+    // Heals POOL_REFILL_PER_YEAR of the pool's seed per game year (spread weekly),
+    // never above the seed — so the pool is a revolving facility, not a growing
+    // faucet, and total lifetime injection into a world stays bounded.
+    // Best-effort: a failed refill must never roll back the week.
+    await refillWorldMarket(prisma, world.id, { log });
 
     // ── Gate scarcity post-commit hooks ─────────────────────────────────────
     // Best-effort (CAS-retried inside): a failure here must never roll back the

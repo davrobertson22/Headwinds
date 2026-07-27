@@ -16,7 +16,11 @@ import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
-import { sharesOf } from '@tailwinds/engine/utils/market.js';
+import { sharesOf, svpsScore } from '@tailwinds/engine/utils/market.js';
+import {
+  ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
+  MarketError,
+} from '../lib/marketService.mjs';
 
 // Per-account decision throttle. Generous enough that no human bursting through
 // the UI is ever affected (60 in 10s ≈ 6/s), but a scripted flood hits 429 fast,
@@ -225,7 +229,49 @@ export default async function decisionRoutes(fastify) {
       if (denial) throw httpError(400, denial);
     }
 
+    // Float pool: share trades settle against the world's finite pool, so the
+    // engine needs to see how much cash and inventory it has left. Injected onto
+    // STATE (server-owned, like `competitors`) rather than the action, so a client
+    // can never forge it — and stripped again by stripRivals before the blob write.
+    const isStockTrade = type === 'BUY_STOCK' || type === 'SELL_STOCK';
+    // Capital actions settle against the pool too: an issue draws its proceeds from
+    // investor cash, a buyback hands cash back and retires stock out of inventory.
+    const isCapitalAction = type === 'GO_PUBLIC' || type === 'ISSUE_SHARES'
+                         || type === 'BUY_BACK_SHARES';
+    let market = null;
+    if (isStockTrade || isCapitalAction) {
+      market = await ensureWorldMarket(prisma, airline.worldId);
+      const tradeTarget = (injected.competitors ?? []).find((c) => c.id === guarded.targetId);
+      injected.worldMarket = marketViewFor(market, tradeTarget, {
+        id: airline.id, ...(injected.equity ?? {}),
+      });
+    }
+
     const next = gameReducer(injected, { type, ...guarded });
+
+    // A capital action the pool could not fund comes back unchanged. Explain it
+    // rather than leaving the player with a button that appears to do nothing.
+    if (isCapitalAction && market && next === injected) {
+      const view = injected.worldMarket;
+      if (type === 'BUY_BACK_SHARES' && view && view.selfSharesHeld <= 0) {
+        throw httpError(409, 'None of your shares are in public hands to buy back.');
+      }
+      if (type !== 'BUY_BACK_SHARES' && view && view.poolCash <= 0) {
+        throw httpError(409, 'The equity window is shut — there is no investor capital left in this world.');
+      }
+    }
+
+    // A trade the pool could not support comes back as an unchanged state. Say why
+    // instead of returning a silent no-op the player reads as a broken button.
+    if (isStockTrade && market && next === injected) {
+      const view = injected.worldMarket;
+      if (type === 'SELL_STOCK' && view && view.poolCash <= 0) {
+        throw httpError(409, 'There are no buyers left in this market right now.');
+      }
+      if (type === 'BUY_STOCK' && view && view.sharesAvailable <= 0) {
+        throw httpError(409, 'None of that airline\'s float is available — other investors hold it all.');
+      }
+    }
 
     // Journal enrichment (post-reducer): the public share tape needs the size the
     // trade actually executed at and the resulting stake, and NEITHER is in the
@@ -306,11 +352,39 @@ export default async function decisionRoutes(fastify) {
             state: stripRivals(next),
             cash: toBig(next.cash),
             marketCap: toBig(next.marketCap),
+            // Issuance and buybacks move the share count, and the share count is the
+            // SVPS divisor — so the denormalised columns the standings read must move
+            // with them, not wait for the next tick.
+            ...(next.equity?.shares > 0 ? { shares: BigInt(Math.round(next.equity.shares)) } : {}),
+            ...(Number.isFinite(next.svps) ? { svps: BigInt(svpsScore(next.svps)) } : {}),
             ...(nameChanged ? { name: nextName } : {}),
             version: { increment: 1 },
           },
         });
         if (updated.count === 0) throw new DecisionConflict();
+
+        // Settle the executed trade against the pool in the SAME transaction, so
+        // two simultaneous sells can never both spend the same pool cash. Keyed off
+        // next.lastStockTrade (what actually executed) — never the request, which
+        // the reducer may have filled short or rejected outright.
+        if (isStockTrade && market && next.lastStockTrade?.shares > 0) {
+          const tradeTarget = (injected.competitors ?? []).find((c) => c.id === guarded.targetId);
+          await applyTradeToPoolTx(tx, {
+            market, trade: next.lastStockTrade, targetState: tradeTarget,
+          });
+        }
+
+        // Same for an executed capital action. `selfBefore` is the share state as it
+        // was BEFORE the reducer ran, because that is what the pool's inventory
+        // fallback is derived from.
+        if (isCapitalAction && market && next.lastEquityAction?.shares > 0) {
+          await applyCapitalActionToPoolTx(tx, {
+            market,
+            action: next.lastEquityAction,
+            airlineId: airline.id,
+            selfBefore: { id: airline.id, ...(airline.state?.equity ?? {}) },
+          });
+        }
         await tx.decision.create({
           data: {
             worldId: airline.worldId,
@@ -341,6 +415,10 @@ export default async function decisionRoutes(fastify) {
       if (e instanceof DecisionConflict) {
         throw httpError(409, 'Your airline just changed (a new week ticked) — reload and try again.');
       }
+      // Float-pool violations lose a compare-and-set against another trade that
+      // landed first. Same contract as DecisionConflict: tell the client to
+      // re-read and retry rather than leaking a 500.
+      if (e instanceof MarketError) throw httpError(e.status ?? 409, e.message);
       throw e;
     }
 

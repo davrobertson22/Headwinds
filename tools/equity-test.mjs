@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { gameReducer, freshState, reconcileState } from '../packages/engine/src/reducer.mjs';
 import {
-  computeMarketCap, emptyEquity, sharesOf, svpsOf, svpsScore,
+  computeMarketCap, emptyEquity, sharesOf, svpsOf, svpsScore, freeFloatOf,
   TOTAL_SHARES, SVPS_SCALE, STOCK_MARKET,
 } from '../packages/engine/src/utils/market.js';
 
@@ -23,10 +23,15 @@ Math.random = () => 0.5;
 
 // ── The equity block ─────────────────────────────────────────────────────────
 
-test('a fresh airline is incorporated at the founder share count, listed, no dividends', () => {
+test('a fresh airline is incorporated with a founder block and a free float', () => {
   const e = emptyEquity();
   assert.equal(e.shares, TOTAL_SHARES);
-  assert.equal(e.founderShares, TOTAL_SHARES);
+  assert.ok(e.founderShares < e.shares, 'not all shares are locked up');
+  assert.equal(e.founderShares, Math.round(TOTAL_SHARES * 0.70), 'founders keep 70%');
+  assert.equal(freeFloatOf({ equity: e }), TOTAL_SHARES - Math.round(TOTAL_SHARES * 0.70),
+    'the other 30% is the buyable free float');
+  assert.ok(freeFloatOf({ equity: e }) / e.shares > STOCK_MARKET.MAX_OWNERSHIP_PCT,
+    'float must exceed one player\'s max stake, or a single buyer corners it');
   assert.equal(e.isPublic, true, 'pre-IPO listing status stays true until GO_PUBLIC ships');
   assert.equal(e.cumDividendsPerShare, 0);
   assert.equal(e.ipoWeek, null);
@@ -157,7 +162,7 @@ test('reconcileState fills gaps in a partial equity block', () => {
   const fixed = reconcileState(JSON.parse(JSON.stringify(s)));
   assert.equal(sharesOf(fixed), 80_000_000);
   assert.equal(fixed.equity.cumDividendsPerShare, 0, 'missing keys default');
-  assert.equal(fixed.equity.founderShares, TOTAL_SHARES);
+  assert.equal(fixed.equity.founderShares, Math.round(TOTAL_SHARES * 0.70));
 });
 
 // ── A tick keeps everything consistent ──────────────────────────────────────

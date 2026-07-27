@@ -7,6 +7,7 @@ import {
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT,
 } from './worldConfig.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
+import { seedWorldMarket } from './marketService.mjs';
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -203,6 +204,11 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
         endsAt: deriveEndsAt(startedAt, world.lengthYears, world.weeksPerDay),
       },
     });
+    // Seed the world's float pool — the finite counterparty for share trading.
+    // Sized off the players who actually joined, so net exogenous cash entering
+    // this world is bounded from the moment it starts.
+    const players = await prisma.airline.count({ where: { worldId: world.id, status: 'ACTIVE' } });
+    await seedWorldMarket(prisma, world.id, players);
   }
 
   return airline;

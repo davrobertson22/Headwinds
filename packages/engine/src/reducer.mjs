@@ -16,7 +16,10 @@ import {
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
-         emptyEquity, sharesOf, svpsOf } from './utils/market.js';
+         emptyEquity, sharesOf, svpsOf,
+         freeFloatOf, executionPrice, capitalGainsTax,
+         priceImpact, poolLiquidityDiscount,
+         CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
@@ -286,7 +289,7 @@ export function gateLeaseDenial(state, airportCode) {
 // STATE SHAPE
 // ─────────────────────────────────────────────
 
-const STARTING_CASH = 15_000_000;
+export const STARTING_CASH = 15_000_000;
 
 function freshState() {
   return {
@@ -3077,32 +3080,32 @@ function reducer(state, action) {
       const prevPriceOf = new Map((state.competitors ?? []).map(c =>
         [c.id, (c.sharePrice ?? (c.marketCap ?? 0) / sharesOf(c)) || 0]));
       const liveCompIds = new Set(updatedCompetitors.map(c => c.id));
-      const bankruptCompIds = new Set(competitorEvents.filter(e => e.type === 'bankrupt').map(e => e.airlineId));
-      const mergedCompNames = new Set(competitorEvents.filter(e => e.type === 'merger').map(e => e.targetName));
       const prevPortfolio  = state.portfolio ?? emptyPortfolio();
       const newHoldings    = {};
       let   portfolioValue = 0;
       let   delistProceeds = 0;
       let   delistRealized = 0;
+      let   delistTax      = 0;
       for (const [heldId, h] of Object.entries(prevPortfolio.holdings ?? {})) {
         if (!(h?.shares > 0)) continue;
         const lastPrice = prevPriceOf.get(heldId) ?? h.lastPrice ?? 0;
         if (!liveCompIds.has(heldId)) {
-          // Delisted this week. Bankruptcy pays 50%, an AI-vs-AI merger pays par
-          // (the buyer bought the equity), anything else (MP purge/abandon) 75%.
-          const haircut = bankruptCompIds.has(heldId) ? STOCK_MARKET.BANKRUPT_HAIRCUT
-                        : mergedCompNames.has(h.name) ? 1.0
-                        : STOCK_MARKET.DELIST_HAIRCUT;
+          // Delisted this week — a forced liquidation at a haircut to the last
+          // marked price. Headwinds is humans-only, so the old solo-AI branches
+          // (bankruptcy 50%, AI-vs-AI merger at par) were dead code and are gone:
+          // every delisting now settles at the same rate.
+          const haircut = STOCK_MARKET.DELIST_HAIRCUT;
           const payout  = Math.round(h.shares * lastPrice * haircut);
-          delistProceeds += payout;
-          delistRealized += payout - (h.costBasis ?? 0);
+          const gain    = payout - (h.costBasis ?? 0);
+          const dTax    = capitalGainsTax(gain);
+          delistProceeds += payout - dTax;
+          delistRealized += gain - dTax;
+          delistTax      += dTax;
           newToasts.push({
-            type:     haircut >= 1 ? 'info' : 'warning',
+            type:     'warning',
             icon:     '📉',
             title:    `${h.name ?? 'A rival'} delisted`,
-            message:  haircut >= 1
-              ? `Your ${h.shares.toLocaleString()} shares were bought out at par — ${payout.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} credited.`
-              : `Your ${h.shares.toLocaleString()} shares were liquidated at a ${Math.round((1 - haircut) * 100)}% haircut — ${payout.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} credited.`,
+            message:  `Your ${h.shares.toLocaleString()} shares were liquidated at a ${Math.round((1 - haircut) * 100)}% haircut — ${(payout - dTax).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} credited${dTax > 0 ? ' after tax' : ''}.`,
             duration: 9000,
           });
           continue;
@@ -3113,6 +3116,7 @@ function reducer(state, action) {
       }
       const newPortfolio = {
         holdings:         newHoldings,
+        taxPaid:          (prevPortfolio.taxPaid ?? 0) + delistTax,
         realizedPnL:      (prevPortfolio.realizedPnL ?? 0) + delistRealized,
         realizedThisWeek: 0,   // folded into this week's P&L line below
         lastValuation:    portfolioValue,
@@ -3123,7 +3127,78 @@ function reducer(state, action) {
       // history entry for the Finance P&L, but NEVER part of `profit` — letting
       // trades into operating profit would feed them back through the ×52 × P/E
       // valuation loop the algorithm rework just closed.
-      historyEntry.investmentIncome = (prevPortfolio.realizedThisWeek ?? 0) + delistRealized;
+      historyEntry.investmentIncome = (prevPortfolio.realizedThisWeek ?? 0) + delistRealized
+        + Math.max(0, Math.round(Number(action.incomingDividends) || 0));
+
+      // ── Dividends ────────────────────────────────────────────────────────────
+      // A standing policy paid every DIVIDEND_PERIOD_WEEKS out of trailing-quarter
+      // profit. Only shares held OUTSIDE the founder block are paid: paying
+      // yourself is a wash, and skipping it means a dividend costs you in
+      // proportion to how much of the company you have actually sold.
+      //
+      // The cash leaves here. WHO receives it is settled by the server, which is
+      // the only place that knows every holder (see tickService + DividendCredit) —
+      // rival players get a real cross-player transfer, and the slice held by
+      // outside investors leaves the world as a sink. A dividend can therefore
+      // never create money; it only moves or destroys it.
+      const divEquity   = state.equity ?? emptyEquity();
+      const divShares   = sharesOf(state);
+      const divFounder  = Math.max(0, Math.min(divShares, Number(divEquity.founderShares ?? 0)));
+      const divPayable  = Math.max(0, divShares - divFounder);
+      const divPolicy   = Number(divEquity.dividendPolicy ?? 0);
+      const divPeriodWk = absoluteWeek(newYear, newWeek);
+      let   dividendPaid = 0, dividendPerSh = 0, dividendSkipped = null;
+
+      if (divPolicy > 0 && divEquity.isPublic && divPayable > 0
+          && divPeriodWk % CAPITAL.DIVIDEND_PERIOD_WEEKS === 0) {
+        const trailing = newHistory.slice(-CAPITAL.DIVIDEND_TRAILING_WEEKS)
+          .reduce((sum, h) => sum + (h.profit ?? 0), 0);
+        const perSh = dividendPerShare(trailing, divPolicy, divShares);
+        const total = Math.round(perSh * divPayable);
+        // Never pay into insolvency, and never pay out of a losing quarter.
+        const recentCost = newHistory.slice(-4);
+        const weeklyCost = recentCost.length
+          ? recentCost.reduce((sum, h) => sum + (h.totalCost ?? 0), 0) / recentCost.length
+          : 0;
+        if (trailing <= 0) {
+          dividendSkipped = 'a loss-making quarter';
+        } else if (total > 0 && cashAfterInvesting - total < weeklyCost * CAPITAL.MIN_CASH_WEEKS_COVER) {
+          dividendSkipped = 'insufficient cash cover';
+        } else if (total > 0) {
+          dividendPaid  = total;
+          dividendPerSh = perSh;
+        }
+      }
+
+      if (dividendPaid > 0) {
+        newToasts.push({
+          type: 'success', icon: '💵',
+          title: 'Dividend paid',
+          message: `$${dividendPerSh.toFixed(4)} per share on ${divPayable.toLocaleString()} publicly held shares — `
+                 + `${dividendPaid.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} distributed to shareholders.`,
+          duration: 10000,
+        });
+      } else if (dividendSkipped) {
+        newToasts.push({
+          type: 'warning', icon: '✂️',
+          title: 'Dividend suspended',
+          message: `No dividend this quarter — ${dividendSkipped}.`,
+          duration: 10000,
+        });
+      }
+
+      // Annual allowance reset: the offering and buyback throttles are per game year.
+      const divYearRollover = newWeek === 1 && newYear !== state.year;
+      const nextEquity = {
+        ...divEquity,
+        ...(dividendPerSh > 0
+          ? { cumDividendsPerShare: (divEquity.cumDividendsPerShare ?? 0) + dividendPerSh }
+          : {}),
+        ...(divYearRollover ? { offeringsThisYear: 0, buybacksThisYear: 0 } : {}),
+      };
+
+      const cashAfterDividend = cashAfterInvesting - dividendPaid
+        + Math.max(0, Math.round(Number(action.incomingDividends) || 0));
 
       // ── Player market cap (valuation v2) ─────────────────────────────────────
       // Fundamentals (net book incl. fleet NAV & portfolio, minus debt; earnings
@@ -3140,7 +3215,7 @@ function reducer(state, action) {
         : 0;
       const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);
       const { marketCap: newMarketCap, sharePrice: newSharePrice } =
-        computeMarketCap(playerProfitHistory, cashAfterInvesting, state.awareness ?? 5, {
+        computeMarketCap(playerProfitHistory, cashAfterDividend, state.awareness ?? 5, {
           fleetNAV:       fleetNAVOf(agedFleet, curAbsWeek),
           debt:           loanOutstanding(updatedLoans),
           portfolioValue,
@@ -3194,12 +3269,12 @@ function reducer(state, action) {
         cargoRevenue:   report.totalCargoRevenue   ?? 0,
         cost:           historyEntry.totalCost,
         profit:         historyEntry.profit,
-        cash:           cashAfterInvesting,
+        cash:           cashAfterDividend,
         // Markets: this week's authoritative share price (drives price charts —
         // own chart and, via the server rival payload, what rivals see) and the
         // mark-to-market value of the stock portfolio.
         sharePrice:     newSharePrice,
-        svps:           svpsOf({ sharePrice: newSharePrice, equity: state.equity }),
+        svps:           svpsOf({ sharePrice: newSharePrice, equity: nextEquity }),
         shares:         sharesOf(state),
         portfolioValue,
         marketIndex:    currentMarketIndex,
@@ -3233,7 +3308,7 @@ function reducer(state, action) {
         financialHistory: newHistory,
         lastReport:       report,
         weekProfit:       preTaxProfit - corporateTax,
-        cash:             cashAfterInvesting,
+        cash:             cashAfterDividend,
         marketCap:        newMarketCap,
         year:             newYear,
         week:             newWeek,
@@ -3424,7 +3499,7 @@ function reducer(state, action) {
 
       return {
         ...state,
-        cash:              cashAfterInvesting + objectiveCashBonus,
+        cash:              cashAfterDividend + objectiveCashBonus,
         week:              newWeek,
         year:              newYear,
         portfolio:         newPortfolio,
@@ -3449,7 +3524,10 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
+      dividend: dividendPaid > 0
+        ? { perShare: dividendPerSh, total: dividendPaid, payableShares: divPayable }
+        : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         hubs:              hubsAfterBuild,
@@ -3488,14 +3566,16 @@ function reducer(state, action) {
         consecutiveNegativeWeeks: newConsecutiveNegativeWeeks,
         marketCap:                newMarketCap,
         sharePrice:               newSharePrice,
-        // Leaderboard metric: per-share value including lifetime dividends.
-        svps:                     svpsOf({ sharePrice: newSharePrice, equity: state.equity }),
+        equity:                   nextEquity,
+        // Leaderboard metric: per-share value including lifetime dividends — which
+        // is what makes paying one rank-neutral instead of rank-negative.
+        svps:                     svpsOf({ sharePrice: newSharePrice, equity: nextEquity }),
         // Last rival collapsed or was absorbed → the player owns the skies.
         gameWon:             state.gameWon || rivalsGone,
         victoryAcknowledged: (rivalsGone && !state.gameWon) ? false : state.victoryAcknowledged,
         victoryStats:        (rivalsGone && !state.gameWon) ? {
           marketCap:   newMarketCap ?? state.marketCap ?? null,
-          cash:        cashAfterInvesting + objectiveCashBonus,
+          cash:        cashAfterDividend + objectiveCashBonus,
           fleetCount:  finalFleet.filter(a => a.status !== 'retired').length,
           routeCount:  finalRoutes.length,
           airports:    Object.values(state.gates ?? {}).filter(n => n > 0).length,
@@ -3560,7 +3640,16 @@ function reducer(state, action) {
       // issuance and buybacks move, so this is read per-airline, never assumed).
       if (heldShares + shares > S.MAX_OWNERSHIP_PCT * targetShares) return state;
 
-      const execPrice  = price * (1 + S.SPREAD_HALF);
+      // Float pool: shares come FROM the pool's inventory, so it has to hold
+      // them. `worldMarket` is injected by the server (never persisted, never
+      // client-supplied); solo has none and keeps the legacy counterparty.
+      const buyMarket = state.worldMarket;
+      if (buyMarket && Number.isFinite(buyMarket.sharesAvailable)
+          && shares > buyMarket.sharesAvailable) return state;
+
+      // Execution price includes the order's OWN weight against the free float:
+      // a large stake cannot be accumulated at the marked price.
+      const execPrice  = executionPrice(price, shares, freeFloatOf(target), true);
       const gross      = Math.round(shares * execPrice);
       const commission = Math.round(gross * S.COMMISSION);
       const totalCost  = gross + commission;
@@ -3576,6 +3665,10 @@ function reducer(state, action) {
       return {
         ...state,
         cash: state.cash - totalCost,
+        // The server reads this to settle the pool inside the same transaction:
+        // pool cash += gross, pool inventory -= shares. Commission is a fee and
+        // vanishes from the world entirely.
+        lastStockTrade: { targetId: action.targetId, side: 'buy', shares, gross },
         portfolio: {
           ...portfolio,
           holdings: {
@@ -3608,13 +3701,34 @@ function reducer(state, action) {
         : (held.lastPrice ?? 0);
       if (!(price > 0)) return state;
 
-      const execPrice  = price * (1 - S.SPREAD_HALF);
+      // Selling into the float pushes the price down against you, in proportion
+      // to how much of the free float you are unloading — plus an extra discount
+      // when the world's pool is short of cash (a market with no buyers left).
+      const sellFloat  = target ? freeFloatOf(target) : freeFloatOf(held);
+      const sellMarket = state.worldMarket;
+      const liqDiscount = sellMarket
+        ? poolLiquidityDiscount(sellMarket.poolCash, sellMarket.seedCash)
+        : 0;
+      const sellEdge   = S.SPREAD_HALF + priceImpact(shares, sellFloat) + liqDiscount;
+      const execPrice  = price * Math.max(0, 1 - sellEdge);
       const gross      = Math.round(shares * execPrice);
       const commission = Math.round(gross * S.COMMISSION);
       const proceeds   = gross - commission;
       const avgCost    = held.costBasis / held.shares;
-      const realized   = proceeds - Math.round(avgCost * shares);
+      // Capital gains tax on the realized gain. This money leaves the world
+      // entirely — the sink that offsets equity capital coming in.
+      const grossGain  = proceeds - Math.round(avgCost * shares);
+      const tax        = capitalGainsTax(grossGain);
+      const netProceeds = proceeds - tax;
+      const realized   = grossGain - tax;
       const remaining  = held.shares - shares;
+
+      // The pool is the buyer of last resort, and it can run dry: if it cannot
+      // fund the gross, the sale does not happen. The client surfaces this as a
+      // liquidity message rather than a silent no-op.
+      if (sellMarket && Number.isFinite(sellMarket.poolCash) && gross > sellMarket.poolCash) {
+        return state;
+      }
 
       const holdings = { ...portfolio.holdings };
       if (remaining > 0) {
@@ -3630,15 +3744,211 @@ function reducer(state, action) {
       }
       return {
         ...state,
-        cash:      state.cash + proceeds,
+        cash:      state.cash + netProceeds,
+        // Settles against the pool server-side: pool cash -= gross, inventory
+        // += shares. Commission and capital gains tax leave the world.
+        lastStockTrade: { targetId: action.targetId, side: 'sell', shares, gross },
         portfolio: {
           ...portfolio,
           holdings,
+          taxPaid:          (portfolio.taxPaid ?? 0) + tax,
           realizedPnL:      (portfolio.realizedPnL ?? 0) + realized,
           // Rolls into this week's P&L "investment income" line at the next tick
           // (kept OUT of operating profit so trades can't feed the P/E valuation).
           realizedThisWeek: (portfolio.realizedThisWeek ?? 0) + realized,
         },
+      };
+    }
+
+    // ── Capital actions ──────────────────────────────────────────────────────
+    // The company side of the market. Under the SVPS leaderboard each of these is a
+    // real trade-off: issuing shares brings in cash but splits the pie, buying them
+    // back shrinks the pie faster than the cash leaves, and dividends convert your
+    // own retained cash into shareholder value the board actually credits.
+    //
+    // All three settle against the world's float pool, so no share appears from
+    // nowhere and no cash is minted (see lib/marketService.mjs).
+
+    case 'GO_PUBLIC': {
+      // action: { shares } — NEW shares sold to outside investors at a discount.
+      const C = CAPITAL;
+      const equity = state.equity ?? emptyEquity();
+      if (equity.isPublic) return state;                    // already listed
+
+      const absWk = absoluteWeek(state.year, state.week);
+      if (absWk < C.IPO_MIN_ABS_WEEK) return state;          // too young to list
+      const history = state.financialHistory ?? [];
+      if (history.length < C.IPO_MIN_HISTORY_WEEKS) return state;
+
+      const offered = Math.floor(Number(action.shares));
+      if (!(offered > 0)) return state;
+      const postShares = sharesOf(state) + offered;
+      const fraction   = offered / postShares;
+      if (fraction < C.IPO_MIN_FRACTION || fraction > C.IPO_MAX_FRACTION) return state;
+
+      // Price off the airline's own current valuation, less the IPO discount. A
+      // short or loss-making record is priced worse — the market wants a bargain
+      // for taking a chance on you.
+      const recent     = history.slice(-12);
+      const profitable = recent.length
+        ? recent.filter(h => (h.profit ?? 0) > 0).length / recent.length
+        : 0;
+      const discount   = ipoDiscount(history.length, profitable);
+      const basePrice  = state.sharePrice ?? ((state.marketCap ?? 0) / sharesOf(state));
+      const price      = basePrice * (1 - discount);
+      if (!(price > 0)) return state;
+      const proceeds   = Math.round(offered * price);
+
+      // The pool is the buyer, and its cash is finite: if the equity window is
+      // shut, you cannot list this week.
+      const mk = state.worldMarket;
+      if (mk && Number.isFinite(mk.poolCash) && proceeds > mk.poolCash) return state;
+
+      return {
+        ...state,
+        cash: state.cash + proceeds,
+        equity: {
+          ...equity,
+          shares:   postShares,
+          isPublic: true,
+          ipoWeek:  absWk,
+        },
+        lastEquityAction: { kind: 'ipo', shares: offered, gross: proceeds, pricePerShare: price },
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'success', icon: '🔔',
+            title: 'Listed on the exchange',
+            message: `Sold ${offered.toLocaleString()} shares (${Math.round(fraction * 100)}% of the company) `
+                   + `at $${price.toFixed(4)} — ${proceeds.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} raised `
+                   + `after a ${Math.round(discount * 100)}% IPO discount.`,
+            duration: 11000,
+          },
+        ],
+      };
+    }
+
+    case 'ISSUE_SHARES': {
+      // action: { shares } — secondary offering, throttled per game year.
+      const C = CAPITAL;
+      const equity = state.equity ?? emptyEquity();
+      if (!equity.isPublic) return state;                   // list first
+
+      const shares = sharesOf(state);
+      const n = Math.floor(Number(action.shares));
+      if (!(n > 0)) return state;
+
+      const issuedThisYear = Number(equity.offeringsThisYear ?? 0);
+      if (issuedThisYear + n > C.OFFERING_MAX_PCT_PER_YEAR * shares) return state;
+
+      // Going back to the well repeatedly costs more each time; a record of
+      // returning capital earns a better price.
+      const usedFrac = (issuedThisYear + n) / shares;
+      const loyal    = (equity.cumDividendsPerShare ?? 0) > 0 || (equity.buybacksEver ?? 0) > 0 ? 1 : 0;
+      const discount = offeringDiscount(usedFrac, loyal);
+      const basePrice = state.sharePrice ?? ((state.marketCap ?? 0) / shares);
+      const price     = basePrice * (1 - discount);
+      if (!(price > 0)) return state;
+      const proceeds  = Math.round(n * price);
+
+      const mk = state.worldMarket;
+      if (mk && Number.isFinite(mk.poolCash) && proceeds > mk.poolCash) return state;
+
+      return {
+        ...state,
+        cash: state.cash + proceeds,
+        equity: {
+          ...equity,
+          shares:            shares + n,
+          offeringsThisYear: issuedThisYear + n,
+        },
+        lastEquityAction: { kind: 'offering', shares: n, gross: proceeds, pricePerShare: price },
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'info', icon: '📄',
+            title: 'Share offering completed',
+            message: `Issued ${n.toLocaleString()} new shares at $${price.toFixed(4)} `
+                   + `(${Math.round(discount * 100)}% discount) — `
+                   + `${proceeds.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} raised. `
+                   + 'Existing holders are diluted.',
+            duration: 10000,
+          },
+        ],
+      };
+    }
+
+    case 'BUY_BACK_SHARES': {
+      // action: { shares } — retire stock from the float. Cash leaves, the share
+      // count falls, and per-share value rises if you bought below fair value.
+      const C = CAPITAL;
+      const equity = state.equity ?? emptyEquity();
+      if (!equity.isPublic) return state;
+
+      const shares = sharesOf(state);
+      const n = Math.floor(Number(action.shares));
+      if (!(n > 0)) return state;
+
+      // You can only retire shares that are actually in public hands.
+      const founder = Number(equity.founderShares ?? 0);
+      if (shares - n < founder) return state;
+
+      const boughtThisYear = Number(equity.buybacksThisYear ?? 0);
+      if (boughtThisYear + n > C.BUYBACK_MAX_PCT_PER_YEAR * shares) return state;
+
+      // The pool must actually hold the stock you are retiring.
+      const mk = state.worldMarket;
+      if (mk && Number.isFinite(mk.selfSharesHeld) && n > mk.selfSharesHeld) return state;
+
+      const basePrice = state.sharePrice ?? ((state.marketCap ?? 0) / shares);
+      const price     = basePrice * (1 + C.BUYBACK_PREMIUM);
+      if (!(price > 0)) return state;
+      const cost      = Math.round(n * price);
+
+      // Never buy back into insolvency: keep a few weeks of operating cover.
+      const recentCost = (state.financialHistory ?? []).slice(-4);
+      const weeklyCost = recentCost.length
+        ? recentCost.reduce((sum, h) => sum + (h.totalCost ?? 0), 0) / recentCost.length
+        : 0;
+      if (state.cash - cost < weeklyCost * C.MIN_CASH_WEEKS_COVER) return state;
+
+      return {
+        ...state,
+        cash: state.cash - cost,
+        equity: {
+          ...equity,
+          shares:           shares - n,
+          buybacksThisYear: boughtThisYear + n,
+          buybacksEver:     Number(equity.buybacksEver ?? 0) + n,
+        },
+        lastEquityAction: { kind: 'buyback', shares: n, gross: cost, pricePerShare: price },
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'success', icon: '♻️',
+            title: 'Buyback completed',
+            message: `Retired ${n.toLocaleString()} shares at $${price.toFixed(4)} for `
+                   + `${cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}. `
+                   + `${(shares - n).toLocaleString()} shares now outstanding.`,
+            duration: 10000,
+          },
+        ],
+      };
+    }
+
+    case 'SET_DIVIDEND_POLICY': {
+      // action: { payoutRatio } — a standing policy, paid every DIVIDEND_PERIOD_WEEKS
+      // out of trailing-quarter profit. Only what is held OUTSIDE the founder block
+      // is actually paid, so the cost scales with how much of yourself you've sold.
+      const equity = state.equity ?? emptyEquity();
+      if (!equity.isPublic) return state;
+      const raw = Number(action.payoutRatio);
+      if (!Number.isFinite(raw) || raw < 0) return state;
+      const ratio = Math.min(CAPITAL.DIVIDEND_MAX_PAYOUT, raw);
+      if (ratio === (equity.dividendPolicy ?? 0)) return state;
+      return {
+        ...state,
+        equity: { ...equity, dividendPolicy: ratio },
       };
     }
 

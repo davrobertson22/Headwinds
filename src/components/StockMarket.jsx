@@ -12,7 +12,10 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney } from '../utils/simulation.js';
-import { STOCK_MARKET, sharesOf } from '../utils/market.js';
+import {
+  STOCK_MARKET, sharesOf, svpsOf, freeFloatOf,
+  CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
+} from '../utils/market.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { OgChip, DevChip } from './Competition.jsx';
 import { GlyphLabel } from './Icons.jsx';
@@ -246,6 +249,228 @@ const SORTS = {
   name:   { label: 'Name',        fn: (a, b) => (a.name ?? '').localeCompare(b.name ?? '') },
 };
 
+
+// ─── Your company: the capital actions ────────────────────────────────────────
+// The issuer side of the market. Market cap measures how BIG you got, which is why
+// the leaderboard now ranks on SVPS (share price + lifetime dividends per share) —
+// under that metric raising capital is dilutive rather than free score, and
+// returning it is rank-neutral rather than self-harm. So all four of these are real
+// decisions with real trade-offs.
+//
+// Every number here is recomputed by the engine (and, in multiplayer, by the server)
+// before anything happens — this panel exists to explain the trade-off, not to
+// enforce it.
+
+const pct = (v) => `${(v * 100).toFixed(1)}%`;
+
+function CapitalRow({ label, value, hint }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+        {label}
+        {hint && <div style={{ fontSize: 10.5, opacity: 0.75 }}>{hint}</div>}
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{value}</div>
+    </div>
+  );
+}
+
+function CapitalActions({ state, dispatch }) {
+  const C = CAPITAL;
+  const equity = state.equity ?? {};
+  const isPublic = equity.isPublic !== false;
+  const shares = sharesOf(state);
+  const float = freeFloatOf(state);
+  const price = state.sharePrice ?? 0;
+  const history = state.financialHistory ?? [];
+  const absWeek = ((state.year ?? 1) - 1) * 52 + (state.week ?? 1);
+
+  const [issueStr, setIssueStr]   = useState('');
+  const [buybackStr, setBuyStr]   = useState('');
+  const [payoutStr, setPayoutStr] = useState(String(Math.round((equity.dividendPolicy ?? 0) * 100)));
+
+  // ── IPO ────────────────────────────────────────────────────────────────────
+  const recent = history.slice(-12);
+  const profitableFrac = recent.length
+    ? recent.filter((h) => (h.profit ?? 0) > 0).length / recent.length : 0;
+  const ipoDisc = ipoDiscount(history.length, profitableFrac);
+  const tooYoung = absWeek < C.IPO_MIN_ABS_WEEK;
+  const noRecord = history.length < C.IPO_MIN_HISTORY_WEEKS;
+  // Default offer: a quarter of the post-issue company, the middle of the band.
+  const ipoShares = Math.round((shares * 0.25) / 0.75);
+  const ipoProceeds = Math.round(ipoShares * price * (1 - ipoDisc));
+
+  // ── Offering ──────────────────────────────────────────────────────────────
+  const issuedThisYear = Number(equity.offeringsThisYear ?? 0);
+  const issueAllowance = Math.max(0, Math.floor(C.OFFERING_MAX_PCT_PER_YEAR * shares) - issuedThisYear);
+  const issueN = Math.max(0, Math.floor(Number(issueStr) || 0));
+  const loyal = (equity.cumDividendsPerShare ?? 0) > 0 || (equity.buybacksEver ?? 0) > 0 ? 1 : 0;
+  const issueDisc = offeringDiscount((issuedThisYear + issueN) / Math.max(1, shares), loyal);
+  const issueProceeds = Math.round(issueN * price * (1 - issueDisc));
+
+  // ── Buyback ───────────────────────────────────────────────────────────────
+  const boughtThisYear = Number(equity.buybacksThisYear ?? 0);
+  const buyAllowance = Math.max(0, Math.floor(C.BUYBACK_MAX_PCT_PER_YEAR * shares) - boughtThisYear);
+  const buyN = Math.max(0, Math.floor(Number(buybackStr) || 0));
+  const buyCost = Math.round(buyN * price * (1 + C.BUYBACK_PREMIUM));
+  const weeklyCost = history.slice(-4).length
+    ? history.slice(-4).reduce((sum, h) => sum + (h.totalCost ?? 0), 0) / history.slice(-4).length : 0;
+  const coverNeeded = Math.round(weeklyCost * C.MIN_CASH_WEEKS_COVER);
+
+  // ── Dividend ──────────────────────────────────────────────────────────────
+  const payoutPct = Math.max(0, Math.min(100, Math.round(Number(payoutStr) || 0)));
+  const payoutRatio = Math.min(C.DIVIDEND_MAX_PAYOUT, payoutPct / 100);
+  const trailing = history.slice(-C.DIVIDEND_TRAILING_WEEKS).reduce((sum, h) => sum + (h.profit ?? 0), 0);
+  const perShare = dividendPerShare(trailing, payoutRatio, shares);
+  const quarterCost = Math.round(perShare * float);
+  const yieldPct = price > 0 ? (perShare * 4) / price : 0;
+  const weeksToPay = C.DIVIDEND_PERIOD_WEEKS - (absWeek % C.DIVIDEND_PERIOD_WEEKS);
+
+  const box = {
+    background: 'var(--surface-2, rgba(255,255,255,0.03))',
+    border: '1px solid var(--border)', borderRadius: 10, padding: 12,
+  };
+  const input = {
+    width: '100%', padding: '5px 8px', fontSize: 12, borderRadius: 6,
+    border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>
+        Your company
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 10 }}>
+        The board ranks airlines on <strong>shareholder value per share</strong> — your share
+        price plus every dividend you have ever paid. Raising capital splits the pie; returning
+        it does not cost you rank.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+        {/* Standing */}
+        <div style={box}>
+          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Share register</div>
+          <CapitalRow label="Status" value={isPublic ? 'Listed' : 'Private'} />
+          <CapitalRow label="Shares outstanding" value={shares.toLocaleString()} />
+          <CapitalRow label="Publicly held" value={`${float.toLocaleString()} (${pct(shares > 0 ? float / shares : 0)})`} />
+          <CapitalRow label="Share price" value={fmtPrice(price)} />
+          <CapitalRow
+            label="Value per share"
+            hint="price + lifetime dividends — the leaderboard metric"
+            value={fmtPrice(svpsOf({ sharePrice: price, equity }))}
+          />
+          {!isPublic && (
+            <div style={{ fontSize: 11, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
+              Private airlines are not ranked in the standings.
+            </div>
+          )}
+        </div>
+
+        {/* IPO or offering */}
+        {!isPublic ? (
+          <div style={box}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Go public</div>
+            <CapitalRow label="Shares offered" value={`${ipoShares.toLocaleString()} (25%)`} />
+            <CapitalRow label="IPO discount" hint="a longer profitable record prices better" value={pct(ipoDisc)} />
+            <CapitalRow label="Estimated proceeds" value={formatMoney(ipoProceeds)} />
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', marginTop: 8, fontSize: 12 }}
+              disabled={tooYoung || noRecord || !(price > 0)}
+              onClick={() => dispatch({ type: 'GO_PUBLIC', shares: ipoShares })}
+            >
+              List on the exchange
+            </button>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6 }}>
+              {tooYoung ? `Available from week ${C.IPO_MIN_ABS_WEEK}.`
+                : noRecord ? `Needs ${C.IPO_MIN_HISTORY_WEEKS} weeks of trading history.`
+                : 'Raises cash, permanently dilutes you, and lets rivals buy in.'}
+            </div>
+          </div>
+        ) : (
+          <div style={box}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Share offering</div>
+            <CapitalRow label="Allowance left this year" value={issueAllowance.toLocaleString()} />
+            <CapitalRow label="Discount" hint="widens each time you tap the market" value={pct(issueDisc)} />
+            <input
+              style={input} inputMode="numeric" placeholder="Shares to issue"
+              value={issueStr} onChange={(e) => setIssueStr(e.target.value.replace(/[^0-9]/g, ''))}
+            />
+            <CapitalRow label="Proceeds" value={issueN > 0 ? formatMoney(issueProceeds) : '—'} />
+            <button
+              className="btn"
+              style={{ width: '100%', marginTop: 6, fontSize: 12 }}
+              disabled={!(issueN > 0) || issueN > issueAllowance || !(price > 0)}
+              onClick={() => { dispatch({ type: 'ISSUE_SHARES', shares: issueN }); setIssueStr(''); }}
+            >
+              Issue shares
+            </button>
+          </div>
+        )}
+
+        {/* Buyback */}
+        {isPublic && (
+          <div style={box}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Buy back stock</div>
+            <CapitalRow label="Allowance left this year" value={buyAllowance.toLocaleString()} />
+            <CapitalRow label="Cash cover to keep" hint={`${C.MIN_CASH_WEEKS_COVER} weeks of costs`} value={formatMoney(coverNeeded)} />
+            <input
+              style={input} inputMode="numeric" placeholder="Shares to retire"
+              value={buybackStr} onChange={(e) => setBuyStr(e.target.value.replace(/[^0-9]/g, ''))}
+            />
+            <CapitalRow label="Cost" value={buyN > 0 ? formatMoney(buyCost) : '—'} />
+            <button
+              className="btn"
+              style={{ width: '100%', marginTop: 6, fontSize: 12 }}
+              disabled={!(buyN > 0) || buyN > buyAllowance || buyN > float
+                        || (state.cash - buyCost) < coverNeeded}
+              onClick={() => { dispatch({ type: 'BUY_BACK_SHARES', shares: buyN }); setBuyStr(''); }}
+            >
+              Retire shares
+            </button>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6 }}>
+              Accretive when your stock is cheap or your cash is sitting idle.
+            </div>
+          </div>
+        )}
+
+        {/* Dividend */}
+        {isPublic && (
+          <div style={box}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Dividend policy</div>
+            <CapitalRow label="Trailing quarter profit" value={formatMoney(Math.round(trailing))} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '4px 0' }}>
+              <input
+                style={{ ...input, width: 70 }} inputMode="numeric"
+                value={payoutStr} onChange={(e) => setPayoutStr(e.target.value.replace(/[^0-9]/g, ''))}
+              />
+              <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                % of profit (max {Math.round(C.DIVIDEND_MAX_PAYOUT * 100)}%)
+              </span>
+            </div>
+            <CapitalRow label="Per share, per quarter" value={perShare > 0 ? `$${perShare.toFixed(4)}` : '—'} />
+            <CapitalRow label="Cost to you each quarter" hint="only publicly held shares are paid" value={quarterCost > 0 ? formatMoney(quarterCost) : '—'} />
+            <CapitalRow label="Yield" value={yieldPct > 0 ? pct(yieldPct) : '—'} />
+            <button
+              className="btn"
+              style={{ width: '100%', marginTop: 6, fontSize: 12 }}
+              disabled={payoutRatio === (equity.dividendPolicy ?? 0)}
+              onClick={() => dispatch({ type: 'SET_DIVIDEND_POLICY', payoutRatio })}
+            >
+              {payoutRatio > 0 ? 'Set policy' : 'Stop paying dividends'}
+            </button>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6 }}>
+              {(equity.dividendPolicy ?? 0) > 0
+                ? `Paying ${Math.round((equity.dividendPolicy ?? 0) * 100)}% — next payment in ${weeksToPay} week${weeksToPay === 1 ? '' : 's'}.`
+                : 'Paid every 13 weeks out of trailing profit. Suspended automatically after a losing quarter.'}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function StockMarket() {
   const { state, dispatch, remote } = useGame();
   const [sortKey, setSortKey] = useState('cap');
@@ -264,6 +489,8 @@ export default function StockMarket() {
   return (
     <div>
       <PortfolioSummary state={state} listed={listed} />
+
+      <CapitalActions state={state} dispatch={dispatch} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
         <div style={{

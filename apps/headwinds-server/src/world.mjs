@@ -43,6 +43,11 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Stock market — the reducer prices trades from the server-injected rival
   // view (never from the payload), so these are safe to expose as intents.
   'BUY_STOCK', 'SELL_STOCK',
+  // Capital actions. Like trades, these are priced by the reducer from the
+  // airline's own server-computed valuation and settled against the world float
+  // pool — the payload only ever carries a share count (or a payout ratio), so
+  // there is nothing in it worth forging.
+  'GO_PUBLIC', 'ISSUE_SHARES', 'BUY_BACK_SHARES', 'SET_DIVIDEND_POLICY',
   // Marketing, loyalty, branding
   'SET_MARKETING_BUDGET', 'SET_TARGETED_MARKETING', 'SET_LOYALTY_INVESTMENT', 'SET_BRANDING',
   // Labor

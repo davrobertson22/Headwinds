@@ -1,6 +1,6 @@
 # Headwinds Stock Market Plan v2 — Capital Markets
 
-**Status: Phases 1 and 2 BUILT (2026-07-27, on disk, uncommitted). Phases 3-5 pending.**
+**Status: ALL FIVE PHASES BUILT (2026-07-27). Phases 1-2 committed as a81c20f; phases 3-5 on disk, uncommitted.**
 Supersedes the balance sections of
 `STOCK_MARKET_PLAN.md` (which shipped 2026-07-20 and is otherwise still accurate as a
 description of what exists today).
@@ -42,11 +42,14 @@ Dave's answers to the six open questions, which are now baked into the plan belo
 
 | Phase | State |
 |---|---|
-| 1 — valuation v3 + market index | **BUILT.** `tools/valuation-test.mjs` (25 assertions), golden re-baselined. |
-| 2 — share counts + SVPS ranking | **BUILT.** `tools/equity-test.mjs` (18 assertions), migration `20260727000000_capital_markets`, `tools/backfill-equity.mjs`. |
-| 3 — float pool + trading mechanics | Pending. |
-| 4 — capital actions | Pending. |
-| 5 — UI and feel | Pending. |
+| 1 — valuation v3 + market index | **BUILT.** `tools/valuation-test.mjs` (25), golden re-baselined. Committed a81c20f. |
+| 2 — share counts + SVPS ranking | **BUILT.** `tools/equity-test.mjs` (18), migration `20260727000000_capital_markets`, `tools/backfill-equity.mjs`. Committed a81c20f. |
+| 3 — float pool + trading mechanics | **BUILT.** `tools/trading-test.mjs` (32), `lib/marketService.mjs`, migration `20260727020000_float_pool`. |
+| 4 — capital actions | **BUILT.** `tools/capital-test.mjs` (32), migration `20260727030000_capital_actions`, dividend ledger. |
+| 5 — UI and feel | **BUILT.** Capital-actions panel on the Stocks tab, rewritten Wiki chapter. |
+
+Test totals: **107 new assertions** across four suites, all wired into `npm test`; whole
+suite green (18 files) and golden master at parity.
 
 ### Deviations from the plan as first written, and why
 
@@ -60,9 +63,31 @@ Dave's answers to the six open questions, which are now baked into the plan belo
 - **`isPublic` defaults to `true` in Phase 2.** `GO_PUBLIC` does not exist until Phase 4,
   so defaulting new airlines to private would leave nobody rankable. Phase 4 flips the
   default when the action lands.
-- **Tailwinds is NOT affected by Phases 1-2.** The plan originally said the engine is
-  shared; it isn't — the repos have been standalone since 2026-07-12 and Tailwinds is
-  mirrored by hand. Nothing here touches Tailwinds until someone ports it deliberately.
+- **Tailwinds is NOT affected.** The plan originally said the engine is shared; it isn't —
+  the repos have been standalone since 2026-07-12 and Tailwinds is mirrored by hand.
+  Nothing here touches Tailwinds until someone ports it deliberately.
+- **The free float is 30% of shares, not 100%.** `emptyEquity()` locks 70% in a founder
+  block. Without a float there is nothing for the pool to sell, so trading would have
+  deadlocked the moment the pool became the counterparty. 30% is set deliberately above
+  `MAX_OWNERSHIP_PCT` (20%) so one player taking their maximum stake still leaves float
+  for everyone else. A private airline has a founder block of 100% and therefore no float
+  at all until it lists.
+- **The weekly volume cap was dropped.** Price impact is the same tool done properly: it
+  makes dumping a large stake expensive through the price rather than forbidding it, and it
+  scales continuously. A 2%-of-float weekly cap would also have been *smaller than the
+  $100k minimum ticket* for a startup carrier, i.e. it would have blocked trading outright.
+- **Next-tick settlement was NOT built.** The plan proposed executing orders at the
+  following tick's price to remove any edge from trading on the last published print.
+  Deliberately skipped: in multiplayer, rival prices inside a tick are built from the
+  previous week's states, so a genuine information lag needs a *two*-week order round trip,
+  which is a heavy UX cost. Instead the edge is taxed and diluted — 25% capital gains tax,
+  ~3% round-trip friction, price impact, the pool's liquidity discount, and above all the
+  correlated market index, which can swamp a single carrier's earnings move.
+  **Honest caveat for Dave:** a player who reads rivals' published profit trends still has
+  a real edge, because the price converges toward fair value gradually. That is arguably
+  what a market *should* reward; it is no longer close to risk-free. If it still feels too
+  easy in play, next-tick settlement is the remaining lever and it is a self-contained
+  change to `BUY_STOCK`/`SELL_STOCK` plus a pending-orders UI.
 
 ---
 
@@ -450,9 +475,9 @@ Each phase is independently shippable and leaves the game in a coherent state.
 |---|---|---|
 | **1** | **BUILT** — Part A valuation v3 + Part B market index. | Live worlds re-rate ~50% down on deploy. Needs a devlog heads-up. |
 | **2** | **BUILT** — Part C share counts + Part D SVPS ranking + migration + backfill. | Rank-neutral at migration (verified by the backfill tool's own check). |
-| **3** | Part F float pool + Part G trading mechanics + strip solo delist paths. | New table, new CAS paths. |
-| **4** | Part E capital actions (IPO → offerings → buybacks → dividends, in that order). | Largest UI surface. Dividends last: they depend on everything above. |
-| **5** | Part I feel (Part H dropped). | Additive. |
+| **3** | **BUILT** — Part F float pool + Part G trading mechanics + solo delist paths stripped. | New table + CAS paths, all covered. |
+| **4** | **BUILT** — Part E capital actions + the cross-player dividend ledger. | The CAS trap is handled; see below. |
+| **5** | **BUILT** — capital-actions UI + Wiki (Part H dropped). | Additive. |
 
 Phase 1 alone fixes complaint #1. Phases 1–3 fix #1 and #3. #2 and #4 need Phase 4.
 
@@ -461,6 +486,39 @@ shared package, and Tailwinds is mirrored by hand. Nothing in this plan reaches 
 unless someone deliberately ports it, and Tailwinds has no stock market to port it into.
 
 ---
+
+## What shipped in phases 3-5
+
+**Phase 3 — the money loop closes.** `WorldMarket` (one row per world: `poolCash`,
+`seedCash`, `holdings`, `version`) is the finite counterparty, seeded at
+`5 x players x starting capital` and healed 2%/game-year, never above the seed. Buys pay
+cash in and take shares out of inventory; sells do the reverse. Settlement happens inside
+the decision transaction with a version compare-and-set, keyed off the engine's
+`lastStockTrade` — what actually executed, never the request. Also added: price impact
+(`IMPACT_K` against the free float, capped at 25%), a 25% capital gains tax on realized
+gains only, a pool liquidity discount that widens as the pool drains, and the equity
+window shutting entirely when it empties. Solo has no pool and keeps its legacy
+unbounded counterparty.
+
+**Phase 4 — the issuer participates.** `GO_PUBLIC`, `ISSUE_SHARES`, `BUY_BACK_SHARES`
+and `SET_DIVIDEND_POLICY`, all pool-settled, all allow-listed and payload-guarded down to
+a share count (or a payout ratio) so there is nothing worth forging. Dividends pay
+quarterly out of trailing-quarter profit, exclude the founder block, and suspend publicly
+after a losing quarter or when cash cover would break.
+
+The cross-player settlement trap flagged in Part E is handled exactly as designed:
+`DividendCredit` rows are issued only for payers whose tick write landed, and consumed only
+when the recipient's own write lands. A skipped airline collects next week. `splitDividend`
+caps distribution at what was actually debited, so money is conserved on every path —
+rival players receive a real transfer, and the slice held by outside investors leaves the
+world as a sink rather than being credited to the pool.
+
+**Phase 5 — reachable.** A "Your company" panel on the Stocks tab surfaces the share
+register, IPO or offering, buyback and dividend policy, each showing the trade-off
+(proceeds, dilution, discount, per-share cost, yield) before you commit. The Wiki chapter
+was rewritten around the new model: real airline multiples, the market index, SVPS ranking,
+the four capital actions, price impact, and the pool as a real counterparty that can run
+out.
 
 ## Migration and rollout
 
@@ -477,6 +535,16 @@ unless someone deliberately ports it, and Tailwinds has no stock market to port 
 5. Golden master will need re-baselining after Phases 1 and 2 (`tools/golden-master/`), and
    remember the concurrent-session dance: `golden.json` reflects the whole working tree.
 6. Engine changed → Railway API **and** tick worker must both deploy on the tip commit.
+7. **Phases 3-5 add two more migrations** (`20260727020000_float_pool`,
+   `20260727030000_capital_actions`) and two new Prisma models, so **`prisma generate` must
+   run** before the API or worker boots — otherwise `prisma.worldMarket` and
+   `prisma.dividendCredit` are undefined at runtime. The float-pool migration needs no
+   backfill: `ensureWorldMarket` lazily seeds a row for already-running worlds from their
+   current player count on first use.
+8. Existing airlines stay public with a 30% float, so trading keeps working through the
+   deploy. New airlines still default to `isPublic: true` as well — flipping new joiners to
+   private-by-default is a one-line change to `emptyEquity()` whenever you want the IPO to
+   become a real mid-game decision for new worlds.
 
 ---
 

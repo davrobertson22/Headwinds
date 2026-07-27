@@ -82,6 +82,8 @@ model World {
   messages    Message[]
   reports     Report[]
   worldGates  WorldGate[]
+  worldMarket WorldMarket?
+  dividends   DividendCredit[]
   gateAuctions GateAuction[]
   gateListings GateListing[]
   usedAircraftListings UsedAircraftListing[]
@@ -266,6 +268,42 @@ model Report {
 // engine's slot math is unchanged); these rows are the arbiter of AVAILABILITY —
 // updated atomically (version compare-and-set) in the same transaction as the
 // decision/tick they belong to, so two airlines can never both take the last gate.
+
+// The world's float pool — the finite counterparty for share trading. Buys pay
+// cash in, sells draw cash out, so net exogenous cash entering a world is bounded
+// by seedCash forever. Same worldId + JSON + version CAS shape as WorldGate.
+model WorldMarket {
+  id       String @id @default(cuid())
+  worldId  String @unique
+  poolCash BigInt @default(0) // cash outside investors have left to buy with
+  seedCash BigInt @default(0) // full-strength level; the refill ceiling
+  holdings Json   @default("{}") // { [airlineId]: sharesHeldByPool }
+  version  Int    @default(0) // optimistic-concurrency guard
+  world    World  @relation(fields: [worldId], references: [id], onDelete: Cascade)
+}
+
+// Cross-player dividend transfers, as a ledger rather than a direct credit.
+//
+// The tick's per-airline write is a version compare-and-set that can SKIP an
+// airline, so a directly-applied credit would either vanish (recipient skipped) or
+// be minted twice (payer retried). Rows are written only for payers whose write
+// landed, and consumed only when the RECIPIENT's own write lands — so a skipped
+// airline just collects next week and money is conserved on every path.
+model DividendCredit {
+  id        String   @id @default(cuid())
+  worldId   String
+  airlineId String // recipient
+  fromId    String // payer
+  fromName  String?
+  amount    BigInt
+  week      Int
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([airlineId, consumed]) // "what do I still have to collect?"
+  @@index([worldId, week])
+}
 
 model WorldGate {
   id          String @id @default(cuid())

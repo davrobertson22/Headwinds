@@ -29,6 +29,9 @@ function fakePrisma({ world, airlines }) {
     tickLogs: [],
     standings: [],
     news: [],
+    // Capital markets: the world float pool and the cross-player dividend ledger.
+    market: null,
+    credits: [],
   };
   let logId = 0;
   const p = {
@@ -86,6 +89,51 @@ function fakePrisma({ world, airlines }) {
       findMany: async ({ where = {} }) => db.standings
         .filter((r) => r.week === where.week && (where.rank?.lte == null || r.rank <= where.rank.lte))
         .sort((x, y) => x.rank - y.rank),
+    },
+    // Float pool: the finite counterparty for share trading. The tick only reads it
+    // and tops it up, so findUnique + update is the whole surface.
+    worldMarket: {
+      findUnique: async ({ where }) =>
+        (db.market && db.market.worldId === where.worldId) ? { ...db.market } : null,
+      update: async ({ where, data }) => {
+        if (!db.market || db.market.id !== where.id) return null;
+        for (const [k, v] of Object.entries(data)) db.market[k] = v;
+        return { ...db.market };
+      },
+      updateMany: async ({ where, data }) => {
+        if (!db.market || db.market.id !== where.id) return { count: 0 };
+        if (where.version !== undefined && db.market.version !== where.version) return { count: 0 };
+        for (const [k, v] of Object.entries(data)) {
+          if (v && typeof v === 'object' && 'increment' in v) db.market[k] = (db.market[k] ?? 0) + v.increment;
+          else db.market[k] = v;
+        }
+        return { count: 1 };
+      },
+      create: async ({ data }) => { db.market = { id: 'mkt1', version: 0, ...data }; return { ...db.market }; },
+      upsert: async ({ where, create }) => {
+        if (!db.market) db.market = { id: 'mkt1', version: 0, ...create };
+        return { ...db.market };
+      },
+    },
+    // Dividend ledger: rows are issued for payers whose write landed and consumed
+    // only when the RECIPIENT's write lands, so money survives a skipped airline.
+    dividendCredit: {
+      findMany: async ({ where = {} }) => db.credits.filter((c) =>
+        (where.worldId == null || c.worldId === where.worldId)
+        && (where.consumed == null || c.consumed === where.consumed)).map((c) => ({ ...c })),
+      createMany: async ({ data }) => {
+        for (const d of data) db.credits.push({ id: `dc${db.credits.length + 1}`, consumed: false, ...d });
+        return { count: data.length };
+      },
+      updateMany: async ({ where = {}, data }) => {
+        let count = 0;
+        const ids = where.id?.in ?? null;
+        for (const c of db.credits) {
+          if (ids && !ids.includes(c.id)) continue;
+          Object.assign(c, data); count++;
+        }
+        return { count };
+      },
     },
     // World news: economy events, bankruptcies and top-5 changes are written
     // inside the tick's transaction, then swept past the retention window.

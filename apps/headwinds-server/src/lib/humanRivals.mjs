@@ -310,7 +310,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev,
-    gateMarket,
+    gateMarket, worldMarket,
     ...rest
   } = state;
   return rest;

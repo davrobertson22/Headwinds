@@ -160,6 +160,30 @@ function guardStockTrade(payload) {
   return { targetId, shares };
 }
 
+// ── Capital actions ──────────────────────────────────────────────────────────
+// Shape hygiene only. The price of an issue or a buyback is derived by the reducer
+// from the airline's own server-computed share price, and the settlement is
+// re-checked against the world float pool inside the decision transaction, so the
+// only thing a client may state is HOW MANY shares.
+function guardShareCount(payload) {
+  const shares = Number(payload.shares);
+  if (!Number.isFinite(shares) || !Number.isInteger(shares) || shares <= 0 || shares > STOCK_MAX_SHARES) {
+    throw new GuardError('Invalid share count.');
+  }
+  return { shares };
+}
+
+// A payout ratio is a fraction of trailing profit; the reducer clamps it to
+// CAPITAL.DIVIDEND_MAX_PAYOUT. Reject nonsense outright so the UI gets a message
+// rather than a silent no-op.
+function guardDividendPolicy(payload) {
+  const payoutRatio = Number(payload.payoutRatio);
+  if (!Number.isFinite(payoutRatio) || payoutRatio < 0 || payoutRatio > 1) {
+    throw new GuardError('Payout ratio must be between 0 and 1.');
+  }
+  return { payoutRatio };
+}
+
 // ── Gates ────────────────────────────────────────────────────────────────────
 // Shape hygiene only: the airport code is the sole legitimate field. The real
 // scarcity rules (capacity, 60%/80% caps, lockouts) are enforced against the
@@ -196,6 +220,10 @@ export function guardDecision(type, payload, state) {
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
     case 'BUY_STOCK':
     case 'SELL_STOCK':         return guardStockTrade(payload);
+    case 'GO_PUBLIC':
+    case 'ISSUE_SHARES':
+    case 'BUY_BACK_SHARES':    return guardShareCount(payload);
+    case 'SET_DIVIDEND_POLICY': return guardDividendPolicy(payload);
     case 'ADD_GATE':
     case 'REMOVE_GATE':        return guardGate(payload);
     default:                   return payload;
