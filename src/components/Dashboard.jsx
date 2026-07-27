@@ -1,9 +1,10 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { sharesOf } from '../utils/market.js';
-import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
+import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, routeBlockHours, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { isOutOfService } from '../data/maintenance.js';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
@@ -585,23 +586,43 @@ export default function Dashboard({ onNavigate }) {
 
       {/* ── Fleet utilization ────────────────────────────────────────────── */}
       {fleet.length > 0 && (() => {
+        // Cargo routes count too: a freighter flying only cargo comes back
+        // 'assigned', not idle (see the reducer's status derivation), and
+        // routeBlockHours walks every leg so tag / multi-stop routes aren't
+        // understated the way a straight origin->destination distance is.
+        const utilByAircraft = new Map();
+        for (const r of [...routes, ...cargoRoutes]) {
+          if (!r?.aircraftId) continue;
+          if (!utilByAircraft.has(r.aircraftId)) utilByAircraft.set(r.aircraftId, []);
+          utilByAircraft.get(r.aircraftId).push(r);
+        }
         const utilEntries = fleet.map(a => {
           const type = getAircraftType(a.typeId);
-          const bh = routes.filter(r => r.aircraftId === a.id).reduce((s, r) =>
-            s + (type ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type) : 0), 0);
-          return { grounded: a.status === 'grounded', p: Math.min(1, bh / MAX_WEEKLY_BLOCK_HOURS) };
+          const bh = (utilByAircraft.get(a.id) ?? []).reduce((s, r) =>
+            s + (type ? routeBlockHours(r, type, r.weeklyFrequency) : 0), 0);
+          return {
+            grounded: a.status === 'grounded',
+            oos:      isOutOfService(a),
+            idle:     a.status === 'idle',
+            p:        Math.min(1, bh / MAX_WEEKLY_BLOCK_HOURS),
+          };
         });
-        const utilData = utilEntries.map(e => e.p);
-        const avgPct  = utilData.reduce((s, p) => s + p, 0) / utilData.length;
-        // Grounded aircraft get their own bucket so "Idle" here matches the
-        // idle-aircraft alert above (status === 'idle', i.e. no routes, airworthy).
+        // Headline average matches fleetAvgUtilization (the figure the sim itself
+        // feeds into on-time / labour): in-service aircraft only, so airframes in
+        // the shop don't drag it down.
+        const inService = utilEntries.filter(e => !e.oos);
+        const avgPct = inService.length
+          ? inService.reduce((s, e) => s + e.p, 0) / inService.length
+          : 0;
+        // Grounded aircraft get their own bucket, and "Idle" is the same
+        // status === 'idle' the Fleet tab and the idle-aircraft alert count.
         const flying  = utilEntries.filter(e => !e.grounded);
         const buckets = {
-          idle:     flying.filter(e => e.p === 0).length,
+          idle:     flying.filter(e => e.idle).length,
           grounded: utilEntries.filter(e => e.grounded).length,
-          low:      flying.filter(e => e.p > 0 && e.p < 0.5).length,
-          good:     flying.filter(e => e.p >= 0.5 && e.p < 0.9).length,
-          full:     flying.filter(e => e.p >= 0.9).length,
+          low:      flying.filter(e => !e.idle && e.p < 0.5).length,
+          good:     flying.filter(e => !e.idle && e.p >= 0.5 && e.p < 0.9).length,
+          full:     flying.filter(e => !e.idle && e.p >= 0.9).length,
         };
         const avgColor = avgPct >= 0.75 ? 'var(--green)' : avgPct >= 0.4 ? 'var(--yellow)' : 'var(--red)';
         return (
