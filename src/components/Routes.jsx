@@ -28,6 +28,10 @@ import {
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Stable empty-hub reference so the airport-filter memo doesn't re-run every
+// render on saves that predate hubs.
+const EMPTY_HUBS = {};
+
 const SEASON_PRESETS = [
   { id: 'year',   label: 'Year-round', months: null },
   { id: 'summer', label: 'Summer', months: [6, 7, 8, 9] },
@@ -152,9 +156,10 @@ export default function Routes() {
   const [filterTab, setFilterTab] = useState('all');
 
   // Extra scoping filters for large networks
-  const [regionFilter, setRegionFilter] = useState('all');  // route touches this region
-  const [acTypeFilter, setAcTypeFilter] = useState('all');  // aircraft type id
-  const [haulFilter,   setHaulFilter]   = useState('all');  // short | medium | long
+  const [regionFilter,  setRegionFilter]  = useState('all'); // route touches this region
+  const [acTypeFilter,  setAcTypeFilter]  = useState('all'); // aircraft type id
+  const [haulFilter,    setHaulFilter]    = useState('all'); // short | medium | long
+  const [airportFilter, setAirportFilter] = useState('all'); // route touches this airport (either end)
 
   // Passenger vs Freight view
   const [typeFilter, setTypeFilter] = useState('all');
@@ -333,6 +338,38 @@ export default function Routes() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [groupsWithStats]);
 
+  // Every airport the network touches, for the "Airport:" dropdown. Counts cover
+  // passenger city pairs + multi-stop legs + freight routes, so the number matches
+  // everything the filter will reveal across the three sections of this screen.
+  // Hubs sort to the top (highest tier first) so "routes out of my JFK hub" is the
+  // first thing in the list; everything else sorts by how busy it is.
+  // NOTE: must stay above the detailPair early-return — hooks can't be conditional.
+  const hubs = state.hubs ?? EMPTY_HUBS;
+  const airportsInUse = useMemo(() => {
+    const counts = {};
+    const bump = (code) => { if (code) counts[code] = (counts[code] ?? 0) + 1; };
+    for (const g of routeGroups) { bump(g.origin); bump(g.destination); }
+    for (const r of tagRoutes) for (const code of new Set(routeStops(r))) bump(code);
+    for (const r of cargoRoutes) { bump(r.origin); bump(r.destination); }
+    return Object.entries(counts)
+      .map(([code, count]) => ({
+        code,
+        count,
+        city: getAirport(code)?.city ?? '',
+        hubTier: hubs[code] ? (hubs[code].tier ?? 0) : null,
+      }))
+      .sort((a, b) => {
+        const aHub = a.hubTier != null, bHub = b.hubTier != null;
+        if (aHub !== bHub) return aHub ? -1 : 1;
+        if (aHub && bHub && a.hubTier !== b.hubTier) return b.hubTier - a.hubTier;
+        if (a.count !== b.count) return b.count - a.count;
+        return a.code.localeCompare(b.code);
+      });
+  }, [routeGroups, tagRoutes, cargoRoutes, hubs]);
+
+  // Hub quick-chips: one click to scope the whole screen to a hub.
+  const hubChips = airportsInUse.filter(a => a.hubTier != null);
+
   // If a route detail is selected, render that instead of the list
   if (detailPair) {
     return (
@@ -366,8 +403,17 @@ export default function Routes() {
     if (regionFilter !== 'all' && !g.regions.has(regionFilter)) return false;
     if (acTypeFilter !== 'all' && !g.typeIds.has(acTypeFilter)) return false;
     if (haulFilter   !== 'all' && haulOf(g.distance) !== haulFilter) return false;
+    // Direction-agnostic: a pair matches if the airport is at EITHER end, since
+    // JFK→ORD and ORD→JFK collapse into one group and both are "routes from JFK".
+    if (airportFilter !== 'all' && g.origin !== airportFilter && g.destination !== airportFilter) return false;
     return true;
   });
+
+  // Multi-stop routes get the same airport scoping — a tag route counts as
+  // touching the airport if it's any stop on the chain, not just the endpoints.
+  const visibleTagRoutes = airportFilter === 'all'
+    ? tagRoutes
+    : tagRoutes.filter(r => routeStops(r).includes(airportFilter));
 
   // Tab counts (based on scoped results, not status-filtered, so each tab shows a sensible number)
   const tabCounts = {
@@ -512,29 +558,101 @@ export default function Routes() {
     </div>
   );
 
+  // Airport scoping — a dropdown over every airport the network touches, plus
+  // one-click chips for the player's hubs (the case this exists for: "show me
+  // everything out of JFK"). Shared by the passenger and freight views so the
+  // scope survives flipping between them.
+  const airportSelect = airportsInUse.length > 1 && (
+    <select
+      className="form-select"
+      value={airportFilter}
+      onChange={e => setAirportFilter(e.target.value)}
+      style={{ width: 'auto', fontSize: 12, maxWidth: 230 }}
+      title="Only routes touching this airport (either end)"
+    >
+      <option value="all">Airport: All</option>
+      {airportsInUse.map(a => (
+        <option key={a.code} value={a.code}>
+          {a.hubTier != null ? '★ ' : ''}{a.code}{a.city ? ` — ${a.city}` : ''} ({a.count})
+        </option>
+      ))}
+    </select>
+  );
+
+  const hubChipBar = (hubChips.length > 0 || airportFilter !== 'all') && (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginRight: 2 }}>
+        {hubChips.length > 0 ? 'Hubs' : 'Filtered'}
+      </span>
+      {hubChips.map(h => {
+        const active = airportFilter === h.code;
+        return (
+          <button
+            key={h.code}
+            className={`btn ${active ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: 12, padding: '4px 10px' }}
+            title={active ? 'Click to show the whole network again' : `Only routes touching ${h.code}${h.city ? ` (${h.city})` : ''}`}
+            onClick={() => setAirportFilter(cur => cur === h.code ? 'all' : h.code)}
+          >
+            <Glyph e="★" /> {h.code}
+            <span style={{ marginLeft: 5, opacity: 0.65, fontSize: 11 }}>{h.count}</span>
+          </button>
+        );
+      })}
+      {/* Scoped to a non-hub airport via the dropdown — show it as a clearable chip too */}
+      {airportFilter !== 'all' && !hubChips.some(h => h.code === airportFilter) && (
+        <button
+          className="btn btn-primary"
+          style={{ fontSize: 12, padding: '4px 10px' }}
+          title="Click to show the whole network again"
+          onClick={() => setAirportFilter('all')}
+        >
+          {airportFilter} ✕
+        </button>
+      )}
+      {airportFilter !== 'all' && (
+        <button
+          className="btn btn-ghost"
+          style={{ fontSize: 12, padding: '4px 10px', color: 'var(--text-muted)' }}
+          onClick={() => setAirportFilter('all')}
+        >
+          Whole network
+        </button>
+      )}
+    </div>
+  );
+
   // Freight-only view: cargo routes list + an inline freight planner.
   if (typeFilter === 'freight') {
+    const scopedCargoCount = airportFilter === 'all'
+      ? cargoCount
+      : cargoRoutes.filter(r => r.origin === airportFilter || r.destination === airportFilter).length;
     return (
       <div>
         {typeToggle}
+        {hubChipBar}
         <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-            {cargoCount} cargo route{cargoCount !== 1 ? 's' : ''}
+            {scopedCargoCount} cargo route{scopedCargoCount !== 1 ? 's' : ''}
+            {airportFilter !== 'all' && <span style={{ color: 'var(--text-dim)' }}> touching {airportFilter}</span>}
           </div>
-          <button
-            className="btn btn-primary"
-            style={{ background: '#e8833a', borderColor: '#e8833a' }}
-            onClick={() => setShowCargoForm(v => !v)}
-          >
-            <GlyphLabel size={12} text={showCargoForm ? '✕ Cancel' : '📦 Open Freight Route'} />
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {airportSelect}
+            <button
+              className="btn btn-primary"
+              style={{ background: '#e8833a', borderColor: '#e8833a' }}
+              onClick={() => setShowCargoForm(v => !v)}
+            >
+              <GlyphLabel size={12} text={showCargoForm ? '✕ Cancel' : '📦 Open Freight Route'} />
+            </button>
+          </div>
         </div>
         {showCargoForm && (
           <div style={{ marginBottom: 16 }}>
             <CargoRoutePlanner embedded onOpened={() => setShowCargoForm(false)} />
           </div>
         )}
-        <CargoRoutesList />
+        <CargoRoutesList airportFilter={airportFilter} />
       </div>
     );
   }
@@ -542,10 +660,13 @@ export default function Routes() {
   return (
     <div>
       {typeToggle}
+      {hubChipBar}
       {/* Header bar */}
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-          {routeGroups.length} city pair{routeGroups.length !== 1 ? 's' : ''}
+          {airportFilter === 'all'
+            ? `${routeGroups.length} city pair${routeGroups.length !== 1 ? 's' : ''}`
+            : <><strong style={{ color: 'var(--accent)' }}>{airportFilter}</strong>: {afterScope.length} city pair{afterScope.length !== 1 ? 's' : ''} <span style={{ color: 'var(--text-dim)' }}>of {routeGroups.length}</span></>}
           {' · '}
           {routes.length} aircraft deployment{routes.length !== 1 ? 's' : ''}
           {idleCount > 0 && (
@@ -662,6 +783,7 @@ export default function Routes() {
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap', alignItems: 'center' }}>
+            {airportSelect}
             <select
               className="form-select"
               value={regionFilter}
@@ -773,7 +895,7 @@ export default function Routes() {
           <div className="empty-state-icon"><Glyph e="🔍" /></div>
           <div className="empty-state-text">No routes match</div>
           <div style={{ marginTop: 8, fontSize: 13 }}>
-            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { setSearch(''); setFilterTab('all'); setRegionFilter('all'); setAcTypeFilter('all'); setHaulFilter('all'); }}>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { setSearch(''); setFilterTab('all'); setRegionFilter('all'); setAcTypeFilter('all'); setHaulFilter('all'); setAirportFilter('all'); }}>
               Clear filters
             </button>
           </div>
@@ -811,12 +933,17 @@ export default function Routes() {
       )}
 
       {/* Multi-stop (tag) routes — own section, since they span several airports */}
-      {typeFilter !== 'freight' && tagRoutes.length > 0 && (
+      {typeFilter !== 'freight' && visibleTagRoutes.length > 0 && (
         <div style={{ marginTop: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--purple)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             <Glyph e="🔗" /> Multi-stop Routes
+            {airportFilter !== 'all' && (
+              <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-muted)', fontSize: 12 }}>
+                via {airportFilter}
+              </span>
+            )}
           </div>
-          {tagRoutes.map(route => (
+          {visibleTagRoutes.map(route => (
             <TagRouteCard key={route.id} route={route} onClose={handleClose} />
           ))}
         </div>
@@ -827,8 +954,13 @@ export default function Routes() {
         <div style={{ marginTop: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#e8833a', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             <Glyph e="📦" /> Cargo Routes
+            {airportFilter !== 'all' && (
+              <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-muted)', fontSize: 12 }}>
+                touching {airportFilter}
+              </span>
+            )}
           </div>
-          <CargoRoutesList />
+          <CargoRoutesList airportFilter={airportFilter} />
         </div>
       )}
 

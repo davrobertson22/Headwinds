@@ -91,14 +91,23 @@ export default function TagRoutePlanner({ mode, setMode }) {
   const effRange = type && aircraft ? effectiveRangeKm(aircraft, type) : 0;
   const inRange  = type ? maxLeg <= effRange : true;
 
-  // Aircraft that can fly the longest leg.
+  // Aircraft that can actually be put on this tag flight: able to fly the
+  // longest leg, with block-hours left, and either idle (140h free, free to go
+  // anywhere) or already serving one of the stops — the reducer's connectivity
+  // rule. Anything else would be rejected on submit, so it isn't offered.
   const reachable = useMemo(() => {
     if (!route) return fleet;
+    const stopSet = new Set(routeStops(route));
     return fleet.filter(a => {
       const t = getAircraftType(a.typeId);
-      return t && !t.freighter && effectiveRangeKm(a, t) >= maxLeg;
+      if (!t || t.freighter || effectiveRangeKm(a, t) < maxLeg) return false;
+      const acRoutes = routes.filter(r => r.aircraftId === a.id);
+      const usedBH = acRoutes.reduce((s, r) => s + routeBlockHours(r, t, r.weeklyFrequency), 0);
+      if (usedBH >= MAX_WEEKLY_BLOCK_HOURS) return false;
+      if (acRoutes.length === 0) return true;
+      return acRoutes.some(r => stopSet.has(r.origin) || stopSet.has(r.destination));
     });
-  }, [fleet, route, maxLeg]);
+  }, [fleet, routes, route, maxLeg]);
 
   // Auto-pick a reachable aircraft when needed.
   useMemo(() => {
@@ -217,7 +226,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
               <div style={{ flex: '1 1 240px' }}>
                 <div className="form-label" style={{ marginBottom: 6 }}>Aircraft (must reach the longest leg · {Math.round(maxLeg).toLocaleString()} km)</div>
                 <select className="form-select" value={aircraftId} onChange={e => setAircraftId(e.target.value)}>
-                  {reachable.length === 0 && <option value="">— none in fleet can fly the longest leg —</option>}
+                  {reachable.length === 0 && <option value="">— no eligible aircraft (range, hours or network) —</option>}
                   {reachable.map(a => {
                     const t = getAircraftType(a.typeId);
                     return <option key={a.id} value={a.id}>{a.name} ({t?.seats} seats · {a.status})</option>;

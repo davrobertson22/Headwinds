@@ -572,6 +572,15 @@ export function routeQualityBreakdown(route, aircraft, state) {
 /** Hard cap: an aircraft cannot fly more than this many block-hours per week. */
 export const MAX_WEEKLY_BLOCK_HOURS = 140;
 
+/**
+ * Minimum weekly block-hours left before an airframe is worth calling "spare".
+ * A plane with 1-2 hours free can't actually absorb another sector, so counting
+ * it as available made the fleet look more deployable than it is. Anything at
+ * or below this is treated as fully utilised for display and for the "aircraft
+ * with spare hours" counters.
+ */
+export const MIN_SPARE_BLOCK_HOURS = 5;
+
 /** Slot capacity of a single gate per week (departures from that airport). */
 export const SLOTS_PER_GATE = 50;
 
@@ -712,6 +721,10 @@ export function deployableFleetForRoute({
         newBlockHrs:   newBH,
         connectivityOk,
         hoursOk,
+        // Usable spare: 1-2 free hours is not real availability (see
+        // MIN_SPARE_BLOCK_HOURS). Drives the "with spare hours" counters and
+        // the free-hours labels in the route pickers.
+        hasUsableSpare: (MAX_WEEKLY_BLOCK_HOURS - usedBH) > MIN_SPARE_BLOCK_HOURS,
         eligible:      connectivityOk && hoursOk,
       };
     })
