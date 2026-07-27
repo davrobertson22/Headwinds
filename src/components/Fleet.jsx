@@ -37,6 +37,24 @@ const CABIN_LABELS = {
   premiumEconomy: 'Prem-Eco', economy: 'Economy',
 };
 
+// Clickable column header for the fleet table. Click to sort by that column,
+// click again to flip the direction.
+function SortableTh({ label, k, sortKey, sortDir, onSort, style }) {
+  const active = sortKey === k;
+  return (
+    <th
+      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', ...style }}
+      onClick={() => onSort(k)}
+      title={`Sort by ${label}`}
+    >
+      <span style={{ color: active ? 'var(--accent)' : undefined }}>{label}</span>
+      <span style={{ fontSize: 9, marginLeft: 4, opacity: active ? 1 : 0.35, color: active ? 'var(--accent)' : undefined }}>
+        {active ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </th>
+  );
+}
+
 function AircraftThumb({ type, size = 'sm' }) {
   const [failed, setFailed] = useState(false);
   const color  = CAT_COLORS[type?.category] || '#93a4ba';
@@ -1074,6 +1092,8 @@ export default function Fleet() {
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
   const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
+  const [sortKey,       setSortKey]       = useState(null);   // null = default order | name | type | cabin | age | util | fixed | status
+  const [sortDir,       setSortDir]       = useState('asc');  // asc | desc
   const [showOnOrder,   setShowOnOrder]   = useState(false); // collapsible "On Order" panel
 
   // When a plane is picked from the list, bring its detail panel into view so the
@@ -1195,6 +1215,70 @@ export default function Fleet() {
     if (filterChip === 'leased')   return a.ownershipType !== 'owned';
     if (filterChip === 'owned')    return a.ownershipType === 'owned';
     return true;
+  });
+
+  // ── Column sorting ──────────────────────────────────────────────────────
+  // Numeric columns start descending (biggest first — that's usually what you
+  // want for age/util/cost); text columns start ascending.
+  const DESC_FIRST = ['age', 'util', 'fixed'];
+
+  function handleSort(k) {
+    if (sortKey === k) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(k);
+      setSortDir(DESC_FIRST.includes(k) ? 'desc' : 'asc');
+    }
+  }
+
+  function sortValue(a, key) {
+    const t = getAircraftType(a.typeId);
+    switch (key) {
+      case 'name': return (a.name ?? '').toLowerCase();
+      case 'type': return (t?.name ?? '').toLowerCase();
+      case 'cabin': {
+        const cfg = a.config;
+        const seats = cfg
+          ? (cfg.firstClass ?? 0) + (cfg.businessClass ?? 0) + (cfg.premiumEconomy ?? 0) + (cfg.economy ?? 0)
+          : (t?.seats ?? 0);
+        return seats;
+      }
+      case 'age': return a.ageWeeks ?? 0;
+      case 'util': {
+        if (!t) return 0;
+        const assigned = [
+          ...routes.filter(r => r.aircraftId === a.id),
+          ...cargoRoutes.filter(r => r.aircraftId === a.id),
+        ];
+        return assigned.reduce((s, r) =>
+          s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0);
+      }
+      case 'fixed': {
+        const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
+        const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? t?.weeklyLease ?? 0);
+        return lease + maint;
+      }
+      case 'status': {
+        // Grounded < in shop < idle < flying (then by how many routes it flies)
+        const routeCount = routes.filter(r => r.aircraftId === a.id).length
+                         + cargoRoutes.filter(r => r.aircraftId === a.id).length;
+        if (a.status === 'grounded')    return 0;
+        if (a.status === 'maintenance') return 1;
+        if (routeCount === 0)           return 2;
+        return 3 + Math.min(routeCount, 96) / 100;
+      }
+      default: return 0;
+    }
+  }
+
+  const sortedFleet = sortKey == null ? visibleFleet : [...visibleFleet].sort((a, b) => {
+    const va = sortValue(a, sortKey);
+    const vb = sortValue(b, sortKey);
+    let cmp;
+    if (typeof va === 'string' || typeof vb === 'string') cmp = String(va).localeCompare(String(vb));
+    else cmp = va - vb;
+    if (cmp === 0) cmp = (a.name ?? '').localeCompare(b.name ?? ''); // stable tie-break
+    return sortDir === 'asc' ? cmp : -cmp;
   });
 
   // ── Bulk selection ──────────────────────────────────────────────────────
@@ -1771,13 +1855,13 @@ export default function Fleet() {
                 />
               </th>
               <th style={{ width: 88 }}></th>
-              <th>Aircraft</th>
-              <th>Type</th>
-              <th>Cabin</th>
-              <th>Age</th>
-              <th>Util.</th>
-              <th>Fixed/wk</th>
-              <th>Status</th>
+              <SortableTh label="Aircraft" k="name"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Type"     k="type"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Cabin"    k="cabin"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Age"      k="age"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Util."    k="util"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Fixed/wk" k="fixed"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Status"   k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
@@ -1786,7 +1870,7 @@ export default function Fleet() {
                 No aircraft match — <button className="btn btn-ghost" style={{ fontSize: 12, display: 'inline' }} onClick={() => { setSearch(''); setFilterChip('all'); }}>clear filters</button>
               </td></tr>
             ) : null}
-            {visibleFleet.map(aircraft => {
+            {sortedFleet.map(aircraft => {
               const type   = getAircraftType(aircraft.typeId);
               const route  = routes.find(r => r.aircraftId === aircraft.id);
               const ageWks = aircraft.ageWeeks ?? 0;

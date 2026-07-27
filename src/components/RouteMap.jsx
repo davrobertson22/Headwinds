@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
+import { getAircraftType } from '../data/aircraft.js';
 import { simulateRoute, simulateCargoRoute, formatMoney, currentGameDate } from '../utils/simulation.js';
 import { getAlliance } from '../data/alliances.js';
 import { Glyph } from './Icons.jsx';
@@ -108,6 +109,8 @@ export default function RouteMap() {
   const [showAlliance,  setShowAlliance]  = useState(true);
   const [showCodeshare, setShowCodeshare] = useState(true);
   const [showCargo,     setShowCargo]     = useState(true);
+  const [acTypeFilter,  setAcTypeFilter]  = useState('all');  // 'all' | aircraft typeId
+  const [airportFilter, setAirportFilter] = useState('all');  // 'all' | IATA code
   const cargoLayersRef = useRef([]);   // amber cargo route overlay layers
 
   // Keep refs of current interaction state so the (rarely-rebuilt) layer effect
@@ -189,20 +192,55 @@ export default function RouteMap() {
     return { r, origin, dest, result };
   }).filter(Boolean), [cargoRoutes, fleet, state.week]);
 
-  const airportSet = useMemo(() => {
+  // ── Map filters: by aircraft type and by airport ─────────────────────────
+  // Options come from the UNfiltered data so the dropdowns always list
+  // everything; the map + table below render only what passes the filters.
+  const typesInUse = useMemo(() => {
+    const ids = new Set();
+    for (const r of [...routes, ...cargoRoutes]) {
+      const a = fleet.find(x => x.id === r.aircraftId);
+      if (a) ids.add(a.typeId);
+    }
+    return [...ids].map(getAircraftType).filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [routes, cargoRoutes, fleet]);
+
+  const airportOptions = useMemo(() => {
     const codes = new Set([
-      hub,
       ...routeData.flatMap(d => [d.origin.code, d.dest.code]),
       ...cargoRouteData.flatMap(d => [d.origin.code, d.dest.code]),
     ]);
+    return [...codes].map(getAirport).filter(Boolean)
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [routeData, cargoRouteData]);
+
+  const matchesFilters = useCallback((d) => {
+    if (acTypeFilter !== 'all') {
+      const a = fleet.find(x => x.id === d.r.aircraftId);
+      if (!a || a.typeId !== acTypeFilter) return false;
+    }
+    if (airportFilter !== 'all' && d.origin.code !== airportFilter && d.dest.code !== airportFilter) return false;
+    return true;
+  }, [acTypeFilter, airportFilter, fleet]);
+
+  const filteredRouteData      = useMemo(() => routeData.filter(matchesFilters), [routeData, matchesFilters]);
+  const filteredCargoRouteData = useMemo(() => cargoRouteData.filter(matchesFilters), [cargoRouteData, matchesFilters]);
+  const filtersActive = acTypeFilter !== 'all' || airportFilter !== 'all';
+
+  const airportSet = useMemo(() => {
+    const codes = new Set([
+      hub,
+      ...filteredRouteData.flatMap(d => [d.origin.code, d.dest.code]),
+      ...filteredCargoRouteData.flatMap(d => [d.origin.code, d.dest.code]),
+    ]);
     return [...codes].map(getAirport).filter(Boolean);
-  }, [routeData, cargoRouteData, hub]);
+  }, [filteredRouteData, filteredCargoRouteData, hub]);
 
   // Group route entries by city pair (direction-agnostic) so multiple aircraft
   // on the same JFK↔ORD pair show as ONE line + ONE row with aggregated stats.
   const routeGroups = useMemo(() => {
     const map = new Map();
-    for (const d of routeData) {
+    for (const d of filteredRouteData) {
       const key = [d.origin.code, d.dest.code].sort().join('~');
       let g = map.get(key);
       if (!g) {
@@ -228,12 +266,12 @@ export default function RouteMap() {
       g.hasResult    = g.members.some(m => m.result);
     }
     return arr;
-  }, [routeData]);
+  }, [filteredRouteData]);
 
   // Group cargo route entries by city pair (aggregate tonnes / profit / capacity).
   const cargoGroups = useMemo(() => {
     const map = new Map();
-    for (const d of cargoRouteData) {
+    for (const d of filteredCargoRouteData) {
       const key = [d.origin.code, d.dest.code].sort().join('~');
       let g = map.get(key);
       if (!g) {
@@ -256,7 +294,13 @@ export default function RouteMap() {
       g.hasResult     = g.members.some(m => m.result);
     }
     return arr;
-  }, [cargoRouteData]);
+  }, [filteredCargoRouteData]);
+
+  // If the focused route gets filtered out, drop the focus so the map doesn't
+  // stay zoomed on an invisible line.
+  useEffect(() => {
+    if (selectedId != null && !routeGroups.some(g => g.key === selectedId)) setSelectedId(null);
+  }, [routeGroups, selectedId]);
 
   // ── Style resolver: highlight selected/hovered, dim the rest ─────────────────
   const applyStyles = useCallback(() => {
@@ -322,6 +366,10 @@ export default function RouteMap() {
     for (const { comp, type, color, origin, dest } of partnerRouteData) {
       const show = type === 'alliance' ? showAlliance : showCodeshare;
       if (!show) continue;
+      // The airport filter applies to partner overlays too, so "show me JFK"
+      // really means only lines touching JFK. (The aircraft-type filter is
+      // ours-only — we don't know what partners fly.)
+      if (airportFilter !== 'all' && origin.code !== airportFilter && dest.code !== airportFilter) continue;
 
       const segments = segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
       const tipHtml = `
@@ -361,7 +409,7 @@ export default function RouteMap() {
         partnerLayersRef.current.push(dot);
       }
     }
-  }, [partnerRouteData, showAlliance, showCodeshare, selectedId, mapReady]);
+  }, [partnerRouteData, showAlliance, showCodeshare, selectedId, mapReady, airportFilter]);
 
   // 4c. Sync cargo route overlay (amber, distinct from green/red passenger lines)
   useEffect(() => {
@@ -635,13 +683,47 @@ export default function RouteMap() {
           <div>
             <span style={{ fontWeight: 600, fontSize: 14 }}>Route Network</span>
             <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-muted)' }}>
-              {routeGroups.length} route{routeGroups.length !== 1 ? 's' : ''} · {airportSet.length} airports
+              {routeGroups.length} route{routeGroups.length !== 1 ? 's' : ''} · {airportSet.length} airports{filtersActive && <span style={{ color: 'var(--accent)' }}> · filtered</span>}
               {selectedData && (
                 <span style={{ color: 'var(--accent)' }}> · focused {selectedData.origin.code}→{selectedData.dest.code}</span>
               )}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Filters: aircraft type + airport */}
+            {typesInUse.length > 1 && (
+              <select
+                className="form-select"
+                value={acTypeFilter}
+                onChange={e => setAcTypeFilter(e.target.value)}
+                style={{ width: 'auto', fontSize: 11, padding: '3px 6px', maxWidth: 160 }}
+                title="Only show routes flown by this aircraft type"
+              >
+                <option value="all">Aircraft: All</option>
+                {typesInUse.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
+            {airportOptions.length > 1 && (
+              <select
+                className="form-select"
+                value={airportFilter}
+                onChange={e => setAirportFilter(e.target.value)}
+                style={{ width: 'auto', fontSize: 11, padding: '3px 6px', maxWidth: 160 }}
+                title="Only show routes touching this airport"
+              >
+                <option value="all">Airport: All</option>
+                {airportOptions.map(a => <option key={a.code} value={a.code}>{a.code} — {a.city}</option>)}
+              </select>
+            )}
+            {filtersActive && (
+              <button
+                onClick={() => { setAcTypeFilter('all'); setAirportFilter('all'); }}
+                className="map-clear-btn"
+                title="Clear map filters"
+              >
+                <Glyph e="✕" /> Filters
+              </button>
+            )}
             {selectedId != null && (
               <button
                 onClick={() => setSelectedId(null)}
