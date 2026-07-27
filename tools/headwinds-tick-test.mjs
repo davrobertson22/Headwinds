@@ -161,6 +161,10 @@ const quiet = { info: () => {}, error: () => {} };
 
 const seedAirline = (id, name, hub) => {
   const state = gameReducer(freshState(), { type: 'START_GAME', airlineName: name, hub, enableObjectives: false });
+  // New airlines are incorporated PRIVATE, and private airlines are deliberately
+  // excluded from the ranked standings. These fixtures exist to exercise the
+  // standings path, so list them — the equivalent of having run an IPO.
+  state.equity = { ...state.equity, isPublic: true };
   return { id, worldId: 'w1', accountId: `acct_${id}`, name, hub, state, status: 'ACTIVE', week: 1 };
 };
 

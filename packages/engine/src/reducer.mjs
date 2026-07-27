@@ -16,7 +16,7 @@ import {
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
-         emptyEquity, sharesOf, svpsOf,
+         emptyEquity, migratedEquity, sharesOf, svpsOf,
          freeFloatOf, executionPrice, capitalGainsTax,
          priceImpact, poolLiquidityDiscount,
          CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare } from './utils/market.js';
@@ -4206,9 +4206,12 @@ function reconcileState(parsed) {
     // Equity block — added with the capital-markets rework. Old saves are
     // incorporated at the founder share count, already public, no dividend history,
     // which reproduces their pre-rework share price exactly.
+    // A save with no equity block predates the rework: it was already trading
+    // against a fixed float, so it migrates as LISTED. A genuinely new airline
+    // gets emptyEquity() (private) from freshState instead.
     equity:                   parsed.equity
-      ? { ...emptyEquity(), ...parsed.equity }
-      : emptyEquity(),
+      ? { ...migratedEquity(), ...parsed.equity }
+      : migratedEquity(),
     svps:                     Number.isFinite(parsed.svps)
       ? parsed.svps
       : svpsOf({ sharePrice: parsed.sharePrice, equity: parsed.equity }),

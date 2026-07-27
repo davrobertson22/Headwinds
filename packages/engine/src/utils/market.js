@@ -482,20 +482,40 @@ export const TOTAL_SHARES = 100_000_000;
 /** Scale factor for packing a per-share dollar figure into an integer score. */
 export const SVPS_SCALE = 10_000;
 
-/** Fresh equity block (also the migration default for saves without one). */
+/**
+ * Equity block for a NEWLY INCORPORATED airline: private, and entirely closely
+ * held. There is no tradable float until it lists — GO_PUBLIC creates one by
+ * issuing new shares on top of the founder block — and a private airline has no
+ * traded share price, so it takes no place in the standings until it does.
+ */
 export function emptyEquity() {
   return {
     shares:               TOTAL_SHARES,  // shares outstanding
-    // Founder block — the part NOT publicly traded. The remainder is the free
-    // float other players can buy (DEFAULT_FREE_FLOAT_PCT of the shares).
-    founderShares:        Math.round(TOTAL_SHARES * 0.70),
-    isPublic:             true,          // flips to false-by-default when GO_PUBLIC ships
+    // Founder block — the part NOT publicly traded. All of it, to begin with.
+    founderShares:        TOTAL_SHARES,
+    isPublic:             false,
     cumDividendsPerShare: 0,             // lifetime dividends per share ($)
     ipoWeek:              null,          // absolute week of listing
     offeringsThisYear:    0,             // secondary-offering throttle (per game year)
     buybacksThisYear:     0,             // buyback throttle (per game year)
     buybacksEver:         0,             // ever returned capital? (better offering price)
     dividendPolicy:       0,             // payout ratio of trailing-quarter profit
+  };
+}
+
+/**
+ * Equity block for an airline that PREDATES the capital-markets rework.
+ *
+ * Those airlines were already trading against a fixed 100M-share float, so they
+ * migrate as listed, with the default free float already in public hands. That is
+ * what keeps a live world's market working through the deploy and keeps the
+ * standings order unchanged at migration time — see tools/backfill-equity.mjs.
+ */
+export function migratedEquity() {
+  return {
+    ...emptyEquity(),
+    isPublic:      true,
+    founderShares: Math.round(TOTAL_SHARES * (1 - STOCK_MARKET.DEFAULT_FREE_FLOAT_PCT)),
   };
 }
 

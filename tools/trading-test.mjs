@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
-  STOCK_MARKET, TOTAL_SHARES, emptyEquity, emptyPortfolio,
+  STOCK_MARKET, TOTAL_SHARES, emptyEquity, migratedEquity, emptyPortfolio,
   freeFloatOf, priceImpact, executionPrice, capitalGainsTax,
   poolLiquidityDiscount, poolSeedFor, poolRefill,
 } from '../packages/engine/src/utils/market.js';
@@ -36,7 +36,10 @@ const richPlayer = (over = {}) => ({
 
 test('free float is everything outside the founder block', () => {
   assert.equal(freeFloatOf(rival()), 30_000_000);
-  assert.equal(freeFloatOf({ equity: emptyEquity() }), 30_000_000);
+  // A listed (migrated) airline has a float; a newly incorporated one has none
+  // until it lists, which is what GO_PUBLIC creates.
+  assert.equal(freeFloatOf({ equity: migratedEquity() }), 30_000_000);
+  assert.equal(freeFloatOf({ equity: emptyEquity() }), 0);
 });
 
 test('a missing founder block falls back to the default float, not to zero', () => {

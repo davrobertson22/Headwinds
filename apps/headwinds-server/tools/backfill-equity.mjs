@@ -24,7 +24,7 @@
 //   node tools/backfill-equity.mjs <worldId> [--write]   # scope to one world
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import { emptyEquity, svpsOf, svpsScore, TOTAL_SHARES } from '@tailwinds/engine/utils/market.js';
+import { migratedEquity, svpsOf, svpsScore, TOTAL_SHARES } from '@tailwinds/engine/utils/market.js';
 
 const prisma = new PrismaClient();
 const args = process.argv.slice(2);
@@ -58,7 +58,7 @@ for (const a of airlines) {
 
   // Merge rather than overwrite: a blob that already has an equity block (because
   // it ticked after the deploy) keeps its real share count and dividend history.
-  const equity = hasEquity ? { ...emptyEquity(), ...existing } : emptyEquity();
+  const equity = hasEquity ? { ...migratedEquity(), ...existing } : migratedEquity();
 
   const sharePrice = Number.isFinite(a.state.sharePrice)
     ? a.state.sharePrice

@@ -10,7 +10,8 @@
 import assert from 'node:assert/strict';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
-  CAPITAL, STOCK_MARKET, TOTAL_SHARES, emptyEquity, sharesOf, svpsOf, freeFloatOf,
+  CAPITAL, STOCK_MARKET, TOTAL_SHARES, emptyEquity, migratedEquity,
+  sharesOf, svpsOf, freeFloatOf,
   ipoDiscount, offeringDiscount, dividendPerShare,
 } from '../packages/engine/src/utils/market.js';
 import { splitDividend, holdersOf } from '../apps/headwinds-server/src/lib/marketService.mjs';
@@ -33,14 +34,15 @@ const listed = (over = {}) => {
     financialHistory: history(52),
     worldMarket: { poolCash: 750_000_000, seedCash: 750_000_000, sharesAvailable: 30_000_000, selfSharesHeld: 30_000_000 },
   };
-  s.equity = { ...emptyEquity(), isPublic: true };
+  // A carrier that predates the rework: already listed, with a public float.
+  s.equity = migratedEquity();
   return { ...s, ...over };
 };
 
-// A private carrier eligible to list.
+// A newly incorporated carrier — private, entirely closely held — old enough to list.
 const priv = (over = {}) => {
   const s = listed();
-  s.equity = { ...emptyEquity(), isPublic: false, founderShares: TOTAL_SHARES };
+  s.equity = emptyEquity();
   return { ...s, ...over };
 };
 

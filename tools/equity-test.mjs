@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { gameReducer, freshState, reconcileState } from '../packages/engine/src/reducer.mjs';
 import {
-  computeMarketCap, emptyEquity, sharesOf, svpsOf, svpsScore, freeFloatOf,
+  computeMarketCap, emptyEquity, migratedEquity, sharesOf, svpsOf, svpsScore, freeFloatOf,
   TOTAL_SHARES, SVPS_SCALE, STOCK_MARKET,
 } from '../packages/engine/src/utils/market.js';
 
@@ -23,23 +23,31 @@ Math.random = () => 0.5;
 
 // ── The equity block ─────────────────────────────────────────────────────────
 
-test('a fresh airline is incorporated with a founder block and a free float', () => {
+test('a new airline is incorporated PRIVATE and entirely closely held', () => {
   const e = emptyEquity();
   assert.equal(e.shares, TOTAL_SHARES);
-  assert.ok(e.founderShares < e.shares, 'not all shares are locked up');
-  assert.equal(e.founderShares, Math.round(TOTAL_SHARES * 0.70), 'founders keep 70%');
-  assert.equal(freeFloatOf({ equity: e }), TOTAL_SHARES - Math.round(TOTAL_SHARES * 0.70),
-    'the other 30% is the buyable free float');
-  assert.ok(freeFloatOf({ equity: e }) / e.shares > STOCK_MARKET.MAX_OWNERSHIP_PCT,
-    'float must exceed one player\'s max stake, or a single buyer corners it');
-  assert.equal(e.isPublic, true, 'pre-IPO listing status stays true until GO_PUBLIC ships');
+  assert.equal(e.founderShares, TOTAL_SHARES, 'every share is in the founder block');
+  assert.equal(freeFloatOf({ equity: e }), 0, 'nothing to trade until it lists');
+  assert.equal(e.isPublic, false);
   assert.equal(e.cumDividendsPerShare, 0);
   assert.equal(e.ipoWeek, null);
+});
+
+test('an airline predating the rework migrates as LISTED, with a float', () => {
+  const g = migratedEquity();
+  assert.equal(g.isPublic, true, 'live worlds keep trading through the deploy');
+  assert.equal(g.shares, TOTAL_SHARES, 'same share count it was implicitly on');
+  const float = freeFloatOf({ equity: g });
+  assert.ok(float > 0, 'it already had a tradable float');
+  assert.equal(float, Math.round(TOTAL_SHARES * STOCK_MARKET.DEFAULT_FREE_FLOAT_PCT));
+  assert.ok(float / g.shares > STOCK_MARKET.MAX_OWNERSHIP_PCT,
+    'float must exceed one player\'s max stake, or a single buyer corners it');
 });
 
 test('freshState carries an equity block and a starting SVPS', () => {
   const s = freshState();
   assert.ok(s.equity, 'state.equity exists');
+  assert.equal(s.equity.isPublic, false, 'a brand-new airline is private');
   assert.equal(sharesOf(s), TOTAL_SHARES);
   assert.ok(Math.abs(s.svps - s.sharePrice) < 1e-12, 'no dividends yet, so SVPS === share price');
   assert.ok(s.svps > 0, 'a new airline has a positive per-share value');
@@ -141,7 +149,7 @@ test('reconcileState seeds equity + svps for a pre-rework save', () => {
   const fixed = reconcileState(JSON.parse(JSON.stringify(old)));
   assert.ok(fixed.equity, 'equity block created');
   assert.equal(sharesOf(fixed), TOTAL_SHARES, 'incorporated at the founder count');
-  assert.equal(fixed.equity.isPublic, true);
+  assert.equal(fixed.equity.isPublic, true, 'a pre-rework save was already trading');
   assert.ok(Math.abs(fixed.svps - 0.2) < 1e-12, 'SVPS reproduces the pre-rework share price exactly');
 });
 
@@ -162,7 +170,8 @@ test('reconcileState fills gaps in a partial equity block', () => {
   const fixed = reconcileState(JSON.parse(JSON.stringify(s)));
   assert.equal(sharesOf(fixed), 80_000_000);
   assert.equal(fixed.equity.cumDividendsPerShare, 0, 'missing keys default');
-  assert.equal(fixed.equity.founderShares, Math.round(TOTAL_SHARES * 0.70));
+  assert.equal(fixed.equity.founderShares,
+    Math.round(TOTAL_SHARES * (1 - STOCK_MARKET.DEFAULT_FREE_FLOAT_PCT)));
 });
 
 // ── A tick keeps everything consistent ──────────────────────────────────────
