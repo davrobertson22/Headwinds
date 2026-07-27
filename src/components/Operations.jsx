@@ -565,19 +565,49 @@ function MoneyInput({ value, onCommit, allowZeroCommit = true, ...rest }) {
 
 // ─── Marketing budget card ────────────────────────────────────────────────────
 
-function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, campaignStrength, routes, competitors, dispatch }) {
+function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMarketing, campaignStrength, routes, competitors, dispatch }) {
   const [newAirport, setNewAirport] = useState('');
   const rivalVoice = competitorMarketingSpend(competitors ?? []);
 
   // Brand (adstock): spend builds awareness over time; lift derives from awareness.
+  // This MIRRORS the engine's weekly awareness step exactly (see the awareness
+  // block in the reducer): next = current + organic + marketing − decay. Showing
+  // only (marketing − decay) made a growing airline read as "−0.3 awareness/wk"
+  // while its awareness was actually climbing.
   const reach        = awarenessDemandMultiplier(awareness);
-  const rawGain      = marketingAwarenessGain(budget, weeklyRevenue) * (1 - awareness / 100);
-  const decay        = Math.max(0, (awareness - AWARENESS_FLOOR) * AWARENESS_DECAY_RATE);
-  const netGain      = rawGain - decay;   // excludes organic (passenger) gain
+  const diminishing  = 1 - awareness / 100;
+  const organicCoef  = Math.min(1.0, (weeklyPax ?? 0) / 1000);   // pax flown → word of mouth
+  const organicGain  = organicCoef * diminishing;
+  const rawGain      = marketingAwarenessGain(budget, weeklyRevenue);
+  const mktGain      = rawGain * diminishing;
+  const decayBase    = Math.max(0, (awareness - AWARENESS_FLOOR) * AWARENESS_DECAY_RATE);
+  const decay        = routes.length === 0 ? Math.max(0.5, decayBase) : decayBase;
+  const netTrend     = organicGain + mktGain - decay;   // what the engine will apply
 
-  const presets = [0, 25_000, 50_000, 100_000, 200_000, 500_000].filter(
-    v => v === 0 || v <= Math.max(weeklyRevenue * 0.25, 200_000)
-  );
+  // Steady state: awareness settles where (organic + marketing) gain balances
+  // decay. Solving  (S)(1 − a/100) = decayRate·(a − floor)  for a, with S the
+  // combined pre-diminishing gain. Assumes traffic holds at its current level.
+  const settleAt = g => {
+    const s = organicCoef + g;
+    return Math.max(AWARENESS_FLOOR, Math.min(100,
+      (s + AWARENESS_DECAY_RATE * AWARENESS_FLOOR) / (AWARENESS_DECAY_RATE + s / 100)
+    ));
+  };
+  const settleNow  = settleAt(rawGain);
+  const settleZero = settleAt(0);
+  const fmtPts     = v => (Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(2));
+
+  // Presets scale with airline size: the model costs ≈4% of weekly revenue for
+  // ~63% of the maximum awareness gain, so a fixed $25k–$500k ladder is
+  // meaningless once a carrier is doing nine figures a week. Floor keeps the
+  // early-game ladder sane while revenue is still tiny.
+  const presetBase = Math.max(weeklyRevenue, 2_000_000);
+  const roundNice  = v => {
+    const mag  = Math.pow(10, Math.floor(Math.log10(v)));
+    const step = mag / 2;
+    return Math.max(step, Math.round(v / step) * step);
+  };
+  const presets = [0, ...new Set([0.005, 0.01, 0.02, 0.04, 0.08].map(p => roundNice(presetBase * p)))];
 
   // Targeted campaigns
   const served = [...new Set(routes.flatMap(r => r.stops ?? [r.origin, r.destination]))].sort();
@@ -603,8 +633,11 @@ function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, ca
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--red)' }}>
               −{formatMoney(budget)}/wk
             </div>
-            <div style={{ fontSize: 11, color: netGain > 0 ? 'var(--green)' : 'var(--text-muted)', marginTop: 1, fontWeight: 600 }}>
-              {netGain > 0 ? `+${netGain.toFixed(1)}` : netGain.toFixed(1)} awareness/wk
+            <div style={{ fontSize: 11, color: mktGain > 0 ? 'var(--green)' : 'var(--text-muted)', marginTop: 1, fontWeight: 600 }}>
+              +{fmtPts(mktGain)} awareness/wk from spend
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>
+              lifts steady state to ≈{Math.round(settleNow)}
             </div>
           </div>
         )}
@@ -647,8 +680,20 @@ function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, ca
         </div>
         <div>
           <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Awareness trend</div>
-          <div style={{ fontWeight: 600, color: netGain > 0 ? 'var(--green)' : 'var(--text-muted)' }}>
-            {netGain >= 0 ? '+' : ''}{netGain.toFixed(1)}/wk from marketing
+          <div style={{ fontWeight: 600, color: netTrend > 0.005 ? 'var(--green)' : netTrend < -0.005 ? 'var(--red)' : 'var(--text-muted)' }}>
+            {netTrend >= 0 ? '+' : '−'}{fmtPts(Math.abs(netTrend))}/wk net
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+            flying +{fmtPts(organicGain)} · ads +{fmtPts(mktGain)} · fade −{fmtPts(decay)}
+          </div>
+        </div>
+        <div>
+          <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Settles at</div>
+          <div style={{ fontWeight: 600 }}>≈{Math.round(settleNow)} / 100</div>
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+            {budget > 0
+              ? `+${(settleNow - settleZero).toFixed(1)} vs no brand spend`
+              : 'at zero brand spend'}
           </div>
         </div>
         <div>
@@ -662,7 +707,8 @@ function MarketingCard({ budget, weeklyRevenue, awareness, targetedMarketing, ca
           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
             Marketing works with a lag: spend compounds into awareness, and cutting the budget
             lets it fade at ~{(AWARENESS_DECAY_RATE * 100).toFixed(1)}%/wk rather than dropping demand overnight.
-            Flying passengers also builds awareness organically.
+            Flying passengers also builds awareness organically — the trend above is the net weekly
+            change the sim applies, and "settles at" is where it levels off if nothing changes.
           </div>
         </div>
       </div>
@@ -936,6 +982,7 @@ export default function Operations() {
       <MarketingCard
         budget={marketingBudget}
         weeklyRevenue={state.lastReport?.totalRevenue ?? 0}
+        weeklyPax={state.lastReport?.totalPassengers ?? 0}
         awareness={state.awareness ?? 5}
         targetedMarketing={state.targetedMarketing ?? {}}
         campaignStrength={state.campaignStrength ?? {}}
