@@ -22,6 +22,7 @@ import {
 } from './gateService.mjs';
 import { scrapStale } from './aircraftMarketService.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
+import { withTx } from './tx.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
 } from './newsService.mjs';
@@ -222,7 +223,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // standings in ONE transaction: either the whole week lands or nothing does, so
   // the world clock can never run ahead of the airline state it summarises.
   try {
-    const outcome = await prisma.$transaction(async (tx) => {
+    const outcome = await withTx(prisma, async (tx) => {
       const claimed = await tx.world.updateMany({
         where: { id: world.id, currentWeek: world.currentWeek, currentYear: world.currentYear, status: 'RUNNING' },
         data: {
@@ -369,7 +370,18 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       });
 
       return { lostRace: false, airlines: written.length, written };
-    }, TICK_TX_OPTS);
+    }, {
+      ...TICK_TX_OPTS,
+      // No client is waiting on the worker, so the player-request deadline in
+      // lib/tx.mjs must not clamp the tick's 30s budget.
+      deadlineMs: null,
+      // The world-clock advance at the top is a compare-and-set, so a retried tick
+      // that lost a deadlock re-claims the same week or bails as `lostRace` — never
+      // double-advances. One retry is enough to ride out a colliding player write.
+      retries: 1,
+      onRetry: ({ attempt, code }) =>
+        log.warn?.(`[tick] world ${world.id} transaction retry ${attempt} (${code ?? 'transient'})`),
+    });
 
     if (outcome.lostRace) return { ok: false, reason: 'lost-race' };
 

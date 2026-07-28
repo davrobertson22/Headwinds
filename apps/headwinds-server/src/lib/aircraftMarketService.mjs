@@ -15,6 +15,7 @@
 // inside the same transaction as the buyer's version-guarded blob write.
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { withTx } from './tx.mjs';
 
 export class AircraftMarketError extends Error {
   constructor(message, statusCode = 400) {
@@ -86,7 +87,10 @@ export async function buildUsedMarketView(prisma, worldId) {
 // matches 0 rows and 409s), then let the engine do the cash + one-week delivery
 // math. All in one transaction, so a failed buyer write rolls the claim back too.
 export async function buyUsed(prisma, { world, buyer, listingId }) {
-  return prisma.$transaction(async (tx) => {
+  // withTx, not a bare $transaction: the claim + blob write can land while the
+  // worker's tick holds locks on the buyer's Airline row, and Prisma's 5s default
+  // budget turned that ordinary wait into a red toast. See lib/tx.mjs.
+  return withTx(prisma, async (tx) => {
     const listing = await tx.usedAircraftListing.findUnique({ where: { id: listingId } });
     if (!listing || listing.status !== 'OPEN' || listing.worldId !== world.id) {
       throw new AircraftMarketError('That aircraft is no longer available.', 404);

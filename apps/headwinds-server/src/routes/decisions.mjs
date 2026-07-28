@@ -16,6 +16,7 @@ import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
+import { withTx } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
 import { sharesOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import {
@@ -435,7 +436,14 @@ export default async function decisionRoutes(fastify) {
     const nameChanged = nextName && nextName !== airline.name;
 
     try {
-      await prisma.$transaction(async (tx) => {
+      // withTx, not a bare $transaction. This is the hot path — every player move
+      // goes through it — and it can be blocked by the worker's tick, which holds
+      // Airline row locks for the length of a whole world commit. On Prisma's 5s
+      // default that surfaced to the player as a raw
+      // "Invalid `prisma.airline.updateMany()` invocation: Transaction API error".
+      // Every write below is version-guarded, so retrying a rolled-back attempt is
+      // safe: it either lands or loses its CAS and 409s honestly. See lib/tx.mjs.
+      await withTx(prisma, async (tx) => {
         // Gate scarcity: the world's gate ledger is the arbiter of availability.
         // Same transaction as the blob write, version-guarded — two airlines can
         // never both take the last gate. Throws GateError (400/409) on violation.

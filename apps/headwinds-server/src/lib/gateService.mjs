@@ -21,6 +21,7 @@ import {
   GATE_SURCHARGE_THRESHOLD,
 } from '@tailwinds/engine/data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '@tailwinds/engine/utils/simulation.js';
+import { withTx } from './tx.mjs';
 
 export const isGateScarcity = (world) => world?.tickConfig?.gateScarcity === true;
 
@@ -695,7 +696,11 @@ export async function withdrawListing(prisma, { airline, listingId }) {
 // listing closes — all in one transaction, CAS-guarded on every row touched.
 export async function buyListing(prisma, { world, buyer, listingId, allianceMap = new Map() }) {
   const weekIdx = worldWeekIndex(world);
-  return prisma.$transaction(async (tx) => {
+  // withTx, not a bare $transaction: this touches TWO airline rows plus the gate
+  // ledger, so it is both the slowest player write and the one most likely to sit
+  // behind the tick's locks. Prisma's 5s default budget surfaced that as a raw
+  // "Transaction already closed" toast. See lib/tx.mjs.
+  return withTx(prisma, async (tx) => {
     const listing = await tx.gateListing.findUnique({ where: { id: listingId } });
     if (!listing || listing.status !== 'OPEN' || listing.worldId !== world.id) {
       throw new GateError('That listing is no longer open.', 404);
@@ -739,16 +744,30 @@ export async function buyListing(prisma, { world, buyer, listingId, allianceMap 
     const buyerNext = gameReducer(buyer.state, { type: 'GATE_PURCHASED', airportCode: code, price: listing.askPrice });
     const sellerNext = gameReducer(seller.state, { type: 'GATE_SOLD', airportCode: code, proceeds: listing.askPrice });
 
-    const wroteBuyer = await tx.airline.updateMany({
-      where: { id: buyer.id, version: buyer.version },
-      data: { state: buyerNext, cash: BigInt(Math.round(buyerNext.cash ?? 0)), version: { increment: 1 } },
-    });
-    if (wroteBuyer.count === 0) throw new GateError('Your airline just changed — reload and try again.', 409);
-    const wroteSeller = await tx.airline.updateMany({
-      where: { id: seller.id, version: seller.version },
-      data: { state: sellerNext, cash: BigInt(Math.round(sellerNext.cash ?? 0)), version: { increment: 1 } },
-    });
-    if (wroteSeller.count === 0) throw new GateError('The seller just changed — try again.', 409);
+    // Both sides are written in a deterministic order (by airline id), NOT
+    // buyer-then-seller. If A is buying a gate from B at the same moment B is
+    // buying one from A, a buyer-first order has each transaction holding the row
+    // the other needs — a textbook deadlock, which Postgres resolves by killing
+    // one of them (Prisma P2034). Sorting by id means every transaction in this
+    // world grabs the two rows in the same sequence, so they queue instead.
+    const sides = [
+      {
+        id: buyer.id, version: buyer.version, next: buyerNext,
+        conflict: 'Your airline just changed — reload and try again.',
+      },
+      {
+        id: seller.id, version: seller.version, next: sellerNext,
+        conflict: 'The seller just changed — try again.',
+      },
+    ].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+    for (const side of sides) {
+      const wrote = await tx.airline.updateMany({
+        where: { id: side.id, version: side.version },
+        data: { state: side.next, cash: BigInt(Math.round(side.next.cash ?? 0)), version: { increment: 1 } },
+      });
+      if (wrote.count === 0) throw new GateError(side.conflict, 409);
+    }
 
     // Holdings move; the buyer inherits an anti-flip cooldown.
     const holdings = { ...(row.holdings ?? {}) };

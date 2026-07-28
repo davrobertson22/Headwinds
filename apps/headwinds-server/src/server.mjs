@@ -10,6 +10,7 @@ import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
+import { isTransientTxError } from './lib/tx.mjs';
 import meRoutes from './routes/me.mjs';
 import worldRoutes from './routes/worlds.mjs';
 import newsRoutes from './routes/news.mjs';
@@ -38,10 +39,28 @@ export function buildServer() {
 
   // Uniform error shape. Respect an error's statusCode (set by our helpers /
   // Fastify's validation); default to 500 and log unexpected ones.
+  //
+  // Below 500 the message is ours and is written for the player, so it is sent
+  // as-is. At 500+ it is NOT: it is whatever the driver said, and the client
+  // renders `error` directly in a toast — which is how players ended up staring at
+  // "Invalid `prisma.airline.updateMany()` invocation: Transaction API error...".
+  // Internals stay in the log; the player gets something actionable.
   app.setErrorHandler((err, request, reply) => {
-    const status = err.statusCode ?? 500;
+    // A transaction that timed out or lost a deadlock is not a broken request —
+    // it is a busy database. Say so, and mark it retryable so the client can just
+    // re-submit instead of telling the player their move failed.
+    const transient = !err.statusCode && isTransientTxError(err);
+    const status = err.statusCode ?? (transient ? 503 : 500);
+
     if (status >= 500) request.log.error(err);
-    reply.code(status).send({ error: err.message || 'Internal Server Error' });
+    if (status < 500) return reply.code(status).send({ error: err.message || 'Request failed' });
+
+    return reply.code(status).send({
+      error: transient
+        ? 'The world is busy committing this week — give it a moment and try again.'
+        : 'Something went wrong on our end. Try again in a moment.',
+      retryable: transient,
+    });
   });
 
   app.get('/health', async () => ({ ok: true, service: 'headwinds-api' }));
