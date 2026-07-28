@@ -983,6 +983,52 @@ export default function Operations() {
         );
       })()}
 
+      {/* Reserve coverage — hub-based standby covers (docs/reserve-aircraft-design.md) */}
+      {(() => {
+        const fleet   = state.fleet ?? [];
+        const allOps  = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
+        const reserves = fleet.filter(a => a.reserveBase && a.status !== 'retired');
+        const covering = new Map(); // reserveId -> covered route count
+        for (const r of allOps) {
+          if (r.coverForAircraftId) covering.set(r.aircraftId, (covering.get(r.aircraftId) ?? 0) + 1);
+        }
+        const gaps = state.lastReport?.coverage?.gaps ?? [];
+        if (reserves.length === 0 && covering.size === 0 && gaps.length === 0) return null;
+        return (
+          <div className="card" style={{ padding: '12px 18px', marginTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><Glyph e="🛡️" /> Reserve Coverage</div>
+            {reserves.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No reserves stationed. Station an idle aircraft at a hub (Fleet tab) and it will automatically cover same-type aircraft in the shop there.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {reserves.map(a => {
+                  const n = covering.get(a.id) ?? 0;
+                  const t = getAircraftType(a.typeId);
+                  return (
+                    <div key={a.id} style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600 }}>{a.name}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{t?.name} @ {a.reserveBase}</span>
+                      {n > 0
+                        ? <span style={{ color: 'var(--accent)' }}>covering {n} route{n !== 1 ? 's' : ''}</span>
+                        : <span style={{ color: 'var(--green)' }}>standing by</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {gaps.length > 0 && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                {gaps.map((g, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--yellow)' }}>
+                    <Glyph e="⚠" size={11} /> {g.original?.name}: {g.routes} route{g.routes !== 1 ? 's' : ''} uncovered (~{formatMoney(g.revenueAtRisk)}/wk) — {g.reason === 'no-reserve' ? 'no same-type reserve based where they fly' : 'matching reserve is out of block hours'}.
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Marketing budget section */}
       <div style={{
         fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',

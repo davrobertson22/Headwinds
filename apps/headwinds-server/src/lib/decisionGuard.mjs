@@ -211,10 +211,25 @@ function guardScheduleCheck(payload, state) {
   return out;
 }
 
+// ── Reserve aircraft (mirror src/components/Fleet.jsx station picker) ────────
+// The reducer re-validates idle/in-service and hub ownership; the guard's job
+// is payload hygiene: the aircraft must be the airline's own, the base one of
+// its own hubs/focus cities, and the payload sanitized to exactly two fields
+// (costs are computed server-side from type data — nothing here is priceable).
+function guardSetReserve(payload, state) {
+  const a = (state.fleet ?? []).find((x) => x.id === payload.aircraftId);
+  if (!a) throw new GuardError('Unknown aircraft.');
+  const code = String(payload.baseCode ?? '');
+  if ((state.hubs ?? {})[code] == null) throw new GuardError('Reserve base must be one of your hubs or focus cities.');
+  return { aircraftId: payload.aircraftId, baseCode: code };
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
     case 'CANCEL_SCHEDULED_CHECK': return { aircraftId: payload.aircraftId };
+    case 'SET_RESERVE':        return guardSetReserve(payload, state);
+    case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);

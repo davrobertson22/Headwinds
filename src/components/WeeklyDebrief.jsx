@@ -51,6 +51,7 @@ export default function WeeklyDebrief() {
   const compEvents         = lastReport.competitorEvents   ?? [];
   const mechanicalFailures = lastReport.mechanicalFailures ?? [];
   const maintChecks        = lastReport.maintenanceChecks ?? { started: [], forced: [], completed: [], spend: 0 };
+  const coverage           = lastReport.coverage ?? { started: [], ended: [], permanent: [], gaps: [] };
 
   const loyaltyMembers      = lastReport.loyaltyMembersTotal ?? 0;
   const loyaltyMemberDelta  = lastReport.loyaltyMemberDelta  ?? 0;
@@ -276,6 +277,39 @@ export default function WeeklyDebrief() {
                 <div key={'mc' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(63,185,80,.08)', border: '1px solid rgba(63,185,80,.25)', borderRadius: 8, fontSize: 12 }}>
                   <span style={{ fontSize: 16 }}>✅</span>
                   <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--green)' }}>{c.name}</span> <span style={{ color: 'var(--text-muted)' }}>{c.checkType} check complete — back in service</span></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Reserve coverage */}
+        {(coverage.started.length + coverage.ended.length + coverage.permanent.length + coverage.gaps.length) > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <SectionLabel>🛡️ Reserve Coverage</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {coverage.started.map((c, i) => (
+                <div key={'cs' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(56,139,253,.08)', border: '1px solid rgba(56,139,253,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>🛡️</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--accent)' }}>{c.reserve.name}</span> <span style={{ color: 'var(--text-muted)' }}>dispatched — covering {c.routes} route{c.routes !== 1 ? 's' : ''} for {c.original.name}</span></div>
+                </div>
+              ))}
+              {coverage.ended.map((c, i) => (
+                <div key={'ce' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(63,185,80,.08)', border: '1px solid rgba(63,185,80,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>🛡️</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--green)' }}>{c.reserve.name}</span> <span style={{ color: 'var(--text-muted)' }}>cover complete — {c.routes} route{c.routes !== 1 ? 's' : ''} handed back to {c.original.name}</span></div>
+                </div>
+              ))}
+              {coverage.permanent.map((c, i) => (
+                <div key={'cp' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(56,139,253,.08)', border: '1px solid rgba(56,139,253,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>🛡️</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--accent)' }}>{c.reserve.name}</span> <span style={{ color: 'var(--text-muted)' }}>keeps {c.routes} route{c.routes !== 1 ? 's' : ''} — {c.original.name} left the fleet mid-cover</span></div>
+                </div>
+              ))}
+              {coverage.gaps.map((g, i) => (
+                <div key={'cg' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(210,153,34,.08)', border: '1px solid rgba(210,153,34,.25)', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ fontSize: 16 }}>⚠️</span>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--yellow)' }}>{g.original.name}</span> <span style={{ color: 'var(--text-muted)' }}>{g.routes} route{g.routes !== 1 ? 's' : ''} uncovered (~{formatMoney(g.revenueAtRisk)}/wk) — {g.reason === 'no-reserve' ? 'no same-type reserve based there' : 'reserve out of block hours'}</span></div>
                 </div>
               ))}
             </div>

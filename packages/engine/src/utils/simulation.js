@@ -1,6 +1,7 @@
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee, GATE_SURCHARGE_MULT } from '../data/airports.js';
 import { getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
+import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee } from '../data/reserve.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
 import { LABOR_GROUPS, laborEffects } from '../data/labor.js';
@@ -1658,6 +1659,206 @@ export function buildEventDemandModel(activeEvents) {
   return { globalMult, multFor };
 }
 
+// ─────────────────────────────────────────────
+// RESERVE AIRCRAFT (hub-based standby covers)
+// ─────────────────────────────────────────────
+// Design doc: docs/reserve-aircraft-design.md. Covers are engine-managed
+// TEMPORARY transfers: a covered route's aircraftId points at the reserve for
+// the duration, with coverForAircraftId remembering the original tail. The
+// route markers are the single source of truth — no extra per-aircraft cover
+// state — so every existing consumer of route.aircraftId (revenue, wear,
+// block hours, hub maintenance factors) follows the covering metal for free.
+
+/** Does this route touch the given airport code (origin, destination, or any tag stop)? */
+function routeTouchesAirport(route, code) {
+  if (!code) return false;
+  if (route.origin === code || route.destination === code) return true;
+  return (route.stops ?? []).includes(code);
+}
+
+/** Per-month (1-12) weekly block hours for a route — 0 in dormant months. */
+function routeMonthlyHours(route, type) {
+  const hrs = routeBlockHours(route, type, route.weeklyFrequency);
+  return Array.from({ length: 12 }, (_, i) => (isRouteActive(route, i + 1) ? hrs : 0));
+}
+
+/**
+ * Plan this week's reserve covers. PURE and deterministic: routes needing
+ * cover are sorted by last week's revenue (then id), reserves scan in id
+ * order, and the first same-type reserve based at an airport the route
+ * touches — with block-hour headroom at the per-month peak — takes it.
+ *
+ * Returns { assignments: [{ routeId, cargo, reserveId, forId }],
+ *           gaps: [{ routeId, cargo, forId, revenue, reason }] }.
+ * Reasons: 'no-reserve' (no same-type reserve based on the route) or
+ * 'hours-full' (a matching reserve exists but its weekly hours are spent).
+ */
+export function planCovers({ fleet = [], routes = [], cargoRoutes = [], hubs = {}, absWeek = 0, routeRevenues = {} }) {
+  const byId = new Map(fleet.map(a => [a.id, a]));
+
+  const need = [
+    ...routes.map(r => ({ r, cargo: false })),
+    ...cargoRoutes.map(r => ({ r, cargo: true })),
+  ].filter(({ r }) => {
+    if (r.coverForAircraftId) return false;            // already covered
+    const owner = byId.get(r.aircraftId);
+    return owner && isOutOfService(owner);
+  });
+  need.sort((a, b) =>
+    (routeRevenues[b.r.id] ?? 0) - (routeRevenues[a.r.id] ?? 0)
+    || String(a.r.id).localeCompare(String(b.r.id)));
+
+  const reserves = fleet
+    .filter(a => a.reserveBase
+      && hubs[a.reserveBase] != null
+      && a.status === 'idle'
+      && !isOutOfService(a)
+      && !(a.scheduledCheck
+           && (a.scheduledCheck.startWeek ?? 0) <= absWeek + RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  // Monthly block-hour ledger per reserve. A stationed reserve is idle so it
+  // starts empty; covers accumulate as they're assigned this pass.
+  const loads = new Map(reserves.map(a => [a.id, Array(12).fill(0)]));
+
+  const assignments = [];
+  const gaps = [];
+  for (const { r, cargo } of need) {
+    const broken = byId.get(r.aircraftId);
+    let sawTypeMatch = false;
+    let placed = false;
+    for (const res of reserves) {
+      if (res.typeId !== broken.typeId) continue;      // identical-type rule
+      if (!routeTouchesAirport(r, res.reserveBase)) continue;
+      sawTypeMatch = true;
+      const type = getAircraftType(res.typeId);
+      if (!type) continue;
+      const load  = loads.get(res.id);
+      const added = routeMonthlyHours(r, type);
+      const peak  = Math.max(...load.map((h, i) => h + added[i]));
+      if (peak > MAX_WEEKLY_BLOCK_HOURS + 1e-6) continue;
+      added.forEach((h, i) => { load[i] += h; });
+      assignments.push({ routeId: r.id, cargo, reserveId: res.id, forId: broken.id });
+      placed = true;
+      break;
+    }
+    if (!placed) {
+      gaps.push({
+        routeId: r.id, cargo, forId: broken.id,
+        revenue: routeRevenues[r.id] ?? 0,
+        reason:  sawTypeMatch ? 'hours-full' : 'no-reserve',
+      });
+    }
+  }
+  return { assignments, gaps };
+}
+
+/**
+ * The weekly reserve pass: RETURN finished covers, then DISPATCH new ones.
+ * Runs at the top of ADVANCE_WEEK (after grounding/check countdowns, before
+ * the revenue sim), so a cover starts the first week revenue would have been
+ * lost, and routes hand back the same week the original returns.
+ *
+ * Returns fresh { fleet, routes, cargoRoutes } plus event lists for
+ * toasts/debrief: coversStarted / coversEnded / coversPermanent (each grouped
+ * per reserve+original) and coverGaps (grouped per broken aircraft).
+ */
+export function applyReserveCovers({ fleet = [], routes = [], cargoRoutes = [], hubs = {}, absWeek = 0, routeRevenues = {} }) {
+  const fl   = fleet.map(a => ({ ...a }));
+  const rts  = routes.map(r => ({ ...r }));
+  const crts = cargoRoutes.map(r => ({ ...r }));
+  const byId = new Map(fl.map(a => [a.id, a]));
+
+  const endedRaw = [];      // { reserveId, forId }
+  const permRaw  = [];      // { reserveId, forId }
+
+  // ── 1. Reconcile existing covers ──────────────────────────────────────────
+  for (const list of [rts, crts]) {
+    for (const r of list) {
+      if (!r.coverForAircraftId) continue;
+      const orig = byId.get(r.coverForAircraftId);
+      const res  = byId.get(r.aircraftId);
+      if (!orig) {
+        // Original sold/retired/lease-returned → the cover becomes permanent.
+        permRaw.push({ reserveId: r.aircraftId, forId: r.coverForAircraftId });
+        r.coverForAircraftId = null;
+        if (res) res.reserveBase = null;   // it's a line aircraft now
+      } else if (!res) {
+        // Covering tail vanished (e.g. its lease expired) → hand the routes back.
+        endedRaw.push({ reserveId: r.aircraftId, forId: orig.id });
+        r.aircraftId = orig.id;
+        r.coverForAircraftId = null;
+      } else if (!isOutOfService(orig) || isOutOfService(res)) {
+        // Original is back in service — or the reserve itself broke down.
+        // Either way the routes go home (a re-dispatch below may re-cover them).
+        endedRaw.push({ reserveId: res.id, forId: orig.id });
+        r.aircraftId = orig.id;
+        r.coverForAircraftId = null;
+      }
+    }
+  }
+  syncStatuses(fl, rts, crts);
+
+  // ── 2. Dispatch new covers ─────────────────────────────────────────────────
+  const { assignments, gaps } = planCovers({ fleet: fl, routes: rts, cargoRoutes: crts, hubs, absWeek, routeRevenues });
+  for (const asg of assignments) {
+    const r = (asg.cargo ? crts : rts).find(x => x.id === asg.routeId);
+    if (!r) continue;
+    r.coverForAircraftId = asg.forId;
+    r.aircraftId = asg.reserveId;
+  }
+  syncStatuses(fl, rts, crts);
+
+  // ── 3. Group events for toasts / the Weekly Debrief ───────────────────────
+  const nameOf = id => { const a = byId.get(id); return a ? { id, name: a.name, tailNumber: a.tailNumber ?? '' } : { id, name: 'sold aircraft', tailNumber: '' }; };
+  const groupPairs = (raw) => {
+    const m = new Map();
+    for (const e of raw) {
+      const k = `${e.reserveId}|${e.forId}`;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m.entries()].map(([k, count]) => {
+      const [reserveId, forId] = k.split('|');
+      return { reserve: nameOf(reserveId), original: nameOf(forId), routes: count };
+    });
+  };
+  const startedPairs = groupPairs(assignments.map(a => ({ reserveId: a.reserveId, forId: a.forId })));
+  // Don't announce an "ended" cover that was immediately re-dispatched to the
+  // same reserve (reserve fine, original still down — that's a continuation).
+  const restartKeys = new Set(assignments.map(a => `${a.reserveId}|${a.forId}`));
+  const endedPairs  = groupPairs(endedRaw).filter(e => !restartKeys.has(`${e.reserve.id}|${e.original.id}`));
+  const permanentPairs = groupPairs(permRaw);
+
+  const gapsByFor = new Map();
+  for (const g of gaps) {
+    if (!gapsByFor.has(g.forId)) gapsByFor.set(g.forId, { original: nameOf(g.forId), routes: 0, revenueAtRisk: 0, reasons: new Set() });
+    const e = gapsByFor.get(g.forId);
+    e.routes += 1;
+    e.revenueAtRisk += g.revenue;
+    e.reasons.add(g.reason);
+  }
+  const coverGaps = [...gapsByFor.values()].map(e => ({
+    original: e.original, routes: e.routes,
+    revenueAtRisk: Math.round(e.revenueAtRisk),
+    reason: e.reasons.has('no-reserve') ? 'no-reserve' : 'hours-full',
+  }));
+
+  return {
+    fleet: fl, routes: rts, cargoRoutes: crts,
+    coversStarted: startedPairs, coversEnded: endedPairs,
+    coversPermanent: permanentPairs, coverGaps,
+  };
+}
+
+/** Recompute assigned/idle for every in-service tail from the (possibly rewritten) routes. */
+function syncStatuses(fl, rts, crts) {
+  const assigned = new Set([...rts, ...crts].map(r => r.aircraftId));
+  for (const a of fl) {
+    if (a.status === 'retired' || isOutOfService(a)) continue;
+    a.status = assigned.has(a.id) ? 'assigned' : 'idle';
+  }
+}
+
 /**
  * Advances the game one week. Returns a full financial report.
  *
@@ -2420,28 +2621,53 @@ export function weeklyTick(state) {
     });
   }
 
-  // 2. Fleet fixed costs (lease + maintenance)
-  let totalLeases      = 0;
-  let totalMaintenance = 0;
-  const fleetCosts     = [];
+  // 2. Fleet fixed costs (lease + maintenance + reserve standby)
+  let totalLeases         = 0;
+  let totalMaintenance    = 0;
+  let totalReserveParking = 0;
+  const fleetCosts      = [];
+  const reserveStandby  = [];   // per-reserve cost breakdown for the Finance page
 
   for (const aircraft of fleet) {
     const type = getAircraftType(aircraft.typeId);
     if (!type) continue;
     const maintMult         = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
     const { maintenanceCostMultiplier } = laborEffects(labor);
-    const maint             = Math.round(
+    const baseMaint         = Math.round(
       type.baseMaintenancePerWk * maintMult * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)
       * (aircraftMaintFactor[aircraft.id] ?? 1.0)   // hub line-maintenance discount
     );
+    // Reserve standby costs (design doc §4.4): a stationed reserve pays a
+    // readiness premium on line maintenance (crew on standby, systems warm),
+    // plus a weekly parking fee at its base — suspended in weeks it is out
+    // covering (it's flying, not parked) or in the shop itself.
+    const stationed = !!aircraft.reserveBase && aircraft.status !== 'retired';
+    const maint     = stationed ? Math.round(baseMaint * RESERVE_READINESS_MULT) : baseMaint;
+    let parking = 0;
+    if (stationed && !isOutOfService(aircraft)) {
+      const covering = rawRoutes.some(r => r.aircraftId === aircraft.id && r.coverForAircraftId)
+        || cargoRoutes.some(r => r.aircraftId === aircraft.id && r.coverForAircraftId);
+      if (!covering && aircraft.status === 'idle') {
+        const feeCat = type.freighter ? freighterLandingCategory(type.payloadTonnes ?? 0) : type.category;
+        const tier   = getAirport(aircraft.reserveBase)?.tier ?? 'major';
+        parking = reserveParkingFee(feeCat, tier);
+      }
+    }
+    if (stationed) {
+      reserveStandby.push({
+        aircraftId: aircraft.id, name: aircraft.name, base: aircraft.reserveBase,
+        parking, readinessPremium: maint - baseMaint,
+      });
+    }
     // Owned aircraft carry no lease — only maintenance applies.
     // Use the per-aircraft weeklyLease stored at delivery time (may differ from type default
     // due to engine options / wingtips chosen at order time); fall back to type default.
     const leaseThisWk = aircraft.ownershipType === 'owned' ? 0
       : (aircraft.weeklyLease ?? type.weeklyLease);
-    totalLeases      += leaseThisWk;
-    totalMaintenance += maint;
-    fleetCosts.push({ aircraftId: aircraft.id, lease: leaseThisWk, maintenance: maint });
+    totalLeases         += leaseThisWk;
+    totalMaintenance    += maint;
+    totalReserveParking += parking;
+    fleetCosts.push({ aircraftId: aircraft.id, lease: leaseThisWk, maintenance: maint, reserveParking: parking });
   }
 
   // 3. Labor overhead (fixed per aircraft, scaled by pay multiplier for each group).
@@ -2555,7 +2781,7 @@ export function weeklyTick(state) {
   const totalCost   = totalLeases + totalMaintenance + totalOpCost + totalGateFees
     + totalLaborCosts + totalFamilyBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
-    + totalDistributionCost;
+    + totalDistributionCost + totalReserveParking;
   const cashDelta   = totalRevenue + totalPartnerRevenue - totalCost;
 
   // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
@@ -2609,6 +2835,8 @@ export function weeklyTick(state) {
     totalConnecting:        Math.round(totalConnecting),
     totalLeases:            Math.round(totalLeases),
     totalMaintenance:       Math.round(totalMaintenance),
+    totalReserveParking:    Math.round(totalReserveParking),
+    reserveStandby,
     totalFuel:              Math.round(totalFuel),
     totalCrew:              Math.round(totalCrew),
     totalQuality:           Math.round(totalQuality),

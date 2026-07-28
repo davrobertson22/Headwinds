@@ -9,7 +9,9 @@ import {
   simulateRoute, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   MAX_WEEKLY_BLOCK_HOURS, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
+  freighterLandingCategory,
 } from '../utils/simulation.js';
+import { reserveParkingFee, RESERVE_READINESS_MULT } from '../data/reserve.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
@@ -213,6 +215,109 @@ function ExtendLeaseModal({ aircraft, onClose }) {
 }
 
 // ─── Detail panel ─────────────────────────────────────────────────────────────
+
+// ── Reserve standby (hub-based covers — see docs/reserve-aircraft-design.md) ──
+// Station an idle tail at one of your hubs/focus cities; the weekly tick
+// auto-covers same-type aircraft that go into the shop at that base.
+function ReserveSection({ aircraft, type }) {
+  const { state, dispatch } = useGame();
+  const hubCodes = Object.keys(state.hubs ?? {});
+  const [base, setBase] = useState(aircraft.reserveBase ?? hubCodes[0] ?? '');
+  if (!type) return null;
+
+  const allOps   = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
+  const covering = allOps.filter(r => r.aircraftId === aircraft.id && r.coverForAircraftId);
+  const feeCat   = type.freighter ? freighterLandingCategory(type.payloadTonnes ?? 0) : type.category;
+  const parkingFor = (code) => reserveParkingFee(feeCat, getAirport(code)?.tier ?? 'major');
+  // ≈ readiness premium: +15% on this tail's base weekly line maintenance
+  // (the engine also applies budget/labor multipliers — this is a preview).
+  const premium = Math.round((type.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(aircraft.ageWeeks ?? 0) * (RESERVE_READINESS_MULT - 1));
+  // Coverage preview: same-type tails whose routes touch a base.
+  const coverableFor = (code) => {
+    const sameType = new Set((state.fleet ?? [])
+      .filter(a => a.id !== aircraft.id && a.typeId === aircraft.typeId && a.status !== 'retired')
+      .map(a => a.id));
+    const tails = new Set(); let count = 0;
+    for (const r of allOps) {
+      const owner = r.coverForAircraftId ?? r.aircraftId;
+      if (!sameType.has(owner)) continue;
+      if (r.origin === code || r.destination === code || (r.stops ?? []).includes(code)) { count++; tails.add(owner); }
+    }
+    return { routes: count, tails: tails.size };
+  };
+
+  const sectionTitle = (
+    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+      <Glyph e="🛡️" /> Reserve Standby
+    </div>
+  );
+
+  if (covering.length > 0) {
+    const forIds = [...new Set(covering.map(r => r.coverForAircraftId))];
+    const names  = forIds.map(id => state.fleet.find(a => a.id === id)?.name ?? 'sold aircraft');
+    return (
+      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+        {sectionTitle}
+        <div style={{ fontSize: 13, color: 'var(--accent)', marginBottom: 6 }}>
+          Covering {covering.length} route{covering.length !== 1 ? 's' : ''} for {names.join(', ')} — hands back automatically when {names.length > 1 ? 'they return' : 'it returns'} to service.
+        </div>
+        {aircraft.reserveBase ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--text-muted)' }}>
+            <span>Based at {aircraft.reserveBase} · parking suspended while flying · readiness ≈ {formatMoney(premium)}/wk</span>
+            <button className="btn" onClick={() => dispatch({ type: 'CLEAR_RESERVE', aircraftId: aircraft.id })}>Stand down after this cover</button>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Stood down — finishes this cover, then goes idle.</div>
+        )}
+      </div>
+    );
+  }
+
+  if (aircraft.reserveBase) {
+    const cov = coverableFor(aircraft.reserveBase);
+    return (
+      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+        {sectionTitle}
+        <div style={{ fontSize: 13, marginBottom: 6 }}>
+          On standby at <b>{aircraft.reserveBase}</b> — will automatically cover your {cov.tails} other {type.name}{cov.tails !== 1 ? 's' : ''} there ({cov.routes} route{cov.routes !== 1 ? 's' : ''} reachable) if one goes into the shop.
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+          <span>Standby cost ≈ {formatMoney(parkingFor(aircraft.reserveBase) + premium)}/wk ({formatMoney(parkingFor(aircraft.reserveBase))} parking + {formatMoney(premium)} readiness)</span>
+          <button className="btn" onClick={() => dispatch({ type: 'CLEAR_RESERVE', aircraftId: aircraft.id })}>Stand down</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (aircraft.status !== 'idle') return null;
+  if (hubCodes.length === 0) {
+    return (
+      <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+        {sectionTitle}
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Designate a hub or focus city (Airports tab) to station this aircraft as a reserve.</div>
+      </div>
+    );
+  }
+  const cov = coverableFor(base || hubCodes[0]);
+  return (
+    <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      {sectionTitle}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+        <span>Station as reserve at</span>
+        <select value={base || hubCodes[0]} onChange={e => setBase(e.target.value)} style={{ background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', fontSize: 12 }}>
+          {hubCodes.map(c => <option key={c} value={c}>{c}{(state.hubs?.[c]?.tier ?? 0) === 0 ? ' (focus city)' : ''}</option>)}
+        </select>
+        <button className="btn btn-primary" onClick={() => dispatch({ type: 'SET_RESERVE', aircraftId: aircraft.id, baseCode: base || hubCodes[0] })}>Station</button>
+      </div>
+      <div style={{ fontSize: 12, color: cov.routes === 0 ? 'var(--yellow)' : 'var(--text-muted)', marginTop: 6 }}>
+        {cov.routes === 0
+          ? `No other ${type.name} routes touch ${base || hubCodes[0]} — a reserve here would have nothing to cover (same-type only).`
+          : `Would stand in for your ${cov.tails} other ${type.name}${cov.tails !== 1 ? 's' : ''} touching ${base || hubCodes[0]} (${cov.routes} route${cov.routes !== 1 ? 's' : ''}) the moment one is grounded or checked.`}
+        {' '}Standby cost ≈ {formatMoney(parkingFor(base || hubCodes[0]) + premium)}/wk.
+      </div>
+    </div>
+  );
+}
 
 function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const { state, dispatch } = useGame();
@@ -710,6 +815,31 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
           </>
         )}
       </div>
+
+      {/* ── Reserve standby (hub-based covers) ─────────────────────── */}
+      {isOutOfService(aircraft) ? (() => {
+        const coveredRoutes = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])].filter(r => r.coverForAircraftId === aircraft.id);
+        const ownRoutes     = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])].filter(r => r.aircraftId === aircraft.id);
+        if (coveredRoutes.length === 0 && ownRoutes.length === 0) return null;
+        const coverNames = [...new Set(coveredRoutes.map(r => state.fleet.find(a => a.id === r.aircraftId)?.name).filter(Boolean))];
+        return (
+          <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}><Glyph e="🛡️" /> Reserve Cover</div>
+            {coveredRoutes.length > 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--accent)' }}>
+                {coveredRoutes.length}/{coveredRoutes.length + ownRoutes.length} route{(coveredRoutes.length + ownRoutes.length) !== 1 ? 's' : ''} covered by {coverNames.join(', ')} while this aircraft is out of service.
+                {ownRoutes.length > 0 && <span style={{ color: 'var(--yellow)' }}> {ownRoutes.length} uncovered — earning nothing.</span>}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--yellow)' }}>
+                No reserve is covering this aircraft's {ownRoutes.length} route{ownRoutes.length !== 1 ? 's' : ''} — a same-type reserve stationed at an airport they touch would step in automatically.
+              </div>
+            )}
+          </div>
+        );
+      })() : (
+        <ReserveSection aircraft={aircraft} type={type} />
+      )}
 
       {/* ── Actions ───────────────────────────────────────────────── */}
       <div ref={actionsRef} style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap', scrollMarginTop: 70 }}>
@@ -1426,7 +1556,7 @@ export default function Fleet() {
         <div className="stat-box">
           <div className="stat-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             Idle Aircraft
-            <InfoTip side="bottom" text="Planes not assigned to any route. They still cost lease & maintenance but earn nothing, assign them via the Route Planner or Routes → Open Route." />
+            <InfoTip side="bottom" text="Planes not assigned to any route. They still cost lease & maintenance but earn nothing — assign them via the Route Planner, or station one as a reserve at a hub so it automatically covers same-type aircraft during breakdowns and heavy checks." />
           </div>
           <div className="stat-value yellow">{fleet.filter(a => a.status === 'idle').length}</div>
         </div>
@@ -1990,9 +2120,20 @@ export default function Fleet() {
                         ) : (
                           <span className="badge badge-green">{assignedRoutes.length} routes</span>
                         )
+                      ) : aircraft.reserveBase ? (
+                        <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}><Glyph e="🛡️" /> Reserve @ {aircraft.reserveBase}</span>
                       ) : (
                         <span className="badge badge-yellow">Idle</span>
                       )}
+                      {assignedRoutes.some(r => r.coverForAircraftId) && (
+                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}><Glyph e="🛡️" size={10} /> covering{aircraft.reserveBase ? ` from ${aircraft.reserveBase}` : ''}</span>
+                      )}
+                      {isOutOfService(aircraft) && (() => {
+                        const covered = [...routes, ...cargoRoutes].filter(r => r.coverForAircraftId === aircraft.id).length;
+                        if (covered === 0) return null;
+                        const own = assignedRoutes.length;
+                        return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}><Glyph e="🛡️" size={10} /> {covered}/{covered + own} covered</span>;
+                      })()}
                       {aircraft.status === 'maintenance' && (
                         <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}><Glyph e="🔧" /> {aircraft.checkType || 'C'} check {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}</span>
                       )}

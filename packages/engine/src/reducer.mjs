@@ -12,6 +12,7 @@ import {
   MAX_ROUTE_STOPS,
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
   isRouteActive, routeActiveMonths, aircraftHubMaintFactor,
+  applyReserveCovers, planCovers,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
@@ -109,6 +110,9 @@ export function transferCompatibility(state, fromAircraftId, toAircraftId) {
   const cargoRoutes = (state.cargoRoutes ?? []).filter(r => r.aircraftId === fromAircraftId);
   const all = [...paxRoutes, ...cargoRoutes];
   if (all.length === 0) return { ok: false, reason: 'No routes to transfer' };
+  // Reserve covers are engine-managed temporary assignments — the routes
+  // belong to the broken tail and go home when it returns. Not transferable.
+  if (all.some(r => r.coverForAircraftId)) return { ok: false, reason: 'Covering for an out-of-service aircraft' };
 
   // Target must be an open tail — a swap, not a merge onto a working aircraft.
   const targetBusy = state.routes.some(r => r.aircraftId === toAircraftId)
@@ -149,6 +153,39 @@ export function transferCompatibility(state, fromAircraftId, toAircraftId) {
   if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return { ok: false, reason: 'Too slow — exceeds weekly block hours' };
 
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────
+// RESERVE COVER SETTLEMENT (on sell / retire)
+// ─────────────────────────────────────────────
+// Removing an aircraft that is part of a live cover must not delete routes or
+// strand markers:
+//   - removing the COVERING reserve → its covered routes go home to the
+//     original first (still out of service, so they simply idle);
+//   - removing the covered ORIGINAL → the cover becomes a permanent transfer
+//     (markers cleared, the ex-reserve keeps the routes and loses its base).
+// Returns { routes, cargoRoutes, fleet } with covers settled; the caller then
+// applies its normal removal logic.
+function settleCoversForRemoval(state, aircraftId) {
+  const settle = (list) => list.map(r => {
+    if (r.coverForAircraftId === aircraftId) {
+      return { ...r, coverForAircraftId: null };          // permanent transfer to the reserve
+    }
+    if (r.aircraftId === aircraftId && r.coverForAircraftId) {
+      return { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null };  // hand back
+    }
+    return r;
+  });
+  const hadCoverFor = [...state.routes, ...(state.cargoRoutes ?? [])]
+    .some(r => r.coverForAircraftId === aircraftId);
+  const fleet = hadCoverFor
+    ? state.fleet.map(a => {
+        const covering = [...state.routes, ...(state.cargoRoutes ?? [])]
+          .some(r => r.coverForAircraftId === aircraftId && r.aircraftId === a.id);
+        return covering ? { ...a, reserveBase: null } : a;
+      })
+    : state.fleet;
+  return { routes: settle(state.routes), cargoRoutes: settle(state.cargoRoutes ?? []), fleet };
 }
 
 // ─────────────────────────────────────────────
@@ -769,13 +806,19 @@ function reducer(state, action) {
 
     case 'RETIRE_AIRCRAFT': {
       const aircraft      = state.fleet.find(a => a.id === action.aircraftId);
-      const updatedRoutes = state.routes.filter(r => r.aircraftId !== action.aircraftId);
-      const updatedCargo  = (state.cargoRoutes ?? []).filter(r => r.aircraftId !== action.aircraftId);
-      const updatedFleet  = state.fleet.filter(a => a.id !== action.aircraftId);
+      // Settle any live reserve covers involving this tail before removal.
+      const settled       = settleCoversForRemoval(state, action.aircraftId);
+      const updatedRoutes = settled.routes.filter(r => r.aircraftId !== action.aircraftId);
+      const updatedCargo  = settled.cargoRoutes.filter(r => r.aircraftId !== action.aircraftId);
+      const updatedFleet  = settled.fleet.filter(a => a.id !== action.aircraftId);
       const routeAircraftIds = new Set([...updatedRoutes, ...updatedCargo].map(r => r.aircraftId));
       const reStatusFleet = updatedFleet.map(a => ({
         ...a,
-        status: routeAircraftIds.has(a.id) ? 'assigned' : 'idle',
+        // Preserve out-of-service statuses — a retirement elsewhere in the fleet
+        // must not yank another tail out of its repair bay or heavy check.
+        status: (a.status === 'retired' || isOutOfService(a))
+          ? a.status
+          : (routeAircraftIds.has(a.id) ? 'assigned' : 'idle'),
       }));
       // Early termination penalty: 50 % of remaining weekly lease × weeks left
       const type    = aircraft ? getAircraftType(aircraft.typeId) : null;
@@ -822,6 +865,31 @@ function reducer(state, action) {
       return { ...state, fleet: state.fleet.map(x => x.id === action.aircraftId ? { ...x, scheduledCheck: null } : x) };
     }
 
+    case 'SET_RESERVE': {
+      // Station an idle aircraft as a reserve at one of YOUR hubs/focus cities.
+      // While stationed it pays a readiness premium + weekly parking fee (see
+      // data/reserve.js) and the weekly tick auto-dispatches it onto the routes
+      // of any same-type aircraft that goes out of service at that base.
+      const a = state.fleet.find(x => x.id === action.aircraftId);
+      const code = action.baseCode;
+      if (!a || a.status !== 'idle' || isOutOfService(a)) return state;
+      if ((state.hubs ?? {})[code] == null) return state;   // must be an own hub or focus city (tier 0 valid)
+      return {
+        ...state,
+        fleet: state.fleet.map(x => x.id === a.id ? { ...x, reserveBase: code } : x),
+      };
+    }
+
+    case 'CLEAR_RESERVE': {
+      // Free. If the tail is mid-cover, the cover simply runs to its natural
+      // end (route markers are the source of truth); it just won't be
+      // dispatched again.
+      return {
+        ...state,
+        fleet: state.fleet.map(x => x.id === action.aircraftId ? { ...x, reserveBase: null } : x),
+      };
+    }
+
     case 'SELL_AIRCRAFT': {
       // Sell an owned aircraft at NAV minus 5% selling & admin fee.
       const aircraft      = state.fleet.find(a => a.id === action.aircraftId);
@@ -836,13 +904,17 @@ function reducer(state, action) {
       const nav           = Math.round((type?.purchasePrice ?? 0) * remaining * maintNavMultiplier(aircraft, sellAbsWeek));
       const fee           = Math.round(nav * 0.05);
       const proceeds      = nav - fee;
-      const updatedRoutes = state.routes.filter(r => r.aircraftId !== action.aircraftId);
-      const updatedCargo  = (state.cargoRoutes ?? []).filter(r => r.aircraftId !== action.aircraftId);
-      const updatedFleet  = state.fleet.filter(a => a.id !== action.aircraftId);
+      const settled       = settleCoversForRemoval(state, action.aircraftId);
+      const updatedRoutes = settled.routes.filter(r => r.aircraftId !== action.aircraftId);
+      const updatedCargo  = settled.cargoRoutes.filter(r => r.aircraftId !== action.aircraftId);
+      const updatedFleet  = settled.fleet.filter(a => a.id !== action.aircraftId);
       const routeAircraftIds = new Set([...updatedRoutes, ...updatedCargo].map(r => r.aircraftId));
       const reStatusFleet = updatedFleet.map(a => ({
         ...a,
-        status: routeAircraftIds.has(a.id) ? 'assigned' : 'idle',
+        // Preserve out-of-service statuses (see RETIRE_AIRCRAFT note).
+        status: (a.status === 'retired' || isOutOfService(a))
+          ? a.status
+          : (routeAircraftIds.has(a.id) ? 'assigned' : 'idle'),
       }));
       return {
         ...state,
@@ -895,7 +967,7 @@ function reducer(state, action) {
         routes:      state.routes.map(move),
         cargoRoutes: (state.cargoRoutes ?? []).map(move),
         fleet: state.fleet.map(a =>
-          a.id === toAircraftId   ? { ...a, status: 'assigned' } :
+          a.id === toAircraftId   ? { ...a, status: 'assigned', reserveBase: null } :
           a.id === fromAircraftId ? { ...a, status: 'idle' }     : a),
       };
     }
@@ -1095,7 +1167,7 @@ function reducer(state, action) {
           : 'active',
       };
       const updatedFleet = state.fleet.map(a =>
-        a.id === action.aircraftId ? { ...a, status: 'assigned' } : a
+        a.id === action.aircraftId ? { ...a, status: 'assigned', reserveBase: null } : a
       );
       // Price and catering are per-route (O&D pair). The first aircraft on a pair sets
       // them; additional aircraft inherit whatever the route already uses.
@@ -1211,7 +1283,7 @@ function reducer(state, action) {
         cateringLevel:   normalizeCateringLevel(action.cateringLevel ?? state.defaultCateringLevel),
       };
       const updatedFleet = state.fleet.map(a =>
-        a.id === action.aircraftId ? { ...a, status: 'assigned' } : a
+        a.id === action.aircraftId ? { ...a, status: 'assigned', reserveBase: null } : a
       );
       return {
         ...state,
@@ -1496,7 +1568,7 @@ function reducer(state, action) {
         cargo:           true,
       };
       const updatedFleet = state.fleet.map(a =>
-        a.id === action.aircraftId ? { ...a, status: 'assigned' } : a
+        a.id === action.aircraftId ? { ...a, status: 'assigned', reserveBase: null } : a
       );
       return {
         ...state,
@@ -1632,10 +1704,15 @@ function reducer(state, action) {
       const hubInfo = hubs[code];
       if (!hubInfo) return state;
       if ((hubInfo.tier ?? 0) <= 0) {
-        // Remove focus-city designation entirely
+        // Remove focus-city designation entirely. Reserves stationed there lose
+        // their base (no hub, no stand) — live covers still run to natural end.
         const newHubs = { ...hubs };
         delete newHubs[code];
-        return { ...state, hubs: newHubs };
+        return {
+          ...state,
+          hubs: newHubs,
+          fleet: state.fleet.map(a => a.reserveBase === code ? { ...a, reserveBase: null } : a),
+        };
       }
       return {
         ...state,
@@ -2360,13 +2437,28 @@ function reducer(state, action) {
       const gameMonth = weekToGameDate(state.week).monthIndex;
       const gameDate  = { week: state.week, month: gameMonth };
 
+      // ── Reserve aircraft: return finished covers, dispatch new ones ─────────
+      // Runs AFTER the grounding/check countdowns above (so an original that
+      // recovered this week takes its routes back immediately) and BEFORE the
+      // revenue sim (so a new cover earns from the first lost week). Covers are
+      // temporary transfers on the route records; see utils/simulation.js.
+      const lastRouteRevenues = state.financialHistory?.[state.financialHistory.length - 1]?.routeRevenues ?? {};
+      const coverPass = applyReserveCovers({
+        fleet:         tickedFleetPre,
+        routes:        state.routes,
+        cargoRoutes:   state.cargoRoutes ?? [],
+        hubs:          state.hubs ?? {},
+        absWeek:       curAbsWeek,
+        routeRevenues: lastRouteRevenues,
+      });
+
       // ── Seasonal flights: dormant↔active transitions ─────────────────────────
       // A seasonal route resuming service this month pays a reactivation fee of
       // 1/3 of its launch cost. Going dormant is free. seasonState is tracked per
       // route so the fee is charged once per season, not every week it operates.
       let seasonalReactivationCost = 0;
       const seasonalReactivations  = [];
-      const seasonAdjustedRoutes = state.routes.map(r => {
+      const seasonAdjustedRoutes = coverPass.routes.map(r => {
         if (!r.season) return r;
         const shouldBeActive = isRouteActive(r, gameMonth);
         const prevState = r.seasonState ?? (shouldBeActive ? 'active' : 'dormant');
@@ -2395,7 +2487,7 @@ function reducer(state, action) {
         : tickEncroachment({
         // Dormant seasonal routes aren't in the market this month, so AI carriers
         // shouldn't contest them or count their (idle) frequency on the pair.
-        routes:       state.routes
+        routes:       coverPass.routes
           .filter(r => isRouteActive(r, gameMonth))
           .map(r => hydrateRoute(r, state.routePricing, state.routeCatering)),
         routePricing: state.routePricing,
@@ -2405,7 +2497,7 @@ function reducer(state, action) {
         encroachments: state.encroachments ?? {},
       });
 
-      const report = weeklyTick({ ...state, fleet: tickedFleetPre, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents });
+      const report = weeklyTick({ ...state, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents });
 
       // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the
@@ -2525,7 +2617,7 @@ function reducer(state, action) {
 
       // ── Mechanical failures ──────────────────────────────────────────────
       // tickedFleet (grounded countdown tick) was already applied before weeklyTick.
-      const tickedFleet = tickedFleetPre;
+      const tickedFleet = coverPass.fleet;
 
       // 2. Roll for new failures on non-grounded aircraft
       const newFailures = rollMechanicalFailures(tickedFleet, mainBudget);
@@ -2572,7 +2664,7 @@ function reducer(state, action) {
       // ── Heavy-maintenance: block-hours flown this week drive C/D wear ─────────
       const acTypeById = new Map(tickedFleet.map(a => [a.id, getAircraftType(a.typeId)]));
       const maintHoursById = new Map();
-      for (const r of [...state.routes, ...(state.cargoRoutes ?? [])]) {
+      for (const r of [...coverPass.routes, ...coverPass.cargoRoutes]) {
         if (!r.aircraftId || !isRouteActive(r, gameMonth)) continue;
         const ty = acTypeById.get(r.aircraftId);
         if (ty) maintHoursById.set(r.aircraftId, (maintHoursById.get(r.aircraftId) ?? 0) + routeBlockHours(r, ty, r.weeklyFrequency));
@@ -2630,7 +2722,7 @@ function reducer(state, action) {
           const sc    = aged.scheduledCheck;
           if (sc && curAbsWeek >= (sc.startWeek ?? curAbsWeek)) {
             const ct   = sc.type === 'D' ? 'D' : 'C';
-            const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, state.routes, state.cargoRoutes, state.hubs) });
+            const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, coverPass.routes, coverPass.cargoRoutes, state.hubs) });
             if (runningCashForChecks >= cost) {
               runningCashForChecks -= cost; maintCheckSpend += cost;
               const dur = checkDurationWeeks(mType?.category, ct);
@@ -2649,7 +2741,7 @@ function reducer(state, action) {
             const dur = checkDurationWeeks(mType?.category, ct);
             const leaseSoonReturn = aged.ownershipType === 'lease' && (aged.leaseRemainingWeeks ?? 999) <= dur + 4;
             if (!leaseSoonReturn) {
-              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, state.routes, state.cargoRoutes, state.hubs) });
+              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, coverPass.routes, coverPass.cargoRoutes, state.hubs) });
               if (runningCashForChecks >= cost) {
                 runningCashForChecks -= cost; maintCheckSpend += cost;
                 checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur, auto: true });
@@ -2662,7 +2754,7 @@ function reducer(state, action) {
             const dur  = checkDurationWeeks(mType?.category, ct);
             const leaseSoonReturn = aged.ownershipType === 'lease' && (aged.leaseRemainingWeeks ?? 999) <= dur + 4;
             if (!leaseSoonReturn) {
-              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, state.routes, state.cargoRoutes, state.hubs), forced: true });
+              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, coverPass.routes, coverPass.cargoRoutes, state.hubs), forced: true });
               maintCheckSpend += cost; forcedRepHit += FORCED_REP_HIT;
               checksForced.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur });
               return startCheck(aged, ct, dur, { forced: true });
@@ -2703,7 +2795,35 @@ function reducer(state, action) {
         ...checksForced.map(c => ({ type: 'danger', title: `⚠️ Forced grounding — ${c.name}`, message: `${c.tailNumber || c.name} blew past its ${c.checkType}-check window. Regulator-grounded ${c.weeks} week${c.weeks !== 1 ? 's' : ''}; rushed check ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`, icon: '⚠️', duration: 10000 })),
         ...completedChecks.map(c => ({ type: 'success', title: `✅ ${c.checkType} check complete — ${c.name}`, message: `${c.tailNumber || c.name} has returned to service.`, icon: '✅', duration: 5000 })),
       ];
-      newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts);
+      // Reserve cover toasts. Gap warnings fire once per incident: only for
+      // broken tails that were NOT already listed as gapped last week.
+      const prevGapIds = new Set((state.lastReport?.coverage?.gaps ?? []).map(g => g.original?.id));
+      const fmtUsd = n => (n ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+      const coverToasts = [
+        ...coverPass.coversStarted.map(c => ({
+          type: 'info', icon: '🛡️', duration: 7000,
+          title: `🛡️ Reserve dispatched — ${c.reserve.name}`,
+          message: `${c.reserve.tailNumber || c.reserve.name} is covering ${c.routes} route${c.routes !== 1 ? 's' : ''} for ${c.original.name} while it's out of service.`,
+        })),
+        ...coverPass.coversEnded.map(c => ({
+          type: 'success', icon: '🛡️', duration: 5000,
+          title: `🛡️ Cover complete — ${c.reserve.name}`,
+          message: `${c.original.name} is back; ${c.reserve.tailNumber || c.reserve.name} returned ${c.routes} route${c.routes !== 1 ? 's' : ''} and is standing by again.`,
+        })),
+        ...coverPass.coversPermanent.map(c => ({
+          type: 'info', icon: '🛡️', duration: 7000,
+          title: `🛡️ Cover made permanent — ${c.reserve.name}`,
+          message: `${c.original.name} left the fleet mid-cover, so ${c.reserve.name} keeps its ${c.routes} route${c.routes !== 1 ? 's' : ''}.`,
+        })),
+        ...coverPass.coverGaps.filter(g => !prevGapIds.has(g.original?.id)).map(g => ({
+          type: 'warning', icon: '🛡️', duration: 9000,
+          title: `🛡️ No cover for ${g.original.name}`,
+          message: `${g.routes} route${g.routes !== 1 ? 's' : ''} (~${fmtUsd(g.revenueAtRisk)}/wk) uncovered — ${g.reason === 'no-reserve'
+            ? 'no same-type reserve is based at an airport these routes touch'
+            : 'your matching reserve is out of weekly block hours'}.`,
+        })),
+      ];
+      newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts, ...coverToasts);
 
       // Encroachment notifications — a rival entering or leaving one of your routes.
       for (const ev of encroachEvents ?? []) {
@@ -3482,18 +3602,28 @@ function reducer(state, action) {
         }
       }
       // Drop routes whose aircraft lease expired this week, and age weeksOpen on survivors
-      const survivingRoutes = expiredLeaseIds.size > 0
-        ? seasonAdjustedRoutes.filter(r => !expiredLeaseIds.has(r.aircraftId))
+      // If a COVERING tail's lease expired this week, its covered routes go home
+      // to the original instead of dying with the lease.
+      const leaseSafeRoutes = expiredLeaseIds.size > 0
+        ? seasonAdjustedRoutes.map(r => (r.coverForAircraftId && expiredLeaseIds.has(r.aircraftId))
+            ? { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null } : r)
         : seasonAdjustedRoutes;
+      const survivingRoutes = expiredLeaseIds.size > 0
+        ? leaseSafeRoutes.filter(r => !expiredLeaseIds.has(r.aircraftId))
+        : leaseSafeRoutes;
       const finalRoutes = survivingRoutes.map(r => ({
         ...r,
         weeksOpen: (r.weeksOpen ?? 0) + 1,
       }));
       // Same treatment for cargo routes: drop those whose freighter's lease expired,
       // age weeksOpen on survivors (drives the cargo maturity ramp).
+      const leaseSafeCargo = expiredLeaseIds.size > 0
+        ? coverPass.cargoRoutes.map(r => (r.coverForAircraftId && expiredLeaseIds.has(r.aircraftId))
+            ? { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null } : r)
+        : coverPass.cargoRoutes;
       const survivingCargo = expiredLeaseIds.size > 0
-        ? (state.cargoRoutes ?? []).filter(r => !expiredLeaseIds.has(r.aircraftId))
-        : (state.cargoRoutes ?? []);
+        ? leaseSafeCargo.filter(r => !expiredLeaseIds.has(r.aircraftId))
+        : leaseSafeCargo;
       const finalCargoRoutes = survivingCargo.map(r => ({
         ...r,
         weeksOpen: (r.weeksOpen ?? 0) + 1,
@@ -3578,7 +3708,7 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
       dividend: dividendPaid > 0
         ? { perShare: dividendPerSh, total: dividendPaid, payableShares: divPayable }
         : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
@@ -4120,9 +4250,13 @@ function reconcileState(parsed) {
   const fleet = [...seenIds.values()];
 
   // 2. Remove routes (passenger + cargo) pointing at aircraft that no longer exist.
+  //    A covered route whose covering tail vanished goes home to its original
+  //    first (reserve covers are temporary — the route belongs to the original).
   const fleetIds    = new Set(fleet.map(a => a.id));
-  const routes      = (parsed.routes ?? []).filter(r => fleetIds.has(r.aircraftId));
-  const cargoRoutes = (parsed.cargoRoutes ?? []).filter(r => fleetIds.has(r.aircraftId));
+  const unCover     = r => (r.coverForAircraftId && !fleetIds.has(r.aircraftId) && fleetIds.has(r.coverForAircraftId))
+    ? { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null } : r;
+  const routes      = (parsed.routes ?? []).map(unCover).filter(r => fleetIds.has(r.aircraftId));
+  const cargoRoutes = (parsed.cargoRoutes ?? []).map(unCover).filter(r => fleetIds.has(r.aircraftId));
 
   // 3. Re-derive status from the cleaned routes (passenger AND cargo — a freighter
   //    flying only cargo routes must still come back 'assigned', not 'idle').
@@ -4132,6 +4266,7 @@ function reconcileState(parsed) {
     const seeded = seedMaintenance(a, getAircraftType(a.typeId));
     return {
       ...seeded,
+      reserveBase: a.reserveBase ?? null,
       status: (a.status === 'grounded' || a.status === 'maintenance')
         ? a.status
         : (assignedIds.has(a.id) ? 'assigned' : 'idle'),
