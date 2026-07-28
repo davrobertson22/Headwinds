@@ -1,6 +1,6 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useGame, frequencyChangeBlockReason } from '../store/GameContext.jsx';
 import RouteDetail from './RouteDetail.jsx';
 import AirportLink from './AirportLink.jsx';
@@ -20,7 +20,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
-  weeklyBlockHours, blockTimeHours, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
+  weeklyBlockHours, blockTimeHours, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, MIN_SPARE_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
@@ -184,6 +184,11 @@ export default function Routes() {
   };
   const availableFleet = fleet.filter(a => usedHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS);
   const idleCount      = fleet.filter(a => a.status === 'idle').length;
+  // An airframe only counts as having "spare hours" if there's enough left to
+  // actually absorb another sector — 1h free is not spare capacity in any
+  // meaningful sense (see MIN_SPARE_BLOCK_HOURS in simulation.js).
+  const spareFleet     = fleet.filter(a => a.status !== 'idle' &&
+    (MAX_WEEKLY_BLOCK_HOURS - usedHrsFor(a)) > MIN_SPARE_BLOCK_HOURS);
 
   // Tag (multi-stop) routes are rendered in their own section; single-leg routes
   // collapse into direction-agnostic city-pair groups as before.
@@ -676,9 +681,9 @@ export default function Routes() {
               <InfoTip side="bottom" text="Idle aircraft earn nothing. Click '+ Open Route', pick two airports and an aircraft type, then 'Open Route' to deploy one. The aircraft picker shows how many idle planes you have of each type." />
             </span>
           )}
-          {availableFleet.length > idleCount && (
+          {spareFleet.length > 0 && (
             <span style={{ color: 'var(--accent)', marginLeft: 12 }}>
-              {availableFleet.length - idleCount} with spare hours
+              {spareFleet.length} with spare hours
             </span>
           )}
         </div>
@@ -2160,10 +2165,12 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // out of this form entirely; they're managed in the cargo planner.
   const paxFleet = fleet.filter(a => !getAircraftType(a.typeId)?.freighter);
   const hasHours = (a) => usedBlockHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS;
-  // Order the picker by most free block hours first, so planes with the most
-  // spare capacity surface at the top (fully-booked ones sink to the bottom).
-  const pickerFleet = [...paxFleet].sort(
-    (a, b) => usedBlockHrsFor(a) - usedBlockHrsFor(b)
+
+  // Airports an aircraft already serves. The reducer only lets a plane pick up
+  // an extra route that touches one of them; an idle plane (no routes) is free
+  // to go anywhere. Used to keep ineligible airframes out of the picker.
+  const servedBy = (a) => new Set(
+    routes.filter(r => r.aircraftId === a.id).flatMap(r => [r.origin, r.destination])
   );
 
   // Default aircraft. In add-flights mode, prefer one already flying this pair
@@ -2191,6 +2198,27 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const [frequency,   setFrequency]   = useState(7);
   const [fares,       setFares]       = useState({});   // per-cabin overrides; missing = reference
   const [season,      setSeason]      = useState(null); // null = year-round
+
+  // Only offer aircraft that could actually be put on THIS pair: a fully idle
+  // airframe (140h free, goes anywhere), or one whose existing network already
+  // touches the origin or destination. Planes with no hours left are excluded
+  // too. Listing the rest just invites a form the reducer will reject.
+  const canServePair = (a) => {
+    const served = servedBy(a);
+    return served.size === 0 || served.has(origin) || (!!dest && served.has(dest));
+  };
+  const pickerFleet = paxFleet
+    .filter(a => hasHours(a) && canServePair(a))
+    .sort((a, b) => usedBlockHrsFor(a) - usedBlockHrsFor(b));
+
+  // Changing the origin/destination can strand the current selection (its
+  // network no longer touches the pair) — fall back to the best remaining one.
+  useEffect(() => {
+    if (aircraftId && !pickerFleet.some(a => a.id === aircraftId)) {
+      setAircraftId(pickerFleet[0]?.id ?? '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, dest, pickerFleet.length]);
 
   const aircraft = fleet.find(a => a.id === aircraftId);
   const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
@@ -2352,8 +2380,10 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
           {/* Aircraft */}
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Aircraft</label>
-            <select className="form-select" value={aircraftId} onChange={e => setAircraftId(e.target.value)} required>
-              {aircraftId === '' && <option value="">— Select aircraft —</option>}
+            <select className="form-select" value={aircraftId} onChange={e => setAircraftId(e.target.value)} required
+              disabled={pickerFleet.length === 0}>
+              {pickerFleet.length === 0 && <option value="">— no eligible aircraft —</option>}
+              {aircraftId === '' && pickerFleet.length > 0 && <option value="">— Select aircraft —</option>}
               {pickerFleet.map(a => {
                 const t    = getAircraftType(a.typeId);
                 const used = usedBlockHrsFor(a);
@@ -2365,11 +2395,18 @@ function AddRouteForm({ onClose, initialOrigin, initialDest }) {
                   : (t?.seats ?? '?');
                 return (
                   <option key={a.id} value={a.id} disabled={full}>
-                    {a.name} ({seats} seats) — {full ? 'full' : `${rem.toFixed(0)}h free`}
+                    {a.name} ({seats} seats) — {full || rem <= MIN_SPARE_BLOCK_HOURS ? 'no spare hours' : `${rem.toFixed(0)}h free`}
                   </option>
                 );
               })}
             </select>
+            {pickerFleet.length === 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                No aircraft is free for this pair. An aircraft can only take a new
+                route if it's idle, or if it already flies through {origin}
+                {dest ? ` or ${dest}` : ''}.
+              </div>
+            )}
           </div>
 
           {/* Frequency */}
