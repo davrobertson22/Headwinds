@@ -17,7 +17,9 @@
 //   4. overlays apps/headwinds-web/pages/  (hand-written Headwinds pages that
 //      fully replace their Tailwinds counterparts: devlog, about,
 //      competition-and-alliances, …)
-//   5. writes a Headwinds manifest.webmanifest, robots.txt and sitemap.xml
+//   5. injects apps/headwinds-web/sections/ (Headwinds-only prose added to
+//      shared pages that are generated upstream and can't be hand-written here)
+//   6. writes a Headwinds manifest.webmanifest, robots.txt and sitemap.xml
 //
 // Because steps 2's transforms re-run on every build, freshly synced Tailwinds
 // page updates are picked up automatically — edit the SHARED pages in the
@@ -31,21 +33,74 @@ const SRC   = path.join(HW, 'public');
 const APP   = path.join(HW, 'apps/headwinds-web');
 const BRAND = path.join(APP, 'brand');
 const PAGES = path.join(APP, 'pages');
+const SECTIONS = path.join(APP, 'sections');
 const OUT   = path.join(APP, 'public');
 
 const DOMAIN = 'www.headwindsairlinegame.com';
 
-// Pages still ~80-90% identical to their Tailwinds originals (word-swap rebrand
-// only). Until each gets a hand-written override in apps/headwinds-web/pages/,
-// its canonical points at the Tailwinds original so Google doesn't read the two
-// sites as duplicates of each other (AdSense "low value content" trigger,
-// diagnosed 2026-07-19). Remove a file from this set when its override lands.
-const CROSS_CANONICAL = new Set([
-  'aircraft.html', 'aircraft-narrow-body.html', 'aircraft-wide-body.html',
-  'aircraft-regional-jets.html', 'aircraft-turboprops.html',
-  'aircraft-freighters.html', 'aircraft-flagships.html',
-  'fleet-planning.html', 'faq.html',
-]);
+// Pages whose canonical points at the Tailwinds original instead of at this
+// domain, because they're still close enough to their Tailwinds source that
+// Google would read the two sites as duplicates of each other.
+//
+// HISTORY — read this before adding anything back. From 2026-07-19 the set held
+// nine pages: the seven aircraft guides, fleet-planning and faq. That removed
+// ~19,600 words — about two thirds of this site's editorial content — from
+// Google's index of this domain (a cross-canonicaled page is also excluded from
+// sitemap.xml below), and on 2026-07-28 AdSense rejected
+// headwindsairlinegame.com again, this time for LOW VALUE CONTENT: what was
+// left to crawl was eight guide pages, five boilerplate/legal pages and a
+// changelog. The mitigation had become the problem.
+//
+// The fix was to make those pages genuinely Headwinds pages rather than hide
+// them. aircraft.html, faq.html and fleet-planning.html are now hand-written
+// overrides in apps/headwinds-web/pages/; the six category guides are generated
+// from game data in the Tailwinds repo, so they instead get a substantial
+// multiplayer-only section injected from apps/headwinds-web/sections/ (see
+// below) plus their own title and meta description.
+//
+// So: DON'T re-add a page here to solve a duplication worry. Cross-canonicaling
+// costs the page's entire word count on this domain. Write the override or the
+// section instead.
+const CROSS_CANONICAL = new Set([]);
+
+// Headwinds-only prose injected into the shared (rebranded) aircraft category
+// guides, which are generated from game data upstream and so can't be
+// hand-written here without going stale. Each file in apps/headwinds-web/
+// sections/ is an HTML fragment inserted immediately before that page's first
+// stats table — after the intro, ahead of the data. The filename must match the
+// page it belongs to; a page with no section file is left alone.
+const SECTION_ANCHOR = '    <div class="tablewrap">';
+
+// Per-page <title> and <meta name="description"> for pages sharing a generator
+// with Tailwinds. The mechanical rebrand alone leaves both sites with
+// near-identical titles competing for the same queries; these give the
+// Headwinds versions their own.
+const META = {
+  'aircraft-narrow-body.html': {
+    title: 'Narrow-Body Guide — Single-Aisle Fleets for Contested Markets | Headwinds',
+    description: 'Every narrow-body jet in Headwinds with real in-game seats, range, lease and fuel economics — plus why divisible capacity wins frequency wars, and how gate scarcity changes which size you should be buying.',
+  },
+  'aircraft-wide-body.html': {
+    title: 'Wide-Body Guide — Long-Haul Twins on a Shared Map | Headwinds',
+    description: 'Every wide-body in Headwinds with its real in-game economics, and how twin-aisle strategy changes when rivals see your order months before delivery and the hub has run out of gates.',
+  },
+  'aircraft-regional-jets.html': {
+    title: 'Regional Jet Guide — Cheap Frequency, Cheap Territory | Headwinds',
+    description: 'Every regional jet in Headwinds with real in-game stats, plus the multiplayer case for small jets: adding frequency without starting a fare war, feeding an alliance, and holding gates you would otherwise forfeit.',
+  },
+  'aircraft-turboprops.html': {
+    title: 'Turboprop Guide — The Routes Nobody Contests | Headwinds',
+    description: 'Every turboprop in Headwinds with real in-game economics, and why the cheapest aircraft on the map are the ones that hold territory and earn uncontested yield in a live multiplayer world.',
+  },
+  'aircraft-freighters.html': {
+    title: 'Freighter Guide — Cargo Has No Fare War | Headwinds',
+    description: 'Every freighter in Headwinds with payload, range, lease and fuel figures — plus why cargo income is immune to the passenger demand split, and how it funds the week-40 gate auctions.',
+  },
+  'aircraft-flagships.html': {
+    title: 'Flagship Guide — Double-Deckers, Concorde &amp; Contested Gates | Headwinds',
+    description: 'The A380, 747-8 and Concorde in Headwinds with real in-game economics, and when a flagship is the right answer to a saturated mega-hub — or the most expensive mistake available in the game.',
+  },
+};
 
 // Never copied from the shared public/ (Tailwinds-only concerns).
 const EXCLUDE = new Set([
@@ -83,47 +138,8 @@ const PALETTE = [
 // sentence; update the patch when convenient. Pages that diverge too much for
 // string patches live in apps/headwinds-web/pages/ instead.
 const CONTENT_PATCHES = [
-  // faq.html — accounts, saving, winning, offline are all different in multiplayer
-  {
-    file: 'faq.html',
-    find: 'There is nothing to download, no account to create, and no purchase required to access any part of the game.',
-    replace: 'There is nothing to download and no purchase required — just sign in with Google or an email link and join a world.',
-  },
-  {
-    file: 'faq.html',
-    find: "Your game saves automatically in your browser's local storage on the device you play on. You can also export a save file as a backup or to move your airline to another device, and import it there.",
-    replace: "Your airline lives on the Headwinds server, not in your browser. Game weeks advance automatically even while you're offline, and signing in from any device picks up right where the world has gotten to.",
-  },
-  {
-    file: 'faq.html',
-    find: 'Headwinds is an open-ended management simulation. The core challenge is building a profitable, growing airline without going bankrupt, and in-game board objectives give you concrete goals to chase as your airline matures.',
-    replace: 'Each Headwinds world runs for a fixed span of game-years and ends with final standings — the airline on top has out-flown real people, not an algorithm. Along the way, board objectives and the weekly rankings give you concrete goals to chase.',
-  },
-  {
-    file: 'faq.html',
-    find: "Yes — completely free, in your browser. There's nothing to download, no account to create, and no purchase required to access any part of the game.",
-    replace: "Yes — completely free, in your browser. There's nothing to download and no purchase required. Sign in with Google or an email link and join a world.",
-  },
-  {
-    file: 'faq.html',
-    find: 'No. You pick an airline name, choose a home airport, and start playing. No sign-up, no email, no password.',
-    replace: 'Yes — one quick sign-in with Google or an email link, so your airlines stay yours across worlds and devices. Then you pick an airline name, choose a home airport, and start playing.',
-  },
-  {
-    file: 'faq.html',
-    find: "Progress saves automatically in your browser's storage on the device you play on. Because saves are local, clearing your browser data will erase them — the game's save menu lets you export a save file as a backup, and import it on any other device to continue the same airline there.",
-    replace: "Your airline is saved on the server, continuously — there's nothing to manage and nothing to lose. The world keeps running while you're away (game weeks advance automatically on the server clock), and signing in from any device picks up exactly where the world has gotten to.",
-  },
-  {
-    file: 'faq.html',
-    find: 'Headwinds is open-ended, like the classic tycoon games. The real challenge is building a profitable, respected airline without going bankrupt — and the in-game board objectives give you concrete goals as your airline grows.',
-    replace: 'Each world runs for a fixed span of game-years and ends with final standings, so there is a scoreboard — and everyone on it is a real person. The in-game board objectives still give you concrete goals as your airline grows.',
-  },
-  {
-    file: 'faq.html',
-    find: 'Partially — as an installed progressive web app, the game can start without a connection once it has been loaded and cached. A connection is recommended for updates.',
-    replace: "No — Headwinds is a live multiplayer game, so you need a connection to play. The world keeps running on the server either way; whatever happens while you're offline is waiting in your debrief.",
-  },
+  // NOTE: faq.html used to be patched here. It is now a hand-written override
+  // in apps/headwinds-web/pages/faq.html, so those patches were removed.
   // how-to-play.html — sign-in + server saves; rivals are humans
   {
     file: 'how-to-play.html',
@@ -277,7 +293,7 @@ function injectAnalytics(html) {
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-let copied = 0, branded = 0, patchMisses = 0;
+let copied = 0, branded = 0, patchMisses = 0, metaMisses = 0;
 for (const f of readdirSync(SRC)) {
   if (EXCLUDE.has(f) || isJunk(f) || statSync(path.join(SRC, f)).isDirectory()) continue;
   if (f.endsWith('.html')) {
@@ -290,6 +306,15 @@ for (const f of readdirSync(SRC)) {
         patchMisses++;
         console.warn(`  ⚠ content patch missed in ${f}: "${p.find.slice(0, 60)}…"\n    (Tailwinds likely rewrote this passage — update CONTENT_PATCHES in tools/headwinds-public.mjs)`);
       }
+    }
+    // Own title + description where the page shares a generator with Tailwinds.
+    // Runs before injectSocialMeta(), which reads <title> for the og:title.
+    if (META[f]) {
+      const { title, description } = META[f];
+      const t = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${title}</title>`);
+      if (t === html) { metaMisses++; console.warn(`  ⚠ meta override missed in ${f}: no <title> tag`); }
+      html = t.replace(/(<meta name="description" content=")[\s\S]*?(" \/>)/, `$1${description}$2`);
+      if (html === t) { metaMisses++; console.warn(`  ⚠ meta override missed in ${f}: no <meta name="description"> tag`); }
     }
     if (CROSS_CANONICAL.has(f)) {
       const self = `<link rel="canonical" href="https://${DOMAIN}/${f}" />`;
@@ -324,6 +349,32 @@ if (existsSync(PAGES)) {
     if (isJunk(f)) continue;
     copyFileSync(path.join(PAGES, f), path.join(OUT, f));
     overrides++;
+  }
+}
+
+// Headwinds-only sections injected into the shared aircraft category guides.
+// Runs AFTER the pages/ overlay so a full override always wins over a section,
+// and before the link/meta pass so injected prose gets the same treatment.
+let sectioned = 0, sectionMisses = 0;
+if (existsSync(SECTIONS)) {
+  for (const f of readdirSync(SECTIONS)) {
+    if (isJunk(f) || !f.endsWith('.html')) continue;
+    const target = path.join(OUT, f);
+    if (!existsSync(target)) {
+      sectionMisses++;
+      console.warn(`  ⚠ section ${f}: no such page in ${path.relative(HW, OUT)}/ — rename the section file to match its page`);
+      continue;
+    }
+    const html = readFileSync(target, 'utf8');
+    const at = html.indexOf(SECTION_ANCHOR);
+    if (at === -1) {
+      sectionMisses++;
+      console.warn(`  ⚠ section ${f}: anchor "${SECTION_ANCHOR.trim()}" not found — the page's markup changed upstream; update SECTION_ANCHOR in tools/headwinds-public.mjs`);
+      continue;
+    }
+    const block = readFileSync(path.join(SECTIONS, f), 'utf8').trim();
+    writeFileSync(target, `${html.slice(0, at)}${block}\n\n${html.slice(at)}`);
+    sectioned++;
   }
 }
 
@@ -399,4 +450,4 @@ writeFileSync(path.join(OUT, 'sitemap.xml'),
   pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
   `\n</urlset>\n`);
 
-console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${copied} assets copied, ${brandFiles} brand files, ${linked} pages Rules-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''} → ${path.relative(HW, OUT)}/`);
+console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${sectioned} sectioned, ${copied} assets copied, ${brandFiles} brand files, ${linked} pages Rules-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''}${sectionMisses ? `, ${sectionMisses} section insert(s) MISSED` : ''}${metaMisses ? `, ${metaMisses} meta override(s) MISSED` : ''} → ${path.relative(HW, OUT)}/`);

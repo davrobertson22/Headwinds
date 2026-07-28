@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleet Planning — Building a Fleet You Can Defend | Headwinds</title>
+  <meta name="description" content="Fleet planning for a live multiplayer world: why commonality is mechanical in Headwinds, how gate scarcity changes aircraft size, keeping cash free to answer a rival, reserve cover, and what your orders tell the other players." />
+  <link rel="canonical" href="https://www.headwindsairlinegame.com/fleet-planning.html" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0b0e13; --panel:#141a23; --line:#263143; --text:#e8edf4; --muted:#8b98ab; --teal:#38c9b4; --teal-light:#5fe0cc; }
+    * { box-sizing: border-box; }
+    body { font-family:'IBM Plex Sans',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); margin:0; line-height:1.7; }
+    a { color:var(--teal-light); }
+    header.site { border-bottom:1px solid var(--line); }
+    nav.site { max-width:880px; margin:0 auto; padding:18px 24px; display:flex; flex-wrap:wrap; gap:20px; align-items:center; }
+    nav.site .brand { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text); text-decoration:none; margin-right:auto; }
+    nav.site a.link { color:var(--muted); text-decoration:none; font-size:0.95rem; font-weight:500; }
+    nav.site a.link:hover { color:var(--teal-light); }
+    main { max-width:760px; margin:0 auto; padding:48px 24px 72px; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-size:2.1rem; line-height:1.2; margin:0 0 8px; }
+    .lede { color:var(--muted); font-size:1.1rem; margin:0 0 36px; }
+    h2 { font-family:'Space Grotesk',sans-serif; font-size:1.45rem; margin:42px 0 12px; }
+    h3 { font-size:1.1rem; margin:26px 0 8px; }
+    p { margin:0 0 16px; }
+    ul,ol { margin:0 0 16px; padding-left:22px; }
+    li { margin:0 0 8px; }
+    .cta { display:inline-block; background:var(--teal); color:#04211d; font-weight:700; padding:13px 30px; border-radius:8px; text-decoration:none; margin:18px 0; }
+    .tip { border-left:3px solid var(--teal); padding:4px 0 4px 16px; color:var(--muted); margin:0 0 16px; }
+    footer.site { border-top:1px solid var(--line); }
+    .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
+    .footwrap a { color:var(--teal-light); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <nav class="site">
+      <a class="brand" href="/">Headwinds</a>
+      <a class="link" href="/how-to-play.html">How to Play</a>
+      <a class="link" href="/strategy.html">Strategy</a>
+      <a class="link" href="/aircraft.html">Aircraft</a>
+      <a class="link" href="/glossary.html">Glossary</a>
+      <a class="link" href="/faq.html">FAQ</a>
+      <a class="link" href="/rules.html">Rules</a>
+      <a class="link" href="/play">Play</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Fleet Planning: Building a Fleet You Can Defend</h1>
+    <p class="lede">Solo airline games ask one question of a fleet: is it efficient? A shared world asks two more. Can you keep flying when something breaks, and can you still afford to react when a rival forces your hand? Most airlines that fail in Headwinds fail on those two, not on cents per seat-kilometre — and both are decided months earlier, at the moment you sign for aircraft.</p>
+
+    <h2>Routes first, still</h2>
+    <p>The oldest rule in the genre survives contact with multiplayer: find the demand, then buy the aircraft that fits it. An aircraft bought because it looked good in the table and then given a route to justify it is how airlines go bankrupt in every version of this game.</p>
+    <p>What the shared map adds is a timing dimension. Territory is finite and disappearing — the good hubs get claimed in a world's opening weeks, and gates at the best airports run out. So the honest version of the rule is: find the demand, secure the ground it sits on, and then buy the aircraft. Ground you can hold is worth more than capacity you can't place, because capacity is always purchasable later and territory frequently isn't. <a href="/hub-strategy.html">Hub strategy</a> covers the claim itself.</p>
+
+    <h2>Commonality is mechanical here</h2>
+    <p>Solo players treat fleet commonality as tidy practice. Headwinds turns it into two hard constraints, and they are the most under-appreciated numbers in the game.</p>
+    <h3>Jet bases are certified by family</h3>
+    <p>Your maintenance network is something you build: hangars at airports where you already hold gates, each certified for specific aircraft <em>families</em>, cutting both what a check or a breakdown costs and how long the airframe is stuck. The bases consume gates to exist — one for a line station, up to three for a heavy base — so coverage competes directly with your flying at exactly the airports where gates are tightest. Every extra family in your fleet is another certification to fund, or another family your network simply doesn't cover. Freighters ride their passenger family's certification, which is why the freighter variant of something you already operate is usually the right cargo aircraft even when another type looks better on paper.</p>
+    <h3>Reserve cover only works type-for-type</h3>
+    <p>A reserve aircraft stands by at one of your hubs and steps in when a tail is grounded or in a check — but only for an identical type, and it costs a readiness premium plus a parking fee while it waits. That makes cover a function of fleet density rather than fleet size. Twelve aircraft in one family can be protected by a single standby. Twelve aircraft across five families can't be protected at all without five of them, which no growing airline can carry.</p>
+    <p class="tip">A practical target: get to a point where any one aircraft going out of service is covered, before you add a new type for a route you could serve with what you already fly. Types are how airlines get stranded.</p>
+
+    <h2>Size the aircraft to the gate, not just the route</h2>
+    <p>In worlds created with gate scarcity enabled, airports have a hard gate capacity by size — 25, 100, 250 or 500 — no airline may hold more than 60% of one, no alliance's members more than 80% between them, and every carrier at an airport above 90% occupancy pays a 20% surcharge on its gate leases. New gates enter the world only through sealed-bid auctions that open at week 40 and settle at the year tick, or by buying one from a player prepared to sell. Gates left unused for 24 consecutive weeks are forfeited and lock you out of that airport for a further 24.</p>
+    <p>All of which makes a gate a fixed, contested asset that costs the same whatever stands at it. The planning consequence is direct: at an uncongested airport, size to the route; at an airport approaching capacity, size to the gate. Upgauging is the only growth available once the slots run out, and airlines that anticipated that a year early are the ones holding the trunk routes when the world matures. It also argues for keeping the smallest aircraft in your fleet out at the spokes where gates are plentiful — see the <a href="/aircraft-regional-jets.html">regional jet</a> and <a href="/aircraft-turboprops.html">turboprop</a> guides for where they genuinely earn their place.</p>
+
+    <h2>Lease, buy, and the value of being able to react</h2>
+    <p>Leasing costs more over time and buying builds an asset — that trade-off is the same as it is solo. What's different is that in a live world, cash is not idle capital, it's your ability to answer a move. A rival opening a route into your best market, a gate coming up for auction at the airport you need, an ally asking for capacity on a trunk: all of them are opportunities with a deadline, and all of them are lost by an airline whose money is tied up in airframes.</p>
+    <p>So: lease while your network is still finding its shape and while the world is still being carved up, and buy on routes that have proven themselves and territory that is already yours. The mistake to avoid is the mid-game outright purchase that leaves you unable to do anything for a game year — technically a good return, strategically a surrendered position.</p>
+
+    <h2>The classics carry a risk they don't carry solo</h2>
+    <p>Older aircraft lease for a fraction of their modern equivalents and remain a legitimate value play. But mechanical failures in Headwinds cost money as well as downtime, and the repair bill is a share of the airframe's purchase price scaled by an age curve — roughly three times the base rate at twenty years, five and a half at thirty, with genuinely elderly aircraft occasionally written off outright.</p>
+    <p>In a solo save that's an inconvenience you absorb at your own pace. In a live world the grounding arrives while somebody is actively contesting your market, and the clock doesn't stop. Fly the classics where a lost week is survivable, keep them dense enough that a standby can cover them, and base the family properly before the first failure rather than after it.</p>
+
+    <h2>Your orders are public. Plan the sequence.</h2>
+    <p>Every rival's profile shows their fleet by type and their moves week by week — leases, orders, routes opened and closed. New-build aircraft arrive on a delivery lead time, so an order broadcasts your intentions long before the aircraft can act on them.</p>
+    <p>Two sequences, two outcomes. Order capacity first and you have told the world which market you must be about to enter, with months for someone to get there ahead of you. Open the routes first, prove the demand, and upgauge into it, and your plan stays quiet until it is already working. There are moments to do the opposite deliberately — a visible build-up at a contested hub is sometimes cheaper than the fare war it deters — but that should be a decision, not an accident of ordering.</p>
+
+    <h2>A workable sequence</h2>
+    <ol>
+      <li><strong>Weeks 1–10.</strong> Claim your hub while the map is still open. Fly what you were given, add leased aircraft in a single family, and learn what the local demand actually is rather than what you assumed.</li>
+      <li><strong>Early growth.</strong> Deepen one family until a standby reserve is affordable and a jet base for it is worth building. Resist the second type until the first one is properly covered.</li>
+      <li><strong>Consolidation.</strong> Buy on your proven routes. Add the second family only when it opens flying the first genuinely can't do — longer range, much larger capacity, or cargo riding a certification you already hold.</li>
+      <li><strong>Maturity.</strong> Upgauge where gates are tight and demand is proven. Keep enough cash uncommitted to bid in week 40 and to answer an incursion in the same season it happens.</li>
+      <li><strong>Endgame.</strong> Stop buying for a future the world won't reach. Retire what you can't fill, hold the markets your network makes uncontestable, and let marginal territory go rather than defending it at a loss.</li>
+    </ol>
+
+    <h2>Further reading</h2>
+    <p>The <a href="/aircraft.html">aircraft guides</a> list every type in the game with its real in-game economics, category by category. <a href="/route-economics.html">Route economics</a> covers how a contested market splits and how to price into it, <a href="/competition-and-alliances.html">rivals &amp; alliances</a> covers the diplomacy that decides who you have to defend against at all, and the <a href="/strategy.html">strategy guide</a> ties the whole game together.</p>
+
+    <a class="cta" href="/play">Build Your Fleet — Play Headwinds →</a>
+  </main>
+
+  <footer class="site">
+    <div class="footwrap">
+      <a href="/">Home</a>
+      <a href="/how-to-play.html">How to Play</a>
+      <a href="/strategy.html">Strategy</a>
+      <a href="/aircraft.html">Aircraft</a>
+      <a href="/glossary.html">Glossary</a>
+      <a href="/faq.html">FAQ</a>
+      <a href="/rules.html">Rules</a>
+      <a href="/devlog.html">Devlog</a>
+      <a href="/best-airline-management-games.html">Best Airline Games</a>
+      <a href="/about.html">About</a>
+      <a href="/contact.html">Contact</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <span style="margin-left:auto;">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.</span>
+    </div>
+  </footer>
+</body>
+</html>
