@@ -18,6 +18,7 @@ import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
 import { api, isTransientError } from './api.js';
 import { shouldFastPoll, isStaleContact } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
+import { isHidden } from './usePoll.js';
 import { supabase } from './supabase.js';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
@@ -138,8 +139,13 @@ export default function GamePlayScreen({ worldId, token }) {
   // whose writes never landed, so the server is the only trustworthy version.
   const load = useCallback(async ({ full = false } = {}) => {
     try {
+      // `split=1` opts into halved responses: the server sends the state blob
+      // only when OUR version moved, and the (small) rival overlay whenever any
+      // rival moved. Between ticks the overwhelming majority of polls come back
+      // as overlay-only, which is the whole point — we used to re-download the
+      // entire save because somebody else changed a fare.
       const q = !full && stampRef.current && stateRef.current
-        ? `?stamp=${encodeURIComponent(stampRef.current)}` : '';
+        ? `?split=1&stamp=${encodeURIComponent(stampRef.current)}` : '?split=1';
       const d = await authedApi(`/worlds/${worldId}/airline${q}`, { token });
       lastOkRef.current = Date.now();
       setConnLost(false);
@@ -147,15 +153,23 @@ export default function GamePlayScreen({ worldId, token }) {
       if (d.stamp) stampRef.current = d.stamp;
       setError(null); // a good poll clears any stale transient error
       if (d.unchanged) return; // nothing moved server-side — keep what we have
+
+      // The rival overlay is entirely server-derived (competitors, gate market,
+      // stock pool, alliance, badges) and is stripped before persistence, so
+      // adopting it can never stomp an optimistic local edit. Apply it on its
+      // own whenever it arrives — including on polls that carry no blob.
+      if (d.rivals) setState((cur) => (cur ? { ...cur, ...d.rivals } : cur));
+
+      if (!d.state) return; // overlay-only poll — the common case between ticks
+
       // Only replace local state when the server has genuinely moved on (a tick
       // landed or first load) — don't stomp optimistic edits between polls.
+      // The blob now arrives WITHOUT the overlay, so re-apply whatever overlay
+      // came with it; otherwise adopting a blob would blank the Rivals tab.
       const local = stateRef.current;
-      if (!local || full || absWeekOfState(d.state) > absWeekOfState(local)) setState(withStatsBackfill(d.state));
-      // Same-week polls still refresh the gate market (a rival's new listing /
-      // an auction opening changes the world stamp but not our week). Server-
-      // derived, so adopting it never stomps an optimistic edit.
-      else if (d.state.gateMarket) {
-        setState((cur) => (cur ? { ...cur, gateMarket: d.state.gateMarket } : cur));
+      const incoming = d.rivals ? { ...d.state, ...d.rivals } : d.state;
+      if (!local || full || absWeekOfState(incoming) > absWeekOfState(local)) {
+        setState(withStatsBackfill(incoming));
       }
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);
@@ -184,13 +198,20 @@ export default function GamePlayScreen({ worldId, token }) {
     // via the stamp anyway), every 4s once the next tick is due — so the new
     // week (and its debrief) still lands moments after the server ticks.
     const t = setInterval(() => {
+      // A backgrounded tab polls nothing. The visibilitychange handler below
+      // resyncs the moment it comes back, so pausing costs no freshness — and
+      // it stops a world left open in a spare tab billing egress all day.
+      // The staleness check is skipped too: we are not out of contact, we
+      // deliberately stopped talking, and flagging "connection lost" for that
+      // would be a lie the user sees the instant they switch back.
+      if (isHidden()) return;
       if (shouldFastPoll(metaRef.current?.worldClock?.nextTickAt)) load();
       // Nothing has reached the server in a while. Flag it here rather than
       // firing extra requests — the 25s poll below keeps retrying on its own,
       // and a wedged client that retries harder only wedges harder.
       else if (isStaleContact(lastOkRef.current)) setConnLost(true);
     }, 4000);
-    const slow = setInterval(() => load(), 25000);
+    const slow = setInterval(() => { if (!isHidden()) load(); }, 25000);
     return () => { clearInterval(t); clearInterval(slow); };
   }, [load, sessionExpired]);
 

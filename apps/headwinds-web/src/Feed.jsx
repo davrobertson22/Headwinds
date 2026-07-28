@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api.js';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
+import { useVisibleInterval } from './usePoll.js';
 import { getAircraftType } from '../../../src/data/aircraft.js';
 
 const TICKER_LIMIT = 8;
@@ -118,11 +119,9 @@ export default function FeedWidget({ worldId, token, myAirlineId = null, onOpenN
       .catch(setError);
   }, [worldId, token]);
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, open ? 20000 : 60000);
-    return () => clearInterval(t);
-  }, [load, open]);
+  useEffect(() => { load(); }, [load]);
+  // Paused while the tab is hidden; refetches on return. See usePoll.js.
+  useVisibleInterval(load, open ? 20000 : 60000);
 
   const openDrawer = () => {
     setOpen((o) => !o);

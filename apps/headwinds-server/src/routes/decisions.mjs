@@ -11,11 +11,12 @@ import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel } from '../lib/worldConfig.mjs';
-import { buildWorldRivalViews, withRivals, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
+import { stampDelta } from '../lib/stamp.mjs';
 import { sharesOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import {
   ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
@@ -32,13 +33,38 @@ const DECISION_WINDOWMS = 10_000;
 // airline's version, and joins/abandons change the active count, so this pair
 // moves whenever ANYTHING a client could see has changed. It costs one tiny
 // aggregate row from the DB — vs. the full state blobs it lets us skip.
+//
+// Memoised per world for a couple of seconds. Every open client polls this on
+// every request, so on a busy world the aggregate alone was running dozens of
+// times a minute to answer a question whose answer changes at most as often as
+// somebody clicks. The TTL is deliberately far shorter than the ~25s client
+// poll, so it costs no visible freshness: the worst case is that a rival's move
+// is reflected up to WORLD_STAMP_TTL_MS later than it otherwise would be.
+//
+// Correctness note: this is memoisation of a derived value, NOT a hand-maintained
+// counter. There are a dozen `version: { increment: 1 }` sites across the gate,
+// market, aircraft and tick services, several of them outside the decision
+// transaction; a counter bumped by hand at each would go stale the first time
+// one was missed, and would serialise every airline write in a world behind a
+// single World row during ticks. Deriving it keeps it correct by construction.
+const WORLD_STAMP_TTL_MS = 2500;
+const worldStampCache = new Map(); // worldId → { value, at }
+
+export function invalidateWorldStamp(worldId) {
+  worldStampCache.delete(worldId);
+}
+
 async function worldStampOf(worldId) {
+  const hit = worldStampCache.get(worldId);
+  if (hit && Date.now() - hit.at < WORLD_STAMP_TTL_MS) return hit.value;
   const agg = await prisma.airline.aggregate({
     where: { worldId, status: 'ACTIVE' },
     _sum: { version: true },
     _count: { _all: true },
   });
-  return `${agg._sum.version ?? 0}.${agg._count._all}`;
+  const value = `${agg._sum.version ?? 0}.${agg._count._all}`;
+  worldStampCache.set(worldId, { value, at: Date.now() });
+  return value;
 }
 
 // Live rival view for one airline (validated by the world stamp — never
@@ -89,16 +115,34 @@ async function loadMyAirline(request) {
 export default async function decisionRoutes(fastify) {
   // ── Your authoritative airline state (the full save blob) ─────────────────
   // Egress-aware: the client passes back the `stamp` from its last response;
-  // when nothing in the world has changed (the overwhelmingly common case — the
-  // game polls every ~25s, worlds tick hourly) we answer from three tiny reads
-  // and never touch a state blob. Only a changed stamp pays for the full load.
+  // when nothing in the world has changed we answer from three tiny reads and
+  // never touch a state blob.
+  //
+  // The stamp has two halves — `self` (this airline's version) and `world` (the
+  // sum of every active airline's version) — because they answer two different
+  // questions, and conflating them is expensive. The multi-megabyte state blob
+  // is stale only when SELF moves. The rival overlay (competitors, gate market,
+  // stock pool — kilobytes) is stale when WORLD moves.
+  //
+  // Originally a single combined stamp gated both, so ANY rival's action forced
+  // every other player in the world to re-download their entire save to pick up
+  // a few kilobytes of rival deltas. That made the fast path fire exactly when
+  // it was needed least: it worked on an idle or single-player world and turned
+  // itself off the moment a world got busy. Clients that pass `split=1` now get
+  // each half gated on its own stamp.
+  //
+  // `split=1` is opt-in so that a browser tab still running the previous build
+  // keeps getting the old whole-blob responses it expects.
   fastify.get('/worlds/:id/airline', {
     preHandler: requireAuth,
     schema: {
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       querystring: {
         type: 'object',
-        properties: { stamp: { type: 'string', maxLength: 80 } },
+        properties: {
+          stamp: { type: 'string', maxLength: 80 },
+          split: { type: 'string', maxLength: 1 },
+        },
       },
     },
   }, async (request) => {
@@ -133,6 +177,45 @@ export default async function decisionRoutes(fastify) {
       return { ...base, unchanged: true };
     }
 
+    // ── Split responses (current clients) ─────────────────────────────────────
+    // Send back only the half that actually moved. `selfStamp` is compared
+    // against the first segment of the stamp the client echoed, `worldStamp`
+    // against the second, so one poll can refresh rivals without touching the
+    // blob — the case that dominates between ticks.
+    if (request.query.split === '1') {
+      const { selfChanged, worldChanged } = stampDelta(request.query.stamp, slim.version, worldStamp);
+
+      // A rival moved but we did not: ship the overlay alone. Note this reads
+      // NO state blob at all — not ours, and the shared rival-view cache means
+      // usually not anybody else's either.
+      if (!selfChanged && worldChanged) {
+        const view = await rivalViewFor(slim, worldStamp);
+        return { ...base, rivals: rivalOverlay(view) };
+      }
+
+      // Our own version moved (own decision, or a tick landed): the blob is
+      // genuinely stale, so pay for it — but keep the halves separate so the
+      // client applies each independently.
+      //
+      // `rivals` rides along UNCONDITIONALLY here, even when the world half
+      // looks unchanged. `state` is sent stripped of the overlay, so if we
+      // omitted `rivals` the client would adopt a base carrying empty
+      // competitors/humanRivals and blank its Rivals tab. That combination is
+      // reachable: bumping our own version also moves the world sum, but the
+      // world stamp is memoised for a couple of seconds, so a poll landing
+      // inside that window can see self-changed with world-unchanged. The
+      // overlay is kilobytes — always sending it is far cheaper than the
+      // desync it prevents.
+      const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
+      const view = await rivalViewFor(airline, worldStamp);
+      return {
+        ...base,
+        state: withRivals(airline.state, null),
+        rivals: rivalOverlay(view),
+      };
+    }
+
+    // ── Legacy whole-blob response (a tab on the previous build) ──────────────
     // Something changed (or first load): full blob + the CURRENT rival view so
     // the Rivals tab and demand previews show other humans as they are right
     // now, not as of the last tick.
@@ -444,6 +527,12 @@ export default async function decisionRoutes(fastify) {
       if (e instanceof MarketError) throw httpError(e.status ?? 409, e.message);
       throw e;
     }
+
+    // Our own write just moved the world stamp. Drop the memoised value so the
+    // stamp we hand back reflects it — otherwise the client's next poll would
+    // compare against a pre-write value and refetch the rival overlay for no
+    // reason.
+    invalidateWorldStamp(airline.worldId);
 
     return reply.code(201).send({
       ok: true,

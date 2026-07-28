@@ -7,6 +7,7 @@ import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
+import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 
@@ -408,11 +409,8 @@ function WorldsScreen({ token, me }) {
   const load = useCallback(() => {
     api('/worlds').then((d) => setWorlds(d.worlds)).catch(setError);
   }, []);
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+  useVisibleInterval(load, 15000);
 
   const myWorldIds = new Set((me?.airlines ?? []).map((a) => a.worldId));
 
@@ -597,13 +595,11 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   const load = useCallback(() => {
     api(`/worlds/${worldId}`, { token }).then((d) => { setData(d); setError(null); }).catch(setError);
   }, [worldId, token]);
-  useEffect(() => {
-    load();
-    // 15s is plenty for a lobby leaderboard — this endpoint reads every airline
-    // row, so the poll rate is a direct multiplier on database egress.
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+  // 15s is plenty for a lobby leaderboard — this endpoint reads every airline
+  // row, so the poll rate is a direct multiplier on database egress. Paused
+  // entirely while the tab is hidden.
+  useVisibleInterval(load, 15000);
 
   if (error) return <div className="card"><ErrorNote error={error} /><a href="#/">← All worlds</a></div>;
   if (!data) return <p className="muted">Loading world…</p>;

@@ -279,14 +279,6 @@ export function withRivals(state, view) {
   return {
     ...state,
     multiplayer: true,
-    // Float-pool summary (investor cash left, liquidity state) so the Stocks tab
-    // can explain sell-side liquidity BEFORE the server rejects a trade. Server-
-    // derived like the views; stripped before persistence.
-    stockPool: view?.stockPool ?? null,
-    // Gate scarcity worlds only: the live gate-market view (airport capacities,
-    // holdings, open auctions + your sealed bid, marketplace listings). Rebuilt
-    // on every read/tick like the rival views; stripped before persistence.
-    ...(view?.gateMarket ? { gateMarket: view.gateMarket } : {}),
     // Starter Fleet perk gating. Airlines created before the perk shipped (and
     // any other blob that never recorded the counter) arrive with
     // starterDeliveriesUsed === undefined. Seed it the SAME way the solo
@@ -297,6 +289,28 @@ export function withRivals(state, view) {
     // player who has already consumed it carries their real counter (?? keeps it).
     starterDeliveriesUsed: state.starterDeliveriesUsed
       ?? Math.min(2, (state.fleet?.length ?? 0) + (state.pendingOrders?.length ?? 0)),
+    ...rivalOverlay(view),
+  };
+}
+
+// The server-derived half of withRivals on its own: everything that depends on
+// OTHER airlines rather than on this one's save blob.
+//
+// Split out so the airline read can ship it INDEPENDENTLY of the state blob. A
+// rival's move changes exactly these fields and nothing else, and they weigh
+// kilobytes against the blob's megabytes — so a player who is watching rather
+// than acting (the common case between hourly ticks) no longer re-downloads
+// their entire save because somebody else adjusted a fare.
+//
+// Keep this key set in lockstep with stripRivals: anything stripped before
+// persistence because it is rebuilt from `view` belongs here.
+export function rivalOverlay(view) {
+  return {
+    // Float-pool summary (investor cash left, liquidity state) so the Stocks tab
+    // can explain sell-side liquidity BEFORE the server rejects a trade.
+    stockPool: view?.stockPool ?? null,
+    // Gate scarcity worlds only: the live gate-market view.
+    ...(view?.gateMarket ? { gateMarket: view.gateMarket } : {}),
     competitors: view?.competitors ?? [],
     humanRivals: view?.humanRivals ?? {},
     encroachments: {},               // AI encroachment never exists in Headwinds

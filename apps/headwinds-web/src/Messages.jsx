@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { authedApi } from './authedApi.js';
 import { ReportDialog } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
+import { useVisibleInterval } from './usePoll.js';
 
 const fmtTime = (t) => {
   const d = new Date(t);
@@ -30,11 +31,8 @@ export default function MessagesWidget({ worldId, token }) {
       .catch(setError);
   }, [worldId, token]);
 
-  useEffect(() => {
-    loadSummary();
-    const t = setInterval(loadSummary, 20000);
-    return () => clearInterval(t);
-  }, [loadSummary]);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+  useVisibleInterval(loadSummary, 20000);
 
   const unread = summary?.totalUnread ?? 0;
 
@@ -195,11 +193,8 @@ function DmThread({ worldId, token, airlineId, name, og = false, dev = false, on
       .catch(setError);
   }, [worldId, token, airlineId]);
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+  useVisibleInterval(load, 10000);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages]);
 
   const block = async () => {
@@ -267,11 +262,8 @@ function AllianceBoard({ worldId, token, onSeen }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldId, token]);
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 12000);
-    return () => clearInterval(t);
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+  useVisibleInterval(load, 12000);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [data]);
 
   if (!data) return (
