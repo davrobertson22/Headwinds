@@ -2147,7 +2147,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
 
 // ─── Add-route / add-flights form ─────────────────────────────────────────────
 
-function AddRouteForm({ onClose, initialOrigin, initialDest }) {
+export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const { state, dispatch } = useGame();
   const { fleet, routes, hub, gates = {}, cargoRoutes = [], hubs = EMPTY_HUBS } = state;
 
