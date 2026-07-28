@@ -15,6 +15,7 @@
 import { gameReducer } from '@tailwinds/engine/reducer';
 import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
+  GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP,
   GATE_FEE_BY_TIER, GATE_HUB_GUARANTEE, GATE_ANTI_FLIP_WEEKS,
   GATE_AUCTION_LOTS_BY_SIZE, GATE_AUCTION_OPEN_WEEK, GATE_AUCTION_TRIGGER,
   GATE_AUCTION_RESULT_WEEKS, GATE_BID_MAX_QTY, GATE_CAPACITY_GROWTH_CEILING,
@@ -202,6 +203,12 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
           opensWeek:   auction.opensWeek,
           closesWeek:  auction.resolvesWeek,
           yourBid:     myBid ? { amount: myBid.amount, quantity: myBid.quantity } : null,
+          // How many gates could ACTUALLY be awarded to you once the caps are
+          // applied. 0 means bidding here is pointless, and the form says so
+          // instead of letting the bid die silently at the year tick.
+          ...gateAuctionEligibility(
+            { capacity: b.capacity, holdings: b.holdings }, me.id, allianceMap, auction.lots,
+          ),
         } : null,
         lastAuction: past ? lastAuctionView(past, me.id, nameOf) : null,
         listings: codeListings,
@@ -593,9 +600,80 @@ async function notifyLosingBidder(prisma, { airportCode, worldId, outcome, log }
 }
 
 
+// ── Auction eligibility (the caps, applied BEFORE you bid) ──────────────────
+// The ownership caps used to be checked only at lease time and again at
+// resolution, with nothing in between. So a sealed bid could be accepted,
+// held for twelve weeks, and voided at the year tick by a cap that was
+// already unsatisfiable the moment it was placed — and the bidder was told
+// none of it. This is that same arithmetic, exported so placeBid can refuse
+// an unwinnable bid on the spot and the client can grey the form out.
+//
+// Returns { maxWinnable, reason, detail }: the largest number of gates this
+// airline could actually be awarded here, and — when that is zero — which cap
+// is responsible.
+export function gateAuctionEligibility(row, airlineId, allianceMap, lots) {
+  const capacity = row?.capacity ?? 0;
+  const mine = holdingsCount(row, airlineId);
+  const ceiling = Math.max(1, Math.min(GATE_BID_MAX_QTY, lots || 1));
+
+  let q = ceiling;
+  let reason = null;
+  let detail = null;
+  while (q > 0 && mine + q > gateAirlineCapOf(capacity + q)) {
+    q--;
+    reason = 'OWNERSHIP_CAP';
+    detail = `no airline may hold more than ${Math.round(GATE_AIRLINE_CAP * 100)}% of an airport's gates — you already hold ${mine} of ${capacity} here`;
+  }
+
+  const myAlliance = allianceMap?.get?.(airlineId);
+  if (myAlliance && q > 0) {
+    const allianceId = myAlliance.membership.allianceId;
+    let allianceTaken = 0;
+    for (const [aid, m] of allianceMap) {
+      if (m.membership.allianceId === allianceId) allianceTaken += row?.holdings?.[aid]?.count ?? 0;
+    }
+    while (q > 0 && allianceTaken + q > gateAllianceCapOf(capacity + q)) {
+      q--;
+      reason = 'ALLIANCE_CAP';
+      detail = `your alliance already holds ${allianceTaken} of ${capacity} gates here, and may not hold more than ${Math.round(GATE_ALLIANCE_CAP * 100)}%`;
+    }
+  }
+
+  return { maxWinnable: q, reason: q > 0 ? null : reason, detail: q > 0 ? null : detail };
+}
+
+// Airports where making `memberIds` one alliance would breach the combined cap.
+// Every path that ACQUIRES a gate enforces this cap; nothing enforced it on the
+// transaction that actually creates a monopoly — forming or joining an alliance.
+// Two carriers each legally under the 60% single-airline cap could merge into a
+// 100% holder of an airport, and the cap then became a one-way ratchet: they
+// kept every gate and simply could never win another.
+export async function allianceGateCapBreaches(prisma, { world, memberIds }) {
+  if (!isGateScarcity(world) || memberIds.length < 2) return [];
+  const rows = await prisma.worldGate.findMany({ where: { worldId: world.id } });
+  const breaches = [];
+  for (const row of rows) {
+    const combined = memberIds.reduce((n, id) => n + (row.holdings?.[id]?.count ?? 0), 0);
+    const cap = gateAllianceCapOf(row.capacity);
+    if (combined > cap) {
+      breaches.push({ airportCode: row.airportCode, combined, cap, capacity: row.capacity });
+    }
+  }
+  return breaches.sort((a, b) => (b.combined - b.cap) - (a.combined - a.cap));
+}
+
+// One sentence a player can act on, for the 409 that refuses the join.
+export function describeGateCapBreaches(breaches) {
+  const list = breaches
+    .map((b) => `${b.airportCode} (${b.combined} of ${b.capacity} gates, cap ${b.cap})`)
+    .join(', ');
+  return `That would put the alliance over the ${Math.round(GATE_ALLIANCE_CAP * 100)}% gate cap at ${list}. `
+    + 'Sell or release gates there first — the cap applies to alliances the same way it applies to a single airline.';
+}
+
 // ── Sealed bids ──────────────────────────────────────────────────────────────
 
-export async function placeBid(prisma, { world, airline, airportCode, amount, quantity = 1 }) {
+export async function placeBid(prisma, { world, airline, airportCode, amount, quantity = 1, allianceMap = new Map() }) {
   const auction = await prisma.gateAuction.findFirst({
     where: { worldId: world.id, airportCode, status: 'OPEN' },
   });
@@ -608,16 +686,34 @@ export async function placeBid(prisma, { world, airline, airportCode, amount, qu
   if (amt > 1e10) throw new GateError('Bid is implausibly large.');
   // Nobody can win more gates than are on offer, so don't let anyone bid for
   // more: the cap is the anti-monopoly limit or the lot count, whichever bites.
-  const maxQ = Math.max(1, Math.min(GATE_BID_MAX_QTY, auction.lots));
-  if (!Number.isInteger(q) || q < 1 || q > maxQ) {
-    throw new GateError(maxQ === 1
-      ? `Only 1 gate is on offer at ${airportCode} — you can bid for 1.`
-      : `You may bid for 1–${maxQ} gates at ${airportCode} (${auction.lots} on offer).`);
-  }
   const weekIdx = worldWeekIndex(world);
   const lockedUntil = airline.state?.gateLockouts?.[airportCode] ?? 0;
   if (lockedUntil > weekIdx) {
     throw new GateError(`You are locked out of ${airportCode} — you cannot bid there right now.`);
+  }
+  // The ownership caps decide this too, not just the lot count — and they are
+  // applied at RESOLUTION, so a bid that cannot clear them is dead on arrival.
+  // Refuse it now, with the reason, instead of holding it for twelve weeks and
+  // voiding it at the year tick.
+  const row = await prisma.worldGate.findUnique({
+    where: { worldId_airportCode: { worldId: world.id, airportCode } },
+  }) ?? { capacity: gateCapacityOf(getAirport(airportCode)), holdings: {} };
+  const eligible = gateAuctionEligibility(row, airline.id, allianceMap, auction.lots);
+  if (eligible.maxWinnable < 1) {
+    throw new GateError(`You cannot win a gate at ${airportCode}: ${eligible.detail}.`);
+  }
+  const maxQ = eligible.maxWinnable;
+  // Two different reasons produce a cap of 1, and they want different wording:
+  // a one-lot auction, versus an ownership cap that leaves you room for one.
+  const capLimited = maxQ < Math.min(GATE_BID_MAX_QTY, auction.lots);
+  if (!Number.isInteger(q) || q < 1 || q > maxQ) {
+    if (maxQ === 1) {
+      throw new GateError(capLimited
+        ? `You can bid for 1 gate at ${airportCode} — the ownership caps mean a second could not be awarded to you.`
+        : `Only 1 gate is on offer at ${airportCode} — you can bid for 1.`);
+    }
+    throw new GateError(`You may bid for 1–${maxQ} gates at ${airportCode}`
+      + (capLimited ? ' — the ownership caps allow you no more.' : ` (${auction.lots} on offer).`));
   }
   await prisma.gateBid.upsert({
     where: { auctionId_airlineId: { auctionId: auction.id, airlineId: airline.id } },

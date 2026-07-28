@@ -302,8 +302,15 @@ function GateMarketSection({ state, remoteApi }) {
               const a = m.auction;
               const weeksLeft = Math.max(0, a.closesWeek - weekNow);
               // Never offer a quantity the auction can't fill — you can't win
-              // 3 gates out of a 2-gate lot. Clamps stale drafts too.
-              const maxQty = Math.max(1, Math.min(GATE_BID_MAX_QTY, a.lots));
+              // 3 gates out of a 2-gate lot, and the ownership caps cut it
+              // further. `maxWinnable` is the server's own arithmetic, so the
+              // form can't promise what resolution would refuse. 0 means the
+              // caps rule you out entirely: say so instead of taking a bid that
+              // would be voided at the year tick.
+              const maxQty = Math.max(1, Math.min(
+                GATE_BID_MAX_QTY, a.lots, a.maxWinnable ?? a.lots,
+              ));
+              const barred = (a.maxWinnable ?? 1) < 1;
               const saved = bidDrafts[code] ?? { amount: a.yourBid?.amount ?? a.reserve, quantity: a.yourBid?.quantity ?? 1 };
               const draft = { ...saved, quantity: Math.max(1, Math.min(Number(saved.quantity) || 1, maxQty)) };
               return (
@@ -320,6 +327,14 @@ function GateMarketSection({ state, remoteApi }) {
                       Your bid: {formatMoney(a.yourBid.amount)} × {Math.min(a.yourBid.quantity, maxQty)}
                     </span>
                   )}
+                  {barred ? (
+                    <span style={{
+                      marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: 'var(--red)',
+                      maxWidth: 420, textAlign: 'right', lineHeight: 1.45,
+                    }}>
+                      You cannot win a gate here — {a.detail}.
+                    </span>
+                  ) : (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
                     <input
                       style={INPUT} type="number" min={a.reserve} step={10000}
@@ -351,6 +366,7 @@ function GateMarketSection({ state, remoteApi }) {
                       </button>
                     )}
                   </span>
+                  )}
                 </div>
               );
             })}

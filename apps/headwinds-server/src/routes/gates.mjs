@@ -88,6 +88,9 @@ export default async function gateRoutes(fastify) {
       airportCode: request.params.code.toUpperCase(),
       amount: request.body.amount,
       quantity: request.body.quantity ?? 1,
+      // Needed for the 80% combined cap — without it an allied airline could
+      // place a bid the auction would never be allowed to award.
+      allianceMap: await loadAllianceMap(prisma, world.id),
     });
     return { ok: true, gateMarket: await gateMarketFor(world, airline.id) };
   });

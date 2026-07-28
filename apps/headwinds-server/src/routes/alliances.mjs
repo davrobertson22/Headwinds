@@ -10,6 +10,7 @@
 import { requireAuth, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { PLAYER_ALLIANCE_MAX_MEMBERS } from '../lib/humanRivals.mjs';
+import { allianceGateCapBreaches, describeGateCapBreaches } from '../lib/gateService.mjs';
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -112,6 +113,25 @@ export default async function allianceRoutes(fastify) {
     };
   });
 
+  // Gate scarcity: the 80% combined cap is enforced on every path that ACQUIRES
+  // a gate — lease, marketplace, auction — but nothing enforced it on the
+  // transaction that actually creates a monopoly. Two carriers each legally
+  // under the 60% single-airline cap could ally into a 100% holder of an
+  // airport, after which the cap became a one-way ratchet: they kept every gate
+  // and could simply never win another (their auction bids were voided at
+  // resolution, silently). An alliance is now held to the cap it is meant to
+  // obey, at the moment it would breach it.
+  async function refuseIfOverGateCap(request, alliance, joiner) {
+    if (!joiner) return;
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    const memberIds = [
+      ...alliance.members.filter((m) => m.status === 'ACTIVE').map((m) => m.airlineId),
+      joiner.id,
+    ];
+    const breaches = await allianceGateCapBreaches(prisma, { world, memberIds });
+    if (breaches.length > 0) throw httpError(409, describeGateCapBreaches(breaches));
+  }
+
   // ── Found an alliance ──────────────────────────────────────────────────────
   fastify.post('/worlds/:id/alliances', {
     preHandler: requireAuth,
@@ -172,6 +192,7 @@ export default async function allianceRoutes(fastify) {
     if (activeCount(alliance) >= PLAYER_ALLIANCE_MAX_MEMBERS) {
       throw httpError(409, 'This alliance is full');
     }
+    await refuseIfOverGateCap(request, alliance, airline);
     await prisma.allianceMember.create({
       data: { allianceId: alliance.id, airlineId: airline.id, status: 'PENDING', role: 'MEMBER' },
     });
@@ -204,6 +225,10 @@ export default async function allianceRoutes(fastify) {
       if (activeCount(alliance) >= PLAYER_ALLIANCE_MAX_MEMBERS) {
         throw httpError(409, 'This alliance is full');
       }
+      // Re-checked here, not just at request time: holdings move while a
+      // request sits pending, and this is the moment membership becomes real.
+      const joiner = await prisma.airline.findUnique({ where: { id: target.airlineId } });
+      await refuseIfOverGateCap(request, alliance, joiner);
       await prisma.allianceMember.update({ where: { id: target.id }, data: { status: 'ACTIVE' } });
       return { ok: true, status: 'ACTIVE' };
     }

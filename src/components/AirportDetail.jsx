@@ -60,6 +60,30 @@ export default function AirportDetail({ code, onBack }) {
   const gateCap    = scarcity ? (gateMkt?.capacity ?? gateCapacityOf(airport)) : 0;
   const gateTaken  = gateMkt?.taken ?? myGates;
   const gateAvail  = Math.max(0, gateCap - gateTaken);
+  // The ownership caps are silent until they bite. You can sit at exactly 60%
+  // of an airport, or be in an alliance that between you holds all of it, and
+  // nothing tells you — until an auction bid you placed months earlier is
+  // voided at the year tick. State it here, where you'd go to look.
+  const capNote = (() => {
+    if (!scarcity || !gateMkt) return null;
+    const { allianceTaken, maxAlliance, maxYours } = gateMkt;
+    if (allianceTaken != null && maxAlliance != null && allianceTaken >= maxAlliance) {
+      return {
+        over: allianceTaken > maxAlliance,
+        text: `Your alliance holds ${allianceTaken} of ${gateCap} gates here — at or over the ${maxAlliance}-gate combined cap. `
+          + 'No member can lease, buy or win another gate at this airport until the alliance is back under it.',
+      };
+    }
+    if (maxYours != null && myGates >= maxYours) {
+      return {
+        over: myGates > maxYours,
+        text: `You hold ${myGates} of ${gateCap} gates here — at the ${maxYours}-gate single-airline cap. `
+          + 'You cannot lease, buy or win another gate at this airport.',
+      };
+    }
+    return null;
+  })();
+
   const gateHolders = (gateMkt?.holders && gateMkt.holders.length > 0)
     ? gateMkt.holders
     : (myGates > 0 ? [{ name: state.airlineName, count: myGates, yours: true }] : []);
@@ -306,6 +330,19 @@ export default function AirportDetail({ code, onBack }) {
                 <span style={{ color: 'var(--accent)' }}>■</span> your gates · <span style={{ color: 'var(--text-dim)' }}>■</span> other airlines · empty = available
               </div>
             </div>
+            {capNote && (
+              <div style={{
+                fontSize: 12, lineHeight: 1.5, marginBottom: 14, padding: '8px 12px',
+                borderRadius: 'var(--radius)',
+                border: `1px solid ${capNote.over ? 'rgba(248,81,73,0.35)' : 'var(--border)'}`,
+                background: capNote.over ? 'rgba(248,81,73,0.08)' : 'var(--surface2)',
+                color: 'var(--text-muted)',
+              }}>
+                <strong style={{ color: capNote.over ? 'var(--red)' : 'var(--text)' }}>Ownership cap · </strong>
+                {capNote.text}
+              </div>
+            )}
+
             {/* Who holds gates here */}
             {gateHolders.length > 0 ? (
               <div style={{ borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>

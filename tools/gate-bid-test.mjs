@@ -18,10 +18,18 @@ async function test(name, fn) {
 }
 
 // ── In-memory fake Prisma (only the surface placeBid/withdrawBid touch) ──────
-function fakePrisma({ auction }) {
+function fakePrisma({ auction, gate }) {
   const bids = [];
   return {
     bids,
+    // The ledger row placeBid now reads to apply the ownership caps before
+    // accepting a bid. Roomy by default so these cases test what they say.
+    worldGate: {
+      findUnique: async () => ({
+        worldId: 'w1', airportCode: 'GRR', capacity: 100, taken: 40, baseSize: 100,
+        holdings: { a1: { count: 4 } }, version: 1, ...(gate ?? {}),
+      }),
+    },
     gateAuction: {
       findFirst: async ({ where }) =>
         (auction && auction.airportCode === where.airportCode && auction.status === where.status
