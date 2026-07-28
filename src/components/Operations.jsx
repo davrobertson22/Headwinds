@@ -406,126 +406,6 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
   );
 }
 
-// ─── Maintenance budget card ──────────────────────────────────────────────────
-
-function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch }) {
-  // Aging rate: 0.5→1.25 faster, 1.0→1.0 normal, 2.0→0.5 slower
-  const agingRate = Math.max(0.5, 1 + (1 - budget) * 0.5);
-  const agingColor = agingRate > 1.1 ? 'var(--red)' : agingRate < 0.9 ? 'var(--green)' : 'var(--text-muted)';
-
-  // Live projection: last week's actual maintenance scaled to the current slider.
-  // Maintenance cost is ~linear in the budget multiplier, so projected next-week
-  // spend ≈ lastActual × (currentBudget / budgetThatProducedLastActual). This
-  // makes the headline figure respond to the slider instead of showing a static
-  // historical number (which only refreshes on the weekly tick).
-  const baselineBudget = maintBudgetUsed > 0 ? maintBudgetUsed : 1.0;
-  const projectedMaint = fleetMaintTotal * (budget / baselineBudget);
-  const projMoved = Math.abs(budget - baselineBudget) > 0.001;
-
-  const budgetLabel = budget < 0.75 ? 'Cut-rate'
-    : budget < 0.95 ? 'Below standard'
-    : budget < 1.1  ? 'Standard'
-    : budget < 1.5  ? 'Enhanced'
-    : 'Full overhaul';
-
-  return (
-    <div className="card" style={{ padding: '14px 18px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }}><Glyph e="🛠️" /></span>
-            Maintenance Budget
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, maxWidth: 420 }}>
-            Line maintenance — A/B checks, parts, components. Low budget cuts costs now but raises
-            wear-related breakdown risk and accelerates airframe aging. Heavy C &amp; D checks are
-            scheduled per aircraft in the Fleet tab — or automatically, once this budget and
-            maintenance-team pay are both ≥1.30×.
-          </div>
-        </div>
-        {fleetMaintTotal > 0 && (
-          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 16 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--red)' }}>
-              −{formatMoney(projectedMaint)}/wk
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-              projected next week · all aircraft
-            </div>
-            {projMoved && (
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>
-                was −{formatMoney(fleetMaintTotal)}/wk last week
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Budget slider */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Budget level</span>
-          <span style={{ fontWeight: 600, color: budget < 0.9 ? 'var(--red)' : budget > 1.1 ? 'var(--green)' : 'var(--text)' }}>
-            {budget.toFixed(2)}× — {budgetLabel}
-          </span>
-        </div>
-        <div style={{ position: 'relative' }}>
-          <input
-            type="range"
-            className="hw-range"
-            min="0.5"
-            max="2.0"
-            step="0.05"
-            value={budget}
-            style={sliderStyle}
-            draggable={false}
-            onDragStart={e => e.preventDefault()}
-            onChange={e => dispatch({ type: 'SET_MAINTENANCE_BUDGET', multiplier: parseFloat(e.target.value) })}
-          />
-          <div style={{
-            position: 'absolute', top: -4,
-            left: `${(1.0 - 0.5) / (2.0 - 0.5) * 100}%`,
-            transform: 'translateX(-50%)',
-            width: 2, height: 14,
-            background: 'var(--border)',
-            pointerEvents: 'none',
-          }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
-          <span>0.5× deferred</span>
-          <span style={{ color: 'var(--text-muted)' }}>1.0× standard</span>
-          <span>2.0× overhaul</span>
-        </div>
-      </div>
-
-      {/* Effects */}
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginTop: 8, fontSize: 12 }}>
-        <div>
-          <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Aging rate</div>
-          <div style={{ fontWeight: 600, color: agingColor }}>{agingRate.toFixed(2)}× per week</div>
-        </div>
-        <div>
-          <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Maint cost multiplier</div>
-          <div style={{ fontWeight: 600, color: budget < 1 ? 'var(--green)' : 'var(--red)' }}>{budget.toFixed(2)}×</div>
-        </div>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Impact</div>
-          <div style={{ color: agingColor, fontSize: 11, fontStyle: 'italic' }}>
-            {agingRate > 1.15
-              ? 'Aircraft aging significantly faster, higher maintenance costs ahead'
-              : agingRate > 1.05
-              ? 'Slightly faster aging, monitor fleet condition'
-              : agingRate < 0.85
-              ? 'Aircraft condition well-maintained, extended service life'
-              : agingRate < 0.95
-              ? 'Slightly slowed aging, good for long-term economics'
-              : 'Standard schedule, balanced cost and longevity'}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Reusable money input ──────────────────────────────────────────────────────
 // Keeps its own text while focused, so deleting a digit that momentarily makes
 // the value 0 (or empty) never resets the field or unmounts its row. Commits the
@@ -927,61 +807,17 @@ export default function Operations() {
         />
       ))}
 
-      {/* Maintenance budget section */}
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
-      }}>
-        Maintenance Budget
+      {/* Maintenance moved to its own page — see components/Maintenance.jsx */}
+      <div className="card" style={{ padding: '12px 18px', marginTop: 16 }}>
+        <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Glyph e="🛠️" />
+          <span style={{ fontWeight: 600 }}>Maintenance has its own page.</span>
+          <span style={{ color: 'var(--text-muted)' }}>
+            Budget, heavy checks, jet bases, the shop board and your outsourced MRO contracts all live
+            under Company ▸ Maintenance.
+          </span>
+        </div>
       </div>
-
-      <MaintenanceCard
-        budget={maintenanceBudget}
-        fleetMaintTotal={fleetMaintTotal}
-        maintBudgetUsed={state.lastReport?.maintenanceBudgetUsed ?? 1.0}
-        dispatch={dispatch}
-      />
-
-      {(() => {
-        const mAbs = absoluteWeek(state.year, state.week);
-        const cs = (state.fleet ?? []).reduce((acc, a) => {
-          if (a.status === 'retired') return acc;
-          if (a.status === 'maintenance') { acc.inShop++; return acc; }
-          const di = dueInfo(a, getAircraftType(a.typeId), mAbs);
-          acc[di.state]++;
-          if (a.scheduledCheck) acc.booked++;
-          return acc;
-        }, { ok: 0, soon: 0, due: 0, overdue: 0, inShop: 0, booked: 0 });
-        if (cs.ok + cs.soon + cs.due + cs.overdue + cs.inShop === 0) return null;
-        const chip = (label, n, color) => n > 0 ? (
-          <span style={{ padding: '3px 9px', borderRadius: 6, fontSize: 12, background: 'var(--surface2)', border: '1px solid var(--border)', color }}>{label}: <b>{n}</b></span>
-        ) : null;
-        return (
-          <div className="card" style={{ padding: '12px 18px', marginTop: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><Glyph e="🔧" /> Heavy Checks (C / D)</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {chip('OK', cs.ok, 'var(--green)')}
-              {chip('Due soon', cs.soon, 'var(--yellow)')}
-              {chip('Due', cs.due, 'var(--red)')}
-              {chip('Overdue', cs.overdue, 'var(--red)')}
-              {chip('In shop', cs.inShop, 'var(--accent)')}
-              {chip('Booked', cs.booked, 'var(--text-muted)')}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Schedule from each aircraft's card in the Fleet tab. Overdue airframes get force-grounded by the regulator (longer downtime, +50% cost).</div>
-            {(() => {
-              const autoOn  = autoSchedulingActive(labor, maintenanceBudget);
-              const payMult = labor?.maintenanceTeam?.payMultiplier ?? 1.0;
-              return (
-                <div style={{ fontSize: 11, marginTop: 6, color: autoOn ? 'var(--green)' : 'var(--text-dim)' }}>
-                  {autoOn
-                    ? `⚙ Auto-scheduling active — maintenance pay (${payMult.toFixed(2)}×) and budget (${maintenanceBudget.toFixed(2)}×) are both ≥${AUTO_SCHEDULE_PAY_MIN.toFixed(2)}×, so due C/D checks are booked automatically at planned cost.`
-                    : `⚙ Auto-scheduling off — pay the maintenance team ≥${AUTO_SCHEDULE_PAY_MIN.toFixed(2)}× AND set the maintenance budget ≥${AUTO_SCHEDULE_BUDGET_MIN.toFixed(2)}× and due C/D checks will be booked automatically (currently ${payMult.toFixed(2)}× pay / ${maintenanceBudget.toFixed(2)}× budget).`}
-                </div>
-              );
-            })()}
-          </div>
-        );
-      })()}
 
       {/* Reserve coverage — hub-based standby covers (docs/reserve-aircraft-design.md) */}
       {(() => {
@@ -1122,91 +958,6 @@ export default function Operations() {
           </>
         );
       })()}
-
-      {/* Fleet complexity section */}
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <span>Fleet Complexity · MRO Base Costs</span>
-        {familyCost > 0 && (
-          <span style={{ color: 'var(--red)', fontWeight: 700, fontSize: 13, textTransform: 'none', letterSpacing: 0 }}>
-            −{formatMoney(familyCost)}/wk total
-          </span>
-        )}
-      </div>
-
-      <div className="card" style={{ padding: '14px 18px' }}>
-        {famEntries.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
-            No aircraft in fleet yet. Each aircraft family you operate requires a dedicated maintenance base.
-          </div>
-        ) : (
-          <>
-            {/* Family rows */}
-            {famEntries.map(({ id, info, count }) => {
-              const catLabel = FAMILY_CATEGORY_LABEL[info.category] ?? info.category;
-              const catColors = {
-                widebody: '#a98bff', narrowBody: '#3ea6ff',
-                regional: '#38d39f', turboprop: '#ffb43d', utility: '#93a4ba',
-              };
-              const color = catColors[info.category] ?? '#93a4ba';
-              return (
-                <div key={id} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 0',
-                  borderBottom: '1px solid var(--border-subtle)',
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{info.name}</span>
-                      <span style={{
-                        fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
-                        background: `${color}20`, color, border: `1px solid ${color}40`,
-                        textTransform: 'uppercase', letterSpacing: '0.05em',
-                      }}>
-                        {catLabel}
-                      </span>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {count} aircraft
-                      </span>
-                    </div>
-                    {info.note && (
-                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2, fontStyle: 'italic' }}>
-                        <Glyph e="⚠" /> {info.note}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ fontWeight: 600, color: 'var(--red)', fontSize: 13, flexShrink: 0 }}>
-                    −{formatMoney(info.weeklyBaseCost)}/wk
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Standardisation tip */}
-            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              {famEntries.length === 1 ? (
-                <span style={{ color: 'var(--green)' }}>
-                  <Glyph e="✓" /> Single-family fleet — you pay the minimum possible MRO base cost.
-                </span>
-              ) : (
-                <>
-                  <span style={{ color: 'var(--yellow)' }}>
-                    {famEntries.length} families active.
-                  </span>
-                  {' '}Retiring all aircraft of one type eliminates its base cost. A uniform fleet saves{' '}
-                  <strong style={{ color: 'var(--text)' }}>
-                    {formatMoney(familyCost - Math.min(...famEntries.map(e => e.info.weeklyBaseCost)))}/wk
-                  </strong>
-                  {' '}if you consolidate to one family.
-                </>
-              )}
-            </div>
-          </>
-        )}
-      </div>
 
       {/* Footnote */}
       <div style={{ marginTop: 16, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.6 }}>

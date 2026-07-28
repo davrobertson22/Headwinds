@@ -17,6 +17,8 @@
  * multiplayer tick stay deterministic and replayable.
  */
 
+import { DEPRECIATION_YEARS } from './overhead.js';
+
 // ─── Due thresholds (dual trigger — whichever comes first) ────────────────────
 export const C_HOURS_DUE = 4_500;
 export const C_WEEKS_DUE = 104;      // 2 game-years
@@ -32,15 +34,15 @@ export const DUE_SOON_WEEKS = 12;
 export const DUE_SOON_HOURS = 800;
 
 // ─── Cost (fraction of the airframe's market purchasePrice) ───────────────────
-export const C_COST_PCT = 0.01;   // 1%
-export const D_COST_PCT = 0.06;   // 6%
+export const C_COST_PCT = 0.018;  // 1.8%
+export const D_COST_PCT = 0.10;   // 10%
 
 // ─── Downtime (weeks out of service) by aircraft category ─────────────────────
 const C_DURATION = { 'Turboprop': 1, 'Regional Jet': 1, 'Narrow Body': 1, 'Wide Body': 2, 'Double Deck': 2, 'Supersonic': 2 };
 const D_DURATION = { 'Turboprop': 3, 'Regional Jet': 3, 'Narrow Body': 4, 'Wide Body': 5, 'Double Deck': 6, 'Supersonic': 6 };
 
 // ─── Overdue / forced-grounding penalties ─────────────────────────────────────
-export const OVERDUE_MAINT_MULT = 1.25;  // weekly line-maintenance surcharge while overdue
+export const OVERDUE_MAINT_MULT = 1.40;  // weekly line-maintenance surcharge while overdue
 export const FORCED_EXTRA_WEEKS = 2;     // extra downtime when the regulator parks it (no slot booked)
 export const FORCED_COST_MULT   = 1.5;   // check costs more when forced (rush, no planning)
 export const FORCED_REP_HIT     = 2;     // flat reputation hit on a forced grounding
@@ -222,6 +224,78 @@ export function maintNavMultiplier(a, absWeek) {
   const dDue = (a?.hoursSinceD ?? 0) >= D_HOURS_DUE || (a?.weeksSinceD ?? 0) >= D_WEEKS_DUE;
   if (cDue || dDue) m -= NAV_DUE_PENALTY;
   return Math.max(0.5, m);
+}
+
+// ─── AOG (aircraft on ground) repair cost ────────────────────────────────
+// An unscheduled mechanical failure used to be free — the aircraft simply sat
+// on the ground. It now carries a repair bill scaled to the airframe's value
+// and the severity of the fault, which is what a jet base has to discount.
+export const AOG_COST_PCT = {
+  minor:  0.002,    // avionics fault, APU, fuel-system anomaly
+  major:  0.005,    // engine, hydraulics, gear, pressurization
+  severe: 0.010,    // structural crack
+};
+
+/**
+ * Repair costs climb steeply with airframe age — parts are scarcer, corrosion
+ * turns a two-day job into a two-week one, and everything you open up reveals
+ * something else. Mirrors the line-maintenance age curve: 1.0x new, ~1.5x at
+ * 10 years, 3.0x at 20, 5.5x at 30.
+ *
+ * This is what makes a write-off possible at all: a 30-year-old airframe with a
+ * structural crack costs more to repair than the airframe is worth.
+ */
+export function aogAgeFactor(a) {
+  const ageYears = (a?.ageWeeks ?? 0) / 52;
+  return 1 + Math.pow(ageYears / 20, 2) * 2;
+}
+
+/**
+ * A repair bill may never exceed this fraction of the airframe's own value.
+ * Past that point the aircraft is written off instead of repaired — which is
+ * what stops a 25-year-old jet generating a bill larger than the jet.
+ */
+export const AOG_NAV_CAP_FRACTION = 0.60;
+
+/** Hull-insurance payout on a write-off, as a fraction of NAV (owned only). */
+export const AOG_WRITE_OFF_PAYOUT_FRACTION = 0.80;
+
+/**
+ * Net asset value of an airframe. Mirrors the SELL_AIRCRAFT valuation exactly
+ * (straight-line depreciation floored at 10%, times the maintenance modifier)
+ * so a write-off can never be worth more than a sale.
+ */
+export function airframeNAV(a, type, absWeek = 0) {
+  const ageYears  = (a?.ageWeeks ?? 0) / 52;
+  const remaining = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
+  return Math.round((type?.purchasePrice ?? 0) * remaining * maintNavMultiplier(a, absWeek));
+}
+
+/**
+ * Repair cost for one AOG event.
+ *
+ * Returns { cost, uncapped, writeOff, nav, payout }:
+ *   cost     — what the airline actually pays this week (0 on a write-off)
+ *   writeOff — true when the repair would cost more than the airframe is worth
+ *   payout   — hull-insurance proceeds on a write-off (owned aircraft only)
+ *
+ * Cost scales with the airframe's purchase price, the severity of the fault and
+ * its age. `baseFactor` (≤1) is the jet-base discount — see data/mroBase.js.
+ */
+export function aogRepairCost(a, type, severity, { maintMod = 1, laborMult = 1, baseFactor = 1, absWeek = 0 } = {}) {
+  const pct      = AOG_COST_PCT[severity] ?? AOG_COST_PCT.major;
+  const uncapped = Math.round((type?.purchasePrice ?? 0) * pct * aogAgeFactor(a) * maintMod * laborMult * baseFactor);
+  const nav      = airframeNAV(a, type, absWeek);
+  const cap      = Math.round(nav * AOG_NAV_CAP_FRACTION);
+  const writeOff = uncapped > cap;
+  return {
+    cost:     writeOff ? 0 : uncapped,
+    uncapped,
+    writeOff,
+    nav,
+    payout:   (writeOff && a?.ownershipType === 'owned')
+      ? Math.round(nav * AOG_WRITE_OFF_PAYOUT_FRACTION) : 0,
+  };
 }
 
 // Deterministic [0,1) hash of a string — used to seed migration counters so a

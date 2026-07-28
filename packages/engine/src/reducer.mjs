@@ -34,7 +34,13 @@ import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEff
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
-         autoSchedulingActive } from './data/maintenance.js';
+         autoSchedulingActive, aogRepairCost } from './data/maintenance.js';
+import {
+  mroLevelDef, canBuildBase, makeBase, closeRefund, certCapacity, clampPartsPool,
+  tickBaseConstruction, newSlotLedger, claimSlot, hasSlot, partsPoolDurationMult,
+  resolveBaseFor, mroFactorsFor,
+  MRO_MAX_LEVEL, MRO_MAX_CERTS_PER_BASE,
+} from './data/mroBase.js';
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
@@ -357,6 +363,7 @@ function freshState() {
     labor:             DEFAULT_LABOR_STATE,
     laborRelations:    DEFAULT_LABOR_RELATIONS,  // union unrest, strikes, contract negotiations
     maintenanceBudget: DEFAULT_MAINTENANCE_BUDGET,
+    mroBases:          {},    // { [code]: { level, families[], openedWeek, buildWeeksLeft, partsPool } }
     marketingBudget:   0,          // weekly BRAND marketing spend ($) — builds awareness (adstock), no instant boost
     targetedMarketing: {},         // { [airportCode]: weeklySpend } — tactical campaigns per airport
     campaignStrength:  {},         // { [airportCode]: 0-100 } — campaign stock, fast build/fast decay
@@ -845,9 +852,15 @@ function reducer(state, action) {
       const ct     = action.checkType === 'D' ? 'D' : 'C';
       const curAbs = absoluteWeek(state.year, state.week);
       if (action.startNow) {
-        const cost = checkCost(mType, ct, { maintMod: a.maintMod ?? 1, laborMult: laborEffects(state.labor).maintenanceCostMultiplier, hubFactor: aircraftHubMaintFactor(a.id, state.routes, state.cargoRoutes, state.hubs) });
+        // Best facility wins: hub discount or a certified jet base on this
+        // aircraft's network, whichever is cheaper. They do not stack.
+        const mfNow   = mroFactorsFor(resolveBaseFor(a, state.mroBases ?? {}, state.routes, state.cargoRoutes, curAbs));
+        const hubFNow = aircraftHubMaintFactor(a.id, state.routes, state.cargoRoutes, state.hubs);
+        const facNow  = Math.min(hubFNow, ct === 'D' ? mfNow.dCostMult : mfNow.cCostMult);
+        const cost = checkCost(mType, ct, { maintMod: a.maintMod ?? 1, laborMult: laborEffects(state.labor).maintenanceCostMultiplier, hubFactor: facNow });
         if (state.cash < cost) return { ...state, error: 'Not enough cash to start this check.' };
-        const dur = checkDurationWeeks(mType.category, ct);
+        const savedNow = ct === 'D' ? mfNow.dWeeksSaved : mfNow.cWeeksSaved;
+        const dur = Math.max(1, checkDurationWeeks(mType.category, ct) - savedNow);
         return {
           ...state,
           cash:  state.cash - cost,
@@ -863,6 +876,81 @@ function reducer(state, action) {
 
     case 'CANCEL_SCHEDULED_CHECK': {
       return { ...state, fleet: state.fleet.map(x => x.id === action.aircraftId ? { ...x, scheduledCheck: null } : x) };
+    }
+
+    // ─── Jet bases (MRO network) ─────────────────────────────────────────────
+    case 'BUILD_MRO_BASE': {
+      // action: { code, level, families: [familyId] }
+      const code  = action.code;
+      const level = Math.max(1, Math.min(MRO_MAX_LEVEL, Math.round(Number(action.level) || 1)));
+      const bases = state.mroBases ?? {};
+      if (!code || bases[code]) return state;
+      const check = canBuildBase(code, level, { bases, gates: state.gates ?? {}, cash: state.cash });
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      const fams = [...new Set((action.families ?? []).filter(Boolean))].slice(0, certCapacity(level));
+      if (fams.length === 0) return { ...state, error: 'Certify at least one aircraft family.' };
+      return {
+        ...state,
+        cash:     state.cash - check.capex,
+        mroBases: { ...bases, [code]: makeBase(code, level, fams, absoluteWeek(state.year, state.week)) },
+      };
+    }
+
+    case 'UPGRADE_MRO_BASE': {
+      // Upgrades build IN PLACE — the existing level keeps working throughout.
+      const code     = action.code;
+      const bases    = state.mroBases ?? {};
+      const existing = bases[code];
+      if (!existing) return state;
+      const level = Math.max(1, Math.min(MRO_MAX_LEVEL, Math.round(Number(action.level) || existing.level + 1)));
+      const check = canBuildBase(code, level, { bases, gates: state.gates ?? {}, cash: state.cash });
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      const def = mroLevelDef(level);
+      return {
+        ...state,
+        cash:     state.cash - check.capex,
+        mroBases: { ...bases, [code]: { ...existing, upgradeTo: level, upgradeWeeksLeft: def.buildWeeks } },
+      };
+    }
+
+    case 'ADD_BASE_CERTIFICATION': {
+      // action: { code, familyId }
+      const bases = state.mroBases ?? {};
+      const base  = bases[action.code];
+      const famId = action.familyId;
+      if (!base || !famId) return state;
+      const fams = base.families ?? [];
+      if (fams.includes(famId)) return state;
+      if (fams.length >= MRO_MAX_CERTS_PER_BASE) return { ...state, error: 'This base is certified for as many families as it can hold.' };
+      const def = mroLevelDef(base.level);
+      if (!def) return state;
+      // Certifications beyond the level's included allowance cost capex + weekly opex.
+      const capex = fams.length >= def.certsIncluded ? def.extraCertCapex : 0;
+      if (state.cash < capex) return { ...state, error: 'Not enough cash to certify this family.' };
+      return {
+        ...state,
+        cash:     state.cash - capex,
+        mroBases: { ...bases, [action.code]: { ...base, families: [...fams, famId] } },
+      };
+    }
+
+    case 'SET_BASE_PARTS_POOL': {
+      const bases = state.mroBases ?? {};
+      const base  = bases[action.code];
+      if (!base) return state;
+      return {
+        ...state,
+        mroBases: { ...bases, [action.code]: { ...base, partsPool: clampPartsPool(action.pool) } },
+      };
+    }
+
+    case 'CLOSE_MRO_BASE': {
+      const bases = state.mroBases ?? {};
+      const base  = bases[action.code];
+      if (!base) return state;
+      const rest = { ...bases };
+      delete rest[action.code];
+      return { ...state, cash: state.cash + closeRefund(base), mroBases: rest };
     }
 
     case 'SET_RESERVE': {
@@ -2497,7 +2585,12 @@ function reducer(state, action) {
         encroachments: state.encroachments ?? {},
       });
 
-      const report = weeklyTick({ ...state, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents });
+      // ── Jet bases: advance construction BEFORE the week's economics, so a
+      // hangar that finishes this week starts earning its keep immediately.
+      const baseBuild  = tickBaseConstruction(state.mroBases ?? {}, curAbsWeek);
+      const tickedBases = baseBuild.bases;
+
+      const report = weeklyTick({ ...state, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents, mroBases: tickedBases, absWeek: curAbsWeek });
 
       // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the
@@ -2621,11 +2714,54 @@ function reducer(state, action) {
 
       // 2. Roll for new failures on non-grounded aircraft
       const newFailures = rollMechanicalFailures(tickedFleet, mainBudget);
-      const failedIds   = new Set(newFailures.map(f => f.aircraftId));
+
+      // ── AOG repair bills ──────────────────────────────────────────────────
+      // A breakdown used to be free — the jet just sat there. It now carries a
+      // repair bill scaled to the airframe's value and the severity of the
+      // fault. A certified jet base on the aircraft's network makes it cheaper
+      // and shorter, IF a shop slot is free. When the repair would cost more
+      // than the aircraft is worth it is written off instead (hull insurance
+      // pays out on owned metal).
+      const mroSlots      = newSlotLedger(tickedBases);
+      const mroFactorsRep = report.mroFactorsByAircraft ?? {};
+      const mroLaborMult  = laborEffects(state.labor).maintenanceCostMultiplier;
+      const mroJobs       = [];
+      const writeOffIds   = new Set();
+      let aogSpend     = 0;
+      let aogInsurance = 0;
+      for (const f of newFailures) {
+        const ac = tickedFleet.find(a => a.id === f.aircraftId);
+        const ty = ac ? getAircraftType(ac.typeId) : null;
+        const mf = mroFactorsRep[f.aircraftId] ?? null;
+        const atBase = !!(mf && mf.code && claimSlot(mroSlots, mf.code));
+        const priced = aogRepairCost(ac, ty, f.severity, {
+          maintMod:   ac?.maintMod ?? 1,
+          laborMult:  mroLaborMult,
+          baseFactor: atBase ? mf.aogCostMult : 1,
+          absWeek:    curAbsWeek,
+        });
+        if (atBase) {
+          const pool = tickedBases[mf.code]?.partsPool;
+          f.weeksGrounded = Math.max(1, Math.round((f.weeksGrounded - mf.aogWeeksSaved) * partsPoolDurationMult(pool)));
+        }
+        f.repairCost = priced.cost;
+        f.writeOff   = priced.writeOff;
+        f.payout     = priced.payout;
+        f.baseCode   = atBase ? mf.code : null;
+        if (priced.writeOff) { writeOffIds.add(f.aircraftId); aogInsurance += priced.payout; }
+        else                 { aogSpend += priced.cost; }
+        mroJobs.push({
+          kind: 'aog', aircraftId: f.aircraftId, name: f.aircraftName, tailNumber: f.tailNumber,
+          label: f.label, cost: priced.cost, base: f.baseCode, weeks: f.weeksGrounded,
+          writeOff: priced.writeOff, payout: priced.payout,
+        });
+      }
+      // A written-off airframe is gone, not grounded.
+      const failedIds   = new Set(newFailures.filter(f => !f.writeOff).map(f => f.aircraftId));
 
       // 3. Apply failures + age + lease countdown
       let leaseRedeliveryCost = 0;
-      const expiredLeaseIds   = new Set();
+      const removedAircraftIds   = new Set(writeOffIds);   // lease expiries + AOG write-offs
       const leaseWarningToasts = [];
 
       // ── Toast configs for new / expired events ─────────────────────────
@@ -2680,7 +2816,22 @@ function reducer(state, action) {
       const checksStarted = [];
       const checksForced  = [];
 
+      // Facility discount for a heavy check: the better of the hub factor and a
+      // certified jet base on this aircraft's network — they do not stack. The
+      // base only helps if a shop slot is still free this week; overflow work
+      // goes to a third party at full price and full downtime.
+      const checkFacility = (ac, ct) => {
+        const hubF = aircraftHubMaintFactor(ac.id, coverPass.routes, coverPass.cargoRoutes, state.hubs);
+        const mf   = mroFactorsRep[ac.id] ?? null;
+        if (!mf || !mf.code || !hasSlot(mroSlots, mf.code)) return { factor: hubF, weeksSaved: 0, base: null };
+        const mult = ct === 'D' ? mf.dCostMult : mf.cCostMult;
+        if (mult >= 1) return { factor: hubF, weeksSaved: 0, base: null };
+        return { factor: Math.min(hubF, mult), weeksSaved: ct === 'D' ? mf.dWeeksSaved : mf.cWeeksSaved, base: mf.code };
+      };
+
       const agedFleet = tickedFleet.map(a => {
+        // Written off this week — the airframe leaves the fleet entirely.
+        if (writeOffIds.has(a.id)) return null;
         let aged = { ...a, ageWeeks: (a.ageWeeks ?? 0) + agingRate };
         aged = accrueMaintenance(aged, isOutOfService(a) ? 0 : (maintHoursById.get(a.id) ?? 0), curAbsWeek);
         if (failedIds.has(a.id)) {
@@ -2704,7 +2855,7 @@ function reducer(state, action) {
           if (remaining <= 0) {
             const type = getAircraftType(a.typeId);
             leaseRedeliveryCost += (type?.weeklyLease ?? 0) * 4;
-            expiredLeaseIds.add(a.id);
+            removedAircraftIds.add(a.id);
             leaseWarningToasts.push({
               type:     'danger',
               title:    `📋 Lease ended — ${a.name}`,
@@ -2722,11 +2873,14 @@ function reducer(state, action) {
           const sc    = aged.scheduledCheck;
           if (sc && curAbsWeek >= (sc.startWeek ?? curAbsWeek)) {
             const ct   = sc.type === 'D' ? 'D' : 'C';
-            const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, coverPass.routes, coverPass.cargoRoutes, state.hubs) });
+            const fac  = checkFacility(aged, ct);
+            const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: fac.factor });
             if (runningCashForChecks >= cost) {
               runningCashForChecks -= cost; maintCheckSpend += cost;
-              const dur = checkDurationWeeks(mType?.category, ct);
-              checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur });
+              if (fac.base) claimSlot(mroSlots, fac.base);
+              const dur = Math.max(1, checkDurationWeeks(mType?.category, ct) - fac.weeksSaved);
+              checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur, base: fac.base });
+              mroJobs.push({ kind: 'check', checkType: ct, aircraftId: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', cost, base: fac.base, weeks: dur });
               return startCheck(aged, ct, dur);
             }
             aged = { ...aged, scheduledCheck: null };
@@ -2741,11 +2895,15 @@ function reducer(state, action) {
             const dur = checkDurationWeeks(mType?.category, ct);
             const leaseSoonReturn = aged.ownershipType === 'lease' && (aged.leaseRemainingWeeks ?? 999) <= dur + 4;
             if (!leaseSoonReturn) {
-              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, coverPass.routes, coverPass.cargoRoutes, state.hubs) });
+              const fac  = checkFacility(aged, ct);
+              const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: fac.factor });
               if (runningCashForChecks >= cost) {
                 runningCashForChecks -= cost; maintCheckSpend += cost;
-                checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur, auto: true });
-                return startCheck(aged, ct, dur);
+                if (fac.base) claimSlot(mroSlots, fac.base);
+                const durF = Math.max(1, dur - fac.weeksSaved);
+                checksStarted.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: durF, auto: true, base: fac.base });
+                mroJobs.push({ kind: 'check', checkType: ct, aircraftId: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', cost, base: fac.base, weeks: durF, auto: true });
+                return startCheck(aged, ct, durF);
               }
             }
           }
@@ -2754,9 +2912,12 @@ function reducer(state, action) {
             const dur  = checkDurationWeeks(mType?.category, ct);
             const leaseSoonReturn = aged.ownershipType === 'lease' && (aged.leaseRemainingWeeks ?? 999) <= dur + 4;
             if (!leaseSoonReturn) {
+              // No jet-base discount on a forced grounding: the regulator parks it
+              // where it stands, and the slot you'd have used was never booked.
               const cost = checkCost(mType, ct, { maintMod: aged.maintMod ?? 1, laborMult: maintLaborMult, hubFactor: aircraftHubMaintFactor(aged.id, coverPass.routes, coverPass.cargoRoutes, state.hubs), forced: true });
               maintCheckSpend += cost; forcedRepHit += FORCED_REP_HIT;
               checksForced.push({ id: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', checkType: ct, cost, weeks: dur });
+              mroJobs.push({ kind: 'check', checkType: ct, aircraftId: aged.id, name: aged.name, tailNumber: aged.tailNumber ?? '', cost, base: null, weeks: dur, forced: true });
               return startCheck(aged, ct, dur, { forced: true });
             }
           }
@@ -2765,13 +2926,32 @@ function reducer(state, action) {
       }).filter(Boolean);
 
       // 4. Build failure toasts
-      const failureToasts = newFailures.map(f => ({
+      const money = (n) => (n ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+      const failureToasts = newFailures.map(f => (f.writeOff ? {
+        type:    'danger',
+        title:   `\u2620\uFE0F Written off — ${f.aircraftName}`,
+        message: `${f.label} on ${f.tailNumber || f.aircraftName} would cost more to repair than the airframe is worth. Removed from the fleet${f.payout > 0 ? `; hull insurance paid ${money(f.payout)}` : ''}.`,
+        icon:    f.icon,
+        duration: 11000,
+      } : {
         type:    'danger',
         title:   `Mechanical Failure: ${f.aircraftName}`,
-        message: `${f.label} detected on ${f.tailNumber || f.aircraftName}. Grounded for ${f.weeksGrounded} week${f.weeksGrounded !== 1 ? 's' : ''}.`,
+        message: `${f.label} detected on ${f.tailNumber || f.aircraftName}. Grounded for ${f.weeksGrounded} week${f.weeksGrounded !== 1 ? 's' : ''}. Repair ${money(f.repairCost)}${f.baseCode ? ` at your ${f.baseCode} base` : ''}.`,
         icon:    f.icon,
         duration: 8000,
       }));
+      const baseOpenToasts = [
+        ...baseBuild.opened.map(b => ({
+          type: 'success', icon: '\uD83D\uDD27', duration: 9000,
+          title: `\uD83D\uDD27 ${mroLevelDef(b.level)?.name ?? 'Jet base'} open — ${b.code}`,
+          message: `Your ${b.code} base is certified and taking work. It reaches full effectiveness over the next six months.`,
+        })),
+        ...baseBuild.upgraded.map(b => ({
+          type: 'success', icon: '\uD83D\uDD27', duration: 9000,
+          title: `\uD83D\uDD27 ${b.code} upgraded to ${mroLevelDef(b.level)?.name ?? 'a higher tier'}`,
+          message: `Heavier work can now be done in-house at ${b.code}.`,
+        })),
+      ];
 
       // 5. Build recovery toasts (aircraft that just came back from grounding).
       //    Detect from the PRE-tick fleet (state.fleet): an aircraft recovers this
@@ -2791,6 +2971,7 @@ function reducer(state, action) {
 
       // Merge lease warnings, failures, and recovery toasts in (after agedFleet is built)
       const checkToasts = [
+        ...baseOpenToasts,
         ...checksStarted.map(c => ({ type: 'info', title: `🔧 ${c.checkType} check ${c.auto ? 'auto-scheduled' : 'started'} — ${c.name}`, message: `${c.tailNumber || c.name} is in the shop for ${c.weeks} week${c.weeks !== 1 ? 's' : ''}. Cost: ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.${c.auto ? ' Booked automatically by your maintenance team.' : ''}`, icon: '🔧', duration: 7000 })),
         ...checksForced.map(c => ({ type: 'danger', title: `⚠️ Forced grounding — ${c.name}`, message: `${c.tailNumber || c.name} blew past its ${c.checkType}-check window. Regulator-grounded ${c.weeks} week${c.weeks !== 1 ? 's' : ''}; rushed check ${c.cost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`, icon: '⚠️', duration: 10000 })),
         ...completedChecks.map(c => ({ type: 'success', title: `✅ ${c.checkType} check complete — ${c.name}`, message: `${c.tailNumber || c.name} has returned to service.`, icon: '✅', duration: 5000 })),
@@ -3002,10 +3183,10 @@ function reducer(state, action) {
       // Seasonal reactivation fees are a deductible operating expense, treated like
       // lease redelivery: they reduce the tax base and flow through the weekly P&L
       // (so the debrief shows them as a cost line and cash reconciles exactly).
-      const taxableIncome   = adjustedCashDelta - weeklyDepreciation - totalLoanInterest - leaseRedeliveryCost - seasonalReactivationCost - maintCheckSpend;
+      const taxableIncome   = adjustedCashDelta - weeklyDepreciation - totalLoanInterest - leaseRedeliveryCost - seasonalReactivationCost - maintCheckSpend - aogSpend + aogInsurance;
       const corporateTax    = Math.round(Math.max(0, taxableIncome) * CORPORATE_TAX_RATE);
       // Cash movement: operating cash − full loan payment − reactivation fees − tax.
-      const preTaxProfit    = adjustedCashDelta - totalLoanPayments - leaseRedeliveryCost - seasonalReactivationCost - maintCheckSpend;
+      const preTaxProfit    = adjustedCashDelta - totalLoanPayments - leaseRedeliveryCost - seasonalReactivationCost - maintCheckSpend - aogSpend + aogInsurance;
       const newCash = state.cash + preTaxProfit - corporateTax;
       let newWeek = state.week + 1;
       let newYear = state.year;
@@ -3226,7 +3407,7 @@ function reducer(state, action) {
         eventDemandAdj:     Math.round(eventDemandAdj),
         // Revenue forfeited to cancelled flights during a labor strike.
         strikeLoss:         strikeRevenueLoss,
-        totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + maintCheckSpend,
+        totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + maintCheckSpend + aogSpend,
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
         fuelIndex:          currentFuelIndex,
@@ -3604,12 +3785,12 @@ function reducer(state, action) {
       // Drop routes whose aircraft lease expired this week, and age weeksOpen on survivors
       // If a COVERING tail's lease expired this week, its covered routes go home
       // to the original instead of dying with the lease.
-      const leaseSafeRoutes = expiredLeaseIds.size > 0
-        ? seasonAdjustedRoutes.map(r => (r.coverForAircraftId && expiredLeaseIds.has(r.aircraftId))
+      const leaseSafeRoutes = removedAircraftIds.size > 0
+        ? seasonAdjustedRoutes.map(r => (r.coverForAircraftId && removedAircraftIds.has(r.aircraftId))
             ? { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null } : r)
         : seasonAdjustedRoutes;
-      const survivingRoutes = expiredLeaseIds.size > 0
-        ? leaseSafeRoutes.filter(r => !expiredLeaseIds.has(r.aircraftId))
+      const survivingRoutes = removedAircraftIds.size > 0
+        ? leaseSafeRoutes.filter(r => !removedAircraftIds.has(r.aircraftId))
         : leaseSafeRoutes;
       const finalRoutes = survivingRoutes.map(r => ({
         ...r,
@@ -3617,12 +3798,12 @@ function reducer(state, action) {
       }));
       // Same treatment for cargo routes: drop those whose freighter's lease expired,
       // age weeksOpen on survivors (drives the cargo maturity ramp).
-      const leaseSafeCargo = expiredLeaseIds.size > 0
-        ? coverPass.cargoRoutes.map(r => (r.coverForAircraftId && expiredLeaseIds.has(r.aircraftId))
+      const leaseSafeCargo = removedAircraftIds.size > 0
+        ? coverPass.cargoRoutes.map(r => (r.coverForAircraftId && removedAircraftIds.has(r.aircraftId))
             ? { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null } : r)
         : coverPass.cargoRoutes;
-      const survivingCargo = expiredLeaseIds.size > 0
-        ? leaseSafeCargo.filter(r => !expiredLeaseIds.has(r.aircraftId))
+      const survivingCargo = removedAircraftIds.size > 0
+        ? leaseSafeCargo.filter(r => !removedAircraftIds.has(r.aircraftId))
         : leaseSafeCargo;
       const finalCargoRoutes = survivingCargo.map(r => ({
         ...r,
@@ -3707,8 +3888,8 @@ function reducer(state, action) {
           // lease redelivery, seasonal reactivation fees and corporate tax on top of
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
-          totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
+          totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend + aogSpend,
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, mro: { jobs: mroJobs, aogSpend, aogInsurance, baseCosts: report.totalMroBaseCosts ?? 0, contractSavings: report.mroContractSavings ?? 0, opened: baseBuild.opened, upgraded: baseBuild.upgraded }, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
       dividend: dividendPaid > 0
         ? { perShare: dividendPerSh, total: dividendPaid, payableShares: divPayable }
         : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
@@ -3721,6 +3902,7 @@ function reducer(state, action) {
         labor:             updatedLabor,
         laborRelations:    updatedRelations,
         maintenanceBudget: mainBudget,
+        mroBases:          tickedBases,
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory },
         marketIndex:       nextMarketIndex,

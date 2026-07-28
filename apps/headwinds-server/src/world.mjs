@@ -28,6 +28,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'RENEW_LEASE', 'EXTEND_LEASE', 'BUY_OUT_LEASE', 'ORDER_AIRCRAFT', 'CANCEL_ORDER', 'RENAME_ORDER',
   'SCHEDULE_CHECK', 'CANCEL_SCHEDULED_CHECK',
   'SET_RESERVE', 'CLEAR_RESERVE',
+  // Jet bases (MRO network). Capex, gate holdings and level progression are
+  // all re-validated by the reducer; the guard below only sanitizes payloads.
+  'BUILD_MRO_BASE', 'UPGRADE_MRO_BASE', 'ADD_BASE_CERTIFICATION',
+  'SET_BASE_PARTS_POOL', 'CLOSE_MRO_BASE',
   'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
   // Routes — passenger, cargo, tag
   'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',

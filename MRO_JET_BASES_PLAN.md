@@ -1,6 +1,30 @@
 # MRO Network & Jet Bases — Design & Implementation Plan
 
-**Status:** PROPOSED — 2026-07-28
+**Status:** **BUILT 2026-07-28** — engine, UI, tests and MP guards in BOTH repos, on disk,
+suites green (HW 456, TW 232). Alliance hosting (§5) is deliberately NOT landed — see AS BUILT below.
+
+### AS BUILT — what shipped, and how it differs from this plan
+
+| Planned | Shipped |
+|---|---|
+| AOG cost 0.25 / 0.6 / 1.2% of purchase price | **0.2 / 0.5 / 1.0%, multiplied by an age curve** (1.0× new → 3× at 20y → 5.5× at 30y). Without the age term the write-off branch was mathematically unreachable — max repair cost sat below the NAV floor — so write-offs only happen to genuinely elderly airframes, which is the intended drama. |
+| Remove hub `maintFactor`, 26-week grandfather | **Kept.** Hub and base factors take the BEST of the two rather than stacking, so nothing is taken away from anyone and no grandfather window or migration is needed. |
+| 8-week ramp on the cost increases | **Not built.** The increases land in full; the devlog explains them. One less moving part in live worlds. |
+| Upgrading takes the base offline for the new level's build time | **Upgrades build in place** — the existing level keeps working throughout (`upgradeTo` / `upgradeWeeksLeft`). Losing a working hangar for six months to upgrade it was a bad deal nobody would take. |
+| Parts pool at 0.4% of capex per week | **0.15%.** At 0.4% the pool cost as much as a Heavy MRO's entire opex, making the dial the dominant cost rather than a lever. |
+| Prisma `MroBase` model + migration | **Not needed yet.** Bases live in the airline's state blob like hubs and pre-scarcity gates. The DB model is only required to make bases visible to OTHER players, which is the alliance-hosting feature below. |
+| §5 alliance hosting | **Engine primitives built and tested** (`mroFactorsFor(..., { guest: true })`, `allianceHostFee()`, guest discount/fee symmetry) but the cross-airline settlement is NOT wired. Moving money between airlines is the exact shape of the 2026-07-27 float-pool dividend bug and deserves its own focused pass with a reconciliation tool, not the tail end of a long session. |
+
+Also added beyond the plan: a reserve stationed at one of your own open bases gets a
+10% discount on its readiness premium (open question #4, answered yes). Freighters ride
+their passenger family's certification (open question #1) — this falls out of `families.js`
+for free. Base transfer (#2) and third-party MRO sales (#3) remain deferred.
+
+**Original plan follows, unchanged.**
+
+---
+
+**Status (original):** PROPOSED — 2026-07-28
 **Scope:** Headwinds (multiplayer) **and** Tailwinds (solo). The engine work is shared; only
 alliance settlement differs between the two.
 **Decisions locked with Dave (2026-07-28):**

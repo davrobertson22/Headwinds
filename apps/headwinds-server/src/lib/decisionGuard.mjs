@@ -224,11 +224,56 @@ function guardSetReserve(payload, state) {
   return { aircraftId: payload.aircraftId, baseCode: code };
 }
 
+// ── Jet bases (mirror src/components/Maintenance.jsx build form) ────────────
+// The reducer re-validates gates, cash, level progression and certification
+// capacity. The guard's job is payload hygiene: a plausible airport code, a
+// legal level, and a families array of sane strings — nothing here is priceable
+// by the client.
+function guardMroBase(payload, { needLevel = false, needFamilies = false } = {}) {
+  const code = String(payload.code ?? '').toUpperCase();
+  if (code.length < 3 || code.length > 4) throw new GuardError('Invalid airport code.');
+  const out = { code };
+  if (needLevel) {
+    const lvl = Number(payload.level);
+    if (!Number.isInteger(lvl) || lvl < 1 || lvl > 3) throw new GuardError('Invalid base level.');
+    out.level = lvl;
+  }
+  if (needFamilies) {
+    const fams = Array.isArray(payload.families) ? payload.families : [];
+    const clean = [...new Set(fams.filter((f) => typeof f === 'string' && f.length > 0 && f.length <= 40))];
+    if (clean.length === 0) throw new GuardError('Certify at least one aircraft family.');
+    if (clean.length > 8) throw new GuardError('Too many certifications.');
+    out.families = clean;
+  }
+  return out;
+}
+
+function guardBaseCertification(payload) {
+  const out = guardMroBase(payload);
+  const fam = String(payload.familyId ?? '');
+  if (!fam || fam.length > 40) throw new GuardError('Invalid aircraft family.');
+  out.familyId = fam;
+  return out;
+}
+
+function guardPartsPool(payload) {
+  const out = guardMroBase(payload);
+  const pool = Number(payload.pool);
+  if (!Number.isFinite(pool)) throw new GuardError('Invalid parts pool.');
+  out.pool = pool;   // the reducer clamps to the legal band
+  return out;
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
     case 'CANCEL_SCHEDULED_CHECK': return { aircraftId: payload.aircraftId };
     case 'SET_RESERVE':        return guardSetReserve(payload, state);
+    case 'BUILD_MRO_BASE':     return guardMroBase(payload, { needLevel: true, needFamilies: true });
+    case 'UPGRADE_MRO_BASE':   return guardMroBase(payload, { needLevel: true });
+    case 'ADD_BASE_CERTIFICATION': return guardBaseCertification(payload);
+    case 'SET_BASE_PARTS_POOL': return guardPartsPool(payload);
+    case 'CLOSE_MRO_BASE':     return guardMroBase(payload);
     case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);

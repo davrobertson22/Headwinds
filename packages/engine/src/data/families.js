@@ -139,68 +139,71 @@ export const FAMILY_CATEGORY_LABEL = {
  * @property {string} name              - Human-readable family name
  * @property {string} category          - 'widebody' | 'narrowBody' | 'regional' | 'turboprop' | 'utility'
  * @property {number} weeklyBaseCost    - Weekly MRO infrastructure cost ($) charged if ≥1 aircraft in fleet
+ *                                     (MRO_COST_REBALANCE_2026_07: these are the outsourced-MRO
+ *                                     contract rates. A certified jet base for the family offsets
+ *                                     most of this — see data/mroBase.js.)
  * @property {string} [note]            - Optional warning (e.g. parts-supply issues)
  */
 
 /** @type {Record<string, FamilyInfo>} */
 export const FAMILY_INFO = {
   // ── Airbus ────────────────────────────────────────────────────────────────
-  airbus_a220: { name: 'Airbus A220',       category: 'narrowBody', weeklyBaseCost: 20_000 },
-  airbus_a320: { name: 'Airbus A320 / A321',category: 'narrowBody', weeklyBaseCost: 22_000 },
-  airbus_a300: { name: 'Airbus A300 / A310',category: 'widebody',   weeklyBaseCost: 28_000 },
-  airbus_a330: { name: 'Airbus A330',       category: 'widebody',   weeklyBaseCost: 38_000 },
-  airbus_a340: { name: 'Airbus A340',       category: 'widebody',   weeklyBaseCost: 42_000, note: '4-engine complexity premium' },
-  airbus_a350: { name: 'Airbus A350',       category: 'widebody',   weeklyBaseCost: 42_000 },
-  airbus_a380: { name: 'Airbus A380',       category: 'widebody',   weeklyBaseCost: 55_000, note: 'Superjumbo — highly specialised tooling' },
+  airbus_a220: { name: 'Airbus A220',       category: 'narrowBody', weeklyBaseCost: 38_000 },
+  airbus_a320: { name: 'Airbus A320 / A321',category: 'narrowBody', weeklyBaseCost: 42_000 },
+  airbus_a300: { name: 'Airbus A300 / A310',category: 'widebody',   weeklyBaseCost: 53_000 },
+  airbus_a330: { name: 'Airbus A330',       category: 'widebody',   weeklyBaseCost: 72_000 },
+  airbus_a340: { name: 'Airbus A340',       category: 'widebody',   weeklyBaseCost: 80_000, note: '4-engine complexity premium' },
+  airbus_a350: { name: 'Airbus A350',       category: 'widebody',   weeklyBaseCost: 80_000 },
+  airbus_a380: { name: 'Airbus A380',       category: 'widebody',   weeklyBaseCost: 104_000, note: 'Superjumbo — highly specialised tooling' },
 
   // ── Boeing ────────────────────────────────────────────────────────────────
-  boeing_737:  { name: 'Boeing 737',        category: 'narrowBody', weeklyBaseCost: 22_000 },
-  boeing_717:  { name: 'Boeing 717',        category: 'narrowBody', weeklyBaseCost: 18_000 },
-  boeing_727:  { name: 'Boeing 727',        category: 'narrowBody', weeklyBaseCost: 26_000, note: 'Ageing trijet — scarce parts' },
-  boeing_757:  { name: 'Boeing 757',        category: 'narrowBody', weeklyBaseCost: 24_000 },
-  boeing_767:  { name: 'Boeing 767',        category: 'widebody',   weeklyBaseCost: 35_000 },
-  boeing_787:  { name: 'Boeing 787',        category: 'widebody',   weeklyBaseCost: 40_000 },
-  boeing_777:  { name: 'Boeing 777',        category: 'widebody',   weeklyBaseCost: 42_000 },
-  boeing_747:  { name: 'Boeing 747',        category: 'widebody',   weeklyBaseCost: 50_000, note: '4-engine complexity premium' },
+  boeing_737:  { name: 'Boeing 737',        category: 'narrowBody', weeklyBaseCost: 42_000 },
+  boeing_717:  { name: 'Boeing 717',        category: 'narrowBody', weeklyBaseCost: 34_000 },
+  boeing_727:  { name: 'Boeing 727',        category: 'narrowBody', weeklyBaseCost: 49_000, note: 'Ageing trijet — scarce parts' },
+  boeing_757:  { name: 'Boeing 757',        category: 'narrowBody', weeklyBaseCost: 46_000 },
+  boeing_767:  { name: 'Boeing 767',        category: 'widebody',   weeklyBaseCost: 66_000 },
+  boeing_787:  { name: 'Boeing 787',        category: 'widebody',   weeklyBaseCost: 76_000 },
+  boeing_777:  { name: 'Boeing 777',        category: 'widebody',   weeklyBaseCost: 80_000 },
+  boeing_747:  { name: 'Boeing 747',        category: 'widebody',   weeklyBaseCost: 95_000, note: '4-engine complexity premium' },
 
   // ── Embraer ───────────────────────────────────────────────────────────────
-  embraer_erj:  { name: 'Embraer ERJ',      category: 'regional',   weeklyBaseCost: 10_000 },
-  embraer_ejet: { name: 'Embraer E-Jet',    category: 'regional',   weeklyBaseCost: 12_000 },
+  embraer_erj:  { name: 'Embraer ERJ',      category: 'regional',   weeklyBaseCost: 19_000 },
+  embraer_ejet: { name: 'Embraer E-Jet',    category: 'regional',   weeklyBaseCost: 23_000 },
 
   // ── Bombardier ───────────────────────────────────────────────────────────
-  bombardier_crj: { name: 'Bombardier CRJ', category: 'regional',   weeklyBaseCost: 10_000 },
+  bombardier_crj: { name: 'Bombardier CRJ', category: 'regional',   weeklyBaseCost: 19_000 },
 
   // ── Turboprops ───────────────────────────────────────────────────────────
-  atr:    { name: 'ATR 42 / 72',        category: 'turboprop', weeklyBaseCost: 8_000 },
-  dhc_q:  { name: 'Dash 8 Q Series',   category: 'turboprop', weeklyBaseCost: 8_000 },
-  saab:   { name: 'Saab 340 / 2000',   category: 'turboprop', weeklyBaseCost: 8_000 },
+  atr:    { name: 'ATR 42 / 72',        category: 'turboprop', weeklyBaseCost: 15_000 },
+  dhc_q:  { name: 'Dash 8 Q Series',   category: 'turboprop', weeklyBaseCost: 15_000 },
+  saab:   { name: 'Saab 340 / 2000',   category: 'turboprop', weeklyBaseCost: 15_000 },
 
   // ── Legacy regional ──────────────────────────────────────────────────────
-  bae_146: { name: 'BAe 146 / Avro RJ',  category: 'regional', weeklyBaseCost: 14_000, note: 'Out of production — parts availability declining' },
-  fokker:  { name: 'Fokker 70 / 100',   category: 'regional', weeklyBaseCost: 14_000, note: 'Out of production — parts availability declining' },
+  bae_146: { name: 'BAe 146 / Avro RJ',  category: 'regional', weeklyBaseCost: 27_000, note: 'Out of production — parts availability declining' },
+  fokker:  { name: 'Fokker 70 / 100',   category: 'regional', weeklyBaseCost: 27_000, note: 'Out of production — parts availability declining' },
 
   // ── Legacy narrow / widebody ─────────────────────────────────────────────
-  mcd_md80: { name: 'DC-9 / MD-80',   category: 'narrowBody', weeklyBaseCost: 20_000, note: 'Ageing fleet — rising maintenance overhead' },
-  mcd_dc10: { name: 'DC-10 / MD-11',  category: 'widebody',   weeklyBaseCost: 30_000, note: 'Ageing fleet — rising maintenance overhead' },
+  mcd_md80: { name: 'DC-9 / MD-80',   category: 'narrowBody', weeklyBaseCost: 38_000, note: 'Ageing fleet — rising maintenance overhead' },
+  mcd_dc10: { name: 'DC-10 / MD-11',  category: 'widebody',   weeklyBaseCost: 57_000, note: 'Ageing fleet — rising maintenance overhead' },
 
   // ── Specialist / Eastern ─────────────────────────────────────────────────
-  ilyushin:      { name: 'Ilyushin IL-96',     category: 'widebody',   weeklyBaseCost: 38_000, note: 'Specialist supply chain' },
-  sukhoi_ssj:    { name: 'Sukhoi Superjet',    category: 'regional',   weeklyBaseCost: 18_000, note: 'Specialist supply chain' },
-  tupolev:       { name: 'Tupolev Tu-204',      category: 'narrowBody', weeklyBaseCost: 22_000, note: 'Specialist supply chain' },
-  antonov:       { name: 'Antonov AN-148',      category: 'regional',   weeklyBaseCost: 15_000, note: 'Specialist supply chain' },
-  comac_c919:    { name: 'COMAC C919',          category: 'narrowBody', weeklyBaseCost: 22_000 },
-  comac_arj21:   { name: 'COMAC ARJ21',         category: 'regional',   weeklyBaseCost: 14_000 },
-  irkut_mc21:    { name: 'Irkut MC-21',         category: 'narrowBody', weeklyBaseCost: 22_000 },
-  mitsubishi_msj:{ name: 'Mitsubishi SpaceJet', category: 'regional',   weeklyBaseCost: 18_000, note: 'Programme cancelled — parts supply uncertain' },
+  ilyushin:      { name: 'Ilyushin IL-96',     category: 'widebody',   weeklyBaseCost: 72_000, note: 'Specialist supply chain' },
+  sukhoi_ssj:    { name: 'Sukhoi Superjet',    category: 'regional',   weeklyBaseCost: 34_000, note: 'Specialist supply chain' },
+  tupolev:       { name: 'Tupolev Tu-204',      category: 'narrowBody', weeklyBaseCost: 42_000, note: 'Specialist supply chain' },
+  antonov:       { name: 'Antonov AN-148',      category: 'regional',   weeklyBaseCost: 28_000, note: 'Specialist supply chain' },
+  comac_c919:    { name: 'COMAC C919',          category: 'narrowBody', weeklyBaseCost: 42_000 },
+  comac_arj21:   { name: 'COMAC ARJ21',         category: 'regional',   weeklyBaseCost: 27_000 },
+  irkut_mc21:    { name: 'Irkut MC-21',         category: 'narrowBody', weeklyBaseCost: 42_000 },
+  mitsubishi_msj:{ name: 'Mitsubishi SpaceJet', category: 'regional',   weeklyBaseCost: 34_000, note: 'Programme cancelled — parts supply uncertain' },
 
   // ── Small turboprops ─────────────────────────────────────────────────────
-  casa_cn235:    { name: 'CASA CN-235',        category: 'turboprop', weeklyBaseCost: 7_000 },
-  let_l410:      { name: 'Let L-410',          category: 'turboprop', weeklyBaseCost: 6_000 },
-  beechcraft_1900: { name: 'Beechcraft 1900', category: 'turboprop', weeklyBaseCost: 6_000 },
-  short_360:     { name: 'Short 360',          category: 'turboprop', weeklyBaseCost: 6_000 },
+  casa_cn235:    { name: 'CASA CN-235',        category: 'turboprop', weeklyBaseCost: 13_000 },
+  let_l410:      { name: 'Let L-410',          category: 'turboprop', weeklyBaseCost: 11_000 },
+  beechcraft_1900: { name: 'Beechcraft 1900', category: 'turboprop', weeklyBaseCost: 11_000 },
+  short_360:     { name: 'Short 360',          category: 'turboprop', weeklyBaseCost: 11_000 },
 
   // ── Utility turboprops ────────────────────────────────────────────────────
-  utility_tp: { name: 'Utility turboprop (mixed)', category: 'utility', weeklyBaseCost: 4_000 },
+  utility_tp: { name: 'Utility turboprop (mixed)', category: 'utility', weeklyBaseCost: 8_000 },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -244,14 +247,20 @@ export function fleetComplexityMultiplier(fleet) {
 }
 
 /**
- * Total weekly MRO base cost for all active families.
- * @param {object[]} fleet  - array of aircraft from game state
+ * Total weekly MRO base cost for all active families, net of any jet-base
+ * contract offsets.
+ * @param {object[]} fleet            - array of aircraft from game state
+ * @param {object}   offsetsByFamily  - { [familyId]: 0..1 } from familyContractOffsets()
  * @returns {number}
  */
-export function weeklyFamilyBaseCost(fleet) {
+export function weeklyFamilyBaseCost(fleet, offsetsByFamily = null) {
   let total = 0;
   for (const famId of activeFamilies(fleet)) {
-    total += FAMILY_INFO[famId]?.weeklyBaseCost ?? 0;
+    const gross  = FAMILY_INFO[famId]?.weeklyBaseCost ?? 0;
+    // A certified jet base does this family's work in-house, so most of the
+    // outsourced contract falls away (see data/mroBase.js contractOffset).
+    const offset = Math.max(0, Math.min(1, offsetsByFamily?.[famId] ?? 0));
+    total += gross * (1 - offset);
   }
-  return total;
+  return Math.round(total);
 }

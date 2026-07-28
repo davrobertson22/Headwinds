@@ -55,6 +55,8 @@ const RoutePlanner  = (await import('../src/components/RoutePlanner.jsx')).defau
 const TagRoutePlanner = (await import('../src/components/TagRoutePlanner.jsx')).default;
 const RouteDetail   = (await import('../src/components/RouteDetail.jsx')).default;
 const Wiki          = (await import('../src/components/Wiki.jsx')).default;
+const Maintenance   = (await import('../src/components/Maintenance.jsx')).default;
+const Operations    = (await import('../src/components/Operations.jsx')).default;
 
 const save = {
   ...freshState(),
@@ -110,6 +112,20 @@ test('Routes list shows a Dormant badge for an out-of-season route', () => {
 test('RouteDetail renders a dormancy notice for an out-of-season route', () => {
   const html = render(React.createElement(RouteDetail, { origin: P, dest: Q, onBack: () => {} }));
   assert.ok(html.includes('Dormant') || html.includes('Out of season'), 'dormancy notice present');
+});
+
+console.log('\n── 5. Maintenance page renders ──────────────────────────');
+test('Maintenance page mounts with an empty MRO network', () => {
+  const html = render(React.createElement(Maintenance));
+  assert.ok(html.includes('MRO Network'), 'the jet-base section is present');
+  assert.ok(html.includes('Shop Board'), 'the shop board is present');
+  assert.ok(html.includes('Outsourced MRO Contracts'), 'contracts section is present');
+});
+
+test('Operations no longer owns the maintenance budget', () => {
+  const html = render(React.createElement(Operations));
+  assert.ok(!html.includes('Budget level'), 'the budget slider moved off Operations');
+  assert.ok(html.includes('Maintenance has its own page'), 'and Operations points at the new page');
 });
 
 console.log(`\n${'─'.repeat(56)}`);
