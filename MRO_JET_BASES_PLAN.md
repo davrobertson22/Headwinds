@@ -11,6 +11,7 @@ suites green (HW 456, TW 232). Alliance hosting (§5) is deliberately NOT landed
 | Remove hub `maintFactor`, 26-week grandfather | **Kept.** Hub and base factors take the BEST of the two rather than stacking, so nothing is taken away from anyone and no grandfather window or migration is needed. |
 | 8-week ramp on the cost increases | **Not built.** The increases land in full; the devlog explains them. One less moving part in live worlds. |
 | Upgrading takes the base offline for the new level's build time | **Upgrades build in place** — the existing level keeps working throughout (`upgradeTo` / `upgradeWeeksLeft`). Losing a working hangar for six months to upgrade it was a bad deal nobody would take. |
+| Gates required 2 / 4 / 6 | **1 / 2 / 3** (Dave, 2026-07-28). Two gates for a line station was steep for a spoke airport; the ladder still scales and a Heavy MRO still costs real flying capacity at a congested field. |
 | Parts pool at 0.4% of capex per week | **0.15%.** At 0.4% the pool cost as much as a Heavy MRO's entire opex, making the dial the dominant cost rather than a lever. |
 | Prisma `MroBase` model + migration | **Not needed yet.** Bases live in the airline's state blob like hubs and pre-scarcity gates. The DB model is only required to make bases visible to OTHER players, which is the alliance-hosting feature below. |
 | §5 alliance hosting | **Engine primitives built and tested** (`mroFactorsFor(..., { guest: true })`, `allianceHostFee()`, guest discount/fee symmetry) but the cross-airline settlement is NOT wired. Moving money between airlines is the exact shape of the 2026-07-27 float-pool dividend bug and deserves its own focused pass with a reconciliation tool, not the tail end of a long session. |
@@ -129,7 +130,7 @@ cost, so the two systems talk to each other cleanly. A 737 base covers every 737
 | Capex | $4M | $25M | $90M |
 | Weekly opex | $30K | $120K | $350K |
 | Build time | 4 weeks | 12 weeks | 24 weeks |
-| Gates required at the airport | 2 | 4 | 6 |
+| Gates required at the airport | 1 | 2 | 3 |
 | Family certifications included | 1 | 2 | 4 |
 | Extra certification | $1.5M + $10K/wk | $4M + $25K/wk | $8M + $40K/wk |
 | Shop slots (concurrent airframes) | 2 | 4 | 8 |
