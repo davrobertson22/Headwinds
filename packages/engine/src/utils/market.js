@@ -485,15 +485,20 @@ export function routeDistance(originCode, destCode) {
 //     0.85             1.8%                97.1%   <- shipped first, far too deep
 //
 // At 0.85 the player was flying 98.9% load with fares 30% over reference and
-// clearing 2%: every route below 97% load lost money, which is unplayable.
-// 0.95 keeps break-even near 87% — meaningfully tighter than classic without
-// making the world hostile. Squeeze later if it reads as easy; it is much
-// easier to tighten a world than to apologise for one.
+// clearing 2%: every route below 97% load lost money.
+//
+// DEFAULT IS NOW 1.0 — no cut at all. The whole lever rested on a false premise:
+// it was built to rein in the 30% margins of a mature year-3 premium long-haul
+// carrier, but a NORMAL airline at ordinary scale already runs ~4% EBITDA, which
+// is a realistic airline margin. A uniform fare cut barely dents the mature
+// carrier and drives everyone else negative — backwards from the intent. The
+// machinery stays (tested, and per-world via tickConfig.fareIndex) so a world
+// CAN opt into a tighter ladder, but no world gets one by default.
 //
 // Tunable per world via tickConfig.fareIndex, but note it is SEEDED INTO AIRLINE
 // STATE AT JOIN — changing tickConfig alone will not move existing players.
 // Use tools/rebase-world-fare-index.mjs to retune a live world.
-export const NWR_FARE_INDEX = 0.95;
+export const NWR_FARE_INDEX = 1.0;
 
 let _fareIndex = 1;
 

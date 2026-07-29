@@ -64,12 +64,12 @@ the same to administer, so upgauging dodges overhead entirely.
 
 | class | median seats | rev/departure | fee | % of revenue |
 |---|---|---|---|---|
-| Turboprop | 39 | $3,481 | $200 | 5.7% |
-| Regional Jet | 92 | $10,948 | $500 | 4.6% |
-| Narrow Body | 186 | $35,731 | $1,500 | 4.2% |
-| Wide Body | 420 | $206,703 | $8,000 | 3.9% |
-| Double Deck | 605 | $337,862 | $15,000 | 4.4% |
-| Supersonic | 128 | $161,269 | $6,500 | 4.0% |
+| Turboprop | 39 | $3,481 | $100 | 2.9% |
+| Regional Jet | 92 | $10,948 | $250 | 2.3% |
+| Narrow Body | 186 | $35,731 | $750 | 2.1% |
+| Wide Body | 420 | $206,703 | $4,000 | 1.9% |
+| Double Deck | 605 | $337,862 | $7,500 | 2.2% |
+| Supersonic | 128 | $161,269 | $3,250 | 2.0% |
 
 A **flat** per-departure fee was rejected: revenue per departure spans 58x
 ($7,227 for a turboprop short sector to $419,804 for an A380 long-haul), so a flat
@@ -86,60 +86,50 @@ Freighters are priced on their airframe's body class (`freighterBodyClass`), so 
 747-400F pays the wide-body rate — no cabin, no cabin overhead. Note this differs
 from the LEASING rule, where the same aircraft is blocked as a double-decker.
 
-**Rule 4 — the whole reference-fare ladder is trimmed (`NWR_FARE_INDEX = 0.95`).**
+**Rule 4 — an optional fare-ladder trim (`NWR_FARE_INDEX = 1.0` — OFF by default).**
 Applied to `referencePrice()` and `cargoReferenceYield()` alike, so freight is not a
 loophole. Scaling the REFERENCE rather than realised revenue is deliberate: the
 demand model prices elasticity off `playerPrice / referencePrice`, so moving both
 together leaves demand untouched and simply lowers the ladder. Cutting revenue
 directly would show players a fare they do not receive.
 
-**Calibration — shipped at 0.85 and corrected to 0.95 the same evening.** A fare cut
-does not lower margins by its own size: it multiplies the **break-even load factor by
-1/f**, because costs do not fall with fares. Measured on a real Old Metal route
+**Calibration — and why both margin levers were wound back the same evening.**
+
+Shipped at 0.85, eased to 0.95, then removed as a default. The mechanism first: a
+fare cut does not lower margins by its own size, it multiplies the **break-even load
+factor by 1/f**, because costs do not fall with fares. On a real route
 (757-200, DFW-JFK, 2,235 km, catering off):
 
 | fareIndex | margin at full load | break-even load |
 |---|---|---|
 | 1.00 | 16.5% | 82.5% |
-| **0.95** | **12.1%** | **86.9%** |
-| 0.90 | 7.3% | 91.7% |
+| 0.95 | 12.1% | 86.9% |
 | 0.85 | 1.8% | 97.1% |
 
-At 0.85 the player was flying **98.9% load with fares 30% over reference and clearing
-2%** — every route below 97% load lost money. Unplayable. 0.95 keeps break-even near
-87%: meaningfully tighter than classic without making the world hostile.
+At 0.85 a player was flying 98.9% load with fares 30% over reference and clearing
+2% — every route below 97% load lost money.
 
-The corollary worth remembering: **you cannot get world-average margins into the
-3-8% band with a fare cut** without pushing break-even past 90%. Bringing the *best*
-routes to ~12% is the realistic target.
+**The deeper error was the premise.** Both margin levers were built to rein in the
+30% net margin observed on Otter Air — a year-3, rank-#6 carrier with a paid-off
+fleet flying premium long-haul. Rebuilding a comparable airline in a CLASSIC world
+produced **4.1% EBITDA**, which is a realistic airline margin. The 30% was a
+late-game phenomenon of maturity and scale, not a baseline. A uniform fare cut and
+a uniform per-departure fee barely register on the mature carrier they were aimed
+at, and drive an ordinary airline negative — exactly backwards.
 
-`tickConfig.fareIndex` overrides the default — but it is **seeded into airline state at
-join**, so editing it moves only future joiners. Retune a live world with
-`tools/rebase-world-fare-index.mjs`, which also repairs anyone who joined during a
-deploy window without the restrictions flag at all.
+Measured side by side, same airline, classic vs restricted: every cost line held the
+same share of revenue **except G&A, which went 5.3% → 10.2%** (~$98k/wk) on the HQ
+fee alone, taking +4.1% EBITDA to −10.5%.
 
-**Implementation note — module-scoped index.** `referencePrice(o, d)` is a pure
-function called from ~12 sites across the demand model, competitor AI, encroachment,
-positioning and network layers, none of which carry world context. Rather than
-thread a parameter through ten signatures, `market.js` holds `_fareIndex` and it is
-set from state at **three** choke points, all found and closed during the pre-push
-review:
+So: **fare index defaults to 1.0** (machinery kept, per-world via
+`tickConfig.fareIndex`, no world gets a cut unless asked) and **the HQ fee table is
+halved** to ~2% of revenue per departure. The leasing rules — the part that was
+actually asked for, and that works — are untouched.
 
-1. `reducer()` — on every action (covers every player action and every tick).
-2. `buildWorldRivalViews()` in `humanRivals.mjs` — this prices rival fares via
-   `referencePrice()` and `calcPositioning()` and runs **before** the reducer on
-   every decision request, so without it a rival view was priced with whatever
-   index the previous request left behind, feeding a 15%-wrong price ratio into the
-   contested-route demand split. Set from the rows about to be priced, at both the
-   passed-in and cache-miss paths (the rows do not exist until after the `findMany`).
-3. `GameContext`'s lazy initialiser plus a `useEffect` on `state.fareIndex` —
-   `useReducer(reducer, null, init)` does **not** run the reducer, so a restricted
-   world rendered the Marketplace, FareEditor and route planners on the classic
-   ladder until the player's first action.
-
-If this feature is ever promoted from a per-world toggle to a global rule, thread
-the index as a parameter instead — the discipline of "whoever prices, sets first"
-does not scale.
+`tickConfig.fareIndex` is **seeded into airline state at join**, so editing it moves
+only future joiners. Retune a live world with `tools/rebase-world-fare-index.mjs`,
+which also repairs anyone who joined during a deploy window without the restrictions
+flag at all.
 
 ## 3. Files changed
 

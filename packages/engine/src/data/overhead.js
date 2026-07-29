@@ -55,25 +55,34 @@ export function calcHQCost(fleetSize) {
 // revenue and an A380 operator 1.2% — an 58x spread, which is why this is a
 // table and not a constant.
 //
-//   class          median seats   rev/departure   fee     as % of revenue
-//   Turboprop            39          $3,481       $200         5.7%
-//   Regional Jet         92         $10,948       $500         4.6%
-//   Narrow Body         186         $35,731     $1,500         4.2%
-//   Wide Body           420        $206,703     $8,000         3.9%
-//   Double Deck         605        $337,862    $15,000         4.4%
-//   Supersonic          128        $161,269     $6,500         4.0%
+// HALVED 2026-07-29, hours after shipping. The first table was calibrated at ~4%
+// of revenue per departure, which sounded modest — but measured against a real
+// airline it took G&A from 5.3% to 10.2% of revenue, ~$98k/wk on a $3M carrier,
+// and pushed an otherwise-healthy operation to a negative margin. The mistake
+// underneath was the premise: the fee was built to rein in 30% margins observed
+// on a mature year-3 premium long-haul carrier, but a NORMAL airline at ordinary
+// scale runs ~4% EBITDA, so a uniform per-departure charge barely touches the
+// airline it was aimed at and guts the ones starting out.
+//
+//   class          median seats   rev/departure   fee      as % of revenue
+//   Turboprop            39          $3,481       $100          2.9%
+//   Regional Jet         92         $10,948       $250          2.3%
+//   Narrow Body         186         $35,731       $750          2.1%
+//   Wide Body           420        $206,703     $4,000          1.9%
+//   Double Deck         605        $337,862     $7,500          2.2%
+//   Supersonic          128        $161,269     $3,250          2.0%
 //
 // Freighters are priced by their airframe's body class (freighterBodyClass), not
 // as passenger aircraft — a freighter carries no cabin, so cabin-service overhead
 // does not apply. That puts the 747-400F on the wide-body fee, not the
 // double-deck one.
 export const HQ_DEPARTURE_FEE = {
-  'Turboprop':      200,
-  'Regional Jet':   500,
-  'Narrow Body':  1_500,
-  'Wide Body':    8_000,
-  'Double Deck': 15_000,
-  'Supersonic':   6_500,
+  'Turboprop':      100,
+  'Regional Jet':   250,
+  'Narrow Body':    750,
+  'Wide Body':    4_000,
+  'Double Deck':  7_500,
+  'Supersonic':   3_250,
 };
 
 // Fixed corporate structure in a restricted world — the CEO, the finance team and

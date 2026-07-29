@@ -388,8 +388,25 @@ test('classic worlds keep the fleet-size curve untouched', () => {
 
 test('restricted worlds charge base + per-departure fees', () => {
   const r = tickWith('a380', 3, 10, true);
-  // 10 aircraft x 3 freq x 2 departures x $15,000 + base
   assert.equal(r.totalHQCost, HQ_BASE_WEEKLY + 10 * 3 * 2 * HQ_DEPARTURE_FEE['Double Deck']);
+});
+
+test('the fee stays a modest share of what a departure earns', () => {
+  // REGRESSION: the first table ran at ~4% of revenue per departure and took a
+  // real airline's G&A from 5.3% to 10.2% of revenue — ~$98k/wk — which was
+  // enough to push a healthy operation negative. Halved. This pins the ceiling
+  // so a future "small" bump can't quietly double corporate overhead again.
+  const fare = (dist) => Math.round((80 + dist * 0.09) * 0.87);
+  const cases = [
+    ['Turboprop', 39, 450], ['Regional Jet', 92, 900], ['Narrow Body', 186, 2000],
+    ['Wide Body', 420, 6500], ['Double Deck', 605, 7500],
+  ];
+  for (const [cls, seats, dist] of cases) {
+    const revPerDeparture = seats * 0.85 * fare(dist);
+    const share = HQ_DEPARTURE_FEE[cls] / revPerDeparture;
+    assert.ok(share < 0.035,
+      `${cls} fee is ${(share * 100).toFixed(1)}% of a departure's revenue — too heavy`);
+  }
 });
 
 test('bigger aircraft cost proportionally more to administer', () => {
@@ -446,33 +463,40 @@ test('freighters are priced on airframe body class, not as double-deckers', () =
 // ── 8. World fare index ──────────────────────────────────────────────────────
 console.log('\nFare index');
 
-test('the restricted index trims the whole ladder', () => {
+const TEST_INDEX = 0.90;   // an explicit trim; the shipped DEFAULT is 1.0
+
+test('restricted worlds default to NO fare cut', () => {
+  // Shipped at 0.85, eased to 0.95, then removed entirely. A uniform fare cut was
+  // aimed at 30% margins seen on a mature carrier, but a normal airline already
+  // runs ~4% EBITDA — so the cut barely touched the target and drove everyone
+  // else negative. The machinery stays and is per-world; the default is neutral.
+  assert.equal(NWR_FARE_INDEX, 1.0);
+});
+
+test('an explicit index trims the whole ladder', () => {
   setFareIndex(1);
   const base = referencePrice('JFK', 'LAX');
-  setFareIndex(NWR_FARE_INDEX);
+  setFareIndex(TEST_INDEX);
   const cut = referencePrice('JFK', 'LAX');
-  // 0.95 after calibration: a fare cut multiplies break-even load by 1/f, and
-  // 0.85 pushed break-even to 97% load, which made the world unplayable.
-  assert.ok(NWR_FARE_INDEX > 0.5 && NWR_FARE_INDEX < 1, 'index must be a real trim');
-  const expected = 1 - NWR_FARE_INDEX;
-  assert.ok(Math.abs((1 - cut / base) - expected) < 0.01, `expected ~${(expected * 100).toFixed(0)}% lower, got ${((1 - cut / base) * 100).toFixed(1)}%`);
+  assert.ok(Math.abs((1 - cut / base) - (1 - TEST_INDEX)) < 0.01,
+    `expected ~${((1 - TEST_INDEX) * 100).toFixed(0)}% lower, got ${((1 - cut / base) * 100).toFixed(1)}%`);
   setFareIndex(1);
 });
 
 test('cargo yields are cut too, so freight is not a loophole', () => {
   setFareIndex(1);
   const base = cargoReferenceYield('JFK', 'LAX');
-  setFareIndex(NWR_FARE_INDEX);
+  setFareIndex(TEST_INDEX);
   const cut = cargoReferenceYield('JFK', 'LAX');
-  assert.ok(Math.abs((1 - cut / base) - (1 - NWR_FARE_INDEX)) < 0.02, 'cargo yield should fall by the same index');
+  assert.ok(Math.abs((1 - cut / base) - (1 - TEST_INDEX)) < 0.02, 'cargo yield should fall by the same index');
   setFareIndex(1);
 });
 
 test('the index scales fares on every route length, not just one', () => {
   for (const [o, d] of [['JFK', 'BOS'], ['JFK', 'LAX'], ['JFK', 'LHR'], ['LHR', 'SIN']]) {
-    setFareIndex(1);         const a = referencePrice(o, d);
-    setFareIndex(NWR_FARE_INDEX); const b = referencePrice(o, d);
-    assert.ok(Math.abs((1 - b / a) - (1 - NWR_FARE_INDEX)) < 0.02, `${o}-${d} should fall by the index`);
+    setFareIndex(1);          const a = referencePrice(o, d);
+    setFareIndex(TEST_INDEX);  const b = referencePrice(o, d);
+    assert.ok(Math.abs((1 - b / a) - (1 - TEST_INDEX)) < 0.02, `${o}-${d} should fall by the index`);
   }
   setFareIndex(1);
 });
@@ -493,16 +517,16 @@ test('the index is correct on the FIRST paint, before any action', () => {
   // possible: the index is readable and settable without dispatching anything.
   setFareIndex(1);
   assert.equal(getFareIndex(), 1, 'a cold module defaults to unrestricted');
-  setFareIndex(NWR_FARE_INDEX);
-  assert.equal(getFareIndex(), NWR_FARE_INDEX, 'adopting state must move it with no action');
+  setFareIndex(TEST_INDEX);
+  assert.equal(getFareIndex(), TEST_INDEX, 'adopting state must move it with no action');
   setFareIndex(1);
 });
 
 test('the reducer sets the index from state on every action', () => {
   setFareIndex(1);
-  const s = baseState({ fareIndex: NWR_FARE_INDEX });
+  const s = baseState({ fareIndex: TEST_INDEX });
   gameReducer(s, { type: 'NO_SUCH_ACTION' });
-  assert.equal(getFareIndex(), NWR_FARE_INDEX, 'reducer should adopt state.fareIndex');
+  assert.equal(getFareIndex(), TEST_INDEX, 'reducer should adopt state.fareIndex');
   gameReducer({ ...s, fareIndex: 1 }, { type: 'NO_SUCH_ACTION' });
   assert.equal(getFareIndex(), 1, 'and restore it for a classic world');
 });
@@ -512,10 +536,10 @@ test('demand is unchanged when reference and player price move together', () => 
   // playerPrice / referencePrice, so scaling both leaves the ratio alone.
   setFareIndex(1);
   const full = referencePrice('JFK', 'LAX');
-  setFareIndex(NWR_FARE_INDEX);
+  setFareIndex(TEST_INDEX);
   const cut = referencePrice('JFK', 'LAX');
   const ratioBefore = full / full;
-  const ratioAfter  = (full * NWR_FARE_INDEX) / cut;
+  const ratioAfter  = (full * TEST_INDEX) / cut;
   assert.ok(Math.abs(ratioBefore - ratioAfter) < 0.01,
     'a player who re-prices by the same 15% sits at an identical price ratio');
   setFareIndex(1);
