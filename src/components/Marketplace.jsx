@@ -10,6 +10,8 @@ import {
   efficiencyScore,
   seatEfficiency,
   fuelCostPerKm,
+  lessorSupplies,
+  leaseOrderBookCap,
 } from '../data/aircraft.js';
 import { formatMoney, weekToGameDate } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
@@ -537,8 +539,14 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button
                     className="btn btn-primary"
-                    style={{ fontSize: 11, padding: '4px 10px', marginRight: 6 }}
-                    onClick={() => onCheckout({ typeId: t.id, mode: 'lease' })}
+                    style={{
+                      fontSize: 11, padding: '4px 10px', marginRight: 6,
+                      opacity: r.leaseBlock ? 0.4 : 1,
+                      cursor:  r.leaseBlock ? 'not-allowed' : 'pointer',
+                    }}
+                    disabled={!!r.leaseBlock}
+                    title={r.leaseBlock || undefined}
+                    onClick={() => !r.leaseBlock && onCheckout({ typeId: t.id, mode: 'lease' })}
                   >
                     Lease
                   </button>
@@ -587,6 +595,30 @@ export default function Marketplace() {
     try { localStorage.setItem('market_layout', l); } catch { /* private mode */ }
   }
   const [sort, setSort] = useState({ key: 'name', dir: 1 });
+
+  // ── New World Restrictions ────────────────────────────────────────────────
+  // Restricted worlds only; every value below is inert when the flag is off.
+  const restricted    = !!state.newWorldRestrictions;
+  const activeFleet   = fleet.filter(a => a.status !== 'retired').length;
+  const leaseOnOrder  = pendingOrders
+    .filter(o => o.ownershipType === 'lease')
+    .reduce((sum, o) => sum + (o.quantity ?? 1), 0);
+  const orderBookCap  = leaseOrderBookCap(activeFleet);
+  const orderBookFree = Math.max(0, orderBookCap - leaseOnOrder);
+  // Why this type can't be leased right now, or null. Mirrors the engine's
+  // leaseDenial() so a disabled button and a rejected request always agree.
+  function leaseBlockReason(type) {
+    if (!restricted) return null;
+    if (!lessorSupplies(type)) {
+      return type.doubleDeck
+        ? 'Lessors don\u2019t carry double-deck aircraft \u2014 buy it outright'
+        : `Not on lessor books (in service ${type.eis}) \u2014 buy new or used`;
+    }
+    if (orderBookFree <= 0) {
+      return `Lease order book full (${leaseOnOrder}/${orderBookCap})`;
+    }
+    return null;
+  }
 
   // Checkout modal state: { typeId, mode: 'lease'|'buy' } or null
   const [checkout, setCheckout] = useState(null);
@@ -678,6 +710,40 @@ export default function Marketplace() {
 
       {view === 'browse' && (
       <>
+      {/* New World Restrictions banner — the rules, and how much order book is left */}
+      {restricted && view === 'browse' && (
+        <div style={{
+          marginBottom: 16, padding: '12px 14px', borderRadius: 'var(--radius)',
+          background: 'rgba(56,211,159,0.08)', border: '1px solid rgba(56,211,159,0.35)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#38d39f' }}>
+              <Glyph e="🔒" /> New world restrictions
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Lessors carry single-deck, previous-generation aircraft only. Anything bigger or newer, you buy.
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>Lease order book</span>
+            <div style={{ position: 'relative', width: 160, height: 8, borderRadius: 4, background: 'var(--surface3)', overflow: 'hidden' }}>
+              <div style={{
+                position: 'absolute', inset: 0, width: `${orderBookCap > 0 ? Math.min(100, (leaseOnOrder / orderBookCap) * 100) : 0}%`,
+                background: orderBookFree === 0 ? 'var(--red)' : orderBookFree <= 1 ? 'var(--yellow)' : '#38d39f',
+              }} />
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 600, color: orderBookFree === 0 ? 'var(--red)' : 'var(--text)' }}>
+              {leaseOnOrder} / {orderBookCap} on order
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {orderBookFree === 0
+                ? 'Full — take delivery, or grow the fleet you operate'
+                : `${orderBookFree} slot${orderBookFree === 1 ? '' : 's'} free · cap is 25% of your ${activeFleet}-aircraft fleet (min 5)`}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header + category filter */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 14 }}>
@@ -819,6 +885,7 @@ export default function Marketplace() {
             owned:    alreadyOwned,
             onOrder,
             canAffordBuy: cash >= buyPrice,
+            leaseBlock: leaseBlockReason(type),
             catColor: CAT_COLORS[type.category] || '#93a4ba',
           };
         });
@@ -981,12 +1048,27 @@ export default function Marketplace() {
                           : 'No lease costs yet'}
                       </div>
                     </div>
-                    <button
-                      className="btn btn-primary aircraft-lease-btn"
-                      onClick={() => setCheckout({ typeId: type.id, mode: 'lease' })}
-                    >
-                      Lease →
-                    </button>
+                    {(() => {
+                      const block = leaseBlockReason(type);
+                      return (
+                        <div style={{ textAlign: 'right' }}>
+                          <button
+                            className="btn btn-primary aircraft-lease-btn"
+                            disabled={!!block}
+                            title={block || undefined}
+                            style={{ opacity: block ? 0.4 : 1, cursor: block ? 'not-allowed' : 'pointer' }}
+                            onClick={() => !block && setCheckout({ typeId: type.id, mode: 'lease' })}
+                          >
+                            Lease →
+                          </button>
+                          {block && (
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3, maxWidth: 190 }}>
+                              {block}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Buy row */}

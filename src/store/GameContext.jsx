@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useMemo } from 'react';
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
+import { setFareIndex } from '../../packages/engine/src/utils/market.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -40,12 +41,23 @@ function hydratedValue(state, dispatch, remote = false, remoteApi = null, remote
 
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, null, () => {
+    let init;
     try {
       const saved = localStorage.getItem(SAVE_KEY);
-      if (saved) return reconcileState(JSON.parse(saved));
-    } catch (_) { /* ignore */ }
-    return freshState();
+      init = saved ? reconcileState(JSON.parse(saved)) : freshState();
+    } catch (_) { init = freshState(); }
+    // World fare index (New World Restrictions) on FIRST RENDER. The reducer sets
+    // this on every action, but useReducer's lazy initialiser does not run the
+    // reducer — so without this a restricted world would render the Marketplace,
+    // FareEditor and route planners on the CLASSIC fare ladder until the player's
+    // first action corrected it.
+    setFareIndex(init?.fareIndex ?? 1);
+    return init;
   });
+
+  // Keep it in step when the world's state is adopted from the server (Headwinds
+  // multiplayer replaces the whole blob without a local action).
+  useEffect(() => { setFareIndex(state?.fareIndex ?? 1); }, [state?.fareIndex]);
 
   useEffect(() => {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }

@@ -8,7 +8,7 @@
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
-import { gameReducer, gateLeaseDenial } from '@tailwinds/engine/reducer';
+import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
@@ -311,6 +311,20 @@ export default async function decisionRoutes(fastify) {
     if (scarcity && type === 'ADD_GATE') {
       const denial = gateLeaseDenial(injected, guarded.airportCode);
       if (denial) throw httpError(400, denial);
+    }
+
+    // New World Restrictions: same treatment for leasing. The reducer guard is
+    // what actually makes this cheat-proof (we re-run it on our own state); this
+    // exists so a legitimate client gets a readable error rather than a silent
+    // no-op. A partial order-book overflow is NOT rejected — the reducer clamps
+    // it to the free slots and toasts what was trimmed.
+    if (airline.world?.tickConfig?.newWorldRestrictions === true
+        && (type === 'ORDER_AIRCRAFT' || type === 'BUY_AIRCRAFT')
+        && guarded.ownershipType === 'lease') {
+      const denial = leaseDenial(injected, guarded.typeId, guarded.quantity ?? 1);
+      if (denial && denial.code !== 'order_book_partial') {
+        throw httpError(400, denial.message);
+      }
     }
 
     // Float pool: share trades settle against the world's finite pool, so the

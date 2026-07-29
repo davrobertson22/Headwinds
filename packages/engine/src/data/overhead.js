@@ -36,6 +36,59 @@ export function calcHQCost(fleetSize) {
   return Math.round(38_000 * Math.pow(fleetSize, 0.85));
 }
 
+// ─── 1b. HQ overhead by DEPARTURE (New World Restrictions worlds only) ───────
+//
+// The fleet-size curve above prices corporate overhead per AIRCRAFT, which has two
+// problems once an airline is big. It is tiny relative to revenue (a 43-aircraft
+// carrier turning $199M/wk pays $931k — 0.47%, against a real-world G&A of 5-8%),
+// and because it counts airframes rather than output, an A380 and a Dash 8 cost
+// the same to administer. Upgauging dodges overhead entirely.
+//
+// Real corporate overhead — dispatch, crew pairing, ops control, revenue
+// management, station admin — scales with DEPARTURES, and with how big the
+// aircraft departing is. So: a fee per departure, by class.
+//
+// Calibrated against revenue per departure (median seats for the class, at the
+// sector length that class actually flies, 85% load, economy at reference fare)
+// so the charge lands at a roughly flat share of revenue instead of crushing
+// short-haul. A FLAT per-departure fee would cost a turboprop operator 69% of
+// revenue and an A380 operator 1.2% — an 58x spread, which is why this is a
+// table and not a constant.
+//
+//   class          median seats   rev/departure   fee     as % of revenue
+//   Turboprop            39          $3,481       $200         5.7%
+//   Regional Jet         92         $10,948       $500         4.6%
+//   Narrow Body         186         $35,731     $1,500         4.2%
+//   Wide Body           420        $206,703     $8,000         3.9%
+//   Double Deck         605        $337,862    $15,000         4.4%
+//   Supersonic          128        $161,269     $6,500         4.0%
+//
+// Freighters are priced by their airframe's body class (freighterBodyClass), not
+// as passenger aircraft — a freighter carries no cabin, so cabin-service overhead
+// does not apply. That puts the 747-400F on the wide-body fee, not the
+// double-deck one.
+export const HQ_DEPARTURE_FEE = {
+  'Turboprop':      200,
+  'Regional Jet':   500,
+  'Narrow Body':  1_500,
+  'Wide Body':    8_000,
+  'Double Deck': 15_000,
+  'Supersonic':   6_500,
+};
+
+// Fixed corporate structure in a restricted world — the CEO, the finance team and
+// the AOC exist before the first departure. Deliberately small: in these worlds the
+// DEPARTURE fees are meant to be the driver, so this is a base, not a floor that
+// swamps them (the fleet-size curve would: at 10 aircraft it prints $269k/wk, which
+// is 5x what ten turboprops generate in departure fees, leaving the small-class
+// rates completely inert).
+export const HQ_BASE_WEEKLY = 40_000;
+
+/** Per-departure HQ fee for a body class, falling back to the narrowbody rate. */
+export function hqDepartureFee(bodyClass) {
+  return HQ_DEPARTURE_FEE[bodyClass] ?? HQ_DEPARTURE_FEE['Narrow Body'];
+}
+
 /**
  * Descriptive label and description for the current fleet size — purely for UI display.
  * Cost no longer jumps at discrete thresholds; these labels are size-based approximations.

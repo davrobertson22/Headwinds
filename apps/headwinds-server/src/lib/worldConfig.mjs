@@ -68,9 +68,13 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
+  newWorldRestrictions,
 }) {
   if (gateScarcity != null && typeof gateScarcity !== 'boolean') {
     throw badRequest('gateScarcity must be true or false');
+  }
+  if (newWorldRestrictions != null && typeof newWorldRestrictions !== 'boolean') {
+    throw badRequest('newWorldRestrictions must be true or false');
   }
   if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
     throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
@@ -161,6 +165,9 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     scheduledStartAt: world.tickConfig?.scheduledStartAt ?? null,
     // Optional gate scarcity (finite airport capacity, auctions, gate market).
     gateScarcity: world.tickConfig?.gateScarcity === true,
+    // Optional New World Restrictions (old-gen single-deck leasing only +
+    // a lease order book capped against the operating fleet).
+    newWorldRestrictions: world.tickConfig?.newWorldRestrictions === true,
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.

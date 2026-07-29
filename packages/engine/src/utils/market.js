@@ -450,14 +450,51 @@ export function routeDistance(originCode, destCode) {
  * Market reference price for a route ($ one-way, economy).
  * Players can price above or below this — demand adjusts via elasticity.
  */
+// ── World fare index (New World Restrictions) ────────────────────────────────
+// Scales the whole reference-fare ladder for a world. Restricted worlds run at
+// 0.85 — same demand, 15% lower prices — which is the lever that moves margins,
+// because the gap is in the fare-to-cost ratio rather than in any missing cost
+// line (a leased 737-800 at 85% load runs 62.5% costs; real carriers run 92-97%).
+//
+// Scaling the REFERENCE rather than realised revenue matters: the demand model
+// prices elasticity off playerPrice / referencePrice, so moving both together
+// leaves demand untouched and simply lowers the whole ladder. Cutting revenue
+// directly would show players a fare they don't actually receive.
+//
+// Module-scoped rather than threaded because referencePrice() is a pure
+// (origin, dest) function called from ~12 sites across the demand model,
+// competitor AI, encroachment, positioning and network layers — none of which
+// carry world context. gameReducer sets this from state on EVERY action and the
+// reducer is synchronous, so no two airlines can interleave.
+//
+// KNOWN LIMIT: server code that calls referencePrice OUTSIDE the reducer (rival
+// view building) reads whatever the last reducer call set. Harmless while every
+// world in a process shares an index; revisit if restricted and classic worlds
+// are ever ticked in the same process without a reducer call in between.
+// The index restricted worlds run at. 15% off the whole ladder — enough to move
+// margins meaningfully without the fare cut being the only thing players notice.
+// Tunable per world via tickConfig.fareIndex.
+export const NWR_FARE_INDEX = 0.85;
+
+let _fareIndex = 1;
+
+/** Set the active world's fare index (1 = classic). Clamped to a sane band. */
+export function setFareIndex(v) {
+  const n = Number(v);
+  _fareIndex = (Number.isFinite(n) && n > 0.25 && n <= 2) ? n : 1;
+}
+
+/** The fare index currently in effect. */
+export function getFareIndex() { return _fareIndex; }
+
 export function referencePrice(originCode, destCode) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);
-  if (!o || !d) return 200;
+  if (!o || !d) return Math.round(200 * _fareIndex);
   const dist = distanceKm(o, d);
   // Reference fares trimmed 8% below baseline to tighten yields and make
   // sustained profitability harder (was −5%, originally +10%).
-  return Math.round((80 + dist * 0.09) * 0.87);
+  return Math.round((80 + dist * 0.09) * 0.87 * _fareIndex);
 }
 
 // ─── Market capitalisation ─────────────────────────────────────────────────────
@@ -1220,7 +1257,10 @@ export const CARGO_YIELD_FLOOR = 0.40;     // long-haul floor
 export function cargoReferenceYield(originCode, destCode) {
   const dist = routeDistance(originCode, destCode);
   const raw  = CARGO_YIELD_BASE - CARGO_YIELD_SLOPE * dist;
-  return Math.round(Math.max(CARGO_YIELD_FLOOR, Math.min(CARGO_YIELD_CAP, raw)) * 1000) / 1000;
+  // Same world fare index as passenger fares — otherwise a restricted world would
+  // leave freight yields untouched and hand cargo an easy margin advantage.
+  const clamped = Math.max(CARGO_YIELD_FLOOR, Math.min(CARGO_YIELD_CAP, raw));
+  return Math.round(clamped * _fareIndex * 1000) / 1000;
 }
 
 /** Convenience: reference revenue per tonne ($, one-way) on a route. */

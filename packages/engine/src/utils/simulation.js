@@ -13,6 +13,8 @@ import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
   calcHQCost,
+  hqDepartureFee,
+  HQ_BASE_WEEKLY,
   weeklyInsuranceCost,
   weeklyLandingFee,
   awarenessDemandMultiplier,
@@ -2856,8 +2858,39 @@ export function weeklyTick(state) {
     totalHubInvestment += tierDef.weeklyInvestment;
   }
 
-  // 7. HQ & corporate overhead — scales with fleet size
-  const totalHQCost = calcHQCost(fleet.length);
+  // 7. HQ & corporate overhead.
+  //
+  // Classic worlds: the fleet-size curve (calcHQCost).
+  //
+  // New World Restrictions: a per-departure fee scaled by aircraft class, because
+  // overhead really tracks DEPARTURES and the size of what is departing, not the
+  // number of airframes parked. The fleet-size curve is kept as a FLOOR so an
+  // airline with no flying still carries a small corporate structure (HQ_BASE_WEEKLY).
+  // Freighters are priced on their airframe's body class, so a 747-400F pays the
+  // wide-body rate rather than the double-deck one (no cabin, no cabin overhead).
+  let totalHQCost = calcHQCost(fleet.length);
+  if (state.newWorldRestrictions) {
+    let departureFees = 0;
+    // Only flights that ACTUALLY OPERATE this week are charged. The passenger and
+    // cargo revenue loops both skip dormant seasonal routes and out-of-service
+    // aircraft (grounded / in a heavy check); charging dispatch and ops overhead
+    // for departures that never happen would bill an airline for a schedule it
+    // isn't flying — and would hit seasonal operators hardest, which is exactly
+    // the regressive shape this table was built to avoid.
+    for (const route of [...routes, ...cargoRoutes]) {
+      const aircraft = fleet.find(a => a.id === route.aircraftId);
+      if (!aircraft || isOutOfService(aircraft)) continue;
+      if (!isRouteActive(route, gameDate.month)) continue;   // safe for cargo: no season => year-round
+      const type = getAircraftType(aircraft.typeId);
+      if (!type) continue;
+      const bodyClass = type.freighter
+        ? freighterBodyClass(type)
+        : (type.doubleDeck ? 'Double Deck' : type.category);
+      // weeklyFrequency is departures from ONE endpoint; a rotation departs twice.
+      departureFees += hqDepartureFee(bodyClass) * (route.weeklyFrequency ?? 0) * 2;
+    }
+    totalHQCost = HQ_BASE_WEEKLY + Math.round(departureFees);
+  }
 
   // 8. Insurance — hull (owned aircraft) + liability (all aircraft)
   let totalInsurance = 0;

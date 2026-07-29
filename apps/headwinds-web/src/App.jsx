@@ -229,6 +229,7 @@ function CreateWorld({ token, onCreated }) {
   const [startingCapital, setStartingCapital] = useState(15000000);
   const [demandMultiplier, setDemandMultiplier] = useState(1);
   const [gateScarcity, setGateScarcity] = useState(false);
+  const [newWorldRestrictions, setNewWorldRestrictions] = useState(false);
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -251,6 +252,7 @@ function CreateWorld({ token, onCreated }) {
           startingCapital: Math.round(Number(startingCapital)),
           demandMultiplier: Number(demandMultiplier),
           ...(gateScarcity ? { gateScarcity: true } : {}),
+          ...(newWorldRestrictions ? { newWorldRestrictions: true } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
       });
@@ -313,6 +315,20 @@ function CreateWorld({ token, onCreated }) {
           <input type="number" min={0.5} max={3} step={0.1} value={demandMultiplier}
             onChange={(e) => setDemandMultiplier(e.target.value)} />
           <span className="muted">{Number(demandMultiplier).toFixed(1)}× global demand · 1.0× = normal</span>
+        </label>
+        <label style={{ alignItems: 'flex-start' }}>New world restrictions
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={newWorldRestrictions}
+              onChange={(e) => setNewWorldRestrictions(e.target.checked)} />
+            <span className="muted">{newWorldRestrictions ? 'ON — restricted leasing' : 'Off — lease anything, any quantity (classic)'}</span>
+          </span>
+          <span className="muted small">
+            Lessors carry single-deck, previous-generation aircraft only (in service by 2000,
+            plus the E-Jets, CRJ700+, ATRs and a few later stragglers). No 747s or A380s at any
+            age, passenger or freighter. Anything bigger or newer must be bought new or used.
+            Your lease order book is capped at 25% of the fleet you operate, minimum 5 —
+            so growth happens in waves, not in one click.
+          </span>
         </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -453,6 +469,12 @@ function WorldsScreen({ token, me }) {
               <tr key={w.id}>
                 <td>
                   <a href={`#/w/${w.id}`}>{w.name}</a>
+                  {w.newWorldRestrictions && (
+                    <span title="New world restrictions: old-gen single-deck leasing only, lease order book capped at 25% of fleet"
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', whiteSpace: 'nowrap' }}>
+                      🔒 LEASING
+                    </span>
+                  )}
                   {w.gateScarcity && (
                     <span title="Gate scarcity: finite airport gates, auctions, gate market"
                       style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(245,166,35,0.15)', color: '#f5a623', border: '1px solid rgba(245,166,35,0.4)', whiteSpace: 'nowrap' }}>
@@ -640,6 +662,12 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         <div>
           <h2>
             {world.name} <StatusChip status={world.status} />
+            {world.newWorldRestrictions && (
+              <span title="New world restrictions: lessors carry single-deck previous-generation aircraft only, and your lease order book is capped at 25% of the fleet you operate (minimum 5)"
+                style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                🔒 NEW WORLD RESTRICTIONS
+              </span>
+            )}
             {world.gateScarcity && (
               <span title="Gate scarcity: finite airport gates, ownership caps, yearly auctions, use-it-or-lose-it, and a player gate market"
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(245,166,35,0.15)', color: '#f5a623', border: '1px solid rgba(245,166,35,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>

@@ -2,6 +2,7 @@
 // (the admin-only POST /worlds — the auto-spawner is gone). All gameplay
 // state is produced by the SHARED engine — never reinvented here.
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
+import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT,
@@ -30,8 +31,9 @@ export async function createWorld(prisma, {
   demandMultiplier,
   scheduledStartAt,
   gateScarcity,
+  newWorldRestrictions,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -43,6 +45,11 @@ export async function createWorld(prisma, {
     // yearly auctions, use-it-or-lose-it, and the player gate market. Fixed at
     // creation — flipping it mid-world would strand everyone's holdings.
     ...(gateScarcity === true ? { gateScarcity: true } : {}),
+    // Optional New World Restrictions: lessors carry single-deck,
+    // previous-generation aircraft only, and the lease order book is capped
+    // at max(5, 25%) of the fleet in service. Fixed at creation — turning it
+    // on mid-world would strand order books already placed.
+    ...(newWorldRestrictions === true ? { newWorldRestrictions: true } : {}),
     // Optional preset start instant (ISO). Present → the worker starts this world
     // at that time and joining does NOT start the clock (see joinWorld + tickService).
     ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),
@@ -132,6 +139,14 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     // Gate scarcity flag, baked in at join — the engine's capacity/cap/lockout
     // checks and use-it-or-lose-it only run when this is true.
     ...(tc.gateScarcity === true ? { gateScarcityWorld: true } : {}),
+    // New World Restrictions flag, baked in at join — the engine's lease
+    // eligibility and order-book checks only run when this is true.
+    ...(tc.newWorldRestrictions === true ? {
+      newWorldRestrictions: true,
+      // 15% off the whole reference-fare ladder (passenger + cargo). Same demand,
+      // lower prices — the fare-to-cost ratio is where the margin gap lives.
+      fareIndex: tc.fareIndex ?? NWR_FARE_INDEX,
+    } : {}),
   };
 
   // ── One world, one calendar ─────────────────────────────────────────────────

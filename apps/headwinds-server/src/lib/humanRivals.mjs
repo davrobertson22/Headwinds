@@ -18,7 +18,7 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
-import { referencePrice, TOTAL_SHARES } from '@tailwinds/engine/utils/market.js';
+import { referencePrice, TOTAL_SHARES, setFareIndex } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
@@ -447,9 +447,24 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     return views;
   };
 
+  // ── World fare index, set from the rows we are about to price ───────────────
+  // buildRivalViews() prices rival fares via referencePrice() and calcPositioning(),
+  // both of which read the module-scoped fare index the engine reducer normally
+  // sets. This function runs BEFORE the reducer on every decision request, so
+  // without this a rival view would be priced with whatever index the PREVIOUS
+  // request left behind — a restricted world read on the classic ladder, or vice
+  // versa, feeding a 15%-wrong price ratio into the contested-route demand split.
+  // Set immediately before pricing, from the rows themselves: every airline in a
+  // world shares the index, and on the cache-miss path the rows do not exist until
+  // after the findMany below.
+  const priced = (rows, allianceMap) => {
+    setFareIndex(rows?.[0]?.state?.fareIndex ?? 1);
+    return buildRivalViews(rows, allianceMap);
+  };
+
   if (airlines) {
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachStockPool(await attachGates(airlines, allianceMap, buildRivalViews(airlines, allianceMap)));
+    return attachStockPool(await attachGates(airlines, allianceMap, priced(airlines, allianceMap)));
   }
   const hit = viewCache.get(worldId);
   if (hit && stamp != null && hit.stamp === stamp && Date.now() - hit.at < RIVAL_VIEW_CACHE_TTL_MS) {
@@ -463,7 +478,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
       include: { account: { select: { isOG: true, email: true } } },
     });
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachStockPool(await attachGates(rows, allianceMap, buildRivalViews(rows, allianceMap)));
+    return attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
   })();
   viewCache.set(worldId, { stamp, at: Date.now(), promise });
   promise.catch(() => viewCache.delete(worldId)); // never cache a failed read

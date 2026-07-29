@@ -21,6 +21,7 @@ import {
   applyReserveCovers, planCovers, freighterBodyClass,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
+         setFareIndex,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
          emptyEquity, migratedEquity, sharesOf, svpsOf,
@@ -30,7 +31,8 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
-         leaseBuyoutPrice } from './data/aircraft.js';
+         leaseBuyoutPrice,
+         lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF } from './data/aircraft.js';
 import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
   GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP, GATE_HUB_GUARANTEE,
@@ -291,6 +293,55 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
   return null;
 }
 
+// ── New World Restrictions: lease guard ──────────────────────────────────────
+// Why this airline may NOT lease `quantity` of `typeId` right now, or null when
+// the lease is allowed in full. Restricted worlds only (always null elsewhere,
+// so classic worlds and Tailwinds solo are byte-identical).
+//
+// Single source of truth, deliberately: the Marketplace calls it to disable and
+// explain, the reducer calls it to block or clamp, and the server calls it to
+// return a readable 400 instead of a silent no-op. A disabled button and a
+// rejected request can never disagree because they are the same function.
+//
+// `free` on a cap_partial result is how many frames WOULD be accepted, so the
+// caller can clamp rather than reject — matching how the affordability loop in
+// ORDER_AIRCRAFT already trims an order it cannot fully fund.
+export function leaseDenial(state, typeId, quantity = 1) {
+  if (!state?.newWorldRestrictions) return null;
+
+  const type = getAircraftType(typeId);
+  if (!type) return { code: 'unknown_type', message: 'Unknown aircraft type.' };
+
+  if (!lessorSupplies(type)) {
+    const why = type.doubleDeck
+      ? `Lessors don't carry double-deck aircraft — the ${type.name} must be bought outright.`
+      : `Lessors don't carry the ${type.name} (${type.eis}). Their books stop at ${LESSOR_EIS_CUTOFF}; newer aircraft must be bought new or used.`;
+    return { code: 'not_stocked', typeId: type.id, message: why };
+  }
+
+  // Order book: leased frames already on order, against the fleet in service.
+  const activeFleet = (state.fleet ?? []).filter(a => a.status !== 'retired').length;
+  const onOrder     = (state.pendingOrders ?? [])
+    .filter(o => o.ownershipType === 'lease')
+    .reduce((s, o) => s + (o.quantity ?? 1), 0);
+  const cap  = leaseOrderBookCap(activeFleet);
+  const free = Math.max(0, cap - onOrder);
+
+  if (free <= 0) {
+    return {
+      code: 'order_book_full', cap, onOrder, free: 0,
+      message: `Lease order book full — ${onOrder} of ${cap} slots used. Take delivery of what you have on order, or grow the fleet you operate.`,
+    };
+  }
+  if (quantity > free) {
+    return {
+      code: 'order_book_partial', cap, onOrder, free,
+      message: `Only ${free} of your ${cap} lease order-book slots ${free === 1 ? 'is' : 'are'} free.`,
+    };
+  }
+  return null;
+}
+
 // Why leasing one more gate at `airportCode` is NOT allowed right now, or null
 // when it is. Gate-scarcity worlds only (always null elsewhere). Reads the
 // server-injected market view (state.gateMarket) — the same data the server's
@@ -508,6 +559,11 @@ function nextAircraftNumber(typeId, fleet = [], pendingOrders = []) {
 }
 
 function reducer(state, action) {
+  // World fare index (New World Restrictions). Set on every action, from state, so
+  // every referencePrice()/cargoReferenceYield() call downstream — demand model,
+  // competitor AI, encroachment, positioning, connecting fares — sees the same
+  // ladder. The reducer is synchronous, so no two airlines can interleave here.
+  setFareIndex(state?.fareIndex ?? 1);
   switch (action.type) {
 
     case 'START_GAME': {
@@ -533,6 +589,10 @@ function reducer(state, action) {
     }
 
     case 'LEASE_AIRCRAFT': {
+      // Legacy instant-lease path (solo only — not in the Headwinds allow-list,
+      // multiplayer leasing goes through ORDER_AIRCRAFT). Restricted worlds gate
+      // it on the same rules so the old action can't be a back door.
+      if (state.newWorldRestrictions && leaseDenial(state, action.typeId, 1)) return state;
       const type       = getAircraftType(action.typeId);
       const count      = nextAircraftNumber(action.typeId, state.fleet, state.pendingOrders);
       const name       = action.name ?? `${type?.name ?? action.typeId} #${count}`;
@@ -660,6 +720,33 @@ function reducer(state, action) {
       // only lowers the tier (raising unit price) — converge downward.
       let orderQty  = quantity;
       let orderDisc = 0;
+
+      // ── New World Restrictions: lessor stock + order book (leases only) ──────
+      // Purchases are untouched — they are already capital-gated. A blocked type
+      // stops the order dead; a full order book stops it dead; an order larger
+      // than the remaining slots is CLAMPED to what fits, mirroring the
+      // affordability trim below rather than silently dropping the whole thing.
+      if (state.newWorldRestrictions && action.ownershipType === 'lease') {
+        const denial = leaseDenial(state, action.typeId, orderQty);
+        if (denial && denial.code !== 'order_book_partial') {
+          return {
+            ...state,
+            pendingToasts: [
+              ...(state.pendingToasts ?? []),
+              { type: 'warning', icon: '🔒', title: 'Lease unavailable', message: denial.message },
+            ],
+          };
+        }
+        if (denial && denial.code === 'order_book_partial') {
+          orderQty = denial.free;
+          instantToasts.push({
+            type: 'info', icon: '🔒',
+            title: 'Lease order trimmed',
+            message: `${denial.message} Ordered ${orderQty} instead of ${quantity}.`,
+          });
+        }
+      }
+
       if (action.ownershipType === 'owned') {
         const unitCostAt = (disc) =>
           Math.round(Math.round(type.purchasePrice * (1 - disc)) * enginePriceMod)

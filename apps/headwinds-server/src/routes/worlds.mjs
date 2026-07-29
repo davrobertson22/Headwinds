@@ -253,6 +253,7 @@ export default async function worldRoutes(fastify) {
           scheduledStartAt: { type: 'string', maxLength: 40 },
           // Optional gate scarcity (finite airport capacity, auctions, gate market).
           gateScarcity: { type: 'boolean' },
+          newWorldRestrictions: { type: 'boolean' },
         },
       },
     },

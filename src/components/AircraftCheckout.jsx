@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType, effectivePurchasePrice, orderDiscount,
-         LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier } from '../data/aircraft.js';
+         LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier,
+         leaseOrderBookCap } from '../data/aircraft.js';
 import {
   formatMoney,
   CLASS_FARE_MULTIPLIERS,
@@ -324,7 +325,20 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     ? Math.max(0, Math.floor(cash / (unitBuyPrice + unitExtras)))
     : Math.max(0, Math.floor(cash / (unitLeaseDeposit + unitExtras)));
 
-  function setQty(n) { setQuantity(Math.max(1, Math.min(100, n))); }
+  // ── New World Restrictions: lease order book ──────────────────────────────
+  // Inert unless the world flag is on. The engine clamps an oversized order to
+  // the free slots anyway; clamping here means the number on screen is the
+  // number that will actually be placed.
+  const nwrRestricted  = !!state.newWorldRestrictions && mode === 'lease';
+  const nwrActiveFleet = fleet.filter(a => a.status !== 'retired').length;
+  const nwrOnOrder     = pendingOrders
+    .filter(o => o.ownershipType === 'lease')
+    .reduce((sum, o) => sum + (o.quantity ?? 1), 0);
+  const nwrCap         = leaseOrderBookCap(nwrActiveFleet);
+  const nwrFree        = Math.max(0, nwrCap - nwrOnOrder);
+  const qtyCeiling     = nwrRestricted ? Math.max(1, Math.min(100, nwrFree)) : 100;
+
+  function setQty(n) { setQuantity(Math.max(1, Math.min(qtyCeiling, n))); }
 
   function handleConfirm() {
     dispatch({
@@ -457,13 +471,19 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
           <section style={{ marginBottom: 18 }}>
             <div style={sectionTitle}>Quantity</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {nwrRestricted && (
+                <div style={{ fontSize: 11, color: nwrFree === 0 ? 'var(--red)' : 'var(--text-muted)', marginBottom: 6 }}>
+                  <Glyph e="🔒" size={11} /> {nwrFree} of {nwrCap} lease order-book slot{nwrCap === 1 ? '' : 's'} free
+                  {nwrOnOrder > 0 && <> · {nwrOnOrder} already on order</>}
+                </div>
+              )}
               <button onClick={() => setQty(quantity - 1)} disabled={quantity <= 1}
                 style={{ width: 34, height: 34, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: quantity <= 1 ? 'var(--text-dim)' : 'var(--text)', fontSize: 18, cursor: quantity <= 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
               <div style={{ textAlign: 'center', minWidth: 52 }}>
                 <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{quantity}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>aircraft</div>
               </div>
-              <button onClick={() => setQty(quantity + 1)} disabled={quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)}
+              <button onClick={() => setQty(quantity + 1)} disabled={quantity >= qtyCeiling || (mode === 'buy' && quantity >= maxAffordable)}
                 style={{ width: 34, height: 34, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: (quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)) ? 'var(--text-dim)' : 'var(--text)', fontSize: 18, cursor: (quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
               <div style={{ display: 'flex', gap: 4, marginLeft: 4 }}>
                 {[1, 5, 10, 25, 50, 100].filter(n => n <= (mode === 'buy' ? maxAffordable : 100)).map(n => (
