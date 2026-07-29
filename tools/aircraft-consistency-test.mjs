@@ -132,6 +132,290 @@ test('the 747-300 description explains why it matches the -400 on seats', () => 
   assert.match(get('b747300').description, /exit limit|-400 cabin/i);
 });
 
+// ── 3b. The 757 buys range, not economics (2026-07-29) ───────────────────────
+// Discord: "why on earth is a 757-200 cheaper, bigger and more fuel efficient
+// than a 737-800?" It was — and against the A320ceo, A320neo, A321ceo and
+// Tu-204-100 too. Two rules collided:
+//
+//   a) docs/aircraft-price-audit.md prices out-of-production types at USED
+//      market value. The 757 (production ended 2004) got $22M. Its peers were
+//      priced off near-new transactions ($28M). But there is no age or
+//      condition state on passenger types — the freighters got deliveredAgeWeeks
+//      and the passenger table never did — so that $22M bought a zero-hour
+//      airframe. A used price with no used airframe is a free lunch, not a
+//      trade-off.
+//   b) fuelBurnPer100km 476.25 put the 757 only 19% above a 737-800 on trip
+//      fuel when the real gap is ~25-30%. Spread over the 757's exit-limit 239
+//      seats, that made it BETTER per seat than a 737-800 — the reverse of why
+//      airlines actually retired them.
+//
+// Seats stay at the 239 exit limit (Dave's call — changing them would cut
+// capacity on live saves), so price and fuel carry the whole correction.
+// The 757's edge is meant to be range and payload out of short fields, paid
+// for with worse seat-mile costs. These lock that shape in.
+
+test('the 757-200 costs more than the narrowbodies it outsizes', () => {
+  // Only the mainstream 189/195-seat rivals. The A321ceo is deliberately NOT
+  // here: at $34M it stays dearer than the 757-200, and that is the intended
+  // shape — a newer airframe costs more up front and earns it back on fuel.
+  // The invariant is that the 757 never wins BOTH at once; see the last test
+  // in this section.
+  const t = get('b757200');
+  for (const id of ['b737800', 'a320ceo']) {
+    const rival = get(id);
+    assert.ok(t.purchasePrice > rival.purchasePrice,
+      `757-200 $${(t.purchasePrice / 1e6).toFixed(0)}M vs ${rival.name} $${(rival.purchasePrice / 1e6).toFixed(0)}M — ` +
+      `a bigger, longer-ranged airframe cannot also be the cheaper one`);
+    assert.ok(t.weeklyLease > rival.weeklyLease,
+      `757-200 lease $${(t.weeklyLease / 1000).toFixed(1)}k vs ${rival.name} $${(rival.weeklyLease / 1000).toFixed(1)}k`);
+  }
+});
+
+test('the 757-200 burns more per seat than the narrowbodies it competes with', () => {
+  const worse = [];
+  // a320ceo is NOT here: once its exit limit was corrected to 186 (see 3c) it
+  // became a genuinely smaller aircraft, and a 239-seat 757 out-economising a
+  // 186-seat A320 per seat is just size doing its job. The 757 no longer
+  // dominates it overall — it now costs $31M against the A320ceo's $28M.
+  for (const id of ['b737800', 'a320neo', 'a321ceo']) {
+    if (perSeat('b757200') <= perSeat(id)) {
+      worse.push(`${get(id).name} ${perSeat(id).toFixed(3)}`);
+    }
+  }
+  assert.deepEqual(worse, [],
+    `757-200 is ${perSeat('b757200').toFixed(3)} L/seat/100km and must be WORSE than each of these — ` +
+    `a 1983 airframe at exit-limit density cannot out-economise an A320neo`);
+});
+
+test('the 757-200 trip-fuel premium over a 737-800 matches the real ~25-30%', () => {
+  const ratio = get('b757200').fuelBurnPer100km / get('b737800').fuelBurnPer100km;
+  assert.ok(ratio >= 1.22 && ratio <= 1.33,
+    `757-200 burns ${ratio.toFixed(3)}x a 737-800's trip fuel — real-world is ~1.25-1.30x`);
+});
+
+test('the 757-300 is a stretch of the -200, not a free upgrade over it', () => {
+  const a = get('b757200'), b = get('b757300');
+  assert.ok(b.fuelBurnPer100km > a.fuelBurnPer100km,
+    `-300 burns ${b.fuelBurnPer100km} vs -200 ${a.fuelBurnPer100km} — a longer fuselage cannot burn less`);
+  assert.ok(b.purchasePrice > a.purchasePrice && b.weeklyLease > a.weeklyLease,
+    `-300 must cost more than the -200 it stretches`);
+});
+
+test('no 757 variant dominates a rival on capital AND seat-mile fuel at once', () => {
+  // The general form of the Discord report: within the narrowbody class, being
+  // bigger and longer-legged must cost something. Scoped to the 757s because
+  // the wider catalogue deliberately prices obsolete types at used value.
+  const nb = AIRCRAFT_TYPES.filter(t => t.category === 'Narrow Body' && !t.freighter && t.seats > 0);
+  const bad = [];
+  for (const a of nb.filter(t => t.id.startsWith('b757'))) {
+    for (const b of nb) {
+      if (a.id === b.id) continue;
+      if (a.seats >= b.seats && a.range >= b.range && (a.runwayFt || 0) <= (b.runwayFt || 0)
+        && a.purchasePrice <= b.purchasePrice && a.weeklyLease <= b.weeklyLease
+        && a.fuelBurnPer100km / a.seats <= b.fuelBurnPer100km / b.seats
+        && a.crewCostPerKm / a.seats <= b.crewCostPerKm / b.seats) {
+        bad.push(`${b.name} < ${a.name}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+// ── 3c. Narrowbody ladder inversions (2026-07-29, round 2) ───────────────────
+// Fallout from the 757 sweep. Four more errors of the same family:
+//
+//   a) `a320ceo` carried 195 seats — the NEO's Cabin-Flex exit limit applied to
+//      the ceo. A real A320ceo maxes at 180, or 186 with Space-Flex (what
+//      easyJet and Vueling actually fly). Those 9 phantom seats made the
+//      A320ceo dominate the 737-800 on ALL EIGHT axes.
+//   b) `c919` burned 381 for 192 seats — the second-best seat-mile figure of
+//      any narrowbody, better than an A320neo. Real reporting has the C919
+//      LAGGING both the A320neo and the MAX 8. Corrected to 400, and the price
+//      dropped $52M → $46M to match: once it is honestly the thirstier jet it
+//      cannot also be the dearer one, which is the C919's whole real-world
+//      pitch (nobody pays a premium for it).
+//   c) `b737900er` sat at $136k/seat — BELOW the older 737-800 ($148k) and
+//      A320ceo. A 2007 airframe cannot be cheaper per seat than its own
+//      predecessors. Same used-value-with-no-age-model trap as the 757.
+//   d) `a319ceo` and `b737700` were priced IDENTICALLY ($16M/$40k) while the
+//      A319 wins seats, range and runway. Identical pricing is what turns a
+//      real-world near-tie into strict dominance; the more capable airframe
+//      now costs more.
+
+test('the A320ceo carries its own exit limit, not the neo\'s', () => {
+  const s = get('a320ceo').seats;
+  assert.ok(s <= 186,
+    `A320ceo at ${s} seats — the ceo maxes at 180, or 186 with Space-Flex. ` +
+    `194-195 is the A320neo's Cabin-Flex figure and does not belong here`);
+  assert.ok(s < get('b737800').seats,
+    `the 737-800's 189 exit limit is the larger of the two — that is the whole ` +
+    `reason it competes with the A320 on trip cost`);
+});
+
+test('the C919 lags the A320neo and MAX 8 on seat-mile fuel', () => {
+  const worse = ['a320neo', 'b737max8'].filter(id => perSeat('c919') <= perSeat(id));
+  assert.deepEqual(worse.map(id => get(id).name), [],
+    `C919 is ${perSeat('c919').toFixed(3)} L/seat/100km and must be WORSE than these — ` +
+    `a first-generation airframe on the same LEAP core does not beat them`);
+});
+
+test('the C919 is cheaper than the A320neo it cannot out-burn', () => {
+  assert.ok(get('c919').purchasePrice < get('a320neo').purchasePrice,
+    `a thirstier jet priced above the one it loses to is dead catalogue weight — ` +
+    `nobody would ever buy it. Its real pitch is that airlines will not pay more`);
+});
+
+test('no narrowbody is cheaper per seat than an older one from the same family', () => {
+  const perSeatPrice = (id) => get(id).purchasePrice / get(id).seats;
+  const PAIRS = [['b737900er', 'b737800'], ['b737max9', 'b737max8'], ['a321ceo', 'a320ceo']];
+  const bad = PAIRS.filter(([newer, older]) => perSeatPrice(newer) < perSeatPrice(older))
+    .map(([n, o]) => `${get(n).name} $${(perSeatPrice(n) / 1000).toFixed(0)}k/seat < ${get(o).name} $${(perSeatPrice(o) / 1000).toFixed(0)}k/seat`);
+  assert.deepEqual(bad, []);
+});
+
+test('the A319ceo and 737-700 each give something up to the other', () => {
+  // They are a real-world near-tie. Identical price AND lease is what made the
+  // A319 strictly better — it already wins seats, range and runway.
+  const a = get('a319ceo'), b = get('b737700');
+  assert.ok(a.purchasePrice !== b.purchasePrice,
+    `A319ceo and 737-700 are both $${(a.purchasePrice / 1e6).toFixed(0)}M — the more capable ` +
+    `airframe has to cost more, or it strictly dominates`);
+  assert.ok(a.purchasePrice > b.purchasePrice && a.weeklyLease > b.weeklyLease,
+    'the A319 wins seats, range and runway, so it is the one that costs more');
+});
+
+// ── 3d. Full-table audit (2026-07-29) ────────────────────────────────────────
+// docs/aircraft-data-audit-2026-07-29.md — 33 field corrections found by checking
+// every jet against real specs. Two reusable techniques came out of it:
+//
+//   1. The table's fuel figures were derived from operational BLOCK-HOUR (kg/h)
+//      data ÷ an assumed cruise speed. `il96300`'s 1150.25 matches a published
+//      Russian Transport Clearing House figure of 7,818 kg/h ÷ 850 km/h to
+//      within 0.05%, and the same source reproduces the A320/A321 rows. So to
+//      sanity-check any fuel value, multiply back out:
+//        implied kg/h = fuelBurnPer100km × 0.008 × cruise_km_h
+//      and compare against published block data. Every error found was a type
+//      that had fallen off that scale — in BOTH directions.
+//   2. Fuel ÷ fuselage length is near-constant within a generation (737 NG
+//      10.12-10.14, MAX 9.42-9.67). That is how the MAX 8-200 was caught: 8.10.
+//
+// The tests below lock the structural relationships, not the individual numbers.
+
+test('a shrink never out-burns the stretch it shrinks, within a generation', () => {
+  // Each group is ONE generation, ordered small → large. A later variant is a
+  // longer tube on the same wing and engine, so it must burn more per trip.
+  const GENERATIONS = {
+    'A330neo':  ['a330800', 'a330neo'],
+    'A220':     ['a220100', 'a220'],
+    'MAX':      ['b737max7', 'b737max8', 'b737max9', 'b737max10'],
+    '737 NG':   ['b737700', 'b737800', 'b737900er'],
+    'A320neo':  ['a319neo', 'a320neo', 'a321neo'],
+    'A320ceo':  ['a319ceo', 'a320ceo', 'a321ceo'],
+    '757':      ['b757200', 'b757300'],
+    '787':      ['b7878', 'b7879', 'b787x10'],
+    'E-Jet E2': ['e175e2', 'e190e2', 'e195e2'],
+    'E-Jet E1': ['e175', 'e190', 'e195'],
+    'CRJ':      ['crj700', 'crj900', 'crj1000'],
+  };
+  const bad = [];
+  for (const [fam, ids] of Object.entries(GENERATIONS)) {
+    const list = ids.map(get);
+    for (let i = 0; i < list.length - 1; i++) {
+      const small = list[i], large = list[i + 1];
+      if (large.fuelBurnPer100km <= small.fuelBurnPer100km) {
+        bad.push(`${fam}: ${large.name} ${large.fuelBurnPer100km} <= ${small.name} ${small.fuelBurnPer100km}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [], 'a longer fuselage on the same wing and engine cannot burn less');
+});
+
+test('the MAX 8-200 burns at least as much as the MAX 8 it is built from', () => {
+  // Same fuselage, same LEAP-1B, same MTOW, one extra exit pair, ~450 kg more
+  // OEW. It was entered at 320 against the MAX 8's 382 — 16% less, which made it
+  // the most efficient narrowbody in the game by a 12% margin.
+  const a = get('b737max8'), b = get('b737max8200');
+  assert.ok(b.fuelBurnPer100km >= a.fuelBurnPer100km,
+    `MAX 8-200 burns ${b.fuelBurnPer100km} vs MAX 8 ${a.fuelBurnPer100km} — identical airframe, and the -200 is heavier`);
+  assert.ok(b.purchasePrice < a.purchasePrice,
+    'the 8-200 carries FEWER seats than the MAX 8 exit limit, so it has to be cheaper or nobody would buy it');
+});
+
+test('the MAX range ladder shortens as the fuselage lengthens', () => {
+  // Boeing's own table was read one row down: the MAX 9 carried the MAX 8's
+  // range and the MAX 10 carried the MAX 9's.
+  const ids = ['b737max7', 'b737max8', 'b737max9', 'b737max10'];
+  const bad = [];
+  for (let i = 0; i < ids.length - 1; i++) {
+    if (get(ids[i + 1]).range >= get(ids[i]).range) {
+      bad.push(`${get(ids[i + 1]).name} ${get(ids[i + 1]).range} >= ${get(ids[i]).name} ${get(ids[i]).range}`);
+    }
+  }
+  assert.deepEqual(bad, [], 'each MAX stretch trades range for length');
+});
+
+test('the A220-100 out-ranges the A220-300 it shrinks', () => {
+  // Airbus: -100 = 3,600 nm, -300 = 3,400 nm. The lighter shrink really does fly
+  // further — the table had it 1,000 km short AND in the wrong order.
+  assert.ok(get('a220100').range > get('a220').range,
+    `A220-100 ${get('a220100').range} km vs A220-300 ${get('a220').range} km`);
+});
+
+test('every neo and E2 earns a real generational gain per seat', () => {
+  // a319neo sat at 337 against the A319ceo's 336.75 — a 0% gain, the only neo in
+  // the table with none. The E2s were at roughly a third of Embraer's published
+  // flight-test numbers (17.3% for the E190-E2, 25.4%/seat for the E195-E2).
+  const PAIRS = [
+    ['a319neo', 'a319ceo', 0.04], ['a320neo', 'a320ceo', 0.04], ['a321neo', 'a321ceo', 0.04],
+    ['b737max7', 'b737700', 0.03], ['b737max8', 'b737800', 0.03], ['b737max9', 'b737900er', 0.03],
+    ['e175e2', 'e175', 0.05], ['e190e2', 'e190', 0.10], ['e195e2', 'e195', 0.15],
+  ];
+  const bad = [];
+  for (const [neo, ceo, minGain] of PAIRS) {
+    const gain = 1 - perSeat(neo) / perSeat(ceo);
+    if (gain < minGain) bad.push(`${get(neo).name} only ${(gain * 100).toFixed(1)}% better per seat than the ${get(ceo).name} (need ${(minGain * 100).toFixed(0)}%)`);
+  }
+  assert.deepEqual(bad, []);
+});
+
+test('no regional jet burns like a narrowbody, and none is impossibly frugal', () => {
+  // The 328JET implied ~1,390 kg/h for a 15.7 t twinjet — more than the table's
+  // own 24 t CRJ-200 (~1,034 kg/h). Its 6.890 L/seat was 2.2x every other RJ.
+  const rj = AIRCRAFT_TYPES.filter(t => t.category === 'Regional Jet' && !t.freighter && t.seats > 0);
+  // Scoped to 1990-on. The 1960s trijets really were this bad — the Yak-40 at
+  // 6.99 L/seat implies ~1,230 kg/h for 40 seats, which matches reality.
+  const out = rj.filter(t => (t.eis ?? 0) >= 1990)
+    .filter(t => perSeat(t.id) > 5.0 || perSeat(t.id) < 1.5)
+    .map(t => `${t.name} ${perSeat(t.id).toFixed(3)} L/seat/100km`);
+  assert.deepEqual(out, [], 'post-1990 regional jets sit between roughly 1.8 and 4.7 L/seat/100km');
+});
+
+test('the four-engine long-haulers are thirsty but not absurd', () => {
+  // a340300 implied ~9,210 kg/h against a published 6-7 t/h, and 9 t/h is the
+  // figure quoted for the LARGER -600. Both were set well above the scale the
+  // rest of the table uses.
+  const impliedKgH = (id) => get(id).fuelBurnPer100km * 0.008 * 900;
+  for (const id of ['a340300', 'a340600', 'md11']) {
+    const kgh = impliedKgH(id);
+    assert.ok(kgh > 4_000 && kgh < 11_000,
+      `${get(id).name} implies ${Math.round(kgh).toLocaleString()} kg/h — outside the plausible widebody band`);
+  }
+  assert.ok(impliedKgH('a340300') < impliedKgH('a340600'),
+    'the A340-600 is the longer, thirstier jet');
+});
+
+test('the MC-21-310 is the worse of the two MC-21s', () => {
+  // Russian PD-14 engines (~5% behind the PW1400G) on an airframe ~5.75 t
+  // heavier, and UAC has revised the declared range down to 3,830 km. It was
+  // entered burning 7% LESS than the -300 at the same price.
+  const a = get('mc21300'), b = get('mc21310');
+  assert.ok(b.fuelBurnPer100km > a.fuelBurnPer100km,
+    `MC-21-310 burns ${b.fuelBurnPer100km} vs the -300's ${a.fuelBurnPer100km}`);
+  assert.ok(b.range < a.range, 'the -310 gives up range too');
+  assert.ok(b.purchasePrice < a.purchasePrice,
+    'worse on both fuel and range, so it cannot cost the same as the -300');
+});
+
 // ── 4. Freighter pricing sits on one scale ───────────────────────────────────
 
 test('the ATR 72-600F is priced off its passenger sibling, not 20% above it', () => {
