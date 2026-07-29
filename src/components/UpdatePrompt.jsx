@@ -81,11 +81,20 @@ export default function UpdatePrompt() {
       navigator.serviceWorker.addEventListener?.('controllerchange', check);
     }
 
+    // Strongest signal there is: the SERVER just refused something this build
+    // thought was legal. That is what a rules change looks like from inside a
+    // stale tab — Headwinds shipped lease restrictions while players carried on
+    // with a bundle that had no idea, so their orders were rejected with nothing
+    // on screen to explain it. A rejection now forces an immediate version check
+    // instead of waiting out the 15-minute poll.
+    window.addEventListener('app:server-rejected', check);
+
     return () => {
       cancelled = true;
       clearTimeout(initial);
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('app:server-rejected', check);
       navigator.serviceWorker?.removeEventListener?.('controllerchange', check);
     };
   }, []);

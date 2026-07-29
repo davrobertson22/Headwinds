@@ -343,7 +343,13 @@ export default function GamePlayScreen({ worldId, token }) {
           // show it somewhere the player can actually read it. Transport
           // failures keep the transient-error / reconnecting treatment.
           if (isTransientError(e)) setError(e);
-          else showActionNotice(String(e.message || e));
+          else {
+            showActionNotice(String(e.message || e));
+            // A real server refusal is the loudest hint that this tab is running
+            // an older build than the server's rules — ask UpdatePrompt to check
+            // now rather than at its next 15-minute poll.
+            try { window.dispatchEvent(new Event('app:server-rejected')); } catch { /* non-DOM env */ }
+          }
           // Rejected → resync from the server. If it failed on the wire we may
           // have missed ticks too, so let resync() decide how deep to go.
           if (isTransientError(e)) resync(); else load();

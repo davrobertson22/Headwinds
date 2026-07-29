@@ -18,7 +18,7 @@ import {
   MAX_ROUTE_STOPS,
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
   isRouteActive, routeActiveMonths, aircraftHubMaintFactor,
-  applyReserveCovers, planCovers, freighterBodyClass,
+  applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          setFareIndex,
@@ -711,6 +711,9 @@ function reducer(state, action) {
       const newOrders       = [];
       const instantAircraft = [];
       const instantToasts   = [];
+      // Set when the per-unit affordability check stops the order short, so the
+      // return path can say how much was needed rather than silently trimming.
+      let cashShortfallAt   = null;
 
       // ── Bulk-order discount (owned purchases only) ───────────────────────────
       // Discount scales with how many frames you commit to in THIS order and is
@@ -756,7 +759,23 @@ function reducer(state, action) {
           if (cashBalance >= unitCostAt(orderDisc) * orderQty) break;
           orderQty--;
         }
-        if (orderQty === 0) return state;   // can't afford even one frame
+        if (orderQty === 0) {
+          // Was a silent `return state`. With the client's optimistic apply that
+          // read as the game eating your order and your money — the single most
+          // common "it stole my deposit" report. Name the number instead.
+          const need = unitCostAt(orderDiscount(1));
+          return {
+            ...state,
+            pendingToasts: [
+              ...(state.pendingToasts ?? []),
+              {
+                type: 'warning', icon: '💸',
+                title: 'Not enough cash',
+                message: `A ${type.name} costs ${formatMoney(need)} to buy outright. You have ${formatMoney(cashBalance)}.`,
+              },
+            ],
+          };
+        }
       }
 
       for (let i = 0; i < orderQty; i++) {
@@ -787,9 +806,11 @@ function reducer(state, action) {
         const unitWeeklyLease   = Math.round((baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj) * leaseRateMult);
         const leaseDeposit      = action.ownershipType === 'lease' ? unitWeeklyLease * LEASE_DEPOSIT_WEEKS : 0;
 
-        // Stop if we can't afford this unit (buy price or lease deposit)
+        // Stop if we can't afford this unit (buy price or lease deposit).
+        // Record what we needed so the partial fill can explain itself below —
+        // silently trimming an order is indistinguishable from losing it.
         const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice : leaseDeposit) + seatFittingFee;
-        if (cashBalance < unitUpfrontCost) break;
+        if (cashBalance < unitUpfrontCost) { cashShortfallAt = unitUpfrontCost; break; }
 
         const serialNum = nextAircraftNumber(action.typeId, runningFleet, runningPending);
         const customName = (action.name ?? '').trim();
@@ -864,7 +885,35 @@ function reducer(state, action) {
         }
       }
 
-      if (newOrders.length === 0) return state;
+      if (newOrders.length === 0 && instantAircraft.length === 0) {
+        // Nothing could be funded. Previously a silent no-op.
+        const need = cashShortfallAt;
+        return {
+          ...state,
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            {
+              type: 'warning', icon: '💸',
+              title: 'Not enough cash',
+              message: need != null
+                ? `${action.ownershipType === 'lease'
+                    ? `The deposit on a ${type.name} is ${formatMoney(need)}`
+                    : `A ${type.name} costs ${formatMoney(need)}`}. You have ${formatMoney(cashBalance)}.`
+                : `You can't fund a ${type.name} right now.`,
+            },
+          ],
+        };
+      }
+
+      // Partial fill: some frames funded, the rest dropped for cash. Say so.
+      const placedCount = newOrders.length + instantAircraft.length;
+      if (cashShortfallAt != null && placedCount < orderQty) {
+        instantToasts.push({
+          type: 'info', icon: '💸',
+          title: 'Order trimmed',
+          message: `Ordered ${placedCount} of ${orderQty} — the next ${type.name} needed ${formatMoney(cashShortfallAt)} and you had ${formatMoney(cashBalance)}.`,
+        });
+      }
 
       return {
         ...state,

@@ -317,6 +317,47 @@ test('an identical action sequence is state-identical with the flag absent', () 
     'classic worlds must still allow A380 leases');
 });
 
+// ── 6b. Unaffordable orders explain themselves ───────────────────────────────
+// REGRESSION: all three of these were silent `return state` / `break`. Combined
+// with the client's optimistic apply, an order the player couldn't fund appeared
+// and then vanished with no message — reported in Discord as the game eating
+// orders and stealing deposits. The money was never taken; nothing said so.
+console.log('\nUnaffordable orders');
+
+const poorState = (cash) => baseState({ cash, newWorldRestrictions: false, fleet: [], pendingOrders: [], pendingToasts: [] });
+const lastToast = (s) => (s.pendingToasts ?? []).slice(-1)[0];
+
+test('a lease you cannot fund says how much the deposit is', () => {
+  const s = poorState(364_000);                       // Kat's actual cash
+  const r = order(s, 'b767300', 2);                   // deposit is $816k
+  assert.equal(orderCount(r), 0);
+  assert.equal(r.cash, s.cash, 'cash must not move when nothing is placed');
+  assert.match(lastToast(r).message, /deposit.*816/i);
+  assert.match(lastToast(r).message, /364/);
+});
+
+test('a purchase you cannot fund says the price', () => {
+  const s = poorState(364_000);
+  const r = order(s, 'b767300', 1, 'owned');
+  assert.equal(orderCount(r), 0);
+  assert.equal(r.cash, s.cash);
+  assert.match(lastToast(r).title, /not enough cash/i);
+});
+
+test('a partial fill reports how many were funded', () => {
+  const s = poorState(2_000_000);                     // funds 2 of 5 deposits
+  const r = order(s, 'b767300', 5);
+  assert.equal(orderCount(r), 2);
+  assert.match(lastToast(r).message, /Ordered 2 of 5/);
+});
+
+test('an affordable order raises no spurious toast', () => {
+  const s = poorState(50_000_000);
+  const r = order(s, 'b767300', 2);
+  assert.equal(orderCount(r), 2);
+  assert.equal((r.pendingToasts ?? []).length, 0);
+});
+
 // ── 7. HQ overhead by departure and class ────────────────────────────────────
 console.log('\nHQ overhead — per departure, by class');
 
