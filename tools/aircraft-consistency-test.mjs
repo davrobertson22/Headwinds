@@ -13,6 +13,14 @@
 //   3. The 2026-06-17 expansion block priced used conversions on a different
 //      scale to the original freighters and never gave them an old-airframe
 //      maintenance penalty, so 40-year-old jets strictly beat new-builds.
+//   4. (2026-07-29) The PRICE half of that same seam. Used conversions were
+//      priced off scrap values (0.11-0.50 $M/tonne) and purpose-built freighters
+//      off new-market values (1.3-2.1 $M/tonne) — a 21.6x spread in capital cost
+//      against only a 2.7x spread in operating cost per tonne-km. Every modern
+//      freighter in the game was dominated by a 1970s conversion. Fixed by
+//      compressing the price band AND giving used conversions a real delivered
+//      age (deliveredAgeWeeks), so they arrive on a higher maintenance
+//      multiplier with fewer years of life left.
 //
 //   node tools/aircraft-consistency-test.mjs
 
@@ -186,6 +194,93 @@ test('no freighter is strictly dominated by another', () => {
     }
   }
   assert.deepEqual(dominated, []);
+});
+
+// ── 6. Freighter capital cost (2026-07-29) ───────────────────────────────────
+// The failure these lock out: prices set from real transaction values in two
+// independently-calibrated populations. Each price was individually defensible;
+// the TABLE was unplayable. Assert on the internal spread, not on absolutes.
+
+const FREIGHTERS = AIRCRAFT_TYPES.filter(t => t.freighter);
+const pricePerTonne = (t) => t.purchasePrice / 1e6 / t.payloadTonnes;
+
+test('freighter $M-per-tonne spread stays under 10x', () => {
+  const vals = FREIGHTERS.map(pricePerTonne);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const cheapest = FREIGHTERS.find(t => pricePerTonne(t) === lo);
+  const dearest  = FREIGHTERS.find(t => pricePerTonne(t) === hi);
+  assert.ok(hi / lo < 10,
+    `capital cost spans ${(hi / lo).toFixed(1)}x (${cheapest.name} $${lo.toFixed(2)}M/t vs ` +
+    `${dearest.name} $${hi.toFixed(2)}M/t). Operating cost only spans ~2.7x, so anything ` +
+    `wider makes price — not efficiency — decide every purchase.`);
+});
+
+test('no freighter is priced off scrap value while others are priced off market', () => {
+  // Guards the specific regression: a classic conversion priced from what a
+  // 40-year-old hull actually fetches, sitting in the same buy menu as a
+  // new-build priced from market value. Pre-fix, the DC-8-73F, DC-10-30F and
+  // 727-200F all sat below an eighth of the cheapest new-build per tonne.
+  const NEW_BUILDS = ['b767300f', 'a330200f', 'b777f', 'b7478f', 'a350f', 'b7778f', 'atr72f'];
+  const floor = Math.min(...NEW_BUILDS.map(id => pricePerTonne(get(id)))) / 8;
+  const tooCheap = FREIGHTERS.filter(t => pricePerTonne(t) < floor);
+  assert.deepEqual(tooCheap.map(t => `${t.name} $${pricePerTonne(t).toFixed(2)}M/t`), [],
+    `(scrap-pricing floor is $${floor.toFixed(2)}M/t)`);
+});
+
+test('every used conversion arrives used, and every new-build arrives new', () => {
+  // deliveredAgeWeeks is the counterweight that lets classics stay cheap without
+  // dominating: they start on a higher maintenanceMultiplier and depreciate from
+  // their delivered value. Without it, a DC-8-73F is a zero-hour airframe.
+  const IN_PRODUCTION = ['b767300f', 'a330200f', 'b777f', 'b7478f', 'a350f', 'b7778f', 'atr72f'];
+  const wrong = [];
+  for (const t of FREIGHTERS) {
+    const age = t.deliveredAgeWeeks ?? 0;
+    const shouldBeNew = IN_PRODUCTION.includes(t.id);
+    if (shouldBeNew && age !== 0) wrong.push(`${t.name} is in production but delivers ${age / 52}y old`);
+    if (!shouldBeNew && age < 5 * 52) wrong.push(`${t.name} is a used conversion but delivers ${age / 52}y old`);
+  }
+  assert.deepEqual(wrong, []);
+});
+
+test('no freighter delivers older than 20y — the maintenance curve is quadratic', () => {
+  // maintenanceMultiplier = 1 + (age/20)^2 * 2, so 30y = 5.5x base. Pairing that
+  // with a large baseMaintenancePerWk makes a type loss-making on every lane.
+  const tooOld = FREIGHTERS.filter(t => (t.deliveredAgeWeeks ?? 0) > 20 * 52);
+  assert.deepEqual(tooOld.map(t => `${t.name} ${(t.deliveredAgeWeeks / 52).toFixed(0)}y`), []);
+});
+
+test('older freighters are cheaper per tonne than newer ones', () => {
+  // Monotonicity: sort by delivered age, and price-per-tonne should trend down.
+  // Catches a future edit that makes a classic dearer than a new-build.
+  const oldest = FREIGHTERS.filter(t => (t.deliveredAgeWeeks ?? 0) >= 14 * 52);
+  const newest = FREIGHTERS.filter(t => (t.deliveredAgeWeeks ?? 0) === 0);
+  const dearestOld  = Math.max(...oldest.map(pricePerTonne));
+  const cheapestNew = Math.min(...newest.map(pricePerTonne));
+  assert.ok(dearestOld < cheapestNew,
+    `the dearest 16y-old conversion ($${dearestOld.toFixed(2)}M/t) must cost less per tonne ` +
+    `than the cheapest new-build ($${cheapestNew.toFixed(2)}M/t)`);
+});
+
+test('every freighter carries its own cruise speed', () => {
+  // Freighters share one category, so CRUISE_SPEED_KMH cannot step them — they
+  // all silently fell back to 840 km/h, including the ATR 72 turboprop.
+  const missing = FREIGHTERS.filter(t => !(t.cruiseKmh > 0));
+  assert.deepEqual(missing.map(t => t.id), []);
+  const turboprops = FREIGHTERS.filter(t => t.cruiseKmh < 600);
+  assert.ok(turboprops.length >= 2,
+    'the ATR 72-600F and An-12 are turboprops and must cruise well under 600 km/h');
+});
+
+test('payload tonnage matches real max structural payload', () => {
+  const REAL = { atr72f: 8.6, e190f: 13.5, b737300f: 17.5, b737400f: 20, an12: 20,
+    b737800bcf: 23.9, b727200f: 26, a321p2f: 27.9, b757200pf: 39.8, b767200sf: 42,
+    b767300f: 52.7, dc873f: 48, a300600f: 54, a330200f: 70, dc1030f: 77, md11f: 91,
+    b777f: 102, a350f: 109, b747400f: 112, b7778f: 112.3, an124: 120, b7478f: 137.7,
+    an225: 250 };
+  const off = FREIGHTERS
+    .filter(t => REAL[t.id] && Math.abs(t.payloadTonnes - REAL[t.id]) / REAL[t.id] > 0.08)
+    .map(t => `${t.name} ${t.payloadTonnes}t vs real ${REAL[t.id]}t`);
+  assert.deepEqual(off, []);
 });
 
 test('every aircraft carries the fields the market card renders', () => {

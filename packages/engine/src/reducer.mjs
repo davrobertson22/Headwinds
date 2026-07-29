@@ -24,7 +24,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
          emptyEquity, migratedEquity, sharesOf, svpsOf,
-         freeFloatOf, executionPrice, capitalGainsTax, repriceForShareChange,
+         freeFloatOf, executionPrice, capitalGainsTax,
          priceImpact, poolLiquidityDiscount,
          CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
@@ -3578,12 +3578,7 @@ function reducer(state, action) {
           fleetNAV:       fleetNAVOf(agedFleet, curAbsWeek),
           debt:           loanOutstanding(updatedLoans),
           portfolioValue,
-          // A PRIVATE airline has no market, so there is no market price to
-          // smooth: publish its fair value straight. That is what makes the IPO
-          // price honest — pricing the listing off a smoothed series that had
-          // been chasing a fast-growing fair value for years meant floating a
-          // quarter of the company for a rounding error.
-          prevMarketCap:  (state.equity?.isPublic === false) ? null : (state.marketCap ?? null),
+          prevMarketCap:  state.marketCap ?? null,
           noise:          valuationNoise,
           revenueHint,
           marketFactor,
@@ -4187,49 +4182,31 @@ function reducer(state, action) {
       const basePrice  = state.sharePrice ?? ((state.marketCap ?? 0) / sharesOf(state));
       const price      = basePrice * (1 - discount);
       if (!(price > 0)) return state;
-      // The pool is the buyer and its cash is finite. Fill what it can afford
-      // rather than refusing the whole listing: a big airline floating onto a
-      // small exchange gets a small float, which is the realistic outcome and
-      // beats a button that silently does nothing.
-      const mk       = state.worldMarket;
-      const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
-      const sold     = Math.min(offered, Math.floor(poolCash / price));
-      const proceeds = Math.min(Math.round(sold * price), Math.floor(poolCash));
-      // A token fill is not a listing — below the market's minimum ticket the
-      // equity window is simply shut.
-      if (!(sold > 0) || proceeds < Math.min(STOCK_MARKET.MIN_TICKET, Math.round(offered * price))) {
-        return state;
-      }
-      const newShares = sharesOf(state) + sold;
-      const partial   = sold < offered;
+      const proceeds   = Math.round(offered * price);
 
-      // Reprice in the same step as the dilution — see repriceForShareChange.
-      const listed = repriceForShareChange(state, { shares: newShares, cashDelta: proceeds });
+      // The pool is the buyer, and its cash is finite: if the equity window is
+      // shut, you cannot list this week.
+      const mk = state.worldMarket;
+      if (mk && Number.isFinite(mk.poolCash) && proceeds > mk.poolCash) return state;
 
       return {
         ...state,
         cash: state.cash + proceeds,
-        marketCap:  listed.marketCap,
-        sharePrice: listed.sharePrice,
-        svps:       svpsOf({ sharePrice: listed.sharePrice, equity }),
         equity: {
           ...equity,
-          shares:   newShares,
+          shares:   postShares,
           isPublic: true,
           ipoWeek:  absWk,
         },
-        lastEquityAction: { kind: 'ipo', shares: sold, gross: proceeds, pricePerShare: price },
+        lastEquityAction: { kind: 'ipo', shares: offered, gross: proceeds, pricePerShare: price },
         pendingToasts: [
           ...(state.pendingToasts ?? []),
           {
             type: 'success', icon: '🔔',
             title: 'Listed on the exchange',
-            message: `Sold ${sold.toLocaleString()} shares (${Math.round((sold / newShares) * 100)}% of the company) `
+            message: `Sold ${offered.toLocaleString()} shares (${Math.round(fraction * 100)}% of the company) `
                    + `at $${price.toFixed(4)} — ${proceeds.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} raised `
-                   + `after a ${Math.round(discount * 100)}% IPO discount.`
-                   + (partial
-                       ? ` Investors could only absorb ${Math.round((sold / offered) * 100)}% of the offering, so the rest was withdrawn.`
-                       : ''),
+                   + `after a ${Math.round(discount * 100)}% IPO discount.`,
             duration: 11000,
           },
         ],
@@ -4257,44 +4234,29 @@ function reducer(state, action) {
       const basePrice = state.sharePrice ?? ((state.marketCap ?? 0) / shares);
       const price     = basePrice * (1 - discount);
       if (!(price > 0)) return state;
-      // Partially subscribed if the pool is short of cash — same rule as the IPO.
-      const mk       = state.worldMarket;
-      const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
-      const issued   = Math.min(n, Math.floor(poolCash / price));
-      const proceeds = Math.min(Math.round(issued * price), Math.floor(poolCash));
-      if (!(issued > 0) || proceeds < Math.min(STOCK_MARKET.MIN_TICKET, Math.round(n * price))) {
-        return state;
-      }
-      const newShares = shares + issued;
-      const partial   = issued < n;
+      const proceeds  = Math.round(n * price);
 
-      // Reprice in the same step as the dilution — see repriceForShareChange.
-      const repriced = repriceForShareChange(state, { shares: newShares, cashDelta: proceeds });
+      const mk = state.worldMarket;
+      if (mk && Number.isFinite(mk.poolCash) && proceeds > mk.poolCash) return state;
 
       return {
         ...state,
         cash: state.cash + proceeds,
-        marketCap:  repriced.marketCap,
-        sharePrice: repriced.sharePrice,
-        svps:       svpsOf({ sharePrice: repriced.sharePrice, equity }),
         equity: {
           ...equity,
-          shares:            newShares,
-          offeringsThisYear: issuedThisYear + issued,
+          shares:            shares + n,
+          offeringsThisYear: issuedThisYear + n,
         },
-        lastEquityAction: { kind: 'offering', shares: issued, gross: proceeds, pricePerShare: price },
+        lastEquityAction: { kind: 'offering', shares: n, gross: proceeds, pricePerShare: price },
         pendingToasts: [
           ...(state.pendingToasts ?? []),
           {
             type: 'info', icon: '📄',
             title: 'Share offering completed',
-            message: `Issued ${issued.toLocaleString()} new shares at $${price.toFixed(4)} `
+            message: `Issued ${n.toLocaleString()} new shares at $${price.toFixed(4)} `
                    + `(${Math.round(discount * 100)}% discount) — `
                    + `${proceeds.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} raised. `
-                   + 'Existing holders are diluted.'
-                   + (partial
-                       ? ` Investors could only take ${Math.round((issued / n) * 100)}% of the offering.`
-                       : ''),
+                   + 'Existing holders are diluted.',
             duration: 10000,
           },
         ],
@@ -4335,18 +4297,9 @@ function reducer(state, action) {
         : 0;
       if (state.cash - cost < weeklyCost * C.MIN_CASH_WEEKS_COVER) return state;
 
-      // Retiring stock is the mirror image of issuing it: cash leaves the cap at
-      // the same instant the shares leave the count, so the price moves only by
-      // the premium paid — and rises later, as the same fair value is spread over
-      // fewer shares.
-      const retired = repriceForShareChange(state, { shares: shares - n, cashDelta: -cost });
-
       return {
         ...state,
         cash: state.cash - cost,
-        marketCap:  retired.marketCap,
-        sharePrice: retired.sharePrice,
-        svps:       svpsOf({ sharePrice: retired.sharePrice, equity }),
         equity: {
           ...equity,
           shares:           shares - n,
