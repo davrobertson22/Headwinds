@@ -63,7 +63,8 @@ export const AIRCRAFT_FAMILY = {
   b7778x: 'boeing_777', b7779x: 'boeing_777',
 
   // Boeing 747 ──────────────────────────────────────────────────────────────
-  b747200: 'boeing_747', b747400: 'boeing_747', b7478i: 'boeing_747',
+  b747200: 'boeing_747', b747400: 'boeing_747', b747400d: 'boeing_747',
+  b7478i: 'boeing_747',
 
   // Embraer ERJ (135 / 145) ─────────────────────────────────────────────────
   erj135: 'embraer_erj', erj145: 'embraer_erj',

@@ -93,8 +93,19 @@ test('the most efficient large aircraft is a twinjet, not a jumbo', () => {
 // numbers stay — but the -8I must actually earn its price on efficiency, and
 // the description has to tell the player why the newest 747 looks smaller.
 
-test('the 747-8I is placarded for fewer seats than the -400 (real, deliberate)', () => {
-  assert.ok(get('b7478i').seats < get('b747400').seats);
+test('the 747-400D is the only 747 certified for the 660-seat exit limit', () => {
+  // 2026-07-29: the 660-seat placard moved off the -400 and onto the new -400D,
+  // which is the only 747 Boeing ever certified for it (domestic high-density,
+  // strengthened for the cycles, range cut to 4,000 km). Every other 747 sits at
+  // the standard 605. So the -8I is no LARGER than the -400 — the check that
+  // used to be a strict "<" is now "<=", and the 660 figure is pinned to the -400D
+  // so a later edit cannot quietly hand it back to a long-range frame.
+  assert.equal(get('b747400d').seats, 660);
+  assert.ok(get('b747400').seats < get('b747400d').seats,
+    'the -400D exists precisely because the standard -400 is not certified for 660');
+  assert.ok(get('b747400d').range < get('b747400').range,
+    'the -400D trades range for seats — if it matched the -400 on range it would strictly dominate it');
+  assert.ok(get('b7478i').seats <= get('b747400').seats);
 });
 
 test('the 747-8I is meaningfully more efficient per seat than the -400', () => {
