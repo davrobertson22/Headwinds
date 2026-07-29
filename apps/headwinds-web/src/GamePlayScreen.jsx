@@ -361,9 +361,9 @@ export default function GamePlayScreen({ worldId, token }) {
   // header (brand · airline · date+countdown · cash · lobby/feed/messages)
   // instead of a second bar stacked above its own topbar.
   const remoteChrome = useMemo(() => ({
-    // Maturity label for the shared top bar: an alpha world says ALPHA, every
-    // other world (and Tailwinds) says BETA.
-    stage: meta?.worldAlpha ? 'alpha' : 'beta',
+    // Maturity label for the shared top bar: alpha | beta | live (live shows
+    // no chip at all). Defaults to beta until the first state read lands.
+    stage: meta?.worldStage ?? 'beta',
     clock: meta?.worldStatus === 'RUNNING'
       ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost} />
       : (meta?.worldStatus ? <span>world {String(meta.worldStatus).toLowerCase()}</span> : null),

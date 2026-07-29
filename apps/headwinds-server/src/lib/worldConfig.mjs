@@ -25,6 +25,25 @@ export const DEFAULT_STARTING_CAPITAL = 15_000_000;
 export const MIN_STARTING_CAPITAL = 1_000_000;
 export const MAX_STARTING_CAPITAL = 500_000_000;
 
+// A world's maturity label. Cosmetic ONLY — no rule reads it, which is why
+// (unlike gateScarcity / newWorldRestrictions) it can be changed on a world
+// that's already running.
+//   alpha → loud ⚗ ALPHA chip: a testbed, expect rough edges
+//   beta  → muted BETA chip: the standard ruleset, still changing week to week
+//   live  → NO chip at all: a settled production world
+// Beta is the default so every world that predates this reads as it always did.
+export const WORLD_STAGES = ['alpha', 'beta', 'live'];
+export const DEFAULT_WORLD_STAGE = 'beta';
+
+// Resolve a world's stage from its tickConfig, tolerating both the absent key
+// (worlds created before stages existed) and the short-lived `alpha: true`
+// boolean this replaced.
+export function worldStageOf(tickConfig) {
+  const s = tickConfig?.stage;
+  if (WORLD_STAGES.includes(s)) return s;
+  return tickConfig?.alpha === true ? 'alpha' : DEFAULT_WORLD_STAGE;
+}
+
 // Per-world global demand multiplier — scales the whole passenger pool so worlds
 // with more players can carry more surviving airlines. 1.0 = identical to solo.
 export const DEFAULT_DEMAND_MULT = 1;
@@ -68,10 +87,10 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, alpha,
+  newWorldRestrictions, stage,
 }) {
-  if (alpha != null && typeof alpha !== 'boolean') {
-    throw badRequest('alpha must be true or false');
+  if (stage != null && !WORLD_STAGES.includes(stage)) {
+    throw badRequest(`stage must be one of: ${WORLD_STAGES.join(', ')}`);
   }
   if (gateScarcity != null && typeof gateScarcity !== 'boolean') {
     throw badRequest('gateScarcity must be true or false');
@@ -171,11 +190,12 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional New World Restrictions (old-gen single-deck leasing only +
     // a lease order book capped against the operating fleet).
     newWorldRestrictions: world.tickConfig?.newWorldRestrictions === true,
-    // Purely a maturity label: an ALPHA world is one we're still shaking out, so
-    // the lobby and the in-game top bar say ALPHA instead of BETA. It changes no
-    // rules, which is why (unlike the two flags above) it can be flipped
-    // mid-world from the admin panel.
-    alpha: world.tickConfig?.alpha === true,
+    // Maturity label — see WORLD_STAGES. Changes no rules, so the admin panel
+    // can move it on a live world.
+    stage: worldStageOf(world.tickConfig),
+    // Kept for one release so a browser tab still running the previous bundle
+    // (which reads `alpha`) doesn't lose the chip until it reloads.
+    alpha: worldStageOf(world.tickConfig) === 'alpha',
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.

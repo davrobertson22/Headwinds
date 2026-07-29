@@ -5,7 +5,7 @@ import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
-  DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT,
+  DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE,
 } from './worldConfig.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
 import { seedWorldMarket } from './marketService.mjs';
@@ -32,9 +32,9 @@ export async function createWorld(prisma, {
   scheduledStartAt,
   gateScarcity,
   newWorldRestrictions,
-  alpha,
+  stage,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, alpha });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, stage });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -51,10 +51,10 @@ export async function createWorld(prisma, {
     // at max(5, 25%) of the fleet in service. Fixed at creation — turning it
     // on mid-world would strand order books already placed.
     ...(newWorldRestrictions === true ? { newWorldRestrictions: true } : {}),
-    // Cosmetic maturity label — ALPHA instead of BETA in the lobby and the
-    // in-game top bar. Affects no rules, so POST /worlds/:id/alpha can flip it
-    // on a world that's already running.
-    ...(alpha === true ? { alpha: true } : {}),
+    // Cosmetic maturity label (alpha | beta | live) — see WORLD_STAGES. Only
+    // written when it differs from the default, and affects no rules, so
+    // POST /worlds/:id/stage can move it on a world that's already running.
+    ...(stage && stage !== DEFAULT_WORLD_STAGE ? { stage } : {}),
     // Optional preset start instant (ISO). Present → the worker starts this world
     // at that time and joining does NOT start the clock (see joinWorld + tickService).
     ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),

@@ -17,6 +17,7 @@ import {
   serializeWorld, serializeAirline,
   MIN_LENGTH_YEARS, MAX_LENGTH_YEARS, MIN_WEEKS_PER_DAY, MAX_WEEKS_PER_DAY,
   MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
+  WORLD_STAGES, DEFAULT_WORLD_STAGE,
 } from '../lib/worldConfig.mjs';
 
 export default async function worldRoutes(fastify) {
@@ -254,8 +255,8 @@ export default async function worldRoutes(fastify) {
           // Optional gate scarcity (finite airport capacity, auctions, gate market).
           gateScarcity: { type: 'boolean' },
           newWorldRestrictions: { type: 'boolean' },
-          // Cosmetic: label the world ALPHA rather than BETA.
-          alpha: { type: 'boolean' },
+          // Cosmetic maturity label: alpha | beta | live (default beta).
+          stage: { type: 'string', enum: WORLD_STAGES },
         },
       },
     },
@@ -325,23 +326,26 @@ export default async function worldRoutes(fastify) {
     return { ok: true };
   });
 
-  // ── Flag / unflag a world as ALPHA (ADMIN — reversible) ───────────────────
-  // Cosmetic only: it swaps the BETA chip for an ALPHA one in the lobby and the
-  // in-game top bar. No rule depends on it, so unlike gateScarcity and
-  // newWorldRestrictions it is safe to flip on a world that's already running.
-  fastify.post('/worlds/:id/alpha', {
+  // ── Set a world's maturity stage (ADMIN — reversible) ─────────────────────
+  // Cosmetic only: alpha shows a loud ⚗ ALPHA chip, beta a muted BETA one, live
+  // no chip at all. No rule depends on it, so unlike gateScarcity and
+  // newWorldRestrictions it is safe to change on a world that's already running.
+  fastify.post('/worlds/:id/stage', {
     preHandler: requireAdmin,
     schema: {
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-      body: { type: 'object', required: ['alpha'], properties: { alpha: { type: 'boolean' } } },
+      body: { type: 'object', required: ['stage'], properties: { stage: { type: 'string', enum: WORLD_STAGES } } },
     },
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
     const tc = { ...(world.tickConfig ?? {}) };
-    // Drop the key rather than storing `false` so tickConfig stays a record of
-    // what was actually switched on.
-    if (request.body.alpha === true) tc.alpha = true; else delete tc.alpha;
+    const { stage } = request.body;
+    // Drop the key at the default rather than storing it, so tickConfig stays a
+    // record of what was actually changed. The legacy `alpha` boolean goes too —
+    // leave it and worldStageOf() would fall back to it and undo this write.
+    if (stage === DEFAULT_WORLD_STAGE) delete tc.stage; else tc.stage = stage;
+    delete tc.alpha;
     const updated = await prisma.world.update({
       where: { id: world.id },
       data: { tickConfig: tc },

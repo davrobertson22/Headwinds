@@ -5,6 +5,7 @@
 // drops out of live competition immediately.
 import { requireAdmin, isAdmin } from '../auth.mjs';
 import { prisma } from '../db.mjs';
+import { worldStageOf } from '../lib/worldConfig.mjs';
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -307,7 +308,7 @@ export default async function adminRoutes(fastify) {
         lengthYears: w.lengthYears,
         weeksPerDay: w.weeksPerDay,
         playerCount: w._count.airlines,
-        alpha: w.tickConfig?.alpha === true,
+        stage: worldStageOf(w.tickConfig),
         createdAt: w.createdAt,
         startedAt: w.startedAt,
       })),

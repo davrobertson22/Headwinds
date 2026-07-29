@@ -58,10 +58,11 @@ function TailwindsMark({ size = 22 }) {
   );
 }
 
-// Maturity chip in the top bar. Both games are in open beta; a Headwinds world
-// flagged alpha (admin panel) says ALPHA instead, so players on a testbed world
-// can see that from anywhere in the UI.
+// Maturity chip in the top bar. Both games are in open beta by default; a
+// Headwinds world can be set to alpha (a testbed — says ALPHA) or live (a
+// settled production world — shows NO chip at all) from the admin panel.
 export function StageTag({ stage = 'beta' }) {
+  if (stage === 'live') return null;
   const alpha = stage === 'alpha';
   return (
     <span

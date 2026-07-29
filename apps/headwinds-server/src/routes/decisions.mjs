@@ -10,7 +10,7 @@ import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
-import { paceLabel } from '../lib/worldConfig.mjs';
+import { paceLabel, worldStageOf } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
@@ -164,9 +164,9 @@ export default async function decisionRoutes(fastify) {
       status: slim.status,
       week: slim.week,
       worldStatus: world.status,
-      // Cosmetic maturity label for the game's top bar (ALPHA instead of BETA).
+      // Cosmetic maturity label for the game's top bar (alpha | beta | live).
       // Rides on `base` so it survives an `unchanged: true` early return.
-      worldAlpha: world.tickConfig?.alpha === true,
+      worldStage: worldStageOf(world.tickConfig),
       worldClock: {
         week: world.currentWeek,
         year: world.currentYear,

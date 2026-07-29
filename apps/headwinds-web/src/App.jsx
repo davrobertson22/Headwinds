@@ -75,26 +75,39 @@ function StatusChip({ status }) {
   return <span className={`chip chip-${status.toLowerCase()}`}>{status}</span>;
 }
 
-// An ALPHA world is one we're still shaking out — it changes no rules, it just
-// warns you that things here are rougher than the rest of the (beta) game. Size
-// 'sm' for table rows, 'md' for a world heading.
-export function AlphaTag({ size = 'sm' }) {
+// A world's maturity label. Three stages, and the third is the absence of one:
+//   alpha → loud red chip, a testbed
+//   beta  → muted chip, the standard ruleset and the default
+//   live  → NOTHING. A settled production world shouldn't wear a warning label,
+//           so this renders null rather than a third colour.
+// Size 'sm' for table rows, 'md' for a world heading.
+export const WORLD_STAGES = ['alpha', 'beta', 'live'];
+export const STAGE_LABELS = { alpha: 'Alpha', beta: 'Beta', live: 'Live' };
+export const STAGE_HINTS = {
+  alpha: "Alpha — a testbed for features that aren't finished. Expect rough edges, balance changes and the odd reset.",
+  beta: 'Beta — the standard Headwinds ruleset. Live and playable, but the game is still changing week to week.',
+  live: 'Live — a settled production world. No label is shown to players.',
+};
+
+export function StageChip({ stage = 'beta', size = 'sm' }) {
+  if (stage === 'live') return null;
+  const alpha = stage === 'alpha';
   const sm = size === 'sm';
   return (
-    <span title="Alpha world — a testbed for features that aren't finished. Expect rough edges, balance changes and the odd reset."
+    <span title={STAGE_HINTS[alpha ? 'alpha' : 'beta']}
       style={{
         marginLeft: sm ? 6 : 8,
         fontSize: sm ? 10 : 11,
         fontWeight: 700,
         padding: sm ? '1px 6px' : '2px 8px',
         borderRadius: 4,
-        background: 'rgba(255,92,92,0.15)',
-        color: '#ff5c5c',
-        border: '1px solid rgba(255,92,92,0.4)',
+        background: alpha ? 'rgba(255,92,92,0.15)' : 'rgba(255,255,255,0.06)',
+        color: alpha ? '#ff5c5c' : 'var(--text-dim, #8b949e)',
+        border: `1px solid ${alpha ? 'rgba(255,92,92,0.4)' : 'rgba(255,255,255,0.16)'}`,
         verticalAlign: 'middle',
         whiteSpace: 'nowrap',
       }}>
-      ⚗ ALPHA
+      {alpha ? '⚗ ALPHA' : 'BETA'}
     </span>
   );
 }
@@ -254,7 +267,7 @@ function CreateWorld({ token, onCreated }) {
   const [demandMultiplier, setDemandMultiplier] = useState(1);
   const [gateScarcity, setGateScarcity] = useState(false);
   const [newWorldRestrictions, setNewWorldRestrictions] = useState(false);
-  const [alpha, setAlpha] = useState(false);
+  const [stage, setStage] = useState('beta');
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -278,7 +291,7 @@ function CreateWorld({ token, onCreated }) {
           demandMultiplier: Number(demandMultiplier),
           ...(gateScarcity ? { gateScarcity: true } : {}),
           ...(newWorldRestrictions ? { newWorldRestrictions: true } : {}),
-          ...(alpha ? { alpha: true } : {}),
+          ...(stage !== 'beta' ? { stage } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
       });
@@ -367,16 +380,13 @@ function CreateWorld({ token, onCreated }) {
             auction gates yearly (sealed bids, wk 40). Unused gates forfeit after 24 wks.
           </span>
         </label>
-        <label style={{ alignItems: 'flex-start' }}>Alpha world
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={alpha}
-              onChange={(e) => setAlpha(e.target.checked)} />
-            <span className="muted">{alpha ? 'ON — labelled ALPHA' : 'Off — labelled BETA like the rest of the game'}</span>
-          </span>
+        <label style={{ alignItems: 'flex-start' }}>Stage
+          <select value={stage} onChange={(e) => setStage(e.target.value)}>
+            {WORLD_STAGES.map((sg) => <option key={sg} value={sg}>{STAGE_LABELS[sg]}</option>)}
+          </select>
           <span className="muted small">
-            Cosmetic only — no rule changes. The lobby and the in-game top bar say
-            ALPHA instead of BETA, so players know this world is a testbed. You can
-            switch it on or off later from “Manage all worlds”.
+            {STAGE_HINTS[stage]} Cosmetic only — no rule changes, and you can move
+            it later from “Manage all worlds”.
           </span>
         </label>
         <label>Scheduled start (optional)
@@ -419,10 +429,10 @@ function AdminWorldsManager({ token }) {
     setBusyId(null);
   };
 
-  // Alpha is a label, not a rule, so it flips on a live world — no confirm.
-  const setAlpha = async (id, alpha) => {
+  // Stage is a label, not a rule, so it moves on a running world — no confirm.
+  const setStage = async (id, stage) => {
     setBusyId(id); setError(null);
-    try { await api(`/worlds/${id}/alpha`, { method: 'POST', token, body: { alpha } }); load(); }
+    try { await api(`/worlds/${id}/stage`, { method: 'POST', token, body: { stage } }); load(); }
     catch (e) { setError(e); }
     setBusyId(null);
   };
@@ -447,11 +457,11 @@ function AdminWorldsManager({ token }) {
                 <td><StatusChip status={w.status} /></td>
                 <td>{w.playerCount}</td>
                 <td>
-                  <button className="btn small" disabled={busyId === w.id}
-                    title={w.alpha ? 'Currently ALPHA — click to label it BETA' : 'Currently BETA — click to label it ALPHA'}
-                    onClick={() => setAlpha(w.id, !w.alpha)}>
-                    {w.alpha ? '⚗ Alpha' : 'Beta'}
-                  </button>
+                  <select value={w.stage ?? 'beta'} disabled={busyId === w.id}
+                    title={STAGE_HINTS[w.stage ?? 'beta']}
+                    onChange={(e) => setStage(w.id, e.target.value)}>
+                    {WORLD_STAGES.map((sg) => <option key={sg} value={sg}>{STAGE_LABELS[sg]}</option>)}
+                  </select>
                 </td>
                 <td>
                   <div className="row">
@@ -522,7 +532,7 @@ function WorldsScreen({ token, me }) {
               <tr key={w.id}>
                 <td>
                   <a href={`#/w/${w.id}`}>{w.name}</a>
-                  {w.alpha && <AlphaTag />}
+                  <StageChip stage={w.stage ?? 'beta'} />
                   {w.newWorldRestrictions && (
                     <span title="New world restrictions: old-gen single-deck leasing only, lease order book capped at 25% of fleet"
                       style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', whiteSpace: 'nowrap' }}>
@@ -716,7 +726,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         <div>
           <h2>
             {world.name} <StatusChip status={world.status} />
-            {world.alpha && <AlphaTag size="md" />}
+            <StageChip stage={world.stage ?? 'beta'} size="md" />
             {world.newWorldRestrictions && (
               <span title="New world restrictions: lessors carry single-deck previous-generation aircraft only, and your lease order book is capped at 25% of the fleet you operate (minimum 5)"
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
