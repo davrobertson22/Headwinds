@@ -27,7 +27,8 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          emptyEquity, migratedEquity, sharesOf, svpsOf,
          freeFloatOf, executionPrice, capitalGainsTax, repriceForShareChange,
          priceImpact, poolLiquidityDiscount,
-         CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare } from './utils/market.js';
+         CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
+         founderSaleProceeds } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
@@ -4315,7 +4316,16 @@ function reducer(state, action) {
     // nowhere and no cash is minted (see lib/marketService.mjs).
 
     case 'GO_PUBLIC': {
-      // action: { shares } — NEW shares sold to outside investors at a discount.
+      // action: { shares, secondaryShares }
+      //   shares          — NEW shares issued to outside investors (dilutive)
+      //   secondaryShares — EXISTING founder shares sold instead (non-dilutive)
+      //
+      // Either tranche may be zero. Real listings are routinely a mix of the two,
+      // and the choice is a real trade-off rather than a strictly better button:
+      // new shares raise the full amount and permanently split the company, while
+      // founder shares leave the share count (and therefore every per-share
+      // number, including the leaderboard metric) untouched but reach the treasury
+      // net of capital-gains tax — see CAPITAL.FOUNDER_BASIS_PER_SHARE.
       const C = CAPITAL;
       const equity = state.equity ?? emptyEquity();
       if (equity.isPublic) return state;                    // already listed
@@ -4325,15 +4335,31 @@ function reducer(state, action) {
       const history = state.financialHistory ?? [];
       if (history.length < C.IPO_MIN_HISTORY_WEEKS) return state;
 
-      const offered = Math.floor(Number(action.shares));
+      const preShares   = sharesOf(state);
+      const founderHeld = Math.max(0, Math.min(preShares, Number(equity.founderShares ?? preShares)));
+      const wantNew = Math.max(0, Math.floor(Number(action.shares) || 0));
+      const wantSec = Math.max(0, Math.floor(Number(action.secondaryShares) || 0));
+      const offered = wantNew + wantSec;
       if (!(offered > 0)) return state;
-      const postShares = sharesOf(state) + offered;
+      if (wantSec > founderHeld) return state;               // can't sell what you don't hold
+
+      // The band applies to the FLOAT — how much of the company ends up in outside
+      // hands — however the offering is built, so a 35% sell-down and a 35% issue
+      // are the same size of listing.
+      const postShares = preShares + wantNew;
       const fraction   = offered / postShares;
-      if (fraction < C.IPO_MIN_FRACTION || fraction > C.IPO_MAX_FRACTION) return state;
+      // Tolerate ONE share of rounding either way. A UI solving "float 35% of the
+      // post-issue company" can only land on a whole number of shares, and at a
+      // 100M-share register the nearest integer lands a fraction of a billionth
+      // outside the band — which used to make the 10% and 35% buttons no-ops that
+      // silently returned the unchanged state.
+      const bandEps = 1 / postShares;
+      if (fraction < C.IPO_MIN_FRACTION - bandEps || fraction > C.IPO_MAX_FRACTION + bandEps) return state;
 
       // Price off the airline's own current valuation, less the IPO discount. A
       // short or loss-making record is priced worse — the market wants a bargain
-      // for taking a chance on you.
+      // for taking a chance on you. One book, one price: the founder sells at the
+      // same price the company issues at.
       const recent     = history.slice(-12);
       const profitable = recent.length
         ? recent.filter(h => (h.profit ?? 0) > 0).length / recent.length
@@ -4349,7 +4375,7 @@ function reducer(state, action) {
       const baseCap    = Number(state.fairValue) > 0
         ? Number(state.fairValue)
         : (Number(state.marketCap) || 0);
-      const basePrice  = baseCap / sharesOf(state);
+      const basePrice  = baseCap / preShares;
       const price      = basePrice * (1 - discount);
       if (!(price > 0)) return state;
       // The pool is the buyer and its cash is finite. Fill what it can afford
@@ -4359,19 +4385,42 @@ function reducer(state, action) {
       const mk       = state.worldMarket;
       const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
       const sold     = Math.min(offered, Math.floor(poolCash / price));
-      const proceeds = Math.min(Math.round(sold * price), Math.floor(poolCash));
+      // A short fill takes the NEW shares first. The company's need for capital
+      // ranks ahead of the founder cashing out, and it stops a trimmed offering
+      // from quietly turning into a pure sell-down that raises almost nothing.
+      const soldNew  = Math.min(wantNew, sold);
+      const soldSec  = sold - soldNew;
+      // Floors, not rounding: the two tranches together must never bill the pool
+      // for more than `sold x price`, or the server's re-check rejects the listing.
+      const primaryGross = Math.floor(soldNew * price);
+      const secSale      = founderSaleProceeds(soldSec, price);
+      const gross        = primaryGross + secSale.gross;   // what the pool pays
+      const proceeds     = primaryGross + secSale.net;     // what reaches the treasury
       // A token fill is not a listing — below the market's minimum ticket the
-      // equity window is simply shut.
-      if (!(sold > 0) || proceeds < Math.min(STOCK_MARKET.MIN_TICKET, Math.round(offered * price))) {
+      // equity window is simply shut. Measured on the deal, not on the treasury's
+      // share of it: the taxman taking a cut doesn't make the listing smaller.
+      if (!(sold > 0) || gross < Math.min(STOCK_MARKET.MIN_TICKET, Math.floor(offered * price))) {
         return state;
       }
-      const newShares = sharesOf(state) + sold;
+      const newShares = preShares + soldNew;
       const partial   = sold < offered;
 
       // Reprice in the same step as the dilution — see repriceForShareChange.
       // Rebased onto the fair value (baseCap), not the smoothed pre-listing print.
+      // Only the NET cash joins the cap: the tax left the world.
       const listed = repriceForShareChange({ ...state, marketCap: baseCap },
                                            { shares: newShares, cashDelta: proceeds });
+
+      const nextEquity = {
+        ...equity,
+        shares:        newShares,
+        // Every share sold out of the founder block is one more share the public
+        // holds — which is also one more share dividends must be paid on, and one
+        // more share a rival can buy.
+        founderShares: founderHeld - soldSec,
+        isPublic:      true,
+        ipoWeek:       absWk,
+      };
 
       return {
         ...state,
@@ -4379,14 +4428,16 @@ function reducer(state, action) {
         marketCap:  listed.marketCap,
         fairValue:  listed.marketCap,
         sharePrice: listed.sharePrice,
-        svps:       svpsOf({ sharePrice: listed.sharePrice, equity }),
-        equity: {
-          ...equity,
-          shares:   newShares,
-          isPublic: true,
-          ipoWeek:  absWk,
+        svps:       svpsOf({ sharePrice: listed.sharePrice, equity: nextEquity }),
+        equity: nextEquity,
+        lastEquityAction: {
+          kind: 'ipo',
+          // `shares` and `gross` are what the POOL transacted — the server settles
+          // its inventory and its cash off these two, so they must stay whole-deal
+          // figures whatever the mix underneath.
+          shares: sold, gross, pricePerShare: price,
+          newShares: soldNew, secondaryShares: soldSec, tax: secSale.tax, net: proceeds,
         },
-        lastEquityAction: { kind: 'ipo', shares: sold, gross: proceeds, pricePerShare: price },
         pendingToasts: [
           ...(state.pendingToasts ?? []),
           {
@@ -4395,6 +4446,13 @@ function reducer(state, action) {
             message: `Sold ${sold.toLocaleString()} shares (${Math.round((sold / newShares) * 100)}% of the company) `
                    + `at $${price.toFixed(4)} — ${proceeds.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} raised `
                    + `after a ${Math.round(discount * 100)}% IPO discount.`
+                   + (soldSec > 0
+                       ? ` ${soldSec.toLocaleString()} of them came out of your own holding`
+                         + (secSale.tax > 0
+                             ? `, less ${secSale.tax.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} of capital-gains tax`
+                             : '')
+                         + `, so your share count is unchanged.`
+                       : '')
                    + (partial
                        ? ` Investors could only absorb ${Math.round((sold / offered) * 100)}% of the offering, so the rest was withdrawn.`
                        : ''),

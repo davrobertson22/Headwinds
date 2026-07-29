@@ -1046,6 +1046,22 @@ export const CAPITAL = {
   IPO_DISCOUNT_MAX:        0.15,
   IPO_CONFIDENCE_WEEKS:    52,     // history length at which you get the best price
 
+  // ── Selling shareholders (secondary tranche) ────────────────────────────
+  // An IPO may sell EXISTING founder shares alongside newly issued ones. Those
+  // shares are not new capital: the founder is cashing out part of their own
+  // holding, so the company's share count never moves and nobody is diluted.
+  //
+  // The catch is that it IS a realised gain, taxed at the same rate and into the
+  // same off-world sink as a gain on a rival's stock. That tax is the whole
+  // reason a non-dilutive raise does not simply dominate a dilutive one: you
+  // keep your per-share value intact and pay for it in cash raised.
+  //
+  // Cost basis is what the founders subscribed at incorporation — STARTING_CASH
+  // (reducer.mjs) spread over TOTAL_SHARES. Held as a literal because market.js
+  // is imported BY the reducer and must never import back; capital-test.mjs
+  // asserts the two stay in step.
+  FOUNDER_BASIS_PER_SHARE: 0.15,
+
   // ── Secondary offerings ─────────────────────────────────────────────────
   OFFERING_MAX_PCT_PER_YEAR: 0.15, // of shares outstanding, per game year
   OFFERING_DISCOUNT_BASE:    0.04,
@@ -1081,6 +1097,64 @@ export function ipoDiscount(historyWeeks, profitable = 0.5) {
   const record = Math.max(0, Math.min(1, Number(profitable) || 0));
   const confidence = 0.6 * tenure + 0.4 * record;
   return C.IPO_DISCOUNT_MAX - (C.IPO_DISCOUNT_MAX - C.IPO_DISCOUNT_MIN) * confidence;
+}
+
+/**
+ * Size a listing.
+ *
+ * Returns the offering that leaves exactly `frac` of the POST-issue company in
+ * outside hands, built from new shares and founder shares in the ratio `mix`
+ * (0 = all newly issued, 1 = a pure founder sell-down):
+ *
+ *   O = fS / (1 - f(1 - m))
+ *
+ * Only the new half enlarges the register, so a sell-down reaches the same float
+ * with a smaller offering. This lives here, not in the IPO card, because the size
+ * the UI offers has to be a size the reducer accepts — a solver that lands a
+ * rounding error outside the band produces a button that silently does nothing,
+ * which is exactly what the 10% and 35% chips used to do.
+ *
+ * @param {number} shares  shares outstanding before the listing
+ * @param {number} frac    target float, clamped to the IPO band
+ * @param {number} [mix]   0..1 — how much of the offering comes out of the founder block
+ */
+export function ipoOffering(shares, frac, mix = 0) {
+  const S = Number(shares) > 0 ? Number(shares) : TOTAL_SHARES;
+  const f = Math.min(CAPITAL.IPO_MAX_FRACTION,
+                     Math.max(CAPITAL.IPO_MIN_FRACTION, Number(frac) || 0));
+  const m = Math.max(0, Math.min(1, Number(mix) || 0));
+  const total = Math.round((S * f) / (1 - f * (1 - m)));
+  const secondaryShares = Math.round(total * m);
+  return { total, newShares: total - secondaryShares, secondaryShares };
+}
+
+/**
+ * Split the proceeds of a SELLING-SHAREHOLDER tranche — founder shares sold at
+ * an IPO rather than new shares issued.
+ *
+ * The company banks the cash (the player is the founder and the company both),
+ * but the gain over the incorporation basis is taxed at
+ * STOCK_MARKET.CAPITAL_GAINS_TAX and that money leaves the world entirely,
+ * exactly as it does on a realised trading gain. A sale at or below basis is
+ * untaxed — there is no gain, and losses carry no credit.
+ *
+ * @param {number} shares          founder shares sold
+ * @param {number} pricePerShare   the offer price (the pool pays this in full)
+ * @param {number} [basisPerShare] incorporation cost basis
+ * @returns {{gross:number, tax:number, net:number}} what the pool pays, what the
+ *          taxman takes, and what actually reaches the treasury
+ */
+export function founderSaleProceeds(shares, pricePerShare, basisPerShare = CAPITAL.FOUNDER_BASIS_PER_SHARE) {
+  const n     = Math.max(0, Math.floor(Number(shares) || 0));
+  const p     = Math.max(0, Number(pricePerShare) || 0);
+  const basis = Math.max(0, Number(basisPerShare) || 0);
+  // Floored, never rounded: a listing bills the float pool for the sum of its
+  // tranches, and two rounded halves can add up to a dollar more than the pool
+  // agreed to spend — which the server's re-check would reject as a 409.
+  const gross = Math.floor(n * p);
+  const gain  = Math.max(0, (p - basis) * n);
+  const tax   = Math.round(gain * STOCK_MARKET.CAPITAL_GAINS_TAX);
+  return { gross, tax, net: Math.max(0, gross - tax) };
 }
 
 /**

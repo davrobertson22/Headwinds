@@ -173,6 +173,22 @@ function guardShareCount(payload) {
   return { shares };
 }
 
+// An IPO carries TWO share counts: newly issued shares and existing founder
+// shares sold alongside them. Either may legitimately be zero — a pure sell-down
+// issues nothing, a plain listing sells nothing — so this cannot reuse
+// guardShareCount, which insists on a positive count. The reducer owns every
+// other rule (the 10-35% band on the combined float, whether the founder block
+// is big enough, what the pool can absorb); this is shape hygiene only.
+function guardIpo(payload) {
+  const ok = (n) => Number.isFinite(n) && Number.isInteger(n) && n >= 0 && n <= STOCK_MAX_SHARES;
+  const shares          = Number(payload.shares ?? 0);
+  const secondaryShares = Number(payload.secondaryShares ?? 0);
+  if (!ok(shares) || !ok(secondaryShares) || shares + secondaryShares <= 0) {
+    throw new GuardError('Invalid share count.');
+  }
+  return { shares, secondaryShares };
+}
+
 // A payout ratio is a fraction of trailing profit; the reducer clamps it to
 // CAPITAL.DIVIDEND_MAX_PAYOUT. Reject nonsense outright so the UI gets a message
 // rather than a silent no-op.
@@ -280,7 +296,7 @@ export function guardDecision(type, payload, state) {
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
     case 'BUY_STOCK':
     case 'SELL_STOCK':         return guardStockTrade(payload);
-    case 'GO_PUBLIC':
+    case 'GO_PUBLIC':          return guardIpo(payload);
     case 'ISSUE_SHARES':
     case 'BUY_BACK_SHARES':    return guardShareCount(payload);
     case 'SET_DIVIDEND_POLICY': return guardDividendPolicy(payload);

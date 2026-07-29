@@ -15,7 +15,7 @@ import { formatMoney } from '../utils/simulation.js';
 import {
   STOCK_MARKET, sharesOf, svpsOf, freeFloatOf,
   CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
-  repriceForShareChange,
+  repriceForShareChange, founderSaleProceeds, ipoOffering,
 } from '../utils/market.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { OgChip, DevChip } from './Competition.jsx';
@@ -301,7 +301,9 @@ function CapitalRow({ label, value, hint }) {
   );
 }
 
-function CapitalActions({ state, dispatch }) {
+// Exported for tools/ipo-card-test.mjs, which server-renders this card directly
+// rather than standing up the whole Stocks tab and a game provider around it.
+export function CapitalActions({ state, dispatch }) {
   const C = CAPITAL;
   const equity = state.equity ?? {};
   const isPublic = equity.isPublic !== false;
@@ -343,17 +345,41 @@ function CapitalActions({ state, dispatch }) {
   // How much of the company to float — the engine allows IPO_MIN_FRACTION..MAX
   // of the POST-issue company, and this used to be hardcoded at 25%.
   const [ipoPct, setIpoPct] = useState(25);
-  const ipoFrac   = Math.min(C.IPO_MAX_FRACTION, Math.max(C.IPO_MIN_FRACTION, ipoPct / 100));
-  const ipoShares = Math.round((shares * ipoFrac) / (1 - ipoFrac));
-  const ipoPrice  = price * (1 - ipoDisc);
-  const ipoWanted = Math.round(ipoShares * ipoPrice);
-  const ipoFilled = poolCash != null && ipoPrice > 0
+  // How the offering is BUILT: what share of it comes out of the founder block
+  // instead of the printing press. 0% is the classic all-new-shares listing;
+  // 100% is a pure sell-down that raises cash without diluting anyone.
+  const [ipoSecPct, setIpoSecPct] = useState(0);
+  const ipoFrac = Math.min(C.IPO_MAX_FRACTION, Math.max(C.IPO_MIN_FRACTION, ipoPct / 100));
+  // Sized in the engine (ipoOffering), not here — the size this card offers has to
+  // be a size the reducer accepts, so the solver and the band check live together.
+  const { total: ipoShares, newShares: ipoNewShares, secondaryShares: ipoSecShares } =
+    ipoOffering(shares, ipoFrac, ipoSecPct / 100);
+  // The engine prices a listing off the UNSMOOTHED fair value and rebases the
+  // published cap onto it in the same step — listing is the price-discovery
+  // event. The preview has to use the same base or every figure in this card is
+  // out by however far the smoothed pre-listing print has lagged.
+  const ipoBaseCap = Number(state.fairValue) > 0 ? Number(state.fairValue)
+    : (Number(state.marketCap) || 0);
+  const ipoBase    = shares > 0 ? ipoBaseCap / shares : 0;
+  const ipoPrice   = ipoBase * (1 - ipoDisc);
+  const ipoWanted  = Math.floor(ipoShares * ipoPrice);
+  const ipoFilled  = poolCash != null && ipoPrice > 0
     ? Math.min(ipoShares, Math.floor(poolCash / ipoPrice)) : ipoShares;
-  const ipoProceeds = Math.round(ipoFilled * ipoPrice);
+  // A short fill takes the new shares first, exactly as the reducer does.
+  const ipoFillNew = Math.min(ipoNewShares, ipoFilled);
+  const ipoFillSec = ipoFilled - ipoFillNew;
+  const ipoSale    = founderSaleProceeds(ipoFillSec, ipoPrice);
+  const ipoPrimary = Math.floor(ipoFillNew * ipoPrice);
+  const ipoGross    = ipoPrimary + ipoSale.gross;    // what investors pay
+  const ipoProceeds = ipoPrimary + ipoSale.net;      // what reaches the treasury
   const ipoPartial  = ipoFilled < ipoShares;
-  // Mirrors the engine: a fill below the market's minimum ticket is no listing.
-  const ipoViable   = ipoFilled > 0 && ipoProceeds >= Math.min(STOCK_MARKET.MIN_TICKET, ipoWanted);
-  const ipoAfter    = ipoFilled > 0 ? priceAfter(ipoFilled, ipoProceeds) : price;
+  // Mirrors the engine: a fill below the market's minimum ticket is no listing,
+  // and the test is on the size of the deal, not the treasury's share of it.
+  const ipoViable   = ipoFilled > 0 && ipoGross >= Math.min(STOCK_MARKET.MIN_TICKET, ipoWanted);
+  const ipoAfter    = ipoFilled > 0
+    ? repriceForShareChange({ ...state, marketCap: ipoBaseCap },
+                            { shares: shares + ipoFillNew, cashDelta: ipoProceeds }).sharePrice
+    : ipoBase;
 
   // ── Offering ──────────────────────────────────────────────────────────────
   const issuedThisYear = Number(equity.offeringsThisYear ?? 0);
@@ -446,14 +472,49 @@ function CapitalActions({ state, dispatch }) {
                 >{v}%</button>
               ))}
             </div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 2 }}>
+                <span>New shares {100 - ipoSecPct}%</span>
+                <span>{ipoSecPct}% from your holding</span>
+              </div>
+              <input
+                type="range" min={0} max={100} step={5} value={ipoSecPct}
+                aria-label="Share of the offering sold from your own holding"
+                onChange={(e) => setIpoSecPct(Number(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--accent)' }}
+              />
+            </div>
             <CapitalRow label="Shares offered" value={`${ipoShares.toLocaleString()} (${ipoPct}%)`} />
+            <CapitalRow
+              label="New shares issued"
+              hint="printed by the company — dilutive"
+              value={ipoNewShares.toLocaleString()}
+            />
+            <CapitalRow
+              label="Sold from your holding"
+              hint="existing shares — no dilution, but taxed as a gain"
+              value={ipoSecShares.toLocaleString()}
+            />
             <CapitalRow label="Offer price" hint="your valuation less the IPO discount" value={fmtPrice(ipoPrice)} />
             <CapitalRow label="IPO discount" hint="a longer profitable record prices better" value={pct(ipoDisc)} />
-            <CapitalRow label="Estimated proceeds" value={formatMoney(ipoProceeds)} />
+            {ipoSale.tax > 0 && (
+              <CapitalRow
+                label="Capital-gains tax"
+                hint={`${pct(STOCK_MARKET.CAPITAL_GAINS_TAX)} of the gain on the shares you sell`}
+                value={`−${formatMoney(ipoSale.tax)}`}
+              />
+            )}
+            <CapitalRow
+              label="Estimated proceeds"
+              hint={ipoSale.tax > 0 ? `${formatMoney(ipoGross)} raised, net of tax` : undefined}
+              value={formatMoney(ipoProceeds)}
+            />
             <CapitalRow
               label="Share price after"
-              hint="the cash raised joins your market cap as the new shares appear, so only the discount costs you"
-              value={`${fmtPrice(price)} → ${fmtPrice(ipoAfter)} (${price > 0 ? pct((ipoAfter - price) / price) : '—'})`}
+              hint={ipoSecPct >= 100
+                ? 'no new shares, so the cash raised lands on an unchanged register'
+                : 'the cash raised joins your market cap as the new shares appear, so only the discount costs you'}
+              value={`${fmtPrice(ipoBase)} → ${fmtPrice(ipoAfter)} (${ipoBase > 0 ? pct((ipoAfter - ipoBase) / ipoBase) : '—'})`}
             />
             {ipoPartial && ipoViable && (
               <div style={{ fontSize: 10.5, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
@@ -465,7 +526,9 @@ function CapitalActions({ state, dispatch }) {
               className="btn btn-primary"
               style={{ width: '100%', marginTop: 8, fontSize: 12 }}
               disabled={tooYoung || noRecord || !(price > 0) || !ipoViable}
-              onClick={() => dispatch({ type: 'GO_PUBLIC', shares: ipoShares })}
+              onClick={() => dispatch({
+                type: 'GO_PUBLIC', shares: ipoNewShares, secondaryShares: ipoSecShares,
+              })}
             >
               List on the exchange
             </button>
@@ -473,7 +536,11 @@ function CapitalActions({ state, dispatch }) {
               {tooYoung ? `Available from week ${C.IPO_MIN_ABS_WEEK}.`
                 : noRecord ? `Needs ${C.IPO_MIN_HISTORY_WEEKS} weeks of trading history.`
                 : !ipoViable ? 'The equity window is shut — there is no investor capital left in this world.'
-                : 'Raises cash, permanently dilutes you, and lets rivals buy in.'}
+                : ipoSecPct >= 100
+                  ? 'Raises cash without diluting anyone — you sell part of your own holding and pay tax on the gain.'
+                  : ipoSecPct > 0
+                    ? 'Part new shares, part your own — less dilution, less cash, and tax on what you sell.'
+                    : 'Raises cash, permanently dilutes you, and lets rivals buy in.'}
             </div>
           </div>
         ) : (

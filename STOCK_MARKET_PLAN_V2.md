@@ -309,6 +309,37 @@ your treasury.
   comparable to rank). It is a legitimate way to play, not a way to win. Already
   implemented in Phase 2: `tickService` filters non-public airlines out of the standings.
 
+#### E1b. Selling shareholders — `GO_PUBLIC { shares, secondaryShares }` (BUILT 2026-07-29)
+
+A listing no longer has to print new stock. `secondaryShares` sells **existing founder
+shares** alongside (or instead of) newly issued ones, the way most real IPOs are actually
+built — the IPO card carries a mix slider from 100% new to 100% sell-down.
+
+- **Nobody is diluted.** The register never grows, so the share price, SVPS and every other
+  per-share number survive the listing intact. What moves is `equity.founderShares`, which
+  shrinks by exactly what you sell.
+- **The cost is tax, not dilution.** The founder is realising a gain, so the proceeds reach
+  the treasury less `STOCK_MARKET.CAPITAL_GAINS_TAX` on the gain over
+  `CAPITAL.FOUNDER_BASIS_PER_SHARE` (= `STARTING_CASH / TOTAL_SHARES`, what the founders
+  subscribed at). That money leaves the world through the same sink as a trading gain.
+  Without it a sell-down would strictly dominate an issue — same cash, no dilution.
+- **The trade-off, measured** on a $100M carrier floating 20%: issuing 25M new shares raises
+  $23.75M and leaves the stock at $0.99; selling 20M founder shares raises $15M and leaves it
+  at $1.15. Cash now versus per-share value now, which is exactly the choice SVPS is meant to
+  price. The sell-down also enlarges the float permanently, so dividends cost more forever
+  and rivals can own more of you.
+- **The band is on the whole float.** 10–35% of the post-issue company however the offering
+  is built, so a 35% sell-down and a 35% issue are the same size of listing.
+- **A short fill takes the new shares first** — the company's need for capital ranks ahead of
+  the founder cashing out, so a trimmed offering can't quietly become a pure sell-down.
+- Sizing lives in the engine (`ipoOffering`), not the card: a solver that lands a rounding
+  error outside the band produces a button that silently does nothing. Which is what the
+  **10% and 35% chips were already doing** — at a 100M-share register the nearest whole share
+  falls a billionth outside a bare `<` / `>` band. The band now tolerates one share.
+- **Post-listing sell-downs were deliberately left out.** `ISSUE_SHARES` stays dilution-only.
+  A repeatable founder sell-down needs its own annual throttle and a widening
+  insider-selling discount to not become an income stream; not worth it until someone asks.
+
 ### E2. `ISSUE_SHARES { shares }` — secondary offering
 
 Up to 15% of outstanding per game year (`offeringsThisYear`, reset annually), priced at a
