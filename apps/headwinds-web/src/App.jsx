@@ -75,6 +75,30 @@ function StatusChip({ status }) {
   return <span className={`chip chip-${status.toLowerCase()}`}>{status}</span>;
 }
 
+// An ALPHA world is one we're still shaking out — it changes no rules, it just
+// warns you that things here are rougher than the rest of the (beta) game. Size
+// 'sm' for table rows, 'md' for a world heading.
+export function AlphaTag({ size = 'sm' }) {
+  const sm = size === 'sm';
+  return (
+    <span title="Alpha world — a testbed for features that aren't finished. Expect rough edges, balance changes and the odd reset."
+      style={{
+        marginLeft: sm ? 6 : 8,
+        fontSize: sm ? 10 : 11,
+        fontWeight: 700,
+        padding: sm ? '1px 6px' : '2px 8px',
+        borderRadius: 4,
+        background: 'rgba(255,92,92,0.15)',
+        color: '#ff5c5c',
+        border: '1px solid rgba(255,92,92,0.4)',
+        verticalAlign: 'middle',
+        whiteSpace: 'nowrap',
+      }}>
+      ⚗ ALPHA
+    </span>
+  );
+}
+
 function ErrorNote({ error }) {
   return error ? <p className="error">{String(error.message || error)}</p> : null;
 }
@@ -230,6 +254,7 @@ function CreateWorld({ token, onCreated }) {
   const [demandMultiplier, setDemandMultiplier] = useState(1);
   const [gateScarcity, setGateScarcity] = useState(false);
   const [newWorldRestrictions, setNewWorldRestrictions] = useState(false);
+  const [alpha, setAlpha] = useState(false);
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -253,6 +278,7 @@ function CreateWorld({ token, onCreated }) {
           demandMultiplier: Number(demandMultiplier),
           ...(gateScarcity ? { gateScarcity: true } : {}),
           ...(newWorldRestrictions ? { newWorldRestrictions: true } : {}),
+          ...(alpha ? { alpha: true } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
       });
@@ -341,6 +367,18 @@ function CreateWorld({ token, onCreated }) {
             auction gates yearly (sealed bids, wk 40). Unused gates forfeit after 24 wks.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Alpha world
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={alpha}
+              onChange={(e) => setAlpha(e.target.checked)} />
+            <span className="muted">{alpha ? 'ON — labelled ALPHA' : 'Off — labelled BETA like the rest of the game'}</span>
+          </span>
+          <span className="muted small">
+            Cosmetic only — no rule changes. The lobby and the in-game top bar say
+            ALPHA instead of BETA, so players know this world is a testbed. You can
+            switch it on or off later from “Manage all worlds”.
+          </span>
+        </label>
         <label>Scheduled start (optional)
           <input type="datetime-local" value={scheduledStart}
             onChange={(e) => setScheduledStart(e.target.value)} />
@@ -381,6 +419,14 @@ function AdminWorldsManager({ token }) {
     setBusyId(null);
   };
 
+  // Alpha is a label, not a rule, so it flips on a live world — no confirm.
+  const setAlpha = async (id, alpha) => {
+    setBusyId(id); setError(null);
+    try { await api(`/worlds/${id}/alpha`, { method: 'POST', token, body: { alpha } }); load(); }
+    catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
   if (!open) {
     return <button className="btn small" onClick={() => setOpen(true)}>🛠 Manage all worlds (admin)</button>;
   }
@@ -393,13 +439,20 @@ function AdminWorldsManager({ token }) {
       <ErrorNote error={error} />
       {!worlds ? <p className="muted">Loading…</p> : worlds.length === 0 ? <p className="muted">No worlds.</p> : (
         <table className="worlds">
-          <thead><tr><th>World</th><th>Status</th><th>Players</th><th /></tr></thead>
+          <thead><tr><th>World</th><th>Status</th><th>Players</th><th>Stage</th><th /></tr></thead>
           <tbody>
             {worlds.map((w) => (
               <tr key={w.id}>
                 <td><a href={`#/w/${w.id}`}>{w.name}</a>{w.visibility === 'PRIVATE' ? <span className="muted"> · private</span> : null}</td>
                 <td><StatusChip status={w.status} /></td>
                 <td>{w.playerCount}</td>
+                <td>
+                  <button className="btn small" disabled={busyId === w.id}
+                    title={w.alpha ? 'Currently ALPHA — click to label it BETA' : 'Currently BETA — click to label it ALPHA'}
+                    onClick={() => setAlpha(w.id, !w.alpha)}>
+                    {w.alpha ? '⚗ Alpha' : 'Beta'}
+                  </button>
+                </td>
                 <td>
                   <div className="row">
                     {w.status === 'ARCHIVED'
@@ -469,6 +522,7 @@ function WorldsScreen({ token, me }) {
               <tr key={w.id}>
                 <td>
                   <a href={`#/w/${w.id}`}>{w.name}</a>
+                  {w.alpha && <AlphaTag />}
                   {w.newWorldRestrictions && (
                     <span title="New world restrictions: old-gen single-deck leasing only, lease order book capped at 25% of fleet"
                       style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', whiteSpace: 'nowrap' }}>
@@ -662,6 +716,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         <div>
           <h2>
             {world.name} <StatusChip status={world.status} />
+            {world.alpha && <AlphaTag size="md" />}
             {world.newWorldRestrictions && (
               <span title="New world restrictions: lessors carry single-deck previous-generation aircraft only, and your lease order book is capped at 25% of the fleet you operate (minimum 5)"
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>

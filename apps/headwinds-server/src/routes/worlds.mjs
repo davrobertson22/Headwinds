@@ -254,6 +254,8 @@ export default async function worldRoutes(fastify) {
           // Optional gate scarcity (finite airport capacity, auctions, gate market).
           gateScarcity: { type: 'boolean' },
           newWorldRestrictions: { type: 'boolean' },
+          // Cosmetic: label the world ALPHA rather than BETA.
+          alpha: { type: 'boolean' },
         },
       },
     },
@@ -321,6 +323,30 @@ export default async function worldRoutes(fastify) {
       await releaseAllFor(prisma, airline.worldId, airline.id);
     }
     return { ok: true };
+  });
+
+  // ── Flag / unflag a world as ALPHA (ADMIN — reversible) ───────────────────
+  // Cosmetic only: it swaps the BETA chip for an ALPHA one in the lobby and the
+  // in-game top bar. No rule depends on it, so unlike gateScarcity and
+  // newWorldRestrictions it is safe to flip on a world that's already running.
+  fastify.post('/worlds/:id/alpha', {
+    preHandler: requireAdmin,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      body: { type: 'object', required: ['alpha'], properties: { alpha: { type: 'boolean' } } },
+    },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    const tc = { ...(world.tickConfig ?? {}) };
+    // Drop the key rather than storing `false` so tickConfig stays a record of
+    // what was actually switched on.
+    if (request.body.alpha === true) tc.alpha = true; else delete tc.alpha;
+    const updated = await prisma.world.update({
+      where: { id: world.id },
+      data: { tickConfig: tc },
+    });
+    return { world: serializeWorld(updated, {}) };
   });
 
   // ── Archive a world (ADMIN — reversible) ──────────────────────────────────

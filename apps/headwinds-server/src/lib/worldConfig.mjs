@@ -68,8 +68,11 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions,
+  newWorldRestrictions, alpha,
 }) {
+  if (alpha != null && typeof alpha !== 'boolean') {
+    throw badRequest('alpha must be true or false');
+  }
   if (gateScarcity != null && typeof gateScarcity !== 'boolean') {
     throw badRequest('gateScarcity must be true or false');
   }
@@ -168,6 +171,11 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional New World Restrictions (old-gen single-deck leasing only +
     // a lease order book capped against the operating fleet).
     newWorldRestrictions: world.tickConfig?.newWorldRestrictions === true,
+    // Purely a maturity label: an ALPHA world is one we're still shaking out, so
+    // the lobby and the in-game top bar say ALPHA instead of BETA. It changes no
+    // rules, which is why (unlike the two flags above) it can be flipped
+    // mid-world from the admin panel.
+    alpha: world.tickConfig?.alpha === true,
     playerCount: playerCount ?? world._count?.airlines ?? undefined,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.

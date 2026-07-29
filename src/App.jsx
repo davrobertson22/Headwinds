@@ -58,6 +58,35 @@ function TailwindsMark({ size = 22 }) {
   );
 }
 
+// Maturity chip in the top bar. Both games are in open beta; a Headwinds world
+// flagged alpha (admin panel) says ALPHA instead, so players on a testbed world
+// can see that from anywhere in the UI.
+export function StageTag({ stage = 'beta' }) {
+  const alpha = stage === 'alpha';
+  return (
+    <span
+      title={alpha
+        ? "Alpha world — a testbed for features that aren't finished. Expect rough edges, balance changes and the odd reset."
+        : 'Open beta — the game is playable and live, but still changing week to week.'}
+      style={{
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: 0.8,
+        lineHeight: 1,
+        padding: '3px 5px',
+        borderRadius: 3,
+        textTransform: 'uppercase',
+        flexShrink: 0,
+        background: alpha ? 'rgba(255,92,92,0.15)' : 'rgba(255,255,255,0.08)',
+        color: alpha ? '#ff5c5c' : 'var(--text-dim)',
+        border: `1px solid ${alpha ? 'rgba(255,92,92,0.4)' : 'rgba(255,255,255,0.18)'}`,
+      }}
+    >
+      {alpha ? 'Alpha' : 'Beta'}
+    </span>
+  );
+}
+
 function MapIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -353,6 +382,7 @@ function AppInner() {
             <span className="topbar-logo-icon"><TailwindsMark size={20} /></span>
             Tailwinds - Airline Manager
           </>)}
+          <StageTag stage={remote ? (remoteChrome?.stage ?? 'beta') : 'beta'} />
         </div>
         <div className="topbar-sep" />
         <button

@@ -164,6 +164,9 @@ export default async function decisionRoutes(fastify) {
       status: slim.status,
       week: slim.week,
       worldStatus: world.status,
+      // Cosmetic maturity label for the game's top bar (ALPHA instead of BETA).
+      // Rides on `base` so it survives an `unchanged: true` early return.
+      worldAlpha: world.tickConfig?.alpha === true,
       worldClock: {
         week: world.currentWeek,
         year: world.currentYear,

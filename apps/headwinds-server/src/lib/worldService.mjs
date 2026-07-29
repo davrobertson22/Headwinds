@@ -32,8 +32,9 @@ export async function createWorld(prisma, {
   scheduledStartAt,
   gateScarcity,
   newWorldRestrictions,
+  alpha,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, alpha });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -50,6 +51,10 @@ export async function createWorld(prisma, {
     // at max(5, 25%) of the fleet in service. Fixed at creation — turning it
     // on mid-world would strand order books already placed.
     ...(newWorldRestrictions === true ? { newWorldRestrictions: true } : {}),
+    // Cosmetic maturity label — ALPHA instead of BETA in the lobby and the
+    // in-game top bar. Affects no rules, so POST /worlds/:id/alpha can flip it
+    // on a world that's already running.
+    ...(alpha === true ? { alpha: true } : {}),
     // Optional preset start instant (ISO). Present → the worker starts this world
     // at that time and joining does NOT start the clock (see joinWorld + tickService).
     ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),

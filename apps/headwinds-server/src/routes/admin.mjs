@@ -307,6 +307,7 @@ export default async function adminRoutes(fastify) {
         lengthYears: w.lengthYears,
         weeksPerDay: w.weeksPerDay,
         playerCount: w._count.airlines,
+        alpha: w.tickConfig?.alpha === true,
         createdAt: w.createdAt,
         startedAt: w.startedAt,
       })),
