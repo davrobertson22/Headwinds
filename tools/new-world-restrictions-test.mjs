@@ -446,13 +446,16 @@ test('freighters are priced on airframe body class, not as double-deckers', () =
 // ── 8. World fare index ──────────────────────────────────────────────────────
 console.log('\nFare index');
 
-test('the restricted index takes 15% off the whole ladder', () => {
+test('the restricted index trims the whole ladder', () => {
   setFareIndex(1);
   const base = referencePrice('JFK', 'LAX');
   setFareIndex(NWR_FARE_INDEX);
   const cut = referencePrice('JFK', 'LAX');
-  assert.equal(NWR_FARE_INDEX, 0.85);
-  assert.ok(Math.abs((1 - cut / base) - 0.15) < 0.01, `expected ~15% lower, got ${((1 - cut / base) * 100).toFixed(1)}%`);
+  // 0.95 after calibration: a fare cut multiplies break-even load by 1/f, and
+  // 0.85 pushed break-even to 97% load, which made the world unplayable.
+  assert.ok(NWR_FARE_INDEX > 0.5 && NWR_FARE_INDEX < 1, 'index must be a real trim');
+  const expected = 1 - NWR_FARE_INDEX;
+  assert.ok(Math.abs((1 - cut / base) - expected) < 0.01, `expected ~${(expected * 100).toFixed(0)}% lower, got ${((1 - cut / base) * 100).toFixed(1)}%`);
   setFareIndex(1);
 });
 
@@ -461,7 +464,7 @@ test('cargo yields are cut too, so freight is not a loophole', () => {
   const base = cargoReferenceYield('JFK', 'LAX');
   setFareIndex(NWR_FARE_INDEX);
   const cut = cargoReferenceYield('JFK', 'LAX');
-  assert.ok(Math.abs((1 - cut / base) - 0.15) < 0.02, 'cargo yield should fall ~15% too');
+  assert.ok(Math.abs((1 - cut / base) - (1 - NWR_FARE_INDEX)) < 0.02, 'cargo yield should fall by the same index');
   setFareIndex(1);
 });
 
@@ -469,7 +472,7 @@ test('the index scales fares on every route length, not just one', () => {
   for (const [o, d] of [['JFK', 'BOS'], ['JFK', 'LAX'], ['JFK', 'LHR'], ['LHR', 'SIN']]) {
     setFareIndex(1);         const a = referencePrice(o, d);
     setFareIndex(NWR_FARE_INDEX); const b = referencePrice(o, d);
-    assert.ok(Math.abs((1 - b / a) - 0.15) < 0.02, `${o}-${d} should fall ~15%`);
+    assert.ok(Math.abs((1 - b / a) - (1 - NWR_FARE_INDEX)) < 0.02, `${o}-${d} should fall by the index`);
   }
   setFareIndex(1);
 });

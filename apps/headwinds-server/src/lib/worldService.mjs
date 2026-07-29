@@ -143,8 +143,9 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     // eligibility and order-book checks only run when this is true.
     ...(tc.newWorldRestrictions === true ? {
       newWorldRestrictions: true,
-      // 15% off the whole reference-fare ladder (passenger + cargo). Same demand,
+      // Trims the whole reference-fare ladder (passenger + cargo). Same demand,
       // lower prices — the fare-to-cost ratio is where the margin gap lives.
+      // SEEDED AT JOIN: retuning a live world needs tools/rebase-world-fare-index.mjs.
       fareIndex: tc.fareIndex ?? NWR_FARE_INDEX,
     } : {}),
   };

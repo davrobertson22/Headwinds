@@ -86,16 +86,37 @@ Freighters are priced on their airframe's body class (`freighterBodyClass`), so 
 747-400F pays the wide-body rate — no cabin, no cabin overhead. Note this differs
 from the LEASING rule, where the same aircraft is blocked as a double-decker.
 
-**Rule 4 — the whole reference-fare ladder runs 15% lower (`NWR_FARE_INDEX = 0.85`).**
+**Rule 4 — the whole reference-fare ladder is trimmed (`NWR_FARE_INDEX = 0.95`).**
 Applied to `referencePrice()` and `cargoReferenceYield()` alike, so freight is not a
 loophole. Scaling the REFERENCE rather than realised revenue is deliberate: the
 demand model prices elasticity off `playerPrice / referencePrice`, so moving both
 together leaves demand untouched and simply lowers the ladder. Cutting revenue
 directly would show players a fare they do not receive.
 
-Projected effect on Otter Air (30.0% net today): **~15% margin** with both levers.
-A 20% cut would land ~9%, and 24% ~4%. `tickConfig.fareIndex` overrides the default
-so the number can be tuned per world without a code change.
+**Calibration — shipped at 0.85 and corrected to 0.95 the same evening.** A fare cut
+does not lower margins by its own size: it multiplies the **break-even load factor by
+1/f**, because costs do not fall with fares. Measured on a real Old Metal route
+(757-200, DFW-JFK, 2,235 km, catering off):
+
+| fareIndex | margin at full load | break-even load |
+|---|---|---|
+| 1.00 | 16.5% | 82.5% |
+| **0.95** | **12.1%** | **86.9%** |
+| 0.90 | 7.3% | 91.7% |
+| 0.85 | 1.8% | 97.1% |
+
+At 0.85 the player was flying **98.9% load with fares 30% over reference and clearing
+2%** — every route below 97% load lost money. Unplayable. 0.95 keeps break-even near
+87%: meaningfully tighter than classic without making the world hostile.
+
+The corollary worth remembering: **you cannot get world-average margins into the
+3-8% band with a fare cut** without pushing break-even past 90%. Bringing the *best*
+routes to ~12% is the realistic target.
+
+`tickConfig.fareIndex` overrides the default — but it is **seeded into airline state at
+join**, so editing it moves only future joiners. Retune a live world with
+`tools/rebase-world-fare-index.mjs`, which also repairs anyone who joined during a
+deploy window without the restrictions flag at all.
 
 **Implementation note — module-scoped index.** `referencePrice(o, d)` is a pure
 function called from ~12 sites across the demand model, competitor AI, encroachment,

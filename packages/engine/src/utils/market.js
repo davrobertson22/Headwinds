@@ -471,10 +471,29 @@ export function routeDistance(originCode, destCode) {
 // view building) reads whatever the last reducer call set. Harmless while every
 // world in a process shares an index; revisit if restricted and classic worlds
 // are ever ticked in the same process without a reducer call in between.
-// The index restricted worlds run at. 15% off the whole ladder — enough to move
-// margins meaningfully without the fare cut being the only thing players notice.
-// Tunable per world via tickConfig.fareIndex.
-export const NWR_FARE_INDEX = 0.85;
+// The index restricted worlds run at.
+//
+// CALIBRATION (learned the hard way, 2026-07-29). A fare cut does NOT lower
+// margins by its own size — it multiplies the BREAK-EVEN LOAD FACTOR by 1/f,
+// because costs don't fall with fares. Measured on a real Old Metal route
+// (757-200, DFW-JFK, 2,235 km, no catering):
+//
+//   fareIndex   margin at full load   break-even load
+//     1.00            16.5%                82.5%
+//     0.95            12.1%                86.9%
+//     0.90             7.3%                91.7%
+//     0.85             1.8%                97.1%   <- shipped first, far too deep
+//
+// At 0.85 the player was flying 98.9% load with fares 30% over reference and
+// clearing 2%: every route below 97% load lost money, which is unplayable.
+// 0.95 keeps break-even near 87% — meaningfully tighter than classic without
+// making the world hostile. Squeeze later if it reads as easy; it is much
+// easier to tighten a world than to apologise for one.
+//
+// Tunable per world via tickConfig.fareIndex, but note it is SEEDED INTO AIRLINE
+// STATE AT JOIN — changing tickConfig alone will not move existing players.
+// Use tools/rebase-world-fare-index.mjs to retune a live world.
+export const NWR_FARE_INDEX = 0.95;
 
 let _fareIndex = 1;
 
