@@ -8,6 +8,7 @@ import {
 import {
   AIRPORT_GATEWAY_SCORES, HUB_TIERS,
 } from '../models/demand.js';
+import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
 import { Glyph } from './Icons.jsx';
 
@@ -147,6 +148,30 @@ export default function AirportDetail({ code, onBack }) {
     return s;
   }, [myRoutes, code]);
 
+  // REAL passenger market share per pair, straight from the demand model.
+  //
+  // This column used to be `myFrequency / (myFrequency + rivalFrequency)` — a
+  // count of departures wearing the label "Your Share". A player flying 35× a
+  // week against a rival's 31× was told they held 53% of the market while
+  // undercutting that rival by 26%, carrying 2.5× the seats, scoring higher on
+  // quality and outspending them on advertising: none of those inputs appear
+  // anywhere in a ratio of two flight counts. The demand model put the same
+  // player at ~68%. Ask the model.
+  const pairShares = useMemo(() => {
+    const map = {};
+    for (const pair of topPairs) {
+      if (!myRouteSet.has(pair.code)) continue;   // only pairs you actually fly
+      try {
+        const { playerShare, contested } = pairMarketShare(state, code, pair.code);
+        if (playerShare != null) map[pair.code] = { share: playerShare, contested };
+      } catch {
+        // A malformed route/fleet entry must never take down the airport page —
+        // the cell falls back to "—" when its pair is missing from the map.
+      }
+    }
+    return map;
+  }, [topPairs, myRouteSet, state, code]);
+
   // All airlines present at this airport (for the presence summary)
   const airlinePresence = useMemo(() => {
     const result = [];
@@ -188,31 +213,13 @@ export default function AirportDetail({ code, onBack }) {
     return result.sort((a, b) => b.frequency - a.frequency);
   }, [myRoutes, compRouteMap, state.airlineName, myTotalFreq]);
 
-  // Total weekly frequency across all carriers here → market share per airline
+  // Total weekly frequency across all carriers here → share of DEPARTURES per
+  // airline. This is a schedule-presence measure, not a passenger measure — see
+  // the note on pairShares below for why the two must not be confused.
   const totalPresenceFreq = useMemo(
     () => airlinePresence.reduce((s, a) => s + a.frequency, 0),
     [airlinePresence]
   );
-
-  // Per-pair weekly frequency (mine vs competitors) → route-level market share
-  const pairFreqs = useMemo(() => {
-    const map = {}; // otherCode -> { mine, comp }
-    for (const r of myRoutes) {
-      const other = r.origin === code ? r.destination : r.origin;
-      if (!map[other]) map[other] = { mine: 0, comp: 0 };
-      map[other].mine += r.weeklyFrequency;
-    }
-    for (const comp of state.competitors ?? []) {
-      for (const [key, val] of Object.entries(comp.routes ?? {})) {
-        const [a, b] = key.split('-');
-        const other  = a === code ? b : b === code ? a : null;
-        if (!other) continue;
-        if (!map[other]) map[other] = { mine: 0, comp: 0 };
-        map[other].comp += (val?.frequency ?? 0);
-      }
-    }
-    return map;
-  }, [myRoutes, code, state.competitors]);
 
   // ── Transit flows over this airport (real A→hub→C itineraries) ────────────────
   // The weekly network tick enumerates the actual connecting passengers you carry
@@ -520,8 +527,10 @@ export default function AirportDetail({ code, onBack }) {
               if (!me || totalPresenceFreq <= 0) return null;
               const pct = me.frequency / totalPresenceFreq * 100;
               return (
-                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'rgba(63,185,80,0.12)', border: '1px solid rgba(63,185,80,0.3)', borderRadius: 4, padding: '2px 8px' }}>
-                  Your share {pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%
+                <span
+                  title={`Your share of scheduled departures at ${code} — a measure of schedule presence, not of passengers carried. For passenger share on a specific route, see Your Share in Passenger Flows below.`}
+                  style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'rgba(63,185,80,0.12)', border: '1px solid rgba(63,185,80,0.3)', borderRadius: 4, padding: '2px 8px' }}>
+                  Your departures {pct >= 10 ? Math.round(pct) : pct.toFixed(1)}%
                 </span>
               );
             })()}
@@ -533,7 +542,11 @@ export default function AirportDetail({ code, onBack }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface2)' }}>
-                    {['Airline', 'Type', 'Routes', 'Flights/wk', 'Market Share'].map(h => (
+                    {/* "Departure share", NOT market share: this is each carrier's
+                        slice of the flights scheduled here, which says nothing
+                        about how many passengers they carry. Passenger share is
+                        per-route and lives in the Passenger Flows table below. */}
+                    {['Airline', 'Type', 'Routes', 'Flights/wk', 'Departure share'].map(h => (
                       <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -592,7 +605,11 @@ export default function AirportDetail({ code, onBack }) {
               <thead>
                 <tr style={{ background: 'var(--surface2)' }}>
                   {['Destination', 'O&D Demand', 'Ref Price', 'You', 'Competitors', 'Your Share', 'Demand Bar'].map(h => (
-                    <th key={h} style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h}
+                      title={h === 'Your Share'
+                        ? 'Share of passengers on this city pair, from the same demand model the weekly tick runs: fare, quality, frequency, seats, hub feed and advertising all count.'
+                        : undefined}
+                      style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -602,9 +619,8 @@ export default function AirportDetail({ code, onBack }) {
                   const comps     = compRouteMap[pair.code] ?? [];
                   const maxDemand = topPairs[0]?.demand ?? 1;
                   const barPct    = Math.round(pair.demand / maxDemand * 100);
-                  const fr        = pairFreqs[pair.code] ?? { mine: 0, comp: 0 };
-                  const pairTotal = fr.mine + fr.comp;
-                  const myShare   = pairTotal > 0 ? fr.mine / pairTotal * 100 : null;
+                  const shareInfo = pairShares[pair.code] ?? null;
+                  const myShare   = shareInfo ? shareInfo.share * 100 : null;
                   return (
                     <tr key={pair.code} style={{ borderTop: i > 0 ? '1px solid var(--border-subtle)' : 'none' }}>
                       <td style={{ padding: '7px 12px' }}>
@@ -629,7 +645,11 @@ export default function AirportDetail({ code, onBack }) {
                         {myShare === null ? (
                           <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>—</span>
                         ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div
+                            title={shareInfo?.contested
+                              ? `${myShare.toFixed(1)}% of passengers on ${code}–${pair.code}, split against ${comps.length > 0 ? comps.map(c => c.name).join(', ') : 'your rivals'} on fare, quality, frequency, seats and advertising.`
+                              : `You are the only carrier on ${code}–${pair.code} — you carry everyone who flies.`}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{ flex: 1, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', minWidth: 40 }}>
                               <div style={{
                                 width: `${Math.round(myShare)}%`, height: '100%', borderRadius: 3,

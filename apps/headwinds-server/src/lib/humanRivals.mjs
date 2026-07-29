@@ -46,9 +46,36 @@ const DEFAULT_SEATS = 170;
 // callers must weight this by each route's frequency rather than applying one
 // tail's seat count to the pair's whole schedule.
 function seatsForRoute(state, route) {
+  return cabinForRoute(state, route).bodies;
+}
+
+// The real cabin flown on a route: total bodies and how many of them are premium
+// seats. Rivals used to be modelled with the aircraft TYPE's max seat count and a
+// business cabin invented from their tier — so a rival flying a premium-heavy
+// config looked bigger than it is, and an all-economy rival was credited with a
+// business cabin it doesn't sell. Both now come from the actual config.
+function cabinForRoute(state, route) {
   const aircraft = (state.fleet ?? []).find((a) => a.id === route.aircraftId);
   const type = aircraft ? getAircraftType(aircraft.typeId) : null;
-  return type?.seats ?? DEFAULT_SEATS;
+  const cfg = aircraft?.config ?? null;
+  if (!cfg) return { bodies: type?.seats ?? DEFAULT_SEATS, business: 0, hasCabinData: false };
+  const bodies = (cfg.firstClass ?? 0) + (cfg.businessClass ?? 0)
+               + (cfg.premiumEconomy ?? 0) + (cfg.economy ?? 0);
+  // "Business" for the demand model = every premium seat above economy, matching
+  // how the engine builds the player's own businessSeats on a pair.
+  const business = (cfg.firstClass ?? 0) + (cfg.businessClass ?? 0) + (cfg.premiumEconomy ?? 0);
+  return {
+    bodies: bodies > 0 ? bodies : (type?.seats ?? DEFAULT_SEATS),
+    business,
+    hasCabinData: bodies > 0,
+  };
+}
+
+// The premium fare a rival actually charges on a pair, or null when they sell no
+// premium cabin. Mirrors the player's own classPrices lookup.
+function businessFareFor(state, key, route) {
+  const p = state.routePricing?.[key];
+  return p?.businessClass ?? p?.firstClass ?? p?.premiumEconomy ?? route?.classPrices?.businessClass ?? null;
 }
 
 // Best-effort quality score for a human airline (used for demand share and the
@@ -126,9 +153,12 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     const typeId = (s.fleet ?? []).find((a) => a.id === r.aircraftId)?.typeId ?? null;
     const prev = routes[key];
     const frequency = (prev?.frequency ?? 0) + freq;
+    const cabin = cabinForRoute(s, r);
     // Capacity has to be summed PER AIRCRAFT — one pair can be flown by a
     // widebody and a turboprop, and `seats × totalFrequency` is wrong for both.
-    const seatsPerWeek = (prev?.seatsPerWeek ?? 0) + seatsForRoute(s, r) * freq;
+    const seatsPerWeek = (prev?.seatsPerWeek ?? 0) + cabin.bodies * freq;
+    const businessSeatsPerWeek = (prev?.businessSeatsPerWeek ?? 0) + cabin.business * freq;
+    const bizFare = businessFareFor(s, key, r);
     const aircraftTypes = prev?.aircraftTypes ? [...prev.aircraftTypes] : [];
     if (typeId && !aircraftTypes.includes(typeId)) aircraftTypes.push(typeId);
     routes[key] = {
@@ -140,6 +170,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
       // (`seats`) kept for older clients that still do seats × frequency.
       seatsPerWeek,
       seats: frequency > 0 ? Math.round(seatsPerWeek / frequency) : (prev?.seats ?? DEFAULT_SEATS),
+      // The REAL premium cabin — 0 when this rival sells none. Consumers must
+      // treat `businessSeatsPerWeek: 0` as "no business class", not as missing
+      // data to be filled in from the carrier's tier.
+      businessSeatsPerWeek,
+      businessFare: bizFare != null ? Math.round(bizFare) : (prev?.businessFare ?? null),
       aircraftTypes,
       aircraftType: aircraftTypes[0] ?? null,
     };
@@ -201,6 +236,12 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
 export function toRivalSpecs(airlineRow) {
   const s = airlineRow.state ?? {};
   const quality = qualityOf(s);
+  // The rival's hub. Carried on the spec so the demand model can grant them the
+  // same connecting-feed bonus the player gets on their own hub routes — without
+  // it, a rival flying out of its fortress was scored as if the route were an
+  // outstation, and the client's share preview (which DID apply the bonus)
+  // disagreed with the weekly tick.
+  const homeHub = airlineRow.hub ?? s.hub ?? null;
   const byPair = {};
   for (const r of s.routes ?? []) {
     const key = pairKeyOf(r.origin, r.destination);
@@ -211,16 +252,29 @@ export function toRivalSpecs(airlineRow) {
       name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
       tier: 'legacy',
       qualityScore: quality,
+      homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,
+      // Open book: the fare they actually charge, not a reference multiple.
+      economyFare: econ != null ? Math.round(econ) : null,
+      businessFare: null,
+      businessSeatsPerWeek: 0,
       seatsPerFlight: 0,
       _seatsPerWeek: 0,
     };
     const freq = r.weeklyFrequency ?? 0;
+    const cabin = cabinForRoute(s, r);
     spec.frequency += freq;
     // Mixed fleets: blend seats-per-flight by frequency instead of letting the
     // first aircraft found stand in for every flight on the pair.
-    spec._seatsPerWeek += seatsForRoute(s, r) * freq;
+    spec._seatsPerWeek += cabin.bodies * freq;
+    // Their REAL premium cabin. Stays 0 for an all-economy rival, which is the
+    // whole point: they must not compete for business travelers they can't carry.
+    spec.businessSeatsPerWeek += cabin.business * freq;
+    if (spec.businessFare == null) {
+      const bizFare = businessFareFor(s, key, r);
+      if (bizFare != null) spec.businessFare = Math.round(bizFare);
+    }
     byPair[key] = spec;
   }
   for (const spec of Object.values(byPair)) {
@@ -228,6 +282,8 @@ export function toRivalSpecs(airlineRow) {
       ? Math.round(spec._seatsPerWeek / spec.frequency)
       : DEFAULT_SEATS;
     delete spec._seatsPerWeek;
+    // No premium seats → no premium fare, however their pricing table reads.
+    if (!(spec.businessSeatsPerWeek > 0)) spec.businessFare = null;
   }
   return byPair;
 }

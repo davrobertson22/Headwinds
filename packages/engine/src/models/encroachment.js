@@ -24,7 +24,7 @@
 // }
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { BUSINESS_PRICE_MULTIPLIER, competitorBusinessFraction } from './demand.js';
+import { BUSINESS_PRICE_MULTIPLIER, competitorBusinessFraction, computeConnectivityBonus } from './demand.js';
 import { referencePrice, routePairKey } from '../utils/simulation.js';
 
 // ── Tunable knobs ────────────────────────────────────────────────────────────
@@ -112,13 +112,31 @@ export const ENCROACH_REACTIVATE_FARE_RATIO = ENCROACH_TARGET_MIN_FARE_RATIO;
  */
 export function buildEncroachmentOffer(spec, market) {
   if (!spec || !spec.frequency) return null;
-  const economyPrice = Math.max(1, Math.round(market.referencePrice * spec.priceMultiplier));
-  const hasBusiness  = spec.tier !== 'budget';
-  const businessPrice = hasBusiness ? Math.round(economyPrice * BUSINESS_PRICE_MULTIPLIER) : null;
+  // A human rival (Headwinds) publishes its real fare; an AI encroacher only has
+  // a reference multiple, which IS its pricing decision.
+  const economyPrice = spec.economyFare != null
+    ? Math.max(1, Math.round(spec.economyFare))
+    : Math.max(1, Math.round(market.referencePrice * spec.priceMultiplier));
   const seats = spec.seatsPerFlight ?? 186;
-  const businessPerFlight = hasBusiness
-    ? Math.round(seats * competitorBusinessFraction(spec.tier, market.distanceKm))
-    : 0;
+
+  // Business cabin. Human rivals ship their REAL cabin, including "no business
+  // class at all" — the tier heuristic handed every non-budget carrier a phantom
+  // J cabin at 3.5× the economy fare, so an all-economy rival competed for
+  // business travelers it could not carry. AI encroachers keep the heuristic.
+  const explicitBiz   = spec.businessSeatsPerWeek != null || spec.businessFare != null;
+  const businessSeats = explicitBiz
+    ? Math.max(0, Math.round(spec.businessSeatsPerWeek ?? 0))
+    : (spec.tier !== 'budget'
+        ? Math.round(seats * competitorBusinessFraction(spec.tier, market.distanceKm)) * spec.frequency
+        : 0);
+  const businessPrice = businessSeats <= 0 ? null
+    : spec.businessFare != null
+      ? Math.max(1, Math.round(spec.businessFare))
+      : Math.round(economyPrice * BUSINESS_PRICE_MULTIPLIER);
+  const economySeats  = explicitBiz
+    ? Math.max(0, seats * spec.frequency - businessSeats)
+    : seats * spec.frequency;
+
   return {
     airlineId:         `encroach:${spec.competitorId}`,
     origin:            market.origin,
@@ -127,10 +145,20 @@ export function buildEncroachmentOffer(spec, market) {
     businessPrice,
     weeklyFrequency:   spec.frequency,
     seatsPerFlight:    seats,
-    economySeats:      seats * spec.frequency,
-    businessSeats:     businessPerFlight * spec.frequency,
+    economySeats,
+    businessSeats,
+    totalSeats:        seats * spec.frequency,
     qualityScore:      spec.qualityScore ?? 60,
-    connectivityBonus: 0,
+    // A rival flying out of its OWN hub feeds the route with connecting traffic
+    // exactly like the player does. The player has always collected this bonus on
+    // hub routes while rivals on this path were hardcoded to 0, so the client
+    // preview (buildCompetitorOffer, which DOES grant it) and the weekly tick
+    // disagreed about who was winning a contested pair. Solo AI encroachers carry
+    // no homeHub on their spec and stay at 0 — unchanged.
+    connectivityBonus: spec.homeHub
+      ? computeConnectivityBonus(spec.homeHub, market.origin, market.destination)
+      : 0,
+    marketingBoost:    spec.marketingBoost ?? 0,
   };
 }
 

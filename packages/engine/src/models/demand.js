@@ -130,9 +130,29 @@ export function connectingPriceFactor(price, refPrice) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0 },
 };
+
+/**
+ * Targeted advertising used to be a flat multiplier bolted onto route REVENUE
+ * after the share fight was already over — so a player could outspend every
+ * rival at both endpoints and watch their market share sit still, because the
+ * campaign never entered the model that allocates passengers. It is a utility
+ * term now: on a contested pair, advertising takes passengers OFF the carrier
+ * that isn't advertising, which is what buying awareness in a market actually
+ * does.
+ *
+ * Calibration: `marketingBoost` is the net campaign lift (0 → CAMPAIGN_MAX_BOOST
+ * = 0.15). At the leisure weight of 2.0 a sustained ~7.5% campaign is worth
+ * +0.15 utility — a shade under a hub connectivity bonus (0.20), and in a
+ * two-carrier market it moves a 50/50 split to about 54/46. Business travelers
+ * are half as swayed (weight 1.0): corporate travel policy and schedule beat
+ * advertising.
+ *
+ * In a MONOPOLY there is no share to take, so the same boost is applied to the
+ * demand pool instead (see _monopolyResult) — the old magnitude, preserved.
+ */
 
 /**
  * Seasonality multipliers by month (1-indexed).
@@ -520,8 +540,12 @@ export function computeUtility(offer, market, segment) {
   const qualityUtil = (offer.qualityScore / 100) * w.quality;
   const freqUtil    = Math.log1p(offer.weeklyFrequency) * w.frequency;
   const connUtil    = offer.connectivityBonus;
+  // Targeted campaigns at either endpoint (net of rival ad pressure). Offers
+  // that carry no marketingBoost are unaffected — this term is 0 for every
+  // caller that hasn't opted in.
+  const mktUtil     = (offer.marketingBoost ?? 0) * w.marketing;
 
-  return priceUtil + qualityUtil + freqUtil + connUtil;
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil;
 }
 
 /**
@@ -678,9 +702,16 @@ function _monopolyResult(market, offer) {
   // and stretches the fare business travelers will tolerate (businessFareTolerance).
   const businessRef = market.referencePrice * BUSINESS_PRICE_MULTIPLIER
     * businessFareTolerance(offer.qualityScore);
+  // Targeted advertising on an UNCONTESTED pair has no rival to take passengers
+  // from, so it grows the pool instead — the same magnitude the old post-hoc
+  // revenue multiplier applied. In competitive markets it is a utility term
+  // (see computeUtility); it must never be both, or a campaign counts twice.
+  const mktPool = 1 + (offer.marketingBoost ?? 0);
+
   const businessAdj = noBusiness
     ? 0
     : Math.round(market.businessDemand
+        * mktPool
         * businessQualityCapture(offer.qualityScore)
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
         * priceChokeFactor(offer.businessPrice, businessRef));
@@ -692,9 +723,13 @@ function _monopolyResult(market, offer) {
 
   // When there's no business cabin, all business travelers fold into the leisure pool.
   // When business is offered but full, overflow also folds into the leisure pool.
+  // The campaign multiplies the RAW pools only. `businessOverflow` has already
+  // been through mktPool on its way out of the business cabin, so boosting it
+  // again here would compound the campaign against itself (a 10% campaign read
+  // as 13% before this was split out).
   const leisurePool = noBusiness
-    ? market.leisureDemand + market.businessDemand
-    : market.leisureDemand + businessOverflow;
+    ? (market.leisureDemand + market.businessDemand) * mktPool
+    : market.leisureDemand * mktPool + businessOverflow;
 
   // Demand with price elasticity applied
   const leisureAdj  = Math.round(
@@ -2677,18 +2712,39 @@ export function buildCompetitorOffer(competitor, market) {
   const config   = competitor.routes[routeKey];
   if (!config) return null;
 
-  const economyPrice = Math.round(market.referencePrice * config.priceMultiplier);
-  const hasBusinessClass = competitor.tier !== 'budget';
-  const businessPrice    = hasBusinessClass
-    ? Math.round(economyPrice * BUSINESS_PRICE_MULTIPLIER)
-    : null;
+  // Open book: a HUMAN rival publishes the fare it actually charges. Only fall
+  // back to the reverse-engineered reference multiple for AI carriers (whose
+  // priceMultiplier IS their pricing decision).
+  const economyPrice = config.economyFare != null
+    ? Math.max(1, Math.round(config.economyFare))
+    : Math.round(market.referencePrice * config.priceMultiplier);
 
-  // Use the route's real assigned aircraft for capacity; fall back to mid-size.
+  // Capacity. A pair can be flown by a widebody AND a turboprop, so prefer the
+  // blended seats-per-flight the caller computed over `aircraftType`, which only
+  // ever names the FIRST type found and misstates a mixed schedule.
   const acType          = config.aircraftType ? getAircraftType(config.aircraftType) : null;
-  const seatsPerFlight  = acType?.seats ?? 150;
-  const businessPerFlight = hasBusinessClass
-    ? Math.round(seatsPerFlight * competitorBusinessFraction(competitor.tier, market.distanceKm))
-    : 0;
+  const seatsPerFlight  = config.seatsPerWeek != null && config.frequency > 0
+    ? Math.round(config.seatsPerWeek / config.frequency)
+    : (config.seats ?? acType?.seats ?? 150);
+
+  // Business cabin. When the caller supplies real cabin data (human rivals do),
+  // trust it — including "they sell no business class at all". Only synthesize a
+  // J cabin from the tier heuristic for AI carriers, which carry no cabin config.
+  const explicitBiz     = config.businessSeatsPerWeek != null || config.businessFare != null;
+  const businessSeats   = explicitBiz
+    ? Math.max(0, Math.round(config.businessSeatsPerWeek ?? 0))
+    : Math.round(seatsPerFlight * competitorBusinessFraction(competitor.tier, market.distanceKm))
+      * config.frequency;
+  const hasBusinessClass = businessSeats > 0;
+  const businessPrice    = !hasBusinessClass ? null
+    : config.businessFare != null
+      ? Math.max(1, Math.round(config.businessFare))
+      : Math.round(economyPrice * BUSINESS_PRICE_MULTIPLIER);
+  // Economy capacity is what's left once the J cabin is carved out, so a rival
+  // with a big premium cabin doesn't get counted as if every seat were economy.
+  const economySeats    = explicitBiz
+    ? Math.max(0, seatsPerFlight * config.frequency - businessSeats)
+    : seatsPerFlight * config.frequency;
 
   return {
     airlineId:         competitor.id,
@@ -2698,8 +2754,9 @@ export function buildCompetitorOffer(competitor, market) {
     businessPrice,
     weeklyFrequency:   config.frequency,
     seatsPerFlight,
-    economySeats:      seatsPerFlight  * config.frequency,
-    businessSeats:     businessPerFlight * config.frequency,
+    economySeats,
+    businessSeats,
+    totalSeats:        seatsPerFlight * config.frequency,
     // Alliance members' offers read slightly better to passengers (network
     // reach, lounges, miles) — keep in sync with ALLIANCE_OFFER_QUALITY_BONUS
     // in competitorAI.js.
