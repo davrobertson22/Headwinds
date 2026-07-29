@@ -4,13 +4,13 @@
  * The player sets ONE policy for the whole airline: for each ancillary product
  * they decide whether to OFFER it and what to CHARGE. That policy drives three
  * things on every passenger route:
- *   1. REVENUE  — buyers × fee, scaled by boarded pax and cabin mix
+ *   1. REVENUE  — buyers × fee, scaled by boarded pax, cabin mix and route length
  *   2. COST     — provisioning cost for products that cost money to run
  *                 (Wi-Fi bandwidth, staffing a lounge) plus per-buyer unit cost
  *   3. QUALITY  — a net demand-quality delta folded into the route quality score:
  *                 generosity (free / low fees, or simply OFFERING an expected
  *                 amenity) lifts perceived quality and demand; nickel-and-diming
- *                 (fees at or above market) and NOT offering an expected amenity
+ *                 (fees well above market) and NOT offering an expected amenity
  *                 (no Wi-Fi, no lounge) drags it down.
  *
  * Deliberately SEPARATE from per-route catering (food & drink), which has its own
@@ -25,22 +25,49 @@
  *
  * ── Pricing math ─────────────────────────────────────────────────────────────
  * Every product has a REFERENCE price (a typical market fee). The player's fee is
- * read relative to it. At the reference fee, quality is ~neutral and the take-rate
- * is the product's base. Cheaper → more buyers + goodwill; pricier → fewer buyers
- * + resentment. A fee of $0 means "free / included": no revenue, maximum goodwill.
+ * read relative to it. At the reference fee, quality is ~neutral (market pricing
+ * is what passengers expect) and the take-rate is the product's base. Cheaper →
+ * more buyers + goodwill; pricier → fewer buyers + resentment. A fee of $0 means
+ * "free / included": no revenue, maximum goodwill.
+ *
+ * Elasticity is PER PRODUCT: checked bags are famously inelastic (airlines have
+ * repeatedly raised bag fees and grown revenue), while paid Wi-Fi and lounge
+ * passes are discretionary and highly elastic. That makes pricing a real choice:
+ * inelastic products can be pushed above reference for more revenue at a quality
+ * cost; elastic ones simply lose buyers.
+ *
+ * ── Route length (haul) ──────────────────────────────────────────────────────
+ * Take-rates scale with route distance: long-haul passengers check far more bags
+ * and buy much more Wi-Fi / extra legroom, while almost nobody pays for Wi-Fi on
+ * a 45-minute hop. Provisioning costs for provisioned amenities scale the same
+ * way (satellite bandwidth is bought by the flight-hour; lounge usage tracks the
+ * long-haul journeys). Bag and flex FEES also sting quality more on long-haul,
+ * where the international norm is an included bag and a changeable ticket.
+ * Callers that have no route in hand (airline-wide reputation, the policy UI)
+ * simply omit the distance and get neutral medium-haul behaviour.
  */
 
 import { CABIN_CLASSES } from './catering.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-// How sharply the take-rate falls as the fee rises above reference (and rises as
-// it falls below). take = baseTake × (1 − ELASTICITY × (fee/ref − 1)), bounded.
+// Fallback take-rate elasticity for products that don't declare their own.
+// take = baseTake × (1 − elasticity × (fee/ref − 1)), bounded.
 export const ANC_ELASTICITY = 0.9;
 
 // The net airline-wide quality delta is clamped to this band so ancillaries stay
 // a meaningful SECONDARY lever (cabin product + catering remain primary).
 export const ANC_QUALITY_CAP = 15;
+
+// Haul anchors: take-rate haul multipliers are interpolated from `haul.s` at
+// SHORT_KM through 1.0 at MID_KM to `haul.l` at LONG_KM (clamped outside).
+export const ANC_HAUL_SHORT_KM = 500;
+export const ANC_HAUL_MID_KM   = 2500;
+export const ANC_HAUL_LONG_KM  = 7000;
+
+// How much MORE a charged bag/flex fee hurts quality on a full long-haul route
+// (international norm: bag + changes included). 0.5 → penalty ×1.5 at LONG_KM.
+export const ANC_HAUL_STING = 0.5;
 
 // ── Product catalogue ──────────────────────────────────────────────────────────
 //
@@ -52,12 +79,18 @@ export const ANC_QUALITY_CAP = 15;
 // refPrice      typical market fee ($)
 // maxPrice      slider ceiling in the UI
 // baseTake      fraction of ELIGIBLE passengers who buy at the reference fee
-// elig          per-cabin eligibility weight (who is even a candidate to buy)
+// elasticity    how sharply take falls as fee rises above ref (low = inelastic)
+// elig          per-cabin eligibility weight (who is even a candidate to buy).
+//               Premium cabins get bags / seats / priority / flexibility / lounge
+//               BUNDLED into the fare, so their weights are ~zero there.
+// haul          { s, l } take-rate multipliers at short / long haul (1.0 = mid)
+// haulQ         true → fee's quality PENALTY deepens with distance (bags, flex)
 // unitCost      airline cost per BUYER ($) — consumables/handling
 // provisionCost airline cost per ELIGIBLE pax ($) whenever a provisioned amenity
-//               is offered, free or paid (bandwidth, lounge staffing)
+//               is offered, free or paid (bandwidth, lounge staffing); scales
+//               with haul like the take-rate does
 // qFree         quality points when offered at $0 (free / included)
-// qAtRef        quality points at the reference fee (usually slightly negative)
+// qAtRef        quality points at the reference fee (~neutral: mild dent at most)
 // absentQ       quality points when a provisioned amenity is NOT offered
 // qFloor        lower clamp on this product's quality points at very high fees
 
@@ -65,65 +98,79 @@ export const ANCILLARY_PRODUCTS = [
   {
     id: 'bags', name: 'Checked Bags', short: 'Bags', icon: '🧳',
     provisioned: false,
-    blurb: 'Fee for checked baggage. Bags-fly-free is a powerful loyalty draw; steep bag fees are the classic nickel-and-dime that travellers resent.',
-    refPrice: 35, maxPrice: 90, presets: [0, 25, 35, 50, 75],
-    baseTake: 0.34, elig: { economy: 1.0, premiumEconomy: 0.85, businessClass: 0.45, firstClass: 0.35 },
+    blurb: 'Fee for checked baggage — the industry\'s biggest ancillary earner, and famously inelastic: fees can be pushed well above market before buyers balk, at a growing cost to goodwill. Bags-fly-free remains a powerful loyalty draw, and bag fees sting most on long-haul, where an included bag is the norm.',
+    refPrice: 40, maxPrice: 90, presets: [0, 30, 40, 55, 75],
+    baseTake: 0.34, elasticity: 0.55,
+    elig: { economy: 1.0, premiumEconomy: 0.85, businessClass: 0.05, firstClass: 0 },
+    haul: { s: 0.85, l: 1.35 }, haulQ: true,
     unitCost: 4, provisionCost: 0,
-    qFree: 2.5, qAtRef: -2.2, absentQ: 0, qFloor: -8,
+    qFree: 2.5, qAtRef: -0.6, absentQ: 0, qFloor: -8,
   },
   {
     id: 'seat', name: 'Seat Selection', short: 'Seats', icon: '💺',
     provisioned: false,
-    blurb: 'Fee to choose a seat in advance. Free seat selection feels generous; charging for it is common but mildly disliked.',
+    blurb: 'Fee to choose a seat in advance. Free seat selection feels generous; charging for it is standard practice and barely noticed at market rates. Premium cabins choose seats free of charge.',
     refPrice: 16, maxPrice: 45, presets: [0, 8, 16, 25, 35],
-    baseTake: 0.24, elig: { economy: 1.0, premiumEconomy: 0.7, businessClass: 0.3, firstClass: 0.2 },
+    baseTake: 0.24, elasticity: 0.9,
+    elig: { economy: 1.0, premiumEconomy: 0.7, businessClass: 0.05, firstClass: 0 },
+    haul: { s: 0.95, l: 1.15 },
     unitCost: 0, provisionCost: 0,
-    qFree: 1.8, qAtRef: -1.8, absentQ: 0, qFloor: -7,
+    qFree: 1.8, qAtRef: -0.4, absentQ: 0, qFloor: -7,
   },
   {
     id: 'priority', name: 'Priority Boarding', short: 'Priority', icon: '🎫',
     provisioned: false,
-    blurb: 'Fee to board early with overhead-bin certainty. A minor upsell — modest revenue, modest goodwill effect.',
+    blurb: 'Fee to board early with overhead-bin certainty. A minor, short-haul-flavoured upsell — modest revenue, modest goodwill effect. Premium cabins already board first.',
     refPrice: 12, maxPrice: 35, presets: [0, 6, 12, 20, 30],
-    baseTake: 0.16, elig: { economy: 0.8, premiumEconomy: 0.6, businessClass: 0.2, firstClass: 0.1 },
+    baseTake: 0.16, elasticity: 1.1,
+    elig: { economy: 0.8, premiumEconomy: 0.6, businessClass: 0, firstClass: 0 },
+    haul: { s: 1.0, l: 0.9 },
     unitCost: 0, provisionCost: 0,
-    qFree: 0.7, qAtRef: -0.7, absentQ: 0, qFloor: -4,
+    qFree: 0.7, qAtRef: -0.2, absentQ: 0, qFloor: -4,
   },
   {
     id: 'wifi', name: 'Wi-Fi & Streaming', short: 'Wi-Fi', icon: '📶',
     provisioned: true,
-    blurb: 'Onboard connectivity & entertainment. Increasingly expected — free Wi-Fi is a real draw, and having none at all is noticed. Costs bandwidth to run whether free or paid.',
+    blurb: 'Onboard connectivity & entertainment. Increasingly expected — the industry trend is toward free Wi-Fi, and having none at all is noticed. Paid Wi-Fi is highly elastic: raise the price and buyers vanish. Bandwidth costs scale with hours aloft, and take-up is far higher on long-haul.',
     refPrice: 10, maxPrice: 30, presets: [0, 5, 10, 15, 25],
-    baseTake: 0.18, elig: { economy: 1.0, premiumEconomy: 1.0, businessClass: 1.0, firstClass: 1.0 },
+    baseTake: 0.10, elasticity: 1.35,
+    elig: { economy: 1.0, premiumEconomy: 1.0, businessClass: 1.0, firstClass: 1.0 },
+    haul: { s: 0.35, l: 1.6 },
     unitCost: 1.0, provisionCost: 1.4,
-    qFree: 2.5, qAtRef: -1.0, absentQ: -3.5, qFloor: -6,
+    qFree: 2.5, qAtRef: -0.3, absentQ: -3.5, qFloor: -6,
   },
   {
     id: 'legroom', name: 'Extra-Legroom Seats', short: 'Legroom', icon: '📏',
     provisioned: true,
-    blurb: 'A block of extra-pitch economy seats sold at a premium. Offering the choice is a plus even at a fee; not offering it costs you a little differentiation.',
+    blurb: 'A block of extra-pitch economy seats sold at a premium — an upsell that really earns on long-haul, where legroom is worth paying for. Offering the choice is a plus even at a fee; not offering it costs a little differentiation.',
     refPrice: 45, maxPrice: 120, presets: [0, 25, 45, 70, 100],
-    baseTake: 0.10, elig: { economy: 1.0, premiumEconomy: 0.5, businessClass: 0.1, firstClass: 0.05 },
+    baseTake: 0.10, elasticity: 0.75,
+    elig: { economy: 1.0, premiumEconomy: 0.15, businessClass: 0, firstClass: 0 },
+    haul: { s: 0.55, l: 1.7 },
     unitCost: 0, provisionCost: 0,
-    qFree: 1.0, qAtRef: -0.3, absentQ: -0.8, qFloor: -4,
+    qFree: 1.0, qAtRef: -0.1, absentQ: -0.8, qFloor: -4,
   },
   {
     id: 'lounge', name: 'Lounge Passes', short: 'Lounge', icon: '🛋️',
     provisioned: true,
-    blurb: 'Day passes to an airport lounge. A premium signal that lifts brand perception; running lounges costs money per guest.',
-    refPrice: 50, maxPrice: 120, presets: [0, 30, 50, 75, 100],
-    baseTake: 0.06, elig: { economy: 0.35, premiumEconomy: 0.5, businessClass: 0.3, firstClass: 0.2 },
-    unitCost: 18, provisionCost: 3,
-    qFree: 1.6, qAtRef: -0.5, absentQ: -1.5, qFloor: -4,
+    blurb: 'Day passes to an airport lounge for economy travellers — a premium signal that lifts brand perception. Business and first get lounge access with the fare; running lounges costs real money per guest, and pass sales skew to long-haul journeys.',
+    refPrice: 60, maxPrice: 120, presets: [0, 40, 60, 80, 100],
+    baseTake: 0.06, elasticity: 1.2,
+    elig: { economy: 0.15, premiumEconomy: 0.3, businessClass: 0, firstClass: 0 },
+    haul: { s: 0.6, l: 1.5 },
+    unitCost: 25, provisionCost: 3,
+    qFree: 1.6, qAtRef: -0.1, absentQ: -1.5, qFloor: -4,
   },
   {
     id: 'flex', name: 'Flexible Tickets', short: 'Flex', icon: '🔄',
     provisioned: false,
-    blurb: 'The price of change/cancel flexibility. Cheap or free changes build enormous goodwill; punishing change fees are among the most-hated airline practices.',
+    blurb: 'The price of change/cancel flexibility for economy fares — business and first are already flexible. Cheap or free changes build enormous goodwill; punishing change fees are among the most-hated airline practices, doubly so on long-haul.',
     refPrice: 40, maxPrice: 120, presets: [0, 20, 40, 75, 100],
-    baseTake: 0.10, elig: { economy: 0.5, premiumEconomy: 0.7, businessClass: 1.0, firstClass: 1.0 },
+    baseTake: 0.10, elasticity: 0.7,
+    elig: { economy: 0.5, premiumEconomy: 0.7, businessClass: 0.15, firstClass: 0.1 },
+    haulQ: true,
     unitCost: 0, provisionCost: 0,
-    qFree: 2.2, qAtRef: -2.0, absentQ: 0, qFloor: -8,
+    qFree: 2.2, qAtRef: -0.5, absentQ: 0, qFloor: -8,
   },
 ];
 
@@ -156,33 +203,69 @@ export function resolveItem(product, policy) {
 }
 
 /**
- * Fraction of ELIGIBLE passengers who buy this product at a given fee.
- * $0 (free) → nobody "pays" so revenue is 0; expressed here as take 0.
+ * 0 → fully short-haul, 1 → fully long-haul, interpolated between the anchors.
+ * No/unknown distance (0, negative, non-finite) → mid-haul neutral behaviour.
  */
-export function ancillaryTakeRate(product, price) {
-  if (!(price > 0)) return 0;
-  const ratio = price / product.refPrice;
-  const t = product.baseTake * clamp(1 - ANC_ELASTICITY * (ratio - 1), 0.05, 1.6);
-  return clamp(t, 0, 1);
+export function haulBlend(distKm) {
+  if (!(distKm > 0)) return null; // caller treats null as neutral (mult 1, no sting)
+  if (distKm <= ANC_HAUL_MID_KM) {
+    // SHORT..MID: blend from the short anchor up to neutral.
+    const t = clamp((distKm - ANC_HAUL_SHORT_KM) / (ANC_HAUL_MID_KM - ANC_HAUL_SHORT_KM), 0, 1);
+    return { zone: 'short', t };
+  }
+  // MID..LONG: blend from neutral out to the long anchor.
+  const t = clamp((distKm - ANC_HAUL_MID_KM) / (ANC_HAUL_LONG_KM - ANC_HAUL_MID_KM), 0, 1);
+  return { zone: 'long', t };
 }
 
-/** Quality points contributed by ONE product under the current policy. */
-export function ancillaryItemQuality(product, policy) {
+/** Take-rate (and provisioning-cost) multiplier for one product at a route length. */
+export function ancillaryHaulMult(product, distKm) {
+  const blend = haulBlend(distKm);
+  if (!blend || !product.haul) return 1;
+  const { s = 1, l = 1 } = product.haul;
+  return blend.zone === 'short' ? s + (1 - s) * blend.t : 1 + (l - 1) * blend.t;
+}
+
+/**
+ * Fraction of ELIGIBLE passengers who buy this product at a given fee.
+ * $0 (free) → nobody "pays" so revenue is 0; expressed here as take 0.
+ * Pass distKm to include the route-length effect (omit for mid-haul neutral).
+ */
+export function ancillaryTakeRate(product, price, distKm = 0) {
+  if (!(price > 0)) return 0;
+  const ratio = price / product.refPrice;
+  const elasticity = product.elasticity ?? ANC_ELASTICITY;
+  const t = product.baseTake * clamp(1 - elasticity * (ratio - 1), 0.05, 1.6);
+  return clamp(t * ancillaryHaulMult(product, distKm), 0, 1);
+}
+
+/**
+ * Quality points contributed by ONE product under the current policy. On haulQ
+ * products (bags, flex) a NEGATIVE contribution deepens with route length —
+ * charging for what long-haul norms include stings more.
+ */
+export function ancillaryItemQuality(product, policy, distKm = 0) {
   const { offered, price } = resolveItem(product, policy);
   if (product.provisioned && !offered) return product.absentQ ?? 0;
   const ratio = product.refPrice > 0 ? price / product.refPrice : 0;
-  const q = product.qFree + (product.qAtRef - product.qFree) * ratio;
+  let q = product.qFree + (product.qAtRef - product.qFree) * ratio;
+  if (q < 0 && product.haulQ) {
+    const blend = haulBlend(distKm);
+    if (blend && blend.zone === 'long') q *= 1 + ANC_HAUL_STING * blend.t;
+  }
   return clamp(q, product.qFloor ?? -6, product.qFree);
 }
 
 /**
  * Net airline-wide ancillary quality delta (points added to every route's quality
- * score). 0 when the policy is inactive. Clamped to ±ANC_QUALITY_CAP.
+ * score). 0 when the policy is inactive. Clamped to ±ANC_QUALITY_CAP. Pass the
+ * route's distance to include the long-haul fee sting; omit it for the airline-
+ * wide (reputation / delivered-experience) figure.
  */
-export function ancillaryQualityBonus(policy) {
+export function ancillaryQualityBonus(policy, distKm = 0) {
   if (!isAncillariesActive(policy)) return 0;
   let sum = 0;
-  for (const p of ANCILLARY_PRODUCTS) sum += ancillaryItemQuality(p, policy);
+  for (const p of ANCILLARY_PRODUCTS) sum += ancillaryItemQuality(p, policy, distKm);
   return clamp(Math.round(sum), -ANC_QUALITY_CAP, ANC_QUALITY_CAP);
 }
 
@@ -201,7 +284,7 @@ function eligiblePaxBoth(product, classSummary) {
  *
  * @param {object|null} policy       state.ancillaries (null → inactive → zeros)
  * @param {object} classSummary      { [cls]: { passengers } } — ONE-WAY pax per direction
- * @param {number} distKm            route distance (reserved; not currently scaled)
+ * @param {number} distKm            route distance — scales take-rates & provisioning
  * @returns {{ revenue, cost, net, byItem }}
  */
 export function routeAncillaries(policy, classSummary = {}, distKm = 0) {
@@ -213,11 +296,12 @@ export function routeAncillaries(policy, classSummary = {}, distKm = 0) {
     const { offered, price } = resolveItem(p, policy);
     if (p.provisioned && !offered) { byItem[p.id] = { offered: false, revenue: 0, cost: 0, buyers: 0, price }; continue; }
 
-    const eligPax = eligiblePaxBoth(p, classSummary);
-    const take    = ancillaryTakeRate(p, price);
-    const buyers  = eligPax * take;
-    const rev     = buyers * price;
-    const cst     = buyers * (p.unitCost ?? 0) + (p.provisioned ? eligPax * (p.provisionCost ?? 0) : 0);
+    const eligPax  = eligiblePaxBoth(p, classSummary);
+    const take     = ancillaryTakeRate(p, price, distKm);
+    const buyers   = eligPax * take;
+    const haulMult = ancillaryHaulMult(p, distKm);
+    const rev      = buyers * price;
+    const cst      = buyers * (p.unitCost ?? 0) + (p.provisioned ? eligPax * (p.provisionCost ?? 0) * haulMult : 0);
 
     revenue += rev;
     cost    += cst;

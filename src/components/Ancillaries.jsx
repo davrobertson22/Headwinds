@@ -258,9 +258,12 @@ export default function Ancillaries() {
 
       <div style={{ marginTop: 14, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.6 }}>
         Quality points here stack with cabin product and per-route catering into each route's quality score (capped at ±15).
-        Per-passenger ancillary income is not amplified by marketing or loyalty — it scales only with how many passengers
-        actually fly. Amenities marked <em>Amenity</em> (Wi-Fi, extra legroom, lounges) cost money to run whenever offered,
-        even for free.
+        Per-passenger ancillary income is not amplified by marketing or loyalty — it scales with how many passengers
+        actually fly and with route length: long-haul passengers check more bags and buy far more Wi-Fi and legroom, while
+        short hops sell little (figures shown here assume a typical medium-haul route). Bag and change fees also sting
+        quality hardest on long-haul, where an included bag is the norm. Business and first class get bags, seats, priority,
+        lounge access and flexibility bundled into the fare — fees apply mostly to economy. Amenities marked
+        <em>Amenity</em> (Wi-Fi, extra legroom, lounges) cost money to run whenever offered, even for free.
       </div>
     </div>
   );

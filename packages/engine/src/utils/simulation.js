@@ -940,7 +940,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // Ancillary quality: airline-wide à la carte generosity (free/cheap extras and
   // simply offering expected amenities lift perceived quality; nickel-and-diming
   // and dropping amenities drag it). Zero when no policy is active.
-  const ancillaryQuality = ancillaryQualityBonus(ancillaries);
+  const ancillaryQuality = ancillaryQualityBonus(ancillaries, dist);
   // Hub quality bonus: routes through a player-designated hub get a quality boost from hub investment
   const qualityScore = Math.max(0, Math.min(100, rawQualityScore + groundQualityBonus + spaceQualityBonus + cateringQuality + ancillaryQuality + (route.hubQualityBonus ?? 0)));
 
@@ -1266,7 +1266,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     const biz    = Math.max(1, sp?.businessClass ?? eco * CLASS_FARE_MULTIPLIERS.businessClass);
     const quality = Math.max(0, Math.min(100,
       baseQuality + groundQualityBonus + spaceBonus
-      + cateringQualityBonus(cateringLevel, dist) + ancillaryQualityBonus(ancillaries) + (route.hubQualityBonus ?? 0)));
+      + cateringQualityBonus(cateringLevel, dist) + ancillaryQualityBonus(ancillaries, dist) + (route.hubQualityBonus ?? 0)));
     const connectivityBonus = (seg.from === route.hub || seg.to === route.hub) ? 0.20 : 0;
     const offer = {
       airlineId: 'player', origin: seg.from, destination: seg.to,
