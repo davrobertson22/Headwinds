@@ -79,6 +79,27 @@ export const HULL_INSURANCE_ANNUAL_RATE = 0.008;   // 0.8 % p.a.
 export const DEPRECIATION_YEARS = 30;
 
 /**
+ * Fraction of an airframe's PURCHASE PRICE it is still worth, at a given age.
+ *
+ * purchasePrice is the price of a frame of that type AS DELIVERED — for a used
+ * conversion (type.deliveredAgeWeeks > 0) that is already a used-market price,
+ * not a new-build one. So depreciation has to run from the delivered value, or
+ * a 12-year-old 747-400F would lose 40% of its value the instant it arrived,
+ * double-counting an age discount already baked into the price.
+ *
+ * Straight-line to the same 10% floor at 30 years of TOTAL airframe age, which
+ * means a used frame depreciates faster in percentage terms — correct, since it
+ * has fewer years left to spread the loss over.
+ */
+export function valueRemaining(ageWeeks, type) {
+  const ageYears       = (ageWeeks ?? 0) / 52;
+  const deliveredYears = (type?.deliveredAgeWeeks ?? 0) / 52;
+  const now  = 1 - ageYears / DEPRECIATION_YEARS;
+  const base = 1 - deliveredYears / DEPRECIATION_YEARS;   // = 1 for a new build
+  return Math.max(0.1, base > 0 ? now / base : 0);
+}
+
+/**
  * Weekly liability premium per aircraft (owned or leased), stepped by aircraft
  * category — larger aircraft carry far more passenger/third-party liability, so a
  * turboprop is much cheaper to insure than a widebody. This also gives small-aircraft
@@ -95,8 +116,26 @@ export const LIABILITY_INSURANCE_WEEKLY_BY_CATEGORY = {
 /** Fallback weekly liability premium when an aircraft's category is unknown. */
 export const LIABILITY_INSURANCE_WEEKLY_PER_AIRCRAFT = 12_000;
 
-/** Weekly liability premium for one aircraft, by its type's category. */
+/**
+ * Freighters all share one category, so they cannot be stepped by it the way
+ * passenger types are — a 9-tonne ATR and a 250-tonne An-225 would insure
+ * identically. Step them by payload instead. Rates sit below the passenger
+ * equivalents: no passengers means far less third-party liability exposure.
+ */
+export const LIABILITY_INSURANCE_WEEKLY_FREIGHTER = [
+  { maxTonnes:  20, weekly:  4_000 },
+  { maxTonnes:  45, weekly:  7_000 },
+  { maxTonnes:  80, weekly: 11_000 },
+  { maxTonnes: 130, weekly: 15_000 },
+  { maxTonnes: Infinity, weekly: 20_000 },
+];
+
+/** Weekly liability premium for one aircraft, by its type's category (or payload). */
 export function liabilityInsuranceWeekly(aircraftType) {
+  if (aircraftType?.freighter) {
+    const t = aircraftType.payloadTonnes ?? 0;
+    return LIABILITY_INSURANCE_WEEKLY_FREIGHTER.find(s => t <= s.maxTonnes).weekly;
+  }
   return LIABILITY_INSURANCE_WEEKLY_BY_CATEGORY[aircraftType?.category]
     ?? LIABILITY_INSURANCE_WEEKLY_PER_AIRCRAFT;
 }
@@ -113,8 +152,7 @@ export function weeklyInsuranceCost(aircraft, aircraftType) {
   }
   // Hull: book value declines linearly over the useful life (same schedule as
   // depreciation and the balance sheet — one definition of "book value").
-  const ageYears   = (aircraft.ageWeeks ?? 0) / 52;
-  const remaining  = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);   // never below 10 % of new value
+  const remaining  = valueRemaining(aircraft.ageWeeks, aircraftType);    // never below 10 % of delivered value
   const bookValue  = aircraftType.purchasePrice * remaining;
   const hullAnnual = bookValue * HULL_INSURANCE_ANNUAL_RATE;
   const hullWeekly = Math.round(hullAnnual / 52);
@@ -142,6 +180,10 @@ export const LANDING_FEE_PER_DEPARTURE = {
   'Regional Jet':{ mega: 1_700, major: 1_020, regional:   470 },
   'Narrow Body': { mega: 3_800, major: 2_400, regional:   950 },
   'Wide Body':   { mega: 7_650, major: 4_900, regional: 2_050 },
+  // Outsize freighters (An-124 / An-225 class). Previously these fell into
+  // 'Wide Body' and paid the same as a 52-tonne 767F despite needing dedicated
+  // stands, heavy-lift ground equipment and closed taxiways.
+  'Outsize':     { mega: 13_000, major: 8_300, regional: 3_500 },
 };
 
 /** Default fallback if category or tier not found. */

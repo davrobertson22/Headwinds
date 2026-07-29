@@ -17,7 +17,7 @@
  * multiplayer tick stay deterministic and replayable.
  */
 
-import { DEPRECIATION_YEARS } from './overhead.js';
+import { DEPRECIATION_YEARS, valueRemaining } from './overhead.js';
 
 // ─── Due thresholds (dual trigger — whichever comes first) ────────────────────
 export const C_HOURS_DUE = 4_500;
@@ -40,6 +40,17 @@ export const D_COST_PCT = 0.10;   // 10%
 // ─── Downtime (weeks out of service) by aircraft category ─────────────────────
 const C_DURATION = { 'Turboprop': 1, 'Regional Jet': 1, 'Narrow Body': 1, 'Wide Body': 2, 'Double Deck': 2, 'Supersonic': 2 };
 const D_DURATION = { 'Turboprop': 3, 'Regional Jet': 3, 'Narrow Body': 4, 'Wide Body': 5, 'Double Deck': 6, 'Supersonic': 6 };
+
+// Freighters share a single category, so they cannot be stepped by it — every
+// freighter from a 9-tonne ATR to a 250-tonne An-225 would otherwise take the
+// same default downtime. Step by payload instead, mirroring the passenger bands.
+const FREIGHTER_C_DURATION = [
+  { maxTonnes: 45, weeks: 1 }, { maxTonnes: 130, weeks: 2 }, { maxTonnes: Infinity, weeks: 3 },
+];
+const FREIGHTER_D_DURATION = [
+  { maxTonnes: 25, weeks: 3 }, { maxTonnes: 45, weeks: 4 },
+  { maxTonnes: 130, weeks: 5 }, { maxTonnes: Infinity, weeks: 7 },
+];
 
 // ─── Overdue / forced-grounding penalties ─────────────────────────────────────
 export const OVERDUE_MAINT_MULT = 1.40;  // weekly line-maintenance surcharge while overdue
@@ -83,8 +94,19 @@ export function isOutOfService(a) {
   return a?.status === 'grounded' || a?.status === 'maintenance';
 }
 
-/** Downtime in weeks for a check on a given aircraft category. */
-export function checkDurationWeeks(category, checkType) {
+/**
+ * Downtime in weeks for a check.
+ * Accepts either an aircraft TYPE object (preferred — lets freighters be stepped
+ * by payload) or a bare category string (legacy callers).
+ */
+export function checkDurationWeeks(typeOrCategory, checkType) {
+  const type     = typeof typeOrCategory === 'object' ? typeOrCategory : null;
+  const category = type ? type.category : typeOrCategory;
+  if (type?.freighter) {
+    const bands = checkType === 'D' ? FREIGHTER_D_DURATION : FREIGHTER_C_DURATION;
+    const t = type.payloadTonnes ?? 0;
+    return bands.find(s => t <= s.maxTonnes).weeks;
+  }
   const table = checkType === 'D' ? D_DURATION : C_DURATION;
   return table[category] ?? (checkType === 'D' ? 4 : 1);
 }
@@ -266,8 +288,7 @@ export const AOG_WRITE_OFF_PAYOUT_FRACTION = 0.80;
  * so a write-off can never be worth more than a sale.
  */
 export function airframeNAV(a, type, absWeek = 0) {
-  const ageYears  = (a?.ageWeeks ?? 0) / 52;
-  const remaining = Math.max(0.1, 1 - ageYears / DEPRECIATION_YEARS);
+  const remaining = valueRemaining(a?.ageWeeks, type);
   return Math.round((type?.purchasePrice ?? 0) * remaining * maintNavMultiplier(a, absWeek));
 }
 

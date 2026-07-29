@@ -621,6 +621,32 @@ const TURNAROUND_HOURS = {
   'Supersonic':   2.00,   // 120 min — complex servicing
 };
 
+// Freighters all share one category, so they can be stepped by neither the speed
+// nor the turnaround table above — a 9-tonne ATR and a 250-tonne An-225 would
+// otherwise both take the generic fallback. Turnaround steps by payload (loading
+// and unloading main-deck ULDs is what takes the time); speed comes from each
+// type's own `cruiseKmh` field.
+const FREIGHTER_TURNAROUND_HOURS = [
+  { maxTonnes:  20, hours: 0.75 },
+  { maxTonnes:  50, hours: 1.00 },
+  { maxTonnes: 130, hours: 1.50 },
+  { maxTonnes: Infinity, hours: 1.75 },
+];
+
+/** Cruise speed (km/h) for a type: explicit override, else its category. */
+export function cruiseSpeedKmh(type) {
+  return type?.cruiseKmh ?? CRUISE_SPEED_KMH[type?.category] ?? 840;
+}
+
+/** Ground turnaround (hours) for a type: payload-stepped for freighters, else category. */
+export function turnaroundHours(type) {
+  if (type?.freighter) {
+    const t = type.payloadTonnes ?? 0;
+    return FREIGHTER_TURNAROUND_HOURS.find(b => t <= b.maxTonnes).hours;
+  }
+  return TURNAROUND_HOURS[type?.category] ?? 0.75;
+}
+
 /**
  * Block time for one sector (hours).
  * = flight time in the air + turnaround on the ground.
@@ -629,9 +655,7 @@ const TURNAROUND_HOURS = {
  * @param {object} type  - aircraft type from AIRCRAFT_TYPES
  */
 export function blockTimeHours(distKm, type) {
-  const speed      = CRUISE_SPEED_KMH[type.category] ?? 840;
-  const turnaround = TURNAROUND_HOURS[type.category] ?? 0.75;
-  return distKm / speed + turnaround;
+  return distKm / cruiseSpeedKmh(type) + turnaroundHours(type);
 }
 
 /**
@@ -1427,9 +1451,30 @@ export const CARGO_BACKHAUL_FACTOR = 0.65;
  * their size/weight).
  */
 export function freighterLandingCategory(payloadTonnes = 0) {
+  if (payloadTonnes >= 150) return 'Outsize';
   if (payloadTonnes >= 50) return 'Wide Body';
   if (payloadTonnes >= 20) return 'Narrow Body';
   if (payloadTonnes >= 10) return 'Regional Jet';
+  return 'Turboprop';
+}
+
+/**
+ * The passenger body class an airport's rules should judge a freighter as.
+ *
+ * Airport restrictions are written against passenger categories ('Wide Body',
+ * 'Regional Jet', …), but every freighter has category 'Freighter', which
+ * appears in no blocked list — so a 137-tonne 747-8F was legal at LaGuardia,
+ * National, Aspen and St. Maarten, none of which a widebody may use. Map by
+ * payload so a freighter is judged as the aeroplane it actually is. Outsize
+ * types fold into 'Wide Body' here (a ban on widebodies certainly covers an
+ * An-225), unlike the landing-fee table where they pay their own higher rate.
+ */
+export function freighterBodyClass(type) {
+  if (!type?.freighter) return type?.category ?? null;
+  const t = type.payloadTonnes ?? 0;
+  if (t >= 50) return 'Wide Body';
+  if (t >= 20) return 'Narrow Body';
+  if (t >= 10) return 'Regional Jet';
   return 'Turboprop';
 }
 
