@@ -587,10 +587,78 @@ export const VALUATION = {
   EARNINGS_CONF_POW: 2,        // quadratic confidence ramp — short records barely count
   LOSS_MULTIPLE:     4,        // distressed multiple on annualized losses
   CONVERGENCE:       0.30,     // weekly convergence toward fair value
-  WEEKLY_MOVE_CLAMP: 0.08,     // max ±move per week (before noise)
+  // Weekly move band, applied to the published market cap before noise. 8% is
+  // the RESTING band — enough to stop a single-week windfall or a loan draw from
+  // teleporting the price. It is deliberately NOT a hard governor: a flat 8%
+  // meant an airline whose fair value had genuinely re-rated (a startup that
+  // compounds 100x in three game years is normal here) could never catch up —
+  // the print stayed pinned to the ramp, sometimes two orders of magnitude below
+  // fair value, which made the share price carry no information about the
+  // business and let rivals buy a stake for a rounding error. The band now
+  // WIDENS with the size of the gap (see moveClampFor), so ordinary weeks are
+  // unchanged and a real re-rating converges in weeks instead of years.
+  WEEKLY_MOVE_CLAMP: 0.08,     // resting band: max ±move per week (before noise)
+  MOVE_CLAMP_MAX:    0.35,     // widest catch-up band, however far off the print is
+  MOVE_CLAMP_GAP_POW: 0.5,     // band scales with gap^this (sqrt: gentle, unbounded input)
   NOISE_PCT:         0.035,    // ±3.5% weekly noise band
   MIN_MARKET_CAP:    500_000,  // absolute floor
 };
+
+/**
+ * Weekly move band for the published market cap, given how far the print sits
+ * from fair value.
+ *
+ *   gap  1x  ->  8.0%   (an ordinary week — behaviour is unchanged)
+ *   gap  2x  -> 11.3%
+ *   gap  4x  -> 16.0%
+ *   gap 10x  -> 25.3%
+ *   gap 19x+ -> 35.0%   (MOVE_CLAMP_MAX)
+ *
+ * The gap is measured symmetrically (a print 10x too HIGH widens the band just
+ * as much as one 10x too low) so a collapse reprices as fast as a re-rating.
+ *
+ * @param {number} prevMarketCap  last week's published cap
+ * @param {number} fairValue      this week's fair value
+ * @returns {number} max fractional move for the week, before noise
+ */
+export function moveClampFor(prevMarketCap, fairValue) {
+  const V = VALUATION;
+  const p = Number(prevMarketCap), f = Number(fairValue);
+  if (!(p > 0) || !(f > 0)) return V.WEEKLY_MOVE_CLAMP;
+  const gap = Math.max(f / p, p / f);
+  return Math.min(V.MOVE_CLAMP_MAX,
+                  V.WEEKLY_MOVE_CLAMP * Math.pow(gap, V.MOVE_CLAMP_GAP_POW));
+}
+
+/**
+ * Republish price and cap after the SHARE COUNT changes (IPO, secondary
+ * offering, buyback).
+ *
+ * Why this exists: the published market cap is a smoothed, path-dependent series
+ * (converge + clamp + noise), but a share issue changes the divisor INSTANTLY.
+ * Without rebasing the cap in the same step, selling 25% of the company divided
+ * the price by 1.333 while the cap could only climb its weekly band, so a raise
+ * cost ~17% of the share price on the spot — and, since the leaderboard ranks on
+ * value per share, cost the player rank for doing something value-neutral. The
+ * cash the market just handed over is added to the cap at face value at the same
+ * instant the shares appear, so a raise moves the price only by its discount
+ * (and a buyback only by its premium), which is the honest per-share result.
+ *
+ * @param {object} prev              airline state (reads marketCap)
+ * @param {object} p
+ * @param {number} p.shares          share count AFTER the action
+ * @param {number} [p.cashDelta]     cash the company received (+) or paid out (−)
+ * @returns {{ marketCap: number, sharePrice: number }}
+ */
+export function repriceForShareChange(prev, { shares, cashDelta = 0 }) {
+  const base = Number(prev?.marketCap);
+  const cap  = Math.max(
+    VALUATION.MIN_MARKET_CAP,
+    (Number.isFinite(base) && base > 0 ? base : 0) + (Number(cashDelta) || 0),
+  );
+  const n = Number(shares) > 0 ? Number(shares) : TOTAL_SHARES;
+  return { marketCap: cap, sharePrice: cap / n };
+}
 
 /**
  * Outstanding balance of a loan book (present-value of remaining payments —
@@ -739,9 +807,10 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
   let marketCap;
   if (Number.isFinite(prevMarketCap) && prevMarketCap > 0) {
     const target  = prevMarketCap + V.CONVERGENCE * (fairValue - prevMarketCap);
+    const band    = moveClampFor(prevMarketCap, fairValue);
     const clamped = Math.min(
-      prevMarketCap * (1 + V.WEEKLY_MOVE_CLAMP),
-      Math.max(prevMarketCap * (1 - V.WEEKLY_MOVE_CLAMP), target),
+      prevMarketCap * (1 + band),
+      Math.max(prevMarketCap * (1 - band), target),
     );
     const n = Math.max(-V.NOISE_PCT, Math.min(V.NOISE_PCT, Number.isFinite(noise) ? noise : 0));
     marketCap = Math.max(clamped * (1 + n), V.MIN_MARKET_CAP);

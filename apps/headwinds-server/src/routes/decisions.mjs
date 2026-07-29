@@ -18,7 +18,7 @@ import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { withTx } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
-import { sharesOf, svpsScore } from '@tailwinds/engine/utils/market.js';
+import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
 import {
   ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
   MarketError,
@@ -341,8 +341,12 @@ export default async function decisionRoutes(fastify) {
       if (type === 'BUY_BACK_SHARES' && view && view.selfSharesHeld <= 0) {
         throw httpError(409, 'None of your shares are in public hands to buy back.');
       }
-      if (type !== 'BUY_BACK_SHARES' && view && view.poolCash <= 0) {
-        throw httpError(409, 'The equity window is shut — there is no investor capital left in this world.');
+      // An issue is partially subscribed when the pool is short, so reaching here
+      // means it could not even fund the minimum ticket — say so with the number.
+      if (type !== 'BUY_BACK_SHARES' && view && view.poolCash < STOCK_MARKET.MIN_TICKET) {
+        throw httpError(409,
+          'The equity window is shut — investors have only '
+          + `$${Math.max(0, Math.round(view.poolCash)).toLocaleString('en-US')} left to put in.`);
       }
     }
 

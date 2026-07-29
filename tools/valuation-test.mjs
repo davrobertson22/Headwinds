@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  computeMarketCap, VALUATION, TOTAL_SHARES,
+  computeMarketCap, VALUATION, TOTAL_SHARES, moveClampFor,
   tickMarketIndex, marketValuationFactor, marketIndexStatus,
   MARKET_BASE_INDEX, MARKET_MIN_INDEX, MARKET_MAX_INDEX,
   MARKET_FACTOR_MIN, MARKET_FACTOR_MAX, MARKET_FUEL_BETA,
@@ -115,7 +115,7 @@ test('negative cash is not "idle"', () => {
 
 // ── Valuation v3: path (converge / clamp / noise) ─────────────────────────────
 
-test('weekly move never exceeds the clamp plus the noise band', () => {
+test('weekly move never exceeds the band for the gap, plus noise', () => {
   const prev = 100 * M;
   // Fair value miles above and miles below, at both noise extremes.
   for (const profit of [50 * M, -50 * M]) {
@@ -124,17 +124,24 @@ test('weekly move never exceeds the clamp plus the noise band', () => {
         prevMarketCap: prev, noise, revenueHint: 80 * M,
       });
       const move = Math.abs(r.marketCap - prev) / prev;
-      const ceiling = VALUATION.WEEKLY_MOVE_CLAMP + VALUATION.NOISE_PCT
-                    + VALUATION.WEEKLY_MOVE_CLAMP * VALUATION.NOISE_PCT + 1e-9;
+      // The band is no longer flat: it widens with the distance to fair value,
+      // so a print sitting two orders of magnitude below the business it
+      // represents can actually catch up (see moveClampFor). It is still a
+      // band — nothing teleports.
+      const band = moveClampFor(prev, r.fairValue);
+      const ceiling = band + VALUATION.NOISE_PCT + band * VALUATION.NOISE_PCT + 1e-9;
       assert.ok(move <= ceiling,
         `moved ${(move * 100).toFixed(2)}% in one week (ceiling ${(ceiling * 100).toFixed(2)}%)`);
     }
   }
 });
 
-test('clamp is 8% — the old 20% made the approach to fair value an annuity', () => {
+test('the resting band is 8% — the old 20% made the approach to fair value an annuity', () => {
   assert.equal(VALUATION.WEEKLY_MOVE_CLAMP, 0.08);
   assert.equal(VALUATION.NOISE_PCT, 0.035);
+  // ...and the widest catch-up band, for a print far from fair value.
+  assert.equal(VALUATION.MOVE_CLAMP_MAX, 0.35);
+  assert.equal(moveClampFor(100 * M, 100 * M), VALUATION.WEEKLY_MOVE_CLAMP);
 });
 
 test('share price is market cap over the share count', () => {

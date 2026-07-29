@@ -15,6 +15,7 @@ import { formatMoney } from '../utils/simulation.js';
 import {
   STOCK_MARKET, sharesOf, svpsOf, freeFloatOf,
   CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
+  repriceForShareChange,
 } from '../utils/market.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { OgChip, DevChip } from './Competition.jsx';
@@ -305,6 +306,24 @@ function CapitalActions({ state, dispatch }) {
   const [buybackStr, setBuyStr]   = useState('');
   const [payoutStr, setPayoutStr] = useState(String(Math.round((equity.dividendPolicy ?? 0) * 100)));
 
+  // How much investor cash the world's float pool has left. Every issue is
+  // bought BY the pool, so this is the real ceiling on what can be raised — and
+  // an offering the pool can only part-fund is now partially subscribed rather
+  // than silently refused, which is worth showing before the click.
+  const poolCash = Number.isFinite(Number(state.stockPool?.poolCash))
+    ? Number(state.stockPool.poolCash) : null;
+
+  /**
+   * What the share price becomes once an issue settles. The cash raised joins
+   * the market cap in the same step as the new shares (repriceForShareChange),
+   * so the only real per-share cost is the discount — this makes that visible
+   * instead of leaving the player to discover it on the next tick.
+   */
+  const priceAfter = (n, cashDelta) => {
+    const next = repriceForShareChange(state, { shares: shares + n, cashDelta });
+    return next.sharePrice;
+  };
+
   // ── IPO ────────────────────────────────────────────────────────────────────
   const recent = history.slice(-12);
   const profitableFrac = recent.length
@@ -312,9 +331,20 @@ function CapitalActions({ state, dispatch }) {
   const ipoDisc = ipoDiscount(history.length, profitableFrac);
   const tooYoung = absWeek < C.IPO_MIN_ABS_WEEK;
   const noRecord = history.length < C.IPO_MIN_HISTORY_WEEKS;
-  // Default offer: a quarter of the post-issue company, the middle of the band.
-  const ipoShares = Math.round((shares * 0.25) / 0.75);
-  const ipoProceeds = Math.round(ipoShares * price * (1 - ipoDisc));
+  // How much of the company to float — the engine allows IPO_MIN_FRACTION..MAX
+  // of the POST-issue company, and this used to be hardcoded at 25%.
+  const [ipoPct, setIpoPct] = useState(25);
+  const ipoFrac   = Math.min(C.IPO_MAX_FRACTION, Math.max(C.IPO_MIN_FRACTION, ipoPct / 100));
+  const ipoShares = Math.round((shares * ipoFrac) / (1 - ipoFrac));
+  const ipoPrice  = price * (1 - ipoDisc);
+  const ipoWanted = Math.round(ipoShares * ipoPrice);
+  const ipoFilled = poolCash != null && ipoPrice > 0
+    ? Math.min(ipoShares, Math.floor(poolCash / ipoPrice)) : ipoShares;
+  const ipoProceeds = Math.round(ipoFilled * ipoPrice);
+  const ipoPartial  = ipoFilled < ipoShares;
+  // Mirrors the engine: a fill below the market's minimum ticket is no listing.
+  const ipoViable   = ipoFilled > 0 && ipoProceeds >= Math.min(STOCK_MARKET.MIN_TICKET, ipoWanted);
+  const ipoAfter    = ipoFilled > 0 ? priceAfter(ipoFilled, ipoProceeds) : price;
 
   // ── Offering ──────────────────────────────────────────────────────────────
   const issuedThisYear = Number(equity.offeringsThisYear ?? 0);
@@ -322,7 +352,14 @@ function CapitalActions({ state, dispatch }) {
   const issueN = Math.max(0, Math.floor(Number(issueStr) || 0));
   const loyal = (equity.cumDividendsPerShare ?? 0) > 0 || (equity.buybacksEver ?? 0) > 0 ? 1 : 0;
   const issueDisc = offeringDiscount((issuedThisYear + issueN) / Math.max(1, shares), loyal);
-  const issueProceeds = Math.round(issueN * price * (1 - issueDisc));
+  const issuePrice  = price * (1 - issueDisc);
+  const issueFilled = poolCash != null && issuePrice > 0
+    ? Math.min(issueN, Math.floor(poolCash / issuePrice)) : issueN;
+  const issueProceeds = Math.round(issueFilled * issuePrice);
+  const issuePartial  = issueN > 0 && issueFilled < issueN;
+  const issueViable   = issueFilled > 0
+    && issueProceeds >= Math.min(STOCK_MARKET.MIN_TICKET, Math.round(issueN * issuePrice));
+  const issueAfter    = issueFilled > 0 ? priceAfter(issueFilled, issueProceeds) : price;
 
   // ── Buyback ───────────────────────────────────────────────────────────────
   const boughtThisYear = Number(equity.buybacksThisYear ?? 0);
@@ -386,13 +423,39 @@ function CapitalActions({ state, dispatch }) {
         {!isPublic ? (
           <div style={box}>
             <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Go public</div>
-            <CapitalRow label="Shares offered" value={`${ipoShares.toLocaleString()} (25%)`} />
+            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+              {[10, 15, 20, 25, 30, 35].map((v) => (
+                <button
+                  key={v}
+                  className="btn btn-ghost"
+                  style={{
+                    flex: 1, fontSize: 11, padding: '3px 0',
+                    color: ipoPct === v ? 'var(--accent)' : 'var(--text-muted)',
+                    borderColor: ipoPct === v ? 'var(--accent)' : 'var(--border)',
+                  }}
+                  onClick={() => setIpoPct(v)}
+                >{v}%</button>
+              ))}
+            </div>
+            <CapitalRow label="Shares offered" value={`${ipoShares.toLocaleString()} (${ipoPct}%)`} />
+            <CapitalRow label="Offer price" hint="your valuation less the IPO discount" value={fmtPrice(ipoPrice)} />
             <CapitalRow label="IPO discount" hint="a longer profitable record prices better" value={pct(ipoDisc)} />
             <CapitalRow label="Estimated proceeds" value={formatMoney(ipoProceeds)} />
+            <CapitalRow
+              label="Share price after"
+              hint="the cash raised joins your market cap as the new shares appear, so only the discount costs you"
+              value={`${fmtPrice(price)} → ${fmtPrice(ipoAfter)} (${price > 0 ? pct((ipoAfter - price) / price) : '—'})`}
+            />
+            {ipoPartial && ipoViable && (
+              <div style={{ fontSize: 10.5, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
+                Investors can only absorb {formatMoney(poolCash ?? 0)} of the {formatMoney(ipoWanted)} on offer,
+                so {ipoFilled.toLocaleString()} shares would be sold and the rest withdrawn.
+              </div>
+            )}
             <button
               className="btn btn-primary"
               style={{ width: '100%', marginTop: 8, fontSize: 12 }}
-              disabled={tooYoung || noRecord || !(price > 0)}
+              disabled={tooYoung || noRecord || !(price > 0) || !ipoViable}
               onClick={() => dispatch({ type: 'GO_PUBLIC', shares: ipoShares })}
             >
               List on the exchange
@@ -400,6 +463,7 @@ function CapitalActions({ state, dispatch }) {
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6 }}>
               {tooYoung ? `Available from week ${C.IPO_MIN_ABS_WEEK}.`
                 : noRecord ? `Needs ${C.IPO_MIN_HISTORY_WEEKS} weeks of trading history.`
+                : !ipoViable ? 'The equity window is shut — there is no investor capital left in this world.'
                 : 'Raises cash, permanently dilutes you, and lets rivals buy in.'}
             </div>
           </div>
@@ -413,10 +477,23 @@ function CapitalActions({ state, dispatch }) {
               value={issueStr} onChange={(e) => setIssueStr(e.target.value.replace(/[^0-9]/g, ''))}
             />
             <CapitalRow label="Proceeds" value={issueN > 0 ? formatMoney(issueProceeds) : '—'} />
+            <CapitalRow
+              label="Share price after"
+              hint="the cash raised joins your market cap as the new shares appear, so only the discount costs you"
+              value={issueN > 0 && price > 0
+                ? `${fmtPrice(price)} → ${fmtPrice(issueAfter)} (${pct((issueAfter - price) / price)})`
+                : '—'}
+            />
+            {issuePartial && issueViable && (
+              <div style={{ fontSize: 10.5, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
+                Investors can only take {issueFilled.toLocaleString()} of them right now
+                ({formatMoney(poolCash ?? 0)} of capital left in the market).
+              </div>
+            )}
             <button
               className="btn"
               style={{ width: '100%', marginTop: 6, fontSize: 12 }}
-              disabled={!(issueN > 0) || issueN > issueAllowance || !(price > 0)}
+              disabled={!(issueN > 0) || issueN > issueAllowance || !(price > 0) || !issueViable}
               onClick={() => { dispatch({ type: 'ISSUE_SHARES', shares: issueN }); setIssueStr(''); }}
             >
               Issue shares
