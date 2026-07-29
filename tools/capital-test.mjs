@@ -30,7 +30,7 @@ const listed = (over = {}) => {
   const s = {
     ...freshState(),
     cash: 500_000_000, week: 30, year: 1,
-    marketCap: 100_000_000, sharePrice: 1, multiplayer: true,
+    marketCap: 100_000_000, fairValue: 100_000_000, sharePrice: 1, multiplayer: true,
     financialHistory: history(52),
     worldMarket: { poolCash: 750_000_000, seedCash: 750_000_000, sharesAvailable: 30_000_000, selfSharesHeld: 30_000_000 },
   };

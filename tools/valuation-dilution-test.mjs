@@ -43,6 +43,11 @@ const caldor = (over = {}) => ({
   week: 30, year: 3,
   cash: 8_930_000,
   marketCap: 26_580_000,
+  // The published print and the unsmoothed fair value are separate fields since
+  // private airlines stopped publishing the latter as a price. These dilution
+  // cases are about what a share issue does to the print, so they pin the two
+  // together and vary only the share count.
+  fairValue: 26_580_000,
   sharePrice: 0.2658,
   equity: emptyEquity(),
   financialHistory: history(52, 23_570_000),
@@ -159,16 +164,44 @@ test('the band never lets a single windfall teleport the price', () => {
 
 // ── 3. A private airline has no market to smooth ─────────────────────────────
 
-test('a private airline publishes fair value, so its IPO prices honestly', () => {
+// REVISED 2026-07-29. This used to assert the opposite — that a private airline
+// republishes raw fair value — which is exactly what let a private startup print a
+// +8383% weekly move to every rival on the Markets tab. The intent behind it (an
+// IPO must not be priced off a lagging series) is preserved by keeping the fair
+// value on the state and pricing the listing off THAT, rather than by publishing it.
+
+test('a private airline keeps a smoothed print, like everyone else', () => {
   const base = caldor();
   const out  = gameReducer(base, { type: 'ADVANCE_WEEK' });
-  const fair = computeMarketCap(
-    base.financialHistory.slice(-12).map(h => h.profit), out.cash, base.awareness ?? 5,
-    { revenueHint: 71_200_000 },
-  ).fairValue;
-  assert.ok(out.marketCap > base.marketCap * 1.12,
-    `a private print jumped to ${(out.marketCap / M).toFixed(0)}M — past the smoothed band`);
-  assert.ok(out.marketCap > fair * 0.5, 'and lands in the region of fair value, not 0.6% of it');
+  const move = Math.abs(out.marketCap - base.marketCap) / base.marketCap;
+  assert.ok(move <= VALUATION.MOVE_CLAMP_MAX + VALUATION.NOISE_PCT + 1e-9,
+    `a private print moved ${(move * 100).toFixed(1)}% — must stay inside the band`);
+});
+
+test('...but its fair value is tracked unsmoothed, and the IPO prices off that', () => {
+  const out = gameReducer(caldor(), { type: 'ADVANCE_WEEK' });
+  assert.ok(out.fairValue > out.marketCap * 2,
+    'a fast-growing private airline is worth far more than its smoothed print');
+  const fairPrice = out.fairValue / sharesOf(out);
+  const ipo   = gameReducer(out, { type: 'GO_PUBLIC', shares: 20 * M });
+  const offer = ipo.lastEquityAction.pricePerShare;
+  assert.ok(offer <= fairPrice + 1e-9 && offer > fairPrice * 0.5,
+    `listed at $${offer.toFixed(4)} against a fair $${fairPrice.toFixed(4)} — the discount, not the lag`);
+  // Listing is the price-discovery event: the print rebases to fair value in the
+  // same step, so the stock does not gap down on its first day.
+  assert.ok(Math.abs(ipo.sharePrice - offer) / offer < 0.15,
+    `first print $${ipo.sharePrice.toFixed(4)} vs offer $${offer.toFixed(4)} — no day-one gap`);
+});
+
+test('a private airline records no share price at all, so there is no series to misread', () => {
+  const out  = gameReducer(caldor(), { type: 'ADVANCE_WEEK' });
+  const last = out.statsHistory[out.statsHistory.length - 1];
+  assert.equal(last.sharePrice, null, 'nothing to chart while private');
+  const after = gameReducer(gameReducer(out, { type: 'GO_PUBLIC', shares: 20 * M }),
+                            { type: 'ADVANCE_WEEK' });
+  const lastListed = after.statsHistory[after.statsHistory.length - 1];
+  assert.ok(Number.isFinite(lastListed.sharePrice) && lastListed.sharePrice > 0,
+    'and the series begins at the listing');
 });
 
 test('a listed airline keeps its smoothed series', () => {

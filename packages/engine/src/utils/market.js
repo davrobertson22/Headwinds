@@ -657,7 +657,18 @@ export const VALUATION = {
   MOVE_CLAMP_MAX:    0.35,     // widest catch-up band, however far off the print is
   MOVE_CLAMP_GAP_POW: 0.5,     // band scales with gap^this (sqrt: gentle, unbounded input)
   NOISE_PCT:         0.035,    // ±3.5% weekly noise band
-  MIN_MARKET_CAP:    500_000,  // absolute floor
+  MIN_MARKET_CAP:    500_000,  // absolute floor ($), regardless of size
+  // Asset-proportional equity floor. A flat $500k floor is meaningless for an
+  // airline that owns aircraft: a leveraged startup whose debt exceeds its
+  // credited assets has a NEGATIVE net book for its first weeks, so both
+  // fair-value terms go negative and it pins at $500k — which, against the 100M
+  // founder share count, is a $0.0050 share price. It then teleports by two
+  // orders of magnitude the week the earnings term switches on. Floor the
+  // valuation at a fraction of GROSS assets instead (what the airline owns,
+  // before what it owes), so a real balance sheet keeps a real, if distressed,
+  // equity value and the price never has to climb out of a hole it should never
+  // have been in. Distressed equity is cheap, not free.
+  ASSET_FLOOR_FRAC:  0.08,     // equity floor = 8% of gross assets
 };
 
 /**
@@ -792,10 +803,21 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
     ? idleFloor + V.IDLE_CASH_WEIGHT * (rawCash - idleFloor)
     : rawCash;
 
+  // Gross assets — everything the airline OWNS, before what it owes. This is the
+  // base for the asset-proportional floor below; net book (which subtracts debt)
+  // is what the valuation itself is built on.
+  const grossAssets = Math.max(0, creditedCash)
+                    + V.FLEET_NAV_WEIGHT * Math.max(0, fleetNAV)
+                    + Math.max(0, portfolioValue);
+
   const netBook = creditedCash
                 + V.FLEET_NAV_WEIGHT * Math.max(0, fleetNAV)
                 + Math.max(0, portfolioValue)
                 - Math.max(0, debt);
+
+  // The floor this airline's equity cannot print below: the absolute minimum, or
+  // a fraction of its gross assets, whichever is larger (see ASSET_FLOOR_FRAC).
+  const valueFloor = Math.max(V.MIN_MARKET_CAP, V.ASSET_FLOOR_FRAC * grossAssets);
 
   const weeks = (profitHistory ?? []).slice(-12);
 
@@ -855,7 +877,7 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
       V.BOOK_WEIGHT * netBook + earningsValue,
       V.BOOK_FLOOR * netBook,
     ),
-    V.MIN_MARKET_CAP,
+    valueFloor,
   );
 
   // ── Path-dependent price: converge, clamp, noise ───────────────────────────
@@ -869,6 +891,12 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
       Math.max(prevMarketCap * (1 - band), target),
     );
     const n = Math.max(-V.NOISE_PCT, Math.min(V.NOISE_PCT, Number.isFinite(noise) ? noise : 0));
+    // NOTE the floor here is the ABSOLUTE one, not the asset-aware valueFloor.
+    // The asset floor belongs to fair value — it says what the business is worth.
+    // Applying it to the PUBLISHED cap as well would let it jump the move clamp
+    // (buy a fleet, gross assets leap, the floor drags the print past its band in
+    // one tick), which is the same class of defect as the one this file fixes. The
+    // print converges up to a floored fair value inside the band like anything else.
     marketCap = Math.max(clamped * (1 + n), V.MIN_MARKET_CAP);
   } else {
     marketCap = fairValue;
@@ -882,6 +910,8 @@ export function computeMarketCap(profitHistory, cash, qualityScore = 50, extras 
     growthRate,
     fairValue,
     netBook,
+    grossAssets,
+    valueFloor,
   };
 }
 

@@ -219,7 +219,7 @@ export default function Competition() {
         playerHub={state.hub}
         playerCash={state.cash}
         playerMarketCap={state.marketCap ?? null}
-        playerSharePrice={state.sharePrice ?? null}
+        playerSharePrice={state.equity?.isPublic === false ? null : (state.sharePrice ?? null)}
         playerProfitHistory={financialHistory.slice(-12).map(w => w.profit ?? 0)}
         playerOG={state.accountOG === true}
         playerDev={state.accountDev === true}
@@ -309,7 +309,10 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       dev:         c.dev === true,  // DEV badge — game operator
       weeklyProfit: c.weeklyStats?.weeklyProfit ?? null,
       marketCap:   c.marketCap ?? null,
-      sharePrice:  c.sharePrice ?? null,
+      // Private airlines have a valuation but no traded price — the row falls
+      // through to the weekly-profit line rather than quoting a market that
+      // does not exist.
+      sharePrice:  c.isPublic === false ? null : (c.sharePrice ?? null),
       profitHistory: c.profitHistory ?? [],
       isPlayer:    false,
       carrier:     c,       // raw competitor — clicking opens the rival dossier
@@ -1257,7 +1260,9 @@ function RivalDetailView({ carrier, onClose }) {
           {/* Overview tiles */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
             <StatTile label="Market cap" value={money(carrier.marketCap)} />
-            <StatTile label="Share price" value={carrier.sharePrice != null ? `$${carrier.sharePrice.toFixed(2)}` : '–'} />
+            <StatTile label="Share price"
+              value={carrier.isPublic === false ? 'Private'
+                : carrier.sharePrice != null ? `$${carrier.sharePrice.toFixed(2)}` : '–'} />
             <StatTile label="Cash" value={money(carrier.cash)} color={carrier.cash != null && carrier.cash < 0 ? '#f87171' : undefined} />
             <StatTile label="Weekly profit" value={wp == null ? '–' : `${wp >= 0 ? '+' : ''}${formatMoney(wp)}`}
               color={wp == null ? undefined : wp >= 0 ? 'var(--green)' : '#f87171'} />

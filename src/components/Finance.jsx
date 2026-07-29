@@ -3689,6 +3689,8 @@ function FuelHedging() {
   // Gauge position: map [MIN, MAX] → [0, 100]
   const gaugeRange  = FUEL_MAX_INDEX - FUEL_MIN_INDEX;
   const gaugePos    = Math.round(((fuelIndex - FUEL_MIN_INDEX) / gaugeRange) * 100);
+  // Where index 1.0 actually falls on that linear axis (~33%), not the visual midpoint
+  const normalPos   = ((1 - FUEL_MIN_INDEX) / gaugeRange) * 100;
 
   // Preview for selected option
   const selOpt        = HEDGE_DURATIONS.find(o => o.id === selDuration);
@@ -3742,10 +3744,21 @@ function FuelHedging() {
               background: status.color, border: '2px solid var(--bg)',
               left: `calc(${Math.min(98, Math.max(2, gaugePos))}% - 7px)`,
               boxShadow: '0 0 6px ' + status.color,
+              zIndex: 1,
+            }} />
+            {/* Tick at index 1.0 — the axis is linear, so normal sits left of centre */}
+            <div style={{
+              position: 'absolute', top: -3, left: `${normalPos}%`, width: 1, height: 14,
+              background: 'rgba(255,255,255,0.35)', transform: 'translateX(-0.5px)',
             }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--muted)' }}>
-            <span>{FUEL_MIN_INDEX}</span><span>1.0 (normal)</span><span>{FUEL_MAX_INDEX}</span>
+          <div style={{ position: 'relative', height: 13, fontSize: 10, color: 'var(--muted)' }}>
+            <span style={{ position: 'absolute', left: 0 }}>{FUEL_MIN_INDEX}</span>
+            <span style={{
+              position: 'absolute', left: `${normalPos}%`,
+              transform: 'translateX(-50%)', whiteSpace: 'nowrap',
+            }}>1.0 (normal)</span>
+            <span style={{ position: 'absolute', right: 0 }}>{FUEL_MAX_INDEX}</span>
           </div>
 
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)', fontSize: 12 }}>

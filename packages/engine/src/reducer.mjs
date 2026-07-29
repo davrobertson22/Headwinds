@@ -453,6 +453,11 @@ function freshState() {
     bankruptcyReason:         null, // 'missed_loans' | 'consecutive_negative' | null
     // Valuation v2: a fresh airline is worth BOOK_WEIGHT × net book (= cash).
     marketCap:         STARTING_CASH * 0.85,  // player market cap ($), updated each week
+    // Unsmoothed fundamental value, tracked alongside the published cap. While the
+    // airline is private this is what a listing would be priced off; it is never
+    // shown as a share price. Starts equal to the cap — a fresh airline is exactly
+    // its book value, so there is nothing to smooth yet.
+    fairValue:         STARTING_CASH * 0.85,
     sharePrice:        STARTING_CASH * 0.85 / TOTAL_SHARES,  // player share price ($)
     // Share count, listing status and lifetime dividends. Share count is per
     // airline now (issuance/buybacks move it), so nothing may assume TOTAL_SHARES.
@@ -3709,17 +3714,21 @@ function reducer(state, action) {
         ? recentRevWeeks.reduce((s, h) => s + (h.revenue ?? 0), 0) / recentRevWeeks.length
         : 0;
       const playerProfitHistory = newHistory.slice(-12).map(h => h.profit);
-      const { marketCap: newMarketCap, sharePrice: newSharePrice } =
+      // Every airline's published cap is smoothed, listed or not. A private
+      // airline USED to publish its raw fair value straight (prevMarketCap: null
+      // took computeMarketCap's cold branch), so it skipped convergence, the move
+      // clamp and the noise term entirely — which is how a private startup printed
+      // a +8383% weekly move to every rival on the Markets tab. The reason that
+      // was done is still valid, though: pricing an IPO off a smoothed series that
+      // had been chasing a fast-growing fair value meant floating a quarter of the
+      // company for a rounding error. So the fair value is now KEPT (state.fairValue)
+      // rather than published, and GO_PUBLIC prices the listing off it — see below.
+      const { marketCap: newMarketCap, sharePrice: newSharePrice, fairValue: newFairValue } =
         computeMarketCap(playerProfitHistory, cashAfterDividend, state.awareness ?? 5, {
           fleetNAV:       fleetNAVOf(agedFleet, curAbsWeek),
           debt:           loanOutstanding(updatedLoans),
           portfolioValue,
-          // A PRIVATE airline has no market, so there is no market price to
-          // smooth: publish its fair value straight. That is what makes the IPO
-          // price honest — pricing the listing off a smoothed series that had
-          // been chasing a fast-growing fair value for years meant floating a
-          // quarter of the company for a rounding error.
-          prevMarketCap:  (state.equity?.isPublic === false) ? null : (state.marketCap ?? null),
+          prevMarketCap:  state.marketCap ?? null,
           noise:          valuationNoise,
           revenueHint,
           marketFactor,
@@ -3773,7 +3782,12 @@ function reducer(state, action) {
         // Markets: this week's authoritative share price (drives price charts —
         // own chart and, via the server rival payload, what rivals see) and the
         // mark-to-market value of the stock portfolio.
-        sharePrice:     newSharePrice,
+        // A private airline records NO price. There is no market in it, so there is
+        // no price series to chart — which is the cleanest form of the fix: a
+        // newly listed airline's chart starts at its listing instead of carrying a
+        // pre-listing series nobody could have traded on. Rival payloads and every
+        // price readout already skip non-numeric entries.
+        sharePrice:     nextEquity?.isPublic === false ? null : newSharePrice,
         svps:           svpsOf({ sharePrice: newSharePrice, equity: nextEquity }),
         shares:         sharesOf(state),
         portfolioValue,
@@ -3810,6 +3824,7 @@ function reducer(state, action) {
         weekProfit:       preTaxProfit - corporateTax,
         cash:             cashAfterDividend,
         marketCap:        newMarketCap,
+        fairValue:        newFairValue,
         year:             newYear,
         week:             newWeek,
       };
@@ -4076,6 +4091,10 @@ function reducer(state, action) {
         missedLoanPayments:       newMissedLoanPayments,
         consecutiveNegativeWeeks: newConsecutiveNegativeWeeks,
         marketCap:                newMarketCap,
+        // Unsmoothed fundamental value. NOT published as a price — it exists so a
+        // listing can be priced honestly (GO_PUBLIC) without the published series
+        // having to teleport week to week.
+        fairValue:                newFairValue,
         sharePrice:               newSharePrice,
         equity:                   nextEquity,
         // Leaderboard metric: per-share value including lifetime dividends — which
@@ -4320,7 +4339,17 @@ function reducer(state, action) {
         ? recent.filter(h => (h.profit ?? 0) > 0).length / recent.length
         : 0;
       const discount   = ipoDiscount(history.length, profitable);
-      const basePrice  = state.sharePrice ?? ((state.marketCap ?? 0) / sharesOf(state));
+      // Listing IS the price-discovery event: this is the first week the market
+      // prints what the airline is actually worth. Up to now the published cap has
+      // been a smoothed series (so the pre-listing chart is readable and rivals
+      // never see a four-digit weekly move), so the offer is priced off the
+      // unsmoothed fair value and the published cap rebases to it in the same
+      // step — otherwise a fast-growing startup would list at a price its own
+      // published cap could not support and the stock would gap down on day one.
+      const baseCap    = Number(state.fairValue) > 0
+        ? Number(state.fairValue)
+        : (Number(state.marketCap) || 0);
+      const basePrice  = baseCap / sharesOf(state);
       const price      = basePrice * (1 - discount);
       if (!(price > 0)) return state;
       // The pool is the buyer and its cash is finite. Fill what it can afford
@@ -4340,12 +4369,15 @@ function reducer(state, action) {
       const partial   = sold < offered;
 
       // Reprice in the same step as the dilution — see repriceForShareChange.
-      const listed = repriceForShareChange(state, { shares: newShares, cashDelta: proceeds });
+      // Rebased onto the fair value (baseCap), not the smoothed pre-listing print.
+      const listed = repriceForShareChange({ ...state, marketCap: baseCap },
+                                           { shares: newShares, cashDelta: proceeds });
 
       return {
         ...state,
         cash: state.cash + proceeds,
         marketCap:  listed.marketCap,
+        fairValue:  listed.marketCap,
         sharePrice: listed.sharePrice,
         svps:       svpsOf({ sharePrice: listed.sharePrice, equity }),
         equity: {
@@ -4801,5 +4833,9 @@ function reconcileState(parsed) {
       const ph = (parsed.financialHistory ?? []).slice(-12).map(h => h.profit);
       return computeMarketCap(ph, parsed.cash ?? 0, parsed.awareness ?? 5).sharePrice;
     })(),
+    // Unsmoothed fair value — added when private airlines stopped publishing it as
+    // a price. Saves written before that start from their own published cap, which
+    // for a private airline WAS the fair value, so nothing moves at the migration.
+    fairValue:   Number.isFinite(parsed.fairValue) ? parsed.fairValue : (parsed.marketCap ?? null),
   };
 }

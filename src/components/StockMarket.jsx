@@ -40,6 +40,15 @@ function historyOf(c) {
   return h;
 }
 
+// A PRIVATE airline has no market and therefore no traded price. Its valuation is
+// still real and still shown (Market cap), but price / weekly move / sparkline are
+// market readouts and a company that is not on the market has none of them — which
+// is what let a private startup print a four-digit weekly move next to listed
+// rivals as though the two were comparable.
+const NoPrice  = () => <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Private</span>;
+const NoMove   = () => <span style={{ color: 'var(--text-muted)' }}>—</span>;
+const NoChart  = () => <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>not listed</span>;
+
 /** Weekly move %: last two points of the price series (null with <2 points). */
 function weeklyMove(c) {
   const h = historyOf(c);
@@ -578,6 +587,8 @@ export default function StockMarket() {
   // Own airline — shown pinned at top of the list (not tradeable: no buying
   // your own stock; your price is your scoreboard).
   const ownHistory = (state.statsHistory ?? []).map((e) => e.sharePrice).filter((v) => Number.isFinite(v) && v > 0);
+  // Your own airline is private until you list it — the same rule applies to you.
+  const ownPrivate = state.equity?.isPublic === false;
 
   return (
     <div>
@@ -631,12 +642,15 @@ export default function StockMarket() {
                   <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>YOU</span>
                 </div>
               </td>
-              <td style={{ textAlign: 'right', padding: '9px 8px', fontWeight: 600 }}>{fmtPrice(state.sharePrice)}</td>
+              <td style={{ textAlign: 'right', padding: '9px 8px', fontWeight: 600 }}>
+                {ownPrivate ? <NoPrice /> : fmtPrice(state.sharePrice)}
+              </td>
               <td style={{ textAlign: 'right', padding: '9px 8px' }}>
-                <MovePct history={ownHistory} />
+                {ownPrivate ? <NoMove /> : <MovePct history={ownHistory} />}
               </td>
               <td style={{ textAlign: 'center', padding: '9px 8px' }}>
-                <div style={{ display: 'inline-block' }}><PriceSparkline history={ownHistory} /></div>
+                {ownPrivate ? <NoChart />
+                  : <div style={{ display: 'inline-block' }}><PriceSparkline history={ownHistory} /></div>}
               </td>
               <td style={{ textAlign: 'right', padding: '9px 8px' }}>{formatMoney(Math.round(state.marketCap ?? 0))}</td>
               <td style={{ textAlign: 'right', padding: '9px 8px', color: 'var(--text-muted)', fontSize: 11 }}>—</td>
@@ -663,10 +677,15 @@ export default function StockMarket() {
                       {c.dev && <DevChip size={9} />}
                     </div>
                   </td>
-                  <td style={{ textAlign: 'right', padding: '9px 8px', fontWeight: 600 }}>{fmtPrice(price)}</td>
-                  <td style={{ textAlign: 'right', padding: '9px 8px' }}><MovePct history={historyOf(c)} /></td>
+                  <td style={{ textAlign: 'right', padding: '9px 8px', fontWeight: 600 }}>
+                    {isPrivate ? <NoPrice /> : fmtPrice(price)}
+                  </td>
+                  <td style={{ textAlign: 'right', padding: '9px 8px' }}>
+                    {isPrivate ? <NoMove /> : <MovePct history={historyOf(c)} />}
+                  </td>
                   <td style={{ textAlign: 'center', padding: '9px 8px' }}>
-                    <div style={{ display: 'inline-block' }}><PriceSparkline history={historyOf(c)} /></div>
+                    {isPrivate ? <NoChart />
+                      : <div style={{ display: 'inline-block' }}><PriceSparkline history={historyOf(c)} /></div>}
                   </td>
                   <td style={{ textAlign: 'right', padding: '9px 8px' }}>{c.marketCap != null ? formatMoney(Math.round(c.marketCap)) : '—'}</td>
                   <td style={{ textAlign: 'right', padding: '9px 8px' }}>
@@ -704,7 +723,8 @@ export default function StockMarket() {
 
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
         <GlyphLabel size={11} text={
-          'ℹ Prices are set by each airline\'s fundamentals (profits, growth, cash, fleet and debt) and move once per weekly tick (max ±20% a week, plus a little market noise). '
+          'ℹ Prices are set by each airline\'s fundamentals (profits, growth, cash, fleet and debt) and move once per weekly tick — typically no more than ±8%, widening when the price has a lot of ground to make up, plus a little market noise. '
+          + 'Airlines that have not listed yet show a valuation but no share price: there is no market in them to quote. '
           + 'You may own up to 20% of any one airline, and your total invested cost is capped at 40% of your own market cap. '
           + 'If an airline you hold shuts down or leaves the world, the position is force-liquidated at a haircut.'
         } />
