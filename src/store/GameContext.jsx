@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useMemo } from 'react';
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
-import { setFareIndex } from '../../packages/engine/src/utils/market.js';
+import { setFareIndex, getFareIndex } from '../../packages/engine/src/utils/market.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -78,6 +78,18 @@ export function GameProvider({ children }) {
 // submits validated intents to the API. Every screen that calls useGame() works
 // unchanged on top of it. No localStorage: the server owns persistence.
 export function RemoteGameProvider({ state, dispatch, remoteApi = null, remoteChrome = null, children }) {
+  // World fare index (New World Restrictions). The engine's referencePrice() reads
+  // a module-scoped index that the reducer sets on every action — but in
+  // multiplayer the server owns the state and NO reducer call happens on load, so
+  // until the player's first action the whole fare ladder rendered unrestricted.
+  // Worse, it then snapped to the real index the moment they touched anything:
+  // reported as "it shows the new reference, I edit a price, and when I click off
+  // it reverts to the old one". Set it whenever the adopted state's index changes,
+  // and synchronously during render so the FIRST paint is already correct.
+  const fareIndex = state?.fareIndex ?? 1;
+  if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
+  useEffect(() => { setFareIndex(fareIndex); }, [fareIndex]);
+
   const value = useMemo(
     () => hydratedValue(state, dispatch, true, remoteApi, remoteChrome),
     [state, dispatch, remoteApi, remoteChrome]

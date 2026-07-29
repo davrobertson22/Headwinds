@@ -484,6 +484,20 @@ test('a junk index falls back to 1 rather than corrupting every fare', () => {
   }
 });
 
+test('the index is correct on the FIRST paint, before any action', () => {
+  // REGRESSION: in multiplayer the server owns state and no reducer call happens
+  // on load, so the whole fare ladder rendered UNRESTRICTED until the player's
+  // first action — then snapped to the real index, which read as the reference
+  // price "reverting" the moment you touched a fare. RemoteGameProvider now sets
+  // it during render. This asserts the underlying contract that made that fix
+  // possible: the index is readable and settable without dispatching anything.
+  setFareIndex(1);
+  assert.equal(getFareIndex(), 1, 'a cold module defaults to unrestricted');
+  setFareIndex(NWR_FARE_INDEX);
+  assert.equal(getFareIndex(), NWR_FARE_INDEX, 'adopting state must move it with no action');
+  setFareIndex(1);
+});
+
 test('the reducer sets the index from state on every action', () => {
   setFareIndex(1);
   const s = baseState({ fareIndex: NWR_FARE_INDEX });
