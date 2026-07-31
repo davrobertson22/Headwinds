@@ -3697,9 +3697,14 @@ function FuelHedging() {
   const lockedPreview = selOpt ? parseFloat((fuelIndex * (1 + selOpt.premium)).toFixed(3)) : fuelIndex;
   const canBuy        = hedgedPct + selCoverage * 100 <= 100;
 
-  // History chart
+  // History chart. In multiplayer the just-ticked world index is stored as BOTH
+  // the current index and the last history entry (the tick injects one shared
+  // value), so appending it again would double-plot the newest week — only
+  // append when it's genuinely not there yet (solo, where index is next week's
+  // price and history holds the past).
   const chartW = 360, chartH = 80;
-  const pts    = [...history, fuelIndex].slice(-13);
+  const lastH  = history.length > 0 ? history[history.length - 1] : null;
+  const pts    = (lastH === fuelIndex ? history : [...history, fuelIndex]).slice(-13);
   const yMin   = FUEL_MIN_INDEX, yMax = FUEL_MAX_INDEX;
   const toSVGPt = (val, i, n) => ({
     x: n > 1 ? (i / (n - 1)) * chartW : chartW / 2,

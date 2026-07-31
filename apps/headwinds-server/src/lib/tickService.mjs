@@ -9,9 +9,7 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
-import { VALUATION, tickMarketIndex, MARKET_BASE_INDEX,
-         svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
-import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
+import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
@@ -23,6 +21,7 @@ import {
 import { scrapStale } from './aircraftMarketService.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
+import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
 } from './newsService.mjs';
@@ -35,43 +34,10 @@ const TICK_TX_OPTS = { timeout: 30_000, maxWait: 15_000 };
 // ── Shared world economy (fuel + events) ──────────────────────────────────────
 // Without this, each airline rolled its OWN fuel price and its OWN events, so two
 // rivals in the "same" world paid different fuel and saw different booms/crises —
-// the leaderboard partly reflected private dice. We now compute ONE fuel index
-// and ONE event set per world-week and inject them into every airline's tick.
-
-// Deterministic uniform [0,1) from a string seed + salt (xfnv1a hash → mulberry32).
-function seededRand(seedStr, salt) {
-  let h = 2166136261 >>> 0;
-  const s = `${seedStr}:${salt}`;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  h += 0x6d2b79f5;
-  let t = h >>> 0;
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-}
-
-// The world-shared fuel index at a given 1-based week — replayed from the base
-// index through the SAME OU walk the solo game uses, but with a per-world-week
-// seeded shock, so it's identical for every airline and reproducible.
-function worldFuelIndex(seed, weekIndex) {
-  let idx = FUEL_BASE_INDEX;
-  for (let w = 1; w <= weekIndex; w++) idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`));
-  return idx;
-}
-
-// The world-shared MARKET index at a given 1-based week — pure sentiment, replayed
-// from the world seed exactly like the fuel index above, so every airline is valued
-// against the same market that week and a retried tick reproduces it.
-//
-// The fuel lever is NOT part of this walk: the engine applies it at valuation time
-// via marketValuationFactor(marketIndex, fuelIndex), using the same world-shared
-// fuel index injected alongside this one. Keeping it out of the walk means a
-// sustained fuel crisis keeps prices depressed instead of being mean-reverted away.
-function worldMarketIndex(seed, weekIndex) {
-  let mkt = MARKET_BASE_INDEX;
-  for (let w = 1; w <= weekIndex; w++) mkt = tickMarketIndex(mkt, seededRand(seed, `mkt:${w}`));
-  return mkt;
-}
+// the leaderboard partly reflected private dice. We compute ONE fuel index and
+// ONE event set per world-week and inject them into every airline's tick. The
+// walks themselves live in worldEconomy.mjs, shared with joinWorld's backfill
+// (a late joiner is seeded onto the same walk, not a fresh 1.0×).
 
 // A reducer bug that yields NaN/Infinity for cash or marketCap must not take down
 // the whole tick (BigInt(NaN) throws): coerce to a finite integer so the world

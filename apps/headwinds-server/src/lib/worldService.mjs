@@ -9,6 +9,7 @@ import {
 } from './worldConfig.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
 import { seedWorldMarket } from './marketService.mjs';
+import { worldEconomyAt } from './worldEconomy.mjs';
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -167,10 +168,27 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   // rebaseStateCalendar also shifts anything scheduled in absolute weeks, which
   // costs nothing on a fresh blob (no orders, no hedges, no history yet) but
   // keeps this identical to the backfill path in tools/rebase-airline-calendars.mjs.
-  const { state: worldDatedState } = rebaseStateCalendar(state, {
+  const { state: rebasedState } = rebaseStateCalendar(state, {
     year: world.currentYear,
     week: world.currentWeek,
   });
+
+  // ── One world, one economy ──────────────────────────────────────────────────
+  // The fuel/market walks are world-level and deterministic (replayed from
+  // worldSeed on every tick) but STORED per-airline, and a fresh blob is seeded
+  // at fuel index 1.0 with no history. Without this backfill a late joiner saw
+  // a fuel index of 1.000× and an empty price chart until their first tick —
+  // and could lock hedges at 1.0× regardless of where world fuel actually was
+  // (BUY_HEDGE prices off state.fuelPrice.index). Replay the walk up to the
+  // world's current week so the joiner starts on exactly the economy their
+  // rivals' blobs carry: same index, same 52-week history, same sentiment.
+  const joinLinearWeek = (world.currentYear - 1) * 52 + world.currentWeek;
+  const economy = worldEconomyAt(world.worldSeed ?? world.id, joinLinearWeek);
+  const worldDatedState = {
+    ...rebasedState,
+    fuelPrice:   economy.fuelPrice,
+    marketIndex: economy.marketIndex,
+  };
 
   let airline;
   try {
