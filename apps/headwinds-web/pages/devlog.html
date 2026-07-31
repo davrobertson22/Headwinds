@@ -55,6 +55,19 @@
 
     <div class="entry">
       <p class="date">July 31, 2026</p>
+      <h2>The route map was reporting the wrong load factors</h2>
+      <p>Straight from a player: &ldquo;why in one screen does it say my loads are 100% and then in two others it says they aren&rsquo;t?&rdquo; A fair question, and the map was the screen that was wrong.</p>
+      <ul>
+        <li><strong>Network was simulating your routes on its own.</strong> The map and the route list underneath it ran their own quick estimate instead of reading the same weekly forecast the rest of the game uses. That estimate handed you the entire demand pool on every city pair &mdash; as if the rival airlines flying against you weren&rsquo;t there at all. It also ignored your fuel bill, your labour agreement, how hard your fleet is being worked, your on-time record and any live events.</li>
+        <li><strong>What that looked like.</strong> Contested trunk routes pinned at 100% with fat profits on the Network tab, while the Dashboard and Finance &rarr; By Route showed the truth &mdash; often ten to fifteen points lower, and sometimes a loss where the map showed a gain. In a world full of other players that gap is wider than it ever was in single-player, because every one of them is taking a share.</li>
+        <li><strong>Freight had the same problem, twice over.</strong> Cargo lanes on the map also missed the shared-lane demand pool, so two of your own freighters on one lane each looked like they had the whole market.</li>
+        <li><strong>Now they all agree.</strong> The map reads the same forecast as everything else, cell for cell &mdash; load factor, profit, tooltips and all. Routes you genuinely have to yourself and genuinely fill still say 100%.</li>
+      </ul>
+      <p>If your loads look lower on the Network tab than they did yesterday, that is the honest number and it always was &mdash; the other screens have been showing it all along.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">July 31, 2026</p>
       <h2>Old jets stop being free money</h2>
       <p>Every out-of-production airliner was being delivered <em>brand new</em> &mdash; zero hours, full service life, 1970s price &mdash; so a $4M Trident 3B returned about six times the capital of a 737 MAX. 92 classic types now arrive 6 to 16 years old and start on a steeper maintenance curve, 23 vintage frames priced off scrap values have gone up (most doubling), and the re-engined generations now deliver their real 13&ndash;14% fuel advantage instead of 4&ndash;5%, so new metal finally breaks even at a lower load factor than the classics beside it. Also fixed: the E-Jet runway figures had the E175 needing more runway than the heavier E190, and the 737-500 was seating as many as the longer -300.</p>
       <p>If you fly classics, expect a higher lease bill and faster-climbing maintenance. Full detail in the <a href="https://www.tailwindsairlinegame.com/devlog.html">Tailwinds devlog</a>.</p>

@@ -2,7 +2,11 @@ import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
-import { simulateRoute, simulateCargoRoute, formatMoney, currentGameDate } from '../utils/simulation.js';
+import {
+  simulateRoute, simulateCargoRoute, cargoLaneAllocations, formatMoney, currentGameDate,
+  fleetAvgUtilization, buildEventDemandModel,
+} from '../utils/simulation.js';
+import { projectWeek } from '../utils/financeProjection.js';
 import { getAlliance } from '../data/alliances.js';
 import { Glyph } from './Icons.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
@@ -87,25 +91,64 @@ export default function RouteMap() {
   }, [mapHeight]);
 
   // 3. Derive route data
+  //
+  // ── Single source of truth ────────────────────────────────────────────────
+  // Every number on this screen (map tooltips + the route table below) comes
+  // from the SAME canonical engine projection the Dashboard, Routes and Finance
+  // screens use. This map used to call a BARE simulateRoute(r, aircraft, gd),
+  // which skipped labor, the fuel-price multiplier, competitor encroachment,
+  // fleet utilisation, satisfaction, live events and — on the cargo side — the
+  // shared-lane demand pool. Unopposed demand meant busy routes pinned at a
+  // 100% load factor with an inflated profit, so the map disagreed with every
+  // other screen (Finance said 87%, the map said 100%). Prefer the engine's
+  // routeResult; fall back to a standalone sim ONLY for routes the engine skips
+  // (grounded / dormant-seasonal), run with the same inputs the engine used.
   const gd = currentGameDate(state);
-  const routeData = useMemo(() => routes.map(r => {
-    const origin   = getAirport(r.origin);
-    const dest     = getAirport(r.destination);
-    if (!origin || !dest) return null;
-    const aircraft = fleet.find(a => a.id === r.aircraftId);
-    const result   = aircraft ? simulateRoute(r, aircraft, gd) : null;
-    return { r, origin, dest, result };
-  }).filter(Boolean), [routes, fleet, state.week]);
+  const proj = useMemo(() => projectWeek(state), [state]);
+  const rrById = useMemo(() => {
+    const m = {};
+    for (const rr of proj.report?.routeResults ?? []) m[rr.routeId] = rr;
+    return m;
+  }, [proj]);
+  const cargoRrById = useMemo(() => {
+    const m = {};
+    for (const rr of proj.report?.cargoRouteResults ?? []) m[rr.routeId] = rr;
+    return m;
+  }, [proj]);
 
-  // Cargo route data (mirrors routeData but for freighters / cargo routes)
-  const cargoRouteData = useMemo(() => cargoRoutes.map(r => {
-    const origin   = getAirport(r.origin);
-    const dest     = getAirport(r.destination);
-    if (!origin || !dest) return null;
-    const aircraft = fleet.find(a => a.id === r.aircraftId);
-    const result   = aircraft ? simulateCargoRoute(r, aircraft, gd) : null;
-    return { r, origin, dest, result };
-  }).filter(Boolean), [cargoRoutes, fleet, state.week]);
+  const routeData = useMemo(() => {
+    const avgUtil  = fleetAvgUtilization(fleet, [...routes, ...cargoRoutes]);
+    const evDemand = buildEventDemandModel(state.activeEvents);
+    return routes.map(r => {
+      const origin   = getAirport(r.origin);
+      const dest     = getAirport(r.destination);
+      if (!origin || !dest) return null;
+      const aircraft = fleet.find(a => a.id === r.aircraftId);
+      const result = !aircraft ? null
+        : (rrById[r.id] ?? simulateRoute(r, aircraft, gd, state.labor ?? null, proj.fuelMultiplier,
+            null, [], avgUtil, state.satisfaction ?? null,
+            evDemand.multFor(r.origin, r.destination)));
+      return { r, origin, dest, result };
+    }).filter(Boolean);
+  }, [routes, cargoRoutes, fleet, rrById, proj, gd, state.labor, state.satisfaction, state.activeEvents]);
+
+  // Cargo route data (mirrors routeData but for freighters / cargo routes).
+  // The fallback runs the same shared-lane allocation the engine does, so a
+  // freighter sharing a pair never sees the full-market pool to itself.
+  const cargoRouteData = useMemo(() => {
+    const needsFallback = cargoRoutes.some(r => !cargoRrById[r.id]);
+    const alloc = needsFallback ? cargoLaneAllocations(cargoRoutes, fleet) : null;
+    return cargoRoutes.map(r => {
+      const origin   = getAirport(r.origin);
+      const dest     = getAirport(r.destination);
+      if (!origin || !dest) return null;
+      const aircraft = fleet.find(a => a.id === r.aircraftId);
+      const result = !aircraft ? null
+        : (cargoRrById[r.id] ?? simulateCargoRoute(r, aircraft, gd, state.labor ?? null,
+            proj.fuelMultiplier, 1.0, alloc?.get(r.id) ?? null));
+      return { r, origin, dest, result };
+    }).filter(Boolean);
+  }, [cargoRoutes, fleet, cargoRrById, proj, gd, state.labor]);
 
   // ── Map filters: by aircraft type and by airport ─────────────────────────
   // Options come from the UNfiltered data so the dropdowns always list
