@@ -3452,9 +3452,31 @@ function reducer(state, action) {
         : null;
 
       // ── Tick codeshare agreement durations (expire old ones) ─────────────
+      // A codeshare only survives while the PARTNER does. The term countdown
+      // never checked that, so an agreement with a carrier that went bankrupt,
+      // abandoned its world or was re-founded kept charging its weekly fee — and
+      // kept granting connectivity through buildPartnershipMap — for the rest of
+      // its 52-week term, against an airline that no longer flies anything.
+      // Same test the delisting sweep below uses: gone from the rival set is
+      // gone. Left deliberately as an identity check rather than a
+      // poolKeyOf-style normalisation, so a RE-FOUNDED partner (new generation
+      // id) correctly terminates the deal the old company signed.
+      const partnerStillFlying = new Set(updatedCompetitors.map(c => c.id));
+      const partnerGoneCodeshares = (state.codeshareAgreements ?? [])
+        .filter(a => a.weeksRemaining > 1 && !partnerStillFlying.has(a.competitorId));
+      for (const a of partnerGoneCodeshares) {
+        newToasts.push({
+          type:    'warning',
+          title:   `Codeshare Ended — ${a.competitorName}`,
+          message: `${a.competitorName} no longer operates. The agreement is terminated and its weekly fee has stopped.`,
+          icon:    '🤝',
+          duration: 8000,
+        });
+      }
+
       const tickedCodeshares = (state.codeshareAgreements ?? [])
         .map(a => ({ ...a, weeksRemaining: a.weeksRemaining - 1 }))
-        .filter(a => a.weeksRemaining > 0);
+        .filter(a => a.weeksRemaining > 0 && partnerStillFlying.has(a.competitorId));
 
       // Notify about newly expired codeshares
       const expiredCodeshares = (state.codeshareAgreements ?? []).filter(a => a.weeksRemaining <= 1);

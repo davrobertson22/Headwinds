@@ -70,10 +70,15 @@ function fakePrisma({ world, airlines, gates = [], bids = [], auctions = [], lis
         const g = db.gates.find((x) => x.worldId === k.worldId && x.airportCode === k.airportCode);
         return g ? { ...g } : null;
       },
+      // gateService.mutateWorldGate reads by (worldId, airportCode) but writes
+      // the compare-and-set by (id, version) — match that or every write "loses
+      // the race" and the release silently no-ops.
       updateMany: async ({ where, data }) => {
         let count = 0;
         for (const g of db.gates) {
-          if (g.worldId !== where.worldId || g.airportCode !== where.airportCode) continue;
+          if (where.id !== undefined && g.id !== where.id) continue;
+          if (where.worldId !== undefined && g.worldId !== where.worldId) continue;
+          if (where.airportCode !== undefined && g.airportCode !== where.airportCode) continue;
           if (where.version !== undefined && (g.version ?? 0) !== where.version) continue;
           applyData(g, data); count++;
         }
@@ -83,11 +88,11 @@ function fakePrisma({ world, airlines, gates = [], bids = [], auctions = [], lis
         const k = where.worldId_airportCode ?? where;
         const g = db.gates.find((x) => x.worldId === k.worldId && x.airportCode === k.airportCode);
         if (g) { applyData(g, update); return { ...g }; }
-        const row = { version: 0, taken: 0, holdings: {}, ...create };
+        const row = { id: `g-${k.airportCode}`, version: 0, taken: 0, holdings: {}, ...create };
         db.gates.push(row);
         return { ...row };
       },
-      create: async ({ data }) => { const row = { version: 0, taken: 0, holdings: {}, ...data }; db.gates.push(row); return { ...row }; },
+      create: async ({ data }) => { const row = { id: `g-${data.airportCode}`, version: 0, taken: 0, holdings: {}, ...data }; db.gates.push(row); return { ...row }; },
     },
     gateListing: {
       updateMany: async ({ where, data }) => {
@@ -367,8 +372,8 @@ await test('gates are released before the new hub is seeded — no double count'
   const prisma = fakePrisma({
     world, airlines: [a],
     gates: [
-      { worldId: 'w1', airportCode: 'JFK', version: 1, capacity: 100, taken: 9, holdings: { a1: { count: 4 }, a2: { count: 5 } } },
-      { worldId: 'w1', airportCode: 'ORD', version: 1, capacity: 100, taken: 2, holdings: { a2: { count: 2 } } },
+      { id: 'g-jfk', worldId: 'w1', airportCode: 'JFK', version: 1, baseSize: 100, capacity: 100, taken: 9, holdings: { a1: { count: 4 }, a2: { count: 5 } } },
+      { id: 'g-ord', worldId: 'w1', airportCode: 'ORD', version: 1, baseSize: 100, capacity: 100, taken: 2, holdings: { a2: { count: 2 } } },
     ],
   });
   await restartAirline(prisma, {
@@ -385,7 +390,7 @@ await test('gates are released before the new hub is seeded — no double count'
 await test('open gate listings are withdrawn', async () => {
   const prisma = fakePrisma({
     world: WORLD, airlines: [deadAirline()],
-    gates: [{ worldId: 'w1', airportCode: 'JFK', version: 1, capacity: 10, taken: 1, holdings: { a1: { count: 1 } } }],
+    gates: [{ id: 'g-jfk', worldId: 'w1', airportCode: 'JFK', version: 1, baseSize: 10, capacity: 10, taken: 1, holdings: { a1: { count: 1 } } }],
     listings: [
       { id: 'gl1', worldId: 'w1', sellerId: 'a1', status: 'OPEN' },
       { id: 'gl2', worldId: 'w1', sellerId: 'a1', status: 'SOLD' },
@@ -524,8 +529,8 @@ await test('a codeshare does not outlive its partner', async () => {
     ],
     // a1 has re-founded, so it now presents as human:a1~g1 — a different carrier.
     competitors: [
-      { id: 'human:a1~g1', human: true, name: 'Phoenix Air', tier: 'legacy' },
-      { id: 'human:a9', human: true, name: 'Still Flying', tier: 'legacy' },
+      { id: 'human:a1~g1', human: true, name: 'Phoenix Air', tier: 'legacy', routes: {} },
+      { id: 'human:a9', human: true, name: 'Still Flying', tier: 'legacy', routes: {} },
     ],
   };
   const next = gameReducer(withDeal, { type: 'ADVANCE_WEEK' });
