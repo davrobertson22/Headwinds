@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { gameReducer, freshState, reconcileState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
 import * as R from '../packages/engine/src/data/reserve.js';
-import { planCovers, applyReserveCovers } from '../packages/engine/src/utils/simulation.js';
+import { planCovers, applyReserveCovers, deployableFleetForRoute } from '../packages/engine/src/utils/simulation.js';
 
 // Determinism: keep RNG high (no failures, no events) but VARYING — uid() builds
 // ids from Math.random, and a constant stub makes two aircraft bought in the
@@ -283,6 +283,52 @@ t('reconcileState: old saves default cleanly; orphaned covers go home', () => {
   assert.ok(r1, 'covered route survived its missing reserve');
   assert.equal(r1.aircraftId, 'a1', 'went home to the original');
   assert.equal(r1.coverForAircraftId ?? null, null);
+});
+
+
+// ─── Route pickers: reserves are listed, flagged, and sorted last ────────────
+
+t('deployableFleetForRoute: flags reserves and never hides them', () => {
+  const fleet = [
+    { id: 'free', typeId: TYPE, status: 'idle' },
+    { id: 'res',  typeId: TYPE, status: 'idle', reserveBase: 'JFK' },
+  ];
+  const pool = deployableFleetForRoute({
+    fleet, existingRoutes: [], typeId: TYPE,
+    origin: 'JFK', dest: 'ORD', distKm: 1180, weeklyFrequency: 7,
+  });
+  assert.equal(pool.length, 2, 'a stationed reserve stays selectable');
+  const res = pool.find(d => d.aircraft.id === 'res');
+  assert.equal(res.reserve, true, 'reserve flagged');
+  assert.equal(res.eligible, true, 'reserve still deployable');
+  assert.equal(pool.find(d => d.aircraft.id === 'free').reserve, false);
+});
+
+t('deployableFleetForRoute: free tails outrank reserves in the picker', () => {
+  const fleet = [
+    { id: 'res',  typeId: TYPE, status: 'idle', reserveBase: 'JFK' },
+    { id: 'free', typeId: TYPE, status: 'idle' },
+  ];
+  const pool = deployableFleetForRoute({
+    fleet, existingRoutes: [], typeId: TYPE,
+    origin: 'JFK', dest: 'ORD', distKm: 1180, weeklyFrequency: 7,
+  });
+  assert.equal(pool[0].aircraft.id, 'free', 'reserve must not be the default pick');
+  assert.equal(pool[pool.length - 1].aircraft.id, 'res');
+});
+
+t('deployableFleetForRoute: a reserve also sorts behind a busy tail with spare hours', () => {
+  const fleet = [
+    { id: 'res',  typeId: TYPE, status: 'idle', reserveBase: 'JFK' },
+    { id: 'busy', typeId: TYPE, status: 'assigned' },
+  ];
+  const existingRoutes = [{ id: 'r1', origin: 'JFK', destination: 'ORD', aircraftId: 'busy', weeklyFrequency: 4 }];
+  const pool = deployableFleetForRoute({
+    fleet, existingRoutes, typeId: TYPE,
+    origin: 'JFK', dest: 'ORD', distKm: 1180, weeklyFrequency: 3,
+  });
+  assert.equal(pool[0].aircraft.id, 'busy', 'spare hours beat a standby cover');
+  assert.equal(pool[1].reserve, true);
 });
 
 console.log(`\nreserve-cover-test: ${pass} passed, ${fail} failed`);

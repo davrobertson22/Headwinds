@@ -54,6 +54,13 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">July 31, 2026</p>
+      <h2>Reserve aircraft stop pretending to be idle</h2>
+      <p>A jet stationed at a hub as a <strong>reserve</strong> was still counted as idle everywhere &mdash; and still sat at the top of the route planner, where deploying it by accident quietly ended the standby cover you were paying for. Reserves now have their own &#128737; Reserve tab on the Fleet page, are out of every idle count (Fleet chips and stats, the dashboard alert, the Routes header) and get their own bucket in fleet utilisation. In the route, cargo and tag planners they are labelled with their base and sorted last, so the one-click <em>Open Route</em> button always reaches for a free aircraft first &mdash; you can still fly a reserve when you mean to, with a line telling you it comes off standby.</p>
+      <p>Full detail in the <a href="https://www.tailwindsairlinegame.com/devlog.html">Tailwinds devlog</a>.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">July 29, 2026</p>
       <h2>Your share price finally tracks your airline</h2>
       <p>A player floated a quarter of his company, watched a rival buy in, and saw his share price fall <strong>17.3%</strong> in a week &mdash; while profit, revenue and fleet were all climbing. He was right to be annoyed: that drop was arithmetic, not judgement. Selling new shares split the company instantly, but the valuation those shares were divided into was only allowed to move 8% a week, so the dilution landed in one tick and the money you raised took two months to show up. Three fixes, and they change how the market reads for everyone.</p>

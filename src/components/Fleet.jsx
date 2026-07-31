@@ -11,7 +11,7 @@ import {
   MAX_WEEKLY_BLOCK_HOURS, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
   freighterLandingCategory,
 } from '../utils/simulation.js';
-import { reserveParkingFee, RESERVE_READINESS_MULT } from '../data/reserve.js';
+import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
@@ -149,7 +149,7 @@ function TransferRoutesModal({ aircraft, onClose }) {
                 </div>
                 <div style={{ fontSize: 11, color: compat.ok ? 'var(--text-muted)' : 'var(--red)' }}>
                   {compat.ok
-                    ? `${a.ownershipType === 'owned' ? 'Owned' : 'Leased'} · ${ageLabel(a.ageWeeks ?? 0)}`
+                    ? `${a.ownershipType === 'owned' ? 'Owned' : 'Leased'} · ${ageLabel(a.ageWeeks ?? 0)}${isReserve(a) ? ` · on reserve at ${a.reserveBase} (transfer ends standby)` : ''}`
                     : compat.reason}
                 </div>
               </div>
@@ -924,7 +924,9 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
         const count    = aircraft.length;
         const owned    = aircraft.filter(a => a.ownershipType === 'owned').length;
         const leased   = count - owned;
-        const idle     = aircraft.filter(a => a.status === 'idle').length;
+        // Stationed reserves are parked on purpose — they are NOT idle capacity.
+        const idle     = aircraft.filter(a => a.status === 'idle' && !isReserve(a)).length;
+        const reserve  = aircraft.filter(a => isReserve(a)).length;
         const grounded = aircraft.filter(a => a.status === 'grounded').length;
         const avgAgeWks = aircraft.reduce((s, a) => s + (a.ageWeeks ?? 0), 0) / count;
         const avgAgeYrs = avgAgeWks / 52;
@@ -1019,10 +1021,15 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
             </div>
 
             {/* Status badges */}
-            {(idle > 0 || grounded > 0) && (
+            {(idle > 0 || reserve > 0 || grounded > 0) && (
               <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                 {idle > 0 && (
                   <span className="badge badge-yellow">{idle} idle</span>
+                )}
+                {reserve > 0 && (
+                  <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}>
+                    <Glyph e="🛡️" /> {reserve} reserve
+                  </span>
                 )}
                 {grounded > 0 && (
                   <span className="badge" style={{ background: 'rgba(248,81,73,.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.4)' }}>
@@ -1092,7 +1099,8 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
         const catColor  = CAT_COLORS[cat];
         const owned     = catFleet.filter(a => a.ownershipType === 'owned').length;
         const leased    = catFleet.length - owned;
-        const idle      = catFleet.filter(a => a.status === 'idle').length;
+        const idle      = catFleet.filter(a => a.status === 'idle' && !isReserve(a)).length;
+        const reserve   = catFleet.filter(a => isReserve(a)).length;
         const grounded  = catFleet.filter(a => a.status === 'grounded').length;
         const avgAgeWks = catFleet.reduce((s, a) => s + (a.ageWeeks ?? 0), 0) / catFleet.length;
 
@@ -1189,9 +1197,14 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
                 })}
               </div>
 
-              {(idle > 0 || grounded > 0) && (
+              {(idle > 0 || reserve > 0 || grounded > 0) && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
                   {idle > 0     && <span className="badge badge-yellow">{idle} idle</span>}
+                  {reserve > 0  && (
+                    <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}>
+                      <Glyph e="🛡️" /> {reserve} reserve
+                    </span>
+                  )}
                   {grounded > 0 && (
                     <span className="badge" style={{ background: 'rgba(248,81,73,.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.4)' }}>
                       <Glyph e="🔧" /> {grounded} grounded
@@ -1219,7 +1232,7 @@ export default function Fleet() {
   const [checkedIds,    setCheckedIds]    = useState([]);   // bulk selection
   const [bulkConfigIds, setBulkConfigIds] = useState(null); // array of ids → bulk configure modal
   const [search,        setSearch]        = useState('');
-  const [filterChip,    setFilterChip]    = useState('all'); // all | idle | grounded | leased | owned
+  const [filterChip,    setFilterChip]    = useState('all'); // all | idle | reserve | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
   const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
   const [sortKey,       setSortKey]       = useState(null);   // null = default order | name | type | cabin | age | util | fixed | status
@@ -1340,7 +1353,10 @@ export default function Fleet() {
       if (!hit) return false;
     }
     if (filterTypeId && a.typeId !== filterTypeId) return false;
-    if (filterChip === 'idle')     return a.status === 'idle';
+    // "Idle" means genuinely unused — a tail stationed as a reserve is doing a
+    // job (standing by) and lives on its own chip instead.
+    if (filterChip === 'idle')     return a.status === 'idle' && !isReserve(a);
+    if (filterChip === 'reserve')  return isReserve(a);
     if (filterChip === 'grounded') return a.status === 'grounded';
     if (filterChip === 'leased')   return a.ownershipType !== 'owned';
     if (filterChip === 'owned')    return a.ownershipType === 'owned';
@@ -1489,7 +1505,8 @@ export default function Fleet() {
 
   const chipCounts = {
     all:      fleet.length,
-    idle:     fleet.filter(a => a.status === 'idle').length,
+    idle:     fleet.filter(a => a.status === 'idle' && !isReserve(a)).length,
+    reserve:  fleet.filter(a => isReserve(a)).length,
     grounded: fleet.filter(a => a.status === 'grounded').length,
     leased:   fleet.filter(a => a.ownershipType !== 'owned').length,
     owned:    fleet.filter(a => a.ownershipType === 'owned').length,
@@ -1556,9 +1573,9 @@ export default function Fleet() {
         <div className="stat-box">
           <div className="stat-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             Idle Aircraft
-            <InfoTip side="bottom" text="Planes not assigned to any route. They still cost lease & maintenance but earn nothing — assign them via the Route Planner, or station one as a reserve at a hub so it automatically covers same-type aircraft during breakdowns and heavy checks." />
+            <InfoTip side="bottom" text="Planes not assigned to any route and not standing by as a reserve. They still cost lease & maintenance but earn nothing — assign them via the Route Planner, or station one as a reserve at a hub so it automatically covers same-type aircraft during breakdowns and heavy checks. Reserves are counted on their own chip below." />
           </div>
-          <div className="stat-value yellow">{fleet.filter(a => a.status === 'idle').length}</div>
+          <div className="stat-value yellow">{fleet.filter(a => a.status === 'idle' && !isReserve(a)).length}</div>
         </div>
         {pendingOrders.length > 0 && (
           <div className="stat-box">
@@ -1590,13 +1607,14 @@ export default function Fleet() {
             return type ? aRoutes.reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0) : 0;
           });
           const avgUtil = allBH.reduce((s, h) => s + h, 0) / count / MAX_WEEKLY_BLOCK_HOURS;
-          const idle = aircraft.filter(a => a.status === 'idle').length;
-          return { typeId, type, catColor, count, avgAgeYrs, avgUtil, idle };
+          const idle = aircraft.filter(a => a.status === 'idle' && !isReserve(a)).length;
+          const res  = aircraft.filter(a => isReserve(a)).length;
+          return { typeId, type, catColor, count, avgAgeYrs, avgUtil, idle, res };
         });
         const isActive = (tid) => filterTypeId === tid;
         return (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-            {typeSummaries.map(({ typeId, type, catColor, count, avgAgeYrs, avgUtil, idle }) => {
+            {typeSummaries.map(({ typeId, type, catColor, count, avgAgeYrs, avgUtil, idle, res }) => {
               const active = isActive(typeId);
               const utilColor = avgUtil >= 0.8 ? 'var(--red)' : avgUtil >= 0.5 ? 'var(--yellow)' : avgUtil > 0 ? 'var(--accent)' : 'var(--text-dim)';
               return (
@@ -1625,6 +1643,7 @@ export default function Fleet() {
                     <span style={{ color: utilColor, fontWeight: 600 }}>{(avgUtil * 100).toFixed(0)}% util</span>
                     <span>{avgAgeYrs < 1 ? '<1yr' : `${avgAgeYrs.toFixed(1)}yr`} avg</span>
                     {idle > 0 && <span style={{ color: 'var(--yellow)' }}>{idle} idle</span>}
+                    {res > 0 && <span style={{ color: 'var(--accent)' }}>{res} reserve</span>}
                   </div>
                   {/* Mini util bar */}
                   <div style={{ height: 3, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
@@ -1664,6 +1683,7 @@ export default function Fleet() {
                   {[
                     { id: 'all',      label: 'All'      },
                     { id: 'idle',     label: '⏸ Idle'  },
+                    { id: 'reserve',  label: '🛡️ Reserve' },
                     { id: 'grounded', label: '🔧 Grnd'  },
                     { id: 'leased',   label: 'Leased'   },
                     { id: 'owned',    label: 'Owned'    },

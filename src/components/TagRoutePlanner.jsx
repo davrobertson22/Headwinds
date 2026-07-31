@@ -93,7 +93,10 @@ export default function TagRoutePlanner({ mode, setMode }) {
       if (usedBH >= MAX_WEEKLY_BLOCK_HOURS) return false;
       if (acRoutes.length === 0) return true;
       return acRoutes.some(r => stopSet.has(r.origin) || stopSet.has(r.destination));
-    });
+    })
+      // Reserves sort last: still offered (deploying one just ends its standby)
+      // but never the plane the picker lands on by default.
+      .sort((a, b) => (a.reserveBase ? 1 : 0) - (b.reserveBase ? 1 : 0));
   }, [fleet, routes, route, maxLeg]);
 
   // Auto-pick a reachable aircraft when needed.
@@ -216,7 +219,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
                   {reachable.length === 0 && <option value="">— no eligible aircraft (range, hours or network) —</option>}
                   {reachable.map(a => {
                     const t = getAircraftType(a.typeId);
-                    return <option key={a.id} value={a.id}>{a.name} ({t?.seats} seats · {a.status})</option>;
+                    return <option key={a.id} value={a.id}>{a.name} ({t?.seats} seats · {a.reserveBase ? `reserve @ ${a.reserveBase}` : a.status})</option>;
                   })}
                 </select>
               </div>

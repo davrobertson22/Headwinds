@@ -5,7 +5,7 @@ import {
   resolveBaseFor, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
   contractOffsetSavings, isBaseOpen, RESERVE_AT_BASE_READINESS_DISCOUNT,
 } from '../data/mroBase.js';
-import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee } from '../data/reserve.js';
+import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
 import { LABOR_GROUPS, laborEffects } from '../data/labor.js';
@@ -747,6 +747,10 @@ export function deployableFleetForRoute({
       return {
         aircraft:      a,
         idle:          a.status === 'idle',
+        // Stationed reserves stay in the pool (you CAN deploy one — it simply
+        // ends its standby) but they are flagged so the route pickers can label
+        // them and keep them out of the plain "idle" counters.
+        reserve:       isReserve(a),
         usedBlockHrs:  usedBH,
         spareBlockHrs: Math.max(0, MAX_WEEKLY_BLOCK_HOURS - usedBH),
         newBlockHrs:   newBH,
@@ -759,7 +763,12 @@ export function deployableFleetForRoute({
         eligible:      connectivityOk && hoursOk,
       };
     })
-    .sort((x, y) => (x.idle !== y.idle) ? (x.idle ? -1 : 1) : (y.spareBlockHrs - x.spareBlockHrs));
+    // Free idle tails first, then planes with spare hours, then reserves last —
+    // a standby cover should never be the plane you reach for by accident.
+    .sort((x, y) => {
+      const rank = d => (d.reserve ? 2 : (d.idle ? 0 : 1));
+      return (rank(x) !== rank(y)) ? (rank(x) - rank(y)) : (y.spareBlockHrs - x.spareBlockHrs);
+    });
 }
 
 /**

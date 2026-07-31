@@ -5,6 +5,7 @@ import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenance
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
+import { isReserve } from '../data/reserve.js';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
@@ -153,7 +154,9 @@ export default function Dashboard({ onNavigate }) {
   // True cash runway: only meaningful when you're burning cash. Profitable (or
   // break-even) => cash grows, so runway is Infinity. Matches the Finance page.
   const weeksOfCash      = projectedProfit < 0 && cash > 0 ? Math.floor(cash / -projectedProfit) : Infinity;
-  const idleAircraft     = fleet.filter(a => a.status === 'idle').length;
+  // Reserves are parked deliberately — they don't belong in the "idle aircraft
+  // burning lease" alert (they have their own chip on the Fleet tab).
+  const idleAircraft     = fleet.filter(a => a.status === 'idle' && !isReserve(a)).length;
 
   // ── Cost breakdown ─────────────────────────────────────────────────────────
   // Prefer lastReport (has all buckets). Fall back to per-route projections for new games.
@@ -603,7 +606,8 @@ export default function Dashboard({ onNavigate }) {
           return {
             grounded: a.status === 'grounded',
             oos:      isOutOfService(a),
-            idle:     a.status === 'idle',
+            reserve:  isReserve(a),
+            idle:     a.status === 'idle' && !isReserve(a),
             p:        Math.min(1, bh / MAX_WEEKLY_BLOCK_HOURS),
           };
         });
@@ -614,15 +618,18 @@ export default function Dashboard({ onNavigate }) {
         const avgPct = inService.length
           ? inService.reduce((s, e) => s + e.p, 0) / inService.length
           : 0;
-        // Grounded aircraft get their own bucket, and "Idle" is the same
-        // status === 'idle' the Fleet tab and the idle-aircraft alert count.
+        // Grounded aircraft get their own bucket; "Idle" is the same
+        // status === 'idle' the Fleet tab and the idle-aircraft alert count, and
+        // reserves are split out so a standby cover doesn't read as slack.
         const flying  = utilEntries.filter(e => !e.grounded);
+        const spare   = e => !e.idle && !e.reserve;
         const buckets = {
           idle:     flying.filter(e => e.idle).length,
+          reserve:  flying.filter(e => e.reserve).length,
           grounded: utilEntries.filter(e => e.grounded).length,
-          low:      flying.filter(e => !e.idle && e.p < 0.5).length,
-          good:     flying.filter(e => !e.idle && e.p >= 0.5 && e.p < 0.9).length,
-          full:     flying.filter(e => !e.idle && e.p >= 0.9).length,
+          low:      flying.filter(e => spare(e) && e.p < 0.5).length,
+          good:     flying.filter(e => spare(e) && e.p >= 0.5 && e.p < 0.9).length,
+          full:     flying.filter(e => spare(e) && e.p >= 0.9).length,
         };
         const avgColor = avgPct >= 0.75 ? 'var(--green)' : avgPct >= 0.4 ? 'var(--yellow)' : 'var(--red)';
         return (
@@ -643,6 +650,7 @@ export default function Dashboard({ onNavigate }) {
             <div style={{ display: 'flex', gap: 20, fontSize: 12 }}>
               {[
                 { label: 'Idle',     count: buckets.idle,     color: 'var(--text-dim)' },
+                { label: 'Reserve',  count: buckets.reserve,  color: 'var(--accent)'   },
                 { label: 'Grounded', count: buckets.grounded, color: '#e8833a'         },
                 { label: '< 50%',    count: buckets.low,      color: 'var(--yellow)'   },
                 { label: '50–90%',   count: buckets.good,     color: 'var(--green)'    },

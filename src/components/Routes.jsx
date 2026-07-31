@@ -12,6 +12,7 @@ import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
 import AirportSelect from './AirportSelect.jsx';
 import { getAircraftType } from '../data/aircraft.js';
+import { isReserve } from '../data/reserve.js';
 import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -183,7 +184,10 @@ export default function Routes() {
       .reduce((s, r) => s + routeBlockHours(r, t, r.weeklyFrequency), 0);
   };
   const availableFleet = fleet.filter(a => usedHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS);
-  const idleCount      = fleet.filter(a => a.status === 'idle').length;
+  // Reserves stand by on purpose — they aren't part of the "idle, earning
+  // nothing" nudge (Fleet tab has a Reserve chip for them).
+  const idleCount      = fleet.filter(a => a.status === 'idle' && !isReserve(a)).length;
+  const reserveCount   = fleet.filter(a => isReserve(a)).length;
   // An airframe only counts as having "spare hours" if there's enough left to
   // actually absorb another sector — 1h free is not spare capacity in any
   // meaningful sense (see MIN_SPARE_BLOCK_HOURS in simulation.js).
@@ -684,6 +688,12 @@ export default function Routes() {
           {spareFleet.length > 0 && (
             <span style={{ color: 'var(--accent)', marginLeft: 12 }}>
               {spareFleet.length} with spare hours
+            </span>
+          )}
+          {reserveCount > 0 && (
+            <span style={{ color: 'var(--accent)', marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {reserveCount} on reserve
+              <InfoTip side="bottom" text="Aircraft stationed as reserves at a hub. They stand by to cover same-type tails during breakdowns and heavy checks, so they aren't counted as idle. You can still deploy one from the Route Planner — it just stops standing by." />
             </span>
           )}
         </div>

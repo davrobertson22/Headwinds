@@ -320,8 +320,11 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                     <div className="form-label" style={{ marginBottom: 6 }}>Freighter type</div>
                     <select className="form-select" value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)}>
                       {reachableTypes.map(t => {
-                        const ready = (deployableByType[t.id] ?? []).filter(d => d.eligible).length;
-                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){ready > 0 ? ` · ${ready} ready` : ''}</option>;
+                        // Reserves counted apart from "ready" — see RoutePlanner.
+                        const pool  = (deployableByType[t.id] ?? []).filter(d => d.eligible);
+                        const ready = pool.filter(d => !d.reserve).length;
+                        const onRes = pool.filter(d => d.reserve).length;
+                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}</option>;
                       })}
                     </select>
                   </div>
@@ -389,6 +392,9 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                 {simulation && (() => {
                   const pool      = deployableByType[selectedTypeId] ?? [];
                   const target    = pool.find(d => d.eligible);
+                  // A stationed reserve can still be deployed — it just stops
+                  // standing by — so flag it rather than hiding it.
+                  const reserveTail = target?.reserve ? target.aircraft : null;
                   const anySpare  = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
                   const owned     = pool.length;
                   const lCost     = routeLaunchCost(routeData.dist);
@@ -405,7 +411,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         {target ? (
                           <button className="btn btn-primary" style={{ padding: '8px 20px', background: ACCENT, borderColor: ACCENT, opacity: blocked ? 0.5 : 1 }} disabled={blocked} onClick={() => handleOpenRoute(target.aircraft.id)}>
-                            Open Cargo Route with {target.aircraft.name}{!target.idle ? ' · shares hours' : ''}
+                            Open Cargo Route with {target.aircraft.name}{!target.idle ? ' · shares hours' : ''}{target.reserve ? ' · ends standby' : ''}
                           </button>
                         ) : (
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
@@ -418,6 +424,12 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                         )}
                         {simulation.result.profit < 0 && <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>}
                       </div>
+                      {/* Reserve notice */}
+                      {reserveTail && (
+                        <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 4 }}>
+                          <Glyph e="🛡️" size={12} /> {reserveTail.tailNumber || reserveTail.name} is on reserve at {reserveTail.reserveBase} — opening this lane takes it off standby.
+                        </div>
+                      )}
                       {/* Gate requirement */}
                       {noGate.length > 0 && (
                         <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 4, display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>

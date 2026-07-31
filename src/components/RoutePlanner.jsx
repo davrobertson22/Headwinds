@@ -331,7 +331,7 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
           <optgroup label="Your aircraft of this type">
             {fleetOptions.map(a => (
               <option key={a.id} value={a.id}>
-                {(a.tailNumber || a.name)} — {configSummary(a.config)}{a.status === 'idle' ? ' · idle' : ''}
+                {(a.tailNumber || a.name)} — {configSummary(a.config)}{a.reserveBase ? ` · reserve @ ${a.reserveBase}` : a.status === 'idle' ? ' · idle' : ''}
               </option>
             ))}
           </optgroup>
@@ -545,12 +545,14 @@ export default function RoutePlanner() {
     return map;
   }, [state.fleet, state.routes, reachableTypes, routeData, origin, dest, frequency]);
 
-  // All aircraft you own of the selected type (idle first) — used as config sources.
+  // All aircraft you own of the selected type (free idle first, reserves last) —
+  // used as config sources and as the plane the Open Route button reaches for.
   const fleetOfType = useMemo(() => {
+    const rank = a => (a.reserveBase ? 2 : (a.status === 'idle' ? 0 : 1));
     if (!selectedTypeId) return [];
     return state.fleet
       .filter(a => a.typeId === selectedTypeId)
-      .sort((a, b) => (a.status === 'idle' ? 0 : 1) - (b.status === 'idle' ? 0 : 1));
+      .sort((a, b) => rank(a) - rank(b));
   }, [state.fleet, selectedTypeId]);
 
   // When the selected aircraft type changes, seed the cabin config: prefer the real
@@ -871,7 +873,7 @@ export default function RoutePlanner() {
                   <div style={{ flex: '1 1 200px', maxWidth: 320 }}>
                     <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Aircraft type
-                      <InfoTip text="Only aircraft that can reach this route are listed. The number after each type (e.g. “— 2 idle”) is how many unassigned planes of that type you own. Pick a type with idle planes and you can deploy one straight away with “Open Route”." />
+                      <InfoTip text="Only aircraft that can reach this route are listed. “N ready” is how many planes of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by." />
                     </div>
                     <select
                       className="form-select"
@@ -879,10 +881,14 @@ export default function RoutePlanner() {
                       onChange={e => setSelectedTypeId(e.target.value)}
                     >
                       {reachableTypes.map(t => {
-                        const ready = (deployableByType[t.id] ?? []).filter(d => d.eligible).length;
+                        // Reserves are counted apart from "ready": a standby cover is
+                        // deployable, but it isn't spare capacity you should plan around.
+                        const pool    = (deployableByType[t.id] ?? []).filter(d => d.eligible);
+                        const ready   = pool.filter(d => !d.reserve).length;
+                        const onRes   = pool.filter(d => d.reserve).length;
                         return (
                           <option key={t.id} value={t.id}>
-                            {t.name} ({t.seats} seats){ready > 0 ? ` · ${ready} ready` : ''}
+                            {t.name} ({t.seats} seats){ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}
                           </option>
                         );
                       })}
@@ -1076,6 +1082,9 @@ export default function RoutePlanner() {
                   const lCost      = routeLaunchCost(routeData.dist);
                   const canAfford  = state.cash >= lCost;
                   const blocked    = !!routeRestriction;
+                  // Deploying a stationed reserve is allowed — it just ends its
+                  // standby — so say so plainly instead of hiding the plane.
+                  const reserveTail = preferredD?.reserve ? preferred : null;
                   return (
                     <div style={{ marginTop: 16 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
@@ -1107,6 +1116,11 @@ export default function RoutePlanner() {
                           </span>
                         )}
                       </div>
+                      {!blocked && reserveTail && (
+                        <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 4 }}>
+                          <Glyph e="🛡️" size={12} /> {reserveTail.tailNumber || reserveTail.name} is on reserve at {reserveTail.reserveBase} — opening this route takes it off standby, so it stops covering your other {simulation.type.name}s there.
+                        </div>
+                      )}
                       {!blocked && (
                         <div style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>
                           <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> One-time launch cost: <strong>{formatMoney(lCost)}</strong>
