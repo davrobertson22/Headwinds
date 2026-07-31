@@ -75,6 +75,47 @@ function moraleBand(m) {
   return 'Crisis';
 }
 
+// ─── Seniority (New World Restrictions worlds only) ──────────────────────────
+//
+// Every wage above is a STARTING scale. In reality an airline's unit labour cost
+// climbs relentlessly as it ages: seniority steps, pensions, union scale. It is
+// the classic structural weight of a legacy carrier and the main reason a mature
+// airline cannot hold the margins a startup can.
+//
+// The engine had none of it — `baseWeeklyPerAircraft x fleet.length`, flat, so a
+// twenty-year-old major paid a week-old startup's rates. Measured against two
+// real airlines in this game, labour ran 9.6% of revenue at maturity against a
+// real 25-35%, and it FELL as a share of revenue with scale (23.0% -> 15.7%)
+// because yields rise while the wage bill does not.
+//
+// So the scale itself inflates: +5% per year the airline has existed. The player's
+// payMultiplier slider is unchanged and still means "relative to the market rate"
+// — the market rate is simply no longer frozen at founding.
+//
+// CAPPED, and the cap matters. Uncapped 5% is x125 over a 100-year world: not a
+// difficulty curve, a countdown, because referencePrice carries no matching fare
+// inflation. The cap is also the realistic part — real unit labour cost converges
+// rather than compounding forever, as senior crew retire and juniors are hired
+// beneath them. A workforce reaches a steady-state seniority mix.
+//
+//   year  1 -> x1.00     year 10 -> x1.55     year 20 -> x2.50 (cap)
+//   year  5 -> x1.22     year 15 -> x1.98     year 30 -> x2.50
+export const SENIORITY_ANNUAL_RISE = 0.05;
+export const SENIORITY_CAP         = 2.5;   // reached ~year 20
+
+/**
+ * Wage-scale multiplier for an airline that has been operating `weeksOperating`
+ * weeks. Restricted worlds only — callers pass 1 elsewhere.
+ *
+ * Keyed off the airline's OWN age, never the world calendar: a player joining a
+ * year-17 world founded their airline that morning and must start at x1.00.
+ */
+export function seniorityMultiplier(weeksOperating) {
+  const w = Math.max(0, Math.floor(Number(weeksOperating) || 0));
+  const years = w / 52;
+  return Math.min(SENIORITY_CAP, Math.pow(1 + SENIORITY_ANNUAL_RISE, years));
+}
+
 export const LABOR_GROUP_MAP = Object.fromEntries(LABOR_GROUPS.map(g => [g.id, g]));
 
 export const DEFAULT_LABOR_STATE = {

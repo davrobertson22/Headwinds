@@ -409,7 +409,12 @@ function freshState() {
     year: 1,
     fleet: [],         // { id, typeId, name, status, ageWeeks, config, ownershipType, fuelMod, rangeMod, maintMod, engineId, engineLabel, hasWingtips }
     pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }
-    starterDeliveriesUsed: 0, // Headwinds MP only: first 2 aircraft ever taken deliver INSTANTLY (see ORDER_AIRCRAFT). Counts instant grants used; capped at 2. No effect in solo.
+    // NOTE: `foundedAbsWeek` is deliberately NOT seeded here. It is stamped by
+  // worldService.joinWorld (multiplayer only, where the world clock and the
+  // airline's own age diverge). Adding it to freshState would change the solo
+  // state shape and the golden-master hash for no behavioural gain — weeklyTick
+  // falls back to age 0 when it is absent, so seniority simply never applies.
+  starterDeliveriesUsed: 0, // Headwinds MP only: first 2 aircraft ever taken deliver INSTANTLY (see ORDER_AIRCRAFT). Counts instant grants used; capped at 2. No effect in solo.
     routes: [],      // { id, origin, destination, stops:[origin,...,destination], aircraftId, weeklyFrequency, hub } — price lives in routePricing; stops carries intermediate tag-flight airports (single-leg routes have stops=[origin,destination])
     routePricing: {},// { [pairKey]: { economy, premiumEconomy, businessClass, firstClass } } — one price set per O&D pair
     routeCatering: {},// { [pairKey]: cateringLevel } — one catering level per O&D pair
@@ -2637,6 +2642,7 @@ function reducer(state, action) {
       // the shared value; in solo, tick the per-save market price forward.
       const nextFuelIndex    = injectedFuel != null ? injectedFuel : tickFuelPrice(currentFuelIndex);
       const fuelPriceHistory = [...(state.fuelPrice?.history ?? []), currentFuelIndex].slice(-52);
+
       // Drop contracts that have now expired
       const liveHedges       = allHedges.filter(h => h.expiryAbsWeek > nowAbsWeek);
 

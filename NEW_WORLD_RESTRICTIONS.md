@@ -86,50 +86,72 @@ Freighters are priced on their airframe's body class (`freighterBodyClass`), so 
 747-400F pays the wide-body rate — no cabin, no cabin overhead. Note this differs
 from the LEASING rule, where the same aircraft is blocked as a double-decker.
 
-**Rule 4 — an optional fare-ladder trim (`NWR_FARE_INDEX = 1.0` — OFF by default).**
+**Rule 4 — the whole reference-fare ladder runs 5% lower (`NWR_FARE_INDEX = 0.95`).**
 Applied to `referencePrice()` and `cargoReferenceYield()` alike, so freight is not a
 loophole. Scaling the REFERENCE rather than realised revenue is deliberate: the
 demand model prices elasticity off `playerPrice / referencePrice`, so moving both
 together leaves demand untouched and simply lowers the ladder. Cutting revenue
 directly would show players a fare they do not receive.
 
-**Calibration — and why both margin levers were wound back the same evening.**
+**Calibration — 0.95, and why it has to be flat and small.**
 
-Shipped at 0.85, eased to 0.95, then removed as a default. The mechanism first: a
-fare cut does not lower margins by its own size, it multiplies the **break-even load
-factor by 1/f**, because costs do not fall with fares. On a real route
-(757-200, DFW-JFK, 2,235 km, catering off):
+A fare index is a **market price**: every airline flying JFK-LAX faces the same
+reference. An index that varies by who is asking is incoherent, so a maturity ramp
+(index sliding with fleet size) was built and scrapped. It is one world constant.
 
-| fareIndex | margin at full load | break-even load |
+Know what a flat revenue cut does, because it is not symmetric. At margin `m`, a
+cut of `c` leaves `1 - (1-m)/(1-c)`:
+
+| airline's margin | after a 5% cut |
+|---|---|
+| 4% | −1.1% |
+| 10% | +5.3% |
+| 15% | +10.5% |
+| 33% | +29.5% |
+
+It is deliberately small. The trim used to carry the whole burden of pulling mature
+margins down, which a flat cut can never do without killing startups — it bites
+hardest exactly where margins are thinnest. **Rule 5 (labour seniority) does that job
+properly.** Together they land a mature carrier near 15%:
+
+| airline age | seniority | mature margin |
 |---|---|---|
-| 1.00 | 16.5% | 82.5% |
-| 0.95 | 12.1% | 86.9% |
-| 0.85 | 1.8% | 97.1% |
+| 0 | ×1.00 | 29.7% |
+| 10 | ×1.63 | 23.4% |
+| **20+** | **×2.50** | **14.6%** |
 
-At 0.85 a player was flying 98.9% load with fares 30% over reference and clearing
-2% — every route below 97% load lost money.
+It bites hardest on thin operators and softest on fat ones — and softer still on a
+big airline, because ~12.8% of a mature carrier's revenue is **ancillary** (bags,
+seats, catering upsell) which no fare index touches. A "5% fare cut" is a 4.4%
+revenue cut for them.
 
-**The deeper error was the premise.** Both margin levers were built to rein in the
-30% net margin observed on Otter Air — a year-3, rank-#6 carrier with a paid-off
-fleet flying premium long-haul. Rebuilding a comparable airline in a CLASSIC world
-produced **4.1% EBITDA**, which is a realistic airline margin. The 30% was a
-late-game phenomenon of maturity and scale, not a baseline. A uniform fare cut and
-a uniform per-departure fee barely register on the mature carrier they were aimed
-at, and drive an ordinary airline negative — exactly backwards.
+Two real airlines measured in this game, which is where those numbers come from:
 
-Measured side by side, same airline, classic vs restricted: every cost line held the
-same share of revenue **except G&A, which went 5.3% → 10.2%** (~$98k/wk) on the HQ
-fee alone, taking +4.1% EBITDA to −10.5%.
+| | small | mature |
+|---|---|---|
+| fuel | 35.8% | 21.0% |
+| passenger services | 20.9% | 12.9% |
+| flight ops | 18.0% | 12.3% |
+| **margin** | **4.0%** | **32.8%** |
 
-So: **fare index defaults to 1.0** (machinery kept, per-world via
-`tickConfig.fareIndex`, no world gets a cut unless asked) and **the HQ fee table is
-halved** to ~2% of revenue per departure. The leasing rules — the part that was
-actually asked for, and that works — are untouched.
+Note the 4% case was a deliberately-replicated *badly configured* airline —
+four-class cabin with full catering on a two-hour domestic hop, 20.9% of revenue on
+passenger services. It is not what a well-run startup looks like.
 
-`tickConfig.fareIndex` is **seeded into airline state at join**, so editing it moves
-only future joiners. Retune a live world with `tools/rebase-world-fare-index.mjs`,
-which also repairs anyone who joined during a deploy window without the restrictions
-flag at all.
+The intent: a restricted world is unforgiving of a badly configured airline, while a
+well-run one keeps a real but thinner margin.
+
+**History worth keeping.** Shipped 0.85 → measured a route needing 97% load to break
+even → eased to 0.95 → removed entirely at 1.0 after a classic-world comparison
+showed a small airline at 4% → restored to 0.85 once a mature airline showed 32.8%.
+The lesson is that a single airline's margin says almost nothing: it is a point on a
+maturity curve, and both 4% and 33% were mistaken for the baseline at different
+points in one evening.
+
+`tickConfig.fareIndex` overrides the default — but it is **seeded into airline state
+at join**, so editing it moves only future joiners. Retune a live world with
+`tools/rebase-world-fare-index.mjs`, which also repairs anyone who joined during a
+deploy window without the restrictions flag at all.
 
 ## 3. Files changed
 

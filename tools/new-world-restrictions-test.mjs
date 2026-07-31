@@ -31,6 +31,7 @@ import {
   LEASE_ORDER_BOOK_MIN, LEASE_ORDER_BOOK_PCT,
 } from '../packages/engine/src/data/aircraft.js';
 import { HQ_DEPARTURE_FEE, HQ_BASE_WEEKLY, calcHQCost } from '../packages/engine/src/data/overhead.js';
+import { seniorityMultiplier, SENIORITY_CAP, SENIORITY_ANNUAL_RISE } from '../packages/engine/src/data/labor.js';
 import { weeklyTick } from '../packages/engine/src/utils/simulation.js';
 import {
   referencePrice, cargoReferenceYield, setFareIndex, getFareIndex, NWR_FARE_INDEX,
@@ -460,17 +461,106 @@ test('freighters are priced on airframe body class, not as double-deckers', () =
   assert.equal(r.totalHQCost, HQ_BASE_WEEKLY + 5 * 4 * 2 * HQ_DEPARTURE_FEE['Wide Body']);
 });
 
+// ── 7b. Labour seniority ─────────────────────────────────────────────────────
+// Real airlines' unit labour cost climbs with age — seniority steps, pensions,
+// union scale — and it is the main reason a legacy carrier cannot hold a
+// startup's margins. The engine had none of it: baseWeeklyPerAircraft x fleet,
+// flat forever. Measured, labour ran 9.6% of revenue at maturity against a real
+// 25-35%, and FELL as a share of revenue with scale.
+console.log('\nLabour seniority');
+
+const LABOR_BASE = {
+  pilots: { payMultiplier: 1, morale: 80 }, cabinCrew: { payMultiplier: 1, morale: 80 },
+  groundStaff: { payMultiplier: 1, morale: 80 }, maintenanceTeam: { payMultiplier: 1, morale: 80 },
+};
+function tickAged(years, restricted, extra = {}) {
+  const fleet = [], routes = [];
+  for (let i = 0; i < 10; i++) {
+    fleet.push({ id: 'a' + i, typeId: 'b737800', status: 'idle', ownershipType: 'owned', ageWeeks: 20, config: {} });
+    routes.push({ id: 'r' + i, aircraftId: 'a' + i, origin: 'JFK', destination: 'LAX', weeklyFrequency: 6, ticketPrice: 400 });
+  }
+  const absWeek = 900;
+  return weeklyTick({
+    fleet, routes, cargoRoutes: [], gates: { JFK: 20, LAX: 20 }, hubs: {}, labor: LABOR_BASE,
+    absWeek, foundedAbsWeek: absWeek - years * 52,
+    ...(restricted ? { newWorldRestrictions: true } : {}), ...extra,
+  });
+}
+
+test('the wage scale rises 5% a year and caps', () => {
+  assert.equal(SENIORITY_ANNUAL_RISE, 0.05);
+  assert.equal(SENIORITY_CAP, 2.5);
+  assert.equal(seniorityMultiplier(0), 1);
+  assert.ok(Math.abs(seniorityMultiplier(52) - 1.05) < 0.001, 'one year = +5%');
+  assert.ok(Math.abs(seniorityMultiplier(10 * 52) - Math.pow(1.05, 10)) < 0.001);
+  assert.equal(seniorityMultiplier(20 * 52), SENIORITY_CAP, 'capped by year 20');
+  assert.equal(seniorityMultiplier(100 * 52), SENIORITY_CAP, 'and stays capped');
+});
+
+test('the cap is load-bearing — uncapped 5% would be x125 over a 100-year world', () => {
+  // referencePrice carries no matching fare inflation, so uncapped this is a
+  // countdown rather than a difficulty curve.
+  assert.ok(Math.pow(1.05, 100) > 100, 'sanity: uncapped really is absurd');
+  assert.ok(seniorityMultiplier(100 * 52) <= SENIORITY_CAP);
+});
+
+test('junk ages fall back to the starting scale', () => {
+  for (const v of [NaN, undefined, null, -500, 'x']) {
+    assert.equal(seniorityMultiplier(v), 1, `seniorityMultiplier(${String(v)}) should be 1`);
+  }
+});
+
+test('both the standing payroll AND the per-km crew cost inflate', () => {
+  const young = tickAged(0, true);
+  const old   = tickAged(20, true);
+  const r = SENIORITY_CAP;
+  assert.ok(Math.abs(old.totalLaborCosts / young.totalLaborCosts - r) < 0.01, 'payroll should scale');
+  assert.ok(Math.abs(old.totalCrew / young.totalCrew - r) < 0.01, 'crew cost should scale too');
+});
+
+test('classic worlds are untouched however old the airline is', () => {
+  const young = tickAged(0, false);
+  const old   = tickAged(30, false);
+  assert.equal(old.totalLaborCosts, young.totalLaborCosts);
+  assert.equal(old.totalCrew, young.totalCrew);
+});
+
+test('it keys off AIRLINE age, not the world calendar', () => {
+  // A player joining a year-17 world founded their airline that morning. Same
+  // absWeek, different foundedAbsWeek — the newcomer pays starting wages.
+  const veteran  = tickAged(20, true);
+  const newcomer = tickAged(0, true);
+  assert.ok(veteran.totalLaborCosts > newcomer.totalLaborCosts * 2, 'veteran pays far more');
+  assert.equal(newcomer.totalLaborCosts, tickAged(0, false).totalLaborCosts,
+    'a brand-new airline in a restricted world pays exactly classic rates');
+});
+
+test('an old save with no foundedAbsWeek is safe, not instantly senior', () => {
+  const missing = tickAged(30, true, { foundedAbsWeek: undefined });
+  assert.equal(missing.totalLaborCosts, tickAged(0, false).totalLaborCosts);
+});
+
+test('the pay slider still means "relative to market"', () => {
+  // The scale moves; the multiplier keeps its meaning. Doubling pay doubles the
+  // bill at any age, so the UI needs no rework.
+  const paid = { ...LABOR_BASE, pilots: { payMultiplier: 2, morale: 80 } };
+  const a = tickAged(10, true);
+  const b = tickAged(10, true, { labor: paid });
+  assert.ok(b.totalLaborCosts > a.totalLaborCosts, 'a richer slider still costs more');
+});
+
 // ── 8. World fare index ──────────────────────────────────────────────────────
 console.log('\nFare index');
 
 const TEST_INDEX = 0.90;   // an explicit trim; the shipped DEFAULT is 1.0
 
-test('restricted worlds default to NO fare cut', () => {
-  // Shipped at 0.85, eased to 0.95, then removed entirely. A uniform fare cut was
-  // aimed at 30% margins seen on a mature carrier, but a normal airline already
-  // runs ~4% EBITDA — so the cut barely touched the target and drove everyone
-  // else negative. The machinery stays and is per-world; the default is neutral.
-  assert.equal(NWR_FARE_INDEX, 1.0);
+test('the fare trim is flat and world-wide, not per-airline', () => {
+  // A fare index is a MARKET price: every airline on a route faces the same
+  // reference. A maturity ramp (index varying with fleet size) was built and
+  // scrapped for exactly this — two airlines on one route cannot see different
+  // market prices. This asserts the shipped value is a plain world constant.
+  assert.equal(NWR_FARE_INDEX, 0.95);
+  assert.equal(typeof NWR_FARE_INDEX, 'number', 'must be a constant, not a function of anything');
 });
 
 test('an explicit index trims the whole ladder', () => {

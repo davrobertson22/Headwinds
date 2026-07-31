@@ -487,18 +487,49 @@ export function routeDistance(originCode, destCode) {
 // At 0.85 the player was flying 98.9% load with fares 30% over reference and
 // clearing 2%: every route below 97% load lost money.
 //
-// DEFAULT IS NOW 1.0 — no cut at all. The whole lever rested on a false premise:
-// it was built to rein in the 30% margins of a mature year-3 premium long-haul
-// carrier, but a NORMAL airline at ordinary scale already runs ~4% EBITDA, which
-// is a realistic airline margin. A uniform fare cut barely dents the mature
-// carrier and drives everyone else negative — backwards from the intent. The
-// machinery stays (tested, and per-world via tickConfig.fareIndex) so a world
-// CAN opt into a tighter ladder, but no world gets one by default.
+// SETTLED AT 0.95 — a flat 5% trim, identical for every airline in the world.
+//
+// It has to be flat. A fare index is a MARKET price: every airline flying
+// JFK-LAX faces the same reference, so an index that varies by who is asking is
+// incoherent. (A maturity ramp was tried and scrapped for exactly this.)
+//
+// Know what a flat revenue cut does, because it is not symmetric. At margin m,
+// a cut of c leaves 1 - (1-m)/(1-c):
+//
+//   airline at   4% margin  ->   -1.1% after a 5% cut
+//   airline at  10% margin  ->   +5.3%
+//   airline at  15% margin  ->  +10.5%
+//   airline at  33% margin  ->  +29.5%
+//
+// It is deliberately SMALL now. The trim used to carry the whole burden of
+// pulling mature margins down, which it could never do without killing startups
+// — it is flat, so it bites hardest exactly where margins are thinnest. The
+// labour seniority scale (data/labor.js) does that job properly: it targets
+// maturity by construction and cannot be dodged by re-pricing. The trim is now
+// just a light thumb on the scale that says "this world is tighter", and the two
+// together land a mature carrier near 15%:
+//
+//   airline age    seniority    mature margin (with this 5% trim)
+//        0            x1.00          29.7%
+//       10            x1.63          23.4%
+//       20+           x2.50          14.6%
+//
+// So it bites hardest on thin operators and softest on fat ones. It lands softer
+// still on a big airline because ~12.8% of a mature carrier's revenue is
+// ANCILLARY (bags, seats, catering upsell), which no fare index touches — a
+// "5% fare cut" is a 4.4% revenue cut for them.
+//
+// The practical read: this makes a restricted world unforgiving of a badly
+// configured airline (four-class cabins and full catering on short-haul will not
+// survive it) while a well-run one keeps a real, thinner margin. That is the
+// intent. Watch a live world before moving it — and note it is SEEDED INTO
+// AIRLINE STATE AT JOIN, so tickConfig alone will not move existing players.
+// Use tools/rebase-world-fare-index.mjs to retune a live world.
 //
 // Tunable per world via tickConfig.fareIndex, but note it is SEEDED INTO AIRLINE
 // STATE AT JOIN — changing tickConfig alone will not move existing players.
 // Use tools/rebase-world-fare-index.mjs to retune a live world.
-export const NWR_FARE_INDEX = 1.0;
+export const NWR_FARE_INDEX = 0.95;
 
 let _fareIndex = 1;
 

@@ -147,6 +147,10 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     ...(tc.gateScarcity === true ? { gateScarcityWorld: true } : {}),
     // New World Restrictions flag, baked in at join — the engine's lease
     // eligibility and order-book checks only run when this is true.
+    // Founding week: the airline's OWN age clock, set to the world's current week
+    // at join. Drives the labour seniority scale — a player joining a year-17
+    // world founded their airline today and must start on starting wages.
+    foundedAbsWeek: (world.currentYear - 1) * 52 + world.currentWeek,
     ...(tc.newWorldRestrictions === true ? {
       newWorldRestrictions: true,
       // Trims the whole reference-fare ladder (passenger + cargo). Same demand,

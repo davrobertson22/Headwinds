@@ -89,13 +89,18 @@ for (const a of world.airlines) {
   const from = st.fareIndex ?? '(unset)';
   const missingFlag = st.newWorldRestrictions !== true;
   const needsIndex  = st.fareIndex !== target;
-  if (!missingFlag && !needsIndex) {
+  // Airlines that joined before foundedAbsWeek existed have no age clock, so the
+  // labour seniority scale would sit at x1.00 forever. Backfill it from the DB's
+  // joinedWeek — the week they actually started.
+  const missingFounded = st.foundedAbsWeek == null;
+  if (!missingFlag && !needsIndex && !missingFounded) {
     console.log(`  = ${a.name.padEnd(24)} already at ${target}`);
     continue;
   }
   console.log(`  → ${a.name.padEnd(24)} ${a.account?.email ?? '?'}`);
   console.log(`      fareIndex ${from} -> ${target}${
-    missingFlag ? '\n      *** restrictions flag MISSING from state — repairing (joined before the API knew how to seed it)' : ''}`);
+    missingFlag ? '\n      *** restrictions flag MISSING from state — repairing (joined before the API knew how to seed it)' : ''}${
+    missingFounded ? `\n      *** no founding week — backfilling from joinedWeek (${a.joinedWeek}) so labour seniority can age` : ''}`);
   if (missingFlag) repaired++;
   changed++;
 
@@ -103,7 +108,12 @@ for (const a of world.airlines) {
     await prisma.airline.update({
       where: { id: a.id },
       data: {
-        state:   { ...st, newWorldRestrictions: true, fareIndex: target },
+        state: {
+          ...st,
+          newWorldRestrictions: true,
+          fareIndex: target,
+          foundedAbsWeek: st.foundedAbsWeek ?? (a.joinedWeek ?? 1),
+        },
         version: { increment: 1 },   // move the change stamp so clients refetch
       },
     });

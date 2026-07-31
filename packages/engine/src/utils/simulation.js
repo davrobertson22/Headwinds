@@ -8,7 +8,7 @@ import {
 import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
-import { LABOR_GROUPS, laborEffects } from '../data/labor.js';
+import { LABOR_GROUPS, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
@@ -1107,7 +1107,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   const flights     = route.weeklyFrequency * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;  // from engine/wingtip config at order time
   const fuelCost    = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod);
-  const crewCost    = Math.round(dist * type.crewCostPerKm * flights);
+  const crewCost    = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
@@ -1352,7 +1352,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const sectorFactor    = f * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;
   const fuelCost = Math.round(totalDist * fuelCostPerKm(type) * sectorFactor * fuelMultiplier * aircraftFuelMod);
-  const crewCost = Math.round(totalDist * type.crewCostPerKm * sectorFactor);
+  const crewCost = Math.round(totalDist * type.crewCostPerKm * sectorFactor * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
@@ -1556,7 +1556,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   const flights         = route.weeklyFrequency * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;
   const fuelCost  = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod);
-  const crewCost  = Math.round(dist * type.crewCostPerKm * flights);
+  const crewCost  = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const groundHandlingCost = Math.round(tonnesOneWay * 2 * CARGO_HANDLING_PER_TONNE);
 
   const totalOpCost = fuelCost + crewCost + groundHandlingCost;
@@ -2104,6 +2104,17 @@ export function weeklyTick(state) {
     encroachments = {},
   } = state;
 
+  // ── Seniority (New World Restrictions worlds only) ──────────────────────────
+  // Wage scale rises 5%/yr with the AIRLINE's age — never the world calendar, so a
+  // player joining a year-17 world starts at x1.00. Falls back to x1 whenever
+  // foundedAbsWeek is absent (classic worlds, old saves), so nothing else moves.
+  const seniorityMult = state.newWorldRestrictions
+    ? seniorityMultiplier(Math.max(0, (absWeek ?? 0) - (state.foundedAbsWeek ?? (absWeek ?? 0))))
+    : 1;
+  // Threaded to the route sims via the labor object they already receive, so the
+  // per-km crew cost inflates with the same scale as the standing payroll.
+  const laborWithSeniority = labor ? { ...labor, seniorityMult } : labor;
+
   // Encroachment challengers, keyed by O&D pair, injected into the demand model so
   // they split the route's passenger pool with the player.
   // Multiplayer (Headwinds): state.humanRivals carries OTHER HUMAN PLAYERS'
@@ -2601,7 +2612,7 @@ export function weeklyTick(state) {
         brandReach: brandReachFor(tagHubQuality, stopsList, false),
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
       };
-      const result = simulateTagRoute(tagRoute, aircraft, gameDate, labor, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries);
+      const result = simulateTagRoute(tagRoute, aircraft, gameDate, laborWithSeniority, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries);
       if (!result) continue;
 
       const cateringRev    = result.cateringRevenue ?? 0;
@@ -2695,7 +2706,7 @@ export function weeklyTick(state) {
     };
 
     const rkRoute = [route.origin, route.destination].sort().join('-');
-    const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, labor, fuelMultiplier,
+    const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, laborWithSeniority, fuelMultiplier,
       demandAllocations.get(route.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
       eventDemandMultFor(route.origin, route.destination), ancillaries);
     if (!result) continue;
@@ -2894,7 +2905,7 @@ export function weeklyTick(state) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
 
-    const result = simulateCargoRoute(route, aircraft, gameDate, labor, fuelMultiplier, awarenessMultiplier,
+    const result = simulateCargoRoute(route, aircraft, gameDate, laborWithSeniority, fuelMultiplier, awarenessMultiplier,
       cargoAllocations.get(route.id) ?? null);
     if (!result) continue;
 
@@ -3025,7 +3036,9 @@ export function weeklyTick(state) {
     for (const group of LABOR_GROUPS) {
       const payMult = labor[group.id]?.payMultiplier ?? 1.0;
       const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) ? complexityMult : 1.0;
-      totalLaborCosts += Math.round(group.baseWeeklyPerAircraft * payMult * fleet.length * famMult);
+      // seniorityMult inflates the SCALE these wages are measured against. The
+      // player's payMultiplier is untouched and still means "relative to market".
+      totalLaborCosts += Math.round(group.baseWeeklyPerAircraft * payMult * fleet.length * famMult * seniorityMult);
     }
   }
 
