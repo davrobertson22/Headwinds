@@ -2,10 +2,11 @@ import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { simulateCargoRoute, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS } from '../utils/simulation.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
+import CargoRouteFinder from './CargoRouteFinder.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
@@ -139,11 +140,20 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
 
   const effectiveYield = yieldPrice ?? routeData?.refYield ?? 0.5;
 
-  const alreadyActive = useMemo(() =>
-    (state.cargoRoutes ?? []).some(r =>
+  // Your freighters already flying this lane (either direction). New capacity
+  // on the pair shares ONE demand pool with them — the projection below and the
+  // weekly tick both use cargoLaneAllocations, so what you see is what you get.
+  const laneRoutes = useMemo(() =>
+    (state.cargoRoutes ?? []).filter(r =>
       (r.origin === origin && r.destination === dest) || (r.origin === dest && r.destination === origin)),
     [state.cargoRoutes, origin, dest]
   );
+  const alreadyActive = laneRoutes.length > 0;
+  const laneCapacity  = useMemo(() => laneRoutes.reduce((s, r) => {
+    const ac = state.fleet.find(a => a.id === r.aircraftId);
+    const t  = ac ? getAircraftType(ac.typeId) : null;
+    return s + (t?.payloadTonnes ?? 0) * (r.weeklyFrequency ?? 0);
+  }, 0), [laneRoutes, state.fleet]);
 
   // Freighter types that can reach this route
   const reachableTypes = useMemo(() => {
@@ -183,12 +193,20 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     if (!type || routeData.dist > type.range) return null;
     const route = { id: 'p', origin, destination: dest, aircraftId: 'p', weeklyFrequency: frequency, yieldPrice: effectiveYield, weeksOpen: 20 };
     const ac    = { id: 'p', typeId: selectedTypeId, ageWeeks: 0 };
-    const result       = simulateCargoRoute(route, ac, { month: 6 });
-    const resultLaunch = simulateCargoRoute({ ...route, weeksOpen: 0 }, ac, { month: 6 });
+    // Joining a lane you already fly: project THIS aircraft's slice of the
+    // shared pool, not the full market (the same math the weekly tick runs).
+    let override = null, overrideLaunch = null;
+    if (laneRoutes.length > 0) {
+      const fleetPlus = [...state.fleet, ac];
+      override       = cargoLaneAllocations([...laneRoutes, route], fleetPlus).get('p') ?? null;
+      overrideLaunch = cargoLaneAllocations([...laneRoutes, { ...route, weeksOpen: 0 }], fleetPlus).get('p') ?? null;
+    }
+    const result       = simulateCargoRoute(route, ac, { month: 6 }, null, 1.0, 1.0, override);
+    const resultLaunch = simulateCargoRoute({ ...route, weeksOpen: 0 }, ac, { month: 6 }, null, 1.0, 1.0, overrideLaunch);
     if (!result) return null;
     const netProfit = result.profit - type.weeklyLease; // approx (excludes landing/maint; shown separately)
-    return { result, resultLaunch, type, netProfit };
-  }, [routeData, selectedTypeId, frequency, effectiveYield, origin, dest]);
+    return { result, resultLaunch, type, netProfit, shared: laneRoutes.length > 0 };
+  }, [routeData, selectedTypeId, frequency, effectiveYield, origin, dest, laneRoutes, state.fleet]);
 
   // A single freighter's 140h weekly block-hour budget caps how many round trips
   // it can fly on this lane. On long-haul freight that ceiling lands near one
@@ -239,6 +257,9 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
   return (
     <div>
       {!embedded && <ModeToggle mode={mode} setMode={setMode} />}
+
+      {/* Cargo route finder — discover unserved freight lanes by demand */}
+      <CargoRouteFinder onPick={(o, d) => { setOrigin(o); setDest(d); setYieldPrice(null); }} />
 
       {/* Route picker */}
       <div className="card" style={{ marginBottom: 12 }}>
@@ -354,6 +375,13 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                         {cell.sub && <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>{cell.sub}</div>}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Shared-lane pool notice */}
+                {simulation?.shared && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 14, lineHeight: 1.5 }}>
+                    <Glyph e="⚖" size={12} /> {laneRoutes.length} of your freighter{laneRoutes.length !== 1 ? 's' : ''} already fl{laneRoutes.length !== 1 ? 'y' : 'ies'} {origin}–{dest} ({laneCapacity.toLocaleString()} t/wk capacity). All freighters on a lane share <strong>one</strong> demand pool — the figures above are this aircraft's share, not the full market.
                   </div>
                 )}
 

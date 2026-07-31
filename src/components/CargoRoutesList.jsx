@@ -4,7 +4,7 @@ import { useConfirm } from './ConfirmModal.jsx';
 import AirportLink from './AirportLink.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
-import { simulateCargoRoute, formatMoney, formatPercent, currentGameDate } from '../utils/simulation.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, currentGameDate } from '../utils/simulation.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { useToast } from './ToastSystem.jsx';
 
@@ -53,12 +53,17 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
     catch { return 'table'; }
   });
 
-  const allRows = useMemo(() => cargoRoutes.map(route => {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
-    const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
-    const sim      = aircraft ? simulateCargoRoute(route, aircraft, gd) : null;
-    return { route, aircraft, type, sim };
-  }), [cargoRoutes, fleet, gd]);
+  const allRows = useMemo(() => {
+    // Same-lane pooling: mirror the weekly tick so the list shows each route's
+    // SHARE of a shared lane, not N copies of the full market.
+    const alloc = cargoLaneAllocations(cargoRoutes, fleet);
+    return cargoRoutes.map(route => {
+      const aircraft = fleet.find(a => a.id === route.aircraftId);
+      const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+      const sim      = aircraft ? simulateCargoRoute(route, aircraft, gd, null, 1.0, 1.0, alloc.get(route.id) ?? null) : null;
+      return { route, aircraft, type, sim, pooled: alloc.has(route.id) };
+    });
+  }, [cargoRoutes, fleet, gd]);
 
   // Scope to the airport filter, then sort by profit descending (the old card order).
   const rows = useMemo(() => {
@@ -263,7 +268,7 @@ function CargoTable({ rows, controls }) {
 }
 
 function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls }) {
-  const { route, aircraft, type, sim } = row;
+  const { route, aircraft, type, sim, pooled } = row;
   const oa = getAirport(route.origin);
   const da = getAirport(route.destination);
 
@@ -302,6 +307,14 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls }) {
           {!aircraft && (
             <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}>
               No freighter
+            </span>
+          )}
+          {pooled && (
+            <span
+              style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: `${ACCENT}18`, color: ACCENT, border: `1px solid ${ACCENT}44`, textTransform: 'uppercase' }}
+              title="Several of your freighters fly this lane — they share one demand pool, so this route's tonnage is its share of the market, not the full market"
+            >
+              <Glyph e="⚖" /> Shared lane
             </span>
           )}
         </td>
@@ -373,7 +386,7 @@ function CargoRouteControls({ route, sim, controls }) {
 
 // ─── Card view (same layout as before, sharing the controls with the table) ─────
 
-function CargoRouteCard({ route, aircraft, type, sim, controls }) {
+function CargoRouteCard({ route, aircraft, type, sim, pooled, controls }) {
   const lf = sim?.loadFactor ?? 0;
   const lfColor = lf >= 0.75 ? 'var(--green)' : lf >= 0.45 ? 'var(--yellow)' : 'var(--red)';
 
@@ -385,6 +398,14 @@ function CargoRouteCard({ route, aircraft, type, sim, controls }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700 }}>
             <AirportLink code={route.origin} /> <span style={{ color: ACCENT }}>→</span> <AirportLink code={route.destination} />
             <FreightBadge />
+            {pooled && (
+              <span
+                style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: `${ACCENT}18`, color: ACCENT, border: `1px solid ${ACCENT}44`, textTransform: 'uppercase', letterSpacing: '.04em' }}
+                title="Several of your freighters fly this lane — they share one demand pool, so this route's tonnage is its share of the market, not the full market"
+              >
+                <Glyph e="⚖" /> Shared lane
+              </span>
+            )}
             {aircraft?.status === 'grounded' && (
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
