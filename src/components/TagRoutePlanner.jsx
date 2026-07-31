@@ -9,7 +9,7 @@ import {
   currentGameDate, effectiveRangeKm, defaultClassPrices,
   routeLegs, routeSegments, routeSegmentKey, routeMaxLegKm, routeBlockHours,
   routeLandingFee, routeStops, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, MAX_ROUTE_STOPS,
-  cargoSlotsUsedAt, fleetAvgUtilization,
+  cargoSlotsUsedAt, fleetAvgUtilization, formatPax,
 } from '../utils/simulation.js';
 import { ModeToggle } from './CargoRoutePlanner.jsx';
 import AddGateButton from './AddGateButton.jsx';
@@ -281,7 +281,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
                     </div>
                     {meta && (
                       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>
-                        {meta.pax.toLocaleString()} pax/wk · {formatMoney(meta.pax * 2 * (meta.ecoFare ?? val))}/wk
+                        {formatPax(meta.pax)} pax/wk · {formatMoney(meta.pax * 2 * (meta.ecoFare ?? val))}/wk
                       </div>
                     )}
                   </div>
@@ -304,7 +304,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 1, background: 'var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', marginBottom: 14 }}>
                     {[
-                      { label: 'Boarded pax', value: preview.passengers.toLocaleString(), sub: 'one-way / wk' },
+                      { label: 'Boarded pax', value: formatPax(preview.passengers), sub: 'one-way / wk' },
                       { label: 'Blended load', value: formatPercent(preview.loadFactor), color: preview.loadFactor >= 0.75 ? 'var(--green)' : preview.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' },
                       { label: 'Revenue / wk', value: formatMoney(preview.revenue), color: 'var(--green)' },
                       { label: 'Op cost / wk', value: formatMoney(preview.totalOpCost), color: 'var(--red)' },

@@ -9,7 +9,7 @@ import {
   simulateRoute, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
-  freighterLandingCategory,
+  freighterLandingCategory, formatPax,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { projectWeek } from '../utils/financeProjection.js';
@@ -672,7 +672,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
                 {[
                   { label: 'Revenue/wk',    value: `+${formatMoney(res.revenue)}`,    color: 'var(--green)' },
                   { label: 'Op Cost/wk',    value: `−${formatMoney(res.totalOpCost)}`, color: 'var(--red)'  },
-                  { label: 'Pax/wk',        value: res.passengers.toLocaleString(),    color: 'var(--text)' },
+                  { label: 'Pax/wk',        value: formatPax(res.passengers),    color: 'var(--text)' },
                   { label: 'Load Factor',   value: formatPercent(res.loadFactor),
                     color: res.loadFactor > .7 ? 'var(--green)' : res.loadFactor > .4 ? 'var(--yellow)' : 'var(--red)' },
                   { label: 'Ticket',        value: `$${r.ticketPrice}`,               color: 'var(--text)' },

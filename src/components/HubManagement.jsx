@@ -4,7 +4,8 @@ import { useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
-import { formatMoney } from '../utils/simulation.js';
+import { formatMoney, formatPax,
+} from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import {
   HUB_TIERS, HUB_MIN_GATES, HUB_TIER_COUNT, FOCUS_MIN_GATES,
@@ -228,7 +229,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
             Top connecting markets over {code}
             {ownMetalHub && (
               <span style={{ textTransform: 'none', letterSpacing: 0 }}>
-                {' '}— {ownMetalHub.pax.toLocaleString()} pax · {formatMoney(ownMetalHub.revenue)}/wk across {ownMetalHub.markets} markets
+                {' '}— {formatPax(ownMetalHub.pax)} pax · {formatMoney(ownMetalHub.revenue)}/wk across {ownMetalHub.markets} markets
               </span>
             )}
           </div>

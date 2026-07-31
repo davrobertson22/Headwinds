@@ -25,7 +25,7 @@ import {
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
-  buildEventDemandModel,
+  buildEventDemandModel, formatPax,
 } from '../utils/simulation.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1041,7 +1041,7 @@ function TagRouteCard({ route, onClose }) {
         <>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', padding: '10px 14px', marginBottom: 12, background: 'var(--surface2)', borderRadius: 'var(--radius)', fontSize: 13 }}>
             {[
-              { label: 'Pax / wk', value: sim.passengers.toLocaleString() },
+              { label: 'Pax / wk', value: formatPax(sim.passengers) },
               { label: 'Blended load', value: formatPercent(sim.loadFactor), color: loadColor(sim.loadFactor) },
               { label: 'Revenue / wk', value: '+' + formatMoney(sim.revenue), color: 'var(--green)' },
               { label: 'Op cost / wk', value: '−' + formatMoney(sim.totalOpCost + landingFee), color: 'var(--red)' },
@@ -1238,7 +1238,7 @@ function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectM
             Margin: {Math.round((totalProfit / totalRev) * 100)}% <span style={{ opacity: 0.6, fontSize: 11 }}>(incl. lease + maint)</span>
           </span>
         )}
-        <span style={{ color: 'var(--text-muted)' }}>Pax: {totalPax.toLocaleString()}/wk</span>
+        <span style={{ color: 'var(--text-muted)' }}>Pax: {formatPax(totalPax)}/wk</span>
       </div>
 
       {/* Table */}
@@ -1372,7 +1372,7 @@ function RouteTableRow({ group: g, zebra, selected, expanded, onToggleSelect, on
         >
           {g.quality != null ? Math.round(g.quality) : '—'}
         </td>
-        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{(g.totalPax ?? 0).toLocaleString()}</td>
+        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{formatPax(g.totalPax ?? 0)}</td>
         <td style={{ ...RIGHT, fontWeight: 600, color: 'var(--green)' }}>+{formatMoney(g.totalRevenue)}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: profColor }}>
           {g.totalProfit >= 0 ? '+' : ''}{formatMoney(g.totalProfit)}
@@ -1602,7 +1602,7 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
         </div>
         <div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Pax / wk</div>
-          <div style={{ fontWeight: 700 }}>{totalPax.toLocaleString()}</div>
+          <div style={{ fontWeight: 700 }}>{formatPax(totalPax)}</div>
         </div>
         <div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Revenue / wk</div>
@@ -2556,7 +2556,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
         {preview && inRange && (
           <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             <span><Glyph e="📏" /> {dist?.toLocaleString()} km</span>
-            <span><Glyph e="👥" /> {preview.passengers.toLocaleString()} pax/wk</span>
+            <span><Glyph e="👥" /> {formatPax(preview.passengers)} pax/wk</span>
             <span><Glyph e="📊" /> {formatPercent(preview.loadFactor)} load</span>
             <span style={{ color: 'var(--green)' }}>+{formatMoney(preview.revenue)}/wk</span>
             <span style={{ color: preview.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>

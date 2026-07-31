@@ -45,6 +45,7 @@
     "test:nwr": "node tools/new-world-restrictions-test.mjs",
     "test:rival-map": "node --import ./tools/_register-loader.mjs tools/rival-map-test.mjs",
     "test:brand": "node tools/brand-demand-test.mjs",
+    "test:pax": "node tools/whole-passengers-test.mjs",
     "test:share": "node tools/market-share-test.mjs",
     "test:bridge": "node tools/pnl-bridge-test.mjs && node --import ./tools/_register-loader.mjs tools/finance-bridge-test.mjs",
     "test:restart": "node tools/restart-test.mjs",

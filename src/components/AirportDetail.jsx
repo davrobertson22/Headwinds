@@ -3,7 +3,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport, gateCapacityOf } from '../data/airports.js';
 import {
   baseCityPairDemand, referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE,
-  cargoSlotsUsedAt,
+  cargoSlotsUsedAt, formatPax,
 } from '../utils/simulation.js';
 import {
   AIRPORT_GATEWAY_SCORES, HUB_TIERS,
@@ -478,7 +478,7 @@ export default function AirportDetail({ code, onBack }) {
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 Connecting itineraries over {code}
-                {hubTransit && <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text-dim)' }}> — {hubTransit.pax.toLocaleString()} pax · {formatMoney(hubTransit.revenue)}/wk across {hubTransit.markets} {hubTransit.markets === 1 ? 'market' : 'markets'}</span>}
+                {hubTransit && <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text-dim)' }}> — {formatPax(hubTransit.pax)} pax · {formatMoney(hubTransit.revenue)}/wk across {hubTransit.markets} {hubTransit.markets === 1 ? 'market' : 'markets'}</span>}
               </div>
               <div style={{ borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>
                 {transitFlows.slice(0, 12).map((e, i) => {
@@ -491,7 +491,7 @@ export default function AirportDetail({ code, onBack }) {
                       <div style={{ flex: 1, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', minWidth: 24 }}>
                         <div style={{ width: `${barPct}%`, height: '100%', background: 'var(--purple)', borderRadius: 3, opacity: 0.85 }} />
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 62, textAlign: 'right' }}>{e.pax.toLocaleString()} pax</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 62, textAlign: 'right' }}>{formatPax(e.pax)} pax</span>
                       <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 54, textAlign: 'right' }}>{formatMoney(e.revenue)}</span>
                     </div>
                   );
@@ -499,7 +499,7 @@ export default function AirportDetail({ code, onBack }) {
               </div>
               {partnerTransitPax > 0 && (
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
-                  +{partnerTransitPax.toLocaleString()} pax/wk via partner-fed connections
+                  +{formatPax(partnerTransitPax)} pax/wk via partner-fed connections
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>

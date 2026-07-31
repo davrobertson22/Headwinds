@@ -11,7 +11,7 @@ import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
-  buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
+  buildEventDemandModel, CLASS_FARE_MULTIPLIERS, formatPax,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -147,7 +147,7 @@ function MarketSharePie({ slices }) {
                 {sl.label}
               </span>
               <span style={{ flexShrink: 0, color: sl.isUnmet ? 'var(--text-dim)' : sl.isPlayer ? 'var(--green)' : 'var(--text-muted)' }}>
-                {sl.pax.toLocaleString()} · {pct}%
+                {formatPax(sl.pax)} · {pct}%
               </span>
             </div>
           );
@@ -535,7 +535,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
                   Based on price · quality · frequency
                   {servedPax > totalDemand && (
                     <span style={{ color: 'var(--green)', marginLeft: 6 }}>
-                      · market expanded to {servedPax.toLocaleString()} via low fares
+                      · market expanded to {formatPax(servedPax)} via low fares
                     </span>
                   )}
                 </div>
@@ -550,7 +550,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 12 }}>Your Performance</div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
-            <Stat label="Weekly Pax"   value={totalPax.toLocaleString()} sub="pax / wk one-way" />
+            <Stat label="Weekly Pax"   value={formatPax(totalPax)} sub="pax / wk one-way" />
             <Stat label="Avg Load"     value={formatPercent(avgLoad)} color={avgLoad >= 0.75 ? 'var(--green)' : avgLoad >= 0.45 ? 'var(--yellow)' : 'var(--red)'} />
             <Stat label="Revenue/wk"   value={formatMoney(totalRev)} color="var(--green)" />
             <Stat label="Op Cost/wk"   value={formatMoney(totalOpCost)} color="var(--red)" />
@@ -660,7 +660,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
                     <tr key={route.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                       <td style={{ padding: '7px 10px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{aircraft.name}</td>
                       <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{route.weeklyFrequency}×</td>
-                      <td style={{ padding: '7px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{result.passengers.toLocaleString()}</td>
+                      <td style={{ padding: '7px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{formatPax(result.passengers)}</td>
                       <td style={{ padding: '7px 10px', fontWeight: 600, whiteSpace: 'nowrap', color: result.loadFactor >= 0.75 ? 'var(--green)' : result.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' }}>{formatPercent(result.loadFactor)}</td>
                       {activeClasses.map(cls => {
                         const cs = result.classSummary?.[cls];
@@ -730,7 +730,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
                         </div>
                       </td>
                       <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {share ? share.totalPax.toLocaleString() : '—'}
+                        {share ? formatPax(share.totalPax) : '—'}
                       </td>
                     </tr>
                   );

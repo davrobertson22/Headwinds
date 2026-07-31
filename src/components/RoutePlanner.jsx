@@ -8,7 +8,7 @@ import {
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
   buildEventDemandModel, deployableFleetForRoute, maxWeeklyBlockHoursFor,
-  maxFrequency,
+  maxFrequency, formatPax,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import {
@@ -980,7 +980,7 @@ export default function RoutePlanner() {
                       <div style={{ flex: '1 1 320px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, background: 'var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', alignSelf: 'flex-start' }}>
                         {[
                           { label: 'Weekly Capacity', value: (configBodies(effectiveConfig ?? defaultConfig(simulation.type.seats)) * frequency * 2).toLocaleString(), sub: 'seats (both dirs)' },
-                          { label: 'O&D Passengers',  value: simulation.result.passengers.toLocaleString(), sub: 'direct pax / wk' },
+                          { label: 'O&D Passengers',  value: formatPax(simulation.result.passengers), sub: 'direct pax / wk' },
                           { label: 'Load Factor',
                             value: simulation.resultLaunch && simulation.resultLaunch.loadFactor < simulation.result.loadFactor
                               ? `${formatPercent(simulation.resultLaunch.loadFactor)} → ${formatPercent(simulation.result.loadFactor)}`

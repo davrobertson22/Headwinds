@@ -1060,8 +1060,14 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // and involuntary upgrades all stay internally consistent.
   const nwrScale = nwrDemandScale(leisurePax + businessPax, totalCapOneWay, route.nwrLoadJitter);
   if (nwrScale !== 1) {
-    leisurePax  *= nwrScale;
-    businessPax *= nwrScale;
+    // Round back to whole people. The demand model hands us integers; scaling
+    // them by a continuous factor does not. Per-class allocation rounds anyway
+    // (`preferredDemand` below), but the involuntary-upgrade pass sizes itself
+    // off the RAW pool (`maxFillable`), so a fractional pool leaked straight
+    // through to totalPaxOneWay and the UI reported "4,276.271 pax/wk".
+    // Airlines carry whole passengers.
+    leisurePax  = Math.round(leisurePax  * nwrScale);
+    businessPax = Math.round(businessPax * nwrScale);
   }
   let totalRevenue     = 0;
   let totalPaxOneWay   = 0;
@@ -3401,4 +3407,17 @@ export function formatMoney(n) {
 
 export function formatPercent(n) {
   return `${(n * 100).toFixed(1)}%`;
+}
+
+/**
+ * Format a passenger count for display.
+ *
+ * Passengers are people: never render a fraction of one. The demand model and
+ * simulateRoute now return whole pax, but history written by older builds (and
+ * any future continuous scaling factor) can still carry a remainder, so every
+ * pax figure in the UI goes through here rather than calling toLocaleString()
+ * on a raw number.
+ */
+export function formatPax(n) {
+  return Math.round(Number(n) || 0).toLocaleString();
 }

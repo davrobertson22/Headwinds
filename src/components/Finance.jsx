@@ -6,7 +6,7 @@ import {
   simulateRoute, maintenanceMultiplier, blockTimeHours,
   CLASS_FARE_MULTIPLIERS,
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
-  buildEventDemandModel,
+  buildEventDemandModel, formatPax,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
@@ -824,7 +824,7 @@ function PLStatement({ proj }) {
                               </div>
                               <div style={{ fontSize: 11, color: 'var(--text-muted)', paddingLeft: 18, marginTop: 1 }}>
                                 {getAirport(origin)?.city} → {getAirport(destination)?.city}
-                                {' · '}{groupPax.toLocaleString()} pax total
+                                {' · '}{formatPax(groupPax)} pax total
                               </div>
                             </td>
                             {pw && (
@@ -845,7 +845,7 @@ function PLStatement({ proj }) {
                                 {multi && (
                                   <tr style={{ background: 'rgba(0,0,0,.1)' }}>
                                     <td colSpan={pw ? 4 : 3} style={{ paddingLeft: 48, fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>
-                                      {aircraft.name} ({type?.name}) — {route.weeklyFrequency}×/wk · {result.passengers.toLocaleString()} pax · {formatPercent(result.loadFactor)} load
+                                      {aircraft.name} ({type?.name}) — {route.weeklyFrequency}×/wk · {formatPax(result.passengers)} pax · {formatPercent(result.loadFactor)} load
                                       <span style={{ float: 'right', color: 'var(--green)', marginRight: 8 }}>+{formatMoney(projRouteRev)}</span>
                                     </td>
                                   </tr>
@@ -857,7 +857,7 @@ function PLStatement({ proj }) {
                                     <tr key={`${route.id}-${cls}`} style={{ background: 'rgba(0,0,0,.15)' }}>
                                       <td style={{ paddingLeft: multi ? 64 : 56, fontSize: 12, color: 'var(--text-muted)' }}>
                                         <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: CLASS_COLORS[cls], marginRight: 6 }} />
-                                        {CLASS_LABELS[cls]}: {data.passengers.toLocaleString()} pax × {formatMoney(fare)}
+                                        {CLASS_LABELS[cls]}: {formatPax(data.passengers)} pax × {formatMoney(fare)}
                                         <span style={{ marginLeft: 8, color: 'var(--text-dim)' }}>({formatPercent(data.loadFactor)} load)</span>
                                       </td>
                                       {pw && <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 11 }}>—</td>}
@@ -1026,7 +1026,7 @@ function PLStatement({ proj }) {
                           <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
                             {clsLabel}
                             <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-dim)' }}>
-                              {totalPax.toLocaleString()} pax/wk × ${rate}/pax — ramp, baggage, boarding
+                              {formatPax(totalPax)} pax/wk × ${rate}/pax — ramp, baggage, boarding
                             </span>
                           </td>
                           {pw && <td />}
@@ -1785,7 +1785,7 @@ function RouteBreakdown({ proj }) {
             {aircraftLabel}<br />
             <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{totalFreq}×/wk{!multi && ` · $${entries[0].route.ticketPrice} eco`}</span>
           </td>
-          <td style={{ textAlign: 'right' }}>{totalPax.toLocaleString()}</td>
+          <td style={{ textAlign: 'right' }}>{formatPax(totalPax)}</td>
           <td style={{ textAlign: 'right' }}>
             <span style={{ color: avgLF > .75 ? 'var(--green)' : avgLF > .45 ? 'var(--yellow)' : 'var(--red)' }}>
               {formatPercent(avgLF)}
@@ -1807,7 +1807,7 @@ function RouteBreakdown({ proj }) {
                 <div key={route.id} style={{ marginBottom: multi && i < entries.length - 1 ? 16 : 0 }}>
                   {multi && (
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>
-                      {aircraft.name} ({type?.name}) — {route.weeklyFrequency}×/wk · ${route.ticketPrice} eco · {result.passengers.toLocaleString()} pax · {formatPercent(result.loadFactor)} load
+                      {aircraft.name} ({type?.name}) — {route.weeklyFrequency}×/wk · ${route.ticketPrice} eco · {formatPax(result.passengers)} pax · {formatPercent(result.loadFactor)} load
                     </div>
                   )}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
@@ -1820,7 +1820,7 @@ function RouteBreakdown({ proj }) {
                           <div key={cls} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 12 }}>
                             <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: CLASS_COLORS[cls], flexShrink: 0 }} />
                             <span style={{ flex: 1, color: 'var(--text-muted)' }}>{CLASS_LABELS[cls]}</span>
-                            <span>{data.passengers.toLocaleString()} pax × {formatMoney(fare)}</span>
+                            <span>{formatPax(data.passengers)} pax × {formatMoney(fare)}</span>
                             <span style={{ color: 'var(--green)', fontWeight: 600 }}>{formatMoney(data.revenue)}</span>
                             <span style={{ color: 'var(--text-dim)' }}>({formatPercent(data.loadFactor)})</span>
                           </div>
@@ -2020,7 +2020,7 @@ function AirportBreakdown({ proj }) {
                     </span>
                   </td>
                   <td style={{ textAlign: 'right' }}>{aptRoutes.length}</td>
-                  <td style={{ textAlign: 'right' }}>{pax.toLocaleString()}</td>
+                  <td style={{ textAlign: 'right' }}>{formatPax(pax)}</td>
                   <td style={{ textAlign: 'right', color: 'var(--green)' }}>{formatMoney(revenue)}</td>
                   <td style={{ textAlign: 'right' }}>
                     {gateCount > 0

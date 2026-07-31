@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
-import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, fleetAvgUtilization, isRouteActive, weekToGameDate } from '../utils/simulation.js';
+import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, fleetAvgUtilization, isRouteActive, weekToGameDate, formatPax,
+} from '../utils/simulation.js';
 import { computeQualityScore, cabinQualityPoints } from '../models/demand.js';
 import { laborEffects } from '../data/labor.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
@@ -534,7 +535,7 @@ function CompetitorCard({ carrier, playerRouteMap }) {
               prefix={s.weeklyProfit >= 0 ? '+' : ''} />
             <StatLine label="Weekly revenue" value={formatMoney(s.weeklyRevenue)} />
             <StatLine label="Weekly flights" value={s.weeklyFlights.toLocaleString()} />
-            <StatLine label="Weekly pax" value={s.weeklyPax.toLocaleString()} />
+            <StatLine label="Weekly pax" value={formatPax(s.weeklyPax)} />
           </div>
 
           {/* Cash */}
