@@ -8,7 +8,8 @@ import {
 import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
-         nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING } from './market.js';
+         nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
+         setNwrYieldChoke } from './market.js';
 import { LABOR_GROUPS, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
@@ -1060,8 +1061,11 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // and involuntary upgrades all stay internally consistent.
   const nwrScale = nwrDemandScale(leisurePax + businessPax, totalCapOneWay, route.nwrLoadJitter);
   if (nwrScale !== 1) {
-    leisurePax  *= nwrScale;
-    businessPax *= nwrScale;
+    // Round to whole passengers: the class fan-out and the involuntary-upgrade
+    // block below both do integer arithmetic on these, and a fractional pool
+    // leaks fractions all the way to the UI (4,276.271 pax/wk on a route table).
+    leisurePax  = Math.round(leisurePax  * nwrScale);
+    businessPax = Math.round(businessPax * nwrScale);
   }
   let totalRevenue     = 0;
   let totalPaxOneWay   = 0;
@@ -2175,6 +2179,10 @@ export function weeklyTick(state) {
   const nwrLoadFieldsFor = state.newWorldRestrictions
     ? (r) => ({ nwrLoadJitter: weeklyLoadJitter(r.id ?? `${r.origin}-${r.destination}`, absWeek ?? 0) })
     : () => ({});
+  // The yield choke is module-scoped (like the fare index) and normally set by
+  // the reducer / providers — but tools and server paths call weeklyTick
+  // directly, so pin it from THIS state to make every tick self-consistent.
+  setNwrYieldChoke(state.newWorldRestrictions === true);
 
   // Encroachment challengers, keyed by O&D pair, injected into the demand model so
   // they split the route's passenger pool with the player.

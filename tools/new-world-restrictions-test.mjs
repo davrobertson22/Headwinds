@@ -40,7 +40,10 @@ import {
   referencePrice, cargoReferenceYield, setFareIndex, getFareIndex, NWR_FARE_INDEX,
   expectedCarried, weeklyLoadJitter, nwrDemandScale,
   NWR_LF_CEILING, NWR_LF_JITTER,
+  setNwrYieldChoke, nwrYieldChokeFactor,
+  NWR_CHOKE_THRESHOLD_BASE, NWR_CHOKE_THRESHOLD_MAX, NWR_CHOKE_STEEPNESS,
 } from '../packages/engine/src/utils/market.js';
+import { priceChokeFactor, PRICE_CAP_MULTIPLE } from '../packages/engine/src/models/demand.js';
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -724,6 +727,17 @@ test('a sold-out route breathes week to week instead of pinning', () => {
   assert.ok(lfs.size >= 6, `8 weeks of a full route should show distinct LFs, got ${lfs.size}`);
 });
 
+test('passengers stay whole people — no 4,276.271 pax/wk on the route table', () => {
+  // REGRESSION: the demand scale is fractional, and the involuntary-upgrade
+  // block does maxFillable − totalPax arithmetic on it, so an unrounded pool
+  // leaked fractional passengers into classSummary and the UI.
+  for (let w = 0; w < 6; w++) {
+    const r = lfSim(LF_CAP * 1.2, weeklyLoadJitter('r-lf', w));
+    assert.ok(Number.isInteger(r.passengers),
+      `week ${w}: ${r.passengers} passengers is not a whole number`);
+  }
+});
+
 test('revenue moves with the pax the model removes — no phantom fares', () => {
   const off = lfSim(LF_CAP * 3, null);
   const on  = lfSim(LF_CAP * 3, 1);
@@ -815,6 +829,75 @@ test('GRANDFATHER: transfers that do not grow the hours stay legal', () => {
   const sameType = transferCompatibility(inherited, 'bh1', 'bh2');
   assert.equal(sameType.ok, true,
     `moving an over-cap schedule onto the same type keeps the same hours: ${sameType.reason ?? ''}`);
+});
+
+// ── Yield choke: monopoly pricing has a ceiling ──────────────────────────────
+//
+// Headwinds has no AI encroachment (competition is humans only), so on a
+// lightly-populated world every route is a monopoly, and elasticity alone lets
+// the fare equilibrium sit at 1.3-3x reference on big pools with the aircraft
+// still full. In restricted worlds, pricing above a quality-scaled threshold
+// (1.10x ref at quality<=50, 1.25x at quality 100) takes an extra
+// exp(-15·overage) demand penalty. At or below the threshold: exactly nothing.
+
+console.log('\nYield choke (monopoly pricing ceiling):');
+
+test('classic worlds: priceChokeFactor is bit-identical with the flag off', () => {
+  setNwrYieldChoke(false);
+  for (const ratio of [0.8, 1.0, 1.1, 1.5, 2.0, 2.9]) {
+    const t = (ratio - 1) / (PRICE_CAP_MULTIPLE - 1);
+    const expect = ratio <= 1 ? 1 : Math.max(0, 1 - t * t);
+    assert.equal(priceChokeFactor(ratio * 100, 100), expect,
+      `ratio ${ratio}: classic curve must be untouched`);
+  }
+  assert.equal(nwrYieldChokeFactor(2.5, 50), 1, 'factor is exactly 1 when off');
+});
+
+test('at or below the threshold the choke does literally nothing', () => {
+  setNwrYieldChoke(true);
+  assert.equal(nwrYieldChokeFactor(1.0, 50), 1);
+  assert.equal(nwrYieldChokeFactor(NWR_CHOKE_THRESHOLD_BASE, 50), 1);
+  assert.equal(nwrYieldChokeFactor(NWR_CHOKE_THRESHOLD_MAX, 100), 1);
+  setNwrYieldChoke(false);
+});
+
+test('above the threshold demand collapses fast', () => {
+  setNwrYieldChoke(true);
+  const at13 = nwrYieldChokeFactor(1.3, 50);   // 20 pts over → exp(-3)
+  assert.ok(Math.abs(at13 - Math.exp(-NWR_CHOKE_STEEPNESS * 0.2)) < 1e-12);
+  assert.ok(at13 < 0.06, `1.3x ref at quality 50 keeps ${(at13 * 100).toFixed(1)}% of demand — gouging must not pay`);
+  setNwrYieldChoke(false);
+});
+
+test('quality buys pricing headroom', () => {
+  setNwrYieldChoke(true);
+  const budget  = nwrYieldChokeFactor(1.2, 50);   // 10 pts over its 1.10 threshold
+  const premium = nwrYieldChokeFactor(1.2, 100);  // still under its 1.25 threshold
+  assert.equal(premium, 1, 'a quality-100 product prices 1.2x ref freely');
+  assert.ok(budget < 0.25, `a quality-50 product at 1.2x keeps ${(budget * 100).toFixed(0)}%`);
+  setNwrYieldChoke(false);
+});
+
+test('end to end: the 1.5x-ref monopoly play stops filling aircraft', () => {
+  const ref = referencePrice('JFK', 'LAX');
+  const gouged = { ...LF_ROUTE, ticketPrice: Math.round(ref * 1.5) };
+  const sim = (on) => {
+    setNwrYieldChoke(on);
+    const r = simulateRoute(gouged, LF_AIRCRAFT, { month: 6 }, null, 1.0);
+    setNwrYieldChoke(false);
+    return r;
+  };
+  const off = sim(false);
+  const on  = sim(true);
+  assert.ok(on.passengers < off.passengers * 0.25,
+    `1.5x ref: ${off.passengers} pax classic -> ${on.passengers} choked — must collapse`);
+  // and the SAME route priced at reference is untouched by the choke
+  const fair = { ...LF_ROUTE, ticketPrice: ref };
+  setNwrYieldChoke(true);
+  const fairOn = simulateRoute(fair, LF_AIRCRAFT, { month: 6 }, null, 1.0);
+  setNwrYieldChoke(false);
+  const fairOff = simulateRoute(fair, LF_AIRCRAFT, { month: 6 }, null, 1.0);
+  assert.equal(fairOn.passengers, fairOff.passengers, 'reference pricing feels nothing');
 });
 
 console.log(`\n${failed === 0 ? '✓' : '✗'} ${passed} passed, ${failed} failed\n`);

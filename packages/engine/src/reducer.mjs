@@ -21,7 +21,7 @@ import {
   applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
-         setFareIndex,
+         setFareIndex, setNwrYieldChoke,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
          emptyEquity, migratedEquity, sharesOf, svpsOf,
@@ -582,6 +582,7 @@ function reducer(state, action) {
   // competitor AI, encroachment, positioning, connecting fares — sees the same
   // ladder. The reducer is synchronous, so no two airlines can interleave here.
   setFareIndex(state?.fareIndex ?? 1);
+  setNwrYieldChoke(state?.newWorldRestrictions === true);
   switch (action.type) {
 
     case 'START_GAME': {

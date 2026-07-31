@@ -18,7 +18,7 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
-import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex } from '@tailwinds/engine/utils/market.js';
+import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwrYieldChoke } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { stateBrandReach } from '@tailwinds/engine/utils/simulation.js';
@@ -565,6 +565,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
   // after the findMany below.
   const priced = (rows, allianceMap) => {
     setFareIndex(rows?.[0]?.state?.fareIndex ?? 1);
+    setNwrYieldChoke(rows?.[0]?.state?.newWorldRestrictions === true);
     return buildRivalViews(rows, allianceMap);
   };
 

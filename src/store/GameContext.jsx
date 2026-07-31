@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useMemo } from 'react';
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
-import { setFareIndex, getFareIndex } from '../../packages/engine/src/utils/market.js';
+import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke } from '../../packages/engine/src/utils/market.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -52,12 +52,16 @@ export function GameProvider({ children }) {
     // FareEditor and route planners on the CLASSIC fare ladder until the player's
     // first action corrected it.
     setFareIndex(init?.fareIndex ?? 1);
+    setNwrYieldChoke(init?.newWorldRestrictions === true);
     return init;
   });
 
   // Keep it in step when the world's state is adopted from the server (Headwinds
   // multiplayer replaces the whole blob without a local action).
-  useEffect(() => { setFareIndex(state?.fareIndex ?? 1); }, [state?.fareIndex]);
+  useEffect(() => {
+    setFareIndex(state?.fareIndex ?? 1);
+    setNwrYieldChoke(state?.newWorldRestrictions === true);
+  }, [state?.fareIndex, state?.newWorldRestrictions]);
 
   useEffect(() => {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
@@ -87,8 +91,10 @@ export function RemoteGameProvider({ state, dispatch, remoteApi = null, remoteCh
   // it reverts to the old one". Set it whenever the adopted state's index changes,
   // and synchronously during render so the FIRST paint is already correct.
   const fareIndex = state?.fareIndex ?? 1;
+  const nwrOn     = state?.newWorldRestrictions === true;
   if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
-  useEffect(() => { setFareIndex(fareIndex); }, [fareIndex]);
+  if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
+  useEffect(() => { setFareIndex(fareIndex); setNwrYieldChoke(nwrOn); }, [fareIndex, nwrOn]);
 
   const value = useMemo(
     () => hydratedValue(state, dispatch, true, remoteApi, remoteChrome),

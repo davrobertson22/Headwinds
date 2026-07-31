@@ -29,7 +29,7 @@
  * needed — they capture min(adjustedDemand, capacity).
  */
 
-import { baseCityPairDemand, referencePrice, routeDistance } from '../utils/market.js';
+import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor } from '../utils/market.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 
@@ -77,13 +77,16 @@ export const COMPETITIVE_FARE_COMPRESSION_FLOOR    = 0.90;  // max −10%
  * @param {number} refForClass  the reference fare for this class ($)
  * @returns {number} 0–1
  */
-export function priceChokeFactor(price, refForClass) {
+export function priceChokeFactor(price, refForClass, quality = 50) {
   const ref = Math.max(refForClass, 1);
   const ratio = price / ref;
   if (ratio <= 1) return 1;
   if (ratio >= PRICE_CAP_MULTIPLE) return 0;
   const t = (ratio - 1) / (PRICE_CAP_MULTIPLE - 1); // 0 at ref, 1 at cap
-  return Math.max(0, 1 - t * t);
+  // Restricted worlds: an extra exp-falloff above a quality-scaled threshold
+  // (see nwrYieldChokeFactor in utils/market.js). Exactly 1 in classic worlds,
+  // so the curve below is bit-identical when the flag is off.
+  return Math.max(0, 1 - t * t) * nwrYieldChokeFactor(ratio, quality);
 }
 
 /**
@@ -119,10 +122,10 @@ export const ELASTICITY = {
  * @param {number} refPrice  the route economy reference fare ($)
  * @returns {number} 0–1
  */
-export function connectingPriceFactor(price, refPrice) {
+export function connectingPriceFactor(price, refPrice, quality = 50) {
   const ref = Math.max(refPrice, 1);
   if (price <= ref) return 1;
-  return Math.pow(ref / price, ELASTICITY.connecting) * priceChokeFactor(price, ref);
+  return Math.pow(ref / price, ELASTICITY.connecting) * priceChokeFactor(price, ref, quality);
 }
 
 /**
@@ -677,12 +680,12 @@ export function computeMarketShare(market, offers) {
       ? offer.businessPrice
       : offer.economyPrice * BUSINESS_PRICE_MULTIPLIER;
     let leisurePax  = Math.round(
-      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef)
+      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore)
     );
     // High quality stretches the tolerable business fare before the choke bites.
     let businessPax = Math.round(
       adjustedBusinessDemand * bShare
-      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore))
+      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore)
     );
 
     // Cap at capacity. Business is capped at its own cabin; leisure may then use
@@ -754,7 +757,7 @@ function _monopolyResult(market, offer) {
         * poolMult
         * businessQualityCapture(offer.qualityScore)
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
-        * priceChokeFactor(offer.businessPrice, businessRef));
+        * priceChokeFactor(offer.businessPrice, businessRef, offer.qualityScore));
   const businessPax = noBusiness ? 0 : Math.min(businessAdj, offer.businessSeats);
 
   // Business travelers who can't get a premium seat downgrade to economy rather
@@ -775,7 +778,7 @@ function _monopolyResult(market, offer) {
   const leisureAdj  = Math.round(
     leisurePool
       * Math.pow(market.referencePrice / offer.economyPrice, ELASTICITY.leisure * sens)
-      * priceChokeFactor(offer.economyPrice, market.referencePrice)
+      * priceChokeFactor(offer.economyPrice, market.referencePrice, offer.qualityScore)
   );
 
   // Cap leisure at TOTAL physical capacity (minus business pax), not just the

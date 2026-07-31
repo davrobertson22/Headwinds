@@ -542,6 +542,54 @@ export function setFareIndex(v) {
 /** The fare index currently in effect. */
 export function getFareIndex() { return _fareIndex; }
 
+// ─── NWR yield choke (monopoly pricing has a ceiling) ─────────────────────────
+//
+// WHY: Headwinds has no AI encroachment — competition is humans only — so on a
+// lightly-populated world every route is a monopoly. Elasticity alone
+// ((ref/price)^2 leisure) can't discipline pricing when the city-pair pool is
+// 3-10x a small airline's seats: the fare equilibrium ("raise fares until the
+// post-elasticity pool shrinks to my capacity") lands at 1.3-3x reference with
+// the aircraft still full. Real airlines can't live there because a rival
+// undercuts within a season; this choke stands in for that missing rival.
+//
+// Above a threshold ratio of reference, demand takes an extra exp(-k·overage)
+// penalty on top of elasticity. The threshold scales with quality — a genuinely
+// premium product (quality 100) earns pricing headroom to 1.25x reference,
+// a mediocre one gets 1.10x. Below the threshold the factor is exactly 1, so
+// startups pricing at or near reference feel literally nothing.
+//
+//   pool vs seats     old fare equilibrium     with choke
+//        3x                 ~1.7x ref           ~1.18x ref
+//       10x                 ~3.0x ref           ~1.23x ref
+//
+// Module-scoped like _fareIndex, set from state at the same choke points
+// (reducer top, providers, humanRivals). Off (false) in classic worlds, where
+// priceChokeFactor must return bit-identical values — asserted by test and by
+// the golden master.
+export const NWR_CHOKE_THRESHOLD_BASE = 1.10;  // quality <= 50
+export const NWR_CHOKE_THRESHOLD_MAX  = 1.25;  // quality 100
+export const NWR_CHOKE_STEEPNESS      = 15;
+
+let _nwrYieldChoke = false;
+
+/** Enable/disable the restricted-world yield choke (set from state, like the fare index). */
+export function setNwrYieldChoke(on) { _nwrYieldChoke = on === true; }
+export function getNwrYieldChoke() { return _nwrYieldChoke; }
+
+/**
+ * Extra demand multiplier for pricing above the quality-scaled threshold.
+ * Exactly 1 when the choke is off, or at/below the threshold.
+ * @param {number} ratio    price / reference for the class being priced
+ * @param {number} quality  offer quality score 0-100 (headroom scales with it)
+ */
+export function nwrYieldChokeFactor(ratio, quality = 50) {
+  if (!_nwrYieldChoke) return 1;
+  const q   = Math.max(0, Math.min(100, Number(quality) || 50));
+  const thr = NWR_CHOKE_THRESHOLD_BASE +
+    (NWR_CHOKE_THRESHOLD_MAX - NWR_CHOKE_THRESHOLD_BASE) * Math.max(0, (q - 50) / 50);
+  return ratio > thr ? Math.exp(-NWR_CHOKE_STEEPNESS * (ratio - thr)) : 1;
+}
+
 // ─── NWR load-factor realism (spill + weekly variance) ────────────────────────
 //
 // WHY: every route simulator fills seats with a flat min(demand, capacity), so
