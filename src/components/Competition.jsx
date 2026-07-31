@@ -9,6 +9,7 @@ import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
 import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
 import { getAircraftType } from '../data/aircraft.js';
 import AirlineLogo from './AirlineLogo.jsx';
+import RivalRouteMap from './RivalRouteMap.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 
 const ACQUISITION_PREMIUM = 1.25;
@@ -170,6 +171,7 @@ export default function Competition() {
   // sales) don't exist; rival profiles load via remoteApi.fetchRivalProfile.
   const { state, dispatch, remote, remoteApi } = useGame();
   const { competitors = [], routes, fleet, financialHistory = [] } = state;
+  const cargoRoutes = state.cargoRoutes ?? [];   // ?? not a default: an explicit null must fall back too
   const [expandedCarrier, setExpandedCarrier] = useState(null);
   const [acquireTarget, setAcquireTarget] = useState(null); // competitor object pending confirmation
   // Multiplayer: clicking a rival opens a dedicated full-screen dossier instead
@@ -179,6 +181,10 @@ export default function Competition() {
   // routeKey → the player's TOTAL presence on that pair (all aircraft, all
   // schedules folded together — see buildPlayerPairMap).
   const playerRouteMap = buildPlayerPairMap(routes, fleet, weekToGameDate(state.week).monthIndex);
+
+  // Your own freight lanes as pair keys — a rival's map marks a lane contested
+  // only when YOU fly freight on it, not when you happen to fly passengers there.
+  const playerCargoKeys = cargoRoutes.map(r => [r.origin, r.destination].sort().join('-'));
 
   // Routes where at least one competitor overlaps with the player
   const contestedKeys = Object.keys(playerRouteMap).filter(k =>
@@ -260,6 +266,7 @@ export default function Competition() {
             key={c.id}
             carrier={c}
             playerRouteMap={playerRouteMap}
+            playerCargoKeys={playerCargoKeys}
             playerCash={state.cash}
             expanded={expandedCarrier === c.id}
             onToggle={() => setExpandedCarrier(p => p === c.id ? null : c.id)}
@@ -760,8 +767,14 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
   );
 }
 
-function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle, onAcquire, onOpenDetail = null, remote = false, remoteApi = null }) {
+function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCash, expanded, onToggle, onAcquire, onOpenDetail = null, remote = false, remoteApi = null }) {
   const isHuman = carrier.human === true;
+  // The inline route map is its own toggle, independent of `expanded`. It has to
+  // be: in multiplayer the panel header opens the full dossier instead of
+  // expanding, so a map hung off `expanded` would be unreachable there. Keeping
+  // it separate also means a page of twenty rivals mounts zero Leaflet instances
+  // until somebody actually asks to see a network.
+  const [showMap, setShowMap] = useState(false);
   const tier   = isHuman ? null : (TIER_META[carrier.tier] ?? { label: carrier.tier, color: 'var(--text-muted)' });
   const routes = Object.entries(carrier.routes).sort(([a], [b]) => a.localeCompare(b));
   const arch     = !isHuman && carrier._archetype ? ARCHETYPES[carrier._archetype] : null;
@@ -850,6 +863,25 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={e => { e.stopPropagation(); setShowMap(v => !v); }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setShowMap(v => !v); }
+            }}
+            title={showMap ? `Hide ${carrier.name}'s route map` : `Show ${carrier.name}'s route map`}
+            aria-pressed={showMap}
+            style={{
+              fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              background: showMap ? 'rgba(77,166,255,0.16)' : 'var(--surface2)',
+              color: showMap ? 'var(--accent)' : 'var(--text-muted)',
+              border: `1px solid ${showMap ? 'rgba(77,166,255,0.45)' : 'var(--border)'}`,
+            }}
+          >
+            <GlyphLabel size={13} text={showMap ? '🗺 Hide map' : '🗺 Map'} />
+          </span>
           {acquirable && hasMarketCap && (
             <button
               onClick={e => { e.stopPropagation(); onAcquire(); }}
@@ -868,6 +900,22 @@ function NetworkPanel({ carrier, playerRouteMap, playerCash, expanded, onToggle,
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{onOpenDetail ? '›' : expanded ? '▲' : '▼'}</span>
         </div>
       </button>
+
+      {/* Inline route map — mounted only while open, so the Leaflet instance and
+          its tiles are paid for on demand rather than once per rival on screen. */}
+      {showMap && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '12px 14px 14px' }}>
+          <RivalRouteMap
+            routes={carrier.routes}
+            cargoRoutes={carrier.cargoRoutes}
+            hubs={[carrier.homeHub, carrier.secondaryHub]}
+            playerRouteMap={playerRouteMap}
+            playerCargoKeys={playerCargoKeys}
+            name={carrier.name}
+            height={300}
+          />
+        </div>
+      )}
 
       {expanded && !onOpenDetail && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
@@ -1156,6 +1204,7 @@ function RivalDetailView({ carrier, onClose }) {
   const playerRouteMap = buildPlayerPairMap(
     state.routes ?? [], fleet, weekToGameDate(state.week).monthIndex,
   );
+  const playerCargoKeys = (state.cargoRoutes ?? []).map(r => [r.origin, r.destination].sort().join('-'));
   const laborFx = laborEffects(
     state.labor ?? null,
     fleetAvgUtilization(fleet, [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
@@ -1169,6 +1218,9 @@ function RivalDetailView({ carrier, onClose }) {
     return ac - bc || a[0].localeCompare(b[0]);
   });
   const contestedEntries = routeEntries.filter(([k]) => k in playerRouteMap);
+  // Freight lanes only exist for human rivals (the server projects them); solo
+  // AI carriers have none, hence the guard rather than a bare Object.keys.
+  const cargoLaneCount = Object.keys(carrier.cargoRoutes ?? {}).length;
 
   const fleetByType = profile?.fleetByType ?? null;
   const fleetTotal = fleetByType ? Object.values(fleetByType).reduce((s, n) => s + n, 0) : null;
@@ -1333,8 +1385,22 @@ function RivalDetailView({ carrier, onClose }) {
           {/* Route network */}
           <DetailSection
             title="Route network"
-            right={`${routeEntries.length} route${routeEntries.length === 1 ? '' : 's'}${contestedEntries.length ? ` · ${contestedEntries.length} contested` : ''}`}
+            right={`${routeEntries.length} route${routeEntries.length === 1 ? '' : 's'}${cargoLaneCount ? ` · ${cargoLaneCount} freight lane${cargoLaneCount === 1 ? '' : 's'}` : ''}${contestedEntries.length ? ` · ${contestedEntries.length} contested` : ''}`}
           >
+            {/* Map first: the shape of a network — where they're strong, where
+                they cross you — reads off a map in a second and off the table
+                below only after some arithmetic. */}
+            <div style={{ marginBottom: 12 }}>
+              <RivalRouteMap
+                routes={carrier.routes}
+                cargoRoutes={carrier.cargoRoutes}
+                hubs={hubs}
+                playerRouteMap={playerRouteMap}
+                playerCargoKeys={playerCargoKeys}
+                name={carrier.name}
+                height={340}
+              />
+            </div>
             {routeEntries.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No routes open yet.</div>
             ) : (

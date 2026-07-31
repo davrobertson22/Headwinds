@@ -129,9 +129,10 @@ export default async function worldRoutes(fastify) {
   });
 
   // ── Rival profile: an airline's PUBLIC view ────────────────────────────────
-  // What any player (or spectator) can see about a rival: their route network
-  // with fares and frequencies (public information at any real airport), fleet
-  // composition, rank history, and recent visible moves. Never exposes private
+  // What any player (or spectator) can see about a rival: their passenger route
+  // network with fares and frequencies and their freight lanes with published
+  // rates (public information at any real airport), fleet composition, rank
+  // history, and recent visible moves. Never exposes private
   // internals like cash-flow detail, loans, hedges, or marketing budgets.
   fastify.get('/worlds/:id/rivals/:airlineId', {
     schema: {
@@ -160,6 +161,16 @@ export default async function worldRoutes(fastify) {
         economyFare: Math.round(s.routePricing?.[key]?.economy ?? r.ticketPrice ?? 0) || null,
       };
     });
+
+    // Freight lanes are public for the same reason passenger schedules are — a
+    // freighter turning at a ramp is not a secret. Tonnes carried, load factor
+    // and per-lane margin stay private and are deliberately absent.
+    const cargoNetwork = (s.cargoRoutes ?? []).map((r) => ({
+      origin: r.origin,
+      destination: r.destination,
+      weeklyFrequency: r.weeklyFrequency ?? 0,
+      yieldPrice: r.yieldPrice ?? null,
+    }));
 
     const fleetByType = {};
     for (const a of s.fleet ?? []) {
@@ -195,6 +206,7 @@ export default async function worldRoutes(fastify) {
       hubs: Object.keys(s.hubs ?? {}),
       alliance: membership?.status === 'ACTIVE' ? membership.alliance.name : null,
       routeNetwork: routes,
+      cargoNetwork,
       fleetByType,
       rankHistory: rankHistory.reverse(),
       recentMoves: recentDecisions

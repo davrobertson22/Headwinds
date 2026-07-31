@@ -18,7 +18,7 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
-import { referencePrice, TOTAL_SHARES, setFareIndex } from '@tailwinds/engine/utils/market.js';
+import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
@@ -76,6 +76,56 @@ function cabinForRoute(state, route) {
 function businessFareFor(state, key, route) {
   const p = state.routePricing?.[key];
   return p?.businessClass ?? p?.firstClass ?? p?.premiumEconomy ?? route?.classPrices?.businessClass ?? null;
+}
+
+// ── Cargo network (public) ────────────────────────────────────────────────────
+// A rival's freight lanes, folded to one entry per city pair — the same shape as
+// the passenger `routes` map so the Rivals map/table can render both from one
+// loop. Public under the same rule as passenger schedules: a freighter on the
+// ramp and its published rate card are visible to anyone standing at the
+// airport. What is NOT here (deliberately): tonnes actually carried, load
+// factor, and per-lane P&L — those are the rival's own performance, not their
+// published offer.
+//
+// Keyed by pairKeyOf() exactly like `routes`, so a consumer can ask "does this
+// rival touch the pair I fly?" with one key format across both networks.
+function cargoRoutesOf(state) {
+  const out = {};
+  for (const r of state.cargoRoutes ?? []) {
+    if (!r?.origin || !r?.destination) continue;
+    const key = pairKeyOf(r.origin, r.destination);
+    const freq = r.weeklyFrequency ?? 0;
+    const typeId = (state.fleet ?? []).find((a) => a.id === r.aircraftId)?.typeId ?? null;
+    const type = typeId ? getAircraftType(typeId) : null;
+    const prev = out[key];
+    const frequency = (prev?.frequency ?? 0) + freq;
+    // Capacity summed PER FREIGHTER for the same reason passenger seats are: one
+    // lane can be flown by a 747F and an ATR 72F, and payload × totalFrequency
+    // would be wrong for both.
+    const tonnesPerWeek = (prev?.tonnesPerWeek ?? 0) + (type?.payloadTonnes ?? 0) * freq;
+    // Frequency-weighted yield — a lane flown twice at different rates publishes
+    // a blended rate, not whichever row happened to be last.
+    const yieldFreq = (prev?._yieldFreq ?? 0) + (r.yieldPrice ?? 0) * freq;
+    const aircraftTypes = prev?.aircraftTypes ? [...prev.aircraftTypes] : [];
+    if (typeId && !aircraftTypes.includes(typeId)) aircraftTypes.push(typeId);
+    const refYield = cargoReferenceYield(r.origin, r.destination);
+    const blended = frequency > 0 ? yieldFreq / frequency : (r.yieldPrice ?? 0);
+    out[key] = {
+      frequency,
+      tonnesPerWeek,
+      // $/tonne-km, and the same figure as a share of the lane's reference yield
+      // so the client can colour "undercutting" vs "premium" without re-deriving
+      // the world's fare index.
+      yieldPrice: blended > 0 ? +blended.toFixed(3) : null,
+      yieldMultiplier: blended > 0 && refYield ? +(blended / refYield).toFixed(3) : null,
+      aircraftTypes,
+      aircraftType: aircraftTypes[0] ?? null,
+      _yieldFreq: yieldFreq,
+    };
+  }
+  // The running accumulator never leaves this function.
+  for (const v of Object.values(out)) delete v._yieldFreq;
+  return out;
 }
 
 // Best-effort quality score for a human airline (used for demand share and the
@@ -228,6 +278,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // Reputation positioning chart can plot this human rival as a real dot.
     positioning: calcPositioning(s),
     routes,
+    // Freight lanes, same pair-key shape as `routes`. Always an object (never
+    // undefined) so consumers can iterate without a guard; solo AI carriers have
+    // no cargo network at all, so client code must still tolerate its absence
+    // there.
+    cargoRoutes: cargoRoutesOf(s),
   };
 }
 

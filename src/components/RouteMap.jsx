@@ -6,84 +6,13 @@ import { simulateRoute, simulateCargoRoute, formatMoney, currentGameDate } from 
 import { getAlliance } from '../data/alliances.js';
 import { Glyph } from './Icons.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
-
-// ── Great-circle path as a single continuous segment ─────────────────────────
-// Keeps longitudes unwrapped (may exceed ±180) so Leaflet draws one smooth arc
-// across world copies instead of splitting at the antimeridian edge.
-function segmentsForRoute(lat1, lon1, lat2, lon2, n = 80) {
-  const raw = greatCirclePoints(lat1, lon1, lat2, lon2, n);
-  if (raw.length === 0) return [raw];
-
-  // Unwrap longitudes so the path is continuous (Leaflet handles >±180 fine)
-  const norm = [[...raw[0]]];
-  for (let i = 1; i < raw.length; i++) {
-    let lon = raw[i][1];
-    const prev = norm[i - 1][1];
-    while (lon - prev >  180) lon -= 360;
-    while (prev - lon >  180) lon += 360;
-    norm.push([raw[i][0], lon]);
-  }
-
-  return [norm];
-}
-
-// ── Great-circle interpolation ────────────────────────────────────────────────
-function greatCirclePoints(lat1, lon1, lat2, lon2, n = 80) {
-  const D2R = Math.PI / 180;
-  const R2D = 180 / Math.PI;
-  const φ1 = lat1 * D2R, λ1 = lon1 * D2R;
-  const φ2 = lat2 * D2R, λ2 = lon2 * D2R;
-  const d = 2 * Math.asin(Math.sqrt(
-    Math.sin((φ2 - φ1) / 2) ** 2 +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin((λ2 - λ1) / 2) ** 2,
-  ));
-  if (d < 0.001) return [[lat1, lon1], [lat2, lon2]];
-  return Array.from({ length: n + 1 }, (_, i) => {
-    const f = i / n;
-    const A = Math.sin((1 - f) * d) / Math.sin(d);
-    const B = Math.sin(f * d) / Math.sin(d);
-    const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
-    const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
-    const z = A * Math.sin(φ1) + B * Math.sin(φ2);
-    return [
-      Math.atan2(z, Math.sqrt(x ** 2 + y ** 2)) * R2D,
-      Math.atan2(y, x) * R2D,
-    ];
-  });
-}
-
-// ── Leaflet CDN loader ────────────────────────────────────────────────────────
-const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-const LEAFLET_JS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-
-function loadLeaflet() {
-  return new Promise((resolve, reject) => {
-    if (window.L) { resolve(window.L); return; }
-
-    // CSS
-    if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet'; link.href = LEAFLET_CSS;
-      document.head.appendChild(link);
-    }
-
-    // JS
-    const script = document.createElement('script');
-    script.src = LEAFLET_JS;
-    script.onload  = () => resolve(window.L);
-    script.onerror = () => reject(new Error('Failed to load Leaflet'));
-    document.head.appendChild(script);
-  });
-}
-
-// ── Palette ────────────────────────────────────────────────────────────────────
-const PROFIT_COLOR    = '#2ee6a0';  // bright teal-green
-const LOSS_COLOR      = '#ff5d6c';  // bright coral-red
-const HUB_COLOR       = '#ffcf4d';  // gold
-const SPOKE_COLOR     = '#4da6ff';  // sky blue
-const ALLIANCE_COLOR  = '#b794ff';  // purple for alliance members
-const CODESHARE_COLOR = '#38e1ff';  // cyan for codeshare partners
-const CARGO_COLOR     = '#e8833a';  // amber for cargo / freight routes
+// Geometry, the Leaflet loader, the basemap and the palette are shared with the
+// Rivals tab's map — see mapCore.js for why they live in one place.
+import {
+  segmentsForRoute, loadLeaflet, createDarkMap,
+  PROFIT_COLOR, LOSS_COLOR, HUB_COLOR, SPOKE_COLOR,
+  ALLIANCE_COLOR, CODESHARE_COLOR, CARGO_COLOR,
+} from './mapCore.js';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function RouteMap() {
@@ -131,24 +60,10 @@ export default function RouteMap() {
     if (!ready || !mapElRef.current || mapRef.current) return;
     const L = window.L;
 
-    const map = L.map(mapElRef.current, {
-      center: [20, 10],
-      zoom: 2,
-      minZoom: 1,
-      maxZoom: 10,
-      zoomControl: false,
-      attributionControl: true,
-      worldCopyJump: true,
-    });
+    // CartoDB Dark Matter — proper dark game-map feel
+    const map = createDarkMap(mapElRef.current);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-    // CartoDB Dark Matter — proper dark game-map feel
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20,
-    }).addTo(map);
 
     // Click empty map → deselect
     map.on('click', () => setSelectedId(null));
