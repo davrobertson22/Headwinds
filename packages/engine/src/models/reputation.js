@@ -6,7 +6,12 @@
 // display-only — the "demand multiplier" and "elasticity reduction" the page
 // showed never touched the simulation. Now they do:
 //
-//   • reputationDemandMultiplier  → multiplies passenger route revenue
+//   • reputationDemandMultiplier  → one factor of the player offer's
+//     `brandReach`, which the demand model applies as a pool multiplier on a
+//     monopoly and a log-odds share shift on a contested pair. It used to
+//     multiply route REVENUE after the capacity cap, which changed the fare
+//     collected rather than the number of people who booked — see the
+//     brandReachFor note in simulation.js.
 //   • reputationElasticityReduction → feeds the player offer's
 //     priceSensitivityReduction (together with the loyalty program's), which
 //     computeUtility/_monopolyResult in demand.js honor.
@@ -101,6 +106,11 @@ export function calcReputation(state, loyaltyBonus = 0, avgUtilization = null) {
  * loses 7.5% of demand, a beloved one (100) gains 7.5%. Deliberately modest —
  * cabin quality already drives market share via qualityScore; this captures
  * the residual brand-trust effect.
+ *
+ * Combined into `brandReach` by weeklyTick (see brandReachFor in simulation.js)
+ * and consumed by the demand model. It is a multiplier on PASSENGERS, not on
+ * revenue: a well-regarded airline sells more seats, not dearer ones. The fare
+ * side of reputation is reputationElasticityReduction below.
  */
 export function reputationDemandMultiplier(overall) {
   return 1 + ((overall ?? 50) - 50) / 100 * 0.15;

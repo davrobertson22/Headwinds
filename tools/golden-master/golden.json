@@ -1,20 +1,20 @@
 {
-  "fullHash": "09614aeeba457a5a4d31c85dbfb574a8be42ae916212ce5c7b79fab51a06cff0",
+  "fullHash": "77d379b1410a7c47452433833282cf039dc57cee731346b1a48b49dcdbe0bd02",
   "projection": {
     "week": 9,
     "year": 2,
     "phase": "bankrupt",
-    "cash": -42609031,
-    "marketCap": 519625,
-    "sharePrice": 0.0052,
-    "awareness": 37.2,
-    "fuelIndex": 1.176,
+    "cash": -44277686,
+    "marketCap": 509623,
+    "sharePrice": 0.0051,
+    "awareness": 38.3,
+    "fuelIndex": 1.261,
     "fleetCount": 1,
     "routeCount": 1,
-    "competitorCount": 19,
-    "activeEvents": 1,
+    "competitorCount": 21,
+    "activeEvents": 2,
     "report": {
-      "revenue": 1901
+      "revenue": 2602
     }
   },
   "capturedWith": "tools/golden-master/harness.mjs",

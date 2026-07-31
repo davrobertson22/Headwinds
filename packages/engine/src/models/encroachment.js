@@ -159,6 +159,15 @@ export function buildEncroachmentOffer(spec, market) {
       ? computeConnectivityBonus(spec.homeHub, market.origin, market.destination)
       : 0,
     marketingBoost:    spec.marketingBoost ?? 0,
+    // Brand reach — how much of the market knows this carrier. Human rivals
+    // (Headwinds) ship their REAL figure on the spec, computed by the server
+    // with the same stateBrandReach helper the tick uses on the player. Without
+    // it every rival defaulted to parity (1) while the player carried their own
+    // awareness, so in a fresh world two week-one airlines each scored the OTHER
+    // as an established brand and under-counted their own share from both sides.
+    // Solo AI encroachers carry no figure and stay at parity, which is correct:
+    // they are the incumbents and the player is the unknown.
+    brandReach:        spec.brandReach ?? 1,
   };
 }
 

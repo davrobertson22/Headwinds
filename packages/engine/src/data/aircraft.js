@@ -18,12 +18,23 @@
 // cruiseKmh:            cruise speed override (km/h). Freighters share one
 //                       category, so they cannot take a speed from the category
 //                       table the way passenger types do — each carries its own.
-// deliveredAgeWeeks:    age (in weeks) the airframe arrives at. Used conversions
-//                       are NOT new builds: purchasePrice is what a frame of that
-//                       vintage costs, and it arrives already that old, so it
-//                       starts on a higher maintenanceMultiplier, has fewer years
-//                       of life left, and depreciates from its delivered value.
-//                       Omit (or 0) for anything still in production.
+// deliveredAgeWeeks:    age (in weeks) the airframe arrives at. An out-of-
+//                       production type is NOT a new build: purchasePrice is what
+//                       a frame of that vintage costs, and it arrives already that
+//                       old, so it starts on a higher maintenanceMultiplier, has
+//                       fewer years of life left, and depreciates from its
+//                       delivered value. Omit (or 0) for anything still in
+//                       production.
+//                       Carried by used freighter conversions AND, since
+//                       2026-07-31, by out-of-production PASSENGER types. Before
+//                       that only the freighters had it, so a 1971 Trident was
+//                       delivered factory-fresh and paid maintenanceMultiplier(0)
+//                       = 1.0 forever. Bands by entry into service, mirroring the
+//                       freighter values: eis <= 1974 -> 832w (16y),
+//                       <= 1984 -> 624w (12y), <= 1994 -> 520w (10y),
+//                       <= 2004 -> 312w (6y). Supersonic is exempt (Concorde is a
+//                       deliberate prestige money-loser; an age penalty on top
+//                       would just make it unusable).
 // category:             used to group aircraft in the market UI
 // image:                Wikimedia Commons photo URL
 //
@@ -82,6 +93,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 2003,
     seats: 132,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 5_700,
     runwayFt: 4500,
     steepApproach: true,
@@ -100,6 +112,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1996,
     seats: 156,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 6_900,
     runwayFt: 5300,
     weeklyLease:       43_500,
@@ -145,7 +158,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5200,
     weeklyLease:       81_000,
     purchasePrice: 45000000,
-    fuelBurnPer100km: 319,
+    fuelBurnPer100km: 289.75,
     crewCostPerKm: 1.3,
     baseMaintenancePerWk: 46_000,
     description: 'Smaller A320 family member with impressive range. Good for thinner routes.',
@@ -164,6 +177,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1988,
     seats: 186,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 6_150,
     runwayFt: 5700,
     weeklyLease:       68_000,
@@ -192,7 +206,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5600,
     weeklyLease:       100_000,
     purchasePrice: 50000000,
-    fuelBurnPer100km: 388.25,
+    fuelBurnPer100km: 352.25,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 59_000,
     description: 'Industry-leading narrow-body. Slightly better fuel economics than the 737.',
@@ -211,6 +225,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1994,
     seats: 220,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 5_930,
     runwayFt: 5700,
     weeklyLease:       83_000,
@@ -239,7 +254,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5700,
     weeklyLease:       123_000,
     purchasePrice: 58000000,
-    fuelBurnPer100km: 444.5,
+    fuelBurnPer100km: 397.5,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 72_400,
     description: 'Stretched A320 with excellent range. Can serve transatlantic thin routes.',
@@ -262,7 +277,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 7500,
     weeklyLease:      144_000,
     purchasePrice: 65000000,
-    fuelBurnPer100km: 442.75,
+    fuelBurnPer100km: 396,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 75_000,
     description: 'Game-changer. Near-intercontinental range in a narrow-body at a fraction of the cost.',
@@ -281,6 +296,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1986,
     seats: 280,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 9_600,
     runwayFt: 7500,
     weeklyLease:      27_000,
@@ -298,10 +314,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1988,
     seats: 361,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 7_700,
     runwayFt: 7700,
-    weeklyLease:      29_000,
-    purchasePrice: 12000000,
+    weeklyLease:      58_000,
+    purchasePrice: 24_000_000,
     fuelBurnPer100km: 865,
     crewCostPerKm: 3.38,
     baseMaintenancePerWk: 140_000,
@@ -315,6 +332,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1998,
     seats: 406,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 13_400,
     runwayFt: 8000,
     weeklyLease:      134_000,
@@ -339,6 +357,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1993,
     seats: 440,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 13_500,
     runwayFt: 9500,
     weeklyLease:      80_000,
@@ -356,6 +375,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1994,
     seats: 440,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 11_750,
     runwayFt: 8200,
     weeklyLease:      170_000,
@@ -397,6 +417,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 2002,
     seats: 475,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 14_600,
     runwayFt: 9800,
     weeklyLease:      96_000,
@@ -491,6 +512,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1998,
     seats: 51,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 4_355,
     runwayFt: 3900,
     weeklyLease:        52_000,
@@ -510,6 +532,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1971,
     seats: 19,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 1_380,
     runwayFt: 2300,
     weeklyLease:        17_000,
@@ -584,6 +607,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1991,
     seats: 19,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 2_776,
     runwayFt: 3800,
     weeklyLease:        10_000,
@@ -603,10 +627,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1971,
     seats: 136,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 3_800,
     runwayFt: 5000,
-    weeklyLease:       12_000,
-    purchasePrice: 5000000,
+    weeklyLease:       24_000,
+    purchasePrice: 10_000_000,
     fuelBurnPer100km: 431,
     crewCostPerKm: 1.58,
     baseMaintenancePerWk: 45_000,
@@ -620,6 +645,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1999,
     seats: 134,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_645,
     runwayFt: 5600,
     weeklyLease:       31_000,
@@ -637,10 +663,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1972,
     seats: 189,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 4_820,
     runwayFt: 6500,
-    weeklyLease:       12_000,
-    purchasePrice: 5000000,
+    weeklyLease:       24_000,
+    purchasePrice: 10_000_000,
     fuelBurnPer100km: 593.75,
     crewCostPerKm: 1.78,
     baseMaintenancePerWk: 60_000,
@@ -653,11 +680,12 @@ export const AIRCRAFT_TYPES = [
     manufacturer: 'Boeing',
     category: 'Narrow Body',
     eis: 1990,
-    seats: 149,
+    seats: 140,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 5_200,
     runwayFt: 5400,
-    weeklyLease:       19_000,
-    purchasePrice: 8000000,
+    weeklyLease:       37_000,
+    purchasePrice: 16_000_000,
     fuelBurnPer100km: 350,
     crewCostPerKm: 1.33,
     baseMaintenancePerWk: 45_000,
@@ -671,10 +699,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1984,
     seats: 149,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 4_400,
     runwayFt: 5700,
-    weeklyLease:       16_500,
-    purchasePrice: 7000000,
+    weeklyLease:       33_000,
+    purchasePrice: 14_000_000,
     fuelBurnPer100km: 362.5,
     crewCostPerKm: 1.37,
     baseMaintenancePerWk: 47_600,
@@ -688,6 +717,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1998,
     seats: 149,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 6_370,
     runwayFt: 5500,
     weeklyLease:       40_000,
@@ -705,10 +735,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1988,
     seats: 189,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 3_800,
     runwayFt: 6200,
-    weeklyLease:       22_000,
-    purchasePrice: 9000000,
+    weeklyLease:       44_000,
+    purchasePrice: 18_000_000,
     fuelBurnPer100km: 406.25,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 51_000,
@@ -722,10 +753,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1962,
     seats: 189,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 10_650,
     runwayFt: 8900,
-    weeklyLease:       15_000,
-    purchasePrice: 6000000,
+    weeklyLease:       30_000,
+    purchasePrice: 12_000_000,
     fuelBurnPer100km: 949.5,
     crewCostPerKm: 1.98,
     baseMaintenancePerWk: 68_000,
@@ -743,7 +775,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5300,
     weeklyLease:       89_000,
     purchasePrice: 50000000,
-    fuelBurnPer100km: 342.25,
+    fuelBurnPer100km: 296,
     crewCostPerKm: 1.33,
     baseMaintenancePerWk: 52_400,
     description: 'Smallest MAX. Excellent range for its size, suited to thinner long-haul routes.',
@@ -756,6 +788,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1998,
     seats: 189,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 5_765,
     runwayFt: 5700,
     weeklyLease:       68_000,
@@ -780,7 +813,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5700,
     weeklyLease:       103_000,
     purchasePrice: 55000000,
-    fuelBurnPer100km: 382,
+    fuelBurnPer100km: 347.5,
     crewCostPerKm: 1.42,
     baseMaintenancePerWk: 62_400,
     description: 'Next-gen 737 with CFM LEAP engines. Best-in-class fuel burn for this size.',
@@ -814,7 +847,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5700,
     weeklyLease:       109_000,
     purchasePrice: 58000000,
-    fuelBurnPer100km: 397.25,
+    fuelBurnPer100km: 370,
     crewCostPerKm: 1.46,
     baseMaintenancePerWk: 66_000,
     description: 'Mid-size MAX with high capacity and solid range.',
@@ -831,7 +864,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 6050,
     weeklyLease:       115_000,
     purchasePrice: 60000000,
-    fuelBurnPer100km: 415.25,
+    fuelBurnPer100km: 386.75,
     crewCostPerKm: 1.49,
     baseMaintenancePerWk: 70_000,
     description: 'Largest MAX variant. High capacity for busy short-to-medium routes.',
@@ -844,6 +877,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1983,
     seats: 239,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 7_222,
     runwayFt: 5500,
     weeklyLease:      74_500,
@@ -868,6 +902,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1999,
     seats: 295,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 6_295,
     runwayFt: 6900,
     weeklyLease:      87_000,
@@ -892,6 +927,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1984,
     seats: 290,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 12_200,
     runwayFt: 8000,
     weeklyLease:      40_000,
@@ -916,6 +952,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1988,
     seats: 351,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 11_090,
     runwayFt: 8500,
     weeklyLease:      68_000,
@@ -941,6 +978,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 2000,
     seats: 375,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 10_415,
     runwayFt: 9200,
     weeklyLease:      87_000,
@@ -981,6 +1019,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1997,
     seats: 440,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 13_080,
     runwayFt: 9500,
     weeklyLease:      117_000,
@@ -1022,6 +1061,7 @@ export const AIRCRAFT_TYPES = [
     eis: 1971,
     doubleDeck: true,
     seats: 550,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 12_700,
     runwayFt: 9800,
     weeklyLease:      40_000,
@@ -1080,6 +1120,7 @@ export const AIRCRAFT_TYPES = [
     eis: 1976,
     doubleDeck: true,
     seats: 400,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 15_400,
     runwayFt: 9000,
     weeklyLease:      43_000,
@@ -1097,6 +1138,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 2004,
     seats: 550,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 13_650,
     runwayFt: 9800,
     weeklyLease:      403_000,
@@ -1115,6 +1157,7 @@ export const AIRCRAFT_TYPES = [
     eis: 1989,
     doubleDeck: true,
     seats: 605,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 13_445,
     runwayFt: 9800,
     weeklyLease:      109_000,
@@ -1133,6 +1176,7 @@ export const AIRCRAFT_TYPES = [
     eis: 1991,
     doubleDeck: true,
     seats: 660,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 3_700,
     runwayFt: 9800,
     weeklyLease:      109_000,
@@ -1204,6 +1248,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1996,
     seats: 52,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 3_048,
     runwayFt: 5300,
     weeklyLease:       12_000,
@@ -1221,6 +1266,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 2001,
     seats: 78,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 3_716,
     runwayFt: 5300,
     weeklyLease:       29_000,
@@ -1238,6 +1284,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 2003,
     seats: 90,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_876,
     runwayFt: 5900,
     weeklyLease:       43_000,
@@ -1274,6 +1321,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1993,
     seats: 112,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 3_300,
     runwayFt: 4000,
     weeklyLease:       19_000,
@@ -1291,6 +1339,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1983,
     seats: 112,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 3_650,
     runwayFt: 3900,
     weeklyLease:       17_000,
@@ -1310,6 +1359,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1967,
     seats: 9,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 774,
     runwayFt: 1200,
     weeklyLease:        4_000,
@@ -1384,6 +1434,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1989,
     seats: 56,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 1_558,
     runwayFt: 3500,
     weeklyLease:       17_000,
@@ -1401,6 +1452,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 2000,
     seats: 90,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_040,
     runwayFt: 4300,
     weeklyLease:       43_000,
@@ -1420,6 +1472,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1999,
     seats: 37,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 3_241,
     runwayFt: 5000,
     weeklyLease:       15_000,
@@ -1437,6 +1490,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1996,
     seats: 50,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_870,
     runwayFt: 5600,
     weeklyLease:       19_000,
@@ -1454,6 +1508,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 2004,
     seats: 80,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 3_735,
     runwayFt: 4300,
     weeklyLease:       35_000,
@@ -1472,7 +1527,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2005,
     seats: 88,
     range: 3_735,
-    runwayFt: 5300,
+    runwayFt: 4700,
     weeklyLease:       60_000,
     purchasePrice:  30000000,
     fuelBurnPer100km: 231.75,
@@ -1486,10 +1541,10 @@ export const AIRCRAFT_TYPES = [
     name: 'Embraer E175-E2',
     manufacturer: 'Embraer',
     category: 'Regional Jet',
-    eis: 2027,
+    eis: 2030,
     seats: 90,
     range: 3_735,
-    runwayFt: 5500,
+    runwayFt: 4700,
     weeklyLease:       70_000,
     purchasePrice:  35000000,
     fuelBurnPer100km: 199,
@@ -1506,7 +1561,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2005,
     seats: 114,
     range: 4_537,
-    runwayFt: 4800,
+    runwayFt: 5700,
     weeklyLease:       55_000,
     purchasePrice: 24000000,
     fuelBurnPer100km: 293,
@@ -1526,7 +1581,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2018,
     seats: 114,
     range: 5_460,
-    runwayFt: 4700,
+    runwayFt: 4400,
     weeklyLease:       80_000,
     purchasePrice: 40000000,
     fuelBurnPer100km: 242,
@@ -1543,7 +1598,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2006,
     seats: 124,
     range: 4_260,
-    runwayFt: 5800,
+    runwayFt: 5900,
     weeklyLease:       60_000,
     purchasePrice: 26000000,
     fuelBurnPer100km: 301.5,
@@ -1560,7 +1615,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2019,
     seats: 146,
     range: 5_600,
-    runwayFt: 4900,
+    runwayFt: 4850,
     weeklyLease:       89_000,
     purchasePrice: 45000000,
     fuelBurnPer100km: 265,
@@ -1584,6 +1639,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1994,
     seats: 85,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 3_410,
     runwayFt: 4100,
     weeklyLease:       17_000,
@@ -1601,6 +1657,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1988,
     seats: 122,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 3_170,
     runwayFt: 5900,
     weeklyLease:       22_000,
@@ -1620,6 +1677,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1993,
     seats: 300,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 11_500,
     runwayFt: 8500,
     weeklyLease:      109_000,
@@ -1658,6 +1716,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1972,
     seats: 400,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 6_670,
     runwayFt: 8500,
     weeklyLease:      35_000,
@@ -1677,10 +1736,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1975,
     seats: 139,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 3_100,
     runwayFt: 5500,
-    weeklyLease:       12_000,
-    purchasePrice: 5000000,
+    weeklyLease:       24_000,
+    purchasePrice: 10_000_000,
     fuelBurnPer100km: 431.75,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 45_000,
@@ -1694,10 +1754,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1995,
     seats: 172,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 3_800,
     runwayFt: 5900,
-    weeklyLease:       22_000,
-    purchasePrice: 9000000,
+    weeklyLease:       44_000,
+    purchasePrice: 18_000_000,
     fuelBurnPer100km: 421.5,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 50_000,
@@ -1711,10 +1772,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1980,
     seats: 172,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 4_635,
     runwayFt: 5700,
-    weeklyLease:       17_000,
-    purchasePrice: 7000000,
+    weeklyLease:       34_000,
+    purchasePrice: 14_000_000,
     fuelBurnPer100km: 510,
     crewCostPerKm: 1.42,
     baseMaintenancePerWk: 52_400,
@@ -1728,6 +1790,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1972,
     seats: 380,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 9_700,
     runwayFt: 9700,
     weeklyLease:      43_000,
@@ -1745,6 +1808,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1990,
     seats: 410,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 12_455,
     runwayFt: 10000,
     weeklyLease:      70_000,
@@ -1802,6 +1866,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1989,
     seats: 37,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 1_560,
     runwayFt: 4300,
     weeklyLease:        11_000,
@@ -1819,6 +1884,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1994,
     seats: 58,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 2_868,
     runwayFt: 4200,
     weeklyLease:       15_000,
@@ -1838,6 +1904,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1982,
     seats: 39,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 1_178,
     runwayFt: 4300,
     weeklyLease:        8_000,
@@ -1876,6 +1943,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1996,
     seats: 210,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 6_500,
     runwayFt: 7200,
     weeklyLease:       73_000,
@@ -2111,6 +2179,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1936,
     seats: 32,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_400,
     runwayFt: 3000,
     weeklyLease:    4_000,
@@ -2128,10 +2197,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1967,
     seats: 259,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 11_000,
     runwayFt: 9300,
-    weeklyLease:    15_000,
-    purchasePrice: 6000000,
+    weeklyLease:    30_000,
+    purchasePrice: 12_000_000,
     fuelBurnPer100km: 980,
     crewCostPerKm: 2.16,
     baseMaintenancePerWk: 78_000,
@@ -2145,10 +2215,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1959,
     seats: 140,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 3_300,
     runwayFt: 5900,
-    weeklyLease:    10_000,
-    purchasePrice: 4000000,
+    weeklyLease:    20_000,
+    purchasePrice: 8_000_000,
     fuelBurnPer100km: 539.75,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 33_000,
@@ -2162,10 +2233,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1971,
     seats: 180,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_700,
     runwayFt: 8200,
-    weeklyLease:    10_000,
-    purchasePrice: 4000000,
+    weeklyLease:    20_000,
+    purchasePrice: 8_000_000,
     fuelBurnPer100km: 657.25,
     crewCostPerKm: 1.71,
     baseMaintenancePerWk: 42_000,
@@ -2179,10 +2251,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1964,
     seats: 151,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 9_400,
     runwayFt: 7000,
-    weeklyLease:    12_000,
-    purchasePrice: 5000000,
+    weeklyLease:    23_000,
+    purchasePrice: 10_000_000,
     fuelBurnPer100km: 921.75,
     crewCostPerKm: 1.98,
     baseMaintenancePerWk: 65_000,
@@ -2196,10 +2269,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1962,
     seats: 149,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 6_100,
     runwayFt: 9800,
-    weeklyLease:    10_000,
-    purchasePrice: 4000000,
+    weeklyLease:    20_000,
+    purchasePrice: 8_000_000,
     fuelBurnPer100km: 850,
     crewCostPerKm: 1.8,
     baseMaintenancePerWk: 50_000,
@@ -2213,10 +2287,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1984,
     seats: 180,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 5_200,
     runwayFt: 7200,
-    weeklyLease:    19_000,
-    purchasePrice: 8000000,
+    weeklyLease:    38_000,
+    purchasePrice: 16_000_000,
     fuelBurnPer100km: 770,
     crewCostPerKm: 1.71,
     baseMaintenancePerWk: 52_000,
@@ -2230,10 +2305,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1967,
     seats: 96,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 3_000,
     runwayFt: 6200,
-    weeklyLease:    10_000,
-    purchasePrice: 4000000,
+    weeklyLease:    20_000,
+    purchasePrice: 8_000_000,
     fuelBurnPer100km: 453.25,
     crewCostPerKm: 1.44,
     baseMaintenancePerWk: 26_000,
@@ -2247,10 +2323,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1974,
     seats: 186,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 10_000,
     runwayFt: 10500,
-    weeklyLease:    17_000,
-    purchasePrice: 7000000,
+    weeklyLease:    34_000,
+    purchasePrice: 14_000_000,
     fuelBurnPer100km: 1000.25,
     crewCostPerKm: 1.98,
     baseMaintenancePerWk: 62_000,
@@ -2264,6 +2341,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1980,
     seats: 350,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 5_000,
     runwayFt: 8500,
     weeklyLease:    40_000,
@@ -2281,6 +2359,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1980,
     seats: 120,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 4_000,
     runwayFt: 6000,
     weeklyLease:    17_000,
@@ -2298,6 +2377,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1968,
     seats: 40,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 1_800,
     runwayFt: 3300,
     weeklyLease:    7_000,
@@ -2315,6 +2395,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1958,
     seats: 52,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 1_900,
     runwayFt: 5300,
     weeklyLease:    11_000,
@@ -2332,6 +2413,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1969,
     seats: 85,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_700,
     runwayFt: 5500,
     weeklyLease:    12_000,
@@ -2349,10 +2431,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1961,
     seats: 165,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 6_700,
     runwayFt: 6800,
-    weeklyLease:    10_000,
-    purchasePrice: 4000000,
+    weeklyLease:    20_000,
+    purchasePrice: 8_000_000,
     fuelBurnPer100km: 813.75,
     crewCostPerKm: 1.8,
     baseMaintenancePerWk: 56_000,
@@ -2367,6 +2450,7 @@ export const AIRCRAFT_TYPES = [
     eis: 1970,
     doubleDeck: true,
     seats: 550,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 9_800,
     runwayFt: 10000,
     weeklyLease:    31_000,
@@ -2385,6 +2469,7 @@ export const AIRCRAFT_TYPES = [
     eis: 1983,
     doubleDeck: true,
     seats: 605,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 11_700,
     runwayFt: 10200,
     weeklyLease:    64_000,
@@ -2402,10 +2487,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1975,
     seats: 345,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 5_400,
     runwayFt: 8900,
-    weeklyLease:    19_000,
-    purchasePrice: 8000000,
+    weeklyLease:    38_000,
+    purchasePrice: 16_000_000,
     fuelBurnPer100km: 947,
     crewCostPerKm: 3.33,
     baseMaintenancePerWk: 120_000,
@@ -2419,10 +2505,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 1983,
     seats: 280,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 6_800,
     runwayFt: 7300,
-    weeklyLease:    19_000,
-    purchasePrice: 8000000,
+    weeklyLease:    36_000,
+    purchasePrice: 15_000_000,
     fuelBurnPer100km: 798,
     crewCostPerKm: 3.24,
     baseMaintenancePerWk: 125_000,
@@ -2436,10 +2523,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1959,
     seats: 104,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 3_500,
     runwayFt: 5500,
-    weeklyLease:    10_000,
-    purchasePrice: 4000000,
+    weeklyLease:    20_000,
+    purchasePrice: 8_000_000,
     fuelBurnPer100km: 264.75,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 16_000,
@@ -2453,10 +2541,11 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1968,
     seats: 119,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_700,
     runwayFt: 6000,
-    weeklyLease:    12_000,
-    purchasePrice: 5000000,
+    weeklyLease:    24_000,
+    purchasePrice: 10_000_000,
     fuelBurnPer100km: 480,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 30_000,
@@ -2470,6 +2559,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1960,
     seats: 56,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_900,
     runwayFt: 5000,
     weeklyLease:    7_000,
@@ -2491,7 +2581,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5800,
     weeklyLease:    99_000,
     purchasePrice: 53000000,
-    fuelBurnPer100km: 385,
+    fuelBurnPer100km: 350.25,
     crewCostPerKm: 1.48,
     baseMaintenancePerWk: 56_000,
     description: 'High-density MAX 8 with an extra exit pair. The low-cost carrier workhorse (think Ryanair).',
@@ -2572,6 +2662,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1993,
     seats: 33,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 1_850,
     runwayFt: 3400,
     weeklyLease:    12_000,
@@ -2589,6 +2680,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Regional Jet',
     eis: 1999,
     seats: 34,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 1_665,
     runwayFt: 4400,
     weeklyLease:    17_000,
@@ -2606,6 +2698,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1982,
     seats: 19,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 1_110,
     runwayFt: 2600,
     weeklyLease:    17_000,
@@ -2623,6 +2716,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1985,
     seats: 30,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 1_750,
     runwayFt: 5200,
     weeklyLease:    8_000,
@@ -2640,6 +2734,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1982,
     seats: 19,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 1_260,
     runwayFt: 4600,
     weeklyLease:    6_000,
@@ -2657,6 +2752,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1992,
     seats: 29,
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 1_433,
     runwayFt: 4900,
     weeklyLease:    10_000,
@@ -2674,6 +2770,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1984,
     seats: 34,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 1_430,
     runwayFt: 4300,
     weeklyLease:    10_000,
@@ -2691,6 +2788,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1984,
     seats: 40,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 1_890,
     runwayFt: 3100,
     weeklyLease:    10_000,
@@ -2708,6 +2806,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1995,
     seats: 40,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_084,
     runwayFt: 3300,
     weeklyLease:    12_000,
@@ -2725,6 +2824,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1978,
     seats: 54,
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 1_300,
     runwayFt: 2300,
     weeklyLease:    12_000,
@@ -2742,6 +2842,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 2000,
     seats: 60,
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 1_600,
     runwayFt: 3900,
     weeklyLease:    28_000,
@@ -2793,6 +2894,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1962,
     seats: 52,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_400,
     runwayFt: 4300,
     weeklyLease:    9_000,
@@ -2810,6 +2912,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 1973,
     seats: 21,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 1_900,
     runwayFt: 3900,
     weeklyLease:    5_000,

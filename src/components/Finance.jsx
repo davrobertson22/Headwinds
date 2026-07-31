@@ -30,6 +30,7 @@ import {
   DEPRECIATION_YEARS,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
+import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 
@@ -232,35 +233,44 @@ export default function Finance() {
 // can see exactly which cost bucket is driving the outcome. Every figure comes
 // from the canonical projection, so it ties out to the P&L bottom line.
 function ProfitWaterfall({ proj, report }) {
+  const { state } = useGame();
   const r = report;
-  const steps = [
-    { label: 'Revenue (booked)', value: proj.effectiveRevenue, kind: 'start' },
-    { label: 'Fuel & oil',                value: -(r.totalFuel), kind: 'neg' },
-    { label: 'Flight ops (crew, landing, quality)', value: -((r.totalCrew) + (r.totalLandingFees) + (r.totalQuality)), kind: 'neg' },
-    { label: 'Passenger services',        value: -((r.totalCatering) + (r.totalGroundHandling) + (r.totalLounge) + (r.totalLayover) + (r.totalCompensation)), kind: 'neg' },
-    { label: 'Aircraft & fleet',          value: -((r.totalLeases) + (r.totalMaintenance) + (r.totalInsurance)), kind: 'neg' },
-    { label: 'People & labour',           value: -((r.totalLaborCosts) + (r.totalFamilyBaseCosts)), kind: 'neg' },
-    { label: 'Commercial (mktg + distrib)', value: -((r.totalMarketingSpend) + (r.totalDistributionCost)), kind: 'neg' },
-    { label: 'G&A, gates & partners',     value: -((r.totalHQCost) + (r.totalHubInvestment) + (r.totalGateFees) + (r.totalLoyaltyCost) + (r.totalPartnerFees)), kind: 'neg' },
-    { label: 'EBITDA',                    value: proj.ebitda, kind: 'subtotal' },
-    { label: 'Interest',                  value: -(proj.interest), kind: 'neg' },
-    { label: 'Corporate tax',             value: -(proj.corporateTax), kind: 'neg' },
-    { label: 'Loan principal',            value: -(proj.principal), kind: 'neg' },
-    { label: 'Δ Cash this week',          value: proj.netCash, kind: 'end' },
-  ].filter(s => s.kind === 'start' || s.kind === 'subtotal' || s.kind === 'end' || Math.abs(s.value) >= 1);
+  // Built from the SHARED cost bridge (utils/pnlBridge.js), not a step list
+  // written out here. This used to be a cost-CATEGORY waterfall — revenue, then
+  // fuel, then flight ops, then fleet — which never once showed the number the
+  // player is actually trying to reconcile: the route operating profit on their
+  // Routes page. A player looking at "+$9.36M/wk, margin 52%" and a company
+  // margin of 28% got no line connecting them anywhere in the game.
+  //
+  // The bridge answers that directly, and it is self-checking: if a cost line is
+  // added to weeklyTick and not to the bridge's buckets, an "Other" row appears
+  // rather than the money silently going missing (see tools/pnl-bridge-test.mjs).
+  const bridge = useMemo(() => costBridge(proj, state), [proj, state]);
 
-  // Scale: largest absolute running value or step.
+  const steps = bridge.rows.map((row, i) => ({
+    label:  row.label,
+    tip:    row.tip,
+    value:  row.value,
+    margin: row.margin,
+    anchor: row.key === 'routeOperating',
+    kind:   i === 0 ? 'start'
+          : row.kind === 'subtotal' ? 'subtotal'
+          : row.kind === 'total' ? 'end'
+          : 'neg',
+  })).filter(st => st.kind !== 'neg' || Math.abs(st.value) >= 1);
+
+  // Running balance. Subtotals ARE running totals (the bridge guarantees the
+  // steps between them sum to the next one), so each one restates the walk
+  // rather than needing a separately-sourced figure bolted in here.
   let running = 0;
-  const rows = steps.map(s => {
-    if (s.kind === 'start' || s.kind === 'subtotal' || s.kind === 'end') {
-      running = (s.kind === 'start') ? s.value : (s.kind === 'subtotal' ? proj.ebitda : proj.netCash);
-      return { ...s, from: 0, to: running, total: true };
-    }
+  const rows = steps.map(s2 => {
+    if (s2.kind === 'start') { running = s2.value; return { ...s2, from: 0, to: running, total: true }; }
+    if (s2.kind === 'subtotal' || s2.kind === 'end') { running = s2.value; return { ...s2, from: 0, to: running, total: true }; }
     const from = running;
-    running += s.value;
-    return { ...s, from, to: running, total: false };
+    running += s2.value;
+    return { ...s2, from, to: running, total: false };
   });
-  const maxAbs = Math.max(1, ...rows.flatMap(r => [Math.abs(r.from), Math.abs(r.to)]));
+  const maxAbs = Math.max(1, ...rows.flatMap(x => [Math.abs(x.from), Math.abs(x.to)]));
 
   const BarFor = ({ row }) => {
     const lo = Math.min(row.from, row.to), hi = Math.max(row.from, row.to);
@@ -280,17 +290,29 @@ function ProfitWaterfall({ proj, report }) {
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <div className="card-title">Profit Waterfall · revenue to weekly cash</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 110px', gap: '4px 12px', alignItems: 'center', fontSize: 12 }}>
+      <div className="card-title">Cost Bridge · route profit to weekly cash</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 10 }}>
+        Your routes run at <strong style={{ color: 'var(--green)' }}>{formatPercent(bridge.routeMargin)}</strong> margin.
+        The company runs at <strong style={{ color: bridge.netMargin >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPercent(bridge.netMargin)}</strong>.
+        Everything below the highlighted row is the difference — costs no single route carries.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr 110px 62px', gap: '4px 12px', alignItems: 'center', fontSize: 12 }}>
         {rows.map((row, i) => (
           <Fragment key={i}>
-            <div style={{ color: row.total ? 'var(--text)' : 'var(--text-muted)', fontWeight: row.total ? 700 : 400 }}>{row.label}</div>
+            <div title={row.tip ?? ''} style={{
+              color: row.anchor ? 'var(--gold)' : row.total ? 'var(--text)' : 'var(--text-muted)',
+              fontWeight: row.total ? 700 : 400,
+              paddingLeft: row.total ? 0 : 10,
+            }}>{row.label}</div>
             <BarFor row={row} />
             <div style={{ textAlign: 'right', fontWeight: row.total ? 700 : 500,
               color: row.total ? ((row.to >= 0) ? 'var(--green)' : 'var(--red)') : (row.value >= 0 ? 'var(--green)' : 'var(--red)') }}>
               {row.total
-                ? `${row.to >= 0 ? '' : ''}${formatMoney(row.to)}`
+                ? formatMoney(row.to)
                 : `${row.value >= 0 ? '+' : ''}${formatMoney(row.value)}`}
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 11, color: row.anchor ? 'var(--gold)' : 'var(--text-dim)' }}>
+              {row.margin != null ? formatPercent(row.margin) : ''}
             </div>
           </Fragment>
         ))}
@@ -309,7 +331,7 @@ function ProfitWaterfall({ proj, report }) {
         {(report.totalAncillaryRevenue ?? 0) > 0 && <span>Ancillary fees <strong>{formatMoney(report.totalAncillaryRevenue)}</strong></span>}
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8 }}>
-        Bars show the running balance; green/red = step adds/subtracts. Depreciation is non-cash and excluded from the cash result.
+        Bars show the running balance; green/red = step adds/subtracts. Depreciation is non-cash and excluded from the cash result. Marketing and loyalty are a cost here and a benefit above — brand reach is what lets a full aircraft hold a higher fare.
       </div>
     </div>
   );
@@ -2365,7 +2387,9 @@ function Forecast({ proj }) {
   const { fleet, routes, cash } = state;
   const gd = currentGameDate(state);
 
-  // Demand multipliers shown in the "revenue multipliers applied" banner below.
+  // Demand multipliers shown in the banner below. Awareness is a DEMAND term:
+  // it decides how many people consider booking, not what they pay (see
+  // brandReachFor in utils/simulation.js).
   // (baseRevenue itself already bakes these in via the engine projection.)
   const awarenessMultiplier = awarenessDemandMultiplier(state.awareness ?? 5);
   const globalDemandMult = (state.activeEvents ?? []).reduce((m, ev) => {
@@ -2470,7 +2494,7 @@ function Forecast({ proj }) {
 
       {(globalDemandMult !== 1 || awarenessMultiplier < 0.95) && (
         <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(210,153,34,.08)', border: '1px solid rgba(210,153,34,.25)', marginBottom: 14, fontSize: 12, color: 'var(--yellow)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <span><Glyph e="⚡" /> Revenue multipliers applied to this forecast:</span>
+          <span><Glyph e="⚡" /> Demand multipliers applied to this forecast:</span>
           {globalDemandMult !== 1 && <span>Events {globalDemandMult > 1 ? '+' : ''}{formatPercent(globalDemandMult - 1)}</span>}
           {awarenessMultiplier < 0.95 && <span>Awareness {formatPercent(awarenessMultiplier)} of max</span>}
           {awarenessMultiplier > 1 && <span>Awareness +{formatPercent(awarenessMultiplier - 1)}</span>}

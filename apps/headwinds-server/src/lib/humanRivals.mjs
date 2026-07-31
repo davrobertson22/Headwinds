@@ -21,6 +21,8 @@
 import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
+import { stateBrandReach } from '@tailwinds/engine/utils/simulation.js';
+import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
 
@@ -297,6 +299,22 @@ export function toRivalSpecs(airlineRow) {
   // outstation, and the client's share preview (which DID apply the bonus)
   // disagreed with the weekly tick.
   const homeHub = airlineRow.hub ?? s.hub ?? null;
+  // Brand reach — awareness x reputation x loyalty, through the SAME helper the
+  // weekly tick uses on the player. Computed ONCE per rival (calcReputation walks
+  // their whole fleet, so this must not run per pair) as a hub and an off-hub
+  // variant, since the loyalty term concentrates on hub-touching routes; the
+  // right one is picked per pair below.
+  // NOTE: the alliance term is deliberately omitted (false). partnerContestedKeys
+  // is built from the VIEWER's alliance, not this rival's, and player alliances
+  // ('hw:' ids) do not resolve in the static bank. An allied rival is therefore
+  // rated a few points low rather than wrongly.
+  const rivalHubs  = s.hubs ?? (s.hub ? { [s.hub]: { tier: 1 } } : {});
+  const rivalHubQ  = (code) => {
+    const t = rivalHubs[code]?.tier;
+    return t != null ? (HUB_TIERS[t]?.qualityBonus ?? 0) : 0;
+  };
+  const reachOnHub  = stateBrandReach(s, 1, false);
+  const reachOffHub = stateBrandReach(s, 0, false);
   const byPair = {};
   for (const r of s.routes ?? []) {
     const key = pairKeyOf(r.origin, r.destination);
@@ -307,6 +325,8 @@ export function toRivalSpecs(airlineRow) {
       name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
       tier: 'legacy',
       qualityScore: quality,
+      brandReach: (rivalHubQ(r.origin) > 0 || rivalHubQ(r.destination) > 0)
+        ? reachOnHub : reachOffHub,
       homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,

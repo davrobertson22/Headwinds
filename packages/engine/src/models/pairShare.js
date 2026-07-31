@@ -42,6 +42,7 @@ import {
   defaultConfig,
   routeQualityBreakdown,
   stateSensReduction,
+  stateBrandReach,
   CLASS_FARE_MULTIPLIERS,
 } from '../utils/simulation.js';
 
@@ -116,6 +117,10 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     connectivityBonus: isHubPair ? 0.20 : 0,
     priceSensitivityReduction: stateSensReduction(state, hubQ),
     marketingBoost:   playerCampaignBoost(state, r0.origin, r0.destination),
+    // Brand reach, resolved through the same helper the tick uses. Without it a
+    // week-one carrier would preview the market share of an established one —
+    // the exact class of preview/tick divergence this module exists to prevent.
+    brandReach:       stateBrandReach(state, hubQ, false),
   };
 }
 

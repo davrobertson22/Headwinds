@@ -130,9 +130,16 @@ export function connectingPriceFactor(price, refPrice) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0 },
 };
+
+/**
+ * `brand` weight 1.0 is the FAITHFUL translation of a multiplicative demand
+ * factor into utility space and should stay there unless you deliberately want
+ * brand to bite harder or softer than it does on a monopoly pool — see the
+ * brandUtil note in computeUtility for why 1.0 is the identity setting.
+ */
 
 /**
  * Targeted advertising used to be a flat multiplier bolted onto route REVENUE
@@ -277,6 +284,11 @@ export const SEASONALITY = SEASONAL_PROFILES.generic;
  * @property {number}       businessSeats     - total weekly business capacity
  * @property {number}       qualityScore      - 0–100 (see computeQualityScore)
  * @property {number}       connectivityBonus - 0–0.3, hub network bonus (see computeConnectivityBonus)
+ * @property {number}      [brandReach]       - ~0.45–1.35 combined brand-demand
+ *   multiplier (awareness × reputation × loyalty × alliance, net of rival ad
+ *   pressure), attached by weeklyTick. Omitted = 1 = parity.
+ * @property {number}      [marketingBoost]   - 0–0.15 net targeted-campaign lift.
+ * @property {number}      [priceSensitivityReduction] - −0.2…+0.35, blunts elasticity.
  */
 
 /**
@@ -544,8 +556,27 @@ export function computeUtility(offer, market, segment) {
   // that carry no marketingBoost are unaffected — this term is 0 for every
   // caller that hasn't opted in.
   const mktUtil     = (offer.marketingBoost ?? 0) * w.marketing;
+  // Brand reach — brand awareness × reputation × loyalty × alliance, net of
+  // rival ad pressure, collapsed into ONE multiplier by weeklyTick (1 = an
+  // established carrier at parity, <1 = a brand the market doesn't know yet).
+  //
+  // It enters as log(brandReach) because softmax share ∝ exp(utility): adding
+  // log(b) multiplies this offer's exponential weight by exactly b, so the
+  // contested path applies the same magnitude the monopoly path applies to the
+  // demand pool. An unknown carrier therefore loses passengers TO ITS RIVALS
+  // here, and loses them to "didn't fly at all" on a monopoly — which is what
+  // an unknown brand actually does.
+  //
+  // This used to be a multiplier on route REVENUE applied after the share fight
+  // and after the capacity cap, so it moved neither share nor passengers — it
+  // silently changed the fare. See the brandReachFor note in simulation.js.
+  //
+  // Offers that don't carry the field (AI competitors, previews, tests) sit at
+  // parity and are scored exactly as before. Floored at 0.01 so a pathological
+  // 0 can't produce -Infinity and NaN out the far side.
+  const brandUtil   = Math.log(Math.max(offer.brandReach ?? 1, 0.01)) * w.brand;
 
-  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil;
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil;
 }
 
 /**
@@ -707,11 +738,20 @@ function _monopolyResult(market, offer) {
   // revenue multiplier applied. In competitive markets it is a utility term
   // (see computeUtility); it must never be both, or a campaign counts twice.
   const mktPool = 1 + (offer.marketingBoost ?? 0);
+  // Brand reach on an UNCONTESTED pair: there is no rival to lose share to, so
+  // a brand the market doesn't know simply doesn't get considered by part of it
+  // — those travellers drive, connect on someone else, or don't go. It shrinks
+  // the pool, before elasticity and before the capacity cap, which is why a
+  // high-demand trunk route can still fill an unknown carrier's aircraft while
+  // a thin one cannot. In competitive markets it is a utility term instead
+  // (see computeUtility); it must never be both, or the brand counts twice.
+  const brandPool = Math.max(0, offer.brandReach ?? 1);
+  const poolMult  = mktPool * brandPool;
 
   const businessAdj = noBusiness
     ? 0
     : Math.round(market.businessDemand
-        * mktPool
+        * poolMult
         * businessQualityCapture(offer.qualityScore)
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
         * priceChokeFactor(offer.businessPrice, businessRef));
@@ -723,13 +763,13 @@ function _monopolyResult(market, offer) {
 
   // When there's no business cabin, all business travelers fold into the leisure pool.
   // When business is offered but full, overflow also folds into the leisure pool.
-  // The campaign multiplies the RAW pools only. `businessOverflow` has already
-  // been through mktPool on its way out of the business cabin, so boosting it
-  // again here would compound the campaign against itself (a 10% campaign read
-  // as 13% before this was split out).
+  // The campaign and brand reach multiply the RAW pools only. `businessOverflow`
+  // has already been through poolMult on its way out of the business cabin, so
+  // boosting it again here would compound them against themselves (a 10%
+  // campaign read as 13% before this was split out).
   const leisurePool = noBusiness
-    ? (market.leisureDemand + market.businessDemand) * mktPool
-    : market.leisureDemand * mktPool + businessOverflow;
+    ? (market.leisureDemand + market.businessDemand) * poolMult
+    : market.leisureDemand * poolMult + businessOverflow;
 
   // Demand with price elasticity applied
   const leisureAdj  = Math.round(

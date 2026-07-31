@@ -54,8 +54,9 @@ export default function Reputation() {
     });
   }, [routes]);
 
-  // Same functions the engine applies in weeklyTick (demand multiplier on route
-  // revenue; elasticity reduction on the player offer's price sensitivity).
+  // Same functions the engine applies in weeklyTick. Both are DEMAND-side: the
+  // multiplier is one factor of the offer's brandReach (how many people consider
+  // booking), the reduction blunts how hard they punish an above-reference fare.
   const demandMultiplier = reputationDemandMultiplier(rep.overall);
   const elasticityReduction = reputationElasticityReduction(rep.overall);
 

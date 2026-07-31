@@ -576,5 +576,141 @@ test('every aircraft carries the fields the market card renders', () => {
   assert.deepEqual(missing.map(t => t.id), []);
 });
 
+
+// ── 8. Passenger-side guards (2026-07-31) ────────────────────────────────────
+// Everything above guards the FREIGHTER table. The passenger table had the exact
+// same seam wide open: 92 out-of-production passenger types carried no
+// deliveredAgeWeeks, so a 1971 Trident 3B was delivered factory-fresh at $4M and
+// paid maintenanceMultiplier(0) = 1.0 for life. Combined with 1970s scrap
+// pricing that gave it a ~6.5x return on capital against a 737 MAX 8, which is
+// the passenger twin of the "MD-10 is cheaper than an ATR-72" report.
+
+const PAX = AIRCRAFT_TYPES.filter(t => !t.freighter && !t.supersonic);
+const hasEis = PAX.some(t => t.eis != null);   // Tailwinds' copy carries no eis
+const ppsK = (t) => t.purchasePrice / t.seats / 1000;   // $K per seat
+
+/** The published delivered-age band. Keep in sync with the file header. */
+function expectedAgeBand(eis) {
+  if (eis == null) return null;
+  if (eis <= 1974) return 832;
+  if (eis <= 1984) return 624;
+  if (eis <= 1994) return 520;
+  if (eis <= 2004) return 312;
+  return 0;
+}
+
+if (hasEis) {
+  test('no out-of-production passenger type is delivered factory-fresh', () => {
+    // THE BUG: reducer.mjs stamps `ageWeeks: type?.deliveredAgeWeeks ?? 0` on
+    // every acquisition path. With the field absent, a 55-year-old airframe
+    // arrived at zero hours with a full 30-year depreciation life ahead of it.
+    const fresh = PAX
+      .filter(t => t.eis <= 2004 && !(t.deliveredAgeWeeks > 0))
+      .map(t => `${t.name} (${t.eis})`);
+    assert.deepEqual(fresh, [],
+      'every passenger type out of production since 2004 must arrive already used');
+  });
+
+  test('delivered age matches the published band for its vintage', () => {
+    const off = PAX
+      .filter(t => (t.deliveredAgeWeeks ?? 0) !== expectedAgeBand(t.eis))
+      .map(t => `${t.name} (eis ${t.eis}) has ${t.deliveredAgeWeeks ?? 0}w, band says ${expectedAgeBand(t.eis)}w`);
+    assert.deepEqual(off, []);
+  });
+
+  test('no passenger type is priced below the floor for its vintage', () => {
+    // maintenanceMultiplier only ever accounts for 7-17% of a vintage frame's
+    // operating cost, so an age penalty alone cannot fix an underpriced airframe
+    // — the capital number has to carry it. These floors sit just under the
+    // cheapest surviving frame in each band; they exist to catch a future edit
+    // that drops a 180-seat jet back to $4M, not to pin exact values.
+    const FLOOR = [
+      { maxEis: 1969, floorK: 42 }, { maxEis: 1979, floorK: 27 },
+      { maxEis: 1989, floorK: 36 }, { maxEis: 1999, floorK: 65 },
+      { maxEis: 2009, floorK: 90 }, { maxEis: 9999, floorK: 180 },
+    ];
+    const under = PAX
+      .filter(t => t.seats >= 80)
+      .filter(t => ppsK(t) < FLOOR.find(b => t.eis <= b.maxEis).floorK)
+      .map(t => `${t.name} (${t.eis}) $${ppsK(t).toFixed(0)}K/seat`);
+    assert.deepEqual(under, []);
+  });
+}
+
+test('no passenger type delivers older than 20y — the maintenance curve is quadratic', () => {
+  // Same reasoning as the freighter guard: 1 + (age/20)^2 * 2 means 30y = 5.5x
+  // base, which would make the type loss-making on every route rather than
+  // merely expensive.
+  const tooOld = PAX
+    .filter(t => (t.deliveredAgeWeeks ?? 0) > 20 * 52)
+    .map(t => `${t.name} ${((t.deliveredAgeWeeks ?? 0) / 52).toFixed(0)}y`);
+  assert.deepEqual(tooOld, []);
+});
+
+test('each current-generation narrowbody beats the type it replaces on fuel', () => {
+  // The re-engined generations were entered at only a 4-5% per-aircraft gain
+  // against a real 13-14%, so a 737-400 broke even at the same load factor as a
+  // MAX 8 that cost six times as much. Sources: Aircraft Commerce CFM56-7B vs
+  // LEAP-1B (-13.2%/hr, stable across six sectors) and CFM56-5B vs LEAP-1A /
+  // PW1100G (-14%/hr). Floor set at 10% so the table keeps a real margin.
+  const PAIRS = [
+    ['b737700', 'b737max7'], ['b737800', 'b737max8'], ['b737900er', 'b737max9'],
+    ['a319ceo', 'a319neo'], ['a320ceo', 'a320neo'], ['a321ceo', 'a321neo'],
+  ];
+  const weak = [];
+  for (const [oldId, newId] of PAIRS) {
+    const gain = 1 - get(newId).fuelBurnPer100km / get(oldId).fuelBurnPer100km;
+    if (gain < 0.10) weak.push(`${get(newId).name} is only ${(gain * 100).toFixed(1)}% better per hour than the ${get(oldId).name}`);
+  }
+  assert.deepEqual(weak, []);
+});
+
+test('a re-engined narrowbody earns its price premium', () => {
+  // The end state the fuel pass exists to protect: if the newest metal costs
+  // several times as much, it has to break even at a lower load factor than the
+  // classic it replaces, or nobody has a reason to ever buy new.
+  //   BELF ~ (lease + maint*ageMult + fuel*km) / (seats * fare)
+  // measured on a 1,500 km sector at max frequency inside the 140 bh cap.
+  const belf = (t) => {
+    const bt = 1500 / 840 + 0.83;
+    const f = Math.floor(140 / (bt * 2));
+    const km = f * 2 * 1500;
+    const ageMult = 1 + Math.pow(((t.deliveredAgeWeeks ?? 0) / 52) / 20, 2) * 2;
+    const cost = t.weeklyLease + t.baseMaintenancePerWk * ageMult
+      + km * ((t.fuelBurnPer100km / 100) * 1.45 + (t.crewCostPerKm ?? 0));
+    return cost / (t.seats * f * 2 * Math.round((80 + 1500 * 0.09) * 0.87));
+  };
+  for (const [classic, modern] of [['b737400', 'b737max8'], ['b737300', 'b737max7'], ['a320ceo', 'a320neo']]) {
+    assert.ok(belf(get(modern)) < belf(get(classic)),
+      `${get(modern).name} breaks even at ${(belf(get(modern)) * 100).toFixed(0)}% load vs the ` +
+      `${get(classic).name}'s ${(belf(get(classic)) * 100).toFixed(0)}% — the new type must be the easier aircraft to fill`);
+  }
+});
+
+test('the 737-500 is not certified for as many seats as the longer -300', () => {
+  // EASA TCDS IM.A.120 issue 24 certifies the -500 at 140 against the -300's
+  // 149. Boeing's ACAP quotes an FAA exit limit of 149 for both, but the -500 is
+  // 2.4 m shorter and Boeing's own densest all-economy layout for it is 122 — it
+  // cannot physically reach 149. Left at 149 it strictly dominated the -300,
+  // which then had no reason to exist.
+  assert.ok(get('b737500').seats < get('b737300').seats,
+    'the -500 is the shortest Classic and must seat fewer than the -300');
+  assert.ok(get('b737300').seats < get('b737400').seats,
+    'the -400 gets a second overwing exit pair — (I,III,III,I) vs (I,III,I)');
+});
+
+test('E-Jet runway requirement rises with weight inside a generation', () => {
+  // Embraer spec sheets: E175 TOFL 1,724 m at 38.8 t, E190 2,100 m at 51.8 t,
+  // E195 2,179 m at 52.3 t. The table had the E190 at 4,800 ft against the
+  // E175's 5,300 — backwards, and it was the main reason the heavier, cheaper
+  // E190 strictly outclassed the E175 the scope clauses price above it.
+  assert.ok(get('e175').runwayFt < get('e190').runwayFt,
+    'the E190 is 13 t heavier than the E175 and needs more runway, not less');
+  assert.ok(get('e190').runwayFt <= get('e195').runwayFt,
+    'the E195 is the heaviest E1 and needs at least as much runway as the E190');
+  assert.ok(get('e190e2').runwayFt < get('e190').runwayFt,
+    'the E190-E2 has a new wing and better field performance than the E1');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

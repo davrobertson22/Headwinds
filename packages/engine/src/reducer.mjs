@@ -621,6 +621,14 @@ function reducer(state, action) {
         ageWeeks:           type?.deliveredAgeWeeks ?? 0,
         config:             defaultConfig(type?.seats ?? 100),
         ownershipType:      'lease',
+        // Lock the rate at signing. Without this the tail carried no weeklyLease
+        // at all, so every cost site fell through to `type.weeklyLease` — which
+        // means a rebalance of the aircraft table silently repriced leases
+        // ALREADY IN SERVICE. ORDER_AIRCRAFT deliveries were immune because they
+        // do stamp the rate (a real lease fixes rent for its term; only a renewal
+        // reprices). Same value as the fallback it replaces, so no existing save
+        // changes behaviour on the week this ships.
+        weeklyLease:        Math.round(type?.weeklyLease ?? 0),
         leaseTermWeeks,
         leaseRemainingWeeks: leaseTermWeeks,
       };
@@ -3000,12 +3008,14 @@ function reducer(state, action) {
           // Lease expired: charge redelivery fee (4 weeks of rent) and remove
           if (remaining <= 0) {
             const type = getAircraftType(a.typeId);
-            leaseRedeliveryCost += (type?.weeklyLease ?? 0) * 4;
+            // Bill the rate this tail signed at, not whatever the table says today.
+            const redeliveryRate = a.weeklyLease ?? type?.weeklyLease ?? 0;
+            leaseRedeliveryCost += redeliveryRate * 4;
             removedAircraftIds.add(a.id);
             leaseWarningToasts.push({
               type:     'danger',
               title:    `📋 Lease ended — ${a.name}`,
-              message:  `${a.name}'s lease has expired. Aircraft returned; redelivery fee of ${((type?.weeklyLease ?? 0) * 4).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} charged.`,
+              message:  `${a.name}'s lease has expired. Aircraft returned; redelivery fee of ${(redeliveryRate * 4).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} charged.`,
               duration: 10000,
             });
             return null; // mark for removal

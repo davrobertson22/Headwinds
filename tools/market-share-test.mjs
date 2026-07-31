@@ -252,6 +252,85 @@ test('an offer with no marketingBoost is scored exactly as before', () => {
     'every caller that has not opted in must be byte-identical');
 });
 
+// ── 5b. Brand reach sells SEATS, never a fare the player never set ───────────
+// Awareness, reputation, loyalty and alliance membership used to be multiplied
+// together into `combinedMult` and applied to route REVENUE — after the share
+// fight and after the capacity cap. It moved no passengers: `passengers`,
+// `loadFactor` and `classSummary` came back unboosted while `revenue` was
+// scaled, so a full aircraft booked at the reference fare reported revenue that
+// no ticket price could produce, and the payout was LARGEST at 100% load, where
+// a brand cannot sell one more seat. These pin it to the demand model.
+
+test('brand reach moves market share on a contested pair', () => {
+  const known   = shareOf([{ ...YOU, brandReach: 1.0  }, OTTER], 'player');
+  const unknown = shareOf([{ ...YOU, brandReach: 0.45 }, OTTER], 'player');
+  assert.ok(unknown < known,
+    'a brand the market has never heard of must lose passengers TO ITS RIVAL, '
+    + 'not quietly sell the same seats at 45% of the fare it set');
+  assert.ok(known - unknown > 0.10,
+    `awareness 5 vs parity is a 2.2x swing in reach; got only `
+    + `${((known - unknown) * 100).toFixed(1)} points of share`);
+});
+
+test('brand reach enters utility as a log, so it scales the softmax weight exactly', () => {
+  const base = computeUtility({ ...YOU, brandReach: 1 },   MARKET, 'leisure');
+  const half = computeUtility({ ...YOU, brandReach: 0.5 }, MARKET, 'leisure');
+  assert.ok(Math.abs((base - half) - Math.log(2)) < 1e-9,
+    'softmax share is proportional to exp(utility), so a demand multiplier of b '
+    + 'is log(b) in utility space — anything else is a different magnitude '
+    + 'in the contested path than in the monopoly path');
+});
+
+test('brand reach shrinks the pool on an UNCONTESTED pair', () => {
+  const big = { ...YOU, totalSeats: 1e9, economySeats: 1e9, businessSeats: 1e9 };
+  const [full]    = computeMarketShare(MARKET, [{ ...big, brandReach: 1.0 }]);
+  const [unknown] = computeMarketShare(MARKET, [{ ...big, brandReach: 0.45 }]);
+  const ratio = unknown.leisurePax / full.leisurePax;
+  assert.ok(Math.abs(ratio - 0.45) < 0.02,
+    `with no rival to lose share to, an unknown brand loses passengers to `
+    + `not-flying, 1:1 with reach — got ${ratio.toFixed(3)} instead of 0.45`);
+});
+
+test('brand reach cannot conjure revenue on a route already at 100% load', () => {
+  // THE BUG, in one assertion. Seats deliberately far below demand so both
+  // offers are capacity-capped: same aircraft, same fare, same full cabin.
+  const capped = { ...YOU, totalSeats: 400, economySeats: 400, businessSeats: 0,
+                   businessPrice: null };
+  const [weak]   = computeMarketShare(MARKET, [{ ...capped, brandReach: 0.45 }]);
+  const [strong] = computeMarketShare(MARKET, [{ ...capped, brandReach: 1.35 }]);
+  assert.equal(weak.totalPax, strong.totalPax,
+    'both aircraft are full — brand cannot add a passenger to a sold-out flight');
+  assert.equal(weak.totalRevenue, strong.totalRevenue,
+    'and it must not add revenue either. As a post-cap revenue multiplier this '
+    + 'was a 3x payout on exactly the routes where it could sell nothing');
+});
+
+test('revenue divided by passengers equals the fare that was set', () => {
+  // The invariant combinedMult broke: revenue was scaled while pax was not, so
+  // revenue / pax stopped being a price anyone was charged, and Finance's
+  // yield (revenue / RPK) drifted upward on routes nobody had repriced.
+  const solo = { ...YOU, totalSeats: 400, economySeats: 400, businessSeats: 0,
+                 businessPrice: null };
+  for (const brandReach of [0.45, 1.0, 1.35]) {
+    const [r] = computeMarketShare(MARKET, [{ ...solo, brandReach }]);
+    assert.equal(r.economyRevenue, r.leisurePax * solo.economyPrice,
+      `at brandReach ${brandReach} the implied fare was `
+      + `$${(r.economyRevenue / Math.max(r.leisurePax, 1)).toFixed(2)}, `
+      + `but the player set $${solo.economyPrice}`);
+  }
+});
+
+test('an offer with no brandReach is scored exactly as before', () => {
+  const withField    = computeUtility({ ...YOU, brandReach: 1 }, MARKET, 'leisure');
+  const withoutField = computeUtility(YOU, MARKET, 'leisure');
+  assert.equal(withField, withoutField,
+    'AI competitors, previews and every existing test sit at parity');
+  const big = { ...YOU, totalSeats: 1e9, economySeats: 1e9 };
+  const [a] = computeMarketShare(MARKET, [{ ...big, brandReach: 1 }]);
+  const [b] = computeMarketShare(MARKET, [big]);
+  assert.equal(a.totalRevenue, b.totalRevenue, 'monopoly path too');
+});
+
 // ── 6. End to end: the screen that reported 53% now asks the model ──────────
 // pairShare.js is the Headwinds-only module AirportDetail calls. Skipped in the
 // solo repo, which has no such screen.
@@ -276,6 +355,12 @@ if (pairShare) {
     ],
     cargoRoutes: [], routePricing: { 'ATL-DFW': { economy: 120 } },
     campaignStrength: { ATL: 50, DFW: 50 },
+    // An established carrier: 35 weekly departures, a T2 hub and live campaigns
+    // at both endpoints. Awareness is now a DEMAND term (offer.brandReach), so
+    // leaving it unset would default this fixture to the 5-point unknown-brand
+    // floor and quietly turn a test about "does this screen ask the model?" into
+    // a test about brand. Parity (65) keeps the subject the channel, not the brand.
+    awareness: 65,
     loyalty: { members: 0, weeklyInvestment: 0, maturity: 0 },
     competitors: [],
     humanRivals: {
