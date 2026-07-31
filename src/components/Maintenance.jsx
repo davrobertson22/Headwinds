@@ -17,10 +17,11 @@ import {
 } from '../data/maintenance.js';
 import {
   mroLevelDef, canBuildBase, upgradeCapex, closeRefund, certCapacity,
+  addCertCapex, addCertOpex, certsIncludedLeft, certsFull,
   baseEfficiency, baseSlots, baseWeeklyCost, totalBaseWeeklyCost, isBaseOpen,
   resolveBaseFor, mroFactorsFor, familyContractOffsets,
   clampPartsPool, partsPoolCost, partsPoolDurationMult,
-  MRO_MAX_LEVEL, MRO_RAMP_WEEKS, PARTS_POOL_MIN, PARTS_POOL_MAX,
+  MRO_MAX_LEVEL, MRO_MAX_CERTS_PER_BASE, MRO_RAMP_WEEKS, PARTS_POOL_MIN, PARTS_POOL_MAX,
 } from '../data/mroBase.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { formatMoney } from '../utils/simulation.js';
@@ -181,7 +182,7 @@ function levelChip(level) {
   );
 }
 
-function BaseCard({ code, base, absWeek, jobsHere, hostingHere, dispatch, onUpgrade }) {
+function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = [], cash = 0, dispatch, onUpgrade }) {
   const def   = mroLevelDef(base.level);
   const open  = isBaseOpen(base);
   const eff   = baseEfficiency(base, absWeek);
@@ -189,6 +190,15 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, dispatch, onUpgr
   const used  = jobsHere.length;
   const cost  = baseWeeklyCost(base);
   const upgradeTo = base.upgradeTo ?? null;
+
+  // What it would take to certify this base for one more family.
+  const certs       = base.families ?? [];
+  const uncertified = fleetFamilies.filter(f => !certs.includes(f.id));
+  const certsMaxed  = certsFull(base);
+  const nextCapex   = addCertCapex(base);
+  const nextOpex    = addCertOpex(base);
+  const includedLeft = certsIncludedLeft(base);
+  const canAfford   = cash >= nextCapex;
 
   return (
     <div className="card" style={{ padding: '14px 18px' }}>
@@ -220,16 +230,64 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, dispatch, onUpgr
       </div>
 
       {/* Certifications */}
-      <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Certified:</span>
-        {(base.families ?? []).map(f => (
-          <span key={f} style={{
-            fontSize: 11, padding: '2px 7px', borderRadius: 4,
-            background: 'var(--surface2)', border: '1px solid var(--border)',
-          }}>{FAMILY_INFO[f]?.name ?? f}</span>
-        ))}
-        {(base.families ?? []).length === 0 && (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>none</span>
+      <div style={{ marginTop: 10 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Certified:</span>
+          {certs.map(f => (
+            <span key={f} style={{
+              fontSize: 11, padding: '2px 7px', borderRadius: 4,
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+            }}>{FAMILY_INFO[f]?.name ?? f}</span>
+          ))}
+          {certs.length === 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>none</span>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            {certs.length}/{MRO_MAX_CERTS_PER_BASE}
+            {includedLeft > 0 ? ` · ${includedLeft} more included at L${base.level}` : ''}
+          </span>
+        </div>
+
+        {/* A level's allowance is not a ceiling — past it a certification costs
+            capex once and opex every week, up to MRO_MAX_CERTS_PER_BASE. */}
+        {!certsMaxed && uncertified.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
+              {nextCapex > 0
+                ? `Certify another family — ${formatMoney(nextCapex)} capex, ${formatMoney(nextOpex)}/wk`
+                : 'Certify another family — included at this level, no extra cost'}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {uncertified.map(({ id, info, count }) => (
+                <button
+                  key={id}
+                  className="btn btn-sm"
+                  disabled={!canAfford}
+                  title={canAfford
+                    ? `Certify ${code} for ${info.name}`
+                    : `Needs ${formatMoney(nextCapex)} in cash`}
+                  onClick={() => dispatch({ type: 'ADD_BASE_CERTIFICATION', code, familyId: id })}
+                >
+                  + {info.name} · {count}
+                </button>
+              ))}
+            </div>
+            {!canAfford && (
+              <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4 }}>
+                ⚠ Not enough cash — a further certification here costs {formatMoney(nextCapex)}.
+              </div>
+            )}
+          </div>
+        )}
+        {certsMaxed && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            Certified for the most families one base can hold ({MRO_MAX_CERTS_PER_BASE}).
+          </div>
+        )}
+        {!certsMaxed && uncertified.length === 0 && certs.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            Every family you fly is certified here.
+          </div>
         )}
       </div>
 
@@ -310,13 +368,18 @@ function BuildBaseForm({ state, dispatch, fleetFamilies }) {
     .sort((a, b) => b[1] - a[1]);
 
   const def   = mroLevelDef(level);
-  const check = code ? canBuildBase(code, level, { bases, gates, cash: state.cash }) : null;
-  const capacity = certCapacity(level);
+  // Certifications past the level's allowance are buyable at build time, so the
+  // count feeds the quote instead of being clamped away by it.
+  const check = code
+    ? canBuildBase(code, level, { bases, gates, cash: state.cash }, fams.length)
+    : null;
+  const included = certCapacity(level);
+  const extras   = Math.max(0, fams.length - included);
   const ready = !!check?.ok && fams.length > 0;
 
   function toggleFamily(f) {
     setFams(prev => prev.includes(f) ? prev.filter(x => x !== f)
-      : prev.length >= capacity ? prev : [...prev, f]);
+      : prev.length >= MRO_MAX_CERTS_PER_BASE ? prev : [...prev, f]);
   }
 
   if (candidates.length === 0) {
@@ -366,7 +429,10 @@ function BuildBaseForm({ state, dispatch, fleetFamilies }) {
       {/* Family certifications */}
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 5 }}>
-          Certify for ({fams.length}/{capacity}) — you can add more families later at extra cost
+          Certify for ({fams.length}/{MRO_MAX_CERTS_PER_BASE}) — {included} included at this level
+          {extras > 0
+            ? `, ${extras} extra at ${formatMoney(def.extraCertCapex)} + ${formatMoney(def.extraCertOpex)}/wk each`
+            : '. You can certify more here, or from the base card later.'}
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {fleetFamilies.length === 0 && (
@@ -460,6 +526,8 @@ function MroNetwork({ state, dispatch, fleetFamilies, absWeek }) {
               absWeek={absWeek}
               jobsHere={jobs.filter(j => j.base === code)}
               hostingHere={hosting > 0 ? 0 : 0}
+              fleetFamilies={fleetFamilies}
+              cash={state.cash}
               dispatch={dispatch}
               onUpgrade={(c, l) => dispatch({ type: 'UPGRADE_MRO_BASE', code: c, level: l })}
             />

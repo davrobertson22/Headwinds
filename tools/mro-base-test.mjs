@@ -5,6 +5,7 @@
 // (family / network / open / slot), the efficiency ramp, alliance guest terms,
 // contract offsets, the build-upgrade-close lifecycle, and the weekly tick.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
 import * as M from '../packages/engine/src/data/maintenance.js';
@@ -349,6 +350,98 @@ t('extra certifications cost capex beyond the included allowance', () => {
   const again = s.cash;
   s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: 'boeing_737' });
   assert.equal(s.cash, again, 'certifying the same family twice is a no-op');
+});
+
+// ── Certification capacity ───────────────────────────────────────────────────
+// Discord, Kat the Fox, 2026-07-30: "Maintenance hub upgrades dont allow
+// aditional certifications." The engine had always priced extra certifications;
+// nothing in the UI ever offered them, so an upgraded base could not spend the
+// bigger allowance it had just been paid for. These lock the economics down.
+
+t('an upgraded base can spend the allowance its new level includes', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 3);
+  s = { ...s, cash: 1_000_000_000 };
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM] });
+  for (let i = 0; i < B.MRO_LEVELS[1].buildWeeks; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  assert.equal(B.certsIncludedLeft(s.mroBases.ORD), 0, 'L1 includes one, and it is spent');
+
+  s = gameReducer(s, { type: 'UPGRADE_MRO_BASE', code: 'ORD', level: 2 });
+  for (let i = 0; i < B.MRO_LEVELS[2].buildWeeks; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  assert.equal(s.mroBases.ORD.level, 2);
+  assert.equal(B.certsIncludedLeft(s.mroBases.ORD), 1, 'L2 includes two — one still unspent');
+  assert.equal(B.addCertCapex(s.mroBases.ORD), 0, 'so the next one is free');
+
+  const before = s.cash;
+  s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: 'boeing_737' });
+  assert.equal(s.cash, before, 'and is charged as free');
+  assert.deepEqual(s.mroBases.ORD.families, [FAM, 'boeing_737']);
+});
+
+t('the add-certification helpers agree with what the reducer charges', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = { ...s, cash: 200_000_000 };
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM] });
+  const quoted = B.addCertCapex(s.mroBases.ORD);
+  const opex   = B.addCertOpex(s.mroBases.ORD);
+  assert.equal(quoted, B.MRO_LEVELS[1].extraCertCapex, 'past the allowance, so it is priced');
+  assert.equal(opex,   B.MRO_LEVELS[1].extraCertOpex);
+  const weekly = B.baseWeeklyCost(s.mroBases.ORD);
+  const before = s.cash;
+  s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: 'boeing_737' });
+  assert.equal(before - s.cash, quoted, 'the quote is what the reducer took');
+  assert.equal(B.baseWeeklyCost(s.mroBases.ORD) - weekly, opex, 'and the weekly cost rose by the quoted opex');
+});
+
+t('a base cannot be certified past the hard ceiling', () => {
+  const FAMS = ['boeing_737', 'boeing_757', 'boeing_767', 'boeing_777',
+                'airbus_a320', 'airbus_a330', 'airbus_a350', 'embraer_ejet', 'atr'];
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = { ...s, cash: 1_000_000_000 };
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAMS[0]] });
+  for (const f of FAMS.slice(1, B.MRO_MAX_CERTS_PER_BASE)) {
+    s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: f });
+  }
+  assert.equal(s.mroBases.ORD.families.length, B.MRO_MAX_CERTS_PER_BASE, 'filled to the ceiling');
+  assert.equal(B.certsFull(s.mroBases.ORD), true);
+  const before = s.cash;
+  s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: FAMS[B.MRO_MAX_CERTS_PER_BASE] });
+  assert.equal(s.mroBases.ORD.families.length, B.MRO_MAX_CERTS_PER_BASE, 'the ninth is refused');
+  assert.equal(s.cash, before, 'and costs nothing');
+});
+
+t('a base can be built certified for more families than its level includes', () => {
+  const fams = [FAM, 'boeing_737', 'airbus_a320'];
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = { ...s, cash: 200_000_000 };
+  const before = s.cash;
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: fams });
+  assert.deepEqual(s.mroBases.ORD.families, fams, 'all three are kept, not sliced to the allowance');
+  const expected = B.MRO_LEVELS[1].capex + 2 * B.MRO_LEVELS[1].extraCertCapex;
+  assert.equal(before - s.cash, expected, 'and all three are paid for');
+  assert.equal(B.buildCapex(1, 3), expected, 'the quote the build form shows matches');
+});
+
+t('an unaffordable build with extras is refused, not silently trimmed', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = { ...s, cash: B.MRO_LEVELS[1].capex + 1 };
+  const before = s.cash;
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM, 'boeing_737'] });
+  assert.equal(s.mroBases.ORD, undefined, 'no base');
+  assert.equal(s.cash, before, 'no charge');
+});
+
+t('the maintenance page still offers the certification the engine prices', () => {
+  // A regression guard for the clobber mode, not the logic: this whole fix is a
+  // UI affordance over an engine action that already worked, so losing the
+  // component edit would restore the bug with every engine test still green.
+  const src = readFileSync(new URL('../src/components/Maintenance.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes("'ADD_BASE_CERTIFICATION'"), 'BaseCard dispatches the certification action');
+  assert.ok(src.includes('MRO_MAX_CERTS_PER_BASE'), 'and shows the ceiling rather than the level allowance');
 });
 
 t('closing a base refunds a fraction and frees the airport', () => {

@@ -13,6 +13,7 @@ import { renderToString } from 'react-dom/server';
 import { transformJsx } from './_jsx-loader.mjs';
 import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
 import { getAirport } from '../src/data/airports.js';
+import { aircraftFamily } from '../src/data/families.js';
 import { routeSegments, routeSegmentKey, referencePrice } from '../src/utils/simulation.js';
 
 // Minimal browser shims for SSR (effects don't run, but init reads localStorage).
@@ -120,6 +121,36 @@ test('Maintenance page mounts with an empty MRO network', () => {
   assert.ok(html.includes('MRO Network'), 'the jet-base section is present');
   assert.ok(html.includes('Shop Board'), 'the shop board is present');
   assert.ok(html.includes('Outsourced MRO Contracts'), 'contracts section is present');
+});
+
+// Discord, Kat the Fox, 2026-07-30: "Maintenance hub upgrades dont allow
+// aditional certifications." The engine action existed and was tested; nothing
+// in BaseCard ever dispatched it, so every engine suite stayed green while the
+// bug shipped. This renders a real base and looks for the offer.
+test('a base card offers the certifications its level still includes', () => {
+  const second = AIRCRAFT_TYPES.find(t => !t.freighter && aircraftFamily(t.id) && aircraftFamily(t.id) !== aircraftFamily(jet.id));
+  assert.ok(second, 'fixture needs two different aircraft families');
+  const withBase = {
+    ...save,
+    cash: 500_000_000,
+    fleet: [...save.fleet, {
+      id: 'ac3', typeId: second.id, name: 'Second Family', tailNumber: 'N3TEST',
+      status: 'idle', ageWeeks: 52, ownershipType: 'owned', config: { economy: second.seats },
+    }],
+    // L2 includes two certifications; this base has spent one.
+    mroBases: {
+      [P]: { code: P, level: 2, families: [aircraftFamily(jet.id)],
+             buildWeeksLeft: 0, openedWeek: 1, partsPool: 1.0 },
+    },
+  };
+  store.set('bbae_save_v2', JSON.stringify(withBase));
+  try {
+    const html = render(React.createElement(Maintenance));
+    assert.ok(html.includes('Certify another family'), 'the base card offers a further certification');
+    assert.ok(html.includes('more included at L2'), 'and says the allowance is unspent');
+  } finally {
+    store.set('bbae_save_v2', JSON.stringify(save));
+  }
 });
 
 test('Operations no longer owns the maintenance budget', () => {

@@ -146,11 +146,17 @@ export function mroLevelDef(level) {
   return MRO_LEVELS[level] ?? null;
 }
 
-/** Capex to build a brand-new base at `level`. */
+/**
+ * Capex to build a brand-new base at `level`, optionally certified for more
+ * families than the level includes. Extras are priced at the level's
+ * `extraCertCapex` each and clamped to MRO_MAX_CERTS_PER_BASE — quoting a ninth
+ * certification would charge for something the reducer will not keep.
+ */
 export function buildCapex(level, certCount = null) {
   const def = mroLevelDef(level);
   if (!def) return 0;
-  const extra = Math.max(0, (certCount ?? def.certsIncluded) - def.certsIncluded);
+  const want  = Math.min(MRO_MAX_CERTS_PER_BASE, certCount ?? def.certsIncluded);
+  const extra = Math.max(0, want - def.certsIncluded);
   return def.capex + extra * def.extraCertCapex;
 }
 
@@ -175,9 +181,42 @@ export function closeRefund(base) {
   return Math.round(sunkCapex(base) * MRO_CLOSE_REFUND);
 }
 
-/** How many family certifications this base may hold at its current level. */
+/** How many family certifications a level INCLUDES in its price. */
 export function certCapacity(level) {
   return mroLevelDef(level)?.certsIncluded ?? 0;
+}
+
+// ─── Certification economics for an existing base ────────────────────────────
+// A level's `certsIncluded` is an allowance, not a ceiling. Past it a base can
+// still be certified for more families — up to MRO_MAX_CERTS_PER_BASE — for
+// `extraCertCapex` once and `extraCertOpex` every week after. These helpers are
+// what the UI needs to make that offer, which for a long time it never did: a
+// base upgraded to a level with a bigger allowance had no way to spend it.
+
+/** One-off capex to certify this base for one more family (0 while included). */
+export function addCertCapex(base) {
+  const def = mroLevelDef(base?.level);
+  if (!def) return 0;
+  return (base?.families?.length ?? 0) >= def.certsIncluded ? def.extraCertCapex : 0;
+}
+
+/** Weekly opex one more certification would add to this base (0 while included). */
+export function addCertOpex(base) {
+  const def = mroLevelDef(base?.level);
+  if (!def) return 0;
+  return (base?.families?.length ?? 0) >= def.certsIncluded ? def.extraCertOpex : 0;
+}
+
+/** Included certifications this base has not spent yet. */
+export function certsIncludedLeft(base) {
+  const def = mroLevelDef(base?.level);
+  if (!def) return 0;
+  return Math.max(0, def.certsIncluded - (base?.families?.length ?? 0));
+}
+
+/** True when this base holds as many certifications as it ever can. */
+export function certsFull(base) {
+  return (base?.families?.length ?? 0) >= MRO_MAX_CERTS_PER_BASE;
 }
 
 // ─── Weekly cost ─────────────────────────────────────────────────────────────
@@ -425,7 +464,7 @@ export function claimSlot(ledger, code) {
  *
  * @param {object} snap - { bases, gates, cash, absWeek, routes, cargoRoutes }
  */
-export function canBuildBase(code, level, snap = {}) {
+export function canBuildBase(code, level, snap = {}, certCount = null) {
   const { bases = {}, gates = {}, cash = 0 } = snap;
   const def = mroLevelDef(level);
   const reasons = [];
@@ -436,7 +475,7 @@ export function canBuildBase(code, level, snap = {}) {
 
   const existing = bases[code] ?? null;
   const upgrade  = !!existing;
-  const capex    = upgrade ? upgradeCapex(existing.level, level) : buildCapex(level);
+  const capex    = upgrade ? upgradeCapex(existing.level, level) : buildCapex(level, certCount);
 
   if (upgrade) {
     if (!isBaseOpen(existing)) reasons.push('This base is still under construction');
@@ -458,12 +497,13 @@ export function canBuildBase(code, level, snap = {}) {
 }
 
 /**
- * Create a base record. Families are validated against the level's certification
- * capacity by the caller; anything beyond capacity is dropped here as a backstop.
+ * Create a base record. The caller prices the certifications — the level's
+ * included allowance plus any extras paid for at build time — and anything past
+ * the hard MRO_MAX_CERTS_PER_BASE ceiling is dropped here as a backstop.
  */
 export function makeBase(code, level, families, absWeek) {
   const def = mroLevelDef(level);
-  const capped = (families ?? []).filter(Boolean).slice(0, def?.certsIncluded ?? 0);
+  const capped = (families ?? []).filter(Boolean).slice(0, def ? MRO_MAX_CERTS_PER_BASE : 0);
   return {
     code,
     level,
