@@ -2,6 +2,7 @@
 import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
+import { restartAirline, MAX_RESTARTS } from '../lib/restartService.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
 // The public-move allowlist and payload scrubber are shared with the news feed
 // (lib/newsService.mjs) — one definition of "what a rival may see", not two.
@@ -177,15 +178,24 @@ export default async function worldRoutes(fastify) {
       fleetByType[a.typeId] = (fleetByType[a.typeId] ?? 0) + 1;
     }
 
+    // A re-founded airline reuses its database row, so its Standing and Decision
+    // rows still carry everything the company it replaced ever did. Unfiltered,
+    // the rank chart would splice the dead carrier's curve onto the new one
+    // (with a gap for the weeks it spent bankrupt) and "recent moves" would
+    // attribute its route openings and fleet orders to a player who was not
+    // flying at the time. Scope both to this generation. Never restarted →
+    // restartedWeek is null → joinedWeek → the whole history, as before.
+    const generationStart = airline.restartedWeek ?? airline.joinedWeek ?? 0;
+
     const [rankHistory, recentDecisions, membership] = await Promise.all([
       prisma.standing.findMany({
-        where: { worldId: airline.worldId, airlineId: airline.id },
+        where: { worldId: airline.worldId, airlineId: airline.id, week: { gte: generationStart } },
         orderBy: { week: 'desc' },
         take: 26,
         select: { week: true, rank: true },
       }),
       prisma.decision.findMany({
-        where: { worldId: airline.worldId, airlineId: airline.id },
+        where: { worldId: airline.worldId, airlineId: airline.id, week: { gte: generationStart } },
         orderBy: { createdAt: 'desc' },
         take: 60,
       }),
@@ -309,6 +319,60 @@ export default async function worldRoutes(fastify) {
       joinCode: request.body.joinCode,
     });
     return reply.code(201).send({ airline: serializeAirline(airline) });
+  });
+
+  // ── Restart: re-found a bankrupt or abandoned airline ─────────────────────
+  // Going under used to end your season in that world. It now costs you the
+  // company — fleet, network, cash, board objectives, alliance seat, gates and
+  // any stock rivals held in you — but not your seat at the table, up to
+  // MAX_RESTARTS times.
+  //
+  // Deliberately a SEPARATE endpoint from join rather than a status-aware
+  // branch inside it. Join creates; this one demolishes and rewrites, and the
+  // demolition (restartService.purgeAirlineFootprint) is the entire risk of the
+  // feature — folding it into join would put an irreversible teardown one bad
+  // conditional away from running on a healthy airline.
+  fastify.post('/worlds/:id/restart', {
+    preHandler: requireAuth,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      body: {
+        type: 'object',
+        required: ['airlineName', 'hub'],
+        properties: {
+          airlineName: { type: 'string', minLength: 1, maxLength: 40 },
+          hub: { type: 'string', minLength: 3, maxLength: 4 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    // Shares the join/leave bucket on purpose: a restart is the same class of
+    // rare, deliberate membership action, and it is far more expensive to serve.
+    if (!allow(`join:${request.account.id}`, MEMBERSHIP_LIMIT, MEMBERSHIP_WINDOWMS)) {
+      return reply.code(429).send({ error: 'Too many join/leave attempts — try again shortly.' });
+    }
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+
+    const airline = await prisma.airline.findUnique({
+      where: { worldId_accountId: { worldId: world.id, accountId: request.account.id } },
+    });
+
+    const updated = await restartAirline(prisma, {
+      account: request.account,
+      world,
+      airline,
+      airlineName: request.body.airlineName,
+      hub: request.body.hub.toUpperCase(),
+      log: request.log ?? console,
+    });
+
+    // No explicit rival-view invalidation needed. The world stamp is DERIVED
+    // (a sum of airline versions, memoised for 2.5s in routes/decisions.mjs),
+    // and the restart increments this airline's version — so the stamp moves on
+    // its own well inside the client's ~25s poll, and every open client picks up
+    // the re-founded airline without a cross-route import of the cache handle.
+    return reply.code(200).send({ airline: serializeAirline(updated), maxRestarts: MAX_RESTARTS });
   });
 
   // ── Leave / abandon your airline in a world ───────────────────────────────

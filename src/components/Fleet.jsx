@@ -8,7 +8,7 @@ import {
   maintenanceMultiplier, ageLabel,
   simulateRoute, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
-  MAX_WEEKLY_BLOCK_HOURS, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
+  maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
   freighterLandingCategory,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
@@ -321,6 +321,7 @@ function ReserveSection({ aircraft, type }) {
 
 function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const { state, dispatch } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
   const { routes } = state;
   const confirm = useConfirm();
 
@@ -415,7 +416,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const totalBlockHrs  = routeResults.reduce((s, { blockHrs }) => s + blockHrs, 0);
   const totalRevenue   = routeResults.reduce((s, { result }) => s + result.revenue, 0);
   const totalOpCost    = routeResults.reduce((s, { result }) => s + result.totalOpCost, 0);
-  const blockPct       = totalBlockHrs / MAX_WEEKLY_BLOCK_HOURS;
+  const blockPct       = totalBlockHrs / bhCap;
   const blockColor     = blockPct >= 0.95 ? 'var(--red)' : blockPct >= 0.75 ? 'var(--yellow)' : 'var(--accent)';
 
   const weeklyTotal   = weeklyLease + weeklyMaint + totalOpCost;
@@ -584,7 +585,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
           <div className="stat-label">Utilisation ({aircraftRoutes.length} route{aircraftRoutes.length !== 1 ? 's' : ''})</div>
           <div style={{ fontWeight: 700, fontSize: 17, color: totalBlockHrs > 0 ? blockColor : 'var(--text-muted)', marginTop: 4 }}>
             {totalBlockHrs.toFixed(1)}h
-            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}> / {MAX_WEEKLY_BLOCK_HOURS}h</span>
+            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}> / {bhCap}h</span>
           </div>
           <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
             <div style={{ height: '100%', width: `${Math.min(100, blockPct * 100)}%`, background: totalBlockHrs > 0 ? blockColor : 'var(--surface3)', borderRadius: 2, transition: 'width 0.3s' }} />
@@ -652,7 +653,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
         {routeResults.length > 0 ? routeResults.map(({ route: r, result: res, blockHrs: bh }) => {
           const org = getAirport(r.origin);
           const dst = getAirport(r.destination);
-          const rhColor = bh / MAX_WEEKLY_BLOCK_HOURS >= 0.75 ? 'var(--yellow)' : 'var(--text-dim)';
+          const rhColor = bh / bhCap >= 0.75 ? 'var(--yellow)' : 'var(--text-dim)';
           return (
             <div key={r.id} className="card" style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: 'var(--radius)', marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -899,6 +900,8 @@ const CATEGORY_ORDER = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body']
 // ─── By Type view ─────────────────────────────────────────────────────────────
 
 function FleetByType({ fleet, routes, cargoRoutes = [] }) {
+  const { state } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
   const gd = { year: 1, week: 1 }; // just for label purposes
   // Group by typeId
   const groups = {};
@@ -956,7 +959,7 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
             : 0;
         });
         const avgBlock  = allBlockHrs.reduce((s, h) => s + h, 0) / count;
-        const avgPct    = avgBlock / MAX_WEEKLY_BLOCK_HOURS;
+        const avgPct    = avgBlock / bhCap;
         const blockColor = avgPct >= 0.8 ? 'var(--red)' : avgPct >= 0.5 ? 'var(--yellow)' : avgPct > 0 ? 'var(--accent)' : 'var(--surface3)';
 
         return (
@@ -989,7 +992,7 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
             <div style={{ marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
                 <span>Avg utilisation</span>
-                <span style={{ color: blockColor, fontWeight: 600 }}>{avgBlock.toFixed(1)}h / {MAX_WEEKLY_BLOCK_HOURS}h</span>
+                <span style={{ color: blockColor, fontWeight: 600 }}>{avgBlock.toFixed(1)}h / {bhCap}h</span>
               </div>
               <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${Math.min(100, avgPct * 100)}%`, background: blockColor, borderRadius: 3, transition: 'width 0.3s' }} />
@@ -1048,6 +1051,8 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
 // ─── By Category view ─────────────────────────────────────────────────────────
 
 function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
+  const { state } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
   const categories = CATEGORY_ORDER.filter(cat =>
     fleet.some(a => getAircraftType(a.typeId)?.category === cat)
   );
@@ -1125,7 +1130,7 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
           const bh = t ? aRoutes.reduce((x, r) => x + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0) : 0;
           return s + bh;
         }, 0) / catFleet.length;
-        const avgPct    = avgBlock / MAX_WEEKLY_BLOCK_HOURS;
+        const avgPct    = avgBlock / bhCap;
         const blockColor = avgPct >= 0.8 ? 'var(--red)' : avgPct >= 0.5 ? 'var(--yellow)' : avgPct > 0 ? 'var(--accent)' : 'var(--surface3)';
 
         return (
@@ -1226,6 +1231,7 @@ export default function Fleet() {
   const { state, dispatch } = useGame();
   const confirm = useConfirm();
   const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week } = state;
+  const bhCap = maxWeeklyBlockHoursFor(state);
   const nowAbs = absoluteWeek(year, week);
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
@@ -1606,7 +1612,7 @@ export default function Fleet() {
             const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
             return type ? aRoutes.reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0) : 0;
           });
-          const avgUtil = allBH.reduce((s, h) => s + h, 0) / count / MAX_WEEKLY_BLOCK_HOURS;
+          const avgUtil = allBH.reduce((s, h) => s + h, 0) / count / bhCap;
           const idle = aircraft.filter(a => a.status === 'idle' && !isReserve(a)).length;
           const res  = aircraft.filter(a => isReserve(a)).length;
           return { typeId, type, catColor, count, avgAgeYrs, avgUtil, idle, res };
@@ -2049,7 +2055,7 @@ export default function Fleet() {
                     return s + weeklyBlockHours(dist, r.weeklyFrequency, type);
                   }, 0)
                 : 0;
-              const blockPct   = blockHrs / MAX_WEEKLY_BLOCK_HOURS;
+              const blockPct   = blockHrs / bhCap;
               const blockColor = blockPct >= 0.95 ? 'var(--red)' : blockPct >= 0.75 ? 'var(--yellow)' : 'var(--accent)';
 
               // Cabin summary

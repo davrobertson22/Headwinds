@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS } from '../utils/simulation.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, maxWeeklyBlockHoursFor } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
@@ -119,6 +119,7 @@ const ACCENT = '#e8833a';
 
 export default function CargoRoutePlanner({ mode, setMode, embedded = false, onOpened }) {
   const { state, dispatch } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
 
   const [origin, setOrigin]   = useState('');
   const [dest,   setDest]     = useState('');
@@ -182,6 +183,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
         origin, dest,
         distKm:         routeData.dist,
         weeklyFrequency: frequency,
+        capHours:       bhCap,
       });
     }
     return map;
@@ -216,7 +218,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     if (!routeData || !selectedTypeId) return 14;
     const type = getAircraftType(selectedTypeId);
     if (!type) return 14;
-    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, type)));
+    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, type, bhCap)));
   }, [routeData, selectedTypeId]);
 
   // Clamp the chosen frequency down when a longer lane / different freighter
@@ -419,7 +421,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                               ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
                               : anySpare
                                 ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — a freighter can only add a lane that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
-                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({MAX_WEEKLY_BLOCK_HOURS}h/wk) — no spare hours for another lane. Lease another {simulation.type.name} to open this route.</>}
+                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another lane. Lease another {simulation.type.name} to open this route.</>}
                           </div>
                         )}
                         {simulation.result.profit < 0 && <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>}

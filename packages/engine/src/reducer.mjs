@@ -10,7 +10,7 @@
 // check in Headwinds. Restored. Worth diffing the two on any shared change.
 import {
   weeklyTick, defaultConfig,
-  weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, routeDistanceKm,
+  weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
   CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey,
@@ -162,10 +162,17 @@ export function transferCompatibility(state, fromAircraftId, toAircraftId) {
 
   // Block hours on the new type — per-month peak, so counter-seasonal routes
   // that never overlap can share the budget (mirrors ADD_ROUTE).
-  const peakBlockHrs = Math.max(...Array.from({ length: 12 }, (_, i) => i + 1).map(m => all
+  const months12 = Array.from({ length: 12 }, (_, i) => i + 1);
+  const peakFor = (type) => Math.max(...months12.map(m => all
     .filter(r => isRouteActive(r, m))
-    .reduce((s, r) => s + routeBlockHours(r, toType, r.weeklyFrequency), 0)));
-  if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return { ok: false, reason: 'Too slow — exceeds weekly block hours' };
+    .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0)));
+  const peakBlockHrs = peakFor(toType);
+  // Grandfather rule (NWR's 100h cap can sit BELOW a legally-flying schedule):
+  // a transfer that doesn't increase the hours already being flown — i.e. onto
+  // an equal-or-faster type — is always allowed. Only a transfer that would
+  // GROW the schedule's hours must fit under the current cap.
+  if (peakBlockHrs > maxWeeklyBlockHoursFor(state) && peakBlockHrs > peakFor(fromType))
+    return { ok: false, reason: 'Too slow — exceeds weekly block hours' };
 
   return { ok: true };
 }
@@ -240,7 +247,7 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
   const peakBlockHrs = Math.max(0, ...months.map(m =>
     acRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) =>
       s + routeBlockHours(r, type, freqOf(r)), 0)));
-  if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return "Aircraft's weekly block-hour limit";
+  if (peakBlockHrs > maxWeeklyBlockHoursFor(state)) return "Aircraft's weekly block-hour limit";
 
   // Gate slots at each endpoint, per-month peak.
   const gates = state.gates ?? {};
@@ -279,7 +286,7 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
   const otherBlockHrs = (state.cargoRoutes ?? [])
     .filter(r => r.aircraftId === route.aircraftId && r.id !== route.id)
     .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
-  if (otherBlockHrs + routeBlockHours(route, type, target) > MAX_WEEKLY_BLOCK_HOURS)
+  if (otherBlockHrs + routeBlockHours(route, type, target) > maxWeeklyBlockHoursFor(state))
     return "Freighter's weekly block-hour limit — add another freighter for more frequency";
 
   // Gate slots at each endpoint, counted across passenger + cargo ops.
@@ -1334,7 +1341,7 @@ function reducer(state, action) {
         newBlockHrs + acRoutes
           .filter(r => isRouteActive(r, m))
           .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0)));
-      if (peakBlockHrs > MAX_WEEKLY_BLOCK_HOURS) return state;
+      if (peakBlockHrs > maxWeeklyBlockHoursFor(state)) return state;
 
       // ── Network-connectivity check: a plane that has already flown can only ───
       // extend its network from airports it already serves — no teleporting.
@@ -1478,7 +1485,7 @@ function reducer(state, action) {
       const existingBlockHrs = state.routes
         .filter(r => r.aircraftId === action.aircraftId)
         .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
-      if (existingBlockHrs + routeBlockHours(proto, type, weeklyFrequency) > MAX_WEEKLY_BLOCK_HOURS) return state;
+      if (existingBlockHrs + routeBlockHours(proto, type, weeklyFrequency) > maxWeeklyBlockHoursFor(state)) return state;
 
       // ── Connectivity: a plane already flying can only extend from a served stop ──
       const aircraftRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
@@ -1758,7 +1765,7 @@ function reducer(state, action) {
       const existingBlockHrs = (state.cargoRoutes ?? [])
         .filter(r => r.aircraftId === action.aircraftId)
         .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0);
-      if (existingBlockHrs + weeklyBlockHours(dist, weeklyFrequency, type) > MAX_WEEKLY_BLOCK_HOURS) return state;
+      if (existingBlockHrs + weeklyBlockHours(dist, weeklyFrequency, type) > maxWeeklyBlockHoursFor(state)) return state;
 
       // Network connectivity: a freighter already flying can only extend from airports it serves.
       const acCargoRoutes = (state.cargoRoutes ?? []).filter(r => r.aircraftId === action.aircraftId);
@@ -1844,11 +1851,15 @@ function reducer(state, action) {
       const type = ac ? getAircraftType(ac.typeId) : null;
       const newFreq = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
 
-      if (type) {
+      if (type && newFreq > targetRoute.weeklyFrequency) {
+        // Guards only on INCREASES — reductions are always allowed, which is
+        // what lets an over-cap grandfathered freighter (NWR dropped the cap
+        // under its existing schedule) ratchet its hours DOWN without being
+        // told it exceeds the very limit it is trying to move toward.
         const otherBlockHrs = (state.cargoRoutes ?? [])
           .filter(r => r.aircraftId === targetRoute.aircraftId && r.id !== targetRoute.id)
           .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
-        if (otherBlockHrs + routeBlockHours(targetRoute, type, newFreq) > MAX_WEEKLY_BLOCK_HOURS) return state;
+        if (otherBlockHrs + routeBlockHours(targetRoute, type, newFreq) > maxWeeklyBlockHoursFor(state)) return state;
 
         const gates = state.gates ?? {};
         const allOps = [...state.routes, ...(state.cargoRoutes ?? [])];

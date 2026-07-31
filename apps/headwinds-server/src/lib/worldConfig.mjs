@@ -2,6 +2,17 @@
 // Single home for the §3a rules (admin world creation + the tick worker).
 import { randomBytes, randomUUID } from 'node:crypto';
 
+/**
+ * Second chances per world: the original airline plus this many re-foundings.
+ *
+ * Defined HERE rather than in restartService because worldConfig sits at the
+ * bottom of the import graph — restartService imports worldService which imports
+ * worldConfig, so the reverse edge would be a cycle. restartService re-exports it
+ * as MAX_RESTARTS so gameplay code has one obvious place to read it from.
+ */
+export const MAX_RESTARTS = 3;
+
+
 export const WEEKS_PER_YEAR = 52;
 
 // Preset quick-picks shown in the admin create form's dropdowns. Admins may also
@@ -218,6 +229,12 @@ export function serializeAirline(a, { world, includeJoinCode = false } = {}) {
     week: a.week,
     status: a.status,
     joinedWeek: a.joinedWeek,
+    // Second chances. Both are sent so the client can render "Start over
+    // (2 left)" without hardcoding the cap, and so a player who has run out
+    // sees why the button is gone rather than it silently vanishing.
+    restarts: a.restarts ?? 0,
+    restartsLeft: Math.max(0, MAX_RESTARTS - (a.restarts ?? 0)),
+    restartedWeek: a.restartedWeek ?? null,
     world: world ? serializeWorld(world, { includeJoinCode }) : undefined,
   };
 }

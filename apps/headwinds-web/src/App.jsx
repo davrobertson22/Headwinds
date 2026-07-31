@@ -180,7 +180,7 @@ function SignIn() {
 
 // ── Join form (shared by list + world screen) ─────────────────────────────────
 
-function JoinForm({ world, token, needsCode, onJoined }) {
+function JoinForm({ world, token, needsCode, onJoined, mode = 'join' }) {
   const [airlineName, setAirlineName] = useState('');
   const [hub, setHub] = useState('');
   const [joinCode, setJoinCode] = useState('');
@@ -193,16 +193,25 @@ function JoinForm({ world, token, needsCode, onJoined }) {
   );
   const hubValid = AIRPORTS.some((a) => a.code === hub.toUpperCase());
 
+  // Restart posts to a DIFFERENT endpoint on purpose. /join creates a row;
+  // /restart demolishes an airline's whole world-level footprint (gates, bids,
+  // alliance seat, pool inventory, unconsumed dividends) before rewriting it.
+  // Sharing this form's fields is fine; sharing the endpoint would put an
+  // irreversible teardown one bad conditional away from a healthy airline.
+  const isRestart = mode === 'restart';
+
   const join = async (ev) => {
     ev.preventDefault();
     setBusy(true); setError(null);
     try {
-      const res = await api(`/worlds/${world.id}/join`, {
+      const res = await api(`/worlds/${world.id}/${isRestart ? 'restart' : 'join'}`, {
         method: 'POST', token,
         body: {
           airlineName: airlineName.trim(),
           hub: hub.toUpperCase(),
-          ...(needsCode && joinCode ? { joinCode: joinCode.trim().toUpperCase() } : {}),
+          // A join code is never required to re-found: the player is already a
+          // member of this world and passed the gate when they first joined.
+          ...(!isRestart && needsCode && joinCode ? { joinCode: joinCode.trim().toUpperCase() } : {}),
         },
       });
       onJoined?.(res.airline);
@@ -212,7 +221,13 @@ function JoinForm({ world, token, needsCode, onJoined }) {
 
   return (
     <form className="join-form" onSubmit={join}>
-      <h3>Found your airline in “{world.name}”</h3>
+      <h3>{isRestart ? 'Found a new airline' : 'Found your airline'} in “{world.name}”</h3>
+      {isRestart && (
+        <p className="muted small">
+          You start again at the world’s current week on starting capital. The airline you
+          lost is gone for good — fleet, network, cash, objectives, alliance seat and gates.
+        </p>
+      )}
       <div className="row wrap">
         <input
           required maxLength={40} placeholder="Airline name"
@@ -225,14 +240,16 @@ function JoinForm({ world, token, needsCode, onJoined }) {
         <datalist id="hub-airports">
           {hubOptions.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
         </datalist>
-        {needsCode && (
+        {!isRestart && needsCode && (
           <input
             required placeholder="Join code" className="hub-input"
             value={joinCode} onChange={(e) => setJoinCode(e.target.value)}
           />
         )}
         <button className="btn primary" disabled={busy || !hubValid} type="submit">
-          {busy ? 'Joining…' : 'Join world'}
+          {busy
+            ? (isRestart ? 'Founding…' : 'Joining…')
+            : (isRestart ? 'Start flying again' : 'Join world')}
         </button>
       </div>
       {hub && !hubValid && <p className="muted small">Pick a real airport code from the list.</p>}
@@ -691,8 +708,21 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   if (!data) return <p className="muted">Loading world…</p>;
 
   const { world, standings } = data;
-  const mine = (me?.airlines ?? []).find((a) => a.worldId === world.id && a.status !== 'ABANDONED');
-  const canJoin = token && !mine && ['LOBBY', 'RUNNING'].includes(world.status)
+  // Three distinct states, and conflating any two of them was the old bug: an
+  // ABANDONED airline was filtered out of `mine`, which flipped `canJoin` true
+  // and showed a join form that could only ever 409 — Airline is unique on
+  // (worldId, accountId) and joinWorld's duplicate check is status-blind. A
+  // BANKRUPT one was worse: it stayed in `mine`, so the only button offered
+  // walked the player back into the overlay they were trying to escape.
+  const myAirline = (me?.airlines ?? []).find((a) => a.worldId === world.id);
+  const mine = myAirline && myAirline.status === 'ACTIVE' ? myAirline : null;
+  const dead = myAirline && myAirline.status !== 'ACTIVE' ? myAirline : null;
+  const restartsLeft = dead?.restartsLeft ?? 0;
+  const canRestart = Boolean(token && dead && restartsLeft > 0
+    && ['LOBBY', 'RUNNING'].includes(world.status));
+  // Capacity is not re-checked for a restart: the row already exists and already
+  // counts toward playerCount, so re-founding takes no new seat.
+  const canJoin = token && !myAirline && ['LOBBY', 'RUNNING'].includes(world.status)
     && (world.playerCount ?? standings.length) < world.maxPlayers;
 
   const leave = async () => {
@@ -783,6 +813,27 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
             needsCode={world.visibility === 'PRIVATE' && !world.joinCode}
             onJoined={() => { refreshMe(); load(); }}
           />
+        </div>
+      )}
+      {dead && (
+        <div className="card">
+          <p className="muted">
+            <strong>{dead.name}</strong> {dead.status === 'BANKRUPT' ? 'went under' : 'was abandoned'} in this world.
+            {' '}
+            {restartsLeft > 0
+              ? `You have ${restartsLeft} ${restartsLeft === 1 ? 'restart' : 'restarts'} left here.`
+              : 'You have used every restart available here.'}
+          </p>
+          {canRestart ? (
+            <JoinForm
+              world={world} token={token} mode="restart"
+              onJoined={() => { refreshMe(); load(); }}
+            />
+          ) : (
+            <p className="muted small">
+              The world carries on without you — watch the standings below, or join another world.
+            </p>
+          )}
         </div>
       )}
       {!token && <div className="card"><p className="muted">Sign in above to join this world.</p></div>}

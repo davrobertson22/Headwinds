@@ -10,7 +10,7 @@ import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
-import { paceLabel, worldStageOf } from '../lib/worldConfig.mjs';
+import { paceLabel, worldStageOf, MAX_RESTARTS } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
@@ -155,7 +155,7 @@ export default async function decisionRoutes(fastify) {
       where: {
         worldId_accountId: { worldId: request.params.id, accountId: request.account.id },
       },
-      select: { id: true, worldId: true, version: true, status: true, week: true },
+      select: { id: true, worldId: true, version: true, status: true, week: true, restarts: true },
     });
     if (!slim) throw httpError(404, 'You have no airline in this world');
 
@@ -167,6 +167,12 @@ export default async function decisionRoutes(fastify) {
       airlineId: slim.id,
       status: slim.status,
       week: slim.week,
+      // Second chances left in this world. Rides on `base` so it survives the
+      // `unchanged: true` early return — the bankruptcy overlay reads it to
+      // decide between offering a restart and explaining there are none left,
+      // and a BANKRUPT airline's version never moves again, so every poll it
+      // makes is an unchanged one.
+      restartsLeft: Math.max(0, MAX_RESTARTS - (slim.restarts ?? 0)),
       worldStatus: world.status,
       // Cosmetic maturity label for the game's top bar (alpha | beta | live).
       // Rides on `base` so it survives an `unchanged: true` early return.

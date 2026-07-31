@@ -542,6 +542,112 @@ export function setFareIndex(v) {
 /** The fare index currently in effect. */
 export function getFareIndex() { return _fareIndex; }
 
+// ─── NWR load-factor realism (spill + weekly variance) ────────────────────────
+//
+// WHY: every route simulator fills seats with a flat min(demand, capacity), so
+// the moment weekly demand exceeds weekly seats the airline banks EVERY seat —
+// 100.0% load factor, forever, in both directions. Real airlines sit at ~83%
+// system LF *while* their best flights sell out, because demand arrives per
+// departure / per day / per direction and you size for the peak: Friday is
+// full, Tuesday is 60%. A weekly demand pool erases that entirely, and it is
+// the single biggest term in mature margins running 3-4x reality (revenue per
+// aircraft ~$122M/yr vs a real $25-40M). No cost rate fixes that — the per-unit
+// costs are already right; the denominator is inflated.
+//
+// THE MODEL, applied only in restricted worlds:
+//
+//   1. A structural ceiling: only NWR_LF_CEILING of weekly seats are
+//      *achievable*, representing day-of-week peaking and directional
+//      imbalance that more demand never cures.
+//   2. Spill against that ceiling: per-departure demand is treated as
+//      Normal(D, NWR_DEMAND_CV·D) and the seats sold are E[min(N, C)] via the
+//      standard normal loss function — closed form, no RNG, replay-safe.
+//      Deep-oversubscribed routes asymptote to the ceiling; a route at
+//      demand ≈ capacity lands ~87%; a 60%-LF route loses well under a point.
+//      It only bites full aircraft — the progressive lever the flat fare trim
+//      never was.
+//   3. Weekly variance: a deterministic per-route-per-week jitter of up to
+//      ±NWR_LF_JITTER in either direction, hashed from (route key, absolute
+//      week). No Math.random() — the same state replays to the same bytes on
+//      client, server and golden master. A sold-out route breathes between
+//      ~92.6% and ~97.4% instead of pinning at a constant.
+//
+// Classic worlds never attach the jitter field, so their simulation path is
+// byte-identical to before — asserted by test and by the golden master.
+export const NWR_LF_CEILING = 0.95;
+export const NWR_LF_JITTER  = 0.025;
+// Per-departure demand spread (coefficient of variation). 0.30 put a
+// demand-equals-capacity route at 85.4%, which read as too harsh; 0.25 lands
+// parity at ~87% and leaves the oversubscribed asymptote (~95%) unchanged.
+export const NWR_DEMAND_CV  = 0.25;
+
+/** Standard normal pdf. */
+const _phi = (z) => Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+
+/** Standard normal cdf (Abramowitz–Stegun 7.1.26, |err| < 1.5e-7). */
+function _Phi(z) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 +
+               t * (-1.821255978 + t * 1.330274429))));
+  const p = 1 - _phi(Math.abs(z)) * poly;
+  return z >= 0 ? p : 1 - p;
+}
+
+/**
+ * Expected seats sold when demand ~ Normal(demand, cv·demand) meets a hard
+ * capacity `cap`: E[min(X, cap)] = D − σ·L(z), L(z) = φ(z) − z·(1 − Φ(z)).
+ * Always ≤ min(demand, cap); ≈ demand when demand ≪ cap.
+ */
+export function expectedCarried(demand, cap, cv = NWR_DEMAND_CV) {
+  const D = Math.max(0, Number(demand) || 0);
+  const C = Math.max(0, Number(cap) || 0);
+  if (D <= 0 || C <= 0) return 0;
+  const sigma = cv * D;
+  if (sigma <= 0) return Math.min(D, C);
+  const z = (C - D) / sigma;
+  const loss = _phi(z) - z * (1 - _Phi(z));
+  return Math.max(0, Math.min(C, D - sigma * loss));
+}
+
+/**
+ * Deterministic weekly jitter in [1 − NWR_LF_JITTER, 1 + NWR_LF_JITTER],
+ * keyed on (route key, absolute week) via FNV-1a. Same inputs → same factor
+ * on every machine, so optimistic client apply, server replay and the golden
+ * master all agree.
+ */
+export function weeklyLoadJitter(routeKey, absWeek) {
+  const s = `${routeKey}|${Math.floor(Number(absWeek) || 0)}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  // FNV-1a alone clusters: for near-identical keys ("r|31" vs "r|32") the
+  // difference never leaves the low bits, and the division below reads the
+  // HIGH bits — every week lands at ~0.5 and nothing varies. A murmur3-style
+  // finalizer avalanches the low bits across the whole word.
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  const u = (h >>> 0) / 0xffffffff;          // [0, 1]
+  return 1 - NWR_LF_JITTER + 2 * NWR_LF_JITTER * u;
+}
+
+/**
+ * The factor a route's demand should be scaled by under the NWR load model:
+ * spill against the achievable ceiling, times this week's jitter, never
+ * exceeding physical capacity. Returns 1 when the model is off (no jitter
+ * attached) so classic worlds are untouched.
+ */
+export function nwrDemandScale(demand, capacity, jitter) {
+  if (jitter == null) return 1;               // model off — classic world
+  const D = Math.max(0, Number(demand) || 0);
+  const C = Math.max(0, Number(capacity) || 0);
+  if (D <= 0 || C <= 0) return 1;
+  const carried = expectedCarried(D, C * NWR_LF_CEILING) * jitter;
+  return Math.min(carried, C) / D;
+}
+
 export function referencePrice(originCode, destCode) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);

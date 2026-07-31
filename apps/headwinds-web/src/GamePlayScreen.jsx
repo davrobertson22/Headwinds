@@ -150,7 +150,8 @@ export default function GamePlayScreen({ worldId, token }) {
       const d = await authedApi(`/worlds/${worldId}/airline${q}`, { token });
       lastOkRef.current = Date.now();
       setConnLost(false);
-      setMeta({ status: d.status, worldStatus: d.worldStatus, worldClock: d.worldClock, airlineId: d.airlineId });
+      setMeta({ status: d.status, worldStatus: d.worldStatus, worldClock: d.worldClock, airlineId: d.airlineId,
+                restartsLeft: d.restartsLeft });
       if (d.stamp) stampRef.current = d.stamp;
       setError(null); // a good poll clears any stale transient error
       if (d.unchanged) return; // nothing moved server-side — keep what we have
@@ -256,6 +257,27 @@ export default function GamePlayScreen({ worldId, token }) {
     // network without the server needing to know who is asking.
     fetchNews: (params = '') => authedApi(`/worlds/${worldId}/news${params}`, { token }),
     airlineId: meta?.airlineId ?? null,
+    // ── Second chances ───────────────────────────────────────────────────────
+    // A bankrupt airline's every write is refused, so the shared bankruptcy
+    // overlay needs a way out that is not a decision. `restartsLeft` is null on
+    // a server that predates the feature, which the overlay reads as "restarts
+    // unavailable" and falls back to the old lobby-only copy.
+    //
+    // The response carries the airline ROW, not the state blob, so adopt the new
+    // company with a full reload rather than trying to reconstruct it: `full`
+    // bypasses the newer-week guard in load(), which would otherwise refuse to
+    // replace a same-week blob and leave the dead airline on screen. See
+    // decisionPolicy.js for why that guard exists and why `full` is mandatory
+    // for any re-read meant to REPLACE state.
+    restartsLeft: meta?.restartsLeft ?? null,
+    // The bankruptcy overlay is position:fixed over the topbar, so the "head
+    // back to the lobby" copy it used to show pointed at a link the overlay
+    // itself covered. Carry the href so the way out lives INSIDE the card.
+    lobbyHref: `#/w/${worldId}`,
+    restartAirline: (airlineName, hub) =>
+      authedApi(`/worlds/${worldId}/restart`, {
+        method: 'POST', token, body: { airlineName, hub },
+      }).then(async (res) => { await load({ full: true }); return res; }),
     // Used aircraft market (all Headwinds worlds)
     fetchUsedAircraft: () => authedApi(`/worlds/${worldId}/used-aircraft`, { token }),
     buyUsedAircraft: (listingId) =>
@@ -299,7 +321,7 @@ export default function GamePlayScreen({ worldId, token }) {
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/requests/${airlineId}`, { method: 'POST', token, body: { decision } }),
     leaveAlliance: (allianceId) =>
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
-  }), [worldId, token, adoptGateMarket, meta?.airlineId]);
+  }), [worldId, token, adoptGateMarket, meta?.airlineId, meta?.restartsLeft, load]);
 
   const decisionSeq = useRef(0);
   // Serialize the authoritative writes. A burst of dispatches — bulk close/sell/

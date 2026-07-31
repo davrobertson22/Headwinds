@@ -7,7 +7,7 @@ import {
   simulateRoute, formatMoney, formatPercent, weekToGameDate,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
-  buildEventDemandModel, deployableFleetForRoute, MAX_WEEKLY_BLOCK_HOURS,
+  buildEventDemandModel, deployableFleetForRoute, maxWeeklyBlockHoursFor,
   maxFrequency,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
@@ -405,6 +405,7 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
 
 export default function RoutePlanner() {
   const { state, dispatch } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
 
   const [mode, setMode] = useState('passenger');
 
@@ -510,7 +511,7 @@ export default function RoutePlanner() {
   const freqCap = useMemo(() => {
     const t = getAircraftType(selectedTypeId);
     if (!routeData || !t) return 14;
-    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, t)));
+    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, t, bhCap)));
   }, [routeData, selectedTypeId]);
 
   useEffect(() => {
@@ -540,6 +541,7 @@ export default function RoutePlanner() {
         origin, dest,
         distKm:         routeData.dist,
         weeklyFrequency: frequency,
+        capHours:       bhCap,
       });
     }
     return map;
@@ -899,7 +901,7 @@ export default function RoutePlanner() {
                   <div>
                     <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Flights / week
-                      <InfoTip text={`Each aircraft can fly ${MAX_WEEKLY_BLOCK_HOURS} hours a week, so this route fits at most ${freqCap} round trips per aircraft. 7 means one departure a day. Flying near the max is fine, but a fleet with zero slack is more prone to delays.`} />
+                      <InfoTip text={`Each aircraft can fly ${bhCap} hours a week, so this route fits at most ${freqCap} round trips per aircraft. 7 means one departure a day. Flying near the max is fine, but a fleet with zero slack is more prone to delays.`} />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
@@ -1107,7 +1109,7 @@ export default function RoutePlanner() {
                               ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
                               : anySpare
                                 ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — an aircraft can only add a route that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
-                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({MAX_WEEKLY_BLOCK_HOURS}h/wk) — no spare hours for another route. Lease another {simulation.type.name} to open this route.</>}
+                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another route. Lease another {simulation.type.name} to open this route.</>}
                           </div>
                         )}
                         {simulation.netProfit < 0 && (

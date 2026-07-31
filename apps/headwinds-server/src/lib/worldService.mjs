@@ -87,28 +87,26 @@ export async function createWorld(prisma, {
 // (real OGs/devs get the rendered chip; it never lives in a name).
 export const OG_NAME_PATTERN = /[[({<][\s._\-]*(?:[O0][\s._\-]*G|D[\s._\-]*[E3][\s._\-]*V)[\s._\-]*[\])}>]/i;
 
-// Join a world: create the caller's Airline, seeded from the shared engine's
-// starting position (the exact solo-game opening). Enforces capacity, join codes,
-// world lifecycle, and one-airline-per-account-per-world.
-export async function joinWorld(prisma, { account, world, airlineName, hub, joinCode }) {
-  if (OG_NAME_PATTERN.test(airlineName ?? '')) {
-    throw httpError(400, 'OG and DEV tags are reserved — they appear automatically as badges, not in the airline name.');
-  }
-  if (world.status === 'ENDED' || world.status === 'ARCHIVED') {
-    throw httpError(409, 'This world has ended');
-  }
-  if (world.visibility === 'PRIVATE' && world.joinCode && joinCode !== world.joinCode) {
-    throw httpError(403, 'Invalid join code for this private world');
-  }
-
-  const existing = await prisma.airline.findUnique({
-    where: { worldId_accountId: { worldId: world.id, accountId: account.id } },
-  });
-  if (existing) throw httpError(409, 'You already have an airline in this world');
-
-  const count = await prisma.airline.count({ where: { worldId: world.id } });
-  if (count >= world.maxPlayers) throw httpError(409, 'This world is full');
-
+// ── Seeding an opening position ──────────────────────────────────────────────
+// The exact solo-game opening, rebased onto a live world's calendar and economy.
+//
+// Extracted from joinWorld because a RESTART needs byte-identical seeding: a
+// re-founded airline must land on the same fuel index, the same 52-week price
+// history, the same demand multiplier and the same fare ladder as the rivals it
+// is about to compete with. Duplicating any part of this would silently hand
+// (or deny) an advantage — the fuel backfill alone was worth a free hedge at
+// 1.0x, see the "One world, one economy" note below.
+//
+// PURE: no database access, no reads of world.status, no assumption about
+// whether the airline row exists yet. Everything it needs is on `world`.
+//
+// `fareIndexOverride` exists for the restart path only. The index is seeded from
+// tickConfig at join, but a live world's real ladder is read back off an
+// existing airline's blob (humanRivals.mjs setFareIndex). If a world was ever
+// retuned, re-seeding from tickConfig would give the re-founded airline a
+// different ladder from everyone else, so restart carries the old blob's value
+// forward instead.
+export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } = {}) {
   // Per-world admin knobs (default when the world predates them / tickConfig empty).
   const tc = world.tickConfig ?? {};
   const startingCapital = tc.startingCapital ?? DEFAULT_STARTING_CAPITAL;
@@ -193,6 +191,39 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
     fuelPrice:   economy.fuelPrice,
     marketIndex: economy.marketIndex,
   };
+
+  if (fareIndexOverride != null && worldDatedState.fareIndex != null) {
+    worldDatedState.fareIndex = fareIndexOverride;
+  }
+  return worldDatedState;
+}
+
+// Join a world: create the caller's Airline, seeded from the shared engine's
+// starting position (the exact solo-game opening). Enforces capacity, join codes,
+// world lifecycle, and one-airline-per-account-per-world.
+export async function joinWorld(prisma, { account, world, airlineName, hub, joinCode }) {
+  if (OG_NAME_PATTERN.test(airlineName ?? '')) {
+    throw httpError(400, 'OG and DEV tags are reserved — they appear automatically as badges, not in the airline name.');
+  }
+  if (world.status === 'ENDED' || world.status === 'ARCHIVED') {
+    throw httpError(409, 'This world has ended');
+  }
+  if (world.visibility === 'PRIVATE' && world.joinCode && joinCode !== world.joinCode) {
+    throw httpError(403, 'Invalid join code for this private world');
+  }
+
+  const existing = await prisma.airline.findUnique({
+    where: { worldId_accountId: { worldId: world.id, accountId: account.id } },
+  });
+  if (existing) throw httpError(409, 'You already have an airline in this world');
+
+  const count = await prisma.airline.count({ where: { worldId: world.id } });
+  if (count >= world.maxPlayers) throw httpError(409, 'This world is full');
+
+  // Seed the opening position — see seedAirlineState. Shared verbatim with the
+  // restart path so a re-founded airline lands on the same economy as its rivals.
+  const worldDatedState = seedAirlineState(world, { airlineName, hub });
+  const tc = world.tickConfig ?? {};
 
   let airline;
   try {

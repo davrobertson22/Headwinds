@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { sharesOf } from '../utils/market.js';
-import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, MAX_WEEKLY_BLOCK_HOURS, routeDistanceKm, routeBlockHours, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
+import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, maxWeeklyBlockHoursFor, routeDistanceKm, routeBlockHours, weekToGameDate, formatGameDate, fleetAvgUtilization } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
@@ -37,6 +37,7 @@ function CollapseChevron({ collapsed, onClick, label }) {
 
 export default function Dashboard({ onNavigate }) {
   const { state, remote } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
   const { cash, fleet, routes, cargoRoutes = [], financialHistory, lastReport, week, year, activeEvents = [], satisfaction } = state;
   const [selectedEvent, setSelectedEvent] = useState(null);
 
@@ -608,7 +609,7 @@ export default function Dashboard({ onNavigate }) {
             oos:      isOutOfService(a),
             reserve:  isReserve(a),
             idle:     a.status === 'idle' && !isReserve(a),
-            p:        Math.min(1, bh / MAX_WEEKLY_BLOCK_HOURS),
+            p:        Math.min(1, bh / bhCap),
           };
         });
         // Headline average matches fleetAvgUtilization (the figure the sim itself

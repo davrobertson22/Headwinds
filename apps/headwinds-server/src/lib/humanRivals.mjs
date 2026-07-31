@@ -26,6 +26,37 @@ import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
 
+// ── Rival-facing identity, per GENERATION ────────────────────────────────────
+// The id every other player sees this airline as, and the key their portfolio
+// holdings, codeshare agreements and trades are filed under.
+//
+// A re-founded airline (see restartAirline) reuses its database row, so a bare
+// `human:<dbId>` would make the new company indistinguishable from the one that
+// just went under — rivals holding stock in the bankrupt carrier would silently
+// wake up owning a stake in a brand-new, fully-funded airline, and a codeshare
+// signed with the dead one would keep paying out.
+//
+// Appending the generation fixes that with no new settlement code, because the
+// engine ALREADY force-liquidates any holding whose competitor id vanishes from
+// the rival set: reducer.mjs's delisting sweep pays the holder out at
+// STOCK_MARKET.DELIST_HAIRCUT and drops the position. Changing the id makes the
+// old company delist exactly as if it had left the world, on the holder's very
+// next tick, and closes the race where a player who restarts before their
+// rivals tick would otherwise never delist at all.
+//
+// Generation 0 is spelled bare so that every airline that has never restarted —
+// i.e. all of them, before this ship — keeps byte-identical ids and no stored
+// holding, agreement or pool entry has to be migrated.
+//
+// The raw database id is recovered by marketService.poolKeyOf, which strips both
+// the prefix and this suffix. Any new parser of a competitor id MUST go through
+// it (or the client-side twin in Competition.jsx) rather than slicing 'human:'.
+export function rivalIdOf(airlineRow) {
+  const gen = Number(airlineRow?.restarts ?? 0) || 0;
+  return gen > 0 ? `human:${airlineRow.id}~g${gen}` : `human:${airlineRow.id}`;
+}
+
+
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
 
 // ── DEV badge ─────────────────────────────────────────────────────────────────
@@ -235,7 +266,7 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
   const profitHistory = history.map((w) => w.profit ?? 0);
   const lastWeek = history.length ? history[history.length - 1] : null;
   return {
-    id: `human:${airlineRow.id}`,
+    id: rivalIdOf(airlineRow),
     human: true,                     // marker — never treated as an AI carrier
     // OG veteran badge (playing since the original Tailwinds) — account-level,
     // present only when the airline row was loaded with its account included.
@@ -321,7 +352,7 @@ export function toRivalSpecs(airlineRow) {
     const econ = s.routePricing?.[key]?.economy ?? r.ticketPrice ?? null;
     const ref = referencePrice(r.origin, r.destination);
     const spec = byPair[key] ?? {
-      competitorId: `human:${airlineRow.id}`,
+      competitorId: rivalIdOf(airlineRow),
       name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
       tier: 'legacy',
       qualityScore: quality,

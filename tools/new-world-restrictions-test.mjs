@@ -24,7 +24,7 @@
 //   node tools/new-world-restrictions-test.mjs
 
 import assert from 'node:assert/strict';
-import { gameReducer, leaseDenial } from '../packages/engine/src/reducer.mjs';
+import { gameReducer, leaseDenial, transferCompatibility } from '../packages/engine/src/reducer.mjs';
 import {
   AIRCRAFT_TYPES, getAircraftType, lessorSupplies, leasableTypes,
   leaseOrderBookCap, LESSOR_ALLOW, LESSOR_BLOCK, LESSOR_EIS_CUTOFF,
@@ -32,9 +32,14 @@ import {
 } from '../packages/engine/src/data/aircraft.js';
 import { HQ_DEPARTURE_FEE, HQ_BASE_WEEKLY, calcHQCost } from '../packages/engine/src/data/overhead.js';
 import { seniorityMultiplier, SENIORITY_CAP, SENIORITY_ANNUAL_RISE } from '../packages/engine/src/data/labor.js';
-import { weeklyTick } from '../packages/engine/src/utils/simulation.js';
+import {
+  weeklyTick, simulateRoute, weeklyBlockHours, routeDistanceKm, maxFrequency,
+  MAX_WEEKLY_BLOCK_HOURS, NWR_MAX_WEEKLY_BLOCK_HOURS, maxWeeklyBlockHoursFor,
+} from '../packages/engine/src/utils/simulation.js';
 import {
   referencePrice, cargoReferenceYield, setFareIndex, getFareIndex, NWR_FARE_INDEX,
+  expectedCarried, weeklyLoadJitter, nwrDemandScale,
+  NWR_LF_CEILING, NWR_LF_JITTER,
 } from '../packages/engine/src/utils/market.js';
 
 let passed = 0, failed = 0;
@@ -633,6 +638,183 @@ test('demand is unchanged when reference and player price move together', () => 
   assert.ok(Math.abs(ratioBefore - ratioAfter) < 0.01,
     'a player who re-prices by the same 15% sits at an identical price ratio');
   setFareIndex(1);
+});
+
+// ── Load-factor realism: spill ceiling + weekly variance ─────────────────────
+//
+// The flat min(demand, capacity) fill let any oversubscribed route sit at a
+// permanent 100.0% load factor — the single biggest term in mature revenue
+// running ~3.8x reality. In restricted worlds, weeklyTick attaches a
+// deterministic per-route-per-week jitter (route.nwrLoadJitter); its presence
+// switches on E[min(Normal(D, cv·D), 0.95·C)] spill inside the simulators.
+// Absent (classic worlds), every path below must be bit-identical to before.
+
+console.log('\nLoad-factor realism (spill + weekly variance):');
+
+const LF_ROUTE = {
+  id: 'r-lf', origin: 'JFK', destination: 'LAX', hub: 'JFK',
+  weeklyFrequency: 7, ticketPrice: 250, weeksOpen: 52,
+};
+const LF_AIRCRAFT = { id: 'ac-lf', typeId: 'b737800', ageWeeks: 52 };
+const LF_CAP = 189 * 7; // all-economy 737-800 — one-way seats/week
+const lfSim = (demand, jitter) => simulateRoute(
+  { ...LF_ROUTE, ...(jitter != null ? { nwrLoadJitter: jitter } : {}) },
+  LF_AIRCRAFT, { month: 6 }, null, 1.0,
+  { leisurePax: demand * 0.8, businessPax: demand * 0.2 });
+
+test('classic worlds still fill to exactly 100% — byte-identical when off', () => {
+  const r = lfSim(LF_CAP * 3, null);           // no jitter attached = model off
+  assert.equal(r.loadFactor, 1, 'oversubscribed classic route must still hit 1.0');
+  assert.equal(nwrDemandScale(1000, 500, undefined), 1, 'scale is exactly 1 with no jitter');
+  assert.equal(nwrDemandScale(1000, 500, null), 1, 'null jitter is also off');
+});
+
+test('an oversubscribed restricted route can no longer reach 100%', () => {
+  const r = lfSim(LF_CAP * 3, 1);              // neutral jitter isolates the spill model
+  assert.ok(r.loadFactor <= NWR_LF_CEILING + 1e-9,
+    `LF ${r.loadFactor.toFixed(4)} must sit at or under the ${NWR_LF_CEILING} ceiling`);
+  assert.ok(r.loadFactor >= 0.92,
+    `deep oversubscription should asymptote NEAR the ceiling, got ${r.loadFactor.toFixed(4)}`);
+});
+
+test('the model only bites full aircraft — a 60% route loses under a point', () => {
+  const demand = Math.round(LF_CAP * 0.6);
+  const off = lfSim(demand, null);
+  const on  = lfSim(demand, 1);
+  assert.ok(off.loadFactor < 0.65, 'fixture sanity: this is a ~60% route');
+  assert.ok(off.loadFactor - on.loadFactor < 0.01,
+    `startup-shaped route moved ${((off.loadFactor - on.loadFactor) * 100).toFixed(2)}pts — must be < 1`);
+});
+
+test('spill math: expectedCarried is a soft min with the right asymptotes', () => {
+  assert.ok(expectedCarried(100, 10_000) > 99.9, 'demand << cap: carried ~ demand');
+  assert.ok(expectedCarried(10_000, 100) <= 100, 'demand >> cap: carried <= cap');
+  assert.ok(expectedCarried(10_000, 100) > 99, 'and approaches it from below');
+  // Raw helper, no ceiling (nwrDemandScale applies that): loss at parity is
+  // σ·φ(0) = cv·D·0.3989 — exactly 10% of demand at cv = 0.25.
+  const atParity = expectedCarried(1000, 1000);
+  assert.ok(atParity > 880 && atParity < 920,
+    `demand == cap should lose ~10% to peaking, got ${atParity.toFixed(0)}`);
+  assert.equal(expectedCarried(0, 100), 0);
+  assert.equal(expectedCarried(100, 0), 0);
+});
+
+test('weekly jitter is bounded, deterministic, and actually varies', () => {
+  const seen = new Set();
+  for (let w = 0; w < 52; w++) {
+    const j = weeklyLoadJitter('r-lf', w);
+    assert.ok(j >= 1 - NWR_LF_JITTER - 1e-12 && j <= 1 + NWR_LF_JITTER + 1e-12,
+      `week ${w}: jitter ${j} outside ±${NWR_LF_JITTER}`);
+    seen.add(j.toFixed(6));
+  }
+  assert.ok(seen.size > 40, `52 weeks should give ~52 distinct factors, got ${seen.size}`);
+  assert.equal(weeklyLoadJitter('r-lf', 7), weeklyLoadJitter('r-lf', 7),
+    'same route+week must replay to the same factor (server, client, golden master)');
+  assert.notEqual(weeklyLoadJitter('r-lf', 7), weeklyLoadJitter('r-other', 7),
+    'different routes in the same week should not move in lockstep');
+});
+
+test('a sold-out route breathes week to week instead of pinning', () => {
+  const lfs = new Set();
+  for (let w = 0; w < 8; w++) {
+    const r = lfSim(LF_CAP * 3, weeklyLoadJitter('r-lf', w));
+    assert.ok(r.loadFactor <= 1, 'jitter must never push past physical seats');
+    lfs.add(r.loadFactor.toFixed(4));
+  }
+  assert.ok(lfs.size >= 6, `8 weeks of a full route should show distinct LFs, got ${lfs.size}`);
+});
+
+test('revenue moves with the pax the model removes — no phantom fares', () => {
+  const off = lfSim(LF_CAP * 3, null);
+  const on  = lfSim(LF_CAP * 3, 1);
+  const paxRatio = on.passengers / off.passengers;
+  const revRatio = on.revenue / off.revenue;
+  assert.ok(Math.abs(paxRatio - revRatio) < 0.02,
+    `pax fell to ${(paxRatio * 100).toFixed(1)}% but revenue to ${(revRatio * 100).toFixed(1)}% — must move together`);
+});
+
+// ── 100h block-hour cap (grandfathered) ──────────────────────────────────────
+//
+// Restricted worlds schedule against 100h/wk instead of the classic 140h —
+// 14.3h/day vs 20h/day, which no real airline sustains. Enforcement is
+// action-time only (ADD_ROUTE / frequency INCREASES / transfers), so an
+// aircraft already scheduled above the cap keeps flying everything it has:
+// nothing is retro-cancelled, exactly like the lease order book. Its frequency
+// changes become a one-way ratchet down, and transfers that don't grow the
+// hours stay legal.
+
+console.log('\n100h block-hour cap (grandfathered):');
+
+const BH_TYPE = getAircraftType('b737800');
+const BH_DIST = routeDistanceKm('JFK', 'LAX');
+// Highest frequency inside the classic cap — comfortably above 100h on this
+// sector, so the same action splits cleanly: classic accepts, restricted blocks.
+const BH_FREQ = maxFrequency(BH_DIST, BH_TYPE);
+const BH_HOURS = weeklyBlockHours(BH_DIST, BH_FREQ, BH_TYPE);
+
+function bhState(overrides = {}) {
+  return baseState({
+    fleet: [{ id: 'bh1', typeId: 'b737800', status: 'idle', ageWeeks: 0 }],
+    routes: [], cargoRoutes: [],
+    gates: { JFK: 5, LAX: 5 },
+    ...overrides,
+  });
+}
+const bhAdd = (state, weeklyFrequency) => gameReducer(state, {
+  type: 'ADD_ROUTE', origin: 'JFK', destination: 'LAX', aircraftId: 'bh1',
+  weeklyFrequency, ticketPrice: 300,
+});
+
+test('the cap itself: 100 restricted, 140 classic', () => {
+  assert.equal(maxWeeklyBlockHoursFor({ newWorldRestrictions: true }), NWR_MAX_WEEKLY_BLOCK_HOURS);
+  assert.equal(maxWeeklyBlockHoursFor({}), MAX_WEEKLY_BLOCK_HOURS);
+  assert.equal(maxWeeklyBlockHoursFor(null), MAX_WEEKLY_BLOCK_HOURS);
+  assert.ok(BH_HOURS > 100 && BH_HOURS <= 140,
+    `fixture sanity: ${BH_HOURS.toFixed(1)}h must sit between the two caps`);
+});
+
+test('a schedule the classic cap accepts is blocked at 100h', () => {
+  const classic = bhAdd(bhState({ newWorldRestrictions: false }), BH_FREQ);
+  assert.equal(classic.routes.length, 1, 'classic world accepts the full 140h schedule');
+  const nwr = bhAdd(bhState(), BH_FREQ);
+  assert.equal(nwr.routes.length, 0, 'restricted world must block it');
+});
+
+test('the same aircraft still works a full week under 100h', () => {
+  const okFreq = maxFrequency(BH_DIST, BH_TYPE, NWR_MAX_WEEKLY_BLOCK_HOURS);
+  assert.ok(okFreq >= 7, `100h should still fit at least daily JFK-LAX, got ${okFreq}`);
+  const nwr = bhAdd(bhState(), okFreq);
+  assert.equal(nwr.routes.length, 1, 'a sub-cap schedule is accepted');
+});
+
+test('GRANDFATHER: an over-cap schedule keeps flying and can ratchet DOWN', () => {
+  // Build the 140h-legal schedule in a classic world, then flip the flag on —
+  // exactly what deploying this cap does to a live restricted world.
+  const flying = bhAdd(bhState({ newWorldRestrictions: false }), BH_FREQ);
+  const inherited = { ...flying, newWorldRestrictions: true };
+  const routeId = inherited.routes[0].id;
+
+  // The tick never audits it: reductions are always allowed, even while the
+  // result is STILL over the cap (the ratchet has to be steppable)...
+  const down = gameReducer(inherited, { type: 'UPDATE_FREQUENCY', routeId, weeklyFrequency: BH_FREQ - 1 });
+  assert.equal(down.routes[0].weeklyFrequency, BH_FREQ - 1, 'stepping down must always work');
+  assert.ok(weeklyBlockHours(BH_DIST, BH_FREQ - 1, BH_TYPE) > 100,
+    'fixture sanity: still over the cap after the step — the ratchet, not a fix');
+
+  // ...but it can never grow again.
+  const up = gameReducer(down, { type: 'UPDATE_FREQUENCY', routeId, weeklyFrequency: BH_FREQ });
+  assert.equal(up.routes[0].weeklyFrequency, BH_FREQ - 1, 'stepping back up must be blocked');
+});
+
+test('GRANDFATHER: transfers that do not grow the hours stay legal', () => {
+  const flying = bhAdd(bhState({ newWorldRestrictions: false }), BH_FREQ);
+  const inherited = {
+    ...flying, newWorldRestrictions: true,
+    fleet: [...flying.fleet, { id: 'bh2', typeId: 'b737800', status: 'idle', ageWeeks: 0 }],
+  };
+  const sameType = transferCompatibility(inherited, 'bh1', 'bh2');
+  assert.equal(sameType.ok, true,
+    `moving an over-cap schedule onto the same type keeps the same hours: ${sameType.reason ?? ''}`);
 });
 
 console.log(`\n${failed === 0 ? '✓' : '✗'} ${passed} passed, ${failed} failed\n`);

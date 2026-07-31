@@ -7,7 +7,8 @@ import {
 } from '../data/mroBase.js';
 import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
 export { baseCityPairDemand } from './market.js';
-import { cargoCityPairDemand, cargoReferenceYield, referencePrice } from './market.js';
+import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
+         nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING } from './market.js';
 import { LABOR_GROUPS, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
@@ -579,6 +580,23 @@ export function routeQualityBreakdown(route, aircraft, state) {
 /** Hard cap: an aircraft cannot fly more than this many block-hours per week. */
 export const MAX_WEEKLY_BLOCK_HOURS = 140;
 
+// New World Restrictions worlds cap scheduling at 100h/wk instead — 14.3h/day
+// against the classic cap's 20h/day, which no real airline sustains (a hard-run
+// 737 does ~9-11h). GRANDFATHERED: the cap is only ever enforced at action time
+// (ADD_ROUTE / frequency INCREASES / swaps), never by the weekly tick, so an
+// aircraft already scheduled above it keeps flying every route it has. It just
+// can't add more, and its frequency changes are a one-way ratchet down — the
+// same never-retro-cancel policy as the lease order book. planCovers and
+// fleetAvgUtilization deliberately stay on the physical 140h: reserve covers
+// must be able to replicate a grandfathered schedule, and crew-morale pressure
+// is about hours actually flown, not the local legal ceiling.
+export const NWR_MAX_WEEKLY_BLOCK_HOURS = 100;
+
+/** The scheduling cap in force for this airline's world. */
+export function maxWeeklyBlockHoursFor(state) {
+  return state?.newWorldRestrictions ? NWR_MAX_WEEKLY_BLOCK_HOURS : MAX_WEEKLY_BLOCK_HOURS;
+}
+
 /**
  * Minimum weekly block-hours left before an airframe is worth calling "spare".
  * A plane with 1-2 hours free can't actually absorb another sector, so counting
@@ -669,11 +687,12 @@ export function weeklyBlockHours(distKm, weeklyFrequency, type) {
 }
 
 /**
- * Maximum weekly frequency that keeps block-hours within the 140h cap.
+ * Maximum weekly frequency that keeps block-hours within the cap.
+ * Pass maxWeeklyBlockHoursFor(state) as capHours in restricted worlds.
  */
-export function maxFrequency(distKm, type) {
+export function maxFrequency(distKm, type, capHours = MAX_WEEKLY_BLOCK_HOURS) {
   const bt = blockTimeHours(distKm, type);
-  return bt > 0 ? Math.floor(MAX_WEEKLY_BLOCK_HOURS / (bt * 2)) : 0;
+  return bt > 0 ? Math.floor(capHours / (bt * 2)) : 0;
 }
 
 /**
@@ -732,6 +751,7 @@ export function fleetAvgUtilization(fleet = [], routes = []) {
  */
 export function deployableFleetForRoute({
   fleet = [], existingRoutes = [], typeId, origin, dest, distKm, weeklyFrequency,
+  capHours = MAX_WEEKLY_BLOCK_HOURS,
 }) {
   const type = getAircraftType(typeId);
   if (!type) return [];
@@ -743,7 +763,7 @@ export function deployableFleetForRoute({
       const usedBH   = acRoutes.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
       const served   = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
       const connectivityOk = acRoutes.length === 0 || served.has(origin) || served.has(dest);
-      const hoursOk  = usedBH + newBH <= MAX_WEEKLY_BLOCK_HOURS + 1e-6;
+      const hoursOk  = usedBH + newBH <= capHours + 1e-6;
       return {
         aircraft:      a,
         idle:          a.status === 'idle',
@@ -752,14 +772,14 @@ export function deployableFleetForRoute({
         // them and keep them out of the plain "idle" counters.
         reserve:       isReserve(a),
         usedBlockHrs:  usedBH,
-        spareBlockHrs: Math.max(0, MAX_WEEKLY_BLOCK_HOURS - usedBH),
+        spareBlockHrs: Math.max(0, capHours - usedBH),
         newBlockHrs:   newBH,
         connectivityOk,
         hoursOk,
         // Usable spare: 1-2 free hours is not real availability (see
         // MIN_SPARE_BLOCK_HOURS). Drives the "with spare hours" counters and
         // the free-hours labels in the route pickers.
-        hasUsableSpare: (MAX_WEEKLY_BLOCK_HOURS - usedBH) > MIN_SPARE_BLOCK_HOURS,
+        hasUsableSpare: (capHours - usedBH) > MIN_SPARE_BLOCK_HOURS,
         eligible:      connectivityOk && hoursOk,
       };
     })
@@ -1028,10 +1048,21 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // Fan leisure/business pax across cabin classes using segment preferences.
   // Premium classes are filled first; any demand that can't find a premium seat
   // spills down into economy (passengers downgrade rather than not fly).
-  const { leisurePax, businessPax } = demandResult; // one-way totals
+  let { leisurePax, businessPax } = demandResult; // one-way totals
   // Capacity reflects the REAL configured seat count (premium cabins + any empty
   // floor reduce it below the aircraft's max economy-equivalent units).
   const totalCapOneWay = configBodies(config) * route.weeklyFrequency;
+  // NWR load-factor realism: spill against an achievable ceiling plus a
+  // deterministic weekly jitter (see market.js). weeklyTick attaches
+  // route.nwrLoadJitter only in restricted worlds; when absent the scale is
+  // exactly 1 and this block leaves classic worlds byte-identical. Applied to
+  // the demand POOL before cabin fan-out so class allocation, downgrade spill
+  // and involuntary upgrades all stay internally consistent.
+  const nwrScale = nwrDemandScale(leisurePax + businessPax, totalCapOneWay, route.nwrLoadJitter);
+  if (nwrScale !== 1) {
+    leisurePax  *= nwrScale;
+    businessPax *= nwrScale;
+  }
   let totalRevenue     = 0;
   let totalPaxOneWay   = 0;
   const classSummary   = {};
@@ -1263,8 +1294,20 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   // ── Per-leg seat capacity (one-way seats/week), economy vs pooled premium ──
   const ecoSeatsPerFlight = config.economy ?? type.seats;
   const bizSeatsPerFlight = (config.firstClass ?? 0) + (config.businessClass ?? 0) + (config.premiumEconomy ?? 0);
-  const ecoCap = legs.map(() => ecoSeatsPerFlight * f);   // remaining economy seats per leg
-  const bizCap = legs.map(() => bizSeatsPerFlight * f);   // remaining premium seats per leg
+  // NWR load-factor realism on multi-leg rotations: sellable seats per leg are
+  // capped at the achievable ceiling × this week's jitter, and segment demand
+  // carries the same jitter so quiet segments breathe too. Simpler than the
+  // full spill model on simulateRoute (a per-segment normal-loss against a
+  // shared leg pool isn't well-defined), but the observable behaviour matches:
+  // a saturated rotation lands at ~ceiling±jitter, an empty one is untouched.
+  // route.nwrLoadJitter is only attached in restricted worlds; when absent
+  // both factors are 1 and this path is byte-identical to classic.
+  const nwrJ      = route.nwrLoadJitter;
+  const nwrLegCap = (seats) => nwrJ != null
+    ? Math.floor(seats * f * NWR_LF_CEILING * nwrJ)
+    : seats * f;
+  const ecoCap = legs.map(() => nwrLegCap(ecoSeatsPerFlight));   // remaining economy seats per leg
+  const bizCap = legs.map(() => nwrLegCap(bizSeatsPerFlight));   // remaining premium seats per leg
 
   // ── Uncapped demand per sellable segment ──────────────────────────────────
   const maturity = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
@@ -1298,7 +1341,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     for (let k = seg.fromIdx; k < seg.toIdx; k++) legIdxs.push(k);
     return {
       from: seg.from, to: seg.to, dist, eco, biz, legIdxs, legSpan: seg.legSpan,
-      ecoDemand: res.leisurePax, bizDemand: res.businessPax,
+      ecoDemand: nwrJ != null ? Math.round(res.leisurePax  * nwrJ) : res.leisurePax,
+      bizDemand: nwrJ != null ? Math.round(res.businessPax * nwrJ) : res.businessPax,
       quality,
     };
   });
@@ -1545,7 +1589,13 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
 
   // ── Capacity & load ──────────────────────────────────────────────────────────
   const capacityTonnes = type.payloadTonnes * route.weeklyFrequency;   // one-way
-  const tonnesOneWay   = Math.min(demandTonnes, capacityTonnes);
+  // NWR load-factor realism: same spill + weekly-jitter model as passenger
+  // routes (see market.js) — freight peaks and directional imbalance are, if
+  // anything, worse than pax. Scale is exactly 1 when route.nwrLoadJitter is
+  // absent (classic worlds), leaving this line numerically identical.
+  const tonnesOneWay   = Math.min(
+    demandTonnes * nwrDemandScale(demandTonnes, capacityTonnes, route.nwrLoadJitter),
+    capacityTonnes);
   const loadFactor     = capacityTonnes > 0 ? tonnesOneWay / capacityTonnes : 0;
 
   // Revenue covers both directions, with backhaul imbalance (return leg lighter).
@@ -2115,6 +2165,17 @@ export function weeklyTick(state) {
   // per-km crew cost inflates with the same scale as the standing payroll.
   const laborWithSeniority = labor ? { ...labor, seniorityMult } : labor;
 
+  // ── Load-factor realism (New World Restrictions worlds only) ────────────────
+  // Attaches a per-route, per-week deterministic jitter to every route copy
+  // handed to the simulators; its presence switches on the spill-against-ceiling
+  // model inside them (see market.js for the full rationale). Keyed on the
+  // route's id and the absolute week, so the same tick replays to the same
+  // bytes everywhere. Returns an empty object in classic worlds, keeping every
+  // route copy — and the golden master — untouched.
+  const nwrLoadFieldsFor = state.newWorldRestrictions
+    ? (r) => ({ nwrLoadJitter: weeklyLoadJitter(r.id ?? `${r.origin}-${r.destination}`, absWeek ?? 0) })
+    : () => ({});
+
   // Encroachment challengers, keyed by O&D pair, injected into the demand model so
   // they split the route's passenger pool with the player.
   // Multiplayer (Headwinds): state.humanRivals carries OTHER HUMAN PLAYERS'
@@ -2611,6 +2672,7 @@ export function weeklyTick(state) {
         // rotation isn't one — same omission the old combinedMult made here.
         brandReach: brandReachFor(tagHubQuality, stopsList, false),
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
+        ...nwrLoadFieldsFor(route),
       };
       const result = simulateTagRoute(tagRoute, aircraft, gameDate, laborWithSeniority, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries);
       if (!result) continue;
@@ -2703,6 +2765,7 @@ export function weeklyTick(state) {
         [route.origin, route.destination],
         partnerContestedKeys.has(pairKeyOf(route.origin, route.destination))),
       ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
+      ...nwrLoadFieldsFor(route),
     };
 
     const rkRoute = [route.origin, route.destination].sort().join('-');
@@ -2905,7 +2968,9 @@ export function weeklyTick(state) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
 
-    const result = simulateCargoRoute(route, aircraft, gameDate, laborWithSeniority, fuelMultiplier, awarenessMultiplier,
+    const result = simulateCargoRoute(
+      state.newWorldRestrictions ? { ...route, ...nwrLoadFieldsFor(route) } : route,
+      aircraft, gameDate, laborWithSeniority, fuelMultiplier, awarenessMultiplier,
       cargoAllocations.get(route.id) ?? null);
     if (!result) continue;
 

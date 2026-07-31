@@ -21,7 +21,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
-  weeklyBlockHours, blockTimeHours, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, MIN_SPARE_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
+  weeklyBlockHours, blockTimeHours, maxFrequency, maxWeeklyBlockHoursFor, MIN_SPARE_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
@@ -140,6 +140,7 @@ export default function Routes() {
   const confirm = useConfirm();
   const addToast = useToast();
   const { fleet, routes, hub, pendingOrders = [], cargoRoutes = [] } = state;
+  const bhCap = maxWeeklyBlockHoursFor(state);
 
   // Bulk pricing: explicit card selection + the occupancy-filter modal
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
@@ -183,7 +184,7 @@ export default function Routes() {
     return routes.filter(r => r.aircraftId === a.id)
       .reduce((s, r) => s + routeBlockHours(r, t, r.weeklyFrequency), 0);
   };
-  const availableFleet = fleet.filter(a => usedHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS);
+  const availableFleet = fleet.filter(a => usedHrsFor(a) < bhCap);
   // Reserves stand by on purpose — they aren't part of the "idle, earning
   // nothing" nudge (Fleet tab has a Reserve chip for them).
   const idleCount      = fleet.filter(a => a.status === 'idle' && !isReserve(a)).length;
@@ -192,7 +193,7 @@ export default function Routes() {
   // actually absorb another sector — 1h free is not spare capacity in any
   // meaningful sense (see MIN_SPARE_BLOCK_HOURS in simulation.js).
   const spareFleet     = fleet.filter(a => a.status !== 'idle' &&
-    (MAX_WEEKLY_BLOCK_HOURS - usedHrsFor(a)) > MIN_SPARE_BLOCK_HOURS);
+    (bhCap - usedHrsFor(a)) > MIN_SPARE_BLOCK_HOURS);
 
   // Tag (multi-stop) routes are rendered in their own section; single-leg routes
   // collapse into direction-agnostic city-pair groups as before.
@@ -2061,6 +2062,7 @@ function FrequencyStepper({ route }) {
 
 function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPriceChange }) {
   const { state } = useGame();
+  const bhCap = maxWeeklyBlockHoursFor(state);
   const curMonth = currentGameDate(state).month;
   const isDormant = !!route.season && !isRouteActive(route, curMonth);
   const [showPricing, setShowPricing] = useState(false);
@@ -2068,7 +2070,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
   const loadColor = result
     ? (result.loadFactor > 0.7 ? 'var(--green)' : result.loadFactor > 0.4 ? 'var(--yellow)' : 'var(--red)')
     : 'var(--text-muted)';
-  const bhPct   = blockHrs / MAX_WEEKLY_BLOCK_HOURS;
+  const bhPct   = blockHrs / bhCap;
   const bhColor = bhPct >= 0.95 ? 'var(--red)' : bhPct >= 0.75 ? 'var(--yellow)' : 'var(--text-muted)';
   const seatsPerWk = (type?.seats ?? 0) * route.weeklyFrequency;
 
@@ -2160,6 +2162,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
 export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const { state, dispatch } = useGame();
   const { fleet, routes, hub, gates = {}, cargoRoutes = [], hubs = EMPTY_HUBS } = state;
+  const bhCap = maxWeeklyBlockHoursFor(state);
 
   const isAddingFlights = initialOrigin != null && initialDest != null;
 
@@ -2174,7 +2177,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // Freighters can't fly passenger routes (the reducer rejects them) — keep them
   // out of this form entirely; they're managed in the cargo planner.
   const paxFleet = fleet.filter(a => !getAircraftType(a.typeId)?.freighter);
-  const hasHours = (a) => usedBlockHrsFor(a) < MAX_WEEKLY_BLOCK_HOURS;
+  const hasHours = (a) => usedBlockHrsFor(a) < bhCap;
 
   // Airports an aircraft already serves. The reducer only lets a plane pick up
   // an extra route that touches one of them; an idle plane (no routes) is free
@@ -2265,14 +2268,14 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
       .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0))) : 0;
   const newBlockHrs      = type && dist ? weeklyBlockHours(dist, Number(frequency), type) : 0;
   const totalBlockHrs    = existingBlockHrs + newBlockHrs;
-  const blockOk          = newBlockHrs === 0 || totalBlockHrs <= MAX_WEEKLY_BLOCK_HOURS;
-  const routeMaxFreq     = type && dist ? maxFrequency(dist, type) : 21;
-  const remainingHrs     = MAX_WEEKLY_BLOCK_HOURS - existingBlockHrs;
+  const blockOk          = newBlockHrs === 0 || totalBlockHrs <= bhCap;
+  const routeMaxFreq     = type && dist ? maxFrequency(dist, type, bhCap) : 21;
+  const remainingHrs     = bhCap - existingBlockHrs;
   const capacityMaxFreq  = type && dist
     ? Math.floor(remainingHrs / (blockTimeHours(dist, type) * 2))
     : 21;
   const freqLimit  = Math.min(routeMaxFreq, Math.max(0, capacityMaxFreq));
-  const blockPct   = totalBlockHrs / MAX_WEEKLY_BLOCK_HOURS;
+  const blockPct   = totalBlockHrs / bhCap;
   const blockColor = blockPct >= 1 ? 'var(--red)' : blockPct >= 0.8 ? 'var(--yellow)' : 'var(--green)';
 
   // Gate / slot checks
@@ -2397,7 +2400,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
               {pickerFleet.map(a => {
                 const t    = getAircraftType(a.typeId);
                 const used = usedBlockHrsFor(a);
-                const rem  = MAX_WEEKLY_BLOCK_HOURS - used;
+                const rem  = bhCap - used;
                 const full = rem <= 0;
                 const cfg  = a.config;
                 const seats = cfg
@@ -2510,14 +2513,14 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
                 )}
               </span>
               <span style={{ color: blockColor, fontWeight: 600 }}>
-                {totalBlockHrs.toFixed(1)} / {MAX_WEEKLY_BLOCK_HOURS}h
+                {totalBlockHrs.toFixed(1)} / {bhCap}h
                 {!blockOk && ` · max freq: ${freqLimit}×`}
               </span>
             </div>
             <div style={{ height: 4, borderRadius: 2, background: 'var(--surface3)', overflow: 'hidden', position: 'relative' }}>
               <div style={{ position: 'absolute', height: '100%', width: `${Math.min(100, blockPct * 100)}%`, background: blockColor, borderRadius: 2 }} />
               {existingBlockHrs > 0 && (
-                <div style={{ position: 'absolute', height: '100%', width: `${Math.min(100, (existingBlockHrs / MAX_WEEKLY_BLOCK_HOURS) * 100)}%`, background: 'var(--text-dim)', borderRadius: 2 }} />
+                <div style={{ position: 'absolute', height: '100%', width: `${Math.min(100, (existingBlockHrs / bhCap) * 100)}%`, background: 'var(--text-dim)', borderRadius: 2 }} />
               )}
             </div>
           </div>
