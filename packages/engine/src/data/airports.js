@@ -2307,6 +2307,7 @@ export const AIRPORTS = [
   { code: 'BEH', name: 'Southwest Michigan Regional', city: 'Benton Harbor MI', country: 'US', lat: 42.13, lon: -86.43, population: 0.15, tier: 'regional', runwayFt: 6006 },
   { code: 'CVX', name: 'Charlevoix Municipal', city: 'Charlevoix MI', country: 'US', lat: 45.30, lon: -85.28, population: 0.013, visitors: 0.1, tier: 'regional', runwayFt: 4550 },
   { code: 'MNM', name: 'Menominee-Marinette Twin County', city: 'Menominee MI', country: 'US', lat: 45.13, lon: -87.64, population: 0.024, tier: 'regional', runwayFt: 6001 },
+  { code: 'MQT', name: 'Marquette Sawyer Regional', city: 'Marquette MI', country: 'US', lat: 46.35, lon: -87.40, population: 0.067, tier: 'regional', runwayFt: 9072 },
   { code: 'DUT', name: 'Unalaska', city: 'Dutch Harbor', country: 'US', lat: 53.9, lon: -166.54, population: 0.005, tier: 'regional', runwayFt: 4500 },
   { code: 'GDV', name: 'Dawson Community', city: 'Glendive', country: 'US', lat: 47.14, lon: -104.81, population: 0.004, tier: 'regional', runwayFt: 5704 },
   { code: 'VDZ', name: 'Valdez', city: 'Valdez', country: 'US', lat: 61.13, lon: -146.25, population: 0.004, visitors: 0.6, tier: 'regional', runwayFt: 6500 },
