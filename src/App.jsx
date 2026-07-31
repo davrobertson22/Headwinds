@@ -30,6 +30,7 @@ import Ancillaries from './components/Ancillaries.jsx';
 import Loyalty from './components/Loyalty.jsx';
 import Alliances from './components/Alliances.jsx';
 import Wiki from './components/Wiki.jsx';
+import AirportSelect from './components/AirportSelect.jsx';
 import AirlineLogo from './components/AirlineLogo.jsx';
 import OnboardingTour, { TOUR_KEY } from './components/OnboardingTour.jsx';
 import BrandingModal from './components/BrandingModal.jsx';
@@ -182,6 +183,133 @@ function focusSection(id, tries = 0) {
   });
 }
 
+
+// ── Second chances (multiplayer) ─────────────────────────────────────────────
+// Bankruptcy used to be the end of your season in a world. The overlay said
+// "head back to the world lobby" — over a topbar the overlay itself covered, so
+// even that was unreachable, and the lobby then showed a join form that could
+// only ever 409 on the one-airline-per-account constraint.
+//
+// A restart wipes the company (fleet, network, cash, objectives, alliance seat,
+// gates, and any stock rivals held in you) and re-founds you at the world's
+// current week on starting capital, up to `restartsLeft` times.
+//
+// `remoteApi.restartsLeft` is null against a server that predates the feature —
+// treated as "unavailable" so an older API degrades to the old copy rather than
+// offering a button that 404s.
+function RestartPanel({ remoteApi, defaultHub }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [hub, setHub] = useState(defaultHub || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const left = remoteApi?.restartsLeft ?? null;
+  const canRestart = typeof remoteApi?.restartAirline === 'function' && left != null && left > 0;
+  const lobby = remoteApi?.lobbyHref ?? null;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (busy || !name.trim() || !hub) return;
+    setBusy(true); setError(null);
+    try {
+      await remoteApi.restartAirline(name.trim(), hub);
+      // No state juggling here: restartAirline reloads the authoritative blob
+      // with { full: true }, which re-renders this whole tree with phase
+      // 'playing' and tears the overlay down.
+    } catch (err) {
+      setError(String(err?.message || err));
+      setBusy(false);
+    }
+  };
+
+  if (!canRestart) {
+    return (
+      <>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
+          {left === 0
+            ? 'You have used every restart available in this world. It carries on without you — head back to the lobby to watch the standings or join another world.'
+            : 'This world carries on without you. Head back to the world lobby to spectate the standings or join another world.'}
+        </p>
+        {lobby && <a className="btn" style={{ width: '100%', padding: 12 }} href={lobby}>← Back to the world lobby</a>}
+      </>
+    );
+  }
+
+  if (!open) {
+    return (
+      <>
+        <button
+          className="btn btn-primary"
+          style={{ width: '100%', padding: 12 }}
+          onClick={() => setOpen(true)}
+        >
+          Found a new airline ({left} {left === 1 ? 'restart' : 'restarts'} left)
+        </button>
+        {lobby && (
+          <a className="muted" style={{ display: 'block', marginTop: 12, fontSize: 13 }} href={lobby}>
+            ← Back to the world lobby
+          </a>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} style={{ textAlign: 'left' }}>
+      <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: '0 0 14px', lineHeight: 1.6 }}>
+        You start again at the world&apos;s current week on starting capital. Your fleet,
+        network, cash and board objectives are gone for good, and so is any alliance seat
+        or gate you held. Rivals holding your stock are paid out at the delisting rate.
+      </p>
+      <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Airline name</label>
+      <input
+        className="form-input"
+        style={{ width: '100%', marginBottom: 12 }}
+        value={name}
+        maxLength={40}
+        required
+        autoFocus
+        placeholder="New airline name"
+        onChange={(e) => setName(e.target.value)}
+      />
+      <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Home hub</label>
+      <div style={{ marginBottom: 14 }}>
+        {/* Every airport is eligible: a re-founded airline holds no gates yet,
+            so the usual requireGate filter would leave the list empty. */}
+        <AirportSelect
+          value={hub}
+          onChange={setHub}
+          gates={{}}
+          hubs={{}}
+          requireGate={false}
+          showGates={false}
+          placeholder="Choose a hub…"
+        />
+      </div>
+      {error && <p className="error" style={{ fontSize: 12, marginBottom: 10 }}>{error}</p>}
+      <button
+        className="btn btn-primary"
+        style={{ width: '100%', padding: 12 }}
+        type="submit"
+        disabled={busy || !name.trim() || !hub}
+      >
+        {busy ? 'Founding…' : 'Start flying again'}
+      </button>
+      <button
+        className="btn"
+        style={{ width: '100%', padding: 10, marginTop: 8 }}
+        type="button"
+        disabled={busy}
+        onClick={() => { setOpen(false); setError(null); }}
+      >
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+
 export default function App() {
   return (
     <ToastProvider>
@@ -198,7 +326,7 @@ function AppInner() {
   // Save/Load, New Game) is hidden. Always falsy in the solo game.
   // `remoteChrome` carries the multiplayer topbar extras (tick countdown,
   // lobby link, feed + messages) so the game renders ONE header.
-  const { state, dispatch, remote, remoteChrome } = useGame();
+  const { state, dispatch, remote, remoteChrome, remoteApi } = useGame();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [openGroup, setOpenGroup] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
@@ -694,12 +822,9 @@ function AppInner() {
               {state.missedLoanPayments > 0 && <> · Missed payments: <strong style={{ color: 'var(--red)' }}>{state.missedLoanPayments}</strong></>}
             </div>
             {remote ? (
-              /* Multiplayer: there's no local reset — the world carries on.
-                 The game bar's "← World lobby" link is the way out. */
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-                This world carries on without you. Head back to the world lobby to
-                spectate the standings or join another world.
-              </p>
+              /* Multiplayer: no local RESET (it isn't an allowed player action).
+                 Re-founding is a server call — see RestartPanel. */
+              <RestartPanel remoteApi={remoteApi} defaultHub={state.hub} />
             ) : (
               <button
                 className="btn btn-primary"

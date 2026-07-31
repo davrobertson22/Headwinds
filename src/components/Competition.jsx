@@ -1013,10 +1013,21 @@ function describeMove(m) {
   return fn ? fn(m.payload ?? {}) : m.type;
 }
 
+// The database id behind a rival's competitor id.
+//
+// Client-side twin of the server's marketService.poolKeyOf, and it must stay in
+// step with it: a human rival is `human:<dbId>`, or `human:<dbId>~g2` once that
+// airline has been re-founded (see humanRivals.rivalIdOf). Slicing only the
+// prefix would send `<dbId>~g2` to /worlds/:id/rivals/:airlineId and 404 every
+// profile lookup for a restarted rival.
+function rivalAirlineId(id) {
+  return String(id ?? '').replace(/^human:/, '').replace(/~g\d+$/, '');
+}
+
 function RivalProfile({ carrier, fetchRivalProfile }) {
   const [profile, setProfile] = useState(null);
   const [failed, setFailed] = useState(false);
-  const airlineId = carrier.id.startsWith('human:') ? carrier.id.slice('human:'.length) : carrier.id;
+  const airlineId = rivalAirlineId(carrier.id);
 
   useEffect(() => {
     let alive = true;
@@ -1176,7 +1187,7 @@ function RivalDetailView({ carrier, onClose }) {
   const [profile, setProfile] = useState(null);
   const [failed, setFailed] = useState(false);
   const isHuman = carrier.human === true;
-  const airlineId = carrier.id.startsWith('human:') ? carrier.id.slice('human:'.length) : carrier.id;
+  const airlineId = rivalAirlineId(carrier.id);
 
   useEffect(() => {
     if (!remoteApi?.fetchRivalProfile) { setFailed(true); return; }

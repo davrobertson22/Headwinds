@@ -112,6 +112,23 @@ model Airline {
   version     Int           @default(0) // optimistic-concurrency guard: tick vs player decision
   status      AirlineStatus @default(ACTIVE)
   joinedWeek  Int           @default(1)
+  // ── Second chances ──────────────────────────────────────────────────────
+  // A bankrupt (or abandoned) airline may be re-founded IN PLACE: same row,
+  // same id, a brand-new state blob. The row is reused rather than replaced
+  // because ~15 other tables carry a bare `airlineId` string with no foreign
+  // key (Decision, Standing, Message, AllianceMember, GateBid, DividendCredit,
+  // …) — a new row would orphan every one of them.
+  //
+  // The counter lives HERE and not in `state` for two reasons: the blob is
+  // wiped by the restart itself, and anything added to the engine's state shape
+  // moves the golden-master hash.
+  restarts     Int @default(0) // how many times re-founded; capped at MAX_RESTARTS
+  // Linear week this GENERATION began, null if never restarted. Generation start
+  // is `restartedWeek ?? joinedWeek`; history queries (rival profile decisions,
+  // rank charts) filter on it so a re-founded airline does not inherit its
+  // predecessor's moves. `joinedWeek` keeps its original meaning — when this
+  // ACCOUNT first entered the world.
+  restartedWeek Int?
   createdAt   DateTime      @default(now())
   world       World         @relation(fields: [worldId], references: [id], onDelete: Cascade)
   account     Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)

@@ -43,7 +43,13 @@ export class MarketError extends Error {
  * and write normalises to the raw DB id here.
  */
 export function poolKeyOf(id) {
-  return String(id ?? '').replace(/^human:/, '');
+  // Also strips the GENERATION suffix minted by humanRivals.rivalIdOf — a
+  // re-founded airline is `human:<dbId>~g2` to its rivals so the engine delists
+  // the company it replaced, but the pool ledger, dividends and capital actions
+  // all address the underlying row and must collapse every generation onto one
+  // key. Ordering matters only in that both are anchored, so neither can eat
+  // part of a cuid.
+  return String(id ?? '').replace(/^human:/, '').replace(/~g\d+$/, '');
 }
 
 /**
@@ -314,8 +320,18 @@ export function holdersOf(airlines, payerId) {
   for (const a of airlines ?? []) {
     if (!a || poolKeyOf(a.id) === key) continue;
     const holdings = a.state?.portfolio?.holdings;
-    const held = holdings?.[key] ?? holdings?.[`human:${key}`];
-    if (held?.shares > 0) out.push({ airlineId: a.id, shares: Number(held.shares) });
+    if (!holdings) continue;
+    // Normalise every key rather than probing two fixed spellings: holdings are
+    // filed under whatever competitor id the holder traded against, which since
+    // restarts may also carry a generation suffix (`human:<id>~g2`). Summed
+    // across generations — a holder who bought both the old company and the new
+    // one holds one position in this row as far as a dividend is concerned.
+    let shares = 0;
+    for (const [k, h] of Object.entries(holdings)) {
+      if (poolKeyOf(k) !== key) continue;
+      if (h?.shares > 0) shares += Number(h.shares);
+    }
+    if (shares > 0) out.push({ airlineId: a.id, shares });
   }
   return out;
 }

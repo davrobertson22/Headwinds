@@ -1,0 +1,32 @@
+-- Second chances: let a bankrupt (or abandoned) airline be re-founded in place.
+--
+-- Bankruptcy was terminal per world. The engine sets phase:'bankrupt', the tick
+-- writes status:'BANKRUPT', every write route 409s, and the overlay told the
+-- player "this world carries on without you." There was no way back: Airline
+-- carries @@unique([worldId, accountId]), and joinWorld's duplicate check is
+-- status-blind, so even an ABANDONED player was shown a join form that could
+-- only ever 409.
+--
+-- The row is REUSED rather than replaced. Roughly fifteen tables carry a bare
+-- `airlineId` string with no foreign key — Decision, Standing, Message,
+-- MessageBlock, MessageCursor, AllianceMember, GateBid, GateListing,
+-- DividendCredit, WorldNews, Report, plus JSON references inside
+-- WorldGate.holdings, WorldMarket.holdings and GateAuction.outcomes. Inserting a
+-- new row would orphan every one of them silently, since nothing would error.
+--
+-- `restarts` counts re-foundings (capped in worldService.MAX_RESTARTS, currently
+-- 3). It lives on the row and not in Airline.state because the restart wipes the
+-- blob, and because adding a field to the engine's state shape moves the
+-- golden-master hash.
+--
+-- `restartedWeek` is the LINEAR week this generation began (NULL = never
+-- restarted). Generation start is `COALESCE("restartedWeek", "joinedWeek")`;
+-- the rival-profile decision list and rank chart filter on it so a re-founded
+-- airline stops inheriting its predecessor's history. `joinedWeek` keeps its
+-- original meaning — when this account first entered the world.
+--
+-- Both are additive with defaults, so every existing airline reads as a
+-- never-restarted original. No backfill.
+
+ALTER TABLE "Airline" ADD COLUMN "restarts" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Airline" ADD COLUMN "restartedWeek" INTEGER;
