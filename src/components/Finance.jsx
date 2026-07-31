@@ -104,7 +104,13 @@ function blendedFareMultiplier(config, type) {
  */
 function calcUnitEconomics(route, aircraft, type, result, fleet, routes) {
   const dist  = result.distance;
-  const ASK   = type.seats * route.weeklyFrequency * 2 * dist;
+  // ASK must use INSTALLED seats (configBodies × freq), not `type.seats` — the
+  // latter is the max all-economy body count, so any premium cabin (or deliberately
+  // empty floor space) made ASK larger than the capacity the LOAD% column is measured
+  // against. That is what made System Load read below 100% while every route
+  // showed 100%. Statistics' `ask` already uses configuredSeatsOneWay.
+  const seatsOneWay = result.configuredSeatsOneWay ?? (type.seats * route.weeklyFrequency);
+  const ASK   = seatsOneWay * 2 * dist;
   const RPK   = result.passengers * 2 * dist;  // passengers is one-way; ×2 to match ASK (both directions)
   const RASK  = ASK > 0 ? result.revenue    / ASK : 0;
   const CASKop= ASK > 0 ? result.totalOpCost / ASK : 0;
