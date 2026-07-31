@@ -122,55 +122,64 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
   const worldEvents = [...survivingWorldEvents, ...rollEvents(survivingWorldEvents, { multiplayer: true })];
 
+  // One airline's week. Factored out because it has to be runnable a SECOND time,
+  // inside the commit, against a state that changed under us — see the recompute
+  // pass below.
+  const computeOne = (airline) => {
+    // Valuation noise: seeded per (world, week, airline) — deterministic, so a
+    // retried tick reproduces the same print, but unknowable in advance, so
+    // nobody can compute next week's exact price and arb the stock market.
+    // Seeded on the airline ID, not on its state, so a recompute of the same
+    // airline in the same week reproduces the identical print.
+    const valuationNoise = (seededRand(world.worldSeed ?? world.id, `mcnoise:${toIndex}:${airline.id}`) * 2 - 1) * VALUATION.NOISE_PCT;
+    const next = gameReducer(
+      withRivals(airline.state, rivalViews.get(airline.id)),
+      { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
+        marketIndex: worldMarket,
+        incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0 },
+    );
+    // Gate scarcity: rule-5 forfeitures happen inside ADVANCE_WEEK (gates
+    // vanish from the blob). Diff pre/post so the world's gate ledger can be
+    // reconciled after the commit — only for airlines whose write lands.
+    let gateReleases = null;
+    if (isGateScarcity(world)) {
+      gateReleases = [];
+      const pre = airline.state?.gates ?? {};
+      const post = next.gates ?? {};
+      for (const [code, count] of Object.entries(pre)) {
+        const drop = (count ?? 0) - (post[code] ?? 0);
+        if (drop > 0) gateReleases.push({ airlineId: airline.id, airportCode: code, count: drop });
+      }
+    }
+    const svps = svpsOf(next);
+    return {
+      airline,
+      next,
+      // A dividend this airline just declared, for cross-player settlement below.
+      dividend: next.lastReport?.dividend ?? null,
+      consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
+      cash: safeInt(next.cash),
+      marketCap: safeInt(next.marketCap),
+      // Leaderboard metric: per-share value including lifetime dividends.
+      // Packed to ten-thousandths of a dollar so it survives the BigInt column.
+      svps,
+      svpsScore: svpsScore(svps),
+      shares: safeInt(next.equity?.shares),
+      // A private airline has no traded share price, so it is not ranked (it
+      // still ticks, still shows in the world, and starts ranking on listing).
+      isPublic: next.equity?.isPublic !== false,
+      bankrupt: next.phase === 'bankrupt',
+      gateReleases,
+    };
+  };
+
   // Compute every airline's next state BEFORE touching the DB. An airline whose
   // reducer/serialization throws is skipped (logged) so one corrupt airline can
   // no longer abort the whole week.
   const computed = [];
   for (const airline of airlines) {
     try {
-      // Valuation noise: seeded per (world, week, airline) — deterministic, so a
-      // retried tick reproduces the same print, but unknowable in advance, so
-      // nobody can compute next week's exact price and arb the stock market.
-      const valuationNoise = (seededRand(world.worldSeed ?? world.id, `mcnoise:${toIndex}:${airline.id}`) * 2 - 1) * VALUATION.NOISE_PCT;
-      const next = gameReducer(
-        withRivals(airline.state, rivalViews.get(airline.id)),
-        { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
-          marketIndex: worldMarket,
-          incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0 },
-      );
-      // Gate scarcity: rule-5 forfeitures happen inside ADVANCE_WEEK (gates
-      // vanish from the blob). Diff pre/post so the world's gate ledger can be
-      // reconciled after the commit — only for airlines whose write lands.
-      let gateReleases = null;
-      if (isGateScarcity(world)) {
-        gateReleases = [];
-        const pre = airline.state?.gates ?? {};
-        const post = next.gates ?? {};
-        for (const [code, count] of Object.entries(pre)) {
-          const drop = (count ?? 0) - (post[code] ?? 0);
-          if (drop > 0) gateReleases.push({ airlineId: airline.id, airportCode: code, count: drop });
-        }
-      }
-      const svps = svpsOf(next);
-      computed.push({
-        airline,
-        next,
-        // A dividend this airline just declared, for cross-player settlement below.
-        dividend: next.lastReport?.dividend ?? null,
-        consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
-        cash: safeInt(next.cash),
-        marketCap: safeInt(next.marketCap),
-        // Leaderboard metric: per-share value including lifetime dividends.
-        // Packed to ten-thousandths of a dollar so it survives the BigInt column.
-        svps,
-        svpsScore: svpsScore(svps),
-        shares: safeInt(next.equity?.shares),
-        // A private airline has no traded share price, so it is not ranked (it
-        // still ticks, still shows in the world, and starts ranking on listing).
-        isPublic: next.equity?.isPublic !== false,
-        bankrupt: next.phase === 'bankrupt',
-        gateReleases,
-      });
+      computed.push(computeOne(airline));
     } catch (err) {
       log.error(`[tick] world ${world.id} airline ${airline.id} reducer threw — skipped this week:`, err?.message ?? err);
     }
@@ -207,11 +216,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         data: { worldId: world.id, week: toIndex, status: 'ok', finishedAt: new Date() },
       });
 
-      const written = [];
-      for (const c of computed) {
-        // Version compare-and-set: if a player decision changed this airline since
-        // we read it, skip it here (it catches up next pass) rather than clobber
-        // the just-committed decision.
+      // Version compare-and-set: never clobber a player decision that landed
+      // between our read and this write. Returns whether the row was taken.
+      const writeAirline = async (c) => {
         const res = await tx.airline.updateMany({
           where: { id: c.airline.id, version: c.airline.version ?? 0 },
           data: {
@@ -227,12 +234,66 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
           },
         });
-        if (res.count > 0) written.push({
-          airlineId: c.airline.id, name: c.airline.name,
-          marketCap: c.marketCap, svpsScore: c.svpsScore, isPublic: c.isPublic,
-          dividend: c.dividend, consumedCreditIds: c.consumedCreditIds,
-        });
-        else log.error(`[tick] world ${world.id} airline ${c.airline.id} changed under the tick — skipped, catches up next pass`);
+        return res.count > 0;
+      };
+      const writtenRow = (c) => ({
+        airlineId: c.airline.id, name: c.airline.name,
+        marketCap: c.marketCap, svpsScore: c.svpsScore, isPublic: c.isPublic,
+        dividend: c.dividend, consumedCreditIds: c.consumedCreditIds,
+      });
+
+      const written = [];
+      const conflicted = [];
+      for (const c of computed) {
+        if (await writeAirline(c)) written.push(writtenRow(c));
+        else conflicted.push(c);
+      }
+
+      // ── Recompute pass ──────────────────────────────────────────────────────
+      // A lost CAS means a player's decision committed between our read and this
+      // write. Losing the race is fine; what was NOT fine was the old behaviour —
+      // log the airline and move on, on the theory that it "catches up next pass".
+      // It does not catch up. The world clock has already advanced in this same
+      // transaction, so that airline simply does not trade the week: no revenue,
+      // no costs, no financialHistory row, no standings entry. The player who is
+      // punished is precisely the ACTIVE one — the only way to lose the race is to
+      // have been adjusting your airline in the seconds before the tick.
+      //
+      // So re-read the airline (its blob now carries the decision that beat us),
+      // run the SAME week over it, and try the CAS again on the new version.
+      // Everything the week depends on — fuel, events, rival views, valuation
+      // noise (seeded on the airline id, not on its state) — is unchanged, so
+      // this is the same week, merely applied to a slightly newer starting state.
+      //
+      // The recomputed entry REPLACES its slot in `computed`, because the gate
+      // forfeiture and bankruptcy hooks after the commit read gate releases and
+      // bankruptcy flags from that array — stale ones would forfeit gates the
+      // player no longer loses.
+      //
+      // One retry only. A second collision would need another decision inside the
+      // same commit window, and an unbounded loop here runs inside a transaction
+      // holding locks on every airline in the world.
+      for (const stale of conflicted) {
+        const id = stale.airline.id;
+        try {
+          const fresh = await tx.airline.findUnique({
+            where: { id },
+            include: { account: { select: { isOG: true, email: true } } },
+          });
+          // Gone or no longer active (bankrupt/abandoned mid-tick): nothing to write.
+          if (!fresh || fresh.status !== 'ACTIVE') continue;
+          const redone = computeOne(fresh);
+          if (await writeAirline(redone)) {
+            written.push(writtenRow(redone));
+            const at = computed.indexOf(stale);
+            if (at >= 0) computed[at] = redone;
+            log.warn?.(`[tick] world ${world.id} airline ${id} changed under the tick — recomputed and written`);
+          } else {
+            log.error(`[tick] world ${world.id} airline ${id} changed under the tick TWICE — skipped, loses this week`);
+          }
+        } catch (err) {
+          log.error(`[tick] world ${world.id} airline ${id} recompute failed — skipped, loses this week:`, err?.message ?? err);
+        }
       }
 
       // ── Dividend settlement ─────────────────────────────────────────────

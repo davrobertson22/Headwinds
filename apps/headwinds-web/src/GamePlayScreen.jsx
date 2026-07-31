@@ -19,6 +19,7 @@ import { api, isTransientError } from './api.js';
 import { shouldFastPoll, isStaleContact } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
 import { isHidden } from './usePoll.js';
+import { runDecisionWrite, shouldRollback } from './decisionPolicy.js';
 import { supabase } from './supabase.js';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
@@ -313,6 +314,12 @@ export default function GamePlayScreen({ worldId, token }) {
     const { type, ...payload } = action ?? {};
     if (!ALLOWED_PLAYER_ACTIONS.has(type)) return; // ADVANCE_WEEK etc. — server-owned
     const seq = ++decisionSeq.current;
+    // The engine error as it stood BEFORE this action, so the response can be
+    // checked for a NEWLY set one. state.error is sticky (the reducer never
+    // clears it), so "res.error is truthy" is not the same as "this decision was
+    // rejected" — the server applies the same test, this is the client's guard
+    // for a tab talking to an older build.
+    const errBefore = stateRef.current?.error ?? null;
     // Optimistic: same reducer, instant UI.
     setState((s) => gameReducer(s, action));
     // Authoritative: server result wins — but only the MOST RECENT decision may
@@ -320,42 +327,70 @@ export default function GamePlayScreen({ worldId, token }) {
     // response landing after the weekly poll advanced us). Stale/out-of-order
     // responses are dropped; the next poll reconciles.
     writesInFlight.current += 1;
-    writeChain.current = writeChain.current.then(() =>
-      // A longer leash than a poll: a bulk close/sell can be a heavy write, and
-      // timing out a decision the server actually applied is worse than waiting.
-      authedApi(`/worlds/${worldId}/decisions`, { method: 'POST', token, body: { type, payload }, timeoutMs: 25000 })
-        .then((res) => {
-          writesInFlight.current -= 1;
-          // Adopt the post-write stamp so the next poll short-circuits instead of
-          // re-downloading the state we're about to render. A stale (out-of-order)
-          // response is skipped — the next poll's full fetch reconciles.
-          if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
-          setState((cur) => {
-            if (seq !== decisionSeq.current) return cur;
-            if (res.state?.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
-            return withStatsBackfill(res.state);
-          });
-        })
-        .catch((e) => {
-          writesInFlight.current -= 1;
-          if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
-          // A real server rejection carries the reason the action reversed —
-          // show it somewhere the player can actually read it. Transport
-          // failures keep the transient-error / reconnecting treatment.
-          if (isTransientError(e)) setError(e);
-          else {
-            showActionNotice(String(e.message || e));
-            // A real server refusal is the loudest hint that this tab is running
-            // an older build than the server's rules — ask UpdatePrompt to check
-            // now rather than at its next 15-minute poll.
-            try { window.dispatchEvent(new Event('app:server-rejected')); } catch { /* non-DOM env */ }
-          }
-          // Rejected → resync from the server. If it failed on the wire we may
-          // have missed ticks too, so let resync() decide how deep to go.
-          if (isTransientError(e)) resync(); else load();
-        })
+    // A longer leash than a poll: a bulk close/sell can be a heavy write, and
+    // timing out a decision the server actually applied is worse than waiting.
+    const post = () => authedApi(
+      `/worlds/${worldId}/decisions`,
+      { method: 'POST', token, body: { type, payload }, timeoutMs: 25000 },
     );
-  }, [worldId, token, load, resync]);
+    writeChain.current = writeChain.current.then(async () => {
+      // Retry rule lives in decisionPolicy.js: a lost compare-and-set (almost
+      // always the weekly tick mid-commit, which holds row locks on every
+      // airline for up to 30s) rolled the transaction back and wrote nothing, so
+      // re-submitting the identical intent is safe and lands on the post-tick
+      // state — exactly where the player wanted their new fare. A timeout is
+      // never retried: it may already have been applied.
+      const outcome = await runDecisionWrite({ post, errorBefore: errBefore });
+      writesInFlight.current -= 1;
+
+      if (outcome.ok) {
+        const { res } = outcome;
+        // Adopt the post-write stamp so the next poll short-circuits instead of
+        // re-downloading the state we're about to render. A stale (out-of-order)
+        // response is skipped — the next poll's full fetch reconciles.
+        if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
+        setState((cur) => {
+          if (seq !== decisionSeq.current) return cur;
+          if (res.state?.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
+          return withStatsBackfill(res.state);
+        });
+        // The engine accepted the request but refused the action (no cash for a
+        // heavy check, an MRO base already at its certification limit). The
+        // server returns 201 with the reason; before this it was thrown away, so
+        // the UI just snapped back to the pre-action state with no explanation.
+        if (outcome.rejection && seq === decisionSeq.current) showActionNotice(outcome.rejection);
+        return;
+      }
+
+      {
+        const e = outcome.error;
+        if (e instanceof SessionExpiredError) { setSessionExpired(true); return; }
+        // A real server rejection carries the reason the action reversed —
+        // show it somewhere the player can actually read it. Transport
+        // failures keep the transient-error / reconnecting treatment.
+        if (isTransientError(e)) setError(e);
+        else {
+          showActionNotice(String(e.message || e));
+          // A real server refusal is the loudest hint that this tab is running
+          // an older build than the server's rules — ask UpdatePrompt to check
+          // now rather than at its next 15-minute poll.
+          try { window.dispatchEvent(new Event('app:server-rejected')); } catch { /* non-DOM env */ }
+        }
+        // This write did not land (or, on a timeout, MIGHT not have), so the
+        // optimistic apply above is now a lie and only the server knows the
+        // truth. `full` is load-bearing: a shallow load() refuses to replace
+        // local state unless the server's week is strictly newer, so the phantom
+        // edit would sit on screen looking saved until the next tick wiped it.
+        // That is the whole of "price and other route settings reset ... I only
+        // notice it when I make minus" (Discord, 2026-07-30).
+        //
+        // Only once the chain has drained: writes are serialized, and adopting
+        // the server blob while later decisions are still on the wire would
+        // discard THEIR optimistic edits — the same bug in reverse.
+        if (shouldRollback(writesInFlight.current)) load({ full: true });
+      }
+    });
+  }, [worldId, token, load, showActionNotice]);
 
   // Topbar content the shared App shell renders when remote — the game gets ONE
   // header (brand · airline · date+countdown · cash · lobby/feed/messages)

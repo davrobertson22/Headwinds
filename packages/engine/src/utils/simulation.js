@@ -1494,9 +1494,14 @@ export function freighterBodyClass(type) {
  * Revenue and costs cover BOTH directions (×2), mirroring simulateRoute.
  * Landing fees are added by the weekly tick (which knows airport tiers).
  *
+ * `demandOverride` ({ demandTonnes }) replaces the route's OWN demand computation
+ * with a pre-allocated share of a lane-level pool — set by cargoLaneAllocations()
+ * when several of your freighters fly the same city pair. Without it each route
+ * independently claims the FULL pool (correct only when it's alone on the lane).
+ *
  * @returns {object|null} null if the aircraft isn't a freighter or can't reach the route.
  */
-export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandMultiplier = 1.0) {
+export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandMultiplier = 1.0, demandOverride = null) {
   const origin = getAirport(route.origin);
   const dest   = getAirport(route.destination);
   const type   = getAircraftType(aircraft.typeId);
@@ -1509,14 +1514,20 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   // ── Demand (tonnes/week, one-way) ────────────────────────────────────────────
   // demandMultiplier carries brand awareness from the weekly tick: a new carrier
   // isn't yet on forwarders' books, so it wins less of the pool until it grows.
-  const maturity   = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
-  const basePool   = cargoCityPairDemand(route.origin, route.destination) * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
-
-  // Yield elasticity: pricing above the reference rate shrinks the tonnage you win.
   const refYield   = cargoReferenceYield(route.origin, route.destination);
   const yieldPrice = Math.max(0.01, route.yieldPrice ?? refYield);
-  const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
-  const demandTonnes = basePool * elasticity;
+  let demandTonnes;
+  if (demandOverride != null) {
+    // Shared lane: this route's slice of the pair's ONE demand pool (already
+    // maturity-, awareness- and elasticity-adjusted by cargoLaneAllocations).
+    demandTonnes = Math.max(0, demandOverride.demandTonnes ?? 0);
+  } else {
+    const maturity   = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
+    const basePool   = cargoCityPairDemand(route.origin, route.destination) * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
+    // Yield elasticity: pricing above the reference rate shrinks the tonnage you win.
+    const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
+    demandTonnes = basePool * elasticity;
+  }
 
   // ── Capacity & load ──────────────────────────────────────────────────────────
   const capacityTonnes = type.payloadTonnes * route.weeklyFrequency;   // one-way
@@ -1552,6 +1563,79 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
     refYield,
     demandTonnes: Math.round(demandTonnes),
   };
+}
+
+/**
+ * Same-lane cargo demand pooling — the freight analogue of the passenger
+ * pre-pass in weeklyTick. Without it, every cargo route on a city pair
+ * independently claimed the FULL demand pool, so N freighters on one lane
+ * overcounted tonnage N× (the "spam 15 massive aircraft on a single route
+ * and you'll still max it out" exploit).
+ *
+ * Groups ACTIVE cargo routes (aircraft exists, in service, freighter, lane in
+ * range — the same eligibility the weekly tick applies) by O&D pair. For lanes
+ * with ≥2 routes, the pool is computed ONCE and split by capacity share, with
+ * each route's slice scaled by its own yield elasticity:
+ *
+ *   demand_i = pool × elasticity(yield_i) × (capacity_i / laneCapacity)
+ *
+ * Summed at identical yields this equals exactly what ONE route computes solo,
+ * so total lane tonnage no longer scales with the number of route entries —
+ * and a route priced above reference loses tonnage from ITS slice only.
+ * Solo lanes are never entered in the map: simulateCargoRoute's own path
+ * handles them unchanged (bit-identical to the pre-pooling behaviour).
+ *
+ * Lane maturity is the MAX weeksOpen across the lane's routes (null = mature,
+ * matching simulateCargoRoute's own null handling): forwarders already know an
+ * established lane, so adding a freighter joins the mature pool rather than
+ * restarting the ramp — and closing/reopening a route can't reset the lane.
+ *
+ * @param {Array}  cargoRoutes
+ * @param {Array}  fleet
+ * @param {number} demandMultiplier  awareness multiplier from the weekly tick
+ * @returns {Map<string, {demandTonnes:number, laneCapacityTonnes:number, laneRoutes:number}>}
+ *          keyed by route.id; ONLY routes on shared lanes appear.
+ */
+export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultiplier = 1.0) {
+  const alloc  = new Map();
+  const groups = new Map();
+  for (const route of cargoRoutes ?? []) {
+    const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
+    if (!aircraft || isOutOfService(aircraft)) continue;
+    const type = getAircraftType(aircraft.typeId);
+    if (!type?.freighter) continue;
+    const o = getAirport(route.origin);
+    const d = getAirport(route.destination);
+    if (!o || !d) continue;
+    // A route the aircraft can't fly carries nothing (simulateCargoRoute
+    // returns null) — it must not dilute the shares of routes that do fly.
+    if (distanceKm(o, d) > effectiveRangeKm(aircraft, type)) continue;
+    const rk = [route.origin, route.destination].sort().join('-');
+    if (!groups.has(rk)) groups.set(rk, []);
+    groups.get(rk).push({ route, type });
+  }
+  for (const [, group] of groups) {
+    if (group.length < 2) continue;   // solo lane — simulateCargoRoute handles it
+    const { route: r0 } = group[0];
+    const weeks    = group.map(g => g.route.weeksOpen);
+    const maturity = weeks.some(w => w == null) ? 1 : routeMaturityFactor(Math.max(...weeks));
+    const pool     = cargoCityPairDemand(r0.origin, r0.destination)
+                   * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
+    const refYield = cargoReferenceYield(r0.origin, r0.destination);
+    const laneCapacity = group.reduce((s, g) => s + g.type.payloadTonnes * g.route.weeklyFrequency, 0);
+    if (laneCapacity <= 0) continue;
+    for (const { route, type } of group) {
+      const cap        = type.payloadTonnes * route.weeklyFrequency;
+      const yieldPrice = Math.max(0.01, route.yieldPrice ?? refYield);
+      const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
+      alloc.set(route.id, {
+        demandTonnes:       pool * elasticity * (cap / laneCapacity),
+        laneCapacityTonnes: laneCapacity,
+        laneRoutes:         group.length,
+      });
+    }
+  }
+  return alloc;
 }
 
 // ─────────────────────────────────────────────
@@ -2686,11 +2770,16 @@ export function weeklyTick(state) {
   let totalCargoProfit  = 0;
   const cargoRouteResults = [];
 
+  // Same-lane pooling: several freighters on one city pair share ONE demand
+  // pool (see cargoLaneAllocations) instead of each claiming the full market.
+  const cargoAllocations = cargoLaneAllocations(cargoRoutes, fleet, awarenessMultiplier);
+
   for (const route of cargoRoutes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
 
-    const result = simulateCargoRoute(route, aircraft, gameDate, labor, fuelMultiplier, awarenessMultiplier);
+    const result = simulateCargoRoute(route, aircraft, gameDate, labor, fuelMultiplier, awarenessMultiplier,
+      cargoAllocations.get(route.id) ?? null);
     if (!result) continue;
 
     const type     = getAircraftType(aircraft.typeId);
@@ -2735,6 +2824,9 @@ export function weeklyTick(state) {
       weeklyLeaseCost,
       weeklyMaintCost,
       trueProfit: cargoProfit - weeklyLeaseCost - weeklyMaintCost,
+      // True when this route's demand came from a shared-lane pool (≥2 of the
+      // player's freighters on the pair) rather than the full-market path.
+      pooled:     cargoAllocations.has(route.id),
     });
   }
 

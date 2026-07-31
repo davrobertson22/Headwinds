@@ -90,6 +90,12 @@ export async function api(path, { method = 'GET', body, token, timeoutMs = REQUE
     const message = data?.error || data?.message || `${res.status} ${res.statusText}`;
     const err = new Error(message);
     err.status = res.status;
+    // Machine-readable failure kind, when the server sends one. The status alone
+    // is not enough to decide whether a write may be re-submitted: 409 covers
+    // both "you lost the version check, nothing was written" (safe to retry) and
+    // "your airline is BANKRUPT" (retrying just repeats it). See decisionPolicy.js.
+    err.code = data?.code ?? null;
+    err.retryable = data?.retryable === true;
     throw err;
   }
   return data;

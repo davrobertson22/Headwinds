@@ -75,9 +75,13 @@ async function rivalViewFor(airline, worldStamp) {
   return views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
 }
 
-function httpError(statusCode, message) {
+// `appCode` is a machine-readable failure kind for the client, deliberately NOT
+// named `code` — Prisma and Fastify both own that property on Error objects, and
+// lib/tx.mjs matches transient Postgres failures on it.
+function httpError(statusCode, message, appCode = null) {
   const e = new Error(message);
   e.statusCode = statusCode;
+  if (appCode) e.appCode = appCode;
   return e;
 }
 
@@ -548,7 +552,18 @@ export default async function decisionRoutes(fastify) {
       });
     } catch (e) {
       if (e instanceof DecisionConflict) {
-        throw httpError(409, 'Your airline just changed (a new week ticked) — reload and try again.');
+        // The transaction rolled back: NOTHING was written. That is the one
+        // failure whose outcome is known exactly, which is what makes the client
+        // safe to re-submit the same intent against the state that beat us.
+        // Tagged so it can tell this apart from the semantic 409s below (a
+        // BANKRUPT airline, an ENDED world, a short stock pool), where retrying
+        // would only repeat the refusal. See apps/headwinds-web/src/decisionPolicy.js.
+        //
+        // Untagged, this was a silent edit-loss: the client showed the optimistic
+        // fare, the server never got it, and nothing reconciled the two until the
+        // next tick reverted it — reported as "my routes randomly reset and then I
+        // only notice it when I make minus" (Discord, 2026-07-30).
+        throw httpError(409, 'The world ticked while you were saving — retrying.', 'version_conflict');
       }
       // Float-pool violations lose a compare-and-set against another trade that
       // landed first. Same contract as DecisionConflict: tell the client to
@@ -569,7 +584,12 @@ export default async function decisionRoutes(fastify) {
       state: next,
       // Engine convention: rejected/no-op intents leave state unchanged and often
       // set state.error / a toast. Surface a hint so the UI can show it.
-      error: next.error ?? null,
+      //
+      // Only when THIS decision set it. `state.error` is sticky — the reducer
+      // writes it (MRO certification, heavy-check funding) and never clears it,
+      // so it lives in the save blob indefinitely. Sending it unconditionally
+      // would have the client re-raise a week-old message on every later action.
+      error: (next.error && next.error !== airline.state?.error) ? next.error : null,
       // Post-write stamp (our version bumped by the transaction) so the client's
       // next poll short-circuits instead of re-downloading what it already has.
       stamp: `${airline.version + 1}:${await worldStampOf(airline.worldId)}`,

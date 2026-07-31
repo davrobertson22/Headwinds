@@ -15,7 +15,7 @@ import {
   CARGO_YIELD_FLOOR, CARGO_YIELD_CAP,
 } from '../src/utils/market.js';
 import {
-  simulateCargoRoute, weeklyTick, referencePrice,
+  simulateCargoRoute, cargoLaneAllocations, weeklyTick, referencePrice,
   CARGO_BACKHAUL_FACTOR, FREIGHTER_CAPTURE_RATE,
 } from '../src/utils/simulation.js';
 import { cargoReferenceYield as cy } from '../src/utils/market.js';
@@ -182,6 +182,119 @@ test('projected revenue rises when a cargo route is added', () => {
   const a = projectWeek(baseState({ fleet: [ac] }));
   const b = projectWeek(baseState({ fleet: [ac], cargoRoutes: [cRoute('HKG', 'FRA', 'f1')] }));
   assert.ok(b.effectiveRevenue > a.effectiveRevenue);
+});
+
+
+console.log('\n── 7. Same-lane demand pooling (multi-freighter) ────────');
+// The Discord exploit: N freighters on one lane each claimed the FULL demand
+// pool, so total lane tonnage scaled N×. The lane pool is now shared.
+
+test('cargoLaneAllocations: solo lanes are not entered (legacy path untouched)', () => {
+  const fleet = [freighter('b7478f', { id: 'f1' })];
+  const alloc = cargoLaneAllocations([cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' })], fleet);
+  assert.equal(alloc.size, 0);
+});
+
+test('demandOverride=null is identical to the legacy signature', () => {
+  const ac = freighter('b777f');
+  const a = simulateCargoRoute(cRoute('HKG', 'FRA', 'f'), ac, { month: 6 });
+  const b = simulateCargoRoute(cRoute('HKG', 'FRA', 'f'), ac, { month: 6 }, null, 1.0, 1.0, null);
+  assert.deepEqual(a, b);
+});
+
+test('two freighters on one lane split ONE pool — total ≈ solo (was 2×)', () => {
+  const f1 = freighter('b7478f', { id: 'f1' }), f2 = freighter('b7478f', { id: 'f2' });
+  const solo = weeklyTick(baseState({ fleet: [f1], cargoRoutes: [cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' })] }));
+  const duo  = weeklyTick(baseState({ fleet: [f1, f2], cargoRoutes: [
+    cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' }),
+    cRoute('NBO', 'AMS', 'f2', 7, { id: 'r2' }),
+  ] }));
+  const soloT = solo.cargoRouteResults[0].tonnes;
+  const duoT  = duo.cargoRouteResults.reduce((s, r) => s + r.tonnes, 0);
+  assert.ok(solo.cargoRouteResults[0].loadFactor < 0.999, 'lane must be demand-bound for this test');
+  assert.ok(approx(duoT, soloT, 2), `duo total ${duoT} should ≈ solo ${soloT} (pre-fix it doubled)`);
+  const [a, b] = duo.cargoRouteResults.map(r => r.tonnes);
+  assert.ok(approx(a, b, 3), `identical freighters split evenly (${a} vs ${b})`);
+});
+
+test('15-freighter spam no longer multiplies lane tonnage', () => {
+  const n = 15, fleet = [], routes = [];
+  for (let i = 0; i < n; i++) {
+    fleet.push(freighter('b7478f', { id: `f${i}` }));
+    routes.push(cRoute('NBO', 'AMS', `f${i}`, 7, { id: `r${i}` }));
+  }
+  const solo = weeklyTick(baseState({ fleet: [fleet[0]], cargoRoutes: [routes[0]] }));
+  const spam = weeklyTick(baseState({ fleet, cargoRoutes: routes }));
+  assert.ok(approx(spam.totalCargoTonnes, solo.totalCargoTonnes, 3),
+    `spam tonnes ${spam.totalCargoTonnes} should ≈ solo ${solo.totalCargoTonnes} (was ~${n}×)`);
+  assert.ok(spam.totalCargoProfit < solo.totalCargoProfit,
+    'burning 15 freighters for the same tonnage must cost more, not print money');
+});
+
+test('weeklyTick marks shared-lane results pooled (solo stays unpooled)', () => {
+  const f1 = freighter('b7478f', { id: 'f1' }), f2 = freighter('b7478f', { id: 'f2' }), f3 = freighter('b777f', { id: 'f3' });
+  const rep = weeklyTick(baseState({ fleet: [f1, f2, f3], cargoRoutes: [
+    cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' }),
+    cRoute('NBO', 'AMS', 'f2', 7, { id: 'r2' }),
+    cRoute('ANC', 'LAX', 'f3', 7, { id: 'r3' }),
+  ] }));
+  assert.equal(rep.cargoRouteResults.find(r => r.routeId === 'r1').pooled, true);
+  assert.equal(rep.cargoRouteResults.find(r => r.routeId === 'r2').pooled, true);
+  assert.equal(rep.cargoRouteResults.find(r => r.routeId === 'r3').pooled, false);
+});
+
+test('a route priced above ref wins a smaller slice of the shared pool', () => {
+  const f1 = freighter('b7478f', { id: 'f1' }), f2 = freighter('b7478f', { id: 'f2' });
+  const rep = weeklyTick(baseState({ fleet: [f1, f2], cargoRoutes: [
+    cRoute('NBO', 'AMS', 'f1', 7, { id: 'cheap' }),
+    cRoute('NBO', 'AMS', 'f2', 7, { id: 'dear', yieldPrice: cy('NBO', 'AMS') * 1.5 }),
+  ] }));
+  const cheap = rep.cargoRouteResults.find(r => r.routeId === 'cheap');
+  const dear  = rep.cargoRouteResults.find(r => r.routeId === 'dear');
+  assert.ok(dear.tonnes < cheap.tonnes, `dear ${dear.tonnes} should be < cheap ${cheap.tonnes}`);
+});
+
+test('the pool splits by capacity share (bigger freighter, bigger slice)', () => {
+  const big = freighter('b7478f', { id: 'big' }), small = freighter('b777f', { id: 'small' });
+  const alloc = cargoLaneAllocations([
+    cRoute('NBO', 'AMS', 'big',   7, { id: 'rb' }),
+    cRoute('NBO', 'AMS', 'small', 7, { id: 'rs' }),
+  ], [big, small]);
+  const ratio  = alloc.get('rb').demandTonnes / alloc.get('rs').demandTonnes;
+  const expect = getAircraftType('b7478f').payloadTonnes / getAircraftType('b777f').payloadTonnes;
+  assert.ok(approx(ratio, expect, 1), `slice ratio ${ratio.toFixed(3)} vs payload ratio ${expect.toFixed(3)}`);
+});
+
+test('an out-of-range route neither carries nor dilutes the lane', () => {
+  // atr72f (1,500 km) cannot fly NBO–AMS (~6,700 km): its dead route entry must
+  // not shrink the flying freighter\'s share — the group collapses to solo.
+  const f1 = freighter('b7478f', { id: 'f1' }), f2 = freighter('atr72f', { id: 'f2' });
+  const alloc = cargoLaneAllocations([
+    cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' }),
+    cRoute('NBO', 'AMS', 'f2', 7, { id: 'r2' }),
+  ], [f1, f2]);
+  assert.equal(alloc.size, 0);
+});
+
+test('joining an established lane inherits its maturity (no ramp reset, no reset exploit)', () => {
+  const f1 = freighter('b7478f', { id: 'f1' }), f2 = freighter('b7478f', { id: 'f2' });
+  const alloc = cargoLaneAllocations([
+    cRoute('NBO', 'AMS', 'f1', 7, { id: 'old', weeksOpen: 30 }),
+    cRoute('NBO', 'AMS', 'f2', 7, { id: 'new', weeksOpen: 0 }),
+  ], [f1, f2]);
+  const a = alloc.get('old').demandTonnes, b = alloc.get('new').demandTonnes;
+  assert.ok(Math.abs(a - b) < 1e-6, `same capacity+yield → same slice regardless of route age (${a} vs ${b})`);
+});
+
+test('planner parity: a hypothetical addition projects a share, not the full market', () => {
+  const f1    = freighter('b7478f', { id: 'f1' });
+  const hypAc = { id: 'p', typeId: 'b7478f', ageWeeks: 0 };
+  const hyp   = { id: 'p', origin: 'NBO', destination: 'AMS', aircraftId: 'p', weeklyFrequency: 7, yieldPrice: cy('NBO', 'AMS'), weeksOpen: 20 };
+  const alloc = cargoLaneAllocations([cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' }), hyp], [f1, hypAc]);
+  const shared = simulateCargoRoute(hyp, hypAc, { month: 6 }, null, 1.0, 1.0, alloc.get('p'));
+  const full   = simulateCargoRoute(hyp, hypAc, { month: 6 });
+  assert.ok(alloc.has('p') && alloc.has('r1'), 'both lane members allocated');
+  assert.ok(shared.tonnes < full.tonnes, `shared ${shared.tonnes} should be < full-market ${full.tonnes}`);
 });
 
 console.log(`\n──────────────────────────────────────────────\n${passed} passed, ${failed} failed\n`);

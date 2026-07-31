@@ -53,7 +53,20 @@ export function buildServer() {
     const status = err.statusCode ?? (transient ? 503 : 500);
 
     if (status >= 500) request.log.error(err);
-    if (status < 500) return reply.code(status).send({ error: err.message || 'Request failed' });
+    // Below 500, pass through the machine-readable code when a helper set one.
+    // Read from `appCode`, NOT `code`: Prisma ('P2028') and Fastify
+    // ('FST_ERR_VALIDATION') both put their own values on `err.code`, and
+    // isTransientTxError above matches on it — a name collision here would be a
+    // very quiet way to break transient-failure retry.
+    // The client cannot decide whether a failed write is safe to re-submit from
+    // the status alone — 409 is both "lost the version check, nothing written"
+    // and "your airline is BANKRUPT". See apps/headwinds-web/src/decisionPolicy.js.
+    if (status < 500) {
+      return reply.code(status).send({
+        error: err.message || 'Request failed',
+        ...(err.appCode ? { code: err.appCode } : {}),
+      });
+    }
 
     return reply.code(status).send({
       error: transient
