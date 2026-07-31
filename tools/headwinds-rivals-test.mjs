@@ -18,6 +18,7 @@ import {
   playerAllianceDef,
 } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
+import { checkRouteRestrictions } from '../packages/engine/src/data/airportRestrictions.js';
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -31,9 +32,23 @@ Math.random = () => 0.5;
 
 // ── Fixtures: two airlines contesting JFK–BOS ─────────────────────────────────
 
-// A short-haul type every starter fleet can fly JFK–BOS (~300 km) with.
-const shortHaul = AIRCRAFT_TYPES.find((t) => !t.freighter && t.range > 800 && t.seats >= 50);
-assert.ok(shortHaul, 'no suitable aircraft type found in engine data');
+// A short-haul type that can ACTUALLY fly JFK–BOS (~300 km).
+//
+// This used to be `find(t => !t.freighter && t.range > 800 && t.seats >= 50)`,
+// which silently depended on AIRCRAFT_TYPES array ORDER: the first match was a
+// narrowbody until the Concorde moved to the front of the list, at which point
+// every fixture in this file failed to build a route. ADD_ROUTE rejects with a
+// bare `return state` and sets no error, so the only symptom was
+// "route not created (no error)" — which reads like an engine regression and
+// isn't one. BOS's longest runway is 10,083 ft and the Concorde needs 10,800.
+//
+// So ask the engine instead of guessing: filter on the same restriction check
+// ADD_ROUTE runs. Aircraft data can be reordered, retuned or extended freely and
+// this keeps picking something legal.
+const shortHaul = AIRCRAFT_TYPES.find((t) =>
+  !t.freighter && t.range > 800 && t.seats >= 50
+  && !checkRouteRestrictions('JFK', 'BOS', 300, 14, t.category, { routes: [], aircraftType: t }));
+assert.ok(shortHaul, 'no aircraft type in engine data can legally fly JFK–BOS');
 
 function makeAirline({ id, name, hub, dest, fare }) {
   let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: name, hub, enableObjectives: false });
@@ -52,8 +67,16 @@ function makeAirline({ id, name, hub, dest, fare }) {
   return { id, worldId: 'w1', name, hub, status: 'ACTIVE', state: s };
 }
 
-const alice = makeAirline({ id: 'a1', name: 'Alice Air', hub: 'JFK', dest: 'BOS' });
-const bob = makeAirline({ id: 'a2', name: 'Bob Airways', hub: 'BOS', dest: 'JFK', fare: 120 });
+// BOTH airlines must price deliberately. Alice used to be left on the default,
+// which ADD_ROUTE floors at $1 when no ticketPrice is supplied — and at $1 the
+// pair's demand is so far above 1,890 weekly seats that the route pins at 100%
+// load factor. A capacity-capped route CANNOT show a demand split: halve the
+// demand and it is still greater than the seats, so revenue does not move and
+// every contested-vs-monopoly assertion below compares a number to itself.
+// (Same trap as the brand-reach bug: a multiplier applied to a saturated route
+// changes nothing.) $170 leaves real headroom; Bob undercuts at $150.
+const alice = makeAirline({ id: 'a1', name: 'Alice Air', hub: 'JFK', dest: 'BOS', fare: 170 });
+const bob = makeAirline({ id: 'a2', name: 'Bob Airways', hub: 'BOS', dest: 'JFK', fare: 150 });
 
 console.log('\n── buildRivalViews ──────────────────────────────────────');
 
@@ -183,9 +206,16 @@ console.log('\n── rival-view cache (egress) ──────────�
 
 await test('same world stamp serves everyone from one blob read; stamp change rebuilds', async () => {
   let reads = 0;
+  // buildWorldRivalViews grew two more reads after this test was written — a
+  // world lookup (to decide whether to attach gate-market views) and the float
+  // pool. Neither is cached, so a fake missing them throws inside attachGates
+  // rather than failing an assertion, which reads as an engine crash. Empty
+  // tickConfig = no gate scarcity, so the gate tables are skipped entirely.
   const fake = {
     airline: { findMany: async () => { reads++; return [alice, bob]; } },
     alliance: { findMany: async () => [] },
+    world: { findUnique: async () => ({ id: 'wCache', tickConfig: {} }) },
+    worldMarket: { findUnique: async () => null },
   };
   const first = await buildWorldRivalViews(fake, 'wCache', { stamp: '7.2' });
   const second = await buildWorldRivalViews(fake, 'wCache', { stamp: '7.2' });
