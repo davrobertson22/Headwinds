@@ -934,7 +934,7 @@ export function defaultConfig(totalSeats) {
  *                                           empties seats instead of skimming revenue.
  * @returns {object|null}
  */
-export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null, eventDemandMult = 1.0, ancillaries = null) {
+export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null, eventDemandMult = 1.0, ancillaries = null, competitors = null) {
   const origin = getAirport(route.origin);
   const dest   = getAirport(route.destination);
   const type   = getAircraftType(aircraft.typeId);
@@ -1030,7 +1030,22 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   if (demandOverride) {
     demandResult = demandOverride;
   } else {
-    const competitorOffers = COMPETITOR_AIRLINES
+    // The LIVE carrier bank, passed in by the caller — never the COMPETITOR_AIRLINES
+    // module constant.
+    //
+    // This loop used to read that constant directly, and it was a dead branch for
+    // the whole life of the file: sampleAndInitializeCompetitors() does
+    // `{ ...c, routes: {} }` and then populates the COPIES it hands to
+    // state.competitors, so every entry in COMPETITOR_AIRLINES keeps `routes: {}`
+    // forever. buildCompetitorOffer() bails on `competitor.routes[routeKey]`, so it
+    // returned null 70 times out of 70 — measured at 0 offers on 155/155 pairs the
+    // sampled carriers actually fly. Every solo player route, in the tick as well
+    // as in every preview, was scored as an uncontested monopoly.
+    //
+    // Callers that pass nothing still get an empty bank (today's behaviour) rather
+    // than a silently-empty constant, so a missed call site reads as "no rivals
+    // supplied" instead of masquerading as "no rivals exist".
+    const competitorOffers = (competitors ?? [])
       .map(c => buildCompetitorOffer(c, market))
       .filter(Boolean);
     // Injected challengers (e.g. route encroachment) contest this O&D directly.
@@ -2518,7 +2533,16 @@ export function weeklyTick(state) {
       if (group.length < 2) continue; // single aircraft — simulateRoute handles it
 
       const { route: r0 } = group[0];
-      const maturity = r0.weeksOpen != null ? routeMaturityFactor(r0.weeksOpen) : 1;
+      // Lane maturity is the OLDEST route on the pair, not group[0] — the market
+      // has known the service as long as the longest-serving tail has flown it.
+      // Array order made this the oldest route by luck (routes are appended in
+      // creation order) right up until someone closed the founding route and
+      // reopened it, which silently re-ramped the whole lane. Matches the
+      // documented cargo rule (lane maturity = MAX weeksOpen) and pairShare.
+      const laneWeeksOpen = group.reduce(
+        (m, g) => Math.max(m, g.route.weeksOpen ?? 0), 0);
+      const maturity = group.some(g => g.route.weeksOpen != null)
+        ? routeMaturityFactor(laneWeeksOpen) : 1;
       const market   = buildRouteMarket(r0.origin, r0.destination, gameDate, maturity,
         eventDemandMultFor(r0.origin, r0.destination));
 
@@ -2602,7 +2626,8 @@ export function weeklyTick(state) {
           partnerContestedKeys.has(pairKeyOf(r0.origin, r0.destination))),
       };
 
-      const competitorOffers = COMPETITOR_AIRLINES
+      // Live bank, not the module constant — see the note in simulateRoute().
+      const competitorOffers = competitors
         .map(c => buildCompetitorOffer(c, market))
         .filter(Boolean);
       // Inject any encroachment challengers contesting this O&D pair.
@@ -2779,7 +2804,7 @@ export function weeklyTick(state) {
     const rkRoute = [route.origin, route.destination].sort().join('-');
     const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, laborWithSeniority, fuelMultiplier,
       demandAllocations.get(route.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
-      eventDemandMultFor(route.origin, route.destination), ancillaries);
+      eventDemandMultFor(route.origin, route.destination), ancillaries, competitors);
     if (!result) continue;
 
     // Connecting passengers: additional revenue from hub-feed and partner agreements.

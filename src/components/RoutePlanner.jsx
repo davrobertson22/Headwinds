@@ -26,6 +26,7 @@ import RouteFinder from './RouteFinder.jsx';
 import InfoTip from './InfoTip.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
+import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
 
 function weekToMonth(week) {
   return weekToGameDate(week).monthIndex;
@@ -621,23 +622,27 @@ export default function RoutePlanner() {
     const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
     const satisfaction = state.satisfaction ?? null;
 
-    const result = simulateRoute(
-      { id:'p', origin, destination: dest, aircraftId:'p', weeklyFrequency: frequency, ticketPrice: effectivePrice, classPrices, hub: state.hub, cateringLevel },
-      simAircraft,
+    // Projection rather than a bare simulateRoute pair: pools with the tails you
+    // already fly on this pair (a bare call hands the newcomer the WHOLE pool),
+    // applies the restricted-world load ceiling, and resolves rivals through the
+    // same channels the tick uses. See models/pairShare.js.
+    const projection = projectRouteAddition(state, {
+      origin, destination: dest,
+      aircraft: simAircraft,
+      weeklyFrequency: frequency,
+      ticketPrice: effectivePrice,
+      classPrices,
+      cateringLevel,
       gameDate,
-      state.labor ?? null, 1.0, null, [], avgUtil, satisfaction,
-      eventDemand.multFor(origin, dest),
-    );
+      eventDemandMult: eventDemand.multFor(origin, dest),
+    });
+    const result = projection?.mature ?? null;
     if (!result) return null;
 
-    // Also simulate week-0 (launch day) so the player sees the maturity ramp effect.
-    const resultLaunch = simulateRoute(
-      { id:'p', origin, destination: dest, aircraftId:'p', weeklyFrequency: frequency, ticketPrice: effectivePrice, classPrices, hub: state.hub, cateringLevel, weeksOpen: 0 },
-      simAircraft,
-      gameDate,
-      state.labor ?? null, 1.0, null, [], avgUtil, satisfaction,
-      eventDemand.multFor(origin, dest),
-    );
+    // Week-0 (launch day) so the player sees the maturity ramp. On a pair you
+    // already fly this equals `result`: an added tail joins a market that is
+    // already mature and does not re-ramp it.
+    const resultLaunch = projection.launch;
 
     // Connecting passenger estimate
     const connecting = computeConnectingDemand(
@@ -678,7 +683,8 @@ export default function RoutePlanner() {
     const shareResults = computeMarketShare(routeData.market, allOffers);
     const playerShare  = shareResults.find(s => s.airlineId === 'player');
 
-    return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare };
+    return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare,
+             shared: projection.shared, pairRouteCount: projection.pairRouteCount };
   }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest]);
 
   function handleOpenRoute(aircraftId) {

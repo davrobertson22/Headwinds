@@ -18,6 +18,7 @@ import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
 import { useToast } from './ToastSystem.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
+import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
@@ -2248,12 +2249,27 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
     : null;
   const cabinConfig    = aircraft?.config ?? (type ? { economy: type.seats } : null);
 
-  const preview   = validDest && aircraft
-    ? simulateRoute({ origin, destination: dest, aircraftId, weeklyFrequency: frequency,
-        ticketPrice: effectiveFares.economy, classPrices: effectiveFares }, aircraft, gd,
-        null, 1.0, null, [], null, null,
-        buildEventDemandModel(state.activeEvents).multFor(origin, dest))
+  // Projection, NOT a bare simulateRoute. The old call asked "what would this
+  // aircraft carry alone in this market?" — which on a pair you already fly is
+  // the whole pool, so adding a fourth SFO-ATL frequency previewed at 100% load
+  // and then booked a quarter of it. projectRouteAddition() pools with your
+  // existing tails, ramps a new pair through its maturity curve, applies the
+  // restricted-world load ceiling and counts rivals. See models/pairShare.js.
+  const projection = validDest && aircraft
+    ? projectRouteAddition(state, {
+        origin, destination: dest, aircraft, weeklyFrequency: Number(frequency),
+        ticketPrice: effectiveFares.economy, classPrices: effectiveFares, season,
+        gameDate: gd,
+        eventDemandMult: buildEventDemandModel(state.activeEvents).multFor(origin, dest),
+      })
     : null;
+  const preview = projection?.mature ?? null;
+  // A new pair opens below its mature demand and climbs for 16 weeks. Joining a
+  // pair you already fly does NOT re-ramp, so launch === mature there and the
+  // range collapses to a single figure on its own.
+  const previewLaunch = projection?.launch ?? null;
+  const ramps = previewLaunch && preview
+    && previewLaunch.loadFactor < preview.loadFactor - 0.005;
   const dist    = validDest ? Math.round(distanceKm(getAirport(origin), getAirport(dest))) : null;
   const refP    = validDest ? referencePrice(origin, dest) : null;
   const effRange = type && aircraft ? effectiveRangeKm(aircraft, type) : (type?.range ?? 0);
@@ -2552,16 +2568,41 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
 
         <FormSeasonPicker value={season} onChange={setSeason} currentMonth={currentGameDate(state).month} />
 
-        {/* Live preview */}
+        {/* Live projection */}
         {preview && inRange && (
-          <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-            <span><Glyph e="📏" /> {dist?.toLocaleString()} km</span>
-            <span><Glyph e="👥" /> {preview.passengers.toLocaleString()} pax/wk</span>
-            <span><Glyph e="📊" /> {formatPercent(preview.loadFactor)} load</span>
-            <span style={{ color: 'var(--green)' }}>+{formatMoney(preview.revenue)}/wk</span>
-            <span style={{ color: preview.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>
-              {preview.profit >= 0 ? '+' : ''}{formatMoney(preview.profit)}/wk op profit
-            </span>
+          <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <span><Glyph e="📏" /> {dist?.toLocaleString()} km</span>
+              <span><Glyph e="👥" />{' '}
+                {ramps
+                  ? `${previewLaunch.passengers.toLocaleString()} → ${preview.passengers.toLocaleString()}`
+                  : preview.passengers.toLocaleString()} pax/wk</span>
+              <span><Glyph e="📊" />{' '}
+                {ramps
+                  ? `${formatPercent(previewLaunch.loadFactor)} → ${formatPercent(preview.loadFactor)}`
+                  : formatPercent(preview.loadFactor)} load</span>
+              <span style={{ color: 'var(--green)' }}>+{formatMoney(preview.revenue)}/wk</span>
+              <span style={{ color: preview.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {preview.profit >= 0 ? '+' : ''}{formatMoney(preview.profit)}/wk op profit
+              </span>
+            </div>
+            {(ramps || projection.shared || projection.rivalCount > 0) && (
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 7, fontSize: 12, color: 'var(--text-muted)' }}>
+                {ramps && (
+                  <span>Launch week → mature (about 16 weeks)</span>
+                )}
+                {projection.shared && (
+                  <span style={{ color: 'var(--yellow)' }}>
+                    <Glyph e="⚖" /> Shared pair — one demand pool across your {projection.pairRouteCount} routes here
+                  </span>
+                )}
+                {projection.rivalCount > 0 && (
+                  <span>
+                    <Glyph e="⚔" /> {projection.rivalCount} rival{projection.rivalCount === 1 ? '' : 's'} on this pair
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
