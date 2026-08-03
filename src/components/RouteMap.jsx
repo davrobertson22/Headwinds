@@ -18,6 +18,45 @@ import {
   ALLIANCE_COLOR, CODESHARE_COLOR, CARGO_COLOR,
 } from './mapCore.js';
 
+// ── Viewport ownership ────────────────────────────────────────────────────────
+// The map moves the camera for exactly two reasons: the network it is drawing
+// changed extent, or the player focused a different route. Everything else —
+// hovering a line, a weekly tick re-costing every route, a parent re-render —
+// redraws layers and leaves the zoom exactly where the player put it.
+//
+// Reported by players (Discord, Aug 2026): "when you zoom in and pass your mouse
+// over a route, it resets your zoom". Hovering sets state, which re-rendered the
+// component; the derived route data was rebuilt from scratch every render (see
+// `gd` below), so the layer effect re-ran and called fitBounds again.
+//
+// Both helpers take the ref they guard and are exported so a test can drive the
+// SAME decision the map makes, with no DOM and no Leaflet.
+
+/** The airport set the viewport is framed on, as a stable string. Sorted, so the
+ *  same set re-derived in a different order reads as unchanged. */
+export function viewportExtent(airports = []) {
+  return airports.map(a => a.code).sort().join(',');
+}
+
+/** True when the viewport should be re-framed on `airports` — i.e. the extent
+ *  genuinely changed since the last fit. Records the new extent when it does. */
+export function claimViewportFit(ref, airports = []) {
+  if (!airports.length) return false;
+  const extent = viewportExtent(airports);
+  if (ref.current === extent) return false;
+  ref.current = extent;
+  return true;
+}
+
+/** True when the map should fly to `selectedId` — i.e. the focus changed. A
+ *  redraw of an already-focused route is not a reason to move. */
+export function claimRouteFly(ref, selectedId) {
+  if (selectedId == null) { ref.current = null; return false; }
+  if (ref.current === selectedId) return false;
+  ref.current = selectedId;
+  return true;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function RouteMap() {
   const { state } = useGame();
@@ -51,6 +90,10 @@ export default function RouteMap() {
   const selectedIdRef = useRef(null);
   const hoveredIdRef  = useRef(null);
 
+  // Viewport bookkeeping — see claimViewportFit / claimRouteFly above.
+  const fittedExtentRef = useRef(null);   // airport set the viewport was fitted to
+  const flownToRef      = useRef(null);   // route key we last flew to
+
   // 1. Load Leaflet from CDN
   useEffect(() => {
     if (window.L) { setReady(true); return; }
@@ -79,6 +122,10 @@ export default function RouteMap() {
     return () => {
       map.remove();
       mapRef.current = null;
+      // A fresh map instance starts with no viewport of its own, so the next
+      // draw must frame the network even if nothing about it changed.
+      fittedExtentRef.current = null;
+      flownToRef.current = null;
       setMapReady(false);
     };
   }, [ready]);
@@ -103,7 +150,12 @@ export default function RouteMap() {
   // other screen (Finance said 87%, the map said 100%). Prefer the engine's
   // routeResult; fall back to a standalone sim ONLY for routes the engine skips
   // (grounded / dormant-seasonal), run with the same inputs the engine used.
-  const gd = currentGameDate(state);
+  // Memoised on the game week, NOT derived inline: currentGameDate() returns a
+  // fresh object every call and this value is a dependency of routeData below.
+  // Recomputed each render, it made routeData → routeGroups → airportSet all new
+  // identities on EVERY render, so the layer effect tore down and rebuilt every
+  // Leaflet layer — and re-framed the viewport — each time hover state changed.
+  const gd = useMemo(() => currentGameDate(state), [state.week]);
   const proj = useMemo(() => projectWeek(state), [state]);
   const rrById = useMemo(() => {
     const m = {};
@@ -586,8 +638,8 @@ export default function RouteMap() {
       layersRef.current.push(label);
     }
 
-    // Fit map to show all airports (with padding)
-    if (airportSet.length > 0) {
+    // Frame the network — only when its extent actually changed.
+    if (claimViewportFit(fittedExtentRef, airportSet)) {
       const bounds = L.latLngBounds(airportSet.map(a => [a.lat, a.lon]));
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 5 });
     }
@@ -606,10 +658,13 @@ export default function RouteMap() {
     selectedIdRef.current = selectedId;
     applyStyles();
 
+    // routeGroups is a dependency (the focused route's coordinates live there),
+    // so this effect also fires on the weekly tick. Fly once per focus.
+    const focusChanged = claimRouteFly(flownToRef, selectedId);
     const map = mapRef.current;
-    if (!map || !window.L || selectedId == null) return;
+    if (!focusChanged || !map || !window.L) return;
     const g = routeGroups.find(x => x.key === selectedId);
-    if (!g) return;
+    if (!g) { flownToRef.current = null; return; }
     const bounds = window.L.latLngBounds([
       [g.origin.lat, g.origin.lon],
       [g.dest.lat, g.dest.lon],

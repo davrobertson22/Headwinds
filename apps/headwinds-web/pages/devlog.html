@@ -54,6 +54,19 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">August 2, 2026</p>
+      <h2>The map stays where you put it</h2>
+      <p>Straight from the Discord: &ldquo;when you zoom in and pass your mouse over a route, it resets your zoom.&rdquo; It did, and it should not have.</p>
+      <ul>
+        <li><strong>Hovering a line snapped you back out.</strong> Zoom into a corner of your network to read two lanes, brush a route with the cursor, and the map jumped straight back to a view of everything you fly.</li>
+        <li><strong>The weekly tick did it too.</strong> Time moving on re-drew the map, and the re-draw re-framed it &mdash; so any zoom you had set was gone. Focusing a route and panning away had the same problem: the next week yanked the camera back onto the focused route.</li>
+        <li><strong>Now the map only moves for a reason.</strong> It frames your network when the network actually changes &mdash; a route opened, a route closed, or a map filter narrowed what is on screen &mdash; and it flies to a route when you click it. Nothing else touches your zoom.</li>
+        <li><strong>Lines and tooltips are steadier as a side effect.</strong> The map was rebuilding every line on screen each time your cursor crossed one; it no longer does.</li>
+      </ul>
+      <p>Clicking a route still frames it, and &ldquo;Clear focus&rdquo; still returns you to the whole picture.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">July 31, 2026</p>
       <h2>The route map was reporting the wrong load factors</h2>
       <p>Straight from a player: &ldquo;why in one screen does it say my loads are 100% and then in two others it says they aren&rsquo;t?&rdquo; A fair question, and the map was the screen that was wrong.</p>
