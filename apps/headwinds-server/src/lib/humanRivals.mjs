@@ -504,9 +504,105 @@ export function stripRivals(state) {
   return rest;
 }
 
+// ── Rival-view row projection (Supabase egress) ───────────────────────────────
+// The rival view is derived from every ACTIVE airline's save blob, so a plain
+// `findMany` ships EVERY player's whole save on every rebuild — and a rebuild is
+// triggered by ANY player's action, which makes the cost quadratic in world
+// population. Measured 2026-08-02: this was the largest single line on the
+// Supabase egress bill (593 GB against a 250 GB Pro allowance in one period).
+//
+// Nothing in the rival path reads more than the TAIL of the two history series:
+//
+//   toHumanCompetitor   financialHistory.slice(-12), statsHistory.slice(-26)
+//   calcReputation      financialHistory.slice(-4)
+//   loyaltyPaxBase      financialHistory.slice(-8)
+//
+// ...yet those two series are the overwhelming bulk of the stored blob (capped
+// at 52 and STATS_HISTORY_CAP_MP = 260 entries — bounded, but ~150 KB of the
+// ~165 KB a mature airline stores). So trim them IN POSTGRES: only the remainder
+// crosses the wire, and the detoast/trim happens server-side where it is free.
+//
+// This is a DENY-list, not an allow-list, and deliberately so. Listing the keys
+// the rival path needs would mean a field added to the engine tomorrow silently
+// arriving here as `undefined` — a bug that would surface as subtly wrong demand
+// splits, not as a crash. Everything except these two series is passed through
+// untouched.
+export const RIVAL_HISTORY_KEEP = 26;
+export const RIVAL_TRIMMED_KEYS = ['financialHistory', 'statsHistory'];
+
+// JS twin of the SQL projection in loadRivalRows(). Two jobs: it IS the
+// implementation for callers that hand us a prisma double with no $queryRaw
+// (the test harnesses), and it is what tools/rival-projection-test.mjs drives to
+// prove that trimming changes no rival view. Keep the two in lockstep — the
+// non-array branch matches the SQL's `jsonb_typeof(...) = 'array'` guard.
+export function projectRivalState(state) {
+  if (!state || typeof state !== 'object') return state;
+  const out = { ...state };
+  for (const k of RIVAL_TRIMMED_KEYS) {
+    out[k] = Array.isArray(state[k]) ? state[k].slice(-RIVAL_HISTORY_KEEP) : [];
+  }
+  return out;
+}
+
+// Columns the rival path reads off the ROW (as opposed to the blob):
+// rivalIdOf → id/restarts; toHumanCompetitor → name/hub/account; buildRivalViews
+// → status; buildGateMarketViews → id/name. `version` rides along because the
+// caller's stamp arithmetic is derived from it and a future call site will want
+// it. Anything else is deliberately not fetched.
+async function loadRivalRows(prisma, worldId) {
+  if (typeof prisma.$queryRaw !== 'function') {
+    // Test double (tools/headwinds-rivals-test.mjs). Take the ORM path and trim
+    // in JS so both branches yield byte-identical rows.
+    const rows = await prisma.airline.findMany({
+      where: { worldId, status: 'ACTIVE' },
+      // OG + DEV badges. The email never leaves the server — it's only compared
+      // against ADMIN_EMAILS here; payloads carry booleans.
+      include: { account: { select: { isOG: true, email: true } } },
+    });
+    return rows.map((r) => ({ ...r, state: projectRivalState(r.state) }));
+  }
+  // `last-N to last` is clamped by Postgres on short arrays (a 3-entry series
+  // returns all 3, not an error), and lax mode means a missing key yields no
+  // rows rather than throwing — but a non-array value would be auto-wrapped into
+  // a 1-element array, so the jsonb_typeof guard keeps this exactly equal to the
+  // JS twin above. The path is built from a module constant, never user input,
+  // and is passed as a bound parameter regardless.
+  const tail = `[last-${RIVAL_HISTORY_KEEP - 1} to last]`;
+  const rows = await prisma.$queryRaw`
+    SELECT a.id, a."worldId", a.name, a.hub, a.status, a.restarts, a.version,
+           acc."isOG" AS "accountIsOG", acc.email AS "accountEmail",
+           (a.state - 'financialHistory' - 'statsHistory')
+             || jsonb_build_object(
+                  'financialHistory',
+                    CASE WHEN jsonb_typeof(a.state->'financialHistory') = 'array'
+                         THEN jsonb_path_query_array(a.state, ${'$.financialHistory' + tail}::jsonpath)
+                         ELSE '[]'::jsonb END,
+                  'statsHistory',
+                    CASE WHEN jsonb_typeof(a.state->'statsHistory') = 'array'
+                         THEN jsonb_path_query_array(a.state, ${'$.statsHistory' + tail}::jsonpath)
+                         ELSE '[]'::jsonb END
+                ) AS state
+      FROM "Airline" a
+      JOIN "Account" acc ON acc.id = a."accountId"
+     WHERE a."worldId" = ${worldId} AND a.status = 'ACTIVE'
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    worldId: r.worldId,
+    name: r.name,
+    hub: r.hub,
+    status: r.status,
+    restarts: r.restarts,
+    version: r.version,
+    state: r.state,
+    account: { isOG: r.accountIsOG === true, email: r.accountEmail },
+  }));
+}
+
 // ── Rival-view cache (API process) ────────────────────────────────────────────
-// Every open game polls its airline read, and each uncached build loads EVERY
-// active airline's FULL state blob — the single biggest Supabase egress driver.
+// Every open game polls its airline read, and each uncached build loads a row
+// per ACTIVE airline (projected — see loadRivalRows; the blobs used to be sent
+// whole, and were the single biggest Supabase egress driver).
 // A world's rival views are identical for all its players, so build once and
 // share. Entries are validated by `stamp` (the caller's cheap sum-of-versions
 // aggregate — any decision, tick, join or abandon changes it) plus a short TTL
@@ -578,12 +674,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     return hit.promise;
   }
   const promise = (async () => {
-    const rows = await prisma.airline.findMany({
-      where: { worldId, status: 'ACTIVE' },
-      // OG + DEV badges. The email never leaves the server — it's only compared
-      // against ADMIN_EMAILS here; payloads carry booleans.
-      include: { account: { select: { isOG: true, email: true } } },
-    });
+    const rows = await loadRivalRows(prisma, worldId);
     const allianceMap = await loadAllianceMap(prisma, worldId);
     return attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
   })();
