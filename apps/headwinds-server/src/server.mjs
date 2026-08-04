@@ -76,7 +76,16 @@ export function buildServer() {
     });
   });
 
-  app.get('/health', async () => ({ ok: true, service: 'headwinds-api' }));
+  // Railway's healthcheck path, and the cheapest way to answer "what is actually
+  // running right now?" — which cost us a dashboard hunt on 2026-08-03 while
+  // working out whether an egress fix had shipped. Railway injects
+  // RAILWAY_GIT_COMMIT_SHA into every deploy; anywhere else it is simply absent
+  // and this reports 'unknown' rather than throwing.
+  app.get('/health', async () => ({
+    ok: true,
+    service: 'headwinds-api',
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'unknown',
+  }));
 
   app.register(meRoutes);
   app.register(worldRoutes);

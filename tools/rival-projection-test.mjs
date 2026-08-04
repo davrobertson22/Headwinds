@@ -1,22 +1,23 @@
 // Rival-view projection test — no database, no network.
 //
-// Context (2026-08-02): Supabase egress hit 593 GB against a 250 GB Pro
-// allowance. The cause was buildWorldRivalViews loading EVERY active airline's
-// FULL save blob on every rebuild, and a rebuild being triggered by ANY player's
-// action — cost quadratic in world population. The fix trims the two history
-// series IN POSTGRES, because nothing in the rival path reads more than their
-// tails while they are ~90% of the stored blob.
+// Context: buildWorldRivalViews derives every player's rival view from every
+// ACTIVE airline's save blob. Production measurement (2026-08-04) showed the
+// average blob is 523 kB — 56% of it `lastReport`, a per-route weekly debrief
+// the rival path reads exactly TWO fields of — and that shipping those blobs
+// was ~90% of the Supabase egress bill and 89% of all DB execution time. The
+// fix trims the blob IN POSTGRES (loadRivalRows) down to ~80 kB.
 //
-// That fix is only safe if trimming is INVISIBLE to the derived views. This file
-// is what makes that a checked property rather than a claim:
+// That is only safe if trimming is INVISIBLE to the derived views. This file
+// makes that a checked property rather than a claim:
 //
 //   • buildRivalViews(full rows) deep-equals buildRivalViews(projected rows)
-//   • the assertion above has TEETH — over-trimming is caught, so a future
-//     "let's keep 4 entries, it's cheaper" is a red test, not a silent bug
-//   • projectRivalState passes every other key through untouched (deny-list),
-//     and survives missing / null / short / wrong-typed series
-//   • the SQL in humanRivals.mjs and its JS twin trim the SAME keys to the SAME
-//     depth — the one way these can drift is editing one and not the other
+//   • each assertion has TEETH — over-trimming any of the trimmed keys is a
+//     red test, not a silent bug
+//   • projectRivalState touches ONLY the four named keys (deny-list); every
+//     other key passes through untouched, and survives missing / null / short
+//     / wrong-typed values exactly like the SQL's jsonb_typeof guards
+//   • the SQL in humanRivals.mjs and its JS twin trim the SAME keys to the
+//     SAME depth — editing one without the other fails here
 //
 //   node tools/rival-projection-test.mjs
 
@@ -27,8 +28,9 @@ import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
   buildRivalViews,
   projectRivalState,
-  RIVAL_HISTORY_KEEP,
-  RIVAL_TRIMMED_KEYS,
+  RIVAL_FIN_KEEP,
+  RIVAL_STATS_KEEP,
+  RIVAL_DROPPED_KEYS,
 } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
 import { checkRouteRestrictions } from '../packages/engine/src/data/airportRestrictions.js';
@@ -42,17 +44,16 @@ async function test(name, fn) {
 const realRandom = Math.random;
 Math.random = () => 0.5;
 
-// ── Fixture: two airlines with DEEP history ──────────────────────────────────
-// The whole point is history longer than RIVAL_HISTORY_KEEP, so a trim that went
-// too far would actually lose data. Same aircraft-selection care as
-// headwinds-rivals-test: ask the engine what can legally fly the pair rather
-// than depending on AIRCRAFT_TYPES order.
+// ── Fixture: two airlines with DEEP history and the production fat ───────────
+// History longer than both KEEP depths, a real engine-built lastReport (the
+// production heavyweight), and — because the engine sim never creates one — a
+// hand-added customLogo, so the drop-safety assertions actually exercise it.
 const shortHaul = AIRCRAFT_TYPES.find((t) =>
   !t.freighter && t.range > 800 && t.seats >= 50
   && !checkRouteRestrictions('JFK', 'BOS', 300, 14, t.category, { routes: [], aircraftType: t }));
 assert.ok(shortHaul, 'no aircraft type in engine data can legally fly JFK–BOS');
 
-const WEEKS = 60; // > 2 × RIVAL_HISTORY_KEEP, and past the 52-week financialHistory cap
+const WEEKS = 60; // > 2×RIVAL_STATS_KEEP and past the 52-week financialHistory cap
 
 function makeAirline({ id, name, hub, dest, fare }) {
   let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: name, hub, enableObjectives: false });
@@ -65,6 +66,28 @@ function makeAirline({ id, name, hub, dest, fare }) {
   assert.equal(s.routes.length, 1, `${name}: route not created (${s.error ?? 'no error'})`);
   s = gameReducer(s, { type: 'UPDATE_TICKET_PRICE', routeId: s.routes[0].id, ticketPrice: fare });
   for (let w = 0; w < WEEKS; w++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  // Production blobs carry a customLogo (avg 4.5 kB, max 55 kB) the sim never
+  // creates. Plant one so the drop assertions below are exercised for real.
+  s = { ...s, customLogo: `<svg>${'x'.repeat(4000)}</svg>` };
+  // Plant a production-shaped lastReport. The sim's can be null by week 60, the
+  // current engine writes `reputationScore` (not the legacy `reputation` object
+  // qualityOf prefers), and BOTH shapes must survive the projection — so the
+  // fixture carries both, plus per-route bulk standing in for the 291 kB the
+  // projection exists to remove.
+  s = {
+    ...s,
+    lastReport: {
+      ...(s.lastReport ?? {}),
+      reputation: { overall: 71 },
+      reputationScore: 68,
+      totalPassengers: s.lastReport?.totalPassengers ?? 12345,
+      totalRevenue: 1_000_000,
+      profit: 50_000,
+      routeResults: Array.from({ length: 40 }, (_, i) => ({
+        routeId: `r${i}`, revenue: 1000 + i, pax: 100 + i, loadFactor: 0.8,
+      })),
+    },
+  };
   return { id, worldId: 'w1', name, hub, status: 'ACTIVE', restarts: 0, state: s,
            account: { isOG: false, email: 'x@example.com' } };
 }
@@ -75,28 +98,24 @@ const rows  = [alice, bob];
 
 console.log('\n── fixture ───────────────────────────────────────────────');
 
-await test('fixture actually has history deeper than the trim depth', () => {
+await test('fixture exercises every trimmed key harder than the trim', () => {
   for (const r of rows) {
-    assert.ok((r.state.financialHistory ?? []).length > RIVAL_HISTORY_KEEP,
-      `${r.name}: financialHistory is ${(r.state.financialHistory ?? []).length}, ` +
-      `needs > ${RIVAL_HISTORY_KEEP} or this whole file proves nothing`);
-    assert.ok((r.state.statsHistory ?? []).length > RIVAL_HISTORY_KEEP,
-      `${r.name}: statsHistory is ${(r.state.statsHistory ?? []).length}, needs > ${RIVAL_HISTORY_KEEP}`);
+    assert.ok((r.state.financialHistory ?? []).length > RIVAL_FIN_KEEP,
+      `${r.name}: financialHistory too short to prove the fin trim`);
+    assert.ok((r.state.statsHistory ?? []).length > RIVAL_STATS_KEEP,
+      `${r.name}: statsHistory too short to prove the stats trim`);
+    assert.ok(r.state.lastReport && typeof r.state.lastReport === 'object',
+      `${r.name}: no lastReport — the production heavyweight is untested`);
+    assert.ok(Object.keys(r.state.lastReport).length > 3,
+      `${r.name}: lastReport has ≤3 keys, so reducing it to 3 proves nothing`);
+    assert.ok(r.state.lastReport.reputation?.overall != null,
+      `${r.name}: lastReport.reputation.overall missing — qualityOf would fall back and mask a bad trim`);
+    assert.ok(typeof r.state.customLogo === 'string' && r.state.customLogo.length > 1000,
+      `${r.name}: no customLogo planted — the drop is untested`);
   }
 });
 
 console.log('\n── projection is invisible to the derived views ───────────');
-
-// Deep-equal that also fails on undefined-vs-missing, which is the exact shape a
-// dropped key would take. JSON.stringify would hide it (both serialise away).
-const trimTo = (n) => rows.map((r) => ({
-  ...r,
-  state: {
-    ...r.state,
-    financialHistory: (r.state.financialHistory ?? []).slice(-n),
-    statsHistory: (r.state.statsHistory ?? []).slice(-n),
-  },
-}));
 
 await test('buildRivalViews is byte-identical on full vs projected rows', () => {
   const full = buildRivalViews(rows);
@@ -104,76 +123,109 @@ await test('buildRivalViews is byte-identical on full vs projected rows', () => 
   assert.deepStrictEqual([...proj.entries()], [...full.entries()]);
 });
 
-await test('...and that assertion has teeth: over-trimming IS caught', () => {
+// Helpers for the teeth checks: reapply one trim MORE aggressively than the
+// real projection and require the views to CHANGE — otherwise the equality
+// above could be passing vacuously.
+const withState = (mutate) => rows.map((r) => ({ ...r, state: mutate({ ...r.state }) }));
+const mustDiffer = (label, mutate) => {
   const full = buildRivalViews(rows);
-  const tooFar = buildRivalViews(trimTo(1));
-  assert.notDeepStrictEqual([...tooFar.entries()], [...full.entries()],
-    'trimming to a single history entry changed nothing — the comparison above is vacuous, ' +
-    'so it would not catch a real over-trim either');
+  const cut = buildRivalViews(withState(mutate));
+  assert.notDeepStrictEqual([...cut.entries()], [...full.entries()],
+    `${label} changed nothing — the equality check cannot catch a real over-trim of it`);
+};
+
+await test('teeth: financialHistory below 12 changes the views', () => {
+  mustDiffer('trimming financialHistory to 3', (s) => ({ ...s, financialHistory: (s.financialHistory ?? []).slice(-3) }));
 });
 
-await test('the deepest tail any consumer reads is still 12 (financialHistory)', () => {
-  // toHumanCompetitor takes slice(-12); calcReputation slice(-4); loyaltyPaxBase
-  // slice(-8). If a future change reads deeper than RIVAL_HISTORY_KEEP this
-  // starts failing, which is the point.
+await test('teeth: statsHistory below 26 changes the views', () => {
+  mustDiffer('trimming statsHistory to 5', (s) => ({ ...s, statsHistory: (s.statsHistory ?? []).slice(-5) }));
+});
+
+await test('teeth: dropping lastReport.reputation changes the views', () => {
+  // qualityOf prefers lastReport.reputation.overall (with a state.reputation
+  // fallback); the fixture plants 71, well away from DEFAULT_QUALITY. If this
+  // ever stops differing, qualityOf stopped reading the planted shape and the
+  // lastReport projection needs re-checking against its new reads.
+  mustDiffer('removing lastReport.reputation', (s) => ({
+    ...s,
+    lastReport: { ...s.lastReport, reputation: undefined },
+    reputation: undefined,
+  }));
+});
+
+await test("exact-depth check: the real trims sit at the consumers’ deepest reads", () => {
   const full = buildRivalViews(rows);
-  const atKeep = buildRivalViews(trimTo(RIVAL_HISTORY_KEEP));
+  const atKeep = buildRivalViews(withState((s) => projectRivalState(s)));
   assert.deepStrictEqual([...atKeep.entries()], [...full.entries()]);
-  const oneShort = buildRivalViews(trimTo(11));
-  assert.notDeepStrictEqual([...oneShort.entries()], [...full.entries()],
-    'trimming below 12 must change profitHistory — if it does not, the fixture has no profit history');
+  // One entry shy of RIVAL_FIN_KEEP must differ: slice(-12) is the deepest read.
+  mustDiffer('financialHistory at 11', (s) => ({ ...s, financialHistory: (s.financialHistory ?? []).slice(-(RIVAL_FIN_KEEP - 1)) }));
+  mustDiffer('statsHistory at 25', (s) => ({ ...s, statsHistory: (s.statsHistory ?? []).slice(-(RIVAL_STATS_KEEP - 1)) }));
 });
 
 console.log('\n── projectRivalState: deny-list semantics ────────────────');
 
-await test('every key except the two series survives untouched', () => {
+await test('only the four named keys are touched; everything else survives', () => {
   const p = projectRivalState(alice.state);
+  const touched = new Set(['financialHistory', 'statsHistory', 'lastReport', ...RIVAL_DROPPED_KEYS]);
   for (const k of Object.keys(alice.state)) {
+    if (RIVAL_DROPPED_KEYS.includes(k)) { assert.ok(!(k in p), `${k} should be dropped`); continue; }
     assert.ok(k in p, `projection dropped key ${k}`);
-    if (!RIVAL_TRIMMED_KEYS.includes(k)) {
-      assert.deepStrictEqual(p[k], alice.state[k], `projection altered key ${k}`);
-    }
+    if (!touched.has(k)) assert.deepStrictEqual(p[k], alice.state[k], `projection altered key ${k}`);
   }
-  assert.deepStrictEqual(Object.keys(p).sort(), Object.keys(alice.state).sort());
 });
 
-await test('the two series are trimmed to the tail, not the head', () => {
+await test('lastReport is reduced to exactly its three read fields', () => {
   const p = projectRivalState(alice.state);
-  for (const k of RIVAL_TRIMMED_KEYS) {
-    assert.equal(p[k].length, RIVAL_HISTORY_KEEP);
-    assert.deepStrictEqual(p[k], alice.state[k].slice(-RIVAL_HISTORY_KEEP));
-  }
+  assert.deepStrictEqual(Object.keys(p.lastReport).sort(),
+    ['reputation', 'reputationScore', 'totalPassengers']);
+  assert.deepStrictEqual(p.lastReport.reputation, alice.state.lastReport.reputation);
+  assert.equal(p.lastReport.reputationScore, alice.state.lastReport.reputationScore);
+  // Missing subkeys become explicit null — matching jsonb_build_object.
+  assert.deepStrictEqual(projectRivalState({ lastReport: {} }).lastReport,
+    { reputation: null, reputationScore: null, totalPassengers: null });
 });
 
-await test('missing / null / short / wrong-typed series match the SQL guard', () => {
-  // These mirror the CASE WHEN jsonb_typeof(...) = 'array' branch: anything that
-  // is not an array becomes [], which is what `?? []` in the engine expects.
+await test('histories are trimmed to the tail, not the head', () => {
+  const p = projectRivalState(alice.state);
+  assert.deepStrictEqual(p.financialHistory, alice.state.financialHistory.slice(-RIVAL_FIN_KEEP));
+  assert.deepStrictEqual(p.statsHistory, alice.state.statsHistory.slice(-RIVAL_STATS_KEEP));
+});
+
+await test('missing / null / short / wrong-typed values match the SQL guards', () => {
   assert.deepStrictEqual(projectRivalState({ a: 1 }).financialHistory, []);
   assert.deepStrictEqual(projectRivalState({ statsHistory: null }).statsHistory, []);
   assert.deepStrictEqual(projectRivalState({ statsHistory: 'nope' }).statsHistory, []);
   assert.deepStrictEqual(projectRivalState({ financialHistory: [1, 2, 3] }).financialHistory, [1, 2, 3]);
-  // Non-objects pass straight through rather than becoming {}.
+  // lastReport: only a plain object is reduced; arrays and scalars become null,
+  // mirroring jsonb_typeof(...) = 'object' (arrays are 'array' in jsonb).
+  assert.equal(projectRivalState({ lastReport: [1] }).lastReport, null);
+  assert.equal(projectRivalState({ lastReport: 'x' }).lastReport, null);
+  assert.equal(projectRivalState({ a: 1 }).lastReport, null);
   assert.equal(projectRivalState(null), null);
   assert.equal(projectRivalState(undefined), undefined);
 });
 
 console.log('\n── SQL and its JS twin cannot drift ──────────────────────');
 
-await test('the SQL trims exactly RIVAL_TRIMMED_KEYS to exactly RIVAL_HISTORY_KEEP', () => {
+await test('the SQL subtracts, rebuilds and bounds exactly what the twin does', () => {
   const src = readFileSync(
     fileURLToPath(new URL('../apps/headwinds-server/src/lib/humanRivals.mjs', import.meta.url)),
     'utf8');
-  // The subtraction list and the JS twin's key list must be the same set.
-  const subtracted = [...src.matchAll(/- '([A-Za-z]+History)'/g)].map((m) => m[1]);
-  assert.deepStrictEqual(subtracted.sort(), [...RIVAL_TRIMMED_KEYS].sort(),
-    'the SQL subtracts a different set of keys than RIVAL_TRIMMED_KEYS');
-  // The jsonpath tail is built from the constant; if someone inlines a literal
-  // depth instead, this catches it.
-  assert.ok(src.includes('`[last-${RIVAL_HISTORY_KEEP - 1} to last]`'),
-    'the jsonpath tail is no longer derived from RIVAL_HISTORY_KEEP');
-  for (const k of RIVAL_TRIMMED_KEYS) {
-    assert.ok(src.includes(`'$.${k}' + tail`), `the SQL no longer builds a bounded path for ${k}`);
-  }
+  assert.ok(src.includes("- 'financialHistory' - 'statsHistory' - 'lastReport' - 'customLogo'"),
+    'the SQL no longer subtracts the same four keys the twin touches');
+  assert.ok(src.includes('`[last-${RIVAL_FIN_KEEP - 1} to last]`'),
+    'the financialHistory tail is no longer derived from RIVAL_FIN_KEEP');
+  assert.ok(src.includes('`[last-${RIVAL_STATS_KEEP - 1} to last]`'),
+    'the statsHistory tail is no longer derived from RIVAL_STATS_KEEP');
+  assert.ok(src.includes("'$.financialHistory' + finTail") && src.includes("'$.statsHistory' + statsTail"),
+    'a bounded jsonpath is no longer built for one of the history series');
+  assert.ok(src.includes(`a.state#>'{lastReport,reputation}'`)
+         && src.includes(`a.state#>'{lastReport,reputationScore}'`)
+         && src.includes(`a.state#>'{lastReport,totalPassengers}'`),
+    'the SQL no longer preserves the three lastReport fields the rival path reads');
+  assert.deepStrictEqual(RIVAL_DROPPED_KEYS, ['customLogo'],
+    'RIVAL_DROPPED_KEYS changed — update the SQL subtraction AND this test together');
 });
 
 Math.random = realRandom;
