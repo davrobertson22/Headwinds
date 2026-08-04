@@ -522,28 +522,54 @@ export function stripRivals(state) {
 //   lastReport        291 kB avg (56%!)  — the full weekly debrief, per-route
 //   financialHistory   99 kB             — 52 weekly entries, ~1.9 kB each
 //   statsHistory       81 kB             — up to 260 compact KPI entries
-//   fleet              26 kB             — legitimate, the rival path needs it
+//   fleet              26 kB             — entries carry maintenance/mods/value
 //   everything else   ~26 kB combined
 //
-// The rival path reads exactly TWO fields of lastReport (reputation, via
-// qualityOf; totalPassengers, via loyaltyPaxBase), the last 12 entries of
-// financialHistory (toHumanCompetitor profitHistory; calcReputation takes -4,
-// loyaltyPaxBase -8), and the last 26 statsHistory share prices. So project in
-// Postgres: the trims below take a production row from 405 kB to ~80 kB, and
-// the detoast/rebuild happens server-side where it costs no egress.
+// The projection trims in Postgres, at two depths, so only what the rival path
+// actually reads crosses the wire (~25–30 kB/row instead of 523 kB):
+//
+//   whole keys   lastReport → its three read fields; customLogo dropped
+//   inside keys  fleet / financialHistory / statsHistory entries reduced to the
+//                fields below, with the histories also bounded to their tails
+//
+// Every retained field is pinned to a consumer:
+//
+//   fleet.id/typeId/config   cabinForRoute, cargoRoutesOf, calcPositioning,
+//                            calcReputation (service score, assigned filter)
+//   fleet.ageWeeks           calcReputation fleet-freshness score
+//   fleet.status             fleetAvgUtilization's isOutOfService filter
+//   fin.profit               toHumanCompetitor profitHistory (slice(-12), the
+//                            deepest read), calcReputation slice(-4)
+//   fin.revenue              toHumanCompetitor weeklyStats
+//   fin.passengers           loyaltyPaxBase slice(-8)
+//   stats.sharePrice         toHumanCompetitor sharePriceHistory (slice(-26))
+//   lastReport.reputation    qualityOf's preferred (legacy) shape
+//   lastReport.reputationScore  what the CURRENT engine writes — kept so a
+//                            future qualityOf that reads it is never starved
+//   lastReport.totalPassengers  loyaltyPaxBase
 //
 // This started life as a pure deny-list (pass through everything unrecognised,
-// so a field added to the engine tomorrow cannot silently arrive `undefined`).
-// It still is one — the four keys below are the ONLY ones touched — but
-// lastReport taught us the failure mode of a pure deny-list: it faithfully
-// ships 291 kB nobody reads. Every key named here is pinned by
+// so a new engine field cannot silently arrive `undefined`). Top-level keys
+// still work that way — only the five named ones are touched. The named keys
+// switch to allow-lists because production taught us the deny-list failure
+// mode: it faithfully ships 291 kB nobody reads. The safety net for both is
 // tools/rival-projection-test.mjs, which proves the derived views are
-// byte-identical with and without the trim, and that the test itself has teeth.
+// byte-identical with and without the projection, and that each trim has teeth.
 export const RIVAL_FIN_KEEP = 12;    // deepest read: profitHistory slice(-12)
 export const RIVAL_STATS_KEEP = 26;  // sharePriceHistory slice(-26)
+export const RIVAL_FLEET_FIELDS = ['id', 'typeId', 'config', 'ageWeeks', 'status'];
+export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers'];
+export const RIVAL_STATS_FIELDS = ['sharePrice'];
 // Keys the rival path provably never reads, removed outright. customLogo is the
 // player's uploaded logo payload — rivals render `logoId`, never this.
 export const RIVAL_DROPPED_KEYS = ['customLogo'];
+
+// Element projector shared by the twin's three array trims. Mirrors the SQL's
+// jsonb_build_object over jsonb_array_elements: any non-object element (scalar,
+// array, null) yields the same field set with explicit nulls, because
+// `e->'field'` is SQL NULL for all of them.
+const pickFields = (fields) => (e) =>
+  Object.fromEntries(fields.map((f) => [f, (e?.[f] ?? null)]));
 
 // JS twin of the SQL projection in loadRivalRows(). Two jobs: it IS the
 // implementation for callers that hand us a prisma double with no $queryRaw
@@ -554,15 +580,12 @@ export function projectRivalState(state) {
   if (!state || typeof state !== 'object') return state;
   const out = { ...state };
   out.financialHistory = Array.isArray(state.financialHistory)
-    ? state.financialHistory.slice(-RIVAL_FIN_KEEP) : [];
+    ? state.financialHistory.slice(-RIVAL_FIN_KEEP).map(pickFields(RIVAL_FIN_FIELDS)) : [];
   out.statsHistory = Array.isArray(state.statsHistory)
-    ? state.statsHistory.slice(-RIVAL_STATS_KEEP) : [];
+    ? state.statsHistory.slice(-RIVAL_STATS_KEEP).map(pickFields(RIVAL_STATS_FIELDS)) : [];
+  out.fleet = Array.isArray(state.fleet)
+    ? state.fleet.map(pickFields(RIVAL_FLEET_FIELDS)) : [];
   const lr = state.lastReport;
-  // Three fields survive: `reputation` is the legacy shape qualityOf prefers,
-  // `reputationScore` is what the CURRENT engine actually writes (kept so a
-  // future qualityOf that reads it is never starved by this projection), and
-  // `totalPassengers` feeds loyaltyPaxBase. `?? null` (not undefined) so the
-  // twin matches jsonb_build_object, where a missing path is an explicit null.
   out.lastReport = (lr && typeof lr === 'object' && !Array.isArray(lr))
     ? {
         reputation: lr.reputation ?? null,
@@ -595,22 +618,38 @@ async function loadRivalRows(prisma, worldId) {
   // returns all 3, not an error), and lax mode means a missing key yields no
   // rows rather than throwing — but a non-array value would be auto-wrapped into
   // a 1-element array, so the jsonb_typeof guards keep this exactly equal to the
-  // JS twin above. Paths are built from module constants, never user input, and
-  // are passed as bound parameters regardless.
+  // JS twin above. `WITH ORDINALITY ... ORDER BY ord` pins element order —
+  // jsonb_agg over unordered SRF output is not guaranteed to preserve it. Paths
+  // are built from module constants, never user input, and are passed as bound
+  // parameters regardless.
   const finTail = `[last-${RIVAL_FIN_KEEP - 1} to last]`;
   const statsTail = `[last-${RIVAL_STATS_KEEP - 1} to last]`;
   const rows = await prisma.$queryRaw`
     SELECT a.id, a."worldId", a.name, a.hub, a.status, a.restarts, a.version,
            acc."isOG" AS "accountIsOG", acc.email AS "accountEmail",
-           (a.state - 'financialHistory' - 'statsHistory' - 'lastReport' - 'customLogo')
+           (a.state - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo')
              || jsonb_build_object(
                   'financialHistory',
                     CASE WHEN jsonb_typeof(a.state->'financialHistory') = 'array'
-                         THEN jsonb_path_query_array(a.state, ${'$.financialHistory' + finTail}::jsonpath)
+                         THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                                        'profit', e->'profit', 'revenue', e->'revenue',
+                                        'passengers', e->'passengers') ORDER BY ord), '[]'::jsonb)
+                                 FROM jsonb_array_elements(jsonb_path_query_array(a.state, ${'$.financialHistory' + finTail}::jsonpath))
+                                      WITH ORDINALITY AS fh(e, ord))
                          ELSE '[]'::jsonb END,
                   'statsHistory',
                     CASE WHEN jsonb_typeof(a.state->'statsHistory') = 'array'
-                         THEN jsonb_path_query_array(a.state, ${'$.statsHistory' + statsTail}::jsonpath)
+                         THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                                        'sharePrice', e->'sharePrice') ORDER BY ord), '[]'::jsonb)
+                                 FROM jsonb_array_elements(jsonb_path_query_array(a.state, ${'$.statsHistory' + statsTail}::jsonpath))
+                                      WITH ORDINALITY AS sh(e, ord))
+                         ELSE '[]'::jsonb END,
+                  'fleet',
+                    CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
+                         THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                                        'id', e->'id', 'typeId', e->'typeId', 'config', e->'config',
+                                        'ageWeeks', e->'ageWeeks', 'status', e->'status') ORDER BY ord), '[]'::jsonb)
+                                 FROM jsonb_array_elements(a.state->'fleet') WITH ORDINALITY AS fl(e, ord))
                          ELSE '[]'::jsonb END,
                   'lastReport',
                     CASE WHEN jsonb_typeof(a.state->'lastReport') = 'object'
@@ -649,11 +688,34 @@ async function loadRivalRows(prisma, worldId) {
 // The worker bypasses the cache entirely by passing preloaded `airlines`, and
 // runs in its own process anyway.
 export const RIVAL_VIEW_CACHE_TTL_MS = 30_000;
+
+// ── Rebuild FLOOR, for callers that opt in via `maxStaleMs` ──────────────────
+// The stamp is the sum of every active airline's version, so ANY player's
+// action invalidates it. Production, 2026-08-04: decisions land about every
+// 22s across the deployment, so the cache rebuilt about every 26s, all day —
+// the frequency half of the egress bill (the projection above is the size
+// half). The poll read opts into serving a view up to this old.
+//
+// The dangerous way to do this is to serve a stale overlay while echoing the
+// CURRENT stamp: the client would record itself as up to date on a view it was
+// never given, and the rival move that moved the stamp would go undelivered
+// until the next tick. So a served view carries `builtFromStamp` — the stamp it
+// actually reflects — and the read path echoes THAT. The client keeps polling
+// (its next poll still sees a stamp difference) and picks up the fresh overlay
+// as soon as the floor expires.
+//
+// 60s: rivals' fares/frequencies landing up to a minute late is invisible in a
+// game whose real cadence is the 30-minute tick, and the player's OWN state is
+// unaffected (a tick bumps self-version, and the self-changed path always
+// ships the blob). Call sites that must observe their OWN just-committed
+// write — gate bids, aircraft trades, the decision POST — pass nothing and
+// keep the strict stamp check.
+export const RIVAL_VIEW_POLL_MAX_STALE_MS = 60_000;
 const viewCache = new Map(); // worldId → { stamp, at, promise }
 
 // One-stop world view builder for API/tick call sites: loads active airlines
 // and the alliance graph, returns the per-airline view map.
-export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null } = {}) {
+export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null, maxStaleMs = 0 } = {}) {
   // Attach per-airline gate-market views on scarcity worlds (one extra world
   // read when the caller didn't pass the row; non-scarcity worlds skip the
   // gate tables entirely).
@@ -709,13 +771,23 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     return attachStockPool(await attachGates(airlines, allianceMap, priced(airlines, allianceMap)));
   }
   const hit = viewCache.get(worldId);
-  if (hit && stamp != null && hit.stamp === stamp && Date.now() - hit.at < RIVAL_VIEW_CACHE_TTL_MS) {
-    return hit.promise;
+  if (hit && stamp != null) {
+    const age = Date.now() - hit.at;
+    // Nothing moved: serve until the TTL fallback expires.
+    if (hit.stamp === stamp && age < RIVAL_VIEW_CACHE_TTL_MS) return hit.promise;
+    // Something moved, but this caller tolerates staleness and will echo the
+    // served view's own stamp. Never fires with the default maxStaleMs of 0.
+    if (age < maxStaleMs) return hit.promise;
   }
   const promise = (async () => {
     const rows = await loadRivalRows(prisma, worldId);
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
+    const views = await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
+    // Which world stamp this view actually reflects. Non-enumerable so it can
+    // never leak into iteration or a JSON payload — it exists purely so a caller
+    // serving a stale view can tell the client the truth about what it holds.
+    Object.defineProperty(views, 'builtFromStamp', { value: stamp, configurable: true });
+    return views;
   })();
   viewCache.set(worldId, { stamp, at: Date.now(), promise });
   promise.catch(() => viewCache.delete(worldId)); // never cache a failed read

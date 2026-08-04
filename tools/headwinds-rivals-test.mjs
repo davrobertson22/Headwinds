@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
   buildRivalViews, buildWorldRivalViews, withRivals, toHumanCompetitor, pairKeyOf,
-  playerAllianceDef,
+  playerAllianceDef, RIVAL_VIEW_POLL_MAX_STALE_MS,
 } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
 import { checkRouteRestrictions } from '../packages/engine/src/data/airportRestrictions.js';
@@ -232,6 +232,49 @@ await test('same world stamp serves everyone from one blob read; stamp change re
   const preloaded = await buildWorldRivalViews(fake, 'wCache', { airlines: [alice], stamp: '8.2' });
   assert.equal(reads, 3, 'preloaded airlines (the worker tick path) bypass the read entirely');
   assert.equal(preloaded.get('a1').competitors.length, 0);
+});
+
+// ── Rebuild floor (RIVAL_VIEW_POLL_MAX_STALE_MS) ──────────────────────────────
+// The stamp moves on ANY player's action — in production about every 22s — so
+// the strict check rebuilt near-constantly: the frequency half of the egress
+// bill. The poll read opts into a floor. What makes that safe is that the
+// served view reports the stamp it actually reflects, so the read path echoes
+// THAT instead of the current one; without it a client would mark itself
+// current on an overlay it was never given and simply never re-fetch it.
+
+await test('a caller opting into the floor is served the older build, not a rebuild', async () => {
+  let reads = 0;
+  const fake = {
+    airline: { findMany: async () => { reads++; return [alice, bob]; } },
+    alliance: { findMany: async () => [] },
+    world: { findUnique: async () => ({ id: 'wFloor', tickConfig: {} }) },
+    worldMarket: { findUnique: async () => null },
+  };
+  await buildWorldRivalViews(fake, 'wFloor', { stamp: '7.2' });
+  assert.equal(reads, 1);
+
+  // Stamp moved (a rival acted), but we are inside the floor.
+  const stale = await buildWorldRivalViews(fake, 'wFloor', {
+    stamp: '8.2', maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS,
+  });
+  assert.equal(reads, 1, 'inside the floor a changed stamp must NOT trigger a rebuild');
+  assert.equal(stale.builtFromStamp, '7.2',
+    'the served view must report the stamp it reflects, not the one requested — ' +
+    'echoing the requested stamp is exactly the desync this guards against');
+
+  // The same call without opting in still rebuilds immediately.
+  const fresh = await buildWorldRivalViews(fake, 'wFloor', { stamp: '8.2' });
+  assert.equal(reads, 2, 'a caller that did not opt in must still see its own write');
+  assert.equal(fresh.builtFromStamp, '8.2');
+});
+
+await test('builtFromStamp is invisible to iteration and serialisation', () => {
+  const m = new Map([['a1', { competitors: [] }]]);
+  Object.defineProperty(m, 'builtFromStamp', { value: '7.2', configurable: true });
+  assert.equal(Object.keys(m).length, 0);
+  assert.equal(JSON.stringify({ ...m }), '{}');
+  assert.equal(m.builtFromStamp, '7.2');
+  assert.equal([...m].length, 1, 'entries must be untouched');
 });
 
 console.log('\n── DEV badge (ADMIN_EMAILS-derived) ─────────────────────');

@@ -11,7 +11,8 @@ import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS } from '../lib/worldConfig.mjs';
-import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
+         RIVAL_VIEW_POLL_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
@@ -68,11 +69,20 @@ async function worldStampOf(worldId) {
   return value;
 }
 
-// Live rival view for one airline (validated by the world stamp — never
-// stale-from-blob, and shared across every player polling this world).
-async function rivalViewFor(airline, worldStamp) {
-  const views = await buildWorldRivalViews(prisma, airline.worldId, { stamp: worldStamp });
-  return views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
+// Live rival view for one airline (never stale-from-blob, and shared across
+// every player polling this world).
+//
+// Returns the stamp the view ACTUALLY reflects alongside it. With the default
+// strict cache that is always the stamp we asked for; with `maxStaleMs` the
+// cache may answer from a slightly older build, and the caller must echo the
+// older stamp so the client does not record itself as current on a view it has
+// not been given. See RIVAL_VIEW_POLL_MAX_STALE_MS.
+async function rivalViewFor(airline, worldStamp, { maxStaleMs = 0 } = {}) {
+  const views = await buildWorldRivalViews(prisma, airline.worldId, { stamp: worldStamp, maxStaleMs });
+  return {
+    view: views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null },
+    worldStamp: views.builtFromStamp ?? worldStamp,
+  };
 }
 
 // `appCode` is a machine-readable failure kind for the client, deliberately NOT
@@ -203,8 +213,15 @@ export default async function decisionRoutes(fastify) {
       // NO state blob at all — not ours, and the shared rival-view cache means
       // usually not anybody else's either.
       if (!selfChanged && worldChanged) {
-        const view = await rivalViewFor(slim, worldStamp);
-        return { ...base, rivals: rivalOverlay(view) };
+        const { view, worldStamp: served } = await rivalViewFor(slim, worldStamp,
+          { maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS });
+        // Echo the stamp the overlay reflects, NOT the one computed above — the
+        // cache may have answered from a build up to the floor old.
+        const stamp = `${slim.version}:${served}`;
+        // The floor can hand back exactly what the client already holds. Say so
+        // instead of resending it.
+        if (request.query.stamp === stamp) return { ...base, stamp, unchanged: true };
+        return { ...base, stamp, rivals: rivalOverlay(view) };
       }
 
       // Our own version moved (own decision, or a tick landed): the blob is
@@ -221,9 +238,11 @@ export default async function decisionRoutes(fastify) {
       // overlay is kilobytes — always sending it is far cheaper than the
       // desync it prevents.
       const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
-      const view = await rivalViewFor(airline, worldStamp);
+      const { view, worldStamp: served } = await rivalViewFor(airline, worldStamp,
+        { maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS });
       return {
         ...base,
+        stamp: `${slim.version}:${served}`,
         state: withRivals(airline.state, null),
         rivals: rivalOverlay(view),
       };
@@ -234,8 +253,9 @@ export default async function decisionRoutes(fastify) {
     // the Rivals tab and demand previews show other humans as they are right
     // now, not as of the last tick.
     const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
-    const view = await rivalViewFor(airline, worldStamp);
-    return { ...base, state: withRivals(airline.state, view) };
+    const { view, worldStamp: served } = await rivalViewFor(airline, worldStamp,
+      { maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS });
+    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(airline.state, view) };
   });
 
   // ── Submit a decision (validated intent → authoritative reducer) ───────────
@@ -314,7 +334,10 @@ export default async function decisionRoutes(fastify) {
     // Run it over the rival-injected view so (a) the stored blob is scrubbed of
     // any pre-humans-only AI competitors, and (b) the response the client
     // re-renders from shows the same rivals the read path does.
-    const view = await rivalViewFor(airline, await worldStampOf(airline.worldId));
+    // Strict (no maxStaleMs): the reducer runs against these rivals, and a
+    // decision must never be computed against a view that predates our own
+    // last write.
+    const { view } = await rivalViewFor(airline, await worldStampOf(airline.worldId));
     const injected = withRivals(airline.state, view);
 
     // Gate scarcity worlds: surface a FRIENDLY reason instead of a silent no-op
