@@ -19,7 +19,7 @@ import { api, isTransientError } from './api.js';
 import { shouldFastPoll, isStaleContact } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
 import { isHidden } from './usePoll.js';
-import { runDecisionWrite, shouldRollback } from './decisionPolicy.js';
+import { runDecisionWrite, shouldRollback, isRetryableRollback } from './decisionPolicy.js';
 import { supabase } from './supabase.js';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
@@ -360,7 +360,9 @@ export default function GamePlayScreen({ worldId, token }) {
       // always the weekly tick mid-commit, which holds row locks on every
       // airline for up to 30s) rolled the transaction back and wrote nothing, so
       // re-submitting the identical intent is safe and lands on the post-tick
-      // state — exactly where the player wanted their new fare. A timeout is
+      // state — exactly where the player wanted their new fare. A 503 the
+      // server marked `retryable` (transient tx/pool failure — also wrote
+      // nothing, guaranteed) is re-submitted too, after a backoff. A timeout is
       // never retried: it may already have been applied.
       const outcome = await runDecisionWrite({ post, errorBefore: errBefore });
       writesInFlight.current -= 1;
@@ -390,8 +392,21 @@ export default function GamePlayScreen({ worldId, token }) {
         // A real server rejection carries the reason the action reversed —
         // show it somewhere the player can actually read it. Transport
         // failures keep the transient-error / reconnecting treatment.
-        if (isTransientError(e)) setError(e);
-        else {
+        if (isTransientError(e)) {
+          setError(e);
+          // A retryable 503 that exhausted its backoff retries (Rule 3,
+          // decisionPolicy.js): the edit is about to be rolled back, and the
+          // reconnecting banner alone reads as a network blip — the player
+          // deserves to be told, in words, that the change did NOT save.
+          // Without this, the revert is silent again — exactly the complaint
+          // ("it's still just rolling back", Discord 2026-08-03).
+          if (isRetryableRollback(e) && seq === decisionSeq.current) {
+            showActionNotice(
+              'That change could not be saved — the world was busy committing a game week. '
+              + 'Your screen has been restored to the last saved state; please try again.',
+            );
+          }
+        } else {
           showActionNotice(String(e.message || e));
           // A real server refusal is the loudest hint that this tab is running
           // an older build than the server's rules — ask UpdatePrompt to check

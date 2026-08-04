@@ -474,6 +474,17 @@ export default async function decisionRoutes(fastify) {
       // "Invalid `prisma.airline.updateMany()` invocation: Transaction API error".
       // Every write below is version-guarded, so retrying a rolled-back attempt is
       // safe: it either lands or loses its CAS and 409s honestly. See lib/tx.mjs.
+      //
+      // The budget is raised above the 11s default DELIBERATELY, for this route
+      // alone. Railway logs 2026-08-02 18:51 showed decisions dying at the 10s
+      // pool/tx ceiling while a tick committed (P2024/P2028 → 503 → the client
+      // rolled the player's edit back — Discord: "it's still just rolling back",
+      // Scarce Assets). A decision that can sit out a ~20s commit unblocks when
+      // the tick lands, loses its CAS cleanly, and exits through the 409
+      // version_conflict path the client already retries silently. The ceiling
+      // that matters is THIS route's client timeout — 25s (GamePlayScreen sets
+      // timeoutMs: 25000) — not api.js's 15s default, so 22s fits with headroom.
+      // Do NOT copy these numbers to other routes; their clients abort at 15s.
       await withTx(prisma, async (tx) => {
         // Gate scarcity: the world's gate ledger is the arbiter of availability.
         // Same transaction as the blob write, version-guarded — two airlines can
@@ -555,6 +566,17 @@ export default async function decisionRoutes(fastify) {
             });
           }
         }
+      }, {
+        timeout: 20_000,
+        maxWait: 5_000,
+        deadlineMs: 22_000,
+        // Observability for the failure class above: how often a decision has to
+        // ride out a transient (blocked-behind-the-tick / pool) failure. Nobody
+        // could previously say whether edit-loss was 0.1% or 5% of writes.
+        onRetry: ({ attempt, delay, code }) => request.log.warn(
+          { worldId: airline.worldId, decisionType: type, attempt, delay, code },
+          'decision write hit a transient tx failure — retrying in-request',
+        ),
       });
     } catch (e) {
       if (e instanceof DecisionConflict) {
@@ -569,6 +591,10 @@ export default async function decisionRoutes(fastify) {
         // fare, the server never got it, and nothing reconciled the two until the
         // next tick reverted it — reported as "my routes randomly reset and then I
         // only notice it when I make minus" (Discord, 2026-07-30).
+        request.log.warn(
+          { worldId: airline.worldId, decisionType: type },
+          'decision lost its version CAS (version_conflict) — client retries',
+        );
         throw httpError(409, 'The world ticked while you were saving — retrying.', 'version_conflict');
       }
       // Float-pool violations lose a compare-and-set against another trade that

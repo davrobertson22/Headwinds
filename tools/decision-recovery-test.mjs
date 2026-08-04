@@ -23,6 +23,22 @@
 //      world clock advances in the same transaction, so that airline does not
 //      trade the week at all. The player punished is exactly the active one.
 //
+// Round 2 (Discord 2026-08-03, Bob: "the save bug on Scarce Asset is still not
+// fixed btw, it's still just rolling back") — two survivors of round 1, both
+// confirmed in the Railway logs on 2026-08-04:
+//
+//   3. CLIENT. During a tick commit the API can starve of database connections
+//      for ~a minute (P2024 → 503 `{ retryable: true }` — observed eating a
+//      POST /decisions on Scarce Assets, 8/2 18:51:46). The server's flag
+//      GUARANTEES nothing was written, api.js carried it since 7/31 — and no
+//      code ever read it, so the client rolled the edit back anyway.
+//
+//   4. SERVER. The recompute pass took no lock, so a player landing ANOTHER
+//      decision between its re-read and its second CAS skipped the airline's
+//      whole week after all — "changed under the tick TWICE", three times in
+//      two days on Scarce Assets. It now takes the row lock first
+//      (SELECT ... FOR UPDATE), which makes it unlosable.
+//
 //   node tools/decision-recovery-test.mjs
 
 import assert from 'node:assert/strict';
@@ -30,8 +46,9 @@ import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { tickWorldOnce } from '../apps/headwinds-server/src/lib/tickService.mjs';
 import { api, NetworkError } from '../apps/headwinds-web/src/api.js';
 import {
-  isVersionConflict, shouldRetryDecision, shouldRollback, freshDecisionError,
-  runDecisionWrite, VERSION_CONFLICT, MAX_DECISION_RETRIES,
+  isVersionConflict, isRetryableRollback, shouldRetryDecision, shouldRollback,
+  freshDecisionError, decisionRetryDelayMs, runDecisionWrite,
+  VERSION_CONFLICT, MAX_DECISION_RETRIES, MAX_ROLLBACK_RETRIES, ROLLBACK_RETRY_DELAYS_MS,
 } from '../apps/headwinds-web/src/decisionPolicy.js';
 
 let passed = 0, failed = 0;
@@ -71,6 +88,43 @@ await test('a TIMEOUT is never retried — its outcome is unknown', () => {
 
 await test('the retry budget is finite', () => {
   assert.equal(shouldRetryDecision(err(409, VERSION_CONFLICT), MAX_DECISION_RETRIES), false);
+});
+
+console.log('\n── retry policy: a server-ASSERTED rollback may be re-sent ');
+
+// A transient tx failure the server mapped to 503 { retryable: true } — its
+// guarantee that the transaction rolled back and nothing was written.
+const rerr = () => Object.assign(new Error('The world is busy committing this week — give it a moment and try again.'),
+  { status: 503, retryable: true });
+
+await test('a retryable 503 is recognised — flag AND status together', () => {
+  assert.equal(isRetryableRollback(rerr()), true);
+  // A bare 503 (older server, or a proxy's own error page) carries no
+  // guarantee about what was written. It stays non-retryable.
+  assert.equal(isRetryableRollback(err(503)), false);
+  // The flag alone is not enough either: `retryable` is only ever sent with
+  // 503, so any other shape claiming it is not ours to trust — least of all a
+  // transport failure someone decorated (its outcome is genuinely unknown).
+  assert.equal(isRetryableRollback(Object.assign(err(409), { retryable: true })), false);
+  assert.equal(isRetryableRollback(Object.assign(new NetworkError('x'), { retryable: true })), false);
+});
+
+await test('rollback retries back off; conflict retries do not', () => {
+  // By the time a version_conflict 409 arrives the tick that beat us has
+  // already committed — retry immediately. A retryable 503 means the squeeze
+  // (pool starvation / mid-commit block) is probably still on — wait it out.
+  assert.equal(decisionRetryDelayMs(err(409, VERSION_CONFLICT), { conflictRetries: 0 }), 0);
+  assert.equal(decisionRetryDelayMs(err(409, VERSION_CONFLICT), { conflictRetries: 1 }), null);
+  assert.equal(decisionRetryDelayMs(rerr(), { rollbackRetries: 0 }), ROLLBACK_RETRY_DELAYS_MS[0]);
+  assert.equal(decisionRetryDelayMs(rerr(), { rollbackRetries: 1 }), ROLLBACK_RETRY_DELAYS_MS[1]);
+  assert.equal(decisionRetryDelayMs(rerr(), { rollbackRetries: MAX_ROLLBACK_RETRIES }), null);
+});
+
+await test('failures with an UNKNOWN outcome never earn a delay-retry', () => {
+  assert.equal(decisionRetryDelayMs(new NetworkError('x'), {}), null);
+  assert.equal(decisionRetryDelayMs(err(503), {}), null);
+  assert.equal(decisionRetryDelayMs(err(500), {}), null);
+  assert.equal(decisionRetryDelayMs(err(409), {}), null);
 });
 
 console.log('\n── rollback: a failed write must not stay on screen ──────');
@@ -121,6 +175,23 @@ await test('api() surfaces the server code on a rejection', async () => {
       assert.equal(e.status, 409);
       assert.equal(e.code, VERSION_CONFLICT, 'the code must survive the wire — without it the client cannot tell a retryable conflict from a refusal');
       assert.equal(shouldRetryDecision(e, 0), true);
+      return true;
+    });
+  });
+});
+
+await test('api() surfaces the retryable flag on a transient 503', async () => {
+  // The other half of the wire contract. The server marks its transient-tx
+  // 503s { retryable: true }; if the flag is dropped here, Rule 3 never fires
+  // and every pool squeeze is back to silently reverting edits.
+  await withFetch(async () => ({
+    ok: false, status: 503, statusText: 'Service Unavailable',
+    json: async () => ({ error: 'The world is busy committing this week — give it a moment and try again.', retryable: true }),
+  }), async () => {
+    await assert.rejects(api('/worlds/w1/decisions', { method: 'POST' }), (e) => {
+      assert.equal(e.status, 503);
+      assert.equal(e.retryable, true, 'the retryable flag must survive the wire');
+      assert.equal(isRetryableRollback(e), true);
       return true;
     });
   });
@@ -182,6 +253,56 @@ await test('a semantic refusal is submitted exactly ONCE', async () => {
   assert.equal(post.calls(), 1);
 });
 
+await test('a retryable 503 is re-submitted after a backoff and lands', async () => {
+  // The 2026-08-03 report in one test: the pool-starved write came back 503
+  // { retryable: true } — the server's guarantee that nothing was written —
+  // and the old client rolled the edit back anyway. Now it waits out the
+  // squeeze and re-sends.
+  const slept = [];
+  const post = flaky(1, rerr());
+  const outcome = await runDecisionWrite({ post, sleep: async (ms) => slept.push(ms) });
+  assert.equal(outcome.ok, true, 'the retry must land');
+  assert.equal(post.calls(), 2);
+  assert.deepEqual(slept, [ROLLBACK_RETRY_DELAYS_MS[0]], 'the retry must wait before re-entering the burst');
+});
+
+await test('a persistent 503 burst gives up after the budget, with delays escalating', async () => {
+  const slept = [];
+  const boom = rerr();
+  const post = flaky(99, boom);
+  const outcome = await runDecisionWrite({ post, sleep: async (ms) => slept.push(ms) });
+  assert.equal(outcome.ok, false);
+  assert.equal(post.calls(), 1 + MAX_ROLLBACK_RETRIES, 'bounded: initial attempt plus the rollback budget');
+  assert.deepEqual(slept, ROLLBACK_RETRY_DELAYS_MS);
+  assert.equal(outcome.error, boom, 'the final error reaches the caller so GamePlayScreen can say the edit reverted');
+});
+
+await test('a bare 503 from an OLDER server is still submitted exactly once', async () => {
+  // Back-compat: a server without the retryable flag makes no rollback
+  // guarantee, so the client must treat its 503 like any unknown failure.
+  const post = flaky(99, err(503));
+  const outcome = await runDecisionWrite({ post, sleep: async () => { throw new Error('must not sleep'); } });
+  assert.equal(outcome.ok, false);
+  assert.equal(post.calls(), 1);
+});
+
+await test('a conflict retry that then hits a 503 uses BOTH budgets', async () => {
+  // Mixed reality: the tick beats us (409 conflict), the immediate re-send
+  // walks into the pool squeeze (503 retryable), the backoff clears it.
+  let calls = 0;
+  const slept = [];
+  const post = async () => {
+    calls += 1;
+    if (calls === 1) throw err(409, VERSION_CONFLICT);
+    if (calls === 2) throw rerr();
+    return { ok: true, state: { week: 3 }, stamp: '7:9.2' };
+  };
+  const outcome = await runDecisionWrite({ post, sleep: async (ms) => slept.push(ms) });
+  assert.equal(outcome.ok, true);
+  assert.equal(calls, 3);
+  assert.deepEqual(slept, [ROLLBACK_RETRY_DELAYS_MS[0]]);
+});
+
 await test('the failure is handed back intact for the caller to classify', async () => {
   const boom = err(409);
   const outcome = await runDecisionWrite({ post: flaky(99, boom) });
@@ -212,6 +333,11 @@ function fakePrisma({ world, airlines, onWrite = null }) {
     world: { ...world },
     airlines: airlines.map((a) => ({ ...a })),
     tickLogs: [], standings: [], news: [], market: null, credits: [],
+    // Row locks taken via SELECT ... FOR UPDATE. The recompute pass locks the
+    // conflicted airline before re-reading it; a test's onWrite racer models
+    // Postgres by checking this set — a real competing decision would BLOCK on
+    // the lock, not land.
+    locked: new Set(),
   };
   let logId = 0;
   const p = {
@@ -307,6 +433,13 @@ function fakePrisma({ world, airlines, onWrite = null }) {
     },
     alliance: { findMany: async () => [] },
   };
+  // Tagged-template raw SQL. The only raw statement the tick issues is the
+  // recompute's row lock; record it so lock-aware racers can yield like the
+  // real database would make them.
+  p.$queryRaw = async (strings, ...values) => {
+    if (strings.join('?').includes('FOR UPDATE')) db.locked.add(values[0]);
+    return [];
+  };
   p.$transaction = async (fn) => fn(p);
   return p;
 }
@@ -383,17 +516,47 @@ await test('the racing airline is ranked in the standings', async () => {
   assert.ok(week2.some((s) => s.airlineId === 'a1'), 'the racing airline must appear in the standings');
 });
 
-await test('an airline that loses the race TWICE is skipped, not looped on', async () => {
-  // One retry only: the recompute runs inside the tick transaction, which holds
-  // locks on every airline in the world. An unbounded loop there would be far
-  // worse than one player losing one week.
+await test('the recompute LOCKS the row — a decision stream cannot cost the week', async () => {
+  // Round-2 bug ("changed under the tick TWICE — skipped, loses this week",
+  // 3× in two days on Scarce Assets): the recompute re-read optimistically, so
+  // a player mid-bulk-edit could land ANOTHER decision between its re-read and
+  // its second CAS and still lose the whole week. The recompute now takes
+  // SELECT ... FOR UPDATE first. This racer models the real database: it keeps
+  // landing decisions as long as the row is unlocked, and blocks (yields) once
+  // the lock is held — like Postgres would make it.
+  let hits = 0;
+  const prisma = fakePrisma({
+    world: makeWorld(),
+    airlines: [seedAirline('a1', 'Alpha', 'JFK')],
+    onWrite: async (where, db) => {
+      if (where.id !== 'a1') return;
+      if (db.locked.has('a1')) return; // a real decision write blocks here
+      hits += 1;
+      const a = db.airlines.find((x) => x.id === 'a1');
+      a.state = { ...a.state, airlineName: PLAYER_EDIT };
+      a.version = (a.version ?? 0) + 1;
+    },
+  });
+  const res = await tickWorldOnce(prisma, makeWorld(), { log: quiet });
+  const a1 = prisma._db.airlines.find((a) => a.id === 'a1');
+  assert.equal(res.ok, true);
+  assert.equal(prisma._db.locked.has('a1'), true, 'the recompute must take the row lock');
+  assert.equal(a1.week, 2, 'a heavy editor must trade the week — that is the whole fix');
+  assert.equal(a1.state.airlineName, PLAYER_EDIT, 'and their last landed decision must survive');
+});
+
+await test('even an impossible under-lock loss is skipped, not looped on', async () => {
+  // Paranoia branch: with the lock held the second CAS cannot lose a race, but
+  // if it somehow reports zero rows (schema drift, deleted row) the tick must
+  // still commit for everyone else — bounded, no retry loop inside a
+  // transaction that holds locks on every airline in the world.
   let hits = 0;
   const prisma = fakePrisma({
     world: makeWorld(),
     airlines: [seedAirline('a1', 'Alpha', 'JFK')],
     onWrite: async (where, db) => {
       if (where.id !== 'a1' || hits >= 2) return;
-      hits += 1;
+      hits += 1; // deliberately ignores the lock — simulating the impossible
       const a = db.airlines.find((x) => x.id === 'a1');
       a.version = (a.version ?? 0) + 1;
     },

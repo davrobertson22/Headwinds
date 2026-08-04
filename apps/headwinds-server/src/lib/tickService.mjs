@@ -198,6 +198,14 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // standings in ONE transaction: either the whole week lands or nothing does, so
   // the world clock can never run ahead of the airline state it summarises.
   try {
+    // Commit-duration observability (2026-08-04). The tick transaction holds
+    // row locks on every airline it writes and squeezes the shared connection
+    // pool while it runs; player-facing 503 bursts (P2024) line up with these
+    // windows in the Railway logs. Until this line existed nobody could say
+    // how long a given world's commit actually holds the world hostage, or
+    // watch it grow as blobs age — the number that decides when the split-blob
+    // rework stops being optional.
+    const commitStartedAt = Date.now();
     const outcome = await withTx(prisma, async (tx) => {
       const claimed = await tx.world.updateMany({
         where: { id: world.id, currentWeek: world.currentWeek, currentYear: world.currentYear, status: 'RUNNING' },
@@ -244,6 +252,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
 
       const written = [];
       const conflicted = [];
+      const recomputed = [];
       for (const c of computed) {
         if (await writeAirline(c)) written.push(writtenRow(c));
         else conflicted.push(c);
@@ -270,12 +279,29 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // bankruptcy flags from that array — stale ones would forfeit gates the
       // player no longer loses.
       //
-      // One retry only. A second collision would need another decision inside the
-      // same commit window, and an unbounded loop here runs inside a transaction
-      // holding locks on every airline in the world.
+      // The recompute takes the ROW LOCK first (SELECT ... FOR UPDATE), because
+      // the optimistic version it shipped with in July was still losable: the
+      // tick's own updateMany for this airline matched ZERO rows, so nothing
+      // here was locked, and the player who beat us could land ANOTHER decision
+      // between the plain re-read and the second CAS. Not theoretical — it
+      // happened three times in two days on Scarce Assets ("changed under the
+      // tick TWICE — skipped, loses this week", 2026-08-01/02, the same heavy
+      // editors each time). With the lock held, any decision arriving now
+      // blocks until this transaction commits, then loses ITS version CAS and
+      // returns 409 version_conflict — the path the client already retries
+      // silently onto the post-tick state. The lock wait itself is bounded:
+      // whoever holds the row is a decision write past its own updateMany,
+      // which finishes in milliseconds.
+      //
+      // Deadlock note: a decision transaction acquires (gate ledger?) → its own
+      // airline row → (market pool?) and never touches a row this transaction
+      // holds EXCEPT that airline row, so lock ordering cannot cycle; and if
+      // Postgres ever does flag a deadlock (P2034), withTx retries the whole
+      // tick, whose world-clock CAS makes the retry idempotent.
       for (const stale of conflicted) {
         const id = stale.airline.id;
         try {
+          await tx.$queryRaw`SELECT id FROM "Airline" WHERE id = ${id} FOR UPDATE`;
           const fresh = await tx.airline.findUnique({
             where: { id },
             include: { account: { select: { isOG: true, email: true } } },
@@ -285,11 +311,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           const redone = computeOne(fresh);
           if (await writeAirline(redone)) {
             written.push(writtenRow(redone));
+            recomputed.push(id);
             const at = computed.indexOf(stale);
             if (at >= 0) computed[at] = redone;
             log.warn?.(`[tick] world ${world.id} airline ${id} changed under the tick — recomputed and written`);
           } else {
-            log.error(`[tick] world ${world.id} airline ${id} changed under the tick TWICE — skipped, loses this week`);
+            // With the row locked and the version read under that lock, the CAS
+            // cannot lose a race — a zero-count update here is structural
+            // (schema drift, deleted row) and deserves a loud log, not a retry.
+            log.error(`[tick] world ${world.id} airline ${id} recompute CAS failed UNDER LOCK — skipped, loses this week (investigate)`);
           }
         } catch (err) {
           log.error(`[tick] world ${world.id} airline ${id} recompute failed — skipped, loses this week:`, err?.message ?? err);
@@ -396,7 +426,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         where: { worldId: world.id, week: { lt: toIndex - NEWS_WINDOW_WEEKS } },
       });
 
-      return { lostRace: false, airlines: written.length, written };
+      return { lostRace: false, airlines: written.length, written, recomputed: recomputed.length };
     }, {
       ...TICK_TX_OPTS,
       // No client is waiting on the worker, so the player-request deadline in
@@ -411,6 +441,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     });
 
     if (outcome.lostRace) return { ok: false, reason: 'lost-race' };
+
+    log.info?.(
+      `[tick] ${world.name ?? world.id} week ${toIndex}: committed in ${Date.now() - commitStartedAt}ms `
+      + `(${outcome.airlines} airline(s)${outcome.recomputed ? `, ${outcome.recomputed} recomputed` : ''})`,
+    );
 
     // ── Float pool refill ───────────────────────────────────────────────────
     // Heals POOL_REFILL_PER_YEAR of the pool's seed per game year (spread weekly),
