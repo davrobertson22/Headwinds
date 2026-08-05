@@ -130,12 +130,18 @@ let warrior = {
 const cheapPlayer = [{ origin: 'JFK', destination: 'LHR', ticketPrice: Math.round(refP * 0.7), weeklyFrequency: 14 }];
 let warStarted = false, warPricingApplied = false, warEnded = false;
 let pool = [warrior];
-for (let wk = 1; wk <= 80; wk++) {
+// 160 weeks and a deep cash floor, deliberately. The declaration is a 30%
+// roll per ELIGIBLE week, and eligibility needs cash > 2× reserve AT CHECK
+// TIME — inside the tick, after the archetype's own random spending. With an
+// 80-week window and a $40M floor the no-war tail was real: this suite went
+// red on a normal run (2026-08-04) with zero fare wars declared, all three
+// checks cascading off that one non-event.
+for (let wk = 1; wk <= 160; wk++) {
   const r = tickCompetitorAI(pool, {
     weekNumber: wk, month: 6, playerRoutes: cheapPlayer,
     playerHubs: ['JFK'], playerMarketCap: 500_000_000,
   });
-  pool = r.competitors.map(c => ({ ...c, cash: Math.max(c.cash, 40_000_000), profitHistory: [1_000_000] }));
+  pool = r.competitors.map(c => ({ ...c, cash: Math.max(c.cash, 120_000_000), profitHistory: [1_000_000] }));
   for (const e of r.events) {
     if (e.type === 'fareWar')    warStarted = true;
     if (e.type === 'fareWarEnd') warEnded = true;
