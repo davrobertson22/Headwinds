@@ -291,6 +291,122 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
 }
 
 // ─────────────────────────────────────────────
+// NEW ROUTE GUARD (Planner / Routes: open a passenger route)
+// ─────────────────────────────────────────────
+// Returns null if the proposed route would be ACCEPTED by ADD_ROUTE, else a
+// short player-facing reason it would be rejected. The ADD_ROUTE case calls this
+// as its single gate, so the engine, the client and the server cannot disagree:
+// every rejection carries a sentence, the planner can pre-flight the same check
+// and answer the click with the reason, and the decisions endpoint can turn it
+// into a 400 instead of silently handing back the pre-action state.
+//
+// This closes the multiplayer version of a reported solo bug: with no gate at
+// the destination, "Open Route" dispatched, the reducer returned `state`
+// unchanged, the server replied 201 with error:null, and the client's optimistic
+// route just vanished on adoption — a click that did nothing, with no
+// explanation anywhere.
+//
+// Slot arithmetic goes through slotCapAt/poolGrantAt, so a member launching on
+// an alliance partner's granted slots is judged exactly as the reducer judges it.
+//
+// `action` is the ADD_ROUTE action shape:
+//   { origin, destination, aircraftId, weeklyFrequency, season }
+export function addRouteBlockReason(state, action) {
+  const aircraft = state.fleet.find(a => a.id === action.aircraftId);
+  const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+  if (!aircraft || !type) return 'Aircraft not found in your fleet';
+  const tail = aircraft.tailNumber || aircraft.name || type.name;
+  // Freighters carry no passengers — they fly cargo routes (ADD_CARGO_ROUTE) only.
+  if (type.freighter) return `${tail} is a freighter — it flies cargo routes, not passenger routes`;
+  if (action.origin === action.destination) return 'Origin and destination are the same airport';
+
+  const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
+  const dist = routeDistanceKm(action.origin, action.destination);
+
+  // Seasonal window: the checks below run PER MONTH so a route that is dormant
+  // part of the year can share an aircraft / gate slot with a counter-seasonal one.
+  const newSeason = (Array.isArray(action.season?.months) && action.season.months.length > 0)
+    ? { months: [...action.season.months].sort((a, b) => a - b) }
+    : null;
+  const newMonths = routeActiveMonths({ origin: action.origin, destination: action.destination, season: newSeason });
+
+  // ── Range (engine/wingtip rangeMod + cabin-payload bonus) ──────────────────
+  const range = effectiveRangeKm(aircraft, type);
+  if (dist > range) {
+    return `${tail} can't reach ${action.destination} — the lane is ${Math.round(dist).toLocaleString()} km, its range is ${Math.round(range).toLocaleString()} km`;
+  }
+
+  // ── Regulatory (perimeter rules, per-pair frequency caps, runway, size) ────
+  const pairKey = [action.origin, action.destination].sort().join('-');
+  const pairRoutes = state.routes.filter(r => [r.origin, r.destination].sort().join('-') === pairKey);
+  const peakPairFreq = Math.max(0, ...newMonths.map(m =>
+    pairRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) => s + r.weeklyFrequency, 0)));
+  if (checkRouteRestrictions(action.origin, action.destination, dist, peakPairFreq + weeklyFrequency,
+        freighterBodyClass(type), { routes: state.routes, excludeKey: pairKey, aircraftType: type })) {
+    return `Regulation blocks this route at ${weeklyFrequency} flights/wk`;
+  }
+
+  // ── Block-hours on this airframe, per-month peak across its routes ─────────
+  const acRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
+  const newBlockHrs = weeklyBlockHours(dist, weeklyFrequency, type);
+  const maxBlockHrs = maxWeeklyBlockHoursFor(state);
+  const peakBlockHrs = Math.max(0, ...newMonths.map(m =>
+    newBlockHrs + acRoutes
+      .filter(r => isRouteActive(r, m))
+      .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0)));
+  if (peakBlockHrs > maxBlockHrs) {
+    return `${tail} has no spare flying hours — this would need ${Math.round(peakBlockHrs)}h/wk against a ${maxBlockHrs}h limit`;
+  }
+
+  // ── Network connectivity: a plane that already flies can only extend its ───
+  // network from an airport it already serves — no teleporting.
+  if (acRoutes.length > 0) {
+    const served = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
+    if (!served.has(action.origin) && !served.has(action.destination)) {
+      return `${tail} doesn't serve ${action.origin} or ${action.destination} — an aircraft can only add a route that touches its existing network`;
+    }
+  }
+
+  // ── Gates: one of your own, or an alliance slot-pool grant ─────────────────
+  const gates = state.gates ?? {};
+  for (const code of [action.origin, action.destination]) {
+    if (!(gates[code] > 0) && poolGrantAt(state, code) <= 0) {
+      return `You don't have a gate at ${code} — lease one, or borrow slots from an alliance partner there`;
+    }
+  }
+
+  // ── Slots (each freq unit = 1 departure/wk at each endpoint), per-month peak ─
+  const peakSlotsAt = (code) => Math.max(0, ...newMonths.map(m => state.routes
+    .filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
+    .reduce((s, r) => s + r.weeklyFrequency, 0)));
+  for (const code of [action.origin, action.destination]) {
+    const cap  = slotCapAt(state, code);
+    const used = peakSlotsAt(code);
+    if (used + weeklyFrequency > cap) {
+      return `Not enough gate slots at ${code} — ${used}/${cap} in use and this route needs ${weeklyFrequency} more`;
+    }
+  }
+
+  // ── Cash ───────────────────────────────────────────────────────────────────
+  // Only for a genuinely NEW route: adding frequency to an identical existing
+  // route (same aircraft, same O&D, same season) merges and charges nothing.
+  const sameSeason = (r) => {
+    const a = routeActiveMonths(r), b = newMonths;
+    return a.length === b.length && a.every((m, i) => m === b[i]);
+  };
+  const merges = state.routes.some(r =>
+    r.aircraftId === action.aircraftId && sameSeason(r) &&
+    ((r.origin === action.origin      && r.destination === action.destination) ||
+     (r.origin === action.destination && r.destination === action.origin))
+  );
+  if (!merges && state.cash < routeLaunchCost(dist)) {
+    return `Not enough cash — opening this route costs ${formatMoney(routeLaunchCost(dist))} up front`;
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
 // CARGO FREQUENCY CHANGE GUARD (freight routes)
 // ─────────────────────────────────────────────
 // Freight sibling of frequencyChangeBlockReason. Returns null if `newFreq` is
@@ -1321,83 +1437,27 @@ function reducer(state, action) {
     }
 
     case 'ADD_ROUTE': {
-      const aircraft = state.fleet.find(a => a.id === action.aircraftId);
-      const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
-      if (!aircraft || !type) return state;
-      // Freighters carry no passengers — they fly cargo routes (ADD_CARGO_ROUTE) only.
-      if (type.freighter) return state;
+      // ── Every rejection lives in addRouteBlockReason() ────────────────────────
+      // Single source of truth for "can this route open?", shared with the planner
+      // and with the decisions endpoint so a refused route always comes back with a
+      // sentence instead of an unchanged state. Range, regulation, block-hours,
+      // connectivity, gates, slots and cash are all checked there.
+      if (addRouteBlockReason(state, action)) return state;
 
-      // Reject a same-airport route: distance 0 → ~zero cost but full gravity-model
-      // demand, which would be an exploit. (The UI excludes this, but guard anyway.)
-      if (action.origin === action.destination) return state;
+      const aircraft = state.fleet.find(a => a.id === action.aircraftId);
+      const type     = getAircraftType(aircraft.typeId);
       // Frequency must be a positive integer.
       const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
 
       const dist = routeDistanceKm(action.origin, action.destination);
 
       // ── Seasonal window ──────────────────────────────────────────────────────
-      // action.season = { months:[1..12] } | null (year-round). Block-hour and slot
-      // checks below run PER MONTH so a route that's dormant part of the year can
-      // share an aircraft / gate slot with a counter-seasonal route.
+      // action.season = { months:[1..12] } | null (year-round).
       const newSeason = (Array.isArray(action.season?.months) && action.season.months.length > 0)
         ? { months: [...action.season.months].sort((a, b) => a - b) }
         : null;
-      const newRouteLike = { origin: action.origin, destination: action.destination, season: newSeason };
-      const newMonths = routeActiveMonths(newRouteLike);
-
-      // ── Range check (engine/wingtip rangeMod + cabin-payload bonus) ─────────
-      const effectiveRange = effectiveRangeKm(aircraft, type);
-      if (dist > effectiveRange) return state;
-
-      // ── Regulatory restriction check (perimeter rules, slot caps, aircraft size) ─
-      // Pass the TOTAL proposed weekly frequency on this city-pair (existing + new) and
-      // the player's routes, so perimeter exemption-slot and per-route frequency caps
-      // (e.g. DCA's 5 beyond-perimeter slots, each ≤7/wk) can be evaluated.
-      // Frequency caps bind per-week, so for a seasonal route only count existing
-      // routes that operate in the SAME month(s) — use the worst (peak) month.
+      const newMonths = routeActiveMonths({ origin: action.origin, destination: action.destination, season: newSeason });
       const pairKey = [action.origin, action.destination].sort().join('-');
-      const pairRoutes = state.routes
-        .filter(r => [r.origin, r.destination].sort().join('-') === pairKey);
-      const peakPairFreq = Math.max(0, ...newMonths.map(m =>
-        pairRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) => s + r.weeklyFrequency, 0)));
-      const proposedPairFreq = peakPairFreq + weeklyFrequency;
-      if (checkRouteRestrictions(action.origin, action.destination, dist, proposedPairFreq, freighterBodyClass(type),
-            { routes: state.routes, excludeKey: pairKey, aircraftType: type })) return state;
-
-      // ── Block-hours check: per-month peak across routes on this aircraft ───────
-      // Two routes that never share a month can both use the full block-hour budget.
-      const acRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
-      const newBlockHrs = weeklyBlockHours(dist, weeklyFrequency, type);
-      const peakBlockHrs = Math.max(0, ...newMonths.map(m =>
-        newBlockHrs + acRoutes
-          .filter(r => isRouteActive(r, m))
-          .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0)));
-      if (peakBlockHrs > maxWeeklyBlockHoursFor(state)) return state;
-
-      // ── Network-connectivity check: a plane that has already flown can only ───
-      // extend its network from airports it already serves — no teleporting.
-      const aircraftRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
-      if (aircraftRoutes.length > 0) {
-        const servedAirports = new Set(aircraftRoutes.flatMap(r => [r.origin, r.destination]));
-        const connected = servedAirports.has(action.origin) || servedAirports.has(action.destination);
-        if (!connected) return state;
-      }
-
-      // ── Gate checks ──────────────────────────────────────────────────────────
-      const gates = state.gates ?? {};
-      // A gate of your own OR an alliance slot-pool grant opens the airport —
-      // borrowing partners' spare slots is precisely for launching somewhere
-      // you hold nothing (the server caps a no-gate grant at one gate's worth).
-      if (!(gates[action.origin] > 0)      && poolGrantAt(state, action.origin) <= 0)      return state;
-      if (!(gates[action.destination] > 0) && poolGrantAt(state, action.destination) <= 0) return state;
-
-      // Slot availability (each freq unit = 1 departure/wk at each endpoint), checked
-      // per-month so a dormant route's slots are free for a counter-seasonal route.
-      const peakSlotsAt = (code) => Math.max(0, ...newMonths.map(m => state.routes
-        .filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
-        .reduce((s, r) => s + r.weeklyFrequency, 0)));
-      if (peakSlotsAt(action.origin)      + weeklyFrequency > slotCapAt(state, action.origin))      return state;
-      if (peakSlotsAt(action.destination) + weeklyFrequency > slotCapAt(state, action.destination)) return state;
 
       // ── Consolidate: merge only when the same aircraft flies the same O&D with
       // the SAME season window (different windows must stay separate routes). ──
@@ -1421,9 +1481,8 @@ function reducer(state, action) {
         };
       }
 
-      // ── Route launch cost ──────────────────────────────────────────────────────
+      // ── Route launch cost (affordability already checked above) ────────────────
       const launchCost = routeLaunchCost(dist);
-      if (state.cash < launchCost) return state;   // can't afford to open route
 
       const basePrice = Math.max(1, Math.round(Number(action.ticketPrice) || 0));
       // Full per-cabin fares set in the planner's fare editor. Each fare is

@@ -8,7 +8,7 @@
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
-import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
+import { gameReducer, gateLeaseDenial, leaseDenial, addRouteBlockReason } from '@tailwinds/engine/reducer';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
@@ -339,6 +339,17 @@ export default async function decisionRoutes(fastify) {
     // last write.
     const { view } = await rivalViewFor(airline, await worldStampOf(airline.worldId));
     const injected = withRivals(airline.state, view);
+
+    // Opening a passenger route: every way the engine can refuse one now has a
+    // sentence attached, so send it back as a 400 rather than replying 201 with an
+    // unchanged state. Without this the client's optimistic route simply vanishes
+    // on adoption and the player is told nothing — the multiplayer face of the
+    // reported "clicking Open Route does nothing" bug. A 400 also makes the client
+    // roll the optimistic apply back and surface the text in the action notice.
+    if (type === 'ADD_ROUTE') {
+      const reason = addRouteBlockReason(injected, { type, ...guarded });
+      if (reason) throw httpError(400, reason);
+    }
 
     // Gate scarcity worlds: surface a FRIENDLY reason instead of a silent no-op
     // when a lease is not allowed (capacity / caps / lockout). The engine's own
