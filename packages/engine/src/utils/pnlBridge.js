@@ -117,7 +117,10 @@ export function costBridge(proj, state = {}) {
   if (ownParked) push('ownParked', 'Leases & maintenance (parked fleet)', -Math.round(ownParked), 'cost',
     'Aircraft that flew nothing this week — idle, in a heavy check, or on reserve standby. They still owe lease and base maintenance, and no route absorbs it.');
   if (gates) push('gates', 'Gates & slots', -gates, 'cost',
-    'Weekly gate rental at every airport you hold, including the congestion surcharge on gates above 90% utilisation.');
+    'Weekly gate rental at every airport you hold, including the congestion surcharge on gates above 90% utilisation'
+    + ((n(r.totalSlotPoolCost) || n(r.totalSlotPoolEarnings))
+      ? `, plus alliance slot-pool rent (paid $${n(r.totalSlotPoolCost).toLocaleString()}, received $${n(r.totalSlotPoolEarnings).toLocaleString()}).`
+      : '.'));
   if (labour) push('labour', 'Staff & payroll', -labour, 'cost',
     'Pilots, cabin crew, engineers and ground staff — priced per aircraft, and surcharged for every extra aircraft family you operate.');
   if (overhead) push('overhead', 'HQ, insurance & bases', -overhead, 'cost',

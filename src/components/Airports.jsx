@@ -235,6 +235,146 @@ const AUCTION_OUTCOME = {
 };
 
 // ─── Gate Market (scarcity worlds): sealed auction bids + player listings ────
+// ── Alliance slot pool (scarcity worlds, alliance members) ───────────────────
+// The owner's per-airport switch ("share my spare slots") plus the live picture
+// of who is drawing on whom. Data comes from the server-injected pool view
+// (state.gateMarket.slotPool, refreshed instantly after a toggle; falls back to
+// the tick-injected state.allianceSlotPool). Everything here is usage, never
+// holdings — the ownership caps are untouched by sharing.
+function SlotPoolSection({ state, remoteApi }) {
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [reserveDrafts, setReserveDrafts] = useState({}); // code → string
+
+  if (!state.gateScarcityWorld || !remoteApi?.setGateSlotShare) return null;
+  if (!state.allianceMembership) return null; // pool is an alliance benefit
+
+  const pool = state.gateMarket?.slotPool ?? state.allianceSlotPool ?? {};
+  const myGateCodes = Object.entries(state.gates ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([code]) => code)
+    .sort();
+  if (myGateCodes.length === 0 && Object.keys(pool).length === 0) return null;
+
+  // Slots my own schedule uses at an airport (pax + cargo) — same arithmetic
+  // the engine's slot checks use, so "spare" here matches what can be shared.
+  const usedAt = (code) =>
+    (state.routes ?? []).filter((r) => r.origin === code || r.destination === code)
+      .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0)
+    + (state.cargoRoutes ?? []).filter((r) => r.origin === code || r.destination === code)
+      .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0);
+
+  const run = (fn) => {
+    setBusy(true); setErr(null);
+    fn().catch((e) => setErr(e?.message ?? String(e))).finally(() => setBusy(false));
+  };
+  const INPUT = {
+    width: 70, padding: '3px 8px', fontSize: 12, borderRadius: 4,
+    background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
+  };
+
+  const rows = myGateCodes.map((code) => {
+    const count = state.gates[code];
+    const p = pool[code] ?? null;
+    const capacity = count * 50; // SLOTS_PER_GATE
+    const used = usedAt(code);
+    return { code, count, capacity, used, spare: Math.max(0, capacity - used), p };
+  });
+  const borrowedRows = Object.entries(pool)
+    .filter(([, p]) => (p?.draw ?? 0) > 0 || (p?.grant ?? 0) > (p?.draw ?? 0))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const weeklyEarnings = rows.reduce((s, r) => s + (r.p?.weeklyEarnings ?? 0), 0);
+  const weeklyCost = Object.values(pool).reduce((s, p) => s + (p?.weeklyCost ?? 0), 0);
+
+  return (
+    <section id="slot-pool" style={{ marginBottom: 28 }}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8,
+      }}>
+        ⚖ Alliance Slot Pool
+      </div>
+      <div className="card" style={{ padding: '12px 16px' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>
+          Share the spare weekly slots on your gates with your alliance — partners with a gate of
+          their own at the airport can fly on them, paying you the slot's gate fee&nbsp;+25%.
+          Gates feeding the pool count as in use, so they can't be forfeited. If you grow back
+          into shared slots, partners get a 4-week warning before their flights are cut.
+          {(weeklyEarnings > 0 || weeklyCost > 0) && (
+            <strong style={{ color: 'var(--text)' }}>
+              {' '}This week: {weeklyEarnings > 0 ? `earning ${formatMoney(weeklyEarnings)}` : ''}
+              {weeklyEarnings > 0 && weeklyCost > 0 ? ' · ' : ''}
+              {weeklyCost > 0 ? `paying ${formatMoney(weeklyCost)} for borrowed slots` : ''}.
+            </strong>
+          )}
+        </div>
+        {err && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{err}</div>}
+
+        {rows.map(({ code, count, capacity, used, spare, p }) => {
+          const sharing = p?.sharing === true;
+          const reserved = p?.reserved ?? 0;
+          const draft = reserveDrafts[code] ?? String(reserved);
+          return (
+            <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, minWidth: 36 }}>{code}</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, minWidth: 180 }}>
+                {count} gate{count === 1 ? '' : 's'} · {used}/{capacity} slots used · {spare} spare
+                {sharing && (p?.lentOut ?? 0) > 0 && (
+                  <span style={{ color: 'var(--accent)' }}>
+                    {' '}· {p.lentOut} lent{p.weeklyEarnings > 0 ? ` (+${formatMoney(p.weeklyEarnings)}/wk)` : ''}
+                    {(p.borrowers ?? []).length > 0 && ` to ${p.borrowers.map((x) => x.name).join(', ')}`}
+                  </span>
+                )}
+              </span>
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                Keep back
+                <input
+                  style={INPUT} type="number" min="0" step="10" value={draft} disabled={busy}
+                  onChange={(e) => setReserveDrafts((d) => ({ ...d, [code]: e.target.value }))}
+                  onBlur={() => {
+                    const v = Math.max(0, Math.round(Number(draft) || 0));
+                    if (sharing && v !== reserved) {
+                      run(() => remoteApi.setGateSlotShare(code, { sharing: true, reservedSlots: v }));
+                    }
+                  }}
+                />
+                slots
+              </label>
+              <button
+                className={sharing ? 'btn' : 'btn btn-primary'}
+                style={{ fontSize: 12, padding: '4px 12px' }}
+                disabled={busy}
+                onClick={() => run(() => remoteApi.setGateSlotShare(code, {
+                  sharing: !sharing,
+                  reservedSlots: Math.max(0, Math.round(Number(draft) || 0)),
+                }))}
+              >
+                {sharing ? 'Stop sharing' : 'Share spare slots'}
+              </button>
+            </div>
+          );
+        })}
+
+        {borrowedRows.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>
+              Borrowed from the pool
+            </div>
+            {borrowedRows.map(([code, p]) => (
+              <div key={code} style={{ fontSize: 12, padding: '4px 0', color: 'var(--text-muted)' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--text)' }}>{code}</span>
+                {' '}— using {p.draw ?? 0} of {p.grant ?? 0} granted slot{(p.grant ?? 0) === 1 ? '' : 's'}
+                {(p.weeklyCost ?? 0) > 0 && ` · ${formatMoney(p.weeklyCost)}/wk`}
+                {(p.lenders ?? []).length > 0 && ` · on ${p.lenders.map((x) => x.name).join(', ')}'s gates`}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function GateMarketSection({ state, remoteApi }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -810,6 +950,9 @@ export default function Airports() {
 
       {/* ── Gate market: auctions + player-to-player sales (scarcity worlds) ── */}
       {scarcity && !liveAuction && <GateMarketSection state={state} remoteApi={remoteApi} />}
+
+      {/* ── Alliance slot pool: share spare slots with your alliance ── */}
+      {scarcity && <SlotPoolSection state={state} remoteApi={remoteApi} />}
 
       {/* ── Browse / add airports ─────────────────────────────────── */}
       <section>

@@ -38,6 +38,7 @@ import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
   GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP, GATE_HUB_GUARANTEE,
   GATE_IDLE_FORFEIT_WEEKS, GATE_IDLE_WARN_WEEKS, GATE_LOCKOUT_WEEKS,
+  SLOT_SQUEEZE_GRACE_WEEKS,
 } from './data/airports.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects } from './data/labor.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
@@ -53,6 +54,7 @@ import {
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
+  MAX_PAY_MULTIPLIER,
   counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
   NEGOTIATION_RESPONSE_WEEKS, STRIKE_COOLDOWN_WEEKS,
 } from './data/laborRelations.js';
@@ -211,6 +213,33 @@ function settleCoversForRemoval(state, aircraftId) {
 }
 
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// ALLIANCE SLOT POOL (Headwinds gate-scarcity worlds; server-injected)
+// ─────────────────────────────────────────────
+// `state.allianceSlotPool[code].grant` is the number of EXTRA weekly departure
+// slots this airline may use at `code` on alliance partners' shared gates —
+// current draw plus remaining pool headroom, already capped at the airline's
+// own slot capacity server-side. It is injected fresh on every read/tick
+// (never persisted — see the server's stripRivals), so solo saves and
+// non-scarcity worlds never carry it and every check below reduces to the
+// original own-gates arithmetic, byte for byte.
+//
+// Note the borrower still needs ≥1 gate of their OWN at the airport: every
+// route path checks `gates[code] > 0` before slots, and that check is
+// deliberately untouched — the pool extends an existing presence, it does not
+// substitute for one.
+export function poolGrantAt(state, code) {
+  return state.allianceSlotPool?.[code]?.grant ?? 0;
+}
+
+/** Weekly departure-slot capacity at `code`: own gates plus any alliance
+ *  slot-pool grant. THE single slot ceiling — every add-route / frequency
+ *  check goes through this so the guards and the reducer cannot disagree. */
+export function slotCapAt(state, code) {
+  return ((state.gates ?? {})[code] ?? 0) * SLOTS_PER_GATE + poolGrantAt(state, code);
+}
+
+// ─────────────────────────────────────────────
 // FREQUENCY CHANGE GUARD (Routes: change one route's weekly frequency)
 // ─────────────────────────────────────────────
 // Returns null if `newFreq` is allowed for the route, else a short player-facing
@@ -254,8 +283,8 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
   const peakSlotsAt = (code) => Math.max(0, ...months.map(m => state.routes
     .filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
     .reduce((s, r) => s + freqOf(r), 0)));
-  if (peakSlotsAt(route.origin)      > (gates[route.origin]      ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.origin}`;
-  if (peakSlotsAt(route.destination) > (gates[route.destination] ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.destination}`;
+  if (peakSlotsAt(route.origin)      > slotCapAt(state, route.origin))      return `No free gate slots at ${route.origin}`;
+  if (peakSlotsAt(route.destination) > slotCapAt(state, route.destination)) return `No free gate slots at ${route.destination}`;
 
   return null;
 }
@@ -295,8 +324,8 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
   const slotsAt = (code) => allOps
     .filter(r => r.id !== route.id && (r.origin === code || r.destination === code))
     .reduce((s, r) => s + r.weeklyFrequency, 0);
-  if (slotsAt(route.origin)      + target > (gates[route.origin]      ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.origin}`;
-  if (slotsAt(route.destination) + target > (gates[route.destination] ?? 0) * SLOTS_PER_GATE) return `No free gate slots at ${route.destination}`;
+  if (slotsAt(route.origin)      + target > slotCapAt(state, route.origin))      return `No free gate slots at ${route.origin}`;
+  if (slotsAt(route.destination) + target > slotCapAt(state, route.destination)) return `No free gate slots at ${route.destination}`;
 
   return null;
 }
@@ -1363,8 +1392,8 @@ function reducer(state, action) {
       const peakSlotsAt = (code) => Math.max(0, ...newMonths.map(m => state.routes
         .filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
         .reduce((s, r) => s + r.weeklyFrequency, 0)));
-      if (peakSlotsAt(action.origin)      + weeklyFrequency > gates[action.origin]      * SLOTS_PER_GATE) return state;
-      if (peakSlotsAt(action.destination) + weeklyFrequency > gates[action.destination] * SLOTS_PER_GATE) return state;
+      if (peakSlotsAt(action.origin)      + weeklyFrequency > slotCapAt(state, action.origin))      return state;
+      if (peakSlotsAt(action.destination) + weeklyFrequency > slotCapAt(state, action.destination)) return state;
 
       // ── Consolidate: merge only when the same aircraft flies the same O&D with
       // the SAME season window (different windows must stay separate routes). ──
@@ -1508,7 +1537,7 @@ function reducer(state, action) {
       }
       for (const code of stops) {
         if (!(gates[code] > 0)) return state;   // no gate at this stop
-        if (slotsUsedAt(code) + addIncident[code] * weeklyFrequency > gates[code] * SLOTS_PER_GATE) return state;
+        if (slotsUsedAt(code) + addIncident[code] * weeklyFrequency > slotCapAt(state, code)) return state;
       }
 
       // ── Launch cost (priced on total ground distance covered) ──
@@ -1782,8 +1811,8 @@ function reducer(state, action) {
       const slotsAt = (code) => allOps
         .filter(r => r.origin === code || r.destination === code)
         .reduce((s, r) => s + r.weeklyFrequency, 0);
-      if (slotsAt(action.origin)      + weeklyFrequency > gates[action.origin]      * SLOTS_PER_GATE) return state;
-      if (slotsAt(action.destination) + weeklyFrequency > gates[action.destination] * SLOTS_PER_GATE) return state;
+      if (slotsAt(action.origin)      + weeklyFrequency > slotCapAt(state, action.origin))      return state;
+      if (slotsAt(action.destination) + weeklyFrequency > slotCapAt(state, action.destination)) return state;
 
       // Consolidate onto an existing identical cargo route for this freighter.
       const existingRoute = (state.cargoRoutes ?? []).find(r =>
@@ -1867,8 +1896,8 @@ function reducer(state, action) {
         const slotsAt = (code) => allOps
           .filter(r => r.id !== targetRoute.id && (r.origin === code || r.destination === code))
           .reduce((s, r) => s + r.weeklyFrequency, 0);
-        if (slotsAt(targetRoute.origin)      + newFreq > (gates[targetRoute.origin]      ?? 0) * SLOTS_PER_GATE) return state;
-        if (slotsAt(targetRoute.destination) + newFreq > (gates[targetRoute.destination] ?? 0) * SLOTS_PER_GATE) return state;
+        if (slotsAt(targetRoute.origin)      + newFreq > slotCapAt(state, targetRoute.origin))      return state;
+        if (slotsAt(targetRoute.destination) + newFreq > slotCapAt(state, targetRoute.destination)) return state;
       }
 
       return {
@@ -2174,7 +2203,13 @@ function reducer(state, action) {
         // Midpoint offer. The union always pockets the raise; whether it
         // ACCEPTS the deal (or stays angry) depends on current morale.
         newPay = counterOfferMultiplier(groupState.payMultiplier, negotiation.demandMultiplier);
-        if (counterAccepted(groupState.morale)) {
+        if (newPay >= negotiation.demandMultiplier - 1e-9) {
+          // The midpoint rounded up to (or past) the demand — that isn't a
+          // counter, it's the union's own number. It can't be rejected.
+          newPay  = negotiation.demandMultiplier;
+          fx      = NEGOTIATION_EFFECTS.accept;
+          outcome = 'accepted';
+        } else if (counterAccepted(groupState.morale)) {
           fx      = NEGOTIATION_EFFECTS.counterAccepted;
           outcome = 'counterAccepted';
         } else {
@@ -2194,7 +2229,7 @@ function reducer(state, action) {
           ...labor,
           [group]: {
             ...groupState,
-            payMultiplier: Math.max(0.5, Math.min(2.0, newPay)),
+            payMultiplier: Math.max(0.5, Math.min(MAX_PAY_MULTIPLIER, newPay)),
             morale: Math.max(5, Math.min(100, groupState.morale + fx.morale)),
           },
         },
@@ -2211,7 +2246,7 @@ function reducer(state, action) {
           },
           lastOutcome: {
             group, outcome,
-            newPay: Math.max(0.5, Math.min(2.0, newPay)),
+            newPay: Math.max(0.5, Math.min(MAX_PAY_MULTIPLIER, newPay)),
             demand: negotiation.demandMultiplier,
             absWeek: absWk,
           },
@@ -3267,7 +3302,19 @@ function reducer(state, action) {
       }
 
       // 3. Contract negotiations — tick the open one, or table a new demand.
-      if (updatedRelations.negotiation) {
+      if (updatedRelations.negotiation
+          && updatedRelations.negotiation.demandMultiplier
+             <= (updatedLabor[updatedRelations.negotiation.group]?.payMultiplier ?? 1.0) + 1e-9) {
+        // Save written before the ceiling fix: an open demand for the pay the
+        // player is already on. There is no honest answer to it, so close it
+        // quietly — no morale hit, no unrest, no lapse-into-refusal.
+        const group = updatedRelations.negotiation.group;
+        updatedRelations.negotiation = null;
+        updatedRelations.nextNegotiationAbsWeek = {
+          ...updatedRelations.nextNegotiationAbsWeek,
+          [group]: scheduleNextNegotiation(relAbsWeek, false),
+        };
+      } else if (updatedRelations.negotiation) {
         const weeksLeft = updatedRelations.negotiation.weeksLeft - 1;
         if (weeksLeft <= 0) {
           // Ignored until it lapsed → counts as a refusal.
@@ -3308,18 +3355,28 @@ function reducer(state, action) {
           const profitable = (state.financialHistory ?? []).slice(-12)
             .reduce((s, h) => s + (h.profit ?? 0), 0) > 0;
           const demand = negotiationDemand(currentPay, profitable);
-          updatedRelations.negotiation = {
-            group,
-            demandMultiplier: demand,
-            weeksLeft:  NEGOTIATION_RESPONSE_WEEKS,
-            totalWeeks: NEGOTIATION_RESPONSE_WEEKS,
-          };
-          newToasts.push({
-            type: 'warning', icon: '📜',
-            title: `Contract talks — ${gName} table a pay demand`,
-            message: `The ${gName.toLowerCase()} union demands ${demand.toFixed(2)}× market rate (currently ${currentPay.toFixed(2)}×). Respond in Operations → Labor within ${NEGOTIATION_RESPONSE_WEEKS} weeks — silence counts as a refusal.`,
-            duration: 12000,
-          });
+          if (demand === null) {
+            // Already paying the ceiling — the union has nothing to table, so
+            // don't open a round of talks over the rate they're already on.
+            // Quietly look in again later (pay may have been cut by then).
+            updatedRelations.nextNegotiationAbsWeek = {
+              ...updatedRelations.nextNegotiationAbsWeek,
+              [group]: scheduleNextNegotiation(relAbsWeek, false),
+            };
+          } else {
+            updatedRelations.negotiation = {
+              group,
+              demandMultiplier: demand,
+              weeksLeft:  NEGOTIATION_RESPONSE_WEEKS,
+              totalWeeks: NEGOTIATION_RESPONSE_WEEKS,
+            };
+            newToasts.push({
+              type: 'warning', icon: '📜',
+              title: `Contract talks — ${gName} table a pay demand`,
+              message: `The ${gName.toLowerCase()} union demands ${demand.toFixed(2)}× market rate (currently ${currentPay.toFixed(2)}×). Respond in Operations → Labor within ${NEGOTIATION_RESPONSE_WEEKS} weeks — silence counts as a refusal.`,
+              duration: 12000,
+            });
+          }
         }
       }
 
@@ -4044,6 +4101,11 @@ function reducer(state, action) {
         for (const [code, count] of Object.entries(gatesNow)) {
           if (!count || code === state.hub) continue;        // home hub exempt
           if (served.has(code)) continue;                    // any service resets the clock
+          // Alliance slot pool: a gate whose slots partners are drawing on is
+          // IN USE — the owner's usage for rule-5 purposes. Lending spare
+          // capacity protects gates you cannot fill yet; that incentive is the
+          // point of the pool.
+          if ((state.allianceSlotPool?.[code]?.lentOut ?? 0) > 0) continue;
           const weeks = (state.gateIdleWeeks?.[code] ?? 0) + 1;
           if (weeks >= GATE_IDLE_FORFEIT_WEEKS) {
             delete gatesNow[code];
@@ -4070,6 +4132,80 @@ function reducer(state, action) {
         newGateLockouts  = lockouts;
       }
 
+      // ── Alliance slot pool: the squeeze (scarcity MP worlds only) ─────────
+      // A borrower's usage can exceed own gates + pool grant when the pool
+      // shrinks under them: the owner grew back into their slots, raised their
+      // reserve, stopped sharing, or the alliance parted ways (leaving/kick/
+      // disband all read as grant → 0 on the next injection — the countdown IS
+      // the wind-down). They get SLOT_SQUEEZE_GRACE_WEEKS of warnings, then
+      // frequency is trimmed to fit — highest weekly frequency first, ties on
+      // id, a route trimmed to zero closes. Deterministic, so a retried tick
+      // trims identically. `state.allianceSlotPool` is injected only in
+      // Headwinds scarcity worlds, so solo states never enter this block.
+      let finalSqueezeRoutes = finalRoutes;
+      let finalSqueezeCargo  = finalCargoRoutes;
+      let newSlotSqueeze     = state.slotSqueeze;
+      if (state.gateScarcityWorld && state.allianceSlotPool) {
+        const squeeze = { ...(state.slotSqueeze ?? {}) };
+        const codes = new Set([
+          ...finalSqueezeRoutes.flatMap(r => [r.origin, r.destination]),
+          ...finalSqueezeCargo.flatMap(r => [r.origin, r.destination]),
+          ...Object.keys(state.slotSqueeze ?? {}),
+        ]);
+        const usageAt = (code) =>
+          finalSqueezeRoutes.filter(r => r.origin === code || r.destination === code)
+            .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0)
+          + finalSqueezeCargo.filter(r => r.origin === code || r.destination === code)
+            .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0);
+        const capAt = (code) =>
+          (finalGates[code] ?? 0) * SLOTS_PER_GATE
+          + (state.allianceSlotPool[code]?.grant ?? 0);
+        for (const code of [...codes].sort()) {
+          const over = usageAt(code) - capAt(code);
+          if (over <= 0) { delete squeeze[code]; continue; }
+          const left = (squeeze[code] ?? SLOT_SQUEEZE_GRACE_WEEKS) - 1;
+          if (left > 0) {
+            squeeze[code] = left;
+            newToasts.push({
+              type: 'warning', title: '⚠️ Alliance slots withdrawn',
+              message: `Your schedule at ${code} uses ${over} more weekly slot${over === 1 ? '' : 's'} than your gates and the alliance pool now cover. Reduce frequency or lease gates within ${left} week${left === 1 ? '' : 's'} — after that, flights will be cut to fit.`,
+              duration: 10000,
+            });
+            continue;
+          }
+          // Grace exhausted — trim to fit. Highest-frequency operations at the
+          // airport shed slots first (they can spare the most); ties break on
+          // id so a retried tick cuts the same flights.
+          delete squeeze[code];
+          let need = over;
+          const cuts = new Map(); // routeId → slots to cut
+          const candidates = [
+            ...finalSqueezeRoutes.filter(r => r.origin === code || r.destination === code),
+            ...finalSqueezeCargo.filter(r => r.origin === code || r.destination === code),
+          ].sort((a, b) => (b.weeklyFrequency ?? 0) - (a.weeklyFrequency ?? 0)
+            || String(a.id).localeCompare(String(b.id)));
+          for (const r of candidates) {
+            if (need <= 0) break;
+            const cut = Math.min(need, r.weeklyFrequency ?? 0);
+            if (cut > 0) { cuts.set(r.id, cut); need -= cut; }
+          }
+          if (cuts.size > 0) {
+            finalSqueezeRoutes = finalSqueezeRoutes
+              .map(r => cuts.has(r.id) ? { ...r, weeklyFrequency: r.weeklyFrequency - cuts.get(r.id) } : r)
+              .filter(r => r.weeklyFrequency > 0);
+            finalSqueezeCargo = finalSqueezeCargo
+              .map(r => cuts.has(r.id) ? { ...r, weeklyFrequency: r.weeklyFrequency - cuts.get(r.id) } : r)
+              .filter(r => r.weeklyFrequency > 0);
+            newToasts.push({
+              type: 'danger', title: '🛑 Flights cut at ' + code,
+              message: `The alliance slot pool at ${code} no longer covers your schedule. ${over} weekly departure${over === 1 ? '' : 's'} ${over === 1 ? 'was' : 'were'} cut to fit your gates.`,
+              duration: 10000,
+            });
+          }
+        }
+        newSlotSqueeze = squeeze;
+      }
+
       let newReputationPenalty = (state.reputationPenalty ?? 0) * REP_PENALTY_DECAY + forcedRepHit;
       newReputationPenalty = newReputationPenalty < 0.1 ? 0 : Math.min(REP_PENALTY_MAX, newReputationPenalty);
 
@@ -4081,14 +4217,20 @@ function reducer(state, action) {
         portfolio:         newPortfolio,
         fleet:             finalFleet,
         reputationPenalty: newReputationPenalty,
-        routes:            finalRoutes,
-        cargoRoutes:       finalCargoRoutes,
+        routes:            finalSqueezeRoutes,
+        cargoRoutes:       finalSqueezeCargo,
         // Gate scarcity only — spread stays empty elsewhere so non-scarcity
         // (and solo) states are byte-identical to before this feature.
         ...(state.gateScarcityWorld ? {
           gates:         finalGates,
           gateIdleWeeks: newGateIdleWeeks ?? {},
           gateLockouts:  newGateLockouts ?? {},
+          // Slot-pool squeeze countdowns. The key appears only once the pool
+          // has ever been injected (or a countdown exists), so every pre-pool
+          // scarcity state stays byte-identical — golden parity holds without
+          // a re-baseline.
+          ...(state.allianceSlotPool || state.slotSqueeze
+            ? { slotSqueeze: newSlotSqueeze ?? {} } : {}),
         } : {}),
         pendingOrders:     remainingOrders,
         financialHistory:  newHistory,

@@ -312,6 +312,13 @@ export default function GamePlayScreen({ worldId, token }) {
           });
           return res;
         }),
+    // Alliance slot pool: the owner's per-airport share switch. The response
+    // carries the fresh gate view (incl. slotPool) so the toggle reads back
+    // instantly instead of waiting for the next poll.
+    setGateSlotShare: (airportCode, { sharing, reservedSlots = 0 } = {}) =>
+      authedApi(`/worlds/${worldId}/gates/${airportCode}/share`, {
+        method: 'PUT', token, body: { sharing, reservedSlots },
+      }).then((res) => { adoptGateMarket(res.gateMarket); return res; }),
     fetchAlliances: () => authedApi(`/worlds/${worldId}/alliances`, { token }),
     createAlliance: (name) =>
       authedApi(`/worlds/${worldId}/alliances`, { method: 'POST', token, body: { name } }),

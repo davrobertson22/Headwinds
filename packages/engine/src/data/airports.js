@@ -2465,6 +2465,23 @@ export const GATE_HUB_GUARANTEE = 5;
 export const GATE_ANTI_FLIP_WEEKS = 12;
 
 /**
+ * Alliance slot pool (Headwinds multiplayer, gate-scarcity worlds only).
+ * A borrowed slot costs the borrower the airport's BASE weekly gate fee
+ * pro-rata (fee ÷ SLOTS_PER_GATE) × this markup, all of it paid to the
+ * owning member: the fee share relieves the owner's rent, the markup is
+ * their profit.
+ */
+export const SLOT_POOL_MARKUP = 1.25;
+
+/**
+ * Weeks of grace a slot-pool borrower gets once their usage exceeds what the
+ * pool still grants them (the owner grew back into their slots, raised their
+ * reserve, stopped sharing, or the alliance parted ways). A countdown warning
+ * fires each week; at zero the engine trims frequency to fit.
+ */
+export const SLOT_SQUEEZE_GRACE_WEEKS = 4;
+
+/**
  * An airport's BASE gate capacity under scarcity, derived from data the airport
  * records already carry (tier + demand-side population). Deterministic — no
  * per-airport hand-tuning.

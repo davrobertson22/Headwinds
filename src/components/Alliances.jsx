@@ -212,7 +212,7 @@ export default function Alliances() {
 // remoteApi is null).
 
 function PlayerAlliancesPanel({ currentAlliance }) {
-  const { remoteApi } = useGame();
+  const { state, remoteApi } = useGame();
   const [data, setData]                 = useState(null);
   const [error, setError]               = useState(null);
   const [busy, setBusy]                 = useState(false);
@@ -252,8 +252,8 @@ function PlayerAlliancesPanel({ currentAlliance }) {
         <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, flex: 1 }}>
           Alliances here are founded and run by <strong style={{ color: 'var(--text)' }}>real players</strong>:
           members feed each other connecting traffic, get a demand boost on routes where a
-          partner also flies, and pay weekly dues. Founders approve who joins
-          (max {maxMembers} members).
+          partner also flies, {state?.gateScarcityWorld ? 'share spare gate slots through the alliance slot pool, ' : ''}and
+          pay weekly dues. Founders approve who joins (max {maxMembers} members).
         </div>
         {!mine && !creating && (
           <button
@@ -271,6 +271,40 @@ function PlayerAlliancesPanel({ currentAlliance }) {
           <Glyph e="✗" /> {String(error.message || error)}
         </div>
       )}
+
+      {/* ── Alliance slot pool summary (gate-scarcity worlds, active members) ── */}
+      {mine?.status === 'ACTIVE' && state?.gateScarcityWorld && (() => {
+        const pool = state.gateMarket?.slotPool ?? state.allianceSlotPool ?? {};
+        const entries = Object.entries(pool)
+          .filter(([, p]) => (p?.lentOut ?? 0) > 0 || (p?.draw ?? 0) > 0 || p?.sharing)
+          .sort(([a], [b]) => a.localeCompare(b));
+        const earn = entries.reduce((s, [, p]) => s + (p?.weeklyEarnings ?? 0), 0);
+        const cost = entries.reduce((s, [, p]) => s + (p?.weeklyCost ?? 0), 0);
+        return (
+          <div className="card" style={{ padding: '10px 14px', marginBottom: 10, fontSize: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              ⚖ Slot pool
+              {earn > 0 && <span style={{ color: 'var(--accent)' }}> · earning {formatMoney(earn)}/wk</span>}
+              {cost > 0 && <span style={{ color: 'var(--yellow)' }}> · paying {formatMoney(cost)}/wk</span>}
+            </div>
+            {entries.length === 0 ? (
+              <span style={{ color: 'var(--text-muted)' }}>
+                Nothing shared yet — open the Airports tab to share the spare slots on your gates,
+                or fly on a partner's spare slots at airports where you both hold gates.
+              </span>
+            ) : (
+              entries.map(([code, p]) => (
+                <div key={code} style={{ color: 'var(--text-muted)', padding: '2px 0' }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--text)' }}>{code}</span>
+                  {p.sharing && ` — sharing ${p.shared ?? 0} spare slot${(p.shared ?? 0) === 1 ? '' : 's'}`}
+                  {(p.lentOut ?? 0) > 0 && ` · ${p.lentOut} in use by ${(p.borrowers ?? []).map((x) => x.name).join(', ') || 'partners'}`}
+                  {(p.draw ?? 0) > 0 && ` · borrowing ${p.draw} slot${p.draw === 1 ? '' : 's'}${(p.lenders ?? []).length ? ` from ${p.lenders.map((x) => x.name).join(', ')}` : ''}`}
+                </div>
+              ))
+            )}
+          </div>
+        );
+      })()}
 
       {creating && (
         <form

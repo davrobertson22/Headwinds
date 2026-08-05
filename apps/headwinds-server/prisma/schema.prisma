@@ -86,6 +86,7 @@ model World {
   dividends   DividendCredit[]
   gateAuctions GateAuction[]
   gateListings GateListing[]
+  gateSlotShares GateSlotShare[]
   usedAircraftListings UsedAircraftListing[]
   news                 WorldNews[]
 
@@ -372,6 +373,23 @@ model GateBid {
   auction   GateAuction @relation(fields: [auctionId], references: [id], onDelete: Cascade)
 
   @@unique([auctionId, airlineId]) // one (updatable) sealed bid per airline
+}
+
+// Alliance slot pool — the owner's per-airport share switch. There is NO
+// per-draw table on purpose: borrowed usage is derived from route blobs +
+// these settings on every view build / tick, so there is nothing to desync.
+model GateSlotShare {
+  id            String   @id @default(cuid())
+  worldId       String
+  airlineId     String
+  airportCode   String
+  sharing       Boolean  @default(false)
+  reservedSlots Int      @default(0) // slots held back for the owner's own growth
+  updatedAt     DateTime @updatedAt
+  world         World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([airlineId, airportCode])
+  @@index([worldId])
 }
 
 model GateListing {

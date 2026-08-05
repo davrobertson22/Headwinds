@@ -3160,6 +3160,25 @@ export function weeklyTick(state) {
   }
   totalGateFees += totalGateSurcharge;
 
+  // 4b. Alliance slot pool rent (Headwinds gate-scarcity worlds only).
+  // Borrowed slots are billed per-slot — the airport's base weekly gate fee
+  // pro-rata × SLOT_POOL_MARKUP — and the whole payment goes to the owning
+  // member: the fee share relieves the owner's rent, the markup is their
+  // profit. Both weekly figures are computed server-side at injection time
+  // (state.allianceSlotPool); solo and non-pool states carry nothing here and
+  // book exactly zero. Netted INTO totalGateFees ("Gates & slots") so every
+  // downstream reconciliation — totalCost, cashDelta, the P&L bridge — holds
+  // without a new line: a landlord's gate bill shrinks, a tenant's grows.
+  let totalSlotPoolCost = 0;
+  let totalSlotPoolEarnings = 0;
+  for (const p of Object.values(state.allianceSlotPool ?? {})) {
+    totalSlotPoolCost     += p.weeklyCost     ?? 0;
+    totalSlotPoolEarnings += p.weeklyEarnings ?? 0;
+  }
+  totalSlotPoolCost     = Math.round(totalSlotPoolCost);
+  totalSlotPoolEarnings = Math.round(totalSlotPoolEarnings);
+  totalGateFees += totalSlotPoolCost - totalSlotPoolEarnings;
+
   // 5. Fleet family MRO base costs (one fixed fee per active aircraft family, regardless of fleet size).
   //    These are OUTSOURCED contract rates — a certified jet base offsets most of
   //    the family's bill because you are now doing that work yourself.
@@ -3347,6 +3366,11 @@ export function weeklyTick(state) {
     totalCompensation:      Math.round(totalCompensation),
     totalGateFees:          Math.round(totalGateFees),
     totalGateSurcharge:     Math.round(totalGateSurcharge), // congestion (>90% full) portion, already inside totalGateFees
+    // Alliance slot rent, itemized (already netted inside totalGateFees). The
+    // keys exist only when the pool was injected, so every solo / pre-pool
+    // report stays byte-identical (golden parity without a re-baseline).
+    ...(state.allianceSlotPool
+      ? { totalSlotPoolCost, totalSlotPoolEarnings } : {}),
     totalLaborCosts:        Math.round(totalLaborCosts),
     totalFamilyBaseCosts:   Math.round(totalFamilyBaseCosts),
     totalMroBaseCosts:      Math.round(totalMroBaseCosts),

@@ -5,7 +5,7 @@ import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { GATE_BID_MAX_QTY } from '@tailwinds/engine/data/airports.js';
-import { buildWorldRivalViews, withRivals, loadAllianceMap } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, loadAllianceMap, loadRivalRows } from '../lib/humanRivals.mjs';
 import {
   isGateScarcity, buildGateMarketViews, gateWorldSummary,
   placeBid, withdrawBid, createListing, withdrawListing, buyListing,
@@ -33,15 +33,14 @@ async function loadWorldAndAirline(request) {
 }
 
 // The caller's fresh personalized gate-market view (post-mutation) so the UI
-// updates instantly instead of waiting for the next poll.
+// updates instantly instead of waiting for the next poll. State-bearing rows
+// (projected — histories trimmed in Postgres) because the alliance slot pool
+// derives every member's usage from their blobs.
 async function gateMarketFor(world, airlineId) {
-  const rows = await prisma.airline.findMany({
-    where: { worldId: world.id, status: 'ACTIVE' },
-    select: { id: true, name: true },
-  });
+  const rows = await loadRivalRows(prisma, world.id);
   const allianceMap = await loadAllianceMap(prisma, world.id);
   const views = await buildGateMarketViews(prisma, world.id, { airlines: rows, allianceMap, world });
-  return views.get(airlineId) ?? { week: null, airports: {} };
+  return views.get(airlineId) ?? { week: null, airports: {}, slotPool: {} };
 }
 
 const rateLimited = (request) => {
@@ -59,6 +58,61 @@ export default async function gateRoutes(fastify) {
     if (!world) return reply.code(404).send({ error: 'No such world' });
     if (!isGateScarcity(world)) return { gateScarcity: false, airports: [] };
     return { gateScarcity: true, airports: await gateWorldSummary(prisma, world.id) };
+  });
+
+  // ── Alliance slot pool: share / reserve your spare slots at one airport ───
+  // The owner's switch. Turning sharing OFF (or raising the reserve) never
+  // insta-kills a partner's flights: their grant shrinks on the next view
+  // build and the ENGINE gives them the 4-week squeeze countdown before
+  // trimming — that countdown IS the wind-down.
+  fastify.put('/worlds/:id/gates/:code/share', {
+    preHandler: requireAuth,
+    schema: {
+      params: {
+        type: 'object',
+        properties: { id: { type: 'string' }, code: { type: 'string', minLength: 3, maxLength: 4 } },
+        required: ['id', 'code'],
+      },
+      body: {
+        type: 'object',
+        required: ['sharing'],
+        properties: {
+          sharing: { type: 'boolean' },
+          reservedSlots: { type: 'integer', minimum: 0, maximum: 100000 },
+        },
+      },
+    },
+  }, async (request) => {
+    rateLimited(request);
+    const { world, airline } = await loadWorldAndAirline(request);
+    const code = request.params.code.toUpperCase();
+
+    const allianceMap = await loadAllianceMap(prisma, world.id);
+    if (!allianceMap.get(airline.id)) {
+      throw httpError(409, 'Slot sharing is an alliance benefit — join or found an alliance first.');
+    }
+    if (!((airline.state?.gates?.[code] ?? 0) > 0)) {
+      throw httpError(409, `You hold no gates at ${code}.`);
+    }
+
+    await prisma.gateSlotShare.upsert({
+      where: { airlineId_airportCode: { airlineId: airline.id, airportCode: code } },
+      create: {
+        worldId: world.id,
+        airlineId: airline.id,
+        airportCode: code,
+        sharing: request.body.sharing === true,
+        reservedSlots: Math.max(0, Math.round(request.body.reservedSlots ?? 0)),
+      },
+      update: {
+        sharing: request.body.sharing === true,
+        reservedSlots: Math.max(0, Math.round(request.body.reservedSlots ?? 0)),
+      },
+    });
+    // Bump the owner's version so every member's world stamp moves and the new
+    // pool shows up on their next poll (same trick as gate listings).
+    await prisma.airline.update({ where: { id: airline.id }, data: { version: { increment: 1 } } });
+    return { ok: true, gateMarket: await gateMarketFor(world, airline.id) };
   });
 
   // ── Sealed auction bid: place / update ────────────────────────────────────

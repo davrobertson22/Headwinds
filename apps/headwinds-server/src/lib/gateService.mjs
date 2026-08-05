@@ -19,7 +19,7 @@ import {
   GATE_FEE_BY_TIER, GATE_HUB_GUARANTEE, GATE_ANTI_FLIP_WEEKS,
   GATE_AUCTION_LOTS_BY_SIZE, GATE_AUCTION_OPEN_WEEK, GATE_AUCTION_TRIGGER,
   GATE_AUCTION_RESULT_WEEKS, GATE_BID_MAX_QTY, GATE_CAPACITY_GROWTH_CEILING,
-  GATE_SURCHARGE_THRESHOLD,
+  GATE_SURCHARGE_THRESHOLD, GATE_SURCHARGE_MULT, SLOT_POOL_MARKUP,
 } from '@tailwinds/engine/data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '@tailwinds/engine/utils/simulation.js';
 import { withTx } from './tx.mjs';
@@ -58,6 +58,192 @@ export function auctionReserveOf(airport) {
 }
 
 const holdingsCount = (row, airlineId) => row?.holdings?.[airlineId]?.count ?? 0;
+
+// ── Alliance slot pool ───────────────────────────────────────────────────────
+// Members of one alliance can opt to SHARE the spare weekly departure slots on
+// their gates at an airport (GateSlotShare rows); partners with at least one
+// gate of their own there draw the extra frequency they need straight from the
+// pool. Holdings never move — only usage — so the 60%/80% ownership caps are
+// untouched. Borrowed usage is DERIVED here on every build (usage beyond an
+// airline's own slot capacity IS its draw); there is no per-draw ledger to
+// desync. The engine consumes the result as state.allianceSlotPool: `grant`
+// extends its slot checks, `weeklyCost`/`weeklyEarnings` are booked into the
+// week's gate fees, `lentOut` protects pooled gates from rule-5 forfeiture,
+// and a grant that shrinks below current usage starts the engine's 4-week
+// squeeze countdown.
+
+/** Per-slot weekly price of a borrowed slot: the airport's BASE weekly gate
+ *  fee pro-rata, surcharged like any gate when the airport is congested, times
+ *  the pool markup. All of it goes to the owning member. */
+export function slotPoolPerSlotFee(airport, surcharged = false) {
+  const monthly = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
+  return ((monthly / 4) / SLOTS_PER_GATE)
+    * (surcharged ? GATE_SURCHARGE_MULT : 1)
+    * SLOT_POOL_MARKUP;
+}
+
+// Weekly departure slots an airline's blob uses at `code` — passenger routes
+// (origin/destination/stops) + cargo, matching the marketplace's slotsUsedAt.
+function usageMapOf(state) {
+  const out = {};
+  const add = (code, n) => { if (code) out[code] = (out[code] ?? 0) + n; };
+  for (const r of state?.routes ?? []) {
+    const freq = r.weeklyFrequency ?? 0;
+    add(r.origin, freq); add(r.destination, freq);
+    for (const s of r.stops ?? []) {
+      if (s !== r.origin && s !== r.destination) add(s, freq);
+    }
+  }
+  for (const r of state?.cargoRoutes ?? []) {
+    const freq = r.weeklyFrequency ?? 0;
+    add(r.origin, freq); add(r.destination, freq);
+  }
+  return out;
+}
+
+/**
+ * Compute every airline's slot-pool view for a world.
+ *
+ * @param {object}   base        code → { capacity, taken, holdings, surcharge } (buildGateMarketViews' base map)
+ * @param {Array}    airlines    airline rows; rows without `.state` contribute nothing and draw nothing
+ * @param {Map}      allianceMap airlineId → { membership: { allianceId } } (ACTIVE members only)
+ * @param {Array}    shares      GateSlotShare rows for the world
+ * @param {number}   weekIdx     linear world week (rule-5 lockout checks)
+ * @returns {Map<airlineId, { [code]: poolEntry }>}
+ *
+ * Deterministic on identical inputs: borrowers are served in airlineId order,
+ * owner attribution is most-spare-first (ties on airlineId), so a retried tick
+ * reproduces identical grants and identical money.
+ */
+export function computeSlotPools({ base, airlines, allianceMap, shares, weekIdx = 0 }) {
+  const out = new Map();
+  if (!allianceMap || allianceMap.size === 0) return out;
+
+  const rowById = new Map(airlines.map((a) => [a.id, a]));
+  const shareByKey = new Map((shares ?? []).map((s) => [`${s.airlineId}:${s.airportCode}`, s]));
+  const usageById = new Map();
+  const usageOf = (id) => {
+    if (!usageById.has(id)) usageById.set(id, usageMapOf(rowById.get(id)?.state ?? null));
+    return usageById.get(id);
+  };
+  const entryFor = (id, code) => {
+    if (!out.has(id)) out.set(id, {});
+    const byCode = out.get(id);
+    if (!byCode[code]) {
+      byCode[code] = {
+        grant: 0, draw: 0, weeklyCost: 0,
+        shared: 0, lentOut: 0, weeklyEarnings: 0,
+        sharing: false, reserved: 0, perSlot: 0,
+        lenders: [], borrowers: [],
+      };
+    }
+    return byCode[code];
+  };
+
+  // Alliance rosters (ACTIVE members only — that's all loadAllianceMap holds).
+  const rosters = new Map();
+  for (const [airlineId, m] of allianceMap) {
+    const aid = m.membership.allianceId;
+    if (!rosters.has(aid)) rosters.set(aid, []);
+    rosters.get(aid).push(airlineId);
+  }
+
+  for (const [code, b] of Object.entries(base)) {
+    const airport = getAirport(code);
+    const perSlot = slotPoolPerSlotFee(airport, b.surcharge === true);
+
+    for (const roster of rosters.values()) {
+      const present = roster.filter((id) => (b.holdings?.[id]?.count ?? 0) > 0);
+      if (present.length < 2) continue; // a pool needs someone to share WITH
+
+      // Per-member arithmetic. Guarantee hub gates never pool their slots; own
+      // usage is assumed to fill those personal slots first, so an owner's
+      // shareable spare is measured against the non-guaranteed remainder.
+      const members = present.map((id) => {
+        const row = rowById.get(id);
+        const state = row?.state ?? null;
+        const count = b.holdings?.[id]?.count ?? 0;
+        const ownCap = count * SLOTS_PER_GATE;
+        const usage = usageOf(id)[code] ?? 0;
+        const isHome = code === (row?.hub ?? state?.hub);
+        const guaranteeSlots = (isHome ? Math.min(count, GATE_HUB_GUARANTEE) : 0) * SLOTS_PER_GATE;
+        const share = shareByKey.get(`${id}:${code}`);
+        const sharing = share?.sharing === true && state != null;
+        const reserved = Math.max(0, Math.round(share?.reservedSlots ?? 0));
+        const usageOnShareable = Math.max(0, usage - guaranteeSlots);
+        const shareable = sharing
+          ? Math.max(0, (ownCap - guaranteeSlots) - usageOnShareable - reserved)
+          : 0;
+        const lockedUntil = state?.gateLockouts?.[code] ?? 0;
+        const canBorrow = state != null && count > 0 && !(lockedUntil > weekIdx);
+        return {
+          id, name: row?.name ?? 'An airline', state, count, ownCap, usage,
+          sharing, reserved, shareable,
+          need: canBorrow ? Math.max(0, usage - ownCap) : 0,
+          canBorrow,
+          draw: 0, available: 0, lent: 0,
+        };
+      });
+
+      const poolTotal = members.reduce((s, m) => s + m.shareable, 0);
+      if (poolTotal <= 0 && !members.some((m) => m.sharing || m.need > 0)) continue;
+
+      // Draws: serve current borrowing (usage already past own capacity) in
+      // airlineId order. A member draws only from OTHERS' shareable, and never
+      // more than their own slot capacity (borrowed ≤ own presence).
+      let poolLeft = poolTotal;
+      for (const m of [...members].sort((a, z) => a.id.localeCompare(z.id))) {
+        if (!m.canBorrow || m.need <= 0) continue;
+        const othersPool = poolTotal - m.shareable;
+        m.draw = Math.max(0, Math.min(m.need, m.ownCap, othersPool, poolLeft));
+        poolLeft -= m.draw;
+      }
+      // Headroom: what each member could STILL draw for new frequency.
+      for (const m of members) {
+        if (!m.canBorrow) continue;
+        const othersPool = poolTotal - m.shareable;
+        m.available = Math.max(0, Math.min(m.ownCap - m.draw, othersPool - m.draw, poolLeft));
+      }
+
+      // Owner attribution, most-spare-first (ties on airlineId): each
+      // borrower's draw lands on named owners so the money is concrete.
+      const owners = members.filter((m) => m.shareable > 0)
+        .sort((a, z) => (z.shareable - a.shareable) || a.id.localeCompare(z.id))
+        .map((m) => ({ m, left: m.shareable }));
+      for (const b2 of members.filter((m) => m.draw > 0)) {
+        let need = b2.draw;
+        for (const o of owners) {
+          if (need <= 0) break;
+          if (o.m.id === b2.id) continue; // never fund your own draw
+          const take = Math.min(need, o.left);
+          if (take <= 0) continue;
+          o.left -= take;
+          o.m.lent += take;
+          need -= take;
+          entryFor(b2.id, code).lenders.push({ airlineId: o.m.id, name: o.m.name, slots: take });
+          entryFor(o.m.id, code).borrowers.push({ airlineId: b2.id, name: b2.name, slots: take });
+        }
+      }
+
+      for (const m of members) {
+        const relevant = m.draw > 0 || m.available > 0 || m.shareable > 0
+          || m.lent > 0 || m.sharing || shareByKey.has(`${m.id}:${code}`);
+        if (!relevant) continue;
+        const e = entryFor(m.id, code);
+        e.grant = m.draw + m.available;
+        e.draw = m.draw;
+        e.weeklyCost = Math.round(m.draw * perSlot);
+        e.shared = m.shareable;
+        e.lentOut = m.lent;
+        e.weeklyEarnings = Math.round(m.lent * perSlot);
+        e.sharing = m.sharing;
+        e.reserved = m.reserved;
+        e.perSlot = Math.round(perSlot);
+      }
+    }
+  }
+  return out;
+}
 
 // ── The gate-market view (injected into state as state.gateMarket) ───────────
 // One base map per world, personalized per airline (yours / allianceTaken /
@@ -111,7 +297,7 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
   // status, so the only trace left of a sealed auction you bid in was silence.
   // Recent results ride along and the client shows them for a few weeks.
   const nowWeek = world ? worldWeekIndex(world) : null;
-  const [rows, auctions, resolved, listings] = await Promise.all([
+  const [rows, auctions, resolved, listings, slotShares] = await Promise.all([
     prisma.worldGate.findMany({ where: { worldId } }),
     prisma.gateAuction.findMany({ where: { worldId, status: 'OPEN' }, include: { bids: true } }),
     prisma.gateAuction.findMany({
@@ -124,6 +310,8 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
       orderBy: { resolvesWeek: 'desc' },
     }),
     prisma.gateListing.findMany({ where: { worldId, status: 'OPEN' } }),
+    // Test doubles may predate the model — a missing delegate means no shares.
+    prisma.gateSlotShare?.findMany?.({ where: { worldId } }) ?? [],
   ]);
   const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
 
@@ -161,6 +349,13 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
       base[code] = { capacity: cap, baseSize: cap, taken: 0, maxYours: gateAirlineCapOf(cap), surcharge: false, holdings: {} };
     }
   }
+
+  // Slot pools: needs blob usage, so rows without state contribute/draw nothing
+  // (callers that care — the tick, the airline read, the share endpoint — all
+  // pass state-bearing rows; see gates.mjs's loadRivalRows switch).
+  const slotPools = computeSlotPools({
+    base, airlines, allianceMap, shares: slotShares, weekIdx: nowWeek ?? 0,
+  });
 
   const views = new Map();
   for (const me of airlines) {
@@ -214,7 +409,14 @@ export async function buildGateMarketViews(prisma, worldId, { airlines, alliance
         listings: codeListings,
       };
     }
-    views.set(me.id, { week: world ? worldWeekIndex(world) : null, airports });
+    views.set(me.id, {
+      week: world ? worldWeekIndex(world) : null,
+      airports,
+      // This airline's alliance slot pool, per airport — injected into state as
+      // state.allianceSlotPool (see rivalOverlay) and read by the engine's slot
+      // checks, weekly money, rule-5 attribution and squeeze countdown.
+      slotPool: slotPools.get(me.id) ?? {},
+    });
   }
   return views;
 }
