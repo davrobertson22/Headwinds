@@ -83,12 +83,13 @@ the **alliance slot pool** at that airport.
   overflow is drawn from the pool with no further interaction. The route form shows both
   numbers ("Your slots: 12 free · Alliance pool: 41 free") so borrowing is always visible,
   never surprising.
-- **Eligibility to borrow:** the borrower must hold **≥ 1 gate of their own** at the
-  airport (a pool draw is extra capacity on an existing presence, not a way to serve an
-  airport entirely on partners' infrastructure — and it keeps a rule-5 locked-out airline
-  from sneaking back in through the pool), and must not be inside a rule-5 lockout there.
-  Borrowed slots at an airport are capped at **their own slot capacity there** (i.e. at
-  most half your operation at an airport rides on partners' gates; tunable constant).
+- **Eligibility to borrow** (Dave, 2026-08-04: "if I want to launch a route somewhere and
+  don't have a gate, I could borrow slots from an alliance partner"): **no own gate
+  required** — a pool grant opens the airport, so a member can launch a route somewhere
+  entirely on a partner's spare slots. Ceiling: a gateless member may borrow up to **one
+  gate's worth** (`SLOTS_PER_GATE`) at that airport; holding your own gates raises the
+  ceiling to your own slot capacity there (tunable constants). A **rule-5 lockout still
+  bars borrowing** at that airport — the pool is not a lockout escape hatch.
 - **Money — fee share + 25% markup** (Dave's call): each borrowed slot costs the borrower
   `weeklyGateFee(airport) / 50 × 1.25`, congestion surcharge included (the airport doesn't
   care whose plane it is). The fee share relieves the owner's rent pro-rata; the 25%
@@ -335,6 +336,7 @@ Cheap, high-feel. Mostly server + UI, no engine.
 | Opt-in | **Owner opts in per airport** (with optional slot reserve); nothing shared by default |
 | Pricing | **Fee share + 25% markup**: `gateFee/50 × 1.25` per borrowed slot, to the owner |
 | Owner-priority squeeze | **4-week grace with countdown warning**, then engine trims to fit (forfeiture path) |
+| Gateless borrowing | **Allowed** — no own gate needed; capped at one gate's worth per airport (own gates raise the ceiling); rule-5 lockouts still bar it |
 | Alliance ranking | **Financial standings table** — combined profit / revenue / market cap etc., sortable; no synthetic composite score. Default sort **combined market cap** (cumulative-profit default rejected) |
 | Alliance hub | **Yes** — one designated hub airport, bonus while ≥3 members hold gates there |
 | Phase-4 UI cluster | **In**: alliance network map, recruiting board, stat-only rivalry declarations. Joint orders / shared loyalty / insurance pool → §7 deferred |
@@ -343,7 +345,7 @@ Cheap, high-feel. Mostly server + UI, no engine.
 
 | # | Question | Options / lean |
 |---|---|---|
-| 1 | Borrow cap: borrowed slots ≤ own slot capacity at that airport — right knob? | Per-airport parity keeps a presence requirement meaningful; tunable constant either way |
+| 1 | Borrow ceilings: one gate's worth when gateless / own capacity when not — right knobs? | Tunable constants; revisit once live worlds show real pool usage |
 | 2 | JV scope: per **city pair** or per **shared hub** (all connections over it)? | Pair is tighter to reason about; hub is more dramatic |
 | 3 | Flat demand boost 0.06 → 0.04 alongside JV launch — OK, or keep 0.06 until we see JV uptake? | Do it together; one rebalance, one re-baseline |
 | 4 | Founder-tunable dues range and whether existing alliances migrate at $60k | Migrate at current $60k |

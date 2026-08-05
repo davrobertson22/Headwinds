@@ -100,11 +100,25 @@ test('the same ADD_ROUTE succeeds with a grant covering the overflow', () => {
   assert.equal(next.routes.length, 2, 'route opens on borrowed slots');
 });
 
-test('borrower still needs a gate of their OWN (grant is not a substitute)', () => {
-  const s = mpState({ jfkGates: 0, existingFreq: 0, pool: { JFK: { grant: 100 } } });
+test('a grant OPENS an airport with no own gates (launch on partner slots)', () => {
+  const s = mpState({ jfkGates: 0, existingFreq: 0, pool: { JFK: { grant: 20 } } });
   s.routes = [];
   const next = addIad(s, 5);
-  assert.equal(next.routes.length, 0, 'no own gate at JFK → refused despite the grant');
+  assert.equal(next.routes.length, 1, 'no own gate at JFK, grant 20 → route opens');
+});
+
+test('a gateless airport with NO grant stays closed', () => {
+  const s = mpState({ jfkGates: 0, existingFreq: 0 });
+  s.routes = [];
+  const next = addIad(s, 5);
+  assert.equal(next.routes.length, 0);
+});
+
+test('the grant is still the ceiling at a gateless airport', () => {
+  const s = mpState({ jfkGates: 0, existingFreq: 0, pool: { JFK: { grant: 20 } } });
+  s.routes = [];
+  const next = addIad(s, 25);
+  assert.equal(next.routes.length, 0, '25/wk against a 20-slot grant → refused');
 });
 
 test('frequencyChangeBlockReason honours the grant', () => {
@@ -272,6 +286,24 @@ test('guarantee hub gates never feed the pool', () => {
   });
   assert.equal(pools.get('o1')?.AAA?.shared ?? 0, 0, 'all five gates are the personal guarantee');
   assert.equal(pools.get('b1')?.AAA?.grant ?? 0, 0);
+});
+
+test('a gateless member can borrow up to ONE gate\'s worth', () => {
+  // b0 holds nothing at AAA but flies 70/wk there — all 70 is "need", but the
+  // gateless ceiling is SLOTS_PER_GATE.
+  const rosterPlus = new Map([...alliance2, ['b0', { membership: { allianceId: 'al1' } }]]);
+  const airlines = [
+    ...airlinesAAA(),
+    rowFor('b0', { routes: [R('q', 'AAA', 'EEE', 'a1', 70)] }),
+  ];
+  const pools = computeSlotPools({
+    base: baseAAA(), airlines, allianceMap: rosterPlus,
+    shares: [share('o1', 'AAA')], weekIdx: 10,
+  });
+  const b0 = pools.get('b0').AAA;
+  assert.equal(b0.draw, SLOTS_PER_GATE, 'need 70, ceiling one gate\'s worth');
+  assert.equal(b0.grant, SLOTS_PER_GATE);
+  assert.ok(b0.weeklyCost > 0, 'gateless borrowing still pays the owner');
 });
 
 test('a rule-5 lockout bars borrowing', () => {

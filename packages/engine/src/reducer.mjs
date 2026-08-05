@@ -224,10 +224,11 @@ function settleCoversForRemoval(state, aircraftId) {
 // non-scarcity worlds never carry it and every check below reduces to the
 // original own-gates arithmetic, byte for byte.
 //
-// Note the borrower still needs ≥1 gate of their OWN at the airport: every
-// route path checks `gates[code] > 0` before slots, and that check is
-// deliberately untouched — the pool extends an existing presence, it does not
-// substitute for one.
+// A grant also OPENS an airport the airline holds no gates at: the route
+// paths' `gates[code] > 0` checks accept a positive grant as presence, so a
+// member can launch somewhere entirely on a partner's spare slots. The server
+// caps a no-gate grant at one gate's worth (SLOTS_PER_GATE), and a rule-5
+// lockout still bars borrowing there — the pool is not a lockout escape.
 export function poolGrantAt(state, code) {
   return state.allianceSlotPool?.[code]?.grant ?? 0;
 }
@@ -1384,8 +1385,11 @@ function reducer(state, action) {
 
       // ── Gate checks ──────────────────────────────────────────────────────────
       const gates = state.gates ?? {};
-      if (!(gates[action.origin] > 0))      return state;  // no gate at origin
-      if (!(gates[action.destination] > 0)) return state;  // no gate at destination
+      // A gate of your own OR an alliance slot-pool grant opens the airport —
+      // borrowing partners' spare slots is precisely for launching somewhere
+      // you hold nothing (the server caps a no-gate grant at one gate's worth).
+      if (!(gates[action.origin] > 0)      && poolGrantAt(state, action.origin) <= 0)      return state;
+      if (!(gates[action.destination] > 0) && poolGrantAt(state, action.destination) <= 0) return state;
 
       // Slot availability (each freq unit = 1 departure/wk at each endpoint), checked
       // per-month so a dormant route's slots are free for a counter-seasonal route.
@@ -1536,7 +1540,7 @@ function reducer(state, action) {
         addIncident[l.to]   = (addIncident[l.to]   ?? 0) + 1;
       }
       for (const code of stops) {
-        if (!(gates[code] > 0)) return state;   // no gate at this stop
+        if (!(gates[code] > 0) && poolGrantAt(state, code) <= 0) return state;   // no gate (or pool grant) at this stop
         if (slotsUsedAt(code) + addIncident[code] * weeklyFrequency > slotCapAt(state, code)) return state;
       }
 
@@ -1806,8 +1810,8 @@ function reducer(state, action) {
 
       // Gates required at both endpoints; slots counted across passenger + cargo ops.
       const gates = state.gates ?? {};
-      if (!(gates[action.origin] > 0))      return state;
-      if (!(gates[action.destination] > 0)) return state;
+      if (!(gates[action.origin] > 0)      && poolGrantAt(state, action.origin) <= 0)      return state;
+      if (!(gates[action.destination] > 0) && poolGrantAt(state, action.destination) <= 0) return state;
       const slotsAt = (code) => allOps
         .filter(r => r.origin === code || r.destination === code)
         .reduce((s, r) => s + r.weeklyFrequency, 0);

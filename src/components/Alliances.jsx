@@ -289,8 +289,9 @@ function PlayerAlliancesPanel({ currentAlliance }) {
             </div>
             {entries.length === 0 ? (
               <span style={{ color: 'var(--text-muted)' }}>
-                Nothing shared yet — open the Airports tab to share the spare slots on your gates,
-                or fly on a partner's spare slots at airports where you both hold gates.
+                Nothing shared yet — open the Airports tab to share the spare slots on your gates.
+                Once a partner shares, you can open routes on their spare slots — even at airports
+                where you hold no gates.
               </span>
             ) : (
               entries.map(([code, p]) => (

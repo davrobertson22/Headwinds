@@ -296,10 +296,11 @@ function SlotPoolSection({ state, remoteApi }) {
       </div>
       <div className="card" style={{ padding: '12px 16px' }}>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>
-          Share the spare weekly slots on your gates with your alliance — partners with a gate of
-          their own at the airport can fly on them, paying you the slot's gate fee&nbsp;+25%.
-          Gates feeding the pool count as in use, so they can't be forfeited. If you grow back
-          into shared slots, partners get a 4-week warning before their flights are cut.
+          Share the spare weekly slots on your gates with your alliance — partners can fly on
+          them, paying you the slot's gate fee&nbsp;+25%, even at airports where they hold no
+          gates at all (up to a gate's worth of slots there). Gates feeding the pool count as
+          in use, so they can't be forfeited. If you grow back into shared slots, partners get
+          a 4-week warning before their flights are cut.
           {(weeklyEarnings > 0 || weeklyCost > 0) && (
             <strong style={{ color: 'var(--text)' }}>
               {' '}This week: {weeklyEarnings > 0 ? `earning ${formatMoney(weeklyEarnings)}` : ''}

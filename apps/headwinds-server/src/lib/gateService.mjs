@@ -153,13 +153,16 @@ export function computeSlotPools({ base, airlines, allianceMap, shares, weekIdx 
     const perSlot = slotPoolPerSlotFee(airport, b.surcharge === true);
 
     for (const roster of rosters.values()) {
-      const present = roster.filter((id) => (b.holdings?.[id]?.count ?? 0) > 0);
-      if (present.length < 2) continue; // a pool needs someone to share WITH
+      if (roster.length < 2) continue; // a pool needs someone to share WITH
+      // Owners must hold gates here, but BORROWERS need none — launching a
+      // route somewhere you hold nothing, on a partner's spare slots, is the
+      // point of the pool. So every roster member is in the arithmetic.
+      if (!roster.some((id) => (b.holdings?.[id]?.count ?? 0) > 0)) continue;
 
       // Per-member arithmetic. Guarantee hub gates never pool their slots; own
       // usage is assumed to fill those personal slots first, so an owner's
       // shareable spare is measured against the non-guaranteed remainder.
-      const members = present.map((id) => {
+      const members = roster.map((id) => {
         const row = rowById.get(id);
         const state = row?.state ?? null;
         const count = b.holdings?.[id]?.count ?? 0;
@@ -175,10 +178,16 @@ export function computeSlotPools({ base, airlines, allianceMap, shares, weekIdx 
           ? Math.max(0, (ownCap - guaranteeSlots) - usageOnShareable - reserved)
           : 0;
         const lockedUntil = state?.gateLockouts?.[code] ?? 0;
-        const canBorrow = state != null && count > 0 && !(lockedUntil > weekIdx);
+        // No own gate needed to borrow — but a rule-5 lockout still bars you
+        // (the pool must not be a lockout escape hatch).
+        const canBorrow = state != null && !(lockedUntil > weekIdx);
+        // Borrow ceiling: a gateless member may run up to ONE gate's worth of
+        // slots on partners' gates; holding your own gates raises the ceiling
+        // to match your own capacity (tunable — plan §8).
+        const borrowCap = Math.max(ownCap, SLOTS_PER_GATE);
         return {
           id, name: row?.name ?? 'An airline', state, count, ownCap, usage,
-          sharing, reserved, shareable,
+          sharing, reserved, shareable, borrowCap,
           need: canBorrow ? Math.max(0, usage - ownCap) : 0,
           canBorrow,
           draw: 0, available: 0, lent: 0,
@@ -186,23 +195,23 @@ export function computeSlotPools({ base, airlines, allianceMap, shares, weekIdx 
       });
 
       const poolTotal = members.reduce((s, m) => s + m.shareable, 0);
-      if (poolTotal <= 0 && !members.some((m) => m.sharing || m.need > 0)) continue;
+      if (poolTotal <= 0 && !members.some((m) => m.sharing)) continue;
 
       // Draws: serve current borrowing (usage already past own capacity) in
       // airlineId order. A member draws only from OTHERS' shareable, and never
-      // more than their own slot capacity (borrowed ≤ own presence).
+      // more than their borrow ceiling.
       let poolLeft = poolTotal;
       for (const m of [...members].sort((a, z) => a.id.localeCompare(z.id))) {
         if (!m.canBorrow || m.need <= 0) continue;
         const othersPool = poolTotal - m.shareable;
-        m.draw = Math.max(0, Math.min(m.need, m.ownCap, othersPool, poolLeft));
+        m.draw = Math.max(0, Math.min(m.need, m.borrowCap, othersPool, poolLeft));
         poolLeft -= m.draw;
       }
       // Headroom: what each member could STILL draw for new frequency.
       for (const m of members) {
         if (!m.canBorrow) continue;
         const othersPool = poolTotal - m.shareable;
-        m.available = Math.max(0, Math.min(m.ownCap - m.draw, othersPool - m.draw, poolLeft));
+        m.available = Math.max(0, Math.min(m.borrowCap - m.draw, othersPool - m.draw, poolLeft));
       }
 
       // Owner attribution, most-spare-first (ties on airlineId): each
