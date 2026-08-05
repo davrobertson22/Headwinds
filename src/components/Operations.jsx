@@ -208,6 +208,10 @@ function NegotiationBanner({ negotiation, labor, fleetSize, complexityMult, disp
   const gs      = labor[negotiation.group] ?? { payMultiplier: 1.0, morale: 80 };
   const demand  = negotiation.demandMultiplier;
   const counter = counterOfferMultiplier(gs.payMultiplier, demand);
+  // The midpoint can round up to the full demand (1.95× vs a 2.00× demand).
+  // That's not a counter — it's the union's own number — so drop the button
+  // rather than offering an identical option that reads as a gamble.
+  const canCounter = counter < demand - 1e-9;
   const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(negotiation.group) ? complexityMult : 1.0;
   const weeklyDelta = (mult) =>
     Math.round(group.baseWeeklyPerAircraft * (mult - gs.payMultiplier) * fleetSize * famMult);
@@ -242,6 +246,7 @@ function NegotiationBanner({ negotiation, labor, fleetSize, complexityMult, disp
             {fleetSize > 0 ? `${formatMoney(weeklyDelta(demand))}/wk extra` : 'Costs rise'} · morale +8 · union satisfied
           </div>
         </button>
+        {canCounter && (
         <button
           style={{ ...btn, borderColor: 'var(--yellow)' }}
           onClick={() => dispatch({ type: 'RESOLVE_NEGOTIATION', response: 'counter' })}
@@ -251,6 +256,7 @@ function NegotiationBanner({ negotiation, labor, fleetSize, complexityMult, disp
             {fleetSize > 0 ? `${formatMoney(weeklyDelta(counter))}/wk extra` : 'Half the raise'} · union may accept — or stay angry
           </div>
         </button>
+        )}
         <button
           style={{ ...btn, borderColor: 'var(--red)' }}
           onClick={() => dispatch({ type: 'RESOLVE_NEGOTIATION', response: 'refuse' })}

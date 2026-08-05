@@ -18,7 +18,7 @@ import {
   tickUnrest, strikeProbability, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
   counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
-  NEGOTIATION_RESPONSE_WEEKS,
+  NEGOTIATION_RESPONSE_WEEKS, MAX_PAY_MULTIPLIER,
 } from '../src/data/laborRelations.js';
 import { LABOR_GROUPS } from '../src/data/labor.js';
 
@@ -79,15 +79,24 @@ test('settlement raise is +15% rounded to slider steps, capped at 2.0', () => {
   assert.ok(Math.abs(v * 20 - Math.round(v * 20)) < 1e-9, 'multiple of 0.05');
 });
 
-test('negotiation demand always exceeds current pay, ≤ 2.0, in 0.05 steps', () => {
-  for (const pay of [0.5, 0.8, 1.0, 1.3, 1.95, 2.0]) {
+test('negotiation demand always STRICTLY exceeds current pay, ≤ cap, in 0.05 steps', () => {
+  for (const pay of [0.5, 0.8, 1.0, 1.3, 1.95]) {
     for (let i = 0; i < 50; i++) {
       const d = negotiationDemand(pay, i % 2 === 0);
-      assert.ok(d > pay || pay >= 2.0, `demand ${d} > pay ${pay}`);
-      assert.ok(d <= 2.0, 'capped at slider max');
+      assert.ok(d !== null, `headroom at ${pay}× — the union must table something`);
+      assert.ok(d > pay, `demand ${d} > pay ${pay}`);
+      assert.ok(d <= MAX_PAY_MULTIPLIER, 'capped at slider max');
       assert.ok(Math.abs(d * 20 - Math.round(d * 20)) < 1e-9, '0.05 steps');
     }
   }
+});
+
+test('no demand at all once pay is already at the ceiling', () => {
+  for (let i = 0; i < 50; i++) {
+    assert.equal(negotiationDemand(MAX_PAY_MULTIPLIER, i % 2 === 0), null,
+      'a union paid the maximum cannot ask for a raise');
+  }
+  assert.equal(negotiationDemand(2.5, true), null, 'above the cap too');
 });
 
 test('below-market pay draws a demand back toward market rate', () => {
@@ -97,6 +106,8 @@ test('below-market pay draws a demand back toward market rate', () => {
 
 test('counter-offer is the midpoint in slider steps; acceptance scales with morale', () => {
   assert.equal(counterOfferMultiplier(1.0, 1.2), 1.1);
+  // 1.95× vs a 2.00× demand: the midpoint rounds up to the full demand.
+  assert.equal(counterOfferMultiplier(1.95, MAX_PAY_MULTIPLIER), MAX_PAY_MULTIPLIER);
   assert.equal(counterAccepted(100, () => 0.84), true);
   assert.equal(counterAccepted(0,  () => 0.26), false);
 });
@@ -169,6 +180,37 @@ try {
     assert.equal(s.labor.pilots.payMultiplier, 1.1, 'midpoint of 1.0 and 1.2');
     assert.equal(s.laborRelations.negotiation, null);
     assert.ok(['counterAccepted', 'counterRejected'].includes(s.laborRelations.lastOutcome.outcome));
+  });
+
+  test('countering at or above the demand is treated as an outright accept', () => {
+    // pay 1.95× vs a 2.00× demand — the midpoint rounds up to the full demand.
+    // Morale is rock-bottom, so on the old code the union rejected its own number.
+    for (let i = 0; i < 30; i++) {
+      const s = reducer(negoState({
+        labor: { ...freshState().labor, pilots: { payMultiplier: 1.95, morale: 5 } },
+        laborRelations: {
+          ...DEFAULT_LABOR_RELATIONS,
+          negotiation: { group: 'pilots', demandMultiplier: 2.0, weeksLeft: 4, totalWeeks: 4 },
+          nextNegotiationAbsWeek: { pilots: 999, cabinCrew: 999, groundStaff: 999, maintenanceTeam: 999 },
+        },
+      }), { type: 'RESOLVE_NEGOTIATION', response: 'counter' });
+      assert.equal(s.labor.pilots.payMultiplier, 2.0);
+      assert.equal(s.laborRelations.lastOutcome.outcome, 'accepted',
+        'giving the union exactly what it asked for cannot sour talks');
+    }
+  });
+
+  test('a no-op demand stored by an old save resolves without punishing the player', () => {
+    const s = reducer(negoState({
+      labor: { ...freshState().labor, pilots: { payMultiplier: 2.0, morale: 100 } },
+      laborRelations: {
+        ...DEFAULT_LABOR_RELATIONS,
+        negotiation: { group: 'pilots', demandMultiplier: 2.0, weeksLeft: 4, totalWeeks: 4 },
+        nextNegotiationAbsWeek: { pilots: 999, cabinCrew: 999, groundStaff: 999, maintenanceTeam: 999 },
+      },
+    }), { type: 'RESOLVE_NEGOTIATION', response: 'counter' });
+    assert.equal(s.laborRelations.lastOutcome.outcome, 'accepted');
+    assert.equal(s.labor.pilots.payMultiplier, 2.0);
   });
 
   test('refuse: no raise, morale −10, unrest +30', () => {
@@ -275,6 +317,24 @@ try {
     assert.ok(s1.pendingToasts.some(t => (t.title ?? '').includes('Contract talks')), 'talks toast');
   });
 
+  test('a union already at the pay ceiling tables nothing and reschedules', () => {
+    const maxLabor = Object.fromEntries(LABOR_GROUPS.map(g =>
+      [g.id, { payMultiplier: MAX_PAY_MULTIPLIER, morale: 100 }]));
+    const s0 = playState({
+      week: 10, year: 2, labor: maxLabor,
+      laborRelations: {
+        ...DEFAULT_LABOR_RELATIONS,
+        nextNegotiationAbsWeek: { pilots: 1, cabinCrew: 9999, groundStaff: 9999, maintenanceTeam: 9999 },
+      },
+    });
+    const s1 = reducer(s0, { type: 'ADVANCE_WEEK' });
+    assert.equal(s1.laborRelations.negotiation, null,
+      'no demand for the pay the player is already paying');
+    assert.ok(s1.laborRelations.nextNegotiationAbsWeek.pilots > 1, 'talks pushed out instead');
+    assert.ok(!s1.pendingToasts.some(t => (t.title ?? '').includes('Contract talks')),
+      'and no toast about a demand that was never tabled');
+  });
+
   test('an ignored negotiation lapses into a refusal (morale hit + unrest)', () => {
     let s = playState({
       laborRelations: {
@@ -289,6 +349,26 @@ try {
     assert.ok(s.labor.groundStaff.morale < moraleBefore, 'morale dropped');
     assert.ok(s.laborRelations.unrest.groundStaff >= 25, 'unrest spiked');
     assert.ok(s.laborRelations.nextNegotiationAbsWeek.groundStaff < 9999, 'union re-tables sooner');
+  });
+
+  test('a no-op demand left in an old save is closed quietly on the next tick', () => {
+    const maxLabor = Object.fromEntries(LABOR_GROUPS.map(g =>
+      [g.id, { payMultiplier: MAX_PAY_MULTIPLIER, morale: 100 }]));
+    const s0 = playState({
+      labor: maxLabor,
+      laborRelations: {
+        ...DEFAULT_LABOR_RELATIONS,
+        // Saved before the fix: a 2.00× demand against 2.00× pay, 1 week left,
+        // i.e. about to lapse into a "refusal" the player could not have avoided.
+        negotiation: { group: 'pilots', demandMultiplier: 2.0, weeksLeft: 1, totalWeeks: 4 },
+        nextNegotiationAbsWeek: { pilots: 9999, cabinCrew: 9999, groundStaff: 9999, maintenanceTeam: 9999 },
+      },
+    });
+    const s1 = reducer(s0, { type: 'ADVANCE_WEEK' });
+    assert.equal(s1.laborRelations.negotiation, null, 'dead demand cleared');
+    assert.equal(s1.labor.pilots.morale, 100, 'no morale hit');
+    assert.equal(s1.laborRelations.unrest.pilots, 0, 'no unrest');
+    assert.ok(!s1.pendingToasts.some(t => (t.title ?? '').includes('ignored')), 'not treated as a refusal');
   });
 
   test('old saves get first negotiations scheduled on the next tick', () => {

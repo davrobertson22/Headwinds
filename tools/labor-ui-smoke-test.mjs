@@ -88,6 +88,22 @@ test('renders the negotiation banner with all three responses', () => {
   assert.ok(html.includes('Refuse'), 'refuse option');
 });
 
+test('drops the counter button when the midpoint IS the demand', () => {
+  const html = render({
+    ...baseSave,
+    // 1.95× pay vs a 2.00× demand: the midpoint rounds up to the full demand,
+    // so "Counter" would be an identical option dressed up as a gamble.
+    labor: { ...baseSave.labor, pilots: { payMultiplier: 1.95, morale: 90 } },
+    laborRelations: {
+      ...DEFAULT_LABOR_RELATIONS,
+      negotiation: { group: 'pilots', demandMultiplier: 2.0, weeksLeft: 3, totalWeeks: 4 },
+    },
+  }, React.createElement(Operations));
+  assert.ok(html.includes('Contract talks'), 'negotiation banner present');
+  assert.ok(html.includes('Accept'), 'accept still offered');
+  assert.ok(!html.includes('Counter at'), 'no duplicate counter option');
+});
+
 test('renders the last-outcome note after a recent resolution', () => {
   const html = render({
     ...baseSave,

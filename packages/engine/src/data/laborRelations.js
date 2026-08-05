@@ -10,7 +10,9 @@
  *    can end a strike immediately by settling (SETTLE_STRIKE: a 15% raise).
  *
  * 2. CONTRACT NEGOTIATIONS — every ~2–3 game years each group's union tables
- *    a pay demand. The player has NEGOTIATION_RESPONSE_WEEKS to respond:
+ *    a pay demand (unless they are already on MAX_PAY_MULTIPLIER, in which case
+ *    there is nothing to ask for and the round is quietly rescheduled). The
+ *    player has NEGOTIATION_RESPONSE_WEEKS to respond:
  *      accept  → pay jumps to the demand, morale +8, unrest −40
  *      counter → pay set to the midpoint; union accepts (morale +4) or,
  *                if relations are sour, takes the raise but stays angry
@@ -37,6 +39,12 @@ export const DEFAULT_LABOR_RELATIONS = {
   // No new strike can begin before this absolute week (post-strike truce).
   strikeCooldownUntilAbsWeek: 0,
 };
+
+/**
+ * Highest pay multiplier the player can set (matches the Labor pay slider's
+ * max). Nothing in the labor model may demand, counter or settle above it.
+ */
+export const MAX_PAY_MULTIPLIER = 2.0;
 
 // ─── Strikes ──────────────────────────────────────────────────────────────────
 
@@ -112,7 +120,7 @@ export function rollStrike(unrest, absWeek, cooldownUntilAbsWeek, rng = Math.ran
 
 /** Pay multiplier after capitulating to end a strike early (15% raise). */
 export function settlementPayMultiplier(payMultiplier) {
-  return Math.min(2.0, Math.round(payMultiplier * 1.15 * 20) / 20);
+  return Math.min(MAX_PAY_MULTIPLIER, Math.round(payMultiplier * 1.15 * 20) / 20);
 }
 
 // ─── Contract negotiations ────────────────────────────────────────────────────
@@ -140,26 +148,48 @@ export function scheduleNextNegotiation(absWeek, soured, rng = Math.random) {
 }
 
 /**
- * The pay multiplier the union demands.
- * Paying below market → they demand a return to ~market rate.
- * Otherwise → a 10–18% raise, +5% more if the airline just had a good year.
+ * The pay multiplier the union demands, or `null` when it has nothing to ask
+ * for. Paying below market → they demand a return to ~market rate. Otherwise
+ * → a 10–18% raise, +5% more if the airline just had a good year.
+ *
+ * A group already on MAX_PAY_MULTIPLIER is at the top of the pay slider, so a
+ * demand could only ever be the rate the player is already paying. That made
+ * for a nonsense round of talks: accepting cost nothing, countering offered
+ * the union its own number (and could still be "rejected"), and refusing was
+ * punished for declining to hand over nothing. Return null instead — callers
+ * push the next round out rather than tabling a no-op demand.
  */
 export function negotiationDemand(payMultiplier, profitable, rng = Math.random) {
+  if (payMultiplier >= MAX_PAY_MULTIPLIER - 1e-9) return null;
   let demand;
   if (payMultiplier < 0.95) {
     demand = Math.min(1.05, payMultiplier * (1.25 + rng() * 0.10));
   } else {
     demand = payMultiplier * (1 + 0.10 + rng() * 0.08 + (profitable ? 0.05 : 0));
   }
-  demand = Math.min(2.0, Math.round(demand * 20) / 20);
-  if (demand <= payMultiplier) demand = Math.min(2.0, payMultiplier + 0.05);
+  demand = Math.min(MAX_PAY_MULTIPLIER, Math.round(demand * 20) / 20);
+  // Rounding down can land the demand on current pay — nudge it one slider
+  // step. The ceiling guard above means there is always a step to take.
+  if (demand <= payMultiplier) {
+    demand = Math.min(MAX_PAY_MULTIPLIER, Math.round((payMultiplier + 0.05) * 20) / 20);
+  }
   return demand;
 }
 
-/** Midpoint counter-offer, rounded to the pay slider's 0.05 steps. */
+/**
+ * Midpoint counter-offer, rounded to the pay slider's 0.05 steps. Note this
+ * can round UP to the full demand (1.95× vs a 2.00× demand); the reducer
+ * treats that as an outright accept rather than a counter the union could
+ * reject — see counterMeetsDemand().
+ */
 export function counterOfferMultiplier(payMultiplier, demandMultiplier) {
   const mid = (payMultiplier + demandMultiplier) / 2;
-  return Math.min(2.0, Math.round(mid * 20) / 20);
+  return Math.min(MAX_PAY_MULTIPLIER, Math.round(mid * 20) / 20);
+}
+
+/** True when a counter lands at or above the demand — i.e. it isn't a counter. */
+export function counterMeetsDemand(payMultiplier, demandMultiplier) {
+  return counterOfferMultiplier(payMultiplier, demandMultiplier) >= demandMultiplier - 1e-9;
 }
 
 /** Whether the union accepts a counter-offer (better relations → more likely). */
