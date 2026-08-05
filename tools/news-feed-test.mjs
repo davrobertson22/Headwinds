@@ -31,7 +31,13 @@ const WORLD = {
   id: 'w1', currentWeek: 20, currentYear: 2, weeksPerDay: 6, endedAt: null,
 };
 
-const T0 = Date.parse('2026-07-27T12:00:00.000Z');
+// Anchor "minutes ago" to the RUN's own clock, not a hardcoded instant. The
+// original fixed T0 (2026-07-27T12:00Z) rotted in real time: the news window
+// and week-fold arithmetic compare row timestamps against the wall clock, so a
+// week after it was written the fixture rows aged out of their buckets and two
+// tests started failing on every machine, at certain hours, with no code
+// change at all.
+const T0 = Date.now();
 const ago = (mins) => new Date(T0 - mins * 60_000);
 
 function matches(row, where = {}) {

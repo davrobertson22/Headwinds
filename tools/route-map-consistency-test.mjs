@@ -104,7 +104,23 @@ const save = {
   fleet,
   routes,
   humanRivals,
+  // freshState() seeds 25 RANDOMLY-generated AI carriers, and some runs one of
+  // them happened to fly a fixture pair — halving the "monopoly" route's load
+  // factor and flaking this suite (~1 run in 3). The fixture's whole point is
+  // that ONLY the hand-built human rival contests these pools, so strip every
+  // AI route that touches a fixture pair (the carriers themselves stay: the
+  // hydration path treats an empty competitor list differently, and the point
+  // here is isolation, not emptiness).
 };
+{
+  const fixturePairs = new Set(SPOKES.map(d => routePairKey(HUB, d)));
+  save.competitors = (save.competitors ?? []).map(c => ({
+    ...c,
+    routes: Object.fromEntries(
+      Object.entries(c.routes ?? {}).filter(([pair]) => !fixturePairs.has(pair)),
+    ),
+  }));
+}
 store.set('bbae_save_v2', JSON.stringify(save));
 
 const render = (el) => renderToString(React.createElement(GameProvider, null, el));
