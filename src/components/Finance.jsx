@@ -22,7 +22,7 @@ import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
   fuelIndexStatus, fuelIndexDelta, absoluteWeek,
-  HEDGE_DURATIONS, HEDGE_COVERAGES,
+  HEDGE_DURATIONS, HEDGE_COVERAGES, expectedMeanIndex,
   effectiveFuelMultiplier, totalHedgedCoverage,
   FUEL_MIN_INDEX, FUEL_MAX_INDEX,
 } from '../utils/fuel.js';
@@ -3912,7 +3912,12 @@ function FuelHedging() {
               ['Duration', selOpt?.label ?? '—'],
               ['Coverage', `${Math.round(selCoverage * 100)}% of fleet fuel`],
               ['Market index now', `${fuelIndex.toFixed(3)}×`],
-              ['Locked price', `${lockedPreview.toFixed(3)}×`],
+              // Spot is not what a hedge competes against — the expected path
+              // is. Showing both makes the premium visible as the price of
+              // certainty rather than leaving the player to guess whether a
+              // lock above or below today's index is a good deal.
+              ['Expected average over term', `${expectedMeanIndex(fuelIndex, selOpt?.weeks ?? 0).toFixed(3)}×`],
+              ['Locked price', `${lockedPreview.toFixed(3)}× (${Math.round((selOpt?.premium ?? 0) * 100)}% premium for certainty)`],
               ['Expires', `W${Math.min(52, state.week + (selOpt?.weeks ?? 0))}, ${state.year + (state.week + (selOpt?.weeks ?? 0) > 52 ? 1 : 0)}`],
             ].map(([k, v]) => (
               <>

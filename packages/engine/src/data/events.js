@@ -19,6 +19,12 @@ import { weeklyWearFailureProb, isOutOfService } from './maintenance.js';
 //   regionCodes         ISO country codes this event applies to (demand events)
 //   regionDemandMult    demand multiplier for regionCodes airports
 //   competitorMult      multiply competitor aggression / pricing
+//   otpDelta            subtract from the fleet's on-time rate (0–1) while the
+//                       event runs — a disruption that disrupts OPERATIONS and
+//                       not just bookings. Applied network-wide even for a
+//                       regional event: a closed hub or an ash cloud cascades
+//                       through the whole rotation, which is why a storm in one
+//                       region delays flights everywhere for days.
 //   note                plain-language summary shown in debrief
 
 // Maximum impact a broad (regional/domestic/global) event may have: ±30%.
@@ -212,8 +218,9 @@ export const EVENT_TEMPLATES = [
           regionCodes: ['GB'],
           regionDemandMult: mult,
           airportCode: 'LHR',
+          otpDelta: 0.10,
         },
-        resolvedDesc: `LHR operating at ${Math.round(mult * 100)}% capacity due to strike action.`,
+        resolvedDesc: `LHR operating at ${Math.round(mult * 100)}% capacity due to strike action. Rotations disrupted network-wide.`,
       };
     },
   },
@@ -232,8 +239,9 @@ export const EVENT_TEMPLATES = [
         effects: {
           regionCodes: ['US'],
           regionDemandMult: mult,
+          otpDelta: 0.14,
         },
-        resolvedDesc: `US operations reduced to ${Math.round(mult * 100)}% during storm.`,
+        resolvedDesc: `US operations reduced to ${Math.round(mult * 100)}% during storm. Delays cascade across the schedule.`,
       };
     },
   },
@@ -248,8 +256,8 @@ export const EVENT_TEMPLATES = [
     duration: [1, 1],
     generate() {
       return {
-        effects: { globalDemandMult: clampImpact(0.70) },
-        resolvedDesc: 'Booking systems down. Revenue impacted across all routes this week.',
+        effects: { globalDemandMult: clampImpact(0.70), otpDelta: 0.12 },
+        resolvedDesc: 'Booking systems down. Revenue hit across all routes, and departures are running late.',
       };
     },
   },
@@ -315,8 +323,8 @@ export const EVENT_TEMPLATES = [
       const region = regions[Math.floor(Math.random() * regions.length)];
       const mult = clampImpact(0.30 + Math.random() * 0.25);
       return {
-        effects: { regionCodes: region.codes, regionDemandMult: mult },
-        resolvedDesc: `Volcanic ash closes ${region.label} airspace. Routes severely disrupted.`,
+        effects: { regionCodes: region.codes, regionDemandMult: mult, otpDelta: 0.18 },
+        resolvedDesc: `Volcanic ash closes ${region.label} airspace. Reroutes and cancellations wreck punctuality.`,
       };
     },
   },
@@ -340,8 +348,8 @@ export const EVENT_TEMPLATES = [
       const region = regions[Math.floor(Math.random() * regions.length)];
       const mult = clampImpact(0.45 + Math.random() * 0.25);
       return {
-        effects: { regionCodes: region.codes, regionDemandMult: mult },
-        resolvedDesc: `Natural disaster in ${region.label} causes ${pct(mult, false)} demand drop. Emergency crews replacing tourists.`,
+        effects: { regionCodes: region.codes, regionDemandMult: mult, otpDelta: 0.10 },
+        resolvedDesc: `Natural disaster in ${region.label} causes ${pct(mult, false)} demand drop. Damaged airports and diverted crews delay the schedule.`,
       };
     },
   },

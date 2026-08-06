@@ -175,6 +175,17 @@ export function utilizationOnTimePenalty(avgUtilization) {
  *   previews), rating falls back to the legacy cabin-morale mapping.
  */
 export function laborEffects(labor, avgUtilization = null, satisfaction = null) {
+  // `eventOtpDelta` is a TRANSIENT field the weekly tick attaches to its own
+  // copy of the labor object — never persisted, never set by the player. It is
+  // how a disruption event reaches the on-time rate.
+  //
+  // Before this, an event could only move demand: during a volcanic ash cloud
+  // an airline ran a flawless schedule to 30% fewer passengers. On-time rate
+  // was a pure function of morale and utilisation and did not vary week to
+  // week, so the compensation cost line never moved either and the whole
+  // irregular-operations texture of the industry — the part passengers
+  // actually experience — was a demand scalar.
+  const otpDelta = Math.max(0, Number(labor?.eventOtpDelta) || 0);
   const pilots  = labor?.pilots?.morale          ?? 80;
   const cabin   = labor?.cabinCrew?.morale        ?? 80;
   const ground  = labor?.groundStaff?.morale      ?? 80;
@@ -184,7 +195,7 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   return {
     // 0.55 at zero blended morale → 1.00 at full, minus schedule pressure
     onTimeRate: Math.max(0.35, Math.min(1,
-      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization))),
+      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta)),
     // 0–5 stars: earned from the satisfaction track record when available,
     // otherwise (legacy) directly from cabin crew morale
     customerRating:           satisfaction != null

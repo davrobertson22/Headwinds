@@ -77,6 +77,7 @@ import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js
 import { tickEncroachment } from './models/encroachment.js';
 import {
   tickFuelPrice,
+  clampFuelIndex,
   effectiveFuelMultiplier,
   hedgeLockedPrice,
   absoluteWeek,
@@ -2860,10 +2861,15 @@ function reducer(state, action) {
       // passenger pool so load factors genuinely drop, rather than skimming a
       // flat revenue adjustment off fully-booked flights.
       let fuelMult = 1.0;
+      let eventOtpDelta = 0;
       for (const ev of allEvents) {
         const fx = ev.effects ?? {};
         if (fx.fuelMult) fuelMult *= fx.fuelMult;
+        // Operational disruption stacks additively and is capped, so a bad week
+        // is bad rather than catastrophic (the floor in laborEffects is 0.35).
+        if (fx.otpDelta) eventOtpDelta += fx.otpDelta;
       }
+      eventOtpDelta = Math.min(0.25, eventOtpDelta);
 
       // ── Fuel price + hedging ──────────────────────────────────────────
       // Multiplayer: the world computes a single shared fuel index per week
@@ -2874,7 +2880,19 @@ function reducer(state, action) {
         && typeof action.worldFuelIndex === 'number'
         && Number.isFinite(action.worldFuelIndex))
         ? action.worldFuelIndex : null;
-      const currentFuelIndex = injectedFuel ?? state.fuelPrice?.index ?? 1.0;
+      // The WALK's index — what the market would be doing with no events on.
+      // This is what carries forward: an event's shock is transient and must
+      // disappear when the event ends, so it never enters the stored series.
+      const baseFuelIndex = injectedFuel ?? state.fuelPrice?.index ?? 1.0;
+      // What the world actually pays this week. A "fuel price spike" and a high
+      // index are the same commodity move, so the event belongs IN the index —
+      // it used to be a separate multiplier applied AFTER the hedge blend, with
+      // two consequences: being 100% hedged through a +30% spike did nothing,
+      // the one moment hedging exists for; and the price the player paid
+      // disagreed with the fuel chart they were looking at. In multiplayer the
+      // event list is rolled once per world, so every airline still pays the
+      // same shocked price.
+      const currentFuelIndex = fuelMult === 1 ? baseFuelIndex : clampFuelIndex(baseFuelIndex * fuelMult);
 
       // World market index: the same shape as the fuel index above. Multiplayer
       // replays one shared walk per world-week (action.marketIndex, seeded from
@@ -2896,12 +2914,13 @@ function reducer(state, action) {
       const nowAbsWeek       = absoluteWeek(state.year, state.week);
       const allHedges        = state.hedgeContracts ?? [];
       const activeHedges     = allHedges.filter(h => h.expiryAbsWeek > nowAbsWeek);
-      // effectiveFuelMultiplier blends hedged (locked price) + unhedged (market index),
-      // then scaled by any active event fuel multiplier so the event flows through simulation
-      const fuelMultiplier   = effectiveFuelMultiplier(currentFuelIndex, activeHedges) * fuelMult;
+      // effectiveFuelMultiplier blends hedged (locked price) + unhedged (market
+      // index). The event shock is already inside currentFuelIndex, so hedges
+      // now cover it — which is the entire point of holding one.
+      const fuelMultiplier   = effectiveFuelMultiplier(currentFuelIndex, activeHedges);
       // Next week's stored index: in MP the world injects it each tick, so persist
       // the shared value; in solo, tick the per-save market price forward.
-      const nextFuelIndex    = injectedFuel != null ? injectedFuel : tickFuelPrice(currentFuelIndex);
+      const nextFuelIndex    = injectedFuel != null ? injectedFuel : tickFuelPrice(baseFuelIndex);
       const fuelPriceHistory = [...(state.fuelPrice?.history ?? []), currentFuelIndex].slice(-52);
 
       // Drop contracts that have now expired
@@ -3011,7 +3030,13 @@ function reducer(state, action) {
       const baseBuild  = tickBaseConstruction(state.mroBases ?? {}, curAbsWeek);
       const tickedBases = baseBuild.bases;
 
-      const report = weeklyTick({ ...state, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents, mroBases: tickedBases, absWeek: curAbsWeek });
+      // Disruption events reach the schedule through a transient field on the
+      // labor object the tick hands down — see laborEffects. state.labor itself
+      // is untouched, so nothing about it persists past this week.
+      const laborThisWeek = eventOtpDelta > 0
+        ? { ...(state.labor ?? {}), eventOtpDelta }
+        : state.labor;
+      const report = weeklyTick({ ...state, labor: laborThisWeek, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents, mroBases: tickedBases, absWeek: curAbsWeek });
 
       // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the

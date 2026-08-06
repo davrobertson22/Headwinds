@@ -90,8 +90,32 @@ export function tickFuelPrice(currentIndex, rand = Math.random()) {
   const drift = FUEL_MEAN_REVERSION * (FUEL_BASE_INDEX - currentIndex);
   // Map uniform [0,1] → approximately Normal via Box-Muller lite (single draw)
   const shock = (rand * 2 - 1) * FUEL_VOLATILITY * 2.5;
-  const next  = currentIndex + drift + shock;
-  return parseFloat(Math.max(FUEL_MIN_INDEX, Math.min(FUEL_MAX_INDEX, next)).toFixed(3));
+  return clampFuelIndex(currentIndex + drift + shock);
+}
+
+/** Hold an index inside the model's realistic band. */
+export function clampFuelIndex(index) {
+  return parseFloat(Math.max(FUEL_MIN_INDEX, Math.min(FUEL_MAX_INDEX, index)).toFixed(3));
+}
+
+/**
+ * Expected AVERAGE index over the next `weeks`, given today's spot.
+ *
+ * The walk is mean-reverting, so today's price is not the best guess for the
+ * next six months — the pull toward 1.0 is. For the discrete process in
+ * tickFuelPrice, E[x_t] = μ + (spot − μ)(1 − θ)^t, and averaging t = 1..T gives
+ * the decay factor below. At θ = 0.06 a 26-week horizon retains only ~48% of
+ * today's deviation from the mean; an 8-week horizon retains ~76%.
+ *
+ * This is what a fuel forward curve is, and it is the number a hedge has to be
+ * priced against — see hedgeLockedPrice.
+ */
+export function expectedMeanIndex(spot, weeks, theta = FUEL_MEAN_REVERSION, base = FUEL_BASE_INDEX) {
+  if (!(weeks > 0)) return spot;
+  const k = 1 - theta;
+  // Σ k^t for t = 1..T, divided by T.
+  const decay = (k * (1 - Math.pow(k, weeks))) / (theta * weeks);
+  return base + (spot - base) * decay;
 }
 
 /**
@@ -125,14 +149,29 @@ export function effectiveFuelMultiplier(marketIndex, activeHedges = []) {
 
 /**
  * Locked-in price for a new hedge contract.
- * = current market index × (1 + duration premium).
+ * = EXPECTED average index over the term × (1 + duration premium).
+ *
+ * This used to be spot × (1 + premium), which made hedging a solved arbitrage
+ * rather than a risk decision. The walk mean-reverts to 1.0 in public view, so
+ * at an index of 0.75 a 26-week lock cost 0.825 against an expected average of
+ * ~0.88 — free money, every time, with no judgement involved. Above 1.0 the
+ * same arithmetic ran the other way and hedging was never worth doing. The
+ * dominant strategy was "hedge to the cap whenever fuel is cheap, otherwise
+ * never", which is not a decision.
+ *
+ * Pricing off the expected path instead means the premium is what you actually
+ * pay for certainty, at any index. It also makes hedging INTO a spike sensible
+ * — you lock below today's price because the market is expected to come back
+ * down, exactly as a real forward curve in backwardation behaves — and the bet
+ * becomes whether reversion is faster or slower than the model expects.
  *
  * @param {number} marketIndex   - current fuel price index at time of purchase
  * @param {object} durationOpt   - one entry from HEDGE_DURATIONS
  * @returns {number}
  */
 export function hedgeLockedPrice(marketIndex, durationOpt) {
-  return parseFloat((marketIndex * (1 + durationOpt.premium)).toFixed(3));
+  const expected = expectedMeanIndex(marketIndex, durationOpt?.weeks ?? 0);
+  return parseFloat((expected * (1 + (durationOpt?.premium ?? 0))).toFixed(3));
 }
 
 /**
