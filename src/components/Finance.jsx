@@ -38,6 +38,11 @@ import {
 import { projectWeek } from '../utils/financeProjection.js';
 import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
+import {
+  LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
+  creditRating, loanRate, borrowingCapacity, amortizedWeeklyPayment,
+  outstandingBalance, collateralValue, unencumberedOwnedFleet,
+} from '../data/credit.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
@@ -66,7 +71,6 @@ class FinanceErrorBoundary extends Component {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const STARTING_CAPITAL = 15_000_000;
 const CLASS_LABELS = { firstClass: 'First', businessClass: 'Business', premiumEconomy: 'Prem-Eco', economy: 'Economy' };
 const CLASS_COLORS = { firstClass: '#bc8cff', businessClass: '#ffb43d', premiumEconomy: '#3ea6ff', economy: '#38d39f' };
 
@@ -151,8 +155,8 @@ function futureMonth(currentAbsWeek, offsetWeeks) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-function FinanceInner() {
-  const [view, setView] = useState('pl');
+function FinanceInner({ initialView }) {
+  const [view, setView] = useState(initialView ?? 'pl');
   const { state } = useGame();
   // Compute the canonical weekly projection ONCE and share it across tabs (runs a
   // full engine tick incl. network/connection enumeration, so we don't want each
@@ -226,10 +230,10 @@ function FinanceInner() {
   );
 }
 
-export default function Finance() {
+export default function Finance({ initialView }) {
   return (
     <FinanceErrorBoundary>
-      <FinanceInner />
+      <FinanceInner initialView={initialView} />
     </FinanceErrorBoundary>
   );
 }
@@ -3159,95 +3163,11 @@ function Statistics() {
 
 // ─── Loans ────────────────────────────────────────────────────────────────────
 
-const LOAN_PRODUCTS = [
-  {
-    id: 'short',
-    name: 'Short-term Loan',
-    termWeeks: 13,
-    baseRate: 0.08,
-    maxMultiple: 4,            // max = 4× weekly revenue …
-    baseMax: 5_000_000,        // … or $5M, whichever is higher (available from launch)
-    description: '13-week term · up to $5M · lowest total interest',
-    color: '#38d39f',
-  },
-  {
-    id: 'medium',
-    name: 'Medium-term Loan',
-    termWeeks: 26,
-    baseRate: 0.10,
-    maxMultiple: 8,
-    baseMax: 10_000_000,       // up to $10M
-    description: '26-week term · up to $10M · balanced payments',
-    color: '#3ea6ff',
-  },
-  {
-    id: 'long',
-    name: 'Long-term Loan',
-    termWeeks: 52,
-    baseRate: 0.13,
-    maxMultiple: 16,
-    baseMax: 20_000_000,       // up to $20M
-    description: '52-week term · up to $20M · largest amounts available',
-    color: '#ffb43d',
-  },
-];
-
-/** Compute credit rating A–F based on financial health */
-function creditRating(state, weeklyRevenue, weeklyNetIncome) {
-  const loans = state.loans ?? [];
-  const leasedFleet = (state.fleet ?? []).filter(a => a.ownershipType !== 'owned');
-  const annualLease = leasedFleet.reduce((s, a) => {
-    const t = getAircraftType(a.typeId);
-    return s + (t?.weeklyLease ?? 0) * 52;
-  }, 0);
-  const totalLoanBalance = loans.reduce((s, l) => {
-    const r = l.interestRate / 52;
-    const n = l.weeksRemaining;
-    return s + (r > 0 ? Math.round(l.weeklyPayment * (1 - Math.pow(1 + r, -n)) / r) : l.weeklyPayment * n);
-  }, 0);
-  const totalDebt = annualLease + totalLoanBalance;
-  const equity    = STARTING_CAPITAL + ytd(state.financialHistory, 'profit');
-
-  const debtToEquity = equity > 0 ? totalDebt / Math.max(equity, 1) : 99;
-  const runway       = weeklyNetIncome < 0 && state.cash > 0 ? state.cash / -weeklyNetIncome : Infinity;
-  const weeksOps     = state.financialHistory.length;
-
-  let score = 100;
-  if (debtToEquity > 4)   score -= 40;
-  else if (debtToEquity > 2) score -= 20;
-  else if (debtToEquity > 1) score -= 10;
-
-  if (weeklyNetIncome < 0) score -= 25;
-  else if (weeklyNetIncome < weeklyRevenue * 0.05) score -= 10;
-
-  if (isFinite(runway) && runway < 4)  score -= 30;
-  else if (isFinite(runway) && runway < 12) score -= 15;
-
-  if (weeksOps < 4)  score -= 15;
-  else if (weeksOps < 12) score -= 5;
-
-  if      (score >= 85) return { grade: 'A', label: 'Excellent',  color: '#38d39f', rateBonus: -0.02 };
-  else if (score >= 70) return { grade: 'B', label: 'Good',       color: '#4fc3f7', rateBonus: -0.01 };
-  else if (score >= 55) return { grade: 'C', label: 'Fair',       color: '#ffb43d', rateBonus:  0.00 };
-  else if (score >= 40) return { grade: 'D', label: 'Poor',       color: '#f0883e', rateBonus:  0.02 };
-  else                  return { grade: 'F', label: 'High Risk',  color: '#ff5d6c', rateBonus:  0.05 };
-}
-
-/** Amortized weekly payment */
-function calcWeeklyPayment(principal, annualRate, termWeeks) {
-  const r = annualRate / 52;
-  if (r <= 0) return Math.round(principal / termWeeks);
-  return Math.round(principal * r * Math.pow(1 + r, termWeeks) / (Math.pow(1 + r, termWeeks) - 1));
-}
-
-/** Outstanding principal balance */
-function outstandingBalance(loan) {
-  const r = loan.interestRate / 52;
-  const n = loan.weeksRemaining;
-  return r > 0
-    ? Math.round(loan.weeklyPayment * (1 - Math.pow(1 + r, -n)) / r)
-    : loan.weeklyPayment * n;
-}
+// Loan products, the credit rating, the amortisation formula and the
+// outstanding-balance formula all live in the engine now
+// (packages/engine/src/data/credit.js). They used to live here, which is why the
+// multiplayer server had no way to price a loan and the reducer simply believed
+// whatever rate this file put on the action.
 
 function Loans({ proj }) {
   const { state, dispatch } = useGame();
@@ -3255,14 +3175,14 @@ function Loans({ proj }) {
   const { cash } = state;
   const activeLoans = state.loans ?? [];
 
-  // Credit scoring uses the canonical projection so revenue and net income reflect
-  // ALL costs (labor, gates, HQ, insurance, distribution, loyalty, partner fees …),
-  // not just leases + maintenance + op-cost as before.
-  const weeklyRevenue   = proj.effectiveRevenue;
-  const weeklyNetIncome = proj.netCash;   // after all costs, loans and tax
+  const weeklyRevenue      = proj.effectiveRevenue;
   const weeklyLoanPayments = proj.loanPayments;
 
-  const credit = creditRating(state, weeklyRevenue, weeklyNetIncome);
+  // The rating, the rate and the capacity are all the ENGINE's answers now — the
+  // same ones TAKE_LOAN will use when the button is pressed. This panel used to
+  // compute its own from a forward projection the server never saw, which is how
+  // a modded client came to be able to name its own interest rate.
+  const credit = creditRating(state);
 
   // Loan form state
   const [selectedProduct, setSelectedProduct] = useState('medium');
@@ -3270,20 +3190,21 @@ function Loans({ proj }) {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const product = LOAN_PRODUCTS.find(p => p.id === selectedProduct);
-  const effectiveRate = product ? Math.max(0.03, product.baseRate + credit.rateBonus) : 0;
-  // Each product offers a guaranteed headline amount (baseMax: $5M/$10M/$20M) that's
-  // available even to a brand-new airline with no revenue yet; higher weekly revenue
-  // can unlock more (revenue × multiple).
-  const revenueMax = weeklyRevenue > 0 ? Math.floor(weeklyRevenue * product.maxMultiple / 1000) * 1000 : 0;
-  const maxAmount = Math.max(product.baseMax ?? 500_000, revenueMax);
+  const effectiveRate = product ? loanRate(state, product.id) : 0;
+  const maxAmount     = product ? borrowingCapacity(state, product.id) : 0;
   const parsedAmount = parseInt(loanAmount.replace(/[^0-9]/g, ''), 10) || 0;
-  const weeklyPayment = parsedAmount > 0 ? calcWeeklyPayment(parsedAmount, effectiveRate, product.termWeeks) : 0;
+  const weeklyPayment = parsedAmount > 0 && product
+    ? amortizedWeeklyPayment(parsedAmount, effectiveRate, product.termWeeks) : 0;
   const totalInterest = weeklyPayment > 0 ? weeklyPayment * product.termWeeks - parsedAmount : 0;
   const totalLoanDebt = activeLoans.reduce((s, l) => s + outstandingBalance(l), 0);
-  const canBorrow = parsedAmount >= 10_000 && parsedAmount <= maxAmount && parsedAmount <= maxAmount;
+  // What Aircraft Finance would be secured on, if it were drawn today.
+  const pledgeable    = unencumberedOwnedFleet(state);
+  const pledgeValue   = collateralValue(state);
+  const canBorrow = parsedAmount >= LOAN_MIN_PRINCIPAL && parsedAmount <= maxAmount
+    && !(product?.secured && pledgeable.length === 0);
 
   function handleTakeLoan() {
-    dispatch({ type: 'TAKE_LOAN', principal: parsedAmount, interestRate: effectiveRate, termWeeks: product.termWeeks });
+    dispatch({ type: 'TAKE_LOAN', productId: product.id, principal: parsedAmount });
     setLoanAmount('');
     setShowConfirm(false);
   }
@@ -3336,6 +3257,11 @@ function Loans({ proj }) {
                     <td>
                       <div style={{ fontWeight: 600 }}>
                         {loan.termWeeks}-week loan
+                        {loan.collateralIds?.length > 0 && (
+                          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: '#a371f7' }}>
+                            SECURED · {loan.collateralIds.length} aircraft
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                         Taken W{loan.takenWeek}/{loan.takenYear}
@@ -3393,9 +3319,10 @@ function Loans({ proj }) {
         <div className="card-title">Take a New Loan</div>
 
         {/* Product picker */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
           {LOAN_PRODUCTS.map(p => {
-            const rate = Math.max(0.03, p.baseRate + credit.rateBonus);
+            const rate = loanRate(state, p.id);
+            const cap  = borrowingCapacity(state, p.id);
             const isSelected = selectedProduct === p.id;
             return (
               <div
@@ -3414,18 +3341,42 @@ function Loans({ proj }) {
                   {(rate * 100).toFixed(1)}% APR
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
-                  Max {formatMoney(weeklyRevenue > 0 ? Math.floor(weeklyRevenue * p.maxMultiple / 1000) * 1000 : 500_000)}
+                  {cap > 0 ? `Available ${formatMoney(cap)}` : 'Nothing available'}
                 </div>
+                {p.secured && (
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
+                    {pledgeable.length > 0
+                      ? `${pledgeable.length} aircraft · ${formatMoney(pledgeValue)} book value`
+                      : 'No unpledged aircraft'}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
+        {product?.secured && (
+          <div style={{
+            padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 12,
+            background: 'rgba(163,113,247,.08)', border: '1px solid rgba(163,113,247,.25)',
+          }}>
+            {pledgeable.length > 0 ? (
+              <>
+                <Glyph e="🔒" /> Secured on {pledgeable.length} owned aircraft worth {formatMoney(pledgeValue)},
+                advanced at {Math.round((product.ltv ?? 0.7) * 100)}% of book value.
+                {' '}Pledged aircraft cannot be sold or retired until the loan is repaid.
+              </>
+            ) : (
+              <><Glyph e="⚠" /> Aircraft finance is secured on aircraft you own outright. Every aircraft you own is either leased or already pledged.</>
+            )}
+          </div>
+        )}
+
         {/* Amount input */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 16 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              Loan Amount <span style={{ color: 'var(--text-dim)' }}>(min $10,000 · max {formatMoney(maxAmount)})</span>
+              Loan Amount <span style={{ color: 'var(--text-dim)' }}>(min {formatMoney(LOAN_MIN_PRINCIPAL)} · max {formatMoney(maxAmount)})</span>
             </div>
             <input
               type="text"
@@ -3471,7 +3422,7 @@ function Loans({ proj }) {
                 <Glyph e="⚠" /> Exceeds maximum for this product ({formatMoney(maxAmount)}).
               </div>
             )}
-            {parsedAmount < 10_000 && parsedAmount > 0 && (
+            {parsedAmount < LOAN_MIN_PRINCIPAL && parsedAmount > 0 && (
               <div style={{ marginTop: 10, color: 'var(--yellow)', fontSize: 12 }}>
                 <Glyph e="⚠" /> Minimum loan amount is $10,000.
               </div>
@@ -3499,9 +3450,10 @@ function Loans({ proj }) {
       </div>
 
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.6 }}>
-        Interest rates reflect your credit rating. Early repayment incurs a 2% penalty on remaining principal.
-        Loan payments are deducted automatically each week before cash is updated.
-        Each loan offers a guaranteed amount ($5M / $10M / $20M) available from day one; higher weekly revenue can unlock even more (revenue × product multiplier).
+        Your rate is set by your credit rating, which the simulation grades from your last four weeks of results — not by this screen.
+        Early repayment incurs a 2% penalty on remaining principal, and payments are deducted automatically each week before cash is updated.
+        The unsecured figures ($5M / $10M / $20M, or a multiple of weekly revenue if that is higher) are TOTAL exposure, not per loan: repay before you borrow again.
+        Aircraft Finance is secured on aircraft you own outright and advances 70% of their book value over eight years — the cheapest money available, and the only debt large enough to buy an aeroplane.
       </div>
     </div>
   );

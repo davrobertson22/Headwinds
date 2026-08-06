@@ -177,7 +177,7 @@ const STRATEGIES = {
   //    ongoing marketing. High burn early, big network late.
   aggressive(state) {
     if (!state._tookLoan && state.year === 1 && state.week >= 2) {
-      state = dispatch(state, { type: 'TAKE_LOAN', principal: 20_000_000, interestRate: 0.10, termWeeks: 312 });
+      state = dispatch(state, { type: 'TAKE_LOAN', productId: 'long', principal: 20_000_000 });
       state = { ...state, _tookLoan: true };
     }
     state = growNetwork(state, {
@@ -230,7 +230,7 @@ const STRATEGIES = {
     // high-priced network), then spend almost everything on buyouts. Acquired rivals
     // bring cash + routes that compound the cash engine further.
     if (!state._tookLoan && state.year === 1 && state.week >= 2) {
-      state = dispatch(state, { type: 'TAKE_LOAN', principal: 20_000_000, interestRate: 0.10, termWeeks: 312 });
+      state = dispatch(state, { type: 'TAKE_LOAN', productId: 'long', principal: 20_000_000 });
       state = { ...state, _tookLoan: true };
     }
     // Grow only while cash is comfortably positive — this throttles the early ramp

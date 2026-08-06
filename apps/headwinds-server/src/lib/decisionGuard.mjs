@@ -15,6 +15,10 @@ import {
   CABIN_INSTALL_FEE_PER_SEAT,
   defaultConfig,
 } from '@tailwinds/engine/utils/simulation.js';
+import {
+  LOAN_MIN_PRINCIPAL, getLoanProduct, loanProductForTerm,
+  borrowingCapacity, unencumberedOwnedFleet,
+} from '@tailwinds/engine/data/credit.js';
 
 export class GuardError extends Error {
   constructor(message) {
@@ -23,47 +27,34 @@ export class GuardError extends Error {
   }
 }
 
-// ── Loans (mirror src/components/Finance.jsx) ────────────────────────────────
-// Client rate floor is 0.03; the largest loan product is 52 weeks / 16× weekly
-// revenue / $20M base. We bound generously (1.5× the largest multiple, 520-week
-// ceiling) so a legitimate loan is NEVER rejected, while the
-// {principal:1e12, interestRate:0, termWeeks:1e12} cash-mint exploit is impossible.
-const LOAN_RATE_FLOOR      = 0.03;
-const LOAN_MAX_TERM_WEEKS  = 520;
-const LOAN_MAX_MULTIPLE    = 16;
-const LOAN_MULTIPLE_BUFFER = 1.5;
-const LOAN_BASE_MAX        = 20_000_000;
-
-function recentWeeklyRevenue(state) {
-  let max = 0;
-  for (const h of (state.financialHistory ?? []).slice(-6)) {
-    const rev = Number(h?.revenue) || 0;
-    if (rev > max) max = rev;
-  }
-  return max;
-}
+// ── Loans ────────────────────────────────────────────────────────────────────
+// This guard used to re-derive its own loan bounds from constants copied out of
+// Finance.jsx, and could only ever police the SHAPE of a payload — it had no way
+// to know what rate the borrower deserved, so it settled for "at least 3%". The
+// engine now prices loans itself (packages/engine/src/data/credit.js) and
+// ignores whatever rate the client sends, which means there is nothing left here
+// to bound generously: the guard's only job is to fail a bad decision loudly at
+// the API boundary instead of silently inside the reducer.
 
 function guardTakeLoan(payload, state) {
-  const principal = Number(payload.principal);
-  const rate      = Number(payload.interestRate);
-  const term      = Number(payload.termWeeks);
-  if (!(principal > 0) || !(term > 0) || !(rate >= 0)) {
-    throw new GuardError('Invalid loan terms.');
+  const product = getLoanProduct(payload.productId)
+    ?? (payload.termWeeks != null ? loanProductForTerm(payload.termWeeks) : null);
+  if (!product) {
+    throw new GuardError('That loan product is not on offer.');
   }
-  if (rate < LOAN_RATE_FLOOR) {
-    throw new GuardError('Loan interest rate is below the market floor.');
+  const principal = Math.floor(Number(payload.principal) || 0);
+  if (!(principal >= LOAN_MIN_PRINCIPAL)) {
+    throw new GuardError('Invalid loan amount.');
   }
-  if (term > LOAN_MAX_TERM_WEEKS) {
-    throw new GuardError('Loan term is too long.');
+  if (product.secured && unencumberedOwnedFleet(state).length === 0) {
+    throw new GuardError('You have no unpledged aircraft to secure this against.');
   }
-  const cap = Math.max(
-    LOAN_BASE_MAX,
-    Math.floor(recentWeeklyRevenue(state) * LOAN_MAX_MULTIPLE * LOAN_MULTIPLE_BUFFER),
-  );
-  if (principal > cap) {
+  if (principal > borrowingCapacity(state, product.id)) {
     throw new GuardError('Loan amount exceeds your borrowing capacity.');
   }
-  return payload;
+  // Only the product and the amount survive. The rate and term are the engine's
+  // to decide, so forwarding the client's would be theatre at best.
+  return { productId: product.id, principal };
 }
 
 // ── Cabin layout (mirror src/components/FleetConfig.jsx) ──────────────────────
