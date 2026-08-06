@@ -11,6 +11,9 @@ import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
 import BoardObjectives from './BoardObjectives.jsx';
 import InfoTip from './InfoTip.jsx';
+import { requestNav } from '../utils/navIntent.js';
+import { navPathFor } from '../navPath.js';
+import { leasesExpiringSoon, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
 import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon, CloseIcon } from './Icons.jsx';
 
 // localStorage key for which dashboard cards the player has collapsed.
@@ -338,21 +341,42 @@ export default function Dashboard({ onNavigate }) {
   }, [routes, cargoRoutes]);
 
   // ── Action alerts ────────────────────────────────────────────────────────
+  // Every alert names a problem that lives on ANOTHER tab, so every alert
+  // carries that tab and the filter it should arrive under. "3 loss-making
+  // routes · consider repricing" used to be an inert line of text sitting
+  // directly above KPI boxes that were all clickable — the player was told
+  // exactly what was wrong and then left to rebuild the query by hand.
   const alerts = [];
   if (idleAircraft > 0)
-    alerts.push({ color: 'var(--yellow)', icon: AlertIcon, text: `${idleAircraft} idle aircraft, paying lease with no revenue` });
+    alerts.push({ color: 'var(--yellow)', icon: AlertIcon, text: `${idleAircraft} idle aircraft, paying lease with no revenue`, to: 'fleet', filter: { filterChip: 'idle' } });
   if (isFinite(weeksOfCash) && weeksOfCash < 4)
-    alerts.push({ color: 'var(--red)', icon: DotIcon, text: `Only ${weeksOfCash} weeks of cash runway remaining` });
+    alerts.push({ color: 'var(--red)', icon: DotIcon, text: `Only ${weeksOfCash} weeks of cash runway remaining`, to: 'finance' });
   // The silent killer: routes are in the black, but fixed costs, financing and
   // tax flip the bottom line negative. Invisible until cash dips — call it out.
   if (pnl.projected && pnl.projected.routeOp > 0 && pnl.projected.net < 0)
     alerts.push({
       color: 'var(--red)', icon: TrendDownIcon,
       text: `Routes earn +${formatMoney(pnl.projected.routeOp)}/wk, but fixed costs, financing & tax turn that into ${formatMoney(pnl.projected.net)}/wk · see Weekly P&L`,
+      to: 'finance',
     });
   const losingRoutes = routeResults.filter(({ result }) => result && result.profit < 0);
   if (losingRoutes.length > 0)
-    alerts.push({ color: 'var(--red)', icon: TrendDownIcon, text: `${losingRoutes.length} loss-making route${losingRoutes.length !== 1 ? 's' : ''} · consider repricing` });
+    alerts.push({ color: 'var(--red)', icon: TrendDownIcon, text: `${losingRoutes.length} loss-making route${losingRoutes.length !== 1 ? 's' : ''} · consider repricing`, to: 'routes', filter: { filterTab: 'unprofitable' } });
+  // Lease expiry is the only recurring event that deletes revenue-producing
+  // routes without the player doing anything: the tick returns the aircraft,
+  // bills four weeks' redelivery, and closes every route it was flying. Its
+  // entire warning was a toast at 8 and 4 weeks — which nobody who was away
+  // has ever seen, and in a world that ticks whether you are watching or not,
+  // "away" is the normal state.
+  const expiringLeases = leasesExpiringSoon(fleet);
+  if (expiringLeases.length > 0) {
+    const soonest = expiringLeases[0];
+    alerts.push({
+      color: 'var(--yellow)', icon: AlertIcon,
+      text: `${expiringLeases.length} lease${expiringLeases.length !== 1 ? 's' : ''} expiring within ${LEASE_EXPIRY_WARN_WEEKS} weeks (soonest ${soonest.name}, ${soonest.leaseRemainingWeeks}w) · renew or their routes close`,
+      to: 'fleet', filter: { filterChip: 'expiring' },
+    });
+  }
   if (activeEvents.length > 0) {
     const bad = activeEvents.filter(e =>
       (e.effects?.fuelMult ?? 1) > 1 ||
@@ -360,7 +384,7 @@ export default function Dashboard({ onNavigate }) {
       (e.effects?.regionDemandMult ?? 1) < 1
     );
     if (bad.length > 0)
-      alerts.push({ color: 'var(--yellow)', icon: bad[0].icon, text: `${bad[0].name} active. Check Finance for impact` });
+      alerts.push({ color: 'var(--yellow)', icon: bad[0].icon, text: `${bad[0].name} active. Check Finance for impact`, to: 'finance' });
   }
 
   return (
@@ -396,21 +420,37 @@ export default function Dashboard({ onNavigate }) {
       {/* ── Action alerts ────────────────────────────────────────────────── */}
       {alerts.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
-          {alerts.map((a, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 14px',
-              background: 'var(--surface2)',
-              borderLeft: `3px solid ${a.color}`,
-              borderRadius: 'var(--radius)',
-              fontSize: 13,
-            }}>
-              <span style={{ fontSize: 14, color: a.color, display: 'inline-flex', flexShrink: 0 }}>
-                {typeof a.icon === 'function' ? (() => { const Ic = a.icon; return <Ic size={15} />; })() : a.icon}
-              </span>
-              <span style={{ color: 'var(--text)' }}>{a.text}</span>
-            </div>
-          ))}
+          {alerts.map((a, i) => {
+            const target = a.to ? navPathFor(a.to) : null;
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={!target}
+                onClick={target ? () => requestNav(a.to, { filter: a.filter }) : undefined}
+                title={target ? `Go to ${target}` : undefined}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 14px',
+                  background: 'var(--surface2)',
+                  border: 'none',
+                  borderLeft: `3px solid ${a.color}`,
+                  borderRadius: 'var(--radius)',
+                  fontSize: 13,
+                  font: 'inherit',
+                  textAlign: 'left',
+                  width: '100%',
+                  cursor: target ? 'pointer' : 'default',
+                }}
+              >
+                <span style={{ fontSize: 14, color: a.color, display: 'inline-flex', flexShrink: 0 }}>
+                  {typeof a.icon === 'function' ? (() => { const Ic = a.icon; return <Ic size={15} />; })() : a.icon}
+                </span>
+                <span style={{ color: 'var(--text)', flex: 1, minWidth: 0 }}>{a.text}</span>
+                {target && <span style={{ color: 'var(--text-dim)', fontSize: 12, flexShrink: 0 }}>{target} →</span>}
+              </button>
+            );
+          })}
         </div>
       )}
 

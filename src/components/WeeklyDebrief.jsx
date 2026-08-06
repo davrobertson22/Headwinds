@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { AlertIcon, HeartIcon } from './Icons.jsx';
+import { leasesExpiringSoon, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
 
 export default function WeeklyDebrief() {
   const { state, dispatch } = useGame();
-  const { lastReport, showDebrief, week, year, activeEvents, routes } = state;
+  const { lastReport, showDebrief, week, year, activeEvents, routes, fleet } = state;
 
   const [displayed, setDisplayed] = useState(0);
   const [phase, setPhase]         = useState('counting'); // 'counting' | 'done'
@@ -52,6 +53,12 @@ export default function WeeklyDebrief() {
   const mechanicalFailures = lastReport.mechanicalFailures ?? [];
   const maintChecks        = lastReport.maintenanceChecks ?? { started: [], forced: [], completed: [], spend: 0 };
   const coverage           = lastReport.coverage ?? { started: [], ended: [], permanent: [], gaps: [] };
+
+  // The debrief is the one screen every player reads every week, and it had
+  // nothing to say about the only event that closes routes on its own. Say it
+  // here, while there is still time to renew, instead of reporting the
+  // redelivery fee in the cost table after the aircraft has already gone.
+  const expiringLeases = leasesExpiringSoon(fleet);
 
   const loyaltyMembers      = lastReport.loyaltyMembersTotal ?? 0;
   const loyaltyMemberDelta  = lastReport.loyaltyMemberDelta  ?? 0;
@@ -209,6 +216,40 @@ export default function WeeklyDebrief() {
               {expiredEvents.map(ev => (
                 <EventRow key={ev.id} ev={ev} tag="ended" />
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Leases running out — renewable right up until they aren't */}
+        {expiringLeases.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <SectionLabel><AlertIcon size={12} /> Leases Expiring</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {expiringLeases.slice(0, 5).map((a) => {
+                const flying = (routes ?? []).filter(r => r.aircraftId === a.id).length;
+                const urgent = a.leaseRemainingWeeks <= 4;
+                return (
+                  <div key={a.id} style={{
+                    fontSize: 12, color: 'var(--text-muted)',
+                    display: 'flex', gap: 8, alignItems: 'baseline',
+                  }}>
+                    <span style={{ color: urgent ? 'var(--red)' : 'var(--yellow)', fontWeight: 600 }}>
+                      {a.leaseRemainingWeeks}w
+                    </span>
+                    <span style={{ color: 'var(--text)' }}>{a.name}</span>
+                    <span>
+                      {flying > 0
+                        ? `${flying} route${flying !== 1 ? 's' : ''} close if it goes back`
+                        : 'not currently flying'}
+                    </span>
+                  </div>
+                );
+              })}
+              {expiringLeases.length > 5 && (
+                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                  +{expiringLeases.length - 5} more within {LEASE_EXPIRY_WARN_WEEKS} weeks — see Fleet
+                </div>
+              )}
             </div>
           </div>
         )}

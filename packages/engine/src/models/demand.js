@@ -251,9 +251,6 @@ export function getSeasonalProfile(originCode, destCode) {
   )];
 }
 
-// Keep the old export for any code still referencing it (will be removed later).
-export const SEASONALITY = SEASONAL_PROFILES.generic;
-
 // ─── Data Shapes (JSDoc typedefs) ─────────────────────────────────────────────
 
 /**
@@ -337,23 +334,6 @@ export const SEASONALITY = SEASONAL_PROFILES.generic;
  */
 
 // ─── Route demand character ───────────────────────────────────────────────────
-
-/**
- * Premium-segment share by seasonal profile.
- * Leisure-heavy profiles have very few premium passengers;
- * business-corridor profiles have a large premium share.
- */
-const PROFILE_PREMIUM_SHARE = {
-  business:   0.36,  // e.g. FRA-LHR, JFK-ORD — heavy corporate travel
-  middleEast: 0.28,  // Gulf hubs attract high-yield business traffic
-  asia:       0.24,  // mixed, strong business corridors
-  generic:    0.18,  // default N-hemisphere route
-  southern:   0.16,  // Southern-hemisphere mixed
-  africa:     0.14,  // mostly leisure + diaspora
-  beach:      0.08,  // Mediterranean leisure destinations
-  ski:        0.08,  // ski/alpine — almost entirely leisure
-  caribbean:  0.07,  // Caribbean — tourist-dominant
-};
 
 /**
  * Compute demand class shares for a route using per-airport business/leisure scores.

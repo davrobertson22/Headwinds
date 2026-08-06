@@ -16,6 +16,8 @@ import { isReserve } from '../data/reserve.js';
 import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
+import Callout from './Callout.jsx';
+import { consumeNavFilter } from '../utils/navIntent.js';
 import { useToast } from './ToastSystem.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
@@ -158,6 +160,13 @@ export default function Routes() {
   const [search,    setSearch]    = useState('');
   const [sortBy,    setSortBy]    = useState('profit');
   const [filterTab, setFilterTab] = useState('all');
+
+  // Arriving from a Dashboard alert ("3 loss-making routes") lands on that
+  // filter rather than on the unfiltered list; see utils/navIntent.js.
+  useEffect(() => {
+    const nav = consumeNavFilter('routes');
+    if (nav?.filterTab) setFilterTab(nav.filterTab);
+  }, []);
 
   // Extra scoping filters for large networks
   const [regionFilter,  setRegionFilter]  = useState('all'); // route touches this region
@@ -669,8 +678,30 @@ export default function Routes() {
     );
   }
 
+  const hasFreighter = fleet.some(a => getAircraftType(a.typeId)?.freighter);
+
   return (
     <div>
+      <Callout
+        id="freight_v1"
+        when={hasFreighter && typeFilter !== 'freight'}
+        icon="📦"
+        title="You own a freighter — its network lives behind the Freight tab"
+      >
+        Cargo is a parallel economy with its own demand pool, yields and route
+        planner. Switch to <strong>Freight</strong> above to open lanes for it;
+        a freighter sitting on the passenger view has nothing it can fly.
+      </Callout>
+      <Callout
+        id="bulktools_v1"
+        when={routeGroups.length >= 8}
+        icon="⚡"
+        title="Repricing routes one at a time?"
+      >
+        Tick the checkbox on any route row — the action bar that appears will
+        reprice, retime or close every selected route in one go, which is the
+        difference between a fuel spike costing you a minute and half an hour.
+      </Callout>
       {typeToggle}
       {hubChipBar}
       {/* Header bar */}

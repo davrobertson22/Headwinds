@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Glyph } from './Icons.jsx';
+import { navPathFor } from '../navPath.js';
 import { useGame } from '../store/GameContext.jsx';
 
 // Bump this version whenever the tour content changes so returning players
 // see the updated guidance once (v2 added: Market filtering, idle-aircraft
-// assignment, and a "More to Explore" sweep of commonly-missed features).
-export const TOUR_KEY = 'bbae_tour_seen_v2';
+// assignment, and a "More to Explore" sweep of commonly-missed features;
+// v3 stopped sending players to tabs the grouped nav no longer shows).
+export const TOUR_KEY = 'bbae_tour_seen_v3';
 
 const STEPS = [
   {
@@ -26,26 +28,26 @@ const STEPS = [
   {
     icon: '🛒',
     title: 'Step 1, Get an Aircraft',
-    body: 'Open the Market tab. Lease a Turboprop or Regional Jet to start · they\'re cheap to run with low commitment. You can order larger aircraft later once you have capital.',
-    highlight: 'Market',
+    body: 'Open Fleet ▸ Market. Lease a Turboprop or Regional Jet to start · they\'re cheap to run with low commitment. You can order larger aircraft later once you have capital.',
+    highlight: 'market',
   },
   {
     icon: '🔎',
     title: 'Tip · Filter the Market',
     body: "The Market is filterable. Use the category tabs at the top (Turboprop, Regional Jet, Narrowbody, Widebody) to narrow the list, then the manufacturer pills below to filter by maker. Both controls update the aircraft grid live, a quick way to find exactly the plane you want.",
-    highlight: 'Market',
+    highlight: 'market',
   },
   {
     icon: '🗺️',
     title: 'Step 2. Open a Route',
-    body: "Go to Routes → Open Route (or use the Route Planner tab). Pick two airports, choose your aircraft, and set a ticket price. You already have a gate at your hub, you'll need to buy one at your destination first.",
-    highlight: 'Routes',
+    body: "Go to Network ▸ Routes and hit Open Route (or use Network ▸ Route Planner). Pick two airports, choose your aircraft, and set a ticket price. You already have a gate at your hub, you'll need to buy one at your destination first.",
+    highlight: 'routes',
   },
   {
     icon: '🛫',
     title: 'Tip · Put Idle Aircraft to Work',
-    body: "An aircraft earns nothing until it's flying a route. Any plane not yet assigned shows as \"idle\" in your Fleet. To assign one: open the Route Planner (or Routes → Open Route), pick your airports, and choose an aircraft type, the picker shows how many idle planes you have of each type. Hit \"Open Route\" and the idle aircraft is deployed. Aircraft with spare hours can even take on a second route.",
-    highlight: 'Route Planner',
+    body: "An aircraft earns nothing until it's flying a route. Any plane not yet assigned shows as \"idle\" in your Fleet. To assign one: open Network ▸ Route Planner (or Network ▸ Routes → Open Route), pick your airports, and choose an aircraft type, the picker shows how many idle planes you have of each type. Hit \"Open Route\" and the idle aircraft is deployed. Aircraft with spare hours can even take on a second route.",
+    highlight: 'planner',
   },
   {
     icon: '⏩',
@@ -60,22 +62,22 @@ const STEPS = [
     icon: '⚔️',
     title: 'Your Rivals Are Real',
     body: '',
-    remoteBody: "Every other airline in this world is a real person making real decisions. Open the Rivals tab to see the leaderboard and go head-to-head on contested routes, when a rival flies one of your city pairs, you split its passengers based on price, quality and frequency. There are no AI airlines in Headwinds.",
+    remoteBody: "Every other airline in this world is a real person making real decisions. Open Company ▸ Rivals to see the leaderboard and go head-to-head on contested routes, when a rival flies one of your city pairs, you split its passengers based on price, quality and frequency. There are no AI airlines in Headwinds.",
     highlight: null,
-    remoteHighlight: 'Rivals',
+    remoteHighlight: 'competition',
     remoteOnly: true,
   },
   {
     icon: '💀',
     title: 'How You Go Bankrupt',
     body: "Two ways to lose:\n• Miss 3 loan payments (cash goes negative on a week when loans are due)\n• Stay cash-negative for 6 consecutive weeks\n\nWatch Finance. Manage your debt early. Warning toasts will appear before either limit is reached.",
-    highlight: 'Finance',
+    highlight: 'finance',
   },
   {
     icon: '🧭',
     title: 'More to Explore',
-    body: "A few features players often miss:\n• Hubs. Build up a base airport to feed connecting traffic\n• Operations, manage crews, maintenance and reliability\n• Loyalty & Reputation. Grow repeat demand and brand\n• Map & Route Planner, visualise your network and preview a route's profit before you commit\n\nHover the ⓘ icons next to controls anywhere in the game for a quick explanation, and check the Help tab for the full wiki.",
-    highlight: 'Help',
+    body: "A few features players often miss:\n• Airports ▸ Hubs. Build up a base airport to feed connecting traffic\n• Company ▸ Operations, manage crews, maintenance and reliability\n• Company ▸ Loyalty and Company ▸ Reputation. Grow repeat demand and brand\n• Network ▸ Map and Network ▸ Route Planner, visualise your network and preview a route's profit before you commit\n\nHover the ⓘ icons next to controls anywhere in the game for a quick explanation, and check the Help tab for the full wiki.",
+    highlight: 'wiki',
   },
   {
     icon: '🏆',
@@ -101,6 +103,12 @@ export default function OnboardingTour({ onClose }) {
     } : s);
   const [step, setStep] = useState(0);
   const current = steps[step];
+  // The nav bar folds most tabs into four dropdown groups, so a step that says
+  // "Market" names a control the player cannot see. Quote the click path
+  // instead. Top-bar chrome ("Next Week") is not a tab and passes through.
+  const highlightPath = current.highlight
+    ? (navPathFor(current.highlight, { remote }) ?? current.highlight)
+    : null;
   const isLast = step === steps.length - 1;
 
   function handleNext() {
@@ -169,14 +177,14 @@ export default function OnboardingTour({ onClose }) {
         {/* Body */}
         <div style={{
           fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.75,
-          whiteSpace: 'pre-line', marginBottom: current.highlight ? 16 : 28,
+          whiteSpace: 'pre-line', marginBottom: highlightPath ? 16 : 28,
           minHeight: 80,
         }}>
           {current.body}
         </div>
 
         {/* Highlight tag */}
-        {current.highlight && (
+        {highlightPath && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '5px 14px', borderRadius: 20, marginBottom: 24,
@@ -184,7 +192,7 @@ export default function OnboardingTour({ onClose }) {
             border: '1px solid var(--accent)',
             fontSize: 12, color: 'var(--accent)', fontWeight: 600,
           }}>
-            Look for: {current.highlight} →
+            Look for: {highlightPath} →
           </div>
         )}
 

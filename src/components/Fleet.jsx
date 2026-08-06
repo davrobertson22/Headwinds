@@ -17,6 +17,9 @@ import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
 import { dueInfo, checkCost, checkDurationWeeks, isOutOfService, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
+import Callout from './Callout.jsx';
+import { consumeNavFilter } from '../utils/navIntent.js';
+import { isLeaseExpiring, leaseRemainingWeeks, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -1243,6 +1246,17 @@ export default function Fleet() {
   const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
   const [sortKey,       setSortKey]       = useState(null);   // null = default order | name | type | cabin | age | util | fixed | status
   const [sortDir,       setSortDir]       = useState('asc');  // asc | desc
+
+  // A Dashboard alert can send the player straight here, already filtered —
+  // "2 leases expiring" lands on the expiring list, soonest first. The filter
+  // is parked rather than passed as a prop because this component does not
+  // exist yet at the moment the alert is clicked; see utils/navIntent.js.
+  useEffect(() => {
+    const nav = consumeNavFilter('fleet');
+    if (!nav) return;
+    if (nav.filterChip) setFilterChip(nav.filterChip);
+    if (nav.filterChip === 'expiring') { setSortKey('lease'); setSortDir('asc'); }
+  }, []);
   const [showOnOrder,   setShowOnOrder]   = useState(false); // collapsible "On Order" panel
 
   // When a plane is picked from the list, bring its detail panel into view so the
@@ -1364,6 +1378,7 @@ export default function Fleet() {
     if (filterChip === 'idle')     return a.status === 'idle' && !isReserve(a);
     if (filterChip === 'reserve')  return isReserve(a);
     if (filterChip === 'grounded') return a.status === 'grounded';
+    if (filterChip === 'expiring') return isLeaseExpiring(a);
     if (filterChip === 'leased')   return a.ownershipType !== 'owned';
     if (filterChip === 'owned')    return a.ownershipType === 'owned';
     return true;
@@ -1396,6 +1411,8 @@ export default function Fleet() {
         return seats;
       }
       case 'age': return a.ageWeeks ?? 0;
+      // Owned aircraft sort last: they have no lease clock to run out.
+      case 'lease': return leaseRemainingWeeks(a) ?? Number.POSITIVE_INFINITY;
       case 'util': {
         if (!t) return 0;
         const assigned = [
@@ -1515,6 +1532,7 @@ export default function Fleet() {
     reserve:  fleet.filter(a => isReserve(a)).length,
     grounded: fleet.filter(a => a.status === 'grounded').length,
     leased:   fleet.filter(a => a.ownershipType !== 'owned').length,
+    expiring: fleet.filter(a => isLeaseExpiring(a)).length,
     owned:    fleet.filter(a => a.ownershipType === 'owned').length,
   };
 
@@ -1562,6 +1580,17 @@ export default function Fleet() {
 
   return (
     <div>
+      <Callout
+        id="heavychecks_v1"
+        when={fleet.length > 0}
+        icon="🔧"
+        title="Heavy checks are on a clock — schedule them before the regulator does"
+      >
+        Every airframe accrues hours toward a C check and, eventually, a much
+        longer D check. Run them from an aircraft's panel or the fleet-wide bar
+        above the table. Ignore one and the check is forced on you at +50% cost
+        with the aircraft grounded, which is how most airlines here lose a week.
+      </Callout>
       {/* Summary stats */}
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 16 }}>
         <div className="stat-box">
@@ -1691,6 +1720,7 @@ export default function Fleet() {
                     { id: 'idle',     label: '⏸ Idle'  },
                     { id: 'reserve',  label: '🛡️ Reserve' },
                     { id: 'grounded', label: '🔧 Grnd'  },
+                    { id: 'expiring', label: '⏳ Expiring' },
                     { id: 'leased',   label: 'Leased'   },
                     { id: 'owned',    label: 'Owned'    },
                   ].filter(c => chipCounts[c.id] > 0 || c.id === 'all').map(c => (
