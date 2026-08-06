@@ -56,7 +56,7 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
   const allRows = useMemo(() => {
     // Same-lane pooling: mirror the weekly tick so the list shows each route's
     // SHARE of a shared lane, not N copies of the full market.
-    const alloc = cargoLaneAllocations(cargoRoutes, fleet);
+    const alloc = cargoLaneAllocations(cargoRoutes, fleet, 1.0, { gameDate: gd });
     return cargoRoutes.map(route => {
       const aircraft = fleet.find(a => a.id === route.aircraftId);
       const type     = aircraft ? getAircraftType(aircraft.typeId) : null;

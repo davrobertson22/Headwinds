@@ -101,7 +101,11 @@ test('capacity-bound marquee lane runs at ~100% load', () => {
 });
 test('revenue applies backhaul factor (1+f), not double headhaul', () => {
   const r = simulateCargoRoute(cRoute('HKG', 'FRA', 'f'), freighter('b777f'), { month: 6 });
-  const expectBackhaul = r.tonnes * (1 + CARGO_BACKHAUL_FACTOR) * r.distance * r.yieldPrice;
+  // The factor is the LANE's now (see cargoBackhaulFactor), surfaced on the
+  // result — asserting against the old global constant would only test that
+  // HKG–FRA happens to sit near the middle of the band.
+  assert.ok(r.backhaulFactor > 0 && r.backhaulFactor < 1, `backhaulFactor ${r.backhaulFactor}`);
+  const expectBackhaul = r.tonnes * (1 + r.backhaulFactor) * r.distance * r.yieldPrice;
   const expectDouble   = r.tonnes * 2 * r.distance * r.yieldPrice;
   assert.ok(approx(r.revenue, expectBackhaul, 1), `rev ${r.revenue} vs backhaul ${Math.round(expectBackhaul)}`);
   assert.ok(!approx(r.revenue, expectDouble, 1), 'revenue should NOT equal full double-direction');

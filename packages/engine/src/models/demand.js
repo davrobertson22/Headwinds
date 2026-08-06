@@ -229,17 +229,24 @@ const COUNTRY_PROFILE = {
 };
 
 /**
+ * Which seasonal profile an airport follows, from its country.
+ *
+ * Split out of getSeasonalProfile so the directional-skew model below can ask
+ * about ONE endpoint — the blend is an average of two answers, and the skew is
+ * their difference.
+ */
+export function seasonalProfileIdFor(code) {
+  const country = getAirport(code)?.country ?? 'US';
+  return COUNTRY_PROFILE[country] ?? 'generic';
+}
+
+/**
  * Return the seasonal multiplier profile (index 1–12) for a route.
- * Averages origin and destination profiles so mixed routes blend naturally.
- * e.g.  JFK (generic) → GVA (ski)  →  slightly winter-heavy compromise
- *        LHR (generic) → DXB (middleEast) → dampened summer, stronger autumn
+ * See getSeasonalProfile's contract above.
  */
 export function getSeasonalProfile(originCode, destCode) {
-  const oCountry = getAirport(originCode)?.country ?? 'US';
-  const dCountry = getAirport(destCode)?.country   ?? 'US';
-
-  const oPid = COUNTRY_PROFILE[oCountry] ?? 'generic';
-  const dPid = COUNTRY_PROFILE[dCountry] ?? 'generic';
+  const oPid = seasonalProfileIdFor(originCode);
+  const dPid = seasonalProfileIdFor(destCode);
 
   if (oPid === dPid) return SEASONAL_PROFILES[oPid];
 
@@ -249,6 +256,66 @@ export function getSeasonalProfile(originCode, destCode) {
   return [null, ...Array.from({ length: 12 }, (_, i) =>
     Math.round(((oP[i + 1] + dP[i + 1]) / 2) * 1000) / 1000
   )];
+}
+
+// ── Directional seasonal skew ──────────────────────────────────────────────
+// getSeasonalProfile averages the two endpoints, and that average is what the
+// demand pool has always used — for BOTH directions. But the average is the
+// mean of two genuinely different numbers: in January a London–Geneva aeroplane
+// flies to the snow full and comes back light, and in July it does the reverse.
+// Seats are symmetric; the traffic is not. So the peak direction spills while
+// the off-peak direction flies with empty rows, and the route earns less than
+// its average seasonality suggests.
+//
+// The skew is not a new dial — it falls straight out of the two profiles the
+// model already carries, and it is exactly 0 when both ends share a profile
+// (nearly every domestic route), which is why most of the world is untouched.
+
+/** Cap on how lopsided one week may get, either way. */
+export const SEASONAL_SKEW_CAP = 0.35;
+
+/**
+ * How lopsided this pair is in `month`: +1 = everything travels outbound,
+ * −1 = everything inbound, 0 = balanced. Averages to the blended profile that
+ * buildRouteMarket already uses, so the POOL is unchanged — only its split.
+ *
+ * @returns {number} −SEASONAL_SKEW_CAP … +SEASONAL_SKEW_CAP
+ */
+export function directionalSeasonalSkew(originCode, destCode, month) {
+  const oPid = seasonalProfileIdFor(originCode);
+  const dPid = seasonalProfileIdFor(destCode);
+  if (oPid === dPid) return 0;
+  const m = Math.round(Number(month));
+  if (!Number.isFinite(m) || m < 1 || m > 12) return 0;
+  const o = SEASONAL_PROFILES[oPid]?.[m] ?? 1;
+  const d = SEASONAL_PROFILES[dPid]?.[m] ?? 1;
+  const sum = o + d;
+  if (!(sum > 0)) return 0;
+  return Math.max(-SEASONAL_SKEW_CAP, Math.min(SEASONAL_SKEW_CAP, (o - d) / sum));
+}
+
+/**
+ * What a skewed week actually carries, as a fraction of what a perfectly
+ * balanced one would.
+ *
+ *   balanced :  2 × min(demand, capacity)
+ *   skewed   :  min(demand × (1+s), capacity) + min(demand × (1−s), capacity)
+ *
+ * Below capacity the two are identical (an empty aeroplane doesn't care which
+ * way the passengers are pointing) — the haircut only appears once the peak
+ * direction runs out of seats, which is precisely when it should.
+ *
+ * @returns {number} 0…1, exactly 1 when the week is balanced or uncapped
+ */
+export function directionalLoadMultiplier(demandOneWay, capacityOneWay, skew) {
+  if (!(demandOneWay > 0) || !(capacityOneWay > 0)) return 1;
+  const s = Math.max(-0.95, Math.min(0.95, Number(skew) || 0));
+  if (s === 0) return 1;
+  const balanced = 2 * Math.min(demandOneWay, capacityOneWay);
+  if (!(balanced > 0)) return 1;
+  const heavy = Math.min(demandOneWay * (1 + s), capacityOneWay);
+  const light = Math.min(demandOneWay * (1 - s), capacityOneWay);
+  return Math.min(1, (heavy + light) / balanced);
 }
 
 // ─── Data Shapes (JSDoc typedefs) ─────────────────────────────────────────────
@@ -502,10 +569,57 @@ export function computeQualityScore({ onTimeRate, cabinPoints, serviceLevel, fle
  * @param {string} destination
  * @returns {number}  0.0–0.25
  */
-export function computeConnectivityBonus(airlineHub, origin, destination) {
-  if (airlineHub === origin || airlineHub === destination) return 0.20;
-  return 0;
-  // TODO: iterate airline route network, count connections through hub → bonus up to 0.25
+// ── Hub connectivity ───────────────────────────────────────────────────────
+// A hub is worth something to a passenger because of everywhere ELSE it goes.
+// The model used to grant a flat 0.20 to any route touching your hub, so a
+// single aeroplane flying one line out of JFK looked, to the demand model,
+// exactly like a carrier with forty spokes there. That made "designate a hub"
+// a free +0.20 on your first route and worth nothing thereafter — the reward
+// for actually building a network was zero.
+//
+// The curve saturates: the first few spokes matter most (they are what turns a
+// station into a connecting point at all), and the fiftieth adds almost
+// nothing. Calibrated so a TWELVE-spoke hub scores exactly the old 0.20 —
+// that is the network the flat number was implicitly describing.
+
+/** Bonus for a station your airline connects nothing else to. */
+export const CONNECTIVITY_MIN_BONUS = 0.05;
+/** Asymptote — the biggest connecting complex in the world. */
+export const CONNECTIVITY_MAX_BONUS = 0.275;
+/** Spokes at which the curve reaches half its range. */
+export const CONNECTIVITY_HALF_SPOKES = 6;
+/**
+ * The spoke count that reproduces the historical flat 0.20. Every caller that
+ * doesn't know an airline's real network (AI competitors, human rivals whose
+ * route list we never see) uses it, so their offers are unchanged.
+ */
+export const CONNECTIVITY_LEGACY_SPOKES = 12;
+
+/**
+ * Connectivity bonus for a hub with `spokes` distinct onward destinations.
+ * 0 spokes is not a hub and scores nothing.
+ *
+ * @param {number} spokes
+ * @returns {number} 0 … CONNECTIVITY_MAX_BONUS
+ */
+export function connectivityBonusForSpokes(spokes) {
+  const s = Math.max(0, Number(spokes) || 0);
+  if (s <= 0) return 0;
+  return CONNECTIVITY_MIN_BONUS
+    + (CONNECTIVITY_MAX_BONUS - CONNECTIVITY_MIN_BONUS) * (s / (s + CONNECTIVITY_HALF_SPOKES));
+}
+
+/**
+ * @param {string} airlineHub
+ * @param {string} origin
+ * @param {string} destination
+ * @param {number} [spokes=CONNECTIVITY_LEGACY_SPOKES] distinct onward destinations
+ *                 this airline serves from that hub. Omit when unknown.
+ */
+export function computeConnectivityBonus(airlineHub, origin, destination, spokes = CONNECTIVITY_LEGACY_SPOKES) {
+  if (!airlineHub) return 0;
+  if (airlineHub !== origin && airlineHub !== destination) return 0;
+  return connectivityBonusForSpokes(spokes);
 }
 
 /**

@@ -42,6 +42,8 @@ import {
   defaultConfig,
   routeQualityBreakdown,
   isMultiStop,
+  hubSpokeCounts,
+  pairConnectivityBonus,
   stateSensReduction,
   stateBrandReach,
   simulateRoute,
@@ -118,7 +120,12 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     businessSeats:    totalBizSeats,
     totalSeats:       totalSeatsAll,
     qualityScore:     Math.round(qualitySum / qualityN),
-    connectivityBonus: isHubPair ? 0.20 : 0,
+    // Scaled by the spokes the player actually connects — the same helper and
+    // the same route list the weekly tick uses, so this preview cannot drift.
+    connectivityBonus: isHubPair
+      ? pairConnectivityBonus(hubSpokeCounts(state.routes ?? []),
+          [...Object.keys(hubs), state.hub], r0.origin, r0.destination)
+      : 0,
     priceSensitivityReduction: stateSensReduction(state, hubQ),
     marketingBoost:   playerCampaignBoost(state, r0.origin, r0.destination),
     // Brand reach, resolved through the same helper the tick uses. Without it a

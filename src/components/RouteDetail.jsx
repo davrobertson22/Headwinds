@@ -10,6 +10,7 @@ import {
 import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
+  hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
 } from '../utils/simulation.js';
@@ -234,7 +235,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           // satisfaction, cabin product), incl. the hub bonus via the breakdown.
           qualityScore:      routeQualityBreakdown(route, aircraft, state)?.total
             ?? Math.min(100, computeQualityScore({ onTimeRate: 0.85, serviceLevel: 'economy', fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52, customerRating: 3.5 }) + maxHubBonus),
-          connectivityBonus: (origin === state.hub || dest === state.hub) ? 0.20 : 0,
+          connectivityBonus: pairConnectivityBonus(hubSpokeCounts(state.routes ?? []), [state.hub], origin, dest),
         };
       }
     }
@@ -287,7 +288,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           economySeats: totalEcoSeats, businessSeats: totalBizSeats,
           totalSeats: totalSeatsAll,
           qualityScore: shareResults.find(r => r.airlineId === 'player') ? 70 : 70,
-          connectivityBonus: (origin === state.hub || dest === state.hub) ? 0.20 : 0,
+          connectivityBonus: pairConnectivityBonus(hubSpokeCounts(state.routes ?? []), [state.hub], origin, dest),
         };
         const compOffers = competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean);
         const [combined] = computeMarketShare(market, [combinedOffer, ...compOffers]);

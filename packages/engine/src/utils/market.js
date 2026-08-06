@@ -1519,15 +1519,80 @@ export function getCargoMass(code) {
   return score * econ;
 }
 
+// ─── Cargo seasonality ──────────────────────────────────────────────────────
+// Air freight has a season, and it is not the passenger one. Peak is Q4 — the
+// retail build for Christmas moves by air from roughly September, tops out in
+// November and tails off once the shelves are full. The deep trough is
+// February: Asian factories shut for New Year and the biggest single source of
+// airfreight in the world stops for a fortnight. Summer, when passenger demand
+// is at its highest, is a quiet month on the freight deck.
+//
+// Multipliers average to exactly 1.0 across the year, so the annual tonnage a
+// lane produces is unchanged — only its distribution.
+
+/** Freight seasonality by month (1-indexed). Mean = 1.000. */
+export const CARGO_SEASONAL_PROFILE =
+  [null, 0.86, 0.78, 0.93, 0.97, 1.00, 0.96, 0.90, 0.92, 1.08, 1.20, 1.30, 1.10];
+
 /**
- * Base weekly one-way cargo demand for a city pair, in tonnes, at reference yield.
- * Symmetric in v1 (o,d order does not change the result).
+ * Freight seasonal multiplier for a month. Out-of-range or missing → 1 (the
+ * annual average), so a caller that has no calendar isn't punished for it.
+ *
+ * @param {number} month 1–12
+ * @returns {number}
+ */
+export function cargoSeasonalFactor(month) {
+  const m = Math.round(Number(month));
+  if (!Number.isFinite(m) || m < 1 || m > 12) return 1;
+  return CARGO_SEASONAL_PROFILE[m];
+}
+
+// ─── Backhaul imbalance ─────────────────────────────────────────────────────
+// Freight is directional in a way passengers are not: a passenger who flies out
+// flies home, a television does not. Lanes out of a manufacturing centre into a
+// consuming one run full one way and hunt for anything at all on the return —
+// which is why belly rates on the headhaul and the backhaul of the same lane
+// can differ by a factor of three. A lane between two comparable freight
+// economies is close to balanced.
+//
+// The imbalance falls out of the same cargo masses that generate the demand:
+// the closer the two ends are in freight weight, the fuller the return leg.
+
+/** Return-leg revenue fraction on the most lopsided lane in the world. */
+export const CARGO_BACKHAUL_MIN = 0.30;
+/** …and on a perfectly matched pair. */
+export const CARGO_BACKHAUL_MAX = 0.80;
+
+/**
+ * Return-leg revenue fraction for one lane. Symmetric (a lane is as imbalanced
+ * viewed from either end), and falls back to CARGO_BACKHAUL_FACTOR's historical
+ * 0.65 when either end's freight mass is unknown.
  *
  * @param {string} originCode
  * @param {string} destCode
+ * @returns {number} CARGO_BACKHAUL_MIN … CARGO_BACKHAUL_MAX
+ */
+export function cargoBackhaulFactor(originCode, destCode) {
+  const mo = getCargoMass(originCode);
+  const md = getCargoMass(destCode);
+  if (!(mo > 0) || !(md > 0)) return 0.65;
+  const ratio = Math.min(mo, md) / Math.max(mo, md);   // 1 = perfectly matched
+  return Math.round(
+    (CARGO_BACKHAUL_MIN + (CARGO_BACKHAUL_MAX - CARGO_BACKHAUL_MIN) * ratio) * 1000) / 1000;
+}
+
+/**
+ * Base weekly one-way cargo demand for a city pair, in tonnes, at reference yield.
+ * Symmetric (o,d order does not change the result) — the DIRECTIONAL half of
+ * freight lives in cargoBackhaulFactor, not here.
+ *
+ * @param {string} originCode
+ * @param {string} destCode
+ * @param {number} [month]  game month 1–12 for freight seasonality. Omit for the
+ *                          annual average (route-finder scans, unit tests).
  * @returns {number} tonnes/week (one-way)
  */
-export function cargoCityPairDemand(originCode, destCode) {
+export function cargoCityPairDemand(originCode, destCode, month = null) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);
   if (!o || !d) return 0;
@@ -1543,7 +1608,8 @@ export function cargoCityPairDemand(originCode, destCode) {
   const decay       = Math.pow(1 + dist / CARGO_DECAY_KM, CARGO_DECAY_EXP);
   const distFactor  = truckFactor / decay;
 
-  return Math.round(Math.sqrt(massO * massD) * CARGO_GRAVITY_K * distFactor);
+  const seasonal = month == null ? 1 : cargoSeasonalFactor(month);
+  return Math.round(Math.sqrt(massO * massD) * CARGO_GRAVITY_K * distFactor * seasonal);
 }
 
 // ─── Cargo pricing ──────────────────────────────────────────────────────────────

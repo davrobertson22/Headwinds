@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { distanceKm, formatMoney, CARGO_BACKHAUL_FACTOR } from '../utils/simulation.js';
-import { cargoCityPairDemand, cargoReferenceYield } from '../utils/market.js';
+import { distanceKm, formatMoney, currentGameDate } from '../utils/simulation.js';
+import { cargoCityPairDemand, cargoReferenceYield, cargoBackhaulFactor } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
 
@@ -38,6 +38,9 @@ export default function CargoRouteFinder({ onPick }) {
   const [limit, setLimit]       = useState(PAGE_SIZE);
 
   const originAirport = getAirport(origin);
+  // Freight has a season (see CARGO_SEASONAL_PROFILE) — scan on the month the
+  // player would actually launch into, not an annual average they never fly.
+  const gd = currentGameDate(state);
 
   // Longest reach of any FREIGHTER in the fleet (for the "in fleet range" badge)
   const maxFleetRange = useMemo(() => {
@@ -63,18 +66,19 @@ export default function CargoRouteFinder({ onPick }) {
     const out = [];
     for (const a of AIRPORTS) {
       if (a.code === originAirport.code) continue;
-      const demand = cargoCityPairDemand(originAirport.code, a.code);
+      const demand = cargoCityPairDemand(originAirport.code, a.code, gd.month);
       if (demand <= 0) continue; // same-metro (trucked) or unknown
       const dist     = Math.round(distanceKm(originAirport, a));
       const refYield = cargoReferenceYield(originAirport.code, a.code);
       // Lane revenue potential at reference yield: headhaul tonnes priced over
-      // both directions with the backhaul factor — the ceiling IF you carried
-      // the whole pool. A scale for comparing lanes, not a promise.
-      const revPotential = Math.round(demand * (1 + CARGO_BACKHAUL_FACTOR) * dist * refYield);
+      // both directions with THIS lane's backhaul factor — the ceiling IF you
+      // carried the whole pool. A scale for comparing lanes, not a promise.
+      const backhaul = cargoBackhaulFactor(originAirport.code, a.code);
+      const revPotential = Math.round(demand * (1 + backhaul) * dist * refYield);
       out.push({ airport: a, dist, demand, refYield, revPotential });
     }
     return out;
-  }, [originAirport, open]);
+  }, [originAirport, open, gd.month]);
 
   // Apply filters + sort
   const results = useMemo(() => {

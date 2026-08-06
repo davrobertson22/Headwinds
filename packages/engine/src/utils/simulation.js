@@ -8,6 +8,7 @@ import {
 import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
+         cargoBackhaulFactor, cargoSeasonalFactor,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
          setNwrYieldChoke } from './market.js';
 import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
@@ -37,6 +38,11 @@ import {
   cabinQualityPoints,
   buildCompetitorOffer,
   routeMaturityFactor,
+  computeConnectivityBonus,
+  connectivityBonusForSpokes,
+  CONNECTIVITY_LEGACY_SPOKES,
+  directionalSeasonalSkew,
+  directionalLoadMultiplier,
   COMPETITOR_AIRLINES,
   computeConnectingDemand,
   HUB_TIERS,
@@ -974,8 +980,11 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // Hub quality bonus: routes through a player-designated hub get a quality boost from hub investment
   const qualityScore = Math.max(0, Math.min(100, rawQualityScore + groundQualityBonus + spaceQualityBonus + cateringQuality + ancillaryQuality + (route.hubQualityBonus ?? 0)));
 
-  // Hub connectivity bonus (mirrors old hubBonus but expressed as 0–0.25 for the utility model)
-  const connectivityBonus = (route.origin === route.hub || route.destination === route.hub) ? 0.20 : 0;
+  // Hub connectivity bonus — scaled by the spokes you actually connect there
+  // (route.hubSpokes, attached by weeklyTick). A caller that doesn't know the
+  // network omits it and gets the historical flat 0.20.
+  const connectivityBonus = computeConnectivityBonus(
+    route.hub, route.origin, route.destination, route.hubSpokes ?? CONNECTIVITY_LEGACY_SPOKES);
 
   // Build market and player offer, then run through demand model
   const maturity     = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
@@ -1081,6 +1090,18 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // leaks fractions all the way to the UI (4,276.271 pax/wk on a route table).
     leisurePax  = Math.round(leisurePax  * nwrScale);
     businessPax = Math.round(businessPax * nwrScale);
+  }
+
+  // Directional seasonal skew: when the two ends of a route are in different
+  // seasons the traffic is lopsided, and symmetric seats cannot carry a
+  // lopsided week. Exactly 1 when both endpoints share a seasonal profile or
+  // when the aeroplane isn't full — most of the world is untouched.
+  const seasonalSkew = directionalSeasonalSkew(route.origin, route.destination, gameDate?.month);
+  const directionalScale = directionalLoadMultiplier(
+    leisurePax + businessPax, totalCapOneWay, seasonalSkew);
+  if (directionalScale !== 1) {
+    leisurePax  = Math.round(leisurePax  * directionalScale);
+    businessPax = Math.round(businessPax * directionalScale);
   }
   let totalRevenue     = 0;
   let totalPaxOneWay   = 0;
@@ -1243,10 +1264,67 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // Demand model context (for UI / debugging)
     marketDemand:    market.leisureDemand + market.businessDemand,
     seasonality:     market.seasonalityFactor,
+    seasonalSkew,        // −0.35…+0.35, how lopsided this week's traffic is
+    directionalScale,    // ≤1, seats lost to that lopsidedness
+    connectivityBonus,   // what your network at the hub was actually worth
     competitorCount: competitorOffersCount,
     capacityCapped:  demandResult.capacityCapped,
     ticketPremium,   // >1 for supersonic aircraft (e.g. Concorde = 2.5)
   };
+}
+
+
+// ─── Hub connectivity: how big is the network at this station? ──────────────
+// The demand model's connectivity bonus scales with the number of distinct
+// places you connect at a hub (see computeConnectivityBonus). This is where the
+// count comes from: every leg of every route you fly, including the internal
+// legs of multi-stop rotations — a tag route through your hub genuinely does
+// feed it.
+
+/**
+ * Distinct onward destinations served from every airport in a route list.
+ *
+ * @param {object[]} routes
+ * @returns {Record<string, number>} airport code → spoke count
+ */
+export function hubSpokeCounts(routes = []) {
+  const sets = new Map();
+  for (const route of routes ?? []) {
+    const stops = routeStops(route);
+    for (let i = 0; i < stops.length - 1; i++) {
+      const a = stops[i], b = stops[i + 1];
+      if (!a || !b || a === b) continue;
+      if (!sets.has(a)) sets.set(a, new Set());
+      if (!sets.has(b)) sets.set(b, new Set());
+      sets.get(a).add(b);
+      sets.get(b).add(a);
+    }
+  }
+  const out = {};
+  for (const [code, set] of sets) out[code] = set.size;
+  return out;
+}
+
+/**
+ * The connectivity bonus a pair earns from the player's own network. Whichever
+ * endpoint is the hub supplies the spoke count; a pair touching no hub scores 0.
+ *
+ * The ONE helper every preview and the tick share, so a screen can't quietly
+ * disagree with the week about how big your hub is.
+ *
+ * @param {Record<string,number>} spokeCounts  from hubSpokeCounts()
+ * @param {string[]} hubCodes                  every station you've designated
+ * @param {string} origin
+ * @param {string} destination
+ */
+export function pairConnectivityBonus(spokeCounts, hubCodes, origin, destination) {
+  let best = 0;
+  for (const code of hubCodes ?? []) {
+    if (!code) continue;
+    if (code !== origin && code !== destination) continue;
+    best = Math.max(best, spokeCounts?.[code] ?? 0);
+  }
+  return connectivityBonusForSpokes(best);
 }
 
 // ─────────────────────────────────────────────
@@ -1342,7 +1420,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     const quality = Math.max(0, Math.min(100,
       baseQuality + groundQualityBonus + spaceBonus
       + cateringQualityBonus(cateringLevel, dist) + ancillaryQualityBonus(ancillaries, dist) + (route.hubQualityBonus ?? 0)));
-    const connectivityBonus = (seg.from === route.hub || seg.to === route.hub) ? 0.20 : 0;
+    const connectivityBonus = computeConnectivityBonus(
+      route.hub, seg.from, seg.to, route.hubSpokes ?? CONNECTIVITY_LEGACY_SPOKES);
     const offer = {
       airlineId: 'player', origin: seg.from, destination: seg.to,
       economyPrice: eco, businessPrice: biz, weeklyFrequency: f,
@@ -1600,7 +1679,8 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
     demandTonnes = Math.max(0, demandOverride.demandTonnes ?? 0);
   } else {
     const maturity   = route.weeksOpen != null ? routeMaturityFactor(route.weeksOpen) : 1;
-    const basePool   = cargoCityPairDemand(route.origin, route.destination) * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
+    const basePool   = cargoCityPairDemand(route.origin, route.destination, gameDate?.month)
+                     * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
     // Yield elasticity: pricing above the reference rate shrinks the tonnage you win.
     const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
     demandTonnes = basePool * elasticity;
@@ -1618,8 +1698,11 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   const loadFactor     = capacityTonnes > 0 ? tonnesOneWay / capacityTonnes : 0;
 
   // Revenue covers both directions, with backhaul imbalance (return leg lighter).
-  // Yield is $/tonne-km; tonnes are one-way (headhaul).
-  const revenue = Math.round(tonnesOneWay * (1 + CARGO_BACKHAUL_FACTOR) * dist * yieldPrice);
+  // Yield is $/tonne-km; tonnes are one-way (headhaul). The imbalance is the
+  // LANE's, not a global constant: Shanghai–Los Angeles and Frankfurt–Hong Kong
+  // are not the same business (see cargoBackhaulFactor).
+  const backhaul = cargoBackhaulFactor(route.origin, route.destination);
+  const revenue = Math.round(tonnesOneWay * (1 + backhaul) * dist * yieldPrice);
 
   // ── Operating costs ──────────────────────────────────────────────────────────
   const flights         = route.weeklyFrequency * 2;
@@ -1632,6 +1715,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
 
   return {
     cargo:        true,
+    backhaulFactor: backhaul,
     revenue,
     fuelCost,
     crewCost,
@@ -1679,7 +1763,8 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
  * @returns {Map<string, {demandTonnes:number, laneCapacityTonnes:number, laneRoutes:number}>}
  *          keyed by route.id; ONLY routes on shared lanes appear.
  */
-export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultiplier = 1.0) {
+export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultiplier = 1.0, opts = {}) {
+  const { gameDate = null, demandMultFor = null } = opts;
   const alloc  = new Map();
   const groups = new Map();
   for (const route of cargoRoutes ?? []) {
@@ -1702,8 +1787,12 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
     const { route: r0 } = group[0];
     const weeks    = group.map(g => g.route.weeksOpen);
     const maturity = weeks.some(w => w == null) ? 1 : routeMaturityFactor(Math.max(...weeks));
-    const pool     = cargoCityPairDemand(r0.origin, r0.destination)
-                   * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
+    // Same event exposure the solo path gets — a lane shared by two of your
+    // freighters must not be the one place in the world a recession can't reach.
+    const laneMult = demandMultiplier
+                   * (demandMultFor ? demandMultFor(r0.origin, r0.destination) : 1);
+    const pool     = cargoCityPairDemand(r0.origin, r0.destination, gameDate?.month)
+                   * maturity * FREIGHTER_CAPTURE_RATE * laneMult;
     const refYield = cargoReferenceYield(r0.origin, r0.destination);
     const laneCapacity = group.reduce((s, g) => s + g.type.payloadTonnes * g.route.weeklyFrequency, 0);
     if (laneCapacity <= 0) continue;
@@ -2248,6 +2337,11 @@ export function weeklyTick(state) {
   // events (volcanic ash, unrest, expos...) hit only routes touching an affected
   // country. Oversubscribed routes absorb small shocks — demand above capacity
   // buffers them — which is exactly how real fortress routes behave.
+  // Spokes per station, computed once for the whole week and handed to every
+  // route below. A hub's connectivity bonus is a property of the NETWORK, not
+  // of the route asking about it (see computeConnectivityBonus).
+  const spokeCounts = hubSpokeCounts(routes);
+
   const { globalMult: eventGlobalDemandMult, multFor: eventDemandMultFor0 } =
     buildEventDemandModel(state.activeEvents);
   // Multiplayer (Headwinds): a per-world demand multiplier (state.worldDemandMult,
@@ -2599,7 +2693,8 @@ export function weeklyTick(state) {
       const bizPrice = hasBusinessCabin && cp0.businessClass != null
         ? Math.max(1, cp0.businessClass)
         : null;  // match single-aircraft path (no implicit 3.5x biz fare)
-      const connBonus = (r0.origin === r0.hub || r0.destination === r0.hub) ? 0.20 : 0;
+      const connBonus = computeConnectivityBonus(
+        r0.hub, r0.origin, r0.destination, spokeCounts[r0.hub] ?? 0);
 
       const combinedOffer = {
         airlineId:         'player',
@@ -2695,6 +2790,7 @@ export function weeklyTick(state) {
       const tagRivalAdDrag   = Math.max(0, ...stopsList.map(mktDragAt));
       const tagRoute = {
         ...route,
+        hubSpokes: spokeCounts[route.hub] ?? 0,
         ...(tagHubQuality + (tagFortress ? 2 : 0) > 0
           ? { hubQualityBonus: tagHubQuality + (tagFortress ? 2 : 0) } : {}),
         priceSensitivityReduction: Math.min(0.40,
@@ -2785,6 +2881,7 @@ export function weeklyTick(state) {
     const hcfRoute = hubCostFactorsFor([route.origin, route.destination]);
     const routeWithHubBonus = {
       ...route,
+      hubSpokes: spokeCounts[route.hub] ?? 0,
       ...(hubQuality > 0 ? { hubQualityBonus: hubQuality } : {}),
       priceSensitivityReduction: Math.min(0.40,
         sensReductionFor(hubQuality) + (fortress ? 0.05 : 0)),
@@ -2995,7 +3092,8 @@ export function weeklyTick(state) {
 
   // Same-lane pooling: several freighters on one city pair share ONE demand
   // pool (see cargoLaneAllocations) instead of each claiming the full market.
-  const cargoAllocations = cargoLaneAllocations(cargoRoutes, fleet, awarenessMultiplier);
+  const cargoAllocations = cargoLaneAllocations(cargoRoutes, fleet, awarenessMultiplier,
+    { gameDate, demandMultFor: eventDemandMultFor });
 
   for (const route of cargoRoutes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
@@ -3003,7 +3101,10 @@ export function weeklyTick(state) {
 
     const result = simulateCargoRoute(
       state.newWorldRestrictions ? { ...route, ...nwrLoadFieldsFor(route) } : route,
-      aircraft, gameDate, laborWithSeniority, fuelMultiplier, awarenessMultiplier,
+      aircraft, gameDate, laborWithSeniority, fuelMultiplier,
+      // Freight is not exempt from the world: a recession, a pandemic scare or a
+      // closed airspace moves tonnage exactly as it moves passengers.
+      awarenessMultiplier * eventDemandMultFor(route.origin, route.destination),
       cargoAllocations.get(route.id) ?? null);
     if (!result) continue;
 
