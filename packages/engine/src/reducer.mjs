@@ -56,6 +56,8 @@ import {
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
   MAX_PAY_MULTIPLIER,
   counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
+  tickGrievance, grievedMoraleTarget,
+  GRIEVANCE_REFUSE, GRIEVANCE_COUNTER_REJECTED, GRIEVANCE_SETTLED,
   NEGOTIATION_RESPONSE_WEEKS, STRIKE_COOLDOWN_WEEKS,
 } from './data/laborRelations.js';
 import { LABOR_GROUP_MAP } from './data/labor.js';
@@ -2438,6 +2440,15 @@ function reducer(state, action) {
         soured  = true;
       }
 
+      // What the union carries out of the room. A settlement clears most of it;
+      // a refusal adds to it; a collapsed counter adds less, because you did at
+      // least put a number on the table.
+      const grievDelta =
+        outcome === 'refused'         ?  GRIEVANCE_REFUSE
+      : outcome === 'counterRejected' ?  GRIEVANCE_COUNTER_REJECTED
+      :                                 -GRIEVANCE_SETTLED;
+      const prevGriev = relations.grievance ?? DEFAULT_LABOR_RELATIONS.grievance;
+
       return {
         ...state,
         labor: {
@@ -2450,6 +2461,10 @@ function reducer(state, action) {
         },
         laborRelations: {
           ...relations,
+          grievance: {
+            ...prevGriev,
+            [group]: Math.round(Math.max(0, Math.min(1, (prevGriev?.[group] ?? 0) + grievDelta)) * 1000) / 1000,
+          },
           negotiation: null,
           unrest: {
             ...relations.unrest,
@@ -3148,7 +3163,25 @@ function reducer(state, action) {
       const strikeRevenueLoss = activeStrike && report.totalRevenue
         ? Math.round(report.totalRevenue * activeStrike.severity) : 0;
 
-      const adjustedCashDelta = report.cashDelta - strikeRevenueLoss;
+      // A strike cancelled the revenue but still charged every variable cost of
+      // flying the full schedule — fuel for departures that never pushed back,
+      // landing fees at airports the aircraft never reached, catering loaded
+      // onto nothing. The comment above the old line was right that FIXED costs
+      // keep running, which is the pain of a strike; it just also charged the
+      // variable ones, making a 55%-severity walkout cost roughly double what
+      // it should and making capitulation look artificially cheap next to it.
+      //
+      // Refunded pro-rata to severity, and only the unambiguously per-departure
+      // lines. Lounges, layover hotels and delay compensation keep running —
+      // during a walkout the compensation bill would if anything go up.
+      const strikeVariableSaved = activeStrike && report.totalRevenue
+        ? Math.round(
+            ((report.totalFuel ?? 0) + (report.totalCrew ?? 0) + (report.totalCatering ?? 0)
+             + (report.totalGroundHandling ?? 0) + (report.totalLandingFees ?? 0)
+             + (report.totalAncillaryCost ?? 0)) * activeStrike.severity)
+        : 0;
+
+      const adjustedCashDelta = report.cashDelta - strikeRevenueLoss + strikeVariableSaved;
 
       // agingRate and tickedFleet were computed before weeklyTick above.
       const mainBudget = mainBudgetPre;
@@ -3487,11 +3520,14 @@ function reducer(state, action) {
         }
       }
 
-      // Morale drifts toward target (based on pay) at 12% per week
+      // Morale drifts toward target (based on pay) at 12% per week — but the
+      // ceiling is what the money buys MINUS whatever the union is still
+      // carrying from talks that went nowhere. Money alone used to be enough.
       const currentLabor = state.labor ?? DEFAULT_LABOR_STATE;
+      const grievancePrev = relationsPrev.grievance ?? DEFAULT_LABOR_RELATIONS.grievance;
       const updatedLabor = {};
       for (const [id, g] of Object.entries(currentLabor)) {
-        const target   = moraleTarget(g.payMultiplier);
+        const target   = grievedMoraleTarget(moraleTarget(g.payMultiplier), grievancePrev?.[id]);
         const newMorale = g.morale + (target - g.morale) * 0.12;
         updatedLabor[id] = { ...g, morale: Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10)) };
       }
@@ -3501,7 +3537,8 @@ function reducer(state, action) {
       let updatedRelations = {
         ...DEFAULT_LABOR_RELATIONS,
         ...relationsPrev,
-        unrest: tickUnrest(updatedLabor, relationsPrev.unrest),
+        unrest: tickUnrest(updatedLabor, relationsPrev.unrest, grievancePrev),
+        grievance: tickGrievance(grievancePrev),
         // Old saves: stagger each union's first contract demand.
         nextNegotiationAbsWeek: relationsPrev.nextNegotiationAbsWeek
           ?? scheduleFirstNegotiations(relAbsWeek),
@@ -3899,6 +3936,7 @@ function reducer(state, action) {
         eventDemandAdj:     Math.round(eventDemandAdj),
         // Revenue forfeited to cancelled flights during a labor strike.
         strikeLoss:         strikeRevenueLoss,
+        strikeVariableSaved,
         totalCost:          report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + maintCheckSpend + aogSpend,
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
@@ -4481,7 +4519,7 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend + aogSpend,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, mro: { jobs: mroJobs, aogSpend, aogInsurance, baseCosts: report.totalMroBaseCosts ?? 0, contractSavings: report.mroContractSavings ?? 0, opened: baseBuild.opened, upgraded: baseBuild.upgraded }, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, strikeVariableSaved, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, mro: { jobs: mroJobs, aogSpend, aogInsurance, baseCosts: report.totalMroBaseCosts ?? 0, contractSavings: report.mroContractSavings ?? 0, opened: baseBuild.opened, upgraded: baseBuild.upgraded }, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
       dividend: dividendPaid > 0
         ? { perShare: dividendPerSh, total: dividendPaid, payableShares: divPayable }
         : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },

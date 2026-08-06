@@ -118,6 +118,87 @@ export function seniorityMultiplier(weeksOperating) {
 
 export const LABOR_GROUP_MAP = Object.fromEntries(LABOR_GROUPS.map(g => [g.id, g]));
 
+// ─── Crew cost scales with the aeroplane ─────────────────────────────────────
+//
+// `baseWeeklyPerAircraft × fleet.length` charged every airframe the same $58k a
+// week, so a Dash 8 carried an A380's crew bill. That is not a rounding error:
+// a turboprop's whole weekly revenue is around $49k on the calibration table in
+// overhead.js, so the labour line ALONE more than consumed it and regional
+// flying could not be made to work at any fare. At the other end a widebody
+// paid about half a percent of revenue for its crews.
+//
+// The four groups scale differently, because they are different jobs:
+//
+//   pilots         two on the flight deck almost regardless of size, so this
+//                  scales LEAST. Widebodies carry augmented crews on long
+//                  sectors, hence >1 but nothing like seat-proportional.
+//   cabinCrew      roughly one per fifty seats by regulation everywhere, so
+//                  this scales almost linearly with the cabin. A freighter has
+//                  no cabin at all.
+//   groundStaff    turn size: bags, catering trucks, cleaners, loaders.
+//                  Freighters are ground-labour HEAVY — palletising and loading
+//                  is most of what a freight operation does.
+//   maintenanceTeam line and base labour, roughly with airframe size.
+//
+// Narrow Body is 1.00 by construction, so an airline flying the game's most
+// common category sees no change at all. This is a re-shape, not a rise.
+//
+// Same precedent as LIABILITY_INSURANCE_WEEKLY_BY_CATEGORY in overhead.js —
+// including the freighter problem, since all 23 freighters share one category
+// and an ATR-72F cannot cost the same to crew as an An-124. They step by
+// payload instead.
+export const CREW_SCALE_BY_CATEGORY = {
+  pilots: {
+    'Turboprop': 0.55, 'Regional Jet': 0.70, 'Narrow Body': 1.00,
+    'Wide Body':  1.55, 'Double Deck':  1.85, 'Supersonic': 1.60,
+  },
+  cabinCrew: {
+    'Turboprop': 0.30, 'Regional Jet': 0.45, 'Narrow Body': 1.00,
+    'Wide Body':  2.60, 'Double Deck':  3.60, 'Supersonic': 1.20,
+  },
+  groundStaff: {
+    'Turboprop': 0.45, 'Regional Jet': 0.60, 'Narrow Body': 1.00,
+    'Wide Body':  2.10, 'Double Deck':  2.80, 'Supersonic': 1.10,
+  },
+  maintenanceTeam: {
+    'Turboprop': 0.50, 'Regional Jet': 0.65, 'Narrow Body': 1.00,
+    'Wide Body':  2.00, 'Double Deck':  2.70, 'Supersonic': 2.00,
+  },
+};
+
+/** Freighter crew scale by payload — one category cannot hold a 9t to 250t range. */
+export const CREW_SCALE_FREIGHTER = [
+  { maxTonnes:  20, pilots: 0.55, cabinCrew: 0, groundStaff: 0.70, maintenanceTeam: 0.55 },
+  { maxTonnes:  45, pilots: 0.75, cabinCrew: 0, groundStaff: 1.00, maintenanceTeam: 0.80 },
+  { maxTonnes:  80, pilots: 1.00, cabinCrew: 0, groundStaff: 1.50, maintenanceTeam: 1.30 },
+  { maxTonnes: 130, pilots: 1.35, cabinCrew: 0, groundStaff: 2.00, maintenanceTeam: 1.90 },
+  { maxTonnes: Infinity, pilots: 1.70, cabinCrew: 0, groundStaff: 2.60, maintenanceTeam: 2.50 },
+];
+
+/**
+ * How many "narrowbody-equivalents" of one labour group an airframe costs.
+ * Unknown categories fall back to 1.00 — a new aircraft type is charged the
+ * common rate rather than accidentally flying its crews for free.
+ */
+export function crewScaleFor(groupId, aircraftType) {
+  if (!aircraftType) return 1;
+  if (aircraftType.freighter) {
+    const t = aircraftType.payloadTonnes ?? 0;
+    const band = CREW_SCALE_FREIGHTER.find(s => t <= s.maxTonnes);
+    return band?.[groupId] ?? 1;
+  }
+  return CREW_SCALE_BY_CATEGORY[groupId]?.[aircraftType.category] ?? 1;
+}
+
+/**
+ * The fleet's total scale for one group, in narrowbody-equivalents. This is
+ * what replaces `fleet.length` in the weekly labour bill — an all-narrowbody
+ * fleet returns exactly its aircraft count, so nothing moves for it.
+ */
+export function fleetCrewScale(groupId, fleet, typeOf) {
+  return (fleet ?? []).reduce((s, a) => s + crewScaleFor(groupId, typeOf(a)), 0);
+}
+
 export const DEFAULT_LABOR_STATE = {
   pilots:          { payMultiplier: 1.0, morale: 80 },
   cabinCrew:       { payMultiplier: 1.0, morale: 80 },

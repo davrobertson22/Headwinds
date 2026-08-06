@@ -29,6 +29,8 @@ import { LABOR_GROUPS } from './labor.js';
 export const DEFAULT_LABOR_RELATIONS = {
   // 0–100 per group. Builds while morale < 50, decays otherwise.
   unrest: { pilots: 0, cabinCrew: 0, groundStaff: 0, maintenanceTeam: 0 },
+  // 0–1 per group. Memory of talks that went nowhere — see GRIEVANCE_* below.
+  grievance: { pilots: 0, cabinCrew: 0, groundStaff: 0, maintenanceTeam: 0 },
   // Active walkout: { group, weeksLeft, totalWeeks, severity } | null
   strike: null,
   // Open pay demand: { group, demandMultiplier, weeksLeft, totalWeeks } | null
@@ -62,20 +64,99 @@ export const UNREST_STRIKE_THRESHOLD = 60;
 /** Weeks of industrial truce after a strike ends (no new walkouts). */
 export const STRIKE_COOLDOWN_WEEKS = 26;
 
+// ─── Grievance: the memory of talks that went nowhere ────────────────────────
+//
+// Refusing a pay demand cost −10 morale and +30 unrest, ONCE. Morale healed
+// back to its pay-determined target within a few weeks, and unrest decays
+// whenever morale is at or above 50 — so an airline paying 1.25× (where morale
+// targets 100) could refuse every demand forever and never see a strike. The
+// negotiation system had teeth only against airlines that were already
+// underpaying, which are the ones least able to settle. The whole mechanic was
+// a free "no" button for anyone doing well.
+//
+// A grievance is what a union actually carries out of a failed round: not a
+// mood that passes, but a position that hardens. It does two things.
+//
+//   1. It caps morale below what the money alone would buy. You can be the
+//      best-paying airline in the world and still have a workforce that does
+//      not believe you.
+//   2. It slows unrest RECOVERY. This is the half that matters, because it is
+//      the decay rule that made serial refusal safe: at full grievance unrest
+//      barely falls, so the +30 from the next refusal lands on top of the last
+//      one and the strike threshold finally comes into reach.
+//
+// It is not a trap. Settling clears most of it at once, and it fades slowly on
+// its own, so an airline that changes course recovers without being forced into
+// a deal it cannot afford.
+export const GRIEVANCE_REFUSE          = 0.45;  // per outright refusal
+export const GRIEVANCE_COUNTER_REJECTED = 0.20; // talks collapsed, but you did offer
+export const GRIEVANCE_SETTLED         = 0.50;  // cleared by a deal
+export const GRIEVANCE_WEEKLY_DECAY    = 0.002; // ~10 years to forget on its own
+/** Morale points the ceiling drops by at full grievance. */
+export const GRIEVANCE_MORALE_PENALTY  = 20;
+/**
+ * Unrest a fully-grieved union never falls below — a standing dispute.
+ *
+ * This is the part that actually changes the outcome, and it took a rewrite to
+ * see why. Slowing the decay is not enough on its own: contract rounds are
+ * roughly a year apart, and even a badly slowed +30 has faded to nothing over
+ * fifty-two weeks. So a refusal has to leave a LEVEL, not just a slower fall.
+ *
+ * Played out at 1.25× pay — the case the old model could not touch at all —
+ * with contract rounds a year apart:
+ *
+ *   refuse once   grievance 0.45, unrest settles near 20  "Restless"
+ *   refuse twice  grievance 0.80, unrest settles near 36  "Militant"
+ *   refuse a third time  36 + 30 = 66, past the strike threshold of 60
+ *
+ * Which is the point: refusing once is free, refusing as a policy is not. The
+ * floor coefficient is deliberately below the strike threshold, so a grievance
+ * on its own is never a walkout — it always takes a fresh refusal on top.
+ */
+export const GRIEVANCE_UNREST_FLOOR    = 45;
+
+/** The unrest level a group will not fall below at a given grievance. */
+export function unrestFloor(grievance = 0) {
+  const g = Math.max(0, Math.min(1, Number(grievance) || 0));
+  return Math.round(GRIEVANCE_UNREST_FLOOR * g * 10) / 10;
+}
+
+/** Grievance-adjusted morale ceiling for a group. */
+export function grievedMoraleTarget(baseTarget, grievance = 0) {
+  const g = Math.max(0, Math.min(1, Number(grievance) || 0));
+  return Math.max(10, Math.round(baseTarget - GRIEVANCE_MORALE_PENALTY * g));
+}
+
 /**
  * Advance each group's unrest one week from its current morale.
  * Below 50 morale unrest builds (faster the deeper it is); at or above 50 it
  * decays. A rejected/ignored negotiation adds bumps elsewhere (reducer).
  */
-export function tickUnrest(labor, unrest) {
+export function tickUnrest(labor, unrest, grievance = null) {
   const next = {};
   for (const g of LABOR_GROUPS) {
     const morale = labor?.[g.id]?.morale ?? 80;
     const u      = unrest?.[g.id] ?? 0;
+    const gr     = Math.max(0, Math.min(1, Number(grievance?.[g.id]) || 0));
+    // Grievance slows RECOVERY, it does not add anger of its own. A union that
+    // has been refused twice does not calm down between rounds, so the next
+    // refusal's +30 stacks instead of replacing what has already faded — which
+    // is the only way serial refusal ever reaches the strike threshold.
     const v = morale < 50
-      ? u + (50 - morale) * 0.5          // morale 30 → +10/wk, morale 10 → +20/wk
-      : u * 0.9 - 1.5;                   // recovery once pay is fixed
-    next[g.id] = Math.max(0, Math.min(100, Math.round(v * 10) / 10));
+      ? u + (50 - morale) * 0.5                    // morale 30 → +10/wk, morale 10 → +20/wk
+      : u * (0.9 + 0.08 * gr) - 1.5 * (1 - gr);    // recovery, resisted by grievance
+    // ...but never below the standing dispute the grievance represents.
+    next[g.id] = Math.max(unrestFloor(gr), Math.min(100, Math.round(v * 10) / 10));
+  }
+  return next;
+}
+
+/** One week of grievance fading on its own. */
+export function tickGrievance(grievance) {
+  const next = {};
+  for (const g of LABOR_GROUPS) {
+    const cur = Math.max(0, Math.min(1, Number(grievance?.[g.id]) || 0));
+    next[g.id] = Math.round(Math.max(0, cur - GRIEVANCE_WEEKLY_DECAY) * 1000) / 1000;
   }
   return next;
 }

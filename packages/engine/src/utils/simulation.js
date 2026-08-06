@@ -10,7 +10,7 @@ export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
          setNwrYieldChoke } from './market.js';
-import { LABOR_GROUPS, laborEffects, seniorityMultiplier } from '../data/labor.js';
+import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
@@ -3136,7 +3136,9 @@ export function weeklyTick(state) {
       const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) ? complexityMult : 1.0;
       // seniorityMult inflates the SCALE these wages are measured against. The
       // player's payMultiplier is untouched and still means "relative to market".
-      totalLaborCosts += Math.round(group.baseWeeklyPerAircraft * payMult * fleet.length * famMult * seniorityMult);
+      // Narrowbody-EQUIVALENTS, not airframes: see CREW_SCALE_BY_CATEGORY.
+      const crewScale = fleetCrewScale(group.id, fleet, a => getAircraftType(a.typeId));
+      totalLaborCosts += Math.round(group.baseWeeklyPerAircraft * payMult * crewScale * famMult * seniorityMult);
     }
   }
 
