@@ -3,6 +3,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { AlertIcon, HeartIcon } from './Icons.jsx';
 import { leasesExpiringSoon, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
+import { subscribeAwayDigest, pendingAwayWeeks } from '../utils/awayDigest.js';
 
 export default function WeeklyDebrief() {
   const { state, dispatch } = useGame();
@@ -12,6 +13,15 @@ export default function WeeklyDebrief() {
   const [phase, setPhase]         = useState('counting'); // 'counting' | 'done'
   const [showCosts, setShowCosts] = useState(false);
   const frameRef = useRef(null);
+
+  // Both modals are position:fixed and full-screen, so exactly one may be up.
+  // When the save has jumped several weeks the away digest speaks first (this
+  // week's detail is the least interesting part of a twelve-week absence);
+  // dismissing it hands back here for the latest week. localStorage can't
+  // re-render anything on its own, hence the small module store — same shape
+  // and the same reason as utils/navIntent.js.
+  const [awayWeeks, setAwayWeeks] = useState(pendingAwayWeeks);
+  useEffect(() => subscribeAwayDigest(setAwayWeeks), []);
 
   const profit = lastReport?.cashDelta ?? 0;
 
@@ -40,6 +50,7 @@ export default function WeeklyDebrief() {
   }, [showDebrief, profit]);
 
   if (!showDebrief || !lastReport) return null;
+  if (awayWeeks > 0) return null;
 
   const isProfit  = profit >= 0;
   const profColor = isProfit ? 'var(--green)' : 'var(--red)';

@@ -4,6 +4,7 @@ import { useGame } from './store/GameContext.jsx';
 import { ToastProvider, useToast } from './components/ToastSystem.jsx';
 import { ConfirmProvider } from './components/ConfirmModal.jsx';
 import WeeklyDebrief from './components/WeeklyDebrief.jsx';
+import AwayDigest from './components/AwayDigest.jsx';
 import SaveLoadModal from './components/SaveLoadModal.jsx';
 import { formatMoney, formatGameDate, weekToGameDate } from './utils/simulation.js';
 import SetupScreen from './components/SetupScreen.jsx';
@@ -766,8 +767,11 @@ function AppInner() {
         </footer>
       </div>
 
-      {/* Weekly debrief modal */}
+      {/* Weekly debrief modal — suppressed while an away digest is showing */}
       <WeeklyDebrief />
+
+      {/* "While you were away" — the world does not stop when the tab closes */}
+      <AwayDigest />
 
       {/* Advance-week error overlay — shows if reducer threw */}
       {state.advanceWeekError && (

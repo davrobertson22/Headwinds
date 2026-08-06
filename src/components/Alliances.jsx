@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, routeQualityBreakdown } from '../utils/simulation.js';
 import AirlineLogo from './AirlineLogo.jsx';
+import AllianceDashboard from './AllianceDashboard.jsx';
+import { partnershipActuals } from '../utils/allianceStats.js';
 import {
   ALLIANCES,
   getAlliance,
@@ -98,10 +100,20 @@ export default function Alliances() {
     return comp ? sum + partnerInterlineRevenue(comp, servedAirports, 1.0) : sum;
   }, 0);
 
-  const totalInterline   = allianceInterline + codeshareInterline;
-  const totalFees        = (allianceMembership?.weeklyFee ?? 0)
+  // These two are ESTIMATES from the legacy flat per-adjacent-route model. The
+  // weekly tick stopped using it when partnership revenue moved to O&D
+  // proration (simulation.js: `partnerODRevenue.totalRevenue` replaced the flat
+  // model), so this screen has been quoting a number the P&L does not recognise
+  // ever since. Prefer the engine's own figure whenever a week has been played;
+  // fall back to the estimate only before the first report, where it is the
+  // only answer available — and say so.
+  const estimatedInterline = allianceInterline + codeshareInterline;
+  const estimatedFees      = (allianceMembership?.weeklyFee ?? 0)
     + codeshareAgreements.reduce((s, a) => s + a.weeklyFee, 0);
-  const netPartnership   = totalInterline - totalFees;
+  const partnership      = partnershipActuals(state, estimatedInterline, estimatedFees);
+  const totalInterline   = partnership.revenue;
+  const totalFees        = partnership.fees;
+  const netPartnership   = partnership.net;
 
   return (
     <div>
@@ -112,7 +124,15 @@ export default function Alliances() {
         gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
         gap: 12,
       }}>
-        <SummaryKPI label="Interline revenue" value={formatMoney(totalInterline)} color="var(--green)" prefix="+" />
+        <SummaryKPI
+          label="Interline revenue"
+          value={formatMoney(totalInterline)}
+          color="var(--green)"
+          prefix="+"
+          sub={partnership.estimated
+            ? 'estimate — no week played yet'
+            : 'last week, as booked in the P&L'}
+        />
         <SummaryKPI label="Partnership fees"  value={formatMoney(totalFees)}      color="#f87171"      prefix="-" />
         <SummaryKPI
           label="Net benefit"
@@ -133,6 +153,15 @@ export default function Alliances() {
           sub="avg across your routes, same score shown on route pages"
         />
       </div>
+
+      {/* ── The bloc, seen as one airline ────────────────────────────────── */}
+      {currentAlliance && (
+        <AllianceDashboard
+          alliance={currentAlliance}
+          members={allianceMembers(currentAlliance.id, competitors)}
+          state={state}
+        />
+      )}
 
       {/* ── Alliance membership ──────────────────────────────────────────── */}
       <SectionHeader>Alliance Membership</SectionHeader>
