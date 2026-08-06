@@ -2,6 +2,7 @@
 import { requireAuth, isAdmin } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { serializeAirline } from '../lib/worldConfig.mjs';
+import { serializeCareer } from '../lib/career.mjs';
 
 export default async function meRoutes(fastify) {
   fastify.get('/me', { preHandler: requireAuth }, async (request) => {
@@ -29,6 +30,10 @@ export default async function meRoutes(fastify) {
         // OG veteran badge (playing since the original Tailwinds).
         isOG: account.isOG === true,
       },
+      // Seasons finished, and what they came to. Badges are DERIVED here rather
+      // than stored (see lib/career.mjs) so the rule can change without a
+      // migration and the client can never disagree about who has earned one.
+      career: serializeCareer(account.careerStats),
       // Your own worlds include their join code — you're a member.
       airlines: airlines.map((a) =>
         serializeAirline(a, { world: a.world, includeJoinCode: true })),

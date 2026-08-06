@@ -19,6 +19,7 @@ import {
   openDueAuctions, resolveDueAuctions,
 } from './gateService.mjs';
 import { scrapStale } from './aircraftMarketService.mjs';
+import { snapshotWorldCareers, passengerTotalsFrom } from './careerService.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
@@ -426,7 +427,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         where: { worldId: world.id, week: { lt: toIndex - NEWS_WINDOW_WEEKS } },
       });
 
-      return { lostRace: false, airlines: written.length, written, recomputed: recomputed.length };
+      // `ranked` rides out of the transaction because the career snapshot runs
+      // AFTER the commit and cannot recompute the final order from anything
+      // else — Standing rows exist, but re-reading them would be a query to
+      // re-derive something this scope already holds.
+      return { lostRace: false, airlines: written.length, written, ranked, recomputed: recomputed.length };
     }, {
       ...TICK_TX_OPTS,
       // No client is waiting on the worker, so the player-request deadline in
@@ -474,6 +479,32 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         if (newWeek === 1 && toIndex > 1) await resolveDueAuctions(prisma, tickedWorld, { log });
       } catch (err) {
         log.error(`[tick] world ${world.id} gate hooks failed (week still committed):`, err?.message ?? err);
+      }
+    }
+
+    // ── A season's result, banked ────────────────────────────────────────────
+    // The final tick used to flip `status: 'ENDED'` and stop. Seven real months
+    // of play left no trace on the account that played them, which is why the
+    // only cross-world distinction anyone had was an admin-granted badge.
+    //
+    // Post-commit and best-effort, like everything else down here: the tick
+    // transaction already holds row locks on every airline in the world for up
+    // to thirty seconds, and a hall-of-fame entry is not worth a millisecond of
+    // that — nor worth rolling back a committed week if it fails. Re-running it
+    // is harmless by construction (see lib/career.mjs).
+    if (ended) {
+      try {
+        await snapshotWorldCareers(prisma, { ...world, status: 'ENDED', endedAt: new Date() }, {
+          weekIndex: toIndex,
+          ranked: outcome.ranked ?? [],
+          // Lifetime passengers come from states already in memory. Reading
+          // forty half-megabyte blobs back out to count them would cost more
+          // than the whole week's commit.
+          passengersById: passengerTotalsFrom(computed),
+          log,
+        });
+      } catch (err) {
+        log.error(`[tick] world ${world.id} career snapshot failed (world still ENDED):`, err?.message ?? err);
       }
     }
 

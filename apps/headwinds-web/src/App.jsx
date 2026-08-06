@@ -7,6 +7,7 @@ import { supabase } from './supabase.js';
 import { api } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
+import CareerPanel from './CareerPanel.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -1312,7 +1313,7 @@ export default function App() {
       {!ready ? <p className="muted">Loading…</p> : (
         <>
           {!session && <SignIn />}
-          {route.screen === 'worlds' && <WorldsScreen token={token} me={me} />}
+          {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><CareerPanel career={me?.career} /></>}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
           {route.screen === 'admin' && <ModerationScreen token={token} me={me} />}
           {route.screen === 'report' && <ReportScreen token={token} me={me} />}
