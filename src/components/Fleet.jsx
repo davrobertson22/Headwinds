@@ -1489,7 +1489,7 @@ export default function Fleet() {
       + `Net proceeds after the 5% fee: ${formatMoney(proceeds)}`;
 
     if (await confirm({ title: `Sell ${checkedOwned.length} owned aircraft?`, body, danger: true, confirmLabel: 'Sell aircraft' })) {
-      for (const a of checkedOwned) dispatch({ type: 'SELL_AIRCRAFT', aircraftId: a.id });
+      dispatch({ type: 'SELL_AIRCRAFT_BULK', aircraftIds: checkedOwned.map(a => a.id) });
       setCheckedIds([]);
       setSelectedId(null);
     }
@@ -1520,7 +1520,7 @@ export default function Fleet() {
     if (totalPenalty > 0) body += `\nTotal early lease termination penalties: ${formatMoney(totalPenalty)}`;
 
     if (await confirm({ title: `Remove ${checkedAircraft.length} aircraft from the fleet?`, body: body.trim(), danger: true, confirmLabel: 'Remove aircraft' })) {
-      for (const a of checkedAircraft) dispatch({ type: 'RETIRE_AIRCRAFT', aircraftId: a.id });
+      dispatch({ type: 'RETIRE_AIRCRAFT_BULK', aircraftIds: checkedAircraft.map(a => a.id) });
       setCheckedIds([]);
       setSelectedId(null);
     }
@@ -1559,6 +1559,30 @@ export default function Fleet() {
   const dDueCost = dDueList.reduce((s, a) => s + checkCost(getAircraftType(a.typeId), 'D', checkOptsFor(a)), 0);
   const checkedServiceable = checkedAircraft.filter(a => !isOutOfService(a) && !a.scheduledCheck);
 
+  // The leases in the selection that are about to take their routes with them —
+  // the list P1's Dashboard alert and the "⏳ Expiring" chip point at. Renewing
+  // them was one +1yr click per aircraft, which for a fleet of twenty leases is
+  // twenty clicks to avoid twenty route closures.
+  const checkedExpiring = checkedAircraft.filter(a => isLeaseExpiring(a));
+
+  async function handleBulkExtend(list) {
+    if (list.length === 0) return;
+    const names = list.slice(0, 8).map(a => `${a.name} (${a.leaseRemainingWeeks}w)`).join(', ')
+                + (list.length > 8 ? `, +${list.length - 8} more` : '');
+    const routeCount = list.reduce((s, a) =>
+      s + routes.filter(r => r.aircraftId === a.id).length
+        + cargoRoutes.filter(r => r.aircraftId === a.id).length, 0);
+    const body = `Adds a year to each lease at the rate it was signed at. Free, and no remaining time is lost.\n\n`
+      + (routeCount > 0
+          ? `Left to expire, these aircraft go back and their ${routeCount} route${routeCount !== 1 ? 's' : ''} close.\n\n`
+          : '')
+      + names;
+    if (await confirm({ title: `Extend ${list.length} lease${list.length !== 1 ? 's' : ''} by a year?`, body, confirmLabel: 'Extend leases' })) {
+      dispatch({ type: 'EXTEND_LEASES', aircraftIds: list.map(a => a.id), addWeeks: 52 });
+      setCheckedIds([]);
+    }
+  }
+
   async function handleBulkCheck(list, checkType, onDone) {
     if (list.length === 0) return false;
     const cost  = list.reduce((s, a) => s + checkCost(getAircraftType(a.typeId), checkType, checkOptsFor(a)), 0);
@@ -1571,7 +1595,7 @@ export default function Fleet() {
       + `Total cost: ${formatMoney(cost)}`
       + (overCash ? `\n\n⚠ That's more than your ${formatMoney(state.cash)} cash on hand.` : '');
     if (await confirm({ title: `Start ${checkType} check on ${list.length} aircraft?`, body, confirmLabel: `Start ${checkType} check${list.length > 1 ? 's' : ''}` })) {
-      for (const a of list) dispatch({ type: 'SCHEDULE_CHECK', aircraftId: a.id, checkType, startNow: true });
+      dispatch({ type: 'SCHEDULE_CHECKS', aircraftIds: list.map(a => a.id), checkType, startNow: true });
       onDone?.();
       return true;
     }
@@ -1984,6 +2008,20 @@ export default function Fleet() {
             >
               <Glyph e="🔧" /> C check ({checkedServiceable.length})
             </button>
+            {checkedExpiring.length > 0 && (
+              <button
+                className="btn"
+                style={{
+                  fontSize: 12, padding: '5px 12px',
+                  background: 'rgba(210,153,34,0.14)', color: 'var(--yellow)',
+                  border: '1px solid rgba(210,153,34,0.4)', cursor: 'pointer',
+                }}
+                title="Add a year to every selected lease that is about to expire"
+                onClick={() => handleBulkExtend(checkedExpiring)}
+              >
+                <Glyph e="⏳" /> Extend leases ({checkedExpiring.length})
+              </button>
+            )}
             <button
               className="btn"
               style={{

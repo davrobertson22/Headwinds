@@ -17,6 +17,7 @@ import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '.
 import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
+import ReassignRouteButton from './ReassignRouteButton.jsx';
 import {
   allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
   PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
@@ -2235,13 +2236,16 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
           </button>
         </td>
         <td style={{ padding: '7px 8px' }}>
-          <button
-            className="btn"
-            style={{ padding: '3px 8px', fontSize: 11, background: 'rgba(248,81,73,0.1)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)' }}
-            onClick={() => onClose(route.id)}
-          >
-            Remove
-          </button>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <ReassignRouteButton route={route} />
+            <button
+              className="btn"
+              style={{ padding: '3px 8px', fontSize: 11, background: 'rgba(248,81,73,0.1)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)' }}
+              onClick={() => onClose(route.id)}
+            >
+              Remove
+            </button>
+          </div>
         </td>
       </tr>
       {showPricing && (

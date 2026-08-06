@@ -249,14 +249,26 @@ test('the COMPETITOR_AIRLINES constant is not a usable rival source', () => {
 
 test('simulateRoute contests a pair when handed the LIVE bank', () => {
   const live = sampleAndInitializeCompetitors(25);
-  // Find a pair the sampled carriers actually fly.
+  // Find a pair the sampled carriers actually fly — and one where the monopoly
+  // run does NOT fill the aircraft. On a pair whose demand exceeds the cabin,
+  // every seat sells with or without a rival, so "fewer passengers with rivals"
+  // is not a property of the demand model there: the cap is doing the work, and
+  // the assertion below would fail on an honest engine. Which pairs the sample
+  // throws up is random, so without this the suite failed roughly one run in
+  // five — a flake that predates this change and had nothing to do with rivals.
   const key = [...new Set(live.flatMap(c => Object.keys(c.routes)))]
     .find(k => {
       const [o, d] = k.split('-');
       const m = buildRouteMarket(o, d, { month: 6 }, 1, 1);
-      return m && live.some(c => buildCompetitorOffer(c, m));
+      if (!m || !live.some(c => buildCompetitorOffer(c, m))) return false;
+      const f = Math.round(referencePrice(o, d));
+      const probe = simulateRoute(
+        { id: 'probe', origin: o, destination: d, aircraftId: 'x', weeklyFrequency: FREQ_UNCAPPED,
+          weeksOpen: 40, ticketPrice: f, classPrices: { economy: f } },
+        mkAircraft('x'), { month: 6 }, null, 1.0, null, [], null, null, 1.0, null, []);
+      return probe && probe.loadFactor < 0.98;
     });
-  assert.ok(key, 'sampled carriers fly something');
+  assert.ok(key, 'sampled carriers fly a pair that is not capacity-capped');
   const [o, d] = key.split('-');
   const fare = Math.round(referencePrice(o, d));
   const ac = mkAircraft('x');

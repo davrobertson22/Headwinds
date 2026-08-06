@@ -213,6 +213,25 @@ function guardGate(payload) {
 }
 
 function guardScheduleCheck(payload, state) {
+  return guardScheduleCheckInner(payload, state);
+}
+
+/**
+ * A batch's aircraft id list. Bounded because the reducer folds one full pass
+ * per id and the whole decision runs inside the write transaction — an
+ * unbounded list is a cheap way to hold row locks for a very long time.
+ */
+function guardAircraftIds(payload, state) {
+  const ids = Array.isArray(payload.aircraftIds) ? payload.aircraftIds : [];
+  if (ids.length === 0) throw new GuardError('No aircraft selected.');
+  if (ids.length > 200) throw new GuardError('Too many aircraft in one batch.');
+  const own = new Set((state.fleet ?? []).map((a) => a.id));
+  const clean = [...new Set(ids.map(String))].filter((id) => own.has(id));
+  if (clean.length === 0) throw new GuardError('Unknown aircraft.');
+  return clean;
+}
+
+function guardScheduleCheckInner(payload, state) {
   const a = (state.fleet ?? []).find((x) => x.id === payload.aircraftId);
   if (!a) throw new GuardError('Unknown aircraft.');
   const checkType = payload.checkType === 'D' ? 'D' : 'C';
@@ -283,6 +302,22 @@ function guardPartsPool(payload) {
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
+    case 'SELL_AIRCRAFT_BULK':
+    case 'RETIRE_AIRCRAFT_BULK': return { aircraftIds: guardAircraftIds(payload, state) };
+    case 'SCHEDULE_CHECKS':    return {
+      aircraftIds: guardAircraftIds(payload, state),
+      checkType: payload.checkType === 'D' ? 'D' : 'C',
+      startNow: true,
+    };
+    case 'EXTEND_LEASES':      return {
+      aircraftIds: guardAircraftIds(payload, state),
+      // The reducer clamps, but keep a forged 10,000-year lease out of the blob.
+      addWeeks: Math.max(1, Math.min(520, Math.round(Number(payload.addWeeks) || 52))),
+    };
+    case 'REASSIGN_ROUTE':     return {
+      routeId: String(payload.routeId ?? ''),
+      toAircraftId: String(payload.toAircraftId ?? ''),
+    };
     case 'CANCEL_SCHEDULED_CHECK': return { aircraftId: payload.aircraftId };
     case 'SET_RESERVE':        return guardSetReserve(payload, state);
     case 'BUILD_MRO_BASE':     return guardMroBase(payload, { needLevel: true, needFamilies: true });

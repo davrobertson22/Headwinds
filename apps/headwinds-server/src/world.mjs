@@ -25,6 +25,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // the deposit + fitting fee and gates on affordability. The solo UI never
   // dispatches LEASE_AIRCRAFT.
   'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT',
+  // Batched forms of the four the Fleet page applies to a selection. Each folds
+  // its single-aircraft case in the reducer, so they inherit its guards; the
+  // decision guard below only sanitizes the id list.
+  'SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK', 'SCHEDULE_CHECKS', 'EXTEND_LEASES',
   'RENEW_LEASE', 'EXTEND_LEASE', 'BUY_OUT_LEASE', 'ORDER_AIRCRAFT', 'CANCEL_ORDER', 'RENAME_ORDER',
   'SCHEDULE_CHECK', 'CANCEL_SCHEDULED_CHECK',
   'SET_RESERVE', 'CLEAR_RESERVE',
@@ -35,7 +39,7 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
   // Routes — passenger, cargo, tag
   'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',
-  'TRANSFER_ROUTES',
+  'TRANSFER_ROUTES', 'REASSIGN_ROUTE',
   'UPDATE_TICKET_PRICE', 'UPDATE_CLASS_PRICES', 'SET_SEGMENT_PRICE',
   'BULK_ADJUST_PRICING', 'UPDATE_FREQUENCY', 'UPDATE_CARGO_FREQUENCY',
   'UPDATE_CARGO_YIELD', 'SET_ROUTE_CATERING', 'SET_DEFAULT_CATERING',

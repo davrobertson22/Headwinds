@@ -588,14 +588,22 @@ export default async function decisionRoutes(fastify) {
         // the world Used Market at the NAV the sale was valued at (the reducer
         // exposes it as next.lastSale). The seller already received NAV - 5%; the
         // 5% spread is the shop's cut.
-        if (type === 'SELL_AIRCRAFT' && next.lastSale && next.lastSale.aircraftId === guarded.aircraftId) {
-          const sold = (airline.state?.fleet ?? []).find((a) => a.id === guarded.aircraftId);
+        // A batch sale exposes every tail it sold on `lastSales`; a single sale
+        // exposes one on `lastSale`. Listing only `lastSale` after a batch would
+        // quietly drop all but the final aircraft out of the world's market.
+        const soldEntries = type === 'SELL_AIRCRAFT_BULK'
+          ? (next.lastSales ?? [])
+          : (type === 'SELL_AIRCRAFT' && next.lastSale && next.lastSale.aircraftId === guarded.aircraftId
+              ? [next.lastSale]
+              : []);
+        for (const entry of soldEntries) {
+          const sold = (airline.state?.fleet ?? []).find((a) => a.id === entry.aircraftId);
           if (sold && sold.ownershipType === 'owned') {
             await listSoldAircraftTx(tx, {
               worldId: airline.worldId,
               sellerName: airline.name ?? airline.state?.airlineName ?? null,
               aircraft: sold,
-              navPrice: next.lastSale.nav,
+              navPrice: entry.nav,
               weekIdx: weekIndex(airline.world),
             });
           }
