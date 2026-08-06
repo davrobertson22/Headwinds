@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useGame, reassignCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { Glyph } from './Icons.jsx';
+import { isReserve } from '../data/reserve.js';
 
 /**
  * Move ONE route onto a different aircraft.
@@ -30,8 +31,10 @@ export default function ReassignRouteButton({ route }) {
       type: getAircraftType(a.typeId),
       compat: reassignCompatibility(state, route.id, a.id),
     }))
-    // Eligible first, then by name, so the useful half of a big fleet is on top.
+    // Eligible first, then non-reserves, then by name — a standby cover should
+    // never be the plane the list puts under your cursor by accident.
     .sort((x, y) => (Number(y.compat.ok) - Number(x.compat.ok))
+      || (Number(isReserve(x.a)) - Number(isReserve(y.a)))
       || (x.a.name ?? '').localeCompare(y.a.name ?? ''));
 
   const eligible = candidates.filter(c => c.compat.ok).length;
@@ -95,6 +98,11 @@ export default function ReassignRouteButton({ route }) {
               >
                 <span style={{ fontWeight: 600 }}>{a.name}</span>
                 <span style={{ color: 'var(--text-muted)' }}> · {type?.name ?? a.typeId}</span>
+                {compat.ok && isReserve(a) && (
+                  <span style={{ display: 'block', fontSize: 10.5, color: 'var(--yellow)', fontWeight: 600 }}>
+                    <Glyph e="🛡️" size={10} /> On reserve at {a.reserveBase} — moving this route here ends its standby
+                  </span>
+                )}
                 {!compat.ok && (
                   <span style={{ display: 'block', fontSize: 10.5, color: 'var(--text-dim)' }}>
                     {compat.reason}

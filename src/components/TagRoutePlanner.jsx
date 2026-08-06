@@ -15,6 +15,8 @@ import { ModeToggle } from './CargoRoutePlanner.jsx';
 import AddGateButton from './AddGateButton.jsx';
 import AirportSelect from './AirportSelect.jsx';
 import { Glyph } from './Icons.jsx';
+import { isReserve } from '../data/reserve.js';
+import ReserveNotice, { reserveOptionTag } from './ReserveNotice.jsx';
 
 // ─── Region-grouped airport <select> (only airports with a gate) ───────────────
 
@@ -219,7 +221,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
                   {reachable.length === 0 && <option value="">— no eligible aircraft (range, hours or network) —</option>}
                   {reachable.map(a => {
                     const t = getAircraftType(a.typeId);
-                    return <option key={a.id} value={a.id}>{a.name} ({t?.seats} seats · {a.reserveBase ? `reserve @ ${a.reserveBase}` : a.status})</option>;
+                    return <option key={a.id} value={a.id}>{a.name} ({t?.seats} seats · {a.status}){reserveOptionTag(a)}</option>;
                   })}
                 </select>
               </div>
@@ -340,7 +342,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
             <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button className="btn btn-primary" style={{ padding: '8px 20px', opacity: canOpen ? 1 : 0.4, cursor: canOpen ? 'pointer' : 'not-allowed' }}
                 disabled={!canOpen} onClick={handleOpen}>
-                Open Multi-stop Route
+                Open Multi-stop Route{isReserve(aircraft) ? ' · ends standby' : ''}
               </button>
               <span style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>
                 <Glyph e={canAfford ? '💸' : '⚠'} size={12} /> Launch cost {formatMoney(launchCost)}{!canAfford ? ' · insufficient cash' : ''}
@@ -349,6 +351,13 @@ export default function TagRoutePlanner({ mode, setMode }) {
                 <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>
               )}
             </div>
+            <ReserveNotice
+              aircraft={aircraft}
+              fleet={fleet}
+              ops={[...routes, ...cargoRoutes]}
+              action="Opening this route"
+              typeName={type?.name}
+            />
           </div>
         </>
       )}

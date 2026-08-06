@@ -67,3 +67,40 @@ export function isReserve(a) {
 export function isCoverRoute(r) {
   return !!r?.coverForAircraftId;
 }
+
+/**
+ * What a stationed reserve is currently standing by to cover.
+ *
+ * Deploying a reserve onto a route is allowed — the reducer just nulls
+ * `reserveBase` — but from the player's side that is an invisible trade: the
+ * plane starts earning, and the cover it was holding quietly disappears. The
+ * route pickers use this to spell out what is being given up ("stops covering
+ * your 3 other A320s at DFW") instead of only saying the standby ends.
+ *
+ * Same rules as the tick's dispatcher: identical type only, and only routes
+ * that touch the reserve's own base.
+ *
+ * @param {object} aircraft - candidate tail (returns null unless it is a reserve)
+ * @param {array}  fleet    - state.fleet
+ * @param {array}  ops      - passenger + cargo routes
+ * @returns {{ base: string, tails: number, routes: number } | null}
+ */
+export function reserveCoverageSummary(aircraft, fleet = [], ops = []) {
+  if (!isReserve(aircraft)) return null;
+  const base = aircraft.reserveBase;
+  const sameType = new Set((fleet ?? [])
+    .filter(a => a.id !== aircraft.id && a.typeId === aircraft.typeId && a.status !== 'retired')
+    .map(a => a.id));
+  const tails = new Set();
+  let routes = 0;
+  for (const r of (ops ?? [])) {
+    // A route currently flown as a cover still belongs to the tail it covers for.
+    const owner = r.coverForAircraftId ?? r.aircraftId;
+    if (!sameType.has(owner)) continue;
+    if (r.origin === base || r.destination === base || (r.stops ?? []).includes(base)) {
+      routes++;
+      tails.add(owner);
+    }
+  }
+  return { base, tails: tails.size, routes };
+}

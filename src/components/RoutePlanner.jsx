@@ -335,7 +335,7 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
           <optgroup label="Your aircraft of this type">
             {fleetOptions.map(a => (
               <option key={a.id} value={a.id}>
-                {(a.tailNumber || a.name)} — {configSummary(a.config)}{a.reserveBase ? ` · reserve @ ${a.reserveBase}` : a.status === 'idle' ? ' · idle' : ''}
+                {(a.tailNumber || a.name)} — {configSummary(a.config)}{reserveOptionTag(a) || (a.status === 'idle' ? ' · idle' : '')}
               </option>
             ))}
           </optgroup>
@@ -1149,7 +1149,7 @@ export default function RoutePlanner() {
                             title={blockReason ?? undefined}
                             onClick={() => handleOpenRoute(preferred.id)}
                           >
-                            Open Route with {preferred.tailNumber || preferred.name}{!preferredD.idle ? ' · shares hours' : ''}
+                            Open Route with {preferred.tailNumber || preferred.name}{!preferredD.idle ? ' · shares hours' : ''}{preferredD.reserve ? ' · ends standby' : ''}
                           </button>
                         ) : (
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
@@ -1194,9 +1194,13 @@ export default function RoutePlanner() {
                         </div>
                       )}
                       {!blocked && reserveTail && (
-                        <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 4 }}>
-                          <Glyph e="🛡️" size={12} /> {reserveTail.tailNumber || reserveTail.name} is on reserve at {reserveTail.reserveBase} — opening this route takes it off standby, so it stops covering your other {simulation.type.name}s there.
-                        </div>
+                        <ReserveNotice
+                          aircraft={reserveTail}
+                          fleet={state.fleet}
+                          ops={[...(state.routes ?? []), ...(state.cargoRoutes ?? [])]}
+                          action="Opening this route"
+                          typeName={simulation.type.name}
+                        />
                       )}
                       {!blocked && (
                         <div style={{ fontSize: 12, color: canAfford ? 'var(--text-muted)' : 'var(--red)' }}>

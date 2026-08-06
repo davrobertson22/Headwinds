@@ -8,6 +8,7 @@ import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
 import CargoRouteFinder from './CargoRouteFinder.jsx';
 import { Glyph } from './Icons.jsx';
+import ReserveNotice from './ReserveNotice.jsx';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
 
@@ -432,9 +433,13 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                       </div>
                       {/* Reserve notice */}
                       {reserveTail && (
-                        <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 4 }}>
-                          <Glyph e="🛡️" size={12} /> {reserveTail.tailNumber || reserveTail.name} is on reserve at {reserveTail.reserveBase} — opening this lane takes it off standby.
-                        </div>
+                        <ReserveNotice
+                          aircraft={reserveTail}
+                          fleet={state.fleet}
+                          ops={[...(state.routes ?? []), ...(state.cargoRoutes ?? [])]}
+                          action="Opening this lane"
+                          typeName={simulation.type.name}
+                        />
                       )}
                       {/* Gate requirement */}
                       {noGate.length > 0 && (

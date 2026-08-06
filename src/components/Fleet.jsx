@@ -12,6 +12,7 @@ import {
   freighterLandingCategory,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
+import { ReserveBadge } from './ReserveNotice.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { DEPRECIATION_YEARS } from '../data/overhead.js';
@@ -146,15 +147,23 @@ function TransferRoutesModal({ aircraft, onClose }) {
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>
-                  {a.name}
-                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {t?.name}</span>
+                <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>
+                    {a.name}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · {t?.name}</span>
+                  </span>
+                  <ReserveBadge aircraft={a} />
                 </div>
                 <div style={{ fontSize: 11, color: compat.ok ? 'var(--text-muted)' : 'var(--red)' }}>
                   {compat.ok
-                    ? `${a.ownershipType === 'owned' ? 'Owned' : 'Leased'} · ${ageLabel(a.ageWeeks ?? 0)}${isReserve(a) ? ` · on reserve at ${a.reserveBase} (transfer ends standby)` : ''}`
+                    ? `${a.ownershipType === 'owned' ? 'Owned' : 'Leased'} · ${ageLabel(a.ageWeeks ?? 0)}`
                     : compat.reason}
                 </div>
+                {compat.ok && isReserve(a) && (
+                  <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2 }}>
+                    Handing the routes here takes it off standby at {a.reserveBase}.
+                  </div>
+                )}
               </div>
               <button className="btn btn-primary" disabled={!compat.ok} onClick={() => transferTo(a.id)}>
                 Transfer
