@@ -14,6 +14,11 @@ import InfoTip from './InfoTip.jsx';
 import { requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
 import { leasesExpiringSoon, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
+import {
+  allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
+  PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
+  BASIS_CONTRIBUTION, BASIS_FULL, loadProfitBasis, saveProfitBasis,
+} from '../utils/routeEconomics.js';
 import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon, CloseIcon } from './Icons.jsx';
 
 // localStorage key for which dashboard cards the player has collapsed.
@@ -259,30 +264,27 @@ export default function Dashboard({ onNavigate }) {
   const hasLastWeekRoutes = (lastReport?.routeResults?.length ?? 0) > 0;
   const showLastWeekRoutes = routeView === 'lastweek' && hasLastWeekRoutes;
 
-  // "True profit" view: profit after each route also carries its SHARE of the
-  // aircraft's weekly lease + maintenance. The engine's per-route trueProfit
-  // charges the FULL aircraft cost to every route it flies, which double-counts
-  // when one aircraft serves several routes — so apportion by block-hour share
-  // (cargo routes included in the denominator so freighter time isn't billed
-  // to passenger routes).
-  const trueResults = useMemo(() => {
-    const bhFor = (r) => {
-      const ac = fleet.find(a => a.id === r.aircraftId);
-      const t  = ac ? getAircraftType(ac.typeId) : null;
-      return t ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t) : 0;
-    };
-    const bhByAircraft = {};
-    for (const r of [...routes, ...cargoRoutes]) {
-      bhByAircraft[r.aircraftId] = (bhByAircraft[r.aircraftId] ?? 0) + bhFor(r);
-    }
-    return routeResults.map(({ route, result }) => {
-      if (!result) return { route, result };
-      const totalBh = bhByAircraft[route.aircraftId] || 0;
-      const share   = totalBh > 0 ? bhFor(route) / totalBh : 1;
-      const fixedShare = Math.round(((result.weeklyLeaseCost ?? 0) + (result.weeklyMaintCost ?? 0)) * share);
-      return { route, result: { ...result, profit: (result.profit ?? 0) - fixedShare, fixedShare } };
-    });
+  // Fully-loaded view: each route also carries its SHARE of the aircraft's
+  // weekly lease + maintenance. The engine's per-route trueProfit charges the
+  // FULL aircraft cost to every route it flies, which double-counts a plane
+  // serving several routes.
+  //
+  // The split lives in utils/routeEconomics.js so this table, the Routes screen
+  // and Finance apportion identically — this screen and Routes used to disagree
+  // (block-hours here, departures there) and neither said which it meant.
+  const fixedByRoute = useMemo(() => {
+    const resultsById = {};
+    for (const { route, result } of routeResults) if (result) resultsById[route.id] = result;
+    return allocateFixedCosts({ routes, cargoRoutes, fleet, resultsById });
   }, [routeResults, routes, cargoRoutes, fleet]);
+
+  const trueResults = useMemo(() => (
+    routeResults.map(({ route, result }) => {
+      if (!result) return { route, result };
+      const fixedShare = Math.round(fixedByRoute[route.id] ?? 0);
+      return { route, result: { ...result, profit: routeProfit(result, fixedShare, BASIS_FULL), fixedShare } };
+    })
+  ), [routeResults, fixedByRoute]);
 
   // The dataset the table actually renders. Last-week rows join the stored
   // engine report to current routes by id — routes opened this week show "—".
@@ -359,9 +361,23 @@ export default function Dashboard({ onNavigate }) {
       text: `Routes earn +${formatMoney(pnl.projected.routeOp)}/wk, but fixed costs, financing & tax turn that into ${formatMoney(pnl.projected.net)}/wk · see Weekly P&L`,
       to: 'finance',
     });
-  const losingRoutes = routeResults.filter(({ result }) => result && result.profit < 0);
-  if (losingRoutes.length > 0)
-    alerts.push({ color: 'var(--red)', icon: TrendDownIcon, text: `${losingRoutes.length} loss-making route${losingRoutes.length !== 1 ? 's' : ''} · consider repricing`, to: 'routes', filter: { filterTab: 'unprofitable' } });
+  // Count what the Routes tab's "losing" filter counts: CITY PAIRS, on the
+  // profit basis the player has chosen, fixed costs included by default. This
+  // alert used to count per-aircraft deployments on contribution alone, so it
+  // routinely disagreed with the very filter it links to — a different number
+  // on either side of one click.
+  const alertBasis = loadProfitBasis();
+  const losingPairs = (() => {
+    const byPair = {};
+    for (const { route, result } of routeResults) {
+      if (!result) continue;
+      const key = `${route.origin}→${route.destination}`;
+      byPair[key] = (byPair[key] ?? 0) + routeProfit(result, fixedByRoute[route.id] ?? 0, alertBasis);
+    }
+    return Object.values(byPair).filter(v => v < 0);
+  })();
+  if (losingPairs.length > 0)
+    alerts.push({ color: 'var(--red)', icon: TrendDownIcon, text: `${losingPairs.length} loss-making city pair${losingPairs.length !== 1 ? 's' : ''} · consider repricing`, to: 'routes', filter: { filterTab: 'unprofitable' } });
   // Lease expiry is the only recurring event that deletes revenue-producing
   // routes without the player doing anything: the tick returns the aircraft,
   // bills four weeks' redelivery, and closes every route it was flying. Its
@@ -723,7 +739,7 @@ export default function Dashboard({ onNavigate }) {
                 {[
                   ['projected', 'Projected'],
                   ...(hasLastWeekRoutes ? [['lastweek', 'Last Week']] : []),
-                  ['true', 'True Profit'],
+                  ['true', 'Fully loaded'],
                 ].map(([key, lbl]) => (
                   <button
                     key={key}
@@ -740,7 +756,7 @@ export default function Dashboard({ onNavigate }) {
                 ))}
               </div>
               {routeView === 'true' && (
-                <InfoTip text="Profit after each route also carries its share of the aircraft's weekly lease + maintenance, split by block hours when one aircraft flies several routes. Shows which routes truly pay for their aircraft." />
+                <InfoTip text={PROFIT_HELP[BASIS_FULL]} />
               )}
               </>)}
             </div>
@@ -761,7 +777,7 @@ export default function Dashboard({ onNavigate }) {
                 <th>Freq</th>
                 <th>Load</th>
                 <th>Revenue / wk</th>
-                <th>{routeView === 'true' ? 'True profit / wk' : 'Profit / wk'}</th>
+                <th>{routeView === 'true' ? PROFIT_SHORT[BASIS_FULL] : PROFIT_SHORT[BASIS_CONTRIBUTION]}</th>
               </tr>
             </thead>
             <tbody>

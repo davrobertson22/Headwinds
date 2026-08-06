@@ -10,6 +10,12 @@ import {
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
+import InfoTip from './InfoTip.jsx';
+import {
+  allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
+  PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
+  BASIS_CONTRIBUTION, BASIS_FULL, loadProfitBasis, saveProfitBasis,
+} from '../utils/routeEconomics.js';
 import { getSeasonalProfile } from '../models/demand.js';
 import { LABOR_GROUPS, DEFAULT_LABOR_STATE, laborEffects } from '../data/labor.js';
 import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies,
@@ -102,7 +108,7 @@ function blendedFareMultiplier(config, type) {
  * Returns ASK, RPK, RASK, CASKop, CASKfull, yield, break-even LF.
  * `allRoutes` is the full route array (needed to allocate fleet costs proportionally).
  */
-function calcUnitEconomics(route, aircraft, type, result, fleet, routes) {
+function calcUnitEconomics(route, aircraft, type, result, fixedShare) {
   const dist  = result.distance;
   // ASK must use INSTALLED seats (configBodies × freq), not `type.seats` — the
   // latter is the max all-economy body count, so any premium cabin (or deliberately
@@ -115,19 +121,13 @@ function calcUnitEconomics(route, aircraft, type, result, fleet, routes) {
   const RASK  = ASK > 0 ? result.revenue    / ASK : 0;
   const CASKop= ASK > 0 ? result.totalOpCost / ASK : 0;
 
-  // Allocate lease + maintenance pro-rata by block-hours on this aircraft
-  const lease  = aircraft.ownershipType === 'owned' ? 0 : (type?.weeklyLease ?? 0);
-  const maint  = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(aircraft.ageWeeks));
-  const totalFleetCost = lease + maint;
-
-  const allAircraftRoutes = routes.filter(r => r.aircraftId === aircraft.id);
-  const totalBH = allAircraftRoutes.reduce((s, r) => {
-    const d = routeDistanceKm(r.origin, r.destination);
-    return s + (type ? weeklyBlockHours(d, r.weeklyFrequency, type) : 0);
-  }, 0);
-  const routeBH = type ? weeklyBlockHours(dist, route.weeklyFrequency, type) : 0;
-  const fleetShare = totalBH > 0 ? routeBH / totalBH : 1;
-  const allocatedFleet = totalFleetCost * fleetShare;
+  // Lease + maintenance for this route, allocated by utils/routeEconomics.js.
+  // Two things it fixes here: this used to divide over PASSENGER routes only, so
+  // a freighter-and-pax tail billed its whole ownership cost to the passenger
+  // side; and it costed the lease off the TYPE's list rate, not the rate this
+  // tail actually signed at — leases lock on delivery and the table has moved
+  // since.
+  const allocatedFleet = fixedShare ?? 0;
 
   const CASKfull = ASK > 0 ? (result.totalOpCost + allocatedFleet) / ASK : 0;
   const yieldVal = RPK > 0 ? result.revenue / RPK : 0;
@@ -1894,7 +1894,7 @@ function RouteBreakdown({ proj }) {
               <th style={{ textAlign: 'right' }}>Load</th>
               <th style={{ textAlign: 'right' }}>Revenue</th>
               <th style={{ textAlign: 'right' }}>Direct Cost</th>
-              <th style={{ textAlign: 'right' }}>Contribution</th>
+              <th style={{ textAlign: 'right' }}>Contribution <InfoTip text={PROFIT_HELP[BASIS_CONTRIBUTION]} /></th>
               <th style={{ textAlign: 'right' }}>Margin</th>
             </tr>
           </thead>
@@ -2249,6 +2249,12 @@ function UnitEconomics({ proj }) {
   const { fleet, routes } = state;
   const [sortKey, setSortKey] = useState('spread');
   const [sortDir, setSortDir] = useState(-1);
+  // One allocation for the whole screen, from the shared helper — freight lanes
+  // in the denominator, lease costed at the rate the tail signed at.
+  const ueFixedByRoute = useMemo(
+    () => allocateFixedCosts({ routes, cargoRoutes: state.cargoRoutes ?? [], fleet }),
+    [routes, state.cargoRoutes, fleet],
+  );
   const gd = currentGameDate(state);
   const labor = state.labor ?? DEFAULT_LABOR_STATE;
 
@@ -2265,7 +2271,7 @@ function UnitEconomics({ proj }) {
       evDemand.multFor(route.origin, route.destination));
     if (!raw) return null;
     const result = { ...raw, revenue: proj.revById[route.id] ?? raw.revenue };
-    const ue = calcUnitEconomics(route, a, type, result, fleet, routes);
+    const ue = calcUnitEconomics(route, a, type, result, ueFixedByRoute[route.id] ?? 0);
     return { route, aircraft: a, type, result, ue };
   }).filter(Boolean); }, [routes, fleet, state.week, proj]);  // eslint-disable-line
 

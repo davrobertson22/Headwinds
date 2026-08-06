@@ -32,14 +32,34 @@ export function referenceClassPrices(origin, dest) {
  * when editing it later. Shows a dollar input per cabin that actually has seats,
  * with the market reference fare, live % vs reference, and the fare cap.
  *
+ * Two modes, because the two callers want opposite things:
+ *
+ *   LIVE (onCommit)      every blur commits that cabin. What the route-planner
+ *                        form wants: the fare is local state until the route is
+ *                        opened, so committing early costs nothing.
+ *   REVIEW (onCommitMany) edits stay in the draft until the player hits Apply,
+ *                        which commits every changed cabin in ONE action. What
+ *                        an existing route wants: each blur used to be its own
+ *                        authoritative server write, so repricing three cabins
+ *                        was three round-trips and three chances to collide with
+ *                        a tick commit — and the player saw no number between
+ *                        typing a fare and living with it.
+ *
+ * `project` turns the draft into a forecast. The caller supplies it (this
+ * component has no game state) and MUST route it through the shared projection
+ * helpers rather than a bare simulateRoute — see CLAUDE.md.
+ *
  * Props:
  *   origin, dest   route endpoints (drives reference fares + caps)
  *   config         seats per class ({ economy: 150, businessClass: 12, ... })
  *   fares          current fares ({ economy: 450, ... }); missing cabins fall back to reference
- *   onCommit(cls, value)   called with a clamped integer when a fare is committed (blur/Enter)
+ *   onCommit(cls, value)      live mode: commit one cabin
+ *   onCommitMany(updates)     review mode: commit every changed cabin at once
+ *   project(fares)            optional; returns { loadFactor, breakEven, profit, basisLabel }
  *   showSeats      show "(N seats)" next to each cabin label (default true)
  */
-export default function FareEditor({ origin, dest, config, fares, onCommit, showSeats = true }) {
+export default function FareEditor({ origin, dest, config, fares, onCommit, onCommitMany, project, showSeats = true }) {
+  const batched = typeof onCommitMany === 'function';
   const refP      = referencePrice(origin, dest);
   const refPrices = referenceClassPrices(origin, dest);
 
@@ -73,22 +93,53 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, show
     }
     const clamped = Math.min(val, maxPrices[cls]);
     if (clamped !== val) setDraft(d => ({ ...d, [cls]: String(clamped) }));
-    onCommit(cls, clamped);
+    // In review mode the clamp still lands in the draft — it just waits for Apply.
+    if (!batched) onCommit(cls, clamped);
+  }
+
+  /** Draft as numbers, for the projection and for Apply. */
+  const draftFares = {};
+  for (const cls of activeClasses) {
+    const v = parseInt(draft[cls], 10);
+    draftFares[cls] = Math.min(isNaN(v) || v <= 0 ? (fares?.[cls] ?? refPrices[cls]) : v, maxPrices[cls]);
+  }
+
+  // Which cabins the player has actually moved. Committing untouched cabins too
+  // would overwrite a fare a different screen changed since this panel mounted.
+  const dirtyClasses = activeClasses.filter(
+    cls => draftFares[cls] !== Math.round(fares?.[cls] ?? refPrices[cls]));
+
+  function applyAll() {
+    if (!batched || dirtyClasses.length === 0) return;
+    const updates = {};
+    for (const cls of dirtyClasses) updates[cls] = draftFares[cls];
+    onCommitMany(updates);
   }
 
   function resetAll() {
     const next = {};
-    for (const cls of activeClasses) {
-      next[cls] = String(refPrices[cls]);
-      onCommit(cls, refPrices[cls]);
-    }
+    for (const cls of activeClasses) next[cls] = String(refPrices[cls]);
     setDraft(next);
+    if (batched) {
+      const updates = {};
+      for (const cls of activeClasses) updates[cls] = refPrices[cls];
+      onCommitMany(updates);
+    } else {
+      for (const cls of activeClasses) onCommit(cls, refPrices[cls]);
+    }
   }
+
+  // What these fares would actually do. Computed on the DRAFT, so the player
+  // sees the consequence before paying for it rather than a week later.
+  const forecast = typeof project === 'function' ? project(draftFares) : null;
 
   const anyOffRef = activeClasses.some(cls =>
     (parseInt(draft[cls], 10) || refPrices[cls]) !== refPrices[cls]);
 
+  const pct1 = (v) => `${Math.round((v ?? 0) * 1000) / 10}%`;
+
   return (
+    <div>
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       {activeClasses.map(cls => {
         const current = parseInt(draft[cls], 10) || refPrices[cls];
@@ -135,6 +186,57 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, show
           Reset to ref
         </button>
       )}
+      {batched && (
+        <button
+          type="button"
+          className={dirtyClasses.length > 0 ? 'btn btn-primary' : 'btn btn-ghost'}
+          style={{ padding: '2px 10px', fontSize: 11, alignSelf: 'center' }}
+          onClick={applyAll}
+          disabled={dirtyClasses.length === 0}
+          title={dirtyClasses.length > 0
+            ? `Apply ${dirtyClasses.length} changed fare${dirtyClasses.length !== 1 ? 's' : ''} in one go`
+            : 'No fare changes to apply'}
+        >
+          {dirtyClasses.length > 0 ? `Apply ${dirtyClasses.length} change${dirtyClasses.length !== 1 ? 's' : ''}` : 'Applied'}
+        </button>
+      )}
+    </div>
+
+    {/* What these fares do — before you commit to them, not a week after. */}
+    {forecast && (
+      <div style={{
+        display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline',
+        marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)',
+        fontSize: 11.5, color: 'var(--text-muted)',
+      }}>
+        <span style={{ color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontSize: 10 }}>
+          {dirtyClasses.length > 0 ? 'At these fares' : 'At current fares'}
+        </span>
+        {forecast.loadFactor != null && (
+          <span>
+            projected load{' '}
+            <strong style={{
+              color: forecast.breakEven != null && forecast.loadFactor >= forecast.breakEven
+                ? 'var(--green)' : 'var(--yellow)',
+            }}>{pct1(forecast.loadFactor)}</strong>
+          </span>
+        )}
+        {forecast.breakEven != null && (
+          <span title="Load factor at which this route covers its costs on the profit basis shown on the Routes tab.">
+            break-even <strong>{pct1(forecast.breakEven)}</strong>
+            {forecast.basisLabel ? ` (${forecast.basisLabel.toLowerCase()})` : ''}
+          </span>
+        )}
+        {forecast.profit != null && (
+          <span>
+            → <strong style={{ color: forecast.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+              {forecast.profit >= 0 ? '+' : ''}{forecast.profitLabel ?? forecast.profit}
+            </strong>/wk
+          </span>
+        )}
+        {forecast.note && <span style={{ color: 'var(--text-dim)' }}>{forecast.note}</span>}
+      </div>
+    )}
     </div>
   );
 }

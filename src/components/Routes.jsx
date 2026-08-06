@@ -17,6 +17,11 @@ import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '.
 import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
+import {
+  allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
+  PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
+  BASIS_CONTRIBUTION, BASIS_FULL, loadProfitBasis, saveProfitBasis,
+} from '../utils/routeEconomics.js';
 import { consumeNavFilter } from '../utils/navIntent.js';
 import { useToast } from './ToastSystem.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
@@ -159,6 +164,12 @@ export default function Routes() {
   // Search / filter / sort
   const [search,    setSearch]    = useState('');
   const [sortBy,    setSortBy]    = useState('profit');
+
+  // Which profit this screen means. Persisted and shared with the Dashboard via
+  // utils/routeEconomics.js, so the alert that says "4 loss-making city pairs"
+  // and the filter it links to are counting the same thing — they weren't.
+  const [profitBasis, setProfitBasis] = useState(loadProfitBasis);
+  const changeBasis = (b) => { setProfitBasis(b); saveProfitBasis(b); };
   const [filterTab, setFilterTab] = useState('all');
 
   // Arriving from a Dashboard alert ("3 loss-making routes") lands on that
@@ -238,45 +249,20 @@ export default function Routes() {
     return simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
   };
 
-  // Per-aircraft weekly fixed cost (lease + maintenance), ALLOCATED across the
-  // routes that aircraft flies by frequency share. The engine attaches the full
-  // per-aircraft lease/maint to every one of that aircraft's route results, so
-  // naively summing it per route would double-count a plane that serves several
-  // city pairs. Allocating by frequency makes the per-route slices sum back to
-  // exactly one plane's fixed cost.
-  const fixedByRoute = useMemo(() => {
-    const acFixed = {};   // aircraftId -> weekly lease + maintenance
-    const acFreq  = {};   // aircraftId -> total weekly frequency across its routes
-    const routeAc = {};   // routeId    -> aircraftId
-    for (const route of routes) {
-      const ac = fleet.find(a => a.id === route.aircraftId);
-      if (!ac) continue;
-      routeAc[route.id] = ac.id;
-      acFreq[ac.id] = (acFreq[ac.id] ?? 0) + (route.weeklyFrequency ?? 0);
-      if (acFixed[ac.id] == null) {
-        const rr = rrById[route.id];
-        if (rr && (rr.weeklyLeaseCost != null || rr.weeklyMaintCost != null)) {
-          acFixed[ac.id] = (rr.weeklyLeaseCost ?? 0) + (rr.weeklyMaintCost ?? 0);
-        } else {
-          // Fallback for grounded/dormant routes the engine skips: a leased plane
-          // still owes its lease + base maintenance even when it isn't flying.
-          const type  = getAircraftType(ac.typeId);
-          const lease = ac.ownershipType === 'owned' ? 0 : (ac.weeklyLease ?? type?.weeklyLease ?? 0);
-          const maint = type?.baseMaintenancePerWk ?? 0;
-          acFixed[ac.id] = lease + maint;
-        }
-      }
-    }
-    const out = {};
-    for (const route of routes) {
-      const acId = routeAc[route.id];
-      if (acId == null) { out[route.id] = 0; continue; }
-      const totFreq = acFreq[acId] || 1;
-      const share   = (route.weeklyFrequency ?? 0) / totFreq;
-      out[route.id] = (acFixed[acId] ?? 0) * share;
-    }
-    return out;
-  }, [routes, fleet, rrById]);
+  // Each route's share of its aircraft's weekly lease + maintenance. The engine
+  // attaches the FULL per-aircraft cost to every one of that tail's results, so
+  // summing it per route double-counts a plane serving several pairs.
+  //
+  // utils/routeEconomics.js owns the split now, for two reasons. It splits by
+  // BLOCK-HOURS rather than departures — lease and maintenance are bought by
+  // time, and charging a 1h shuttle the same as a 12h long-haul on the same
+  // airframe made short routes look like losers. And it counts FREIGHT lanes in
+  // the denominator, so a mixed-use tail stops dumping its whole ownership cost
+  // on the passenger side while its freight flies for free.
+  const fixedByRoute = useMemo(
+    () => allocateFixedCosts({ routes, cargoRoutes, fleet, resultsById: rrById }),
+    [routes, cargoRoutes, fleet, rrById],
+  );
 
   // Per-group stats for filtering + sorting
   const groupsWithStats = useMemo(() => routeGroups.map(group => {
@@ -290,11 +276,12 @@ export default function Routes() {
     // and MARGIN a fully-loaded operating profit instead of a contribution margin
     // that used to flatter thin, half-empty routes (a plane at 42% load could show
     // 62% "margin" because its ownership cost never touched the route P&L).
-    const totalRevenue = sims.reduce((s, { result }) => s + (result?.revenue   ?? 0), 0);
-    const totalOpCost  = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0) + (result?.landingFee ?? 0), 0);
-    const totalFixed   = group.routes.reduce((s, r) => s + (fixedByRoute[r.id] ?? 0), 0);
+    const econ         = pairEconomics(sims, fixedByRoute);
+    const totalRevenue = econ.revenue;
+    const totalOpCost  = econ.direct;
+    const totalFixed   = econ.fixed;
     const totalCost    = totalOpCost + totalFixed;
-    const totalProfit  = totalRevenue - totalCost;
+    const totalProfit  = econ.profitFor(profitBasis);
     const totalPax     = sims.reduce((s, { result }) => s + (result?.passengers ?? 0), 0);
     const totalSeats   = sims.reduce((s, { result }) => s + (result?.configuredSeatsOneWay ?? 0), 0);
     const avgLoad = totalSeats > 0 ? totalPax / totalSeats : 0;  // totalPax is one-way; totalSeats is configured one-way capacity
@@ -331,7 +318,7 @@ export default function Routes() {
       getRegion(getAirport(group.destination)?.country),
     ]);
     const typeIds   = new Set(acs.map(a => a.typeId));
-    const margin    = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
+    const margin    = econ.marginFor(profitBasis);
     const totalFreq = group.routes.reduce((s, r) => s + r.weeklyFrequency, 0);
 
     // Seat-weighted engine quality score across the aircraft on this pair —
@@ -346,9 +333,9 @@ export default function Routes() {
     return {
       ...group, totalProfit, totalRevenue, totalPax, avgLoad, distance, classLoads,
       hasDisrupted, hasDormant, regions, typeIds, margin, totalFreq, quality,
-      totalOpCost, totalFixed,
+      totalOpCost, totalFixed, econ,
     };
-  }), [routes, fleet, rrById, fixedByRoute]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [routes, fleet, rrById, fixedByRoute, profitBasis]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Aircraft types present across all groups (for the type filter dropdown).
   // NOTE: must stay above the detailPair early-return — hooks can't be conditional.
@@ -704,6 +691,31 @@ export default function Routes() {
       </Callout>
       {typeToggle}
       {hubChipBar}
+      {/* Which profit every number on this screen means. Two honest answers to
+          two different questions, named once each — see utils/routeEconomics.js. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+          Profit shown
+        </span>
+        <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+          {[BASIS_FULL, BASIS_CONTRIBUTION].map(b => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => changeBasis(b)}
+              title={PROFIT_HELP[b]}
+              style={{
+                padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                background: profitBasis === b ? 'var(--accent)' : 'transparent',
+                color: profitBasis === b ? '#fff' : 'var(--text-muted)',
+              }}
+            >
+              {PROFIT_LABELS[b]}
+            </button>
+          ))}
+        </div>
+        <InfoTip text={PROFIT_HELP[profitBasis]} />
+      </div>
       {/* Header bar */}
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
@@ -781,6 +793,7 @@ export default function Routes() {
           groups={groupsWithStats}
           activeTab={filterTab}
           onSelectTab={t => setFilterTab(cur => cur === t ? 'all' : t)}
+          basis={profitBasis}
         />
       )}
 
@@ -952,6 +965,7 @@ export default function Routes() {
       ) : viewMode === 'table' ? (
         <RouteTable
           groups={afterFilter}
+          basis={profitBasis}
           getResult={engineResultFor}
           selectedKeys={selectedKeys}
           onToggleSelect={toggleSelect}
@@ -970,6 +984,7 @@ export default function Routes() {
           <RouteGroupCard
             key={group.key}
             group={group}
+            basis={profitBasis}
             getResult={engineResultFor}
             selected={selectedKeys.has(group.key)}
             onToggleSelect={() => toggleSelect(group.key)}
@@ -1107,7 +1122,7 @@ function TagRouteCard({ route, onClose }) {
 // At-a-glance totals plus clickable "problem" chips. Clicking a chip applies the
 // matching status filter (click again to clear), so with hundreds of routes the
 // player can jump straight to what needs attention.
-function NetworkHealthStrip({ groups, activeTab, onSelectTab }) {
+function NetworkHealthStrip({ groups, activeTab, onSelectTab, basis = BASIS_FULL }) {
   const totalRev    = groups.reduce((s, g) => s + g.totalRevenue, 0);
   const totalProfit = groups.reduce((s, g) => s + g.totalProfit,  0);
   const losing    = groups.filter(g => g.totalProfit < 0);
@@ -1130,6 +1145,7 @@ function NetworkHealthStrip({ groups, activeTab, onSelectTab }) {
       padding: '8px 12px', marginBottom: 12, fontSize: 12,
       background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
     }}>
+      <span style={{ color: 'var(--text-muted)' }} title={PROFIT_HELP[basis]}>{PROFIT_LABELS[basis]}</span>
       <span style={{ fontWeight: 700, color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
         {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}/wk
       </span>
@@ -1192,7 +1208,7 @@ const TABLE_SORTERS = {
   margin: (a, b) => a.margin       - b.margin,
 };
 
-function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectMany, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectMany, onClose, onPriceChange, onAddFlights, onViewDetail, basis = BASIS_FULL }) {
   const { state: gameState } = useGame();
   const [sortCol, setSortCol] = useState('profit');
   const [sortDir, setSortDir] = useState('desc');   // 'asc' | 'desc'
@@ -1259,15 +1275,15 @@ function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectM
           );
         })()}
         <span style={{ color: 'var(--green)', fontWeight: 600 }}>Total revenue: +{formatMoney(totalRev)}/wk</span>
-        <span style={{ color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-          Op profit: {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}/wk
+        <span style={{ color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }} title={PROFIT_HELP[basis]}>
+          {PROFIT_LABELS[basis]}: {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}/wk
         </span>
         {totalRev > 0 && (
           <span
             style={{ color: 'var(--text-muted)', cursor: 'help' }}
-            title="Fully-loaded operating margin — revenue minus fuel, crew, catering, ground, landing fees AND each aircraft's weekly lease + maintenance."
+            title={PROFIT_HELP[basis]}
           >
-            Margin: {Math.round((totalProfit / totalRev) * 100)}% <span style={{ opacity: 0.6, fontSize: 11 }}>(incl. lease + maint)</span>
+            Margin: {Math.round((totalProfit / totalRev) * 100)}%{basis === BASIS_FULL && <span style={{ opacity: 0.6, fontSize: 11 }}> (incl. lease + maint)</span>}
           </span>
         )}
         <span style={{ color: 'var(--text-muted)' }}>Pax: {totalPax.toLocaleString()}/wk</span>
@@ -1295,7 +1311,7 @@ function RouteTable({ groups, getResult, selectedKeys, onToggleSelect, onSelectM
                   onClick={() => clickHeader(c.id)}
                   title="Click to sort"
                 >
-                  {c.label}
+                  {c.id === 'profit' ? PROFIT_SHORT[basis] : c.label}
                   {sortCol === c.id && (
                     <span style={{ marginLeft: 4, color: 'var(--accent)' }}>{sortDir === 'desc' ? '▾' : '▴'}</span>
                   )}
@@ -1504,7 +1520,7 @@ function ExpandedGroupPanel({ group, getResult, onClose, onPriceChange, onAddFli
 
 // ─── Route group card ─────────────────────────────────────────────────────────
 
-function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, onPriceChange, onAddFlights, onViewDetail }) {
+function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, onPriceChange, onAddFlights, onViewDetail, basis = BASIS_FULL }) {
   const { state, dispatch } = useGame();
   const { fleet } = state;
   const { origin, destination, routes } = group;
@@ -1529,7 +1545,13 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
   // Direct cost = operating cost + landing fee, matching Finance "By Route".
   const totalOp     = sims.reduce((s, { result }) => s + (result?.totalOpCost ?? 0) + (result?.landingFee ?? 0), 0);
   const totalPax    = sims.reduce((s, { result }) => s + (result?.passengers  ?? 0), 0);
-  const totalProfit = totalRev - totalOp;
+  // The card used to compute revenue − direct cost here and label it "Op Profit
+  // / wk", while the strip six inches above counted the same pairs with lease and
+  // maintenance included. That is how "3 losing" appeared over a screen of green
+  // cards. One number, from the group the parent already priced.
+  const econ        = group.econ ?? null;
+  const totalFixed  = econ?.fixed ?? 0;
+  const totalProfit = econ ? econ.profitFor(basis) : totalRev - totalOp;
 
   // Blended load factor: one-way pax / configured one-way seat capacity
   const totalSeatsOneWay = sims.reduce((s, { result }) => s + (result?.configuredSeatsOneWay ?? 0), 0);
@@ -1645,10 +1667,15 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
           <div style={{ fontWeight: 700, color: 'var(--red)' }}>−{formatMoney(totalOp)}</div>
         </div>
         <div>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Op Profit / wk</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }} title={PROFIT_HELP[basis]}>{PROFIT_SHORT[basis]}</div>
           <div style={{ fontWeight: 700, color: profitColor }}>
             {totalProfit >= 0 ? '+' : ''}{formatMoney(totalProfit)}
           </div>
+          {basis === BASIS_FULL && totalFixed > 0 && (
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>
+              after {formatMoney(totalFixed)} lease + maint
+            </div>
+          )}
         </div>
       </div>
 
@@ -2016,8 +2043,46 @@ function SelectionActionBar({ groups, onApplyToGroups, onSetCatering, onCloseGro
 // ─── Per-class pricing panel ──────────────────────────────────────────────────
 
 function PricingPanel({ route, aircraft, type }) {
-  const { dispatch } = useGame();
+  const { state, dispatch } = useGame();
   const config = aircraft?.config ?? (type ? { economy: type.seats } : {});
+  const basis  = loadProfitBasis();
+
+  // Forecast the DRAFT fares through the sanctioned shared projection —
+  // projectRouteAddition with replacesRouteId is the repricing case: it drops
+  // this route before re-adding it, so the edit isn't previewed as competing
+  // with its own old self, and it contests the same rivals the tick does.
+  // A bare simulateRoute here would hand the route the entire demand pool.
+  const project = (draftFares) => {
+    if (!aircraft) return null;
+    const proj = projectRouteAddition(state, {
+      origin: route.origin,
+      destination: route.destination,
+      aircraft,
+      weeklyFrequency: route.weeklyFrequency,
+      classPrices: draftFares,
+      ticketPrice: draftFares.economy ?? route.ticketPrice,
+      cateringLevel: route.cateringLevel,
+      season: route.season,
+      replacesRouteId: route.id,
+    });
+    const result = proj?.mature;
+    if (!result) return null;
+    // Fixed share on the same block-hour basis the rest of the game now uses,
+    // so "break-even" here means what "losing" means on the Routes list.
+    const fixedByRoute = allocateFixedCosts({
+      routes: state.routes ?? [], cargoRoutes: state.cargoRoutes ?? [], fleet: state.fleet ?? [],
+    });
+    const fixedShare = fixedByRoute[route.id] ?? 0;
+    const profit = routeProfit(result, fixedShare, basis);
+    return {
+      loadFactor: result.loadFactor,
+      breakEven:  breakEvenLoad(result, fixedShare, basis),
+      profit,
+      profitLabel: formatMoney(profit),
+      basisLabel: PROFIT_LABELS[basis],
+      note: proj.shared ? 'shared pair — your slice' : null,
+    };
+  };
 
   return (
     <div style={{
@@ -2029,8 +2094,9 @@ function PricingPanel({ route, aircraft, type }) {
         dest={route.destination}
         config={config}
         fares={route.classPrices}
-        onCommit={(cls, value) =>
-          dispatch({ type: 'UPDATE_CLASS_PRICES', routeId: route.id, updates: { [cls]: value } })}
+        project={project}
+        onCommitMany={(updates) =>
+          dispatch({ type: 'UPDATE_CLASS_PRICES', routeId: route.id, updates })}
       />
     </div>
   );
