@@ -54,6 +54,43 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">August 7, 2026</p>
+      <h2>A career that outlives the world, and codeshares that both airlines agreed to</h2>
+      <p>Two days of work across a twenty-eight item audit. Most of it was engine and economy &mdash; fuel hedging, crew costs by aircraft size, union grievances, freight seasons, hub connectivity, real load factors, and a fair bit more &mdash; and because that engine is shared, it is written up on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. It all landed here too, and some of it moves your numbers noticeably. This entry covers what changed in the multiplayer game itself.</p>
+
+      <p><strong>Your record now survives the world it was set in.</strong> A season ended, the standings were computed, and then they were thrown away &mdash; they existed only inside the transaction that wrote the final week. There was a column in the database waiting for a career since the day the game launched, and nothing had ever written to it.</p>
+      <ul>
+        <li><strong>Every finished season is recorded against your account:</strong> the world, the airline you flew, where you finished, how many weeks you were in it, and your lifetime passengers carried.</li>
+        <li><strong>Badges are earned from that record</strong> &mdash; champion, podium, veteran, a million passengers, and phoenix for finishing a season you went bankrupt in. They are worked out from your history every time they are shown rather than stored, so the rules can improve without anybody&rsquo;s past being rewritten.</li>
+        <li><strong>An airline that never went public is unranked, not last.</strong> Staying private is a decision, and recording it as &ldquo;20th of 20&rdquo; would misreport it. A bankrupt airline still gets its season on the record &mdash; you were there.</li>
+        <li><strong>Worlds that ended before this shipped are backfilled</strong> from their final standings. Lifetime passengers for those seasons read as unknown rather than zero, because the honest answer is that the figure is years stale.</li>
+      </ul>
+      <p>Your career panel appears under the worlds screen once you have a finished season. Before that it shows nothing at all &mdash; a hall of fame full of zeroes is worse than none.</p>
+
+      <p><strong>A codeshare is a deal now, not something you do to someone.</strong> Signing one against a human rival took a fee off you and paid you interline revenue computed from a real player&rsquo;s network &mdash; while that player was never asked and never told. It was the only bilateral agreement in the game that was not, in fact, bilateral.</p>
+      <ul>
+        <li><strong>You offer, they accept.</strong> Offers appear on both airlines&rsquo; Alliances tab. Accepting writes the agreement to both sides in one transaction &mdash; if either side&rsquo;s engine refuses it, the whole thing is refused, because half a bilateral agreement is worse than none.</li>
+        <li><strong>Offering someone who has already offered you signs it immediately.</strong> Both of you plainly consented; there is no reason to make you wait.</li>
+        <li><strong>Cancelling ends both halves.</strong> Ending only your side would leave the other player paying a weekly fee for a partner who had stopped carrying their passengers.</li>
+        <li><strong>Unanswered offers expire after eight weeks</strong> &mdash; not just tidiness: a dead offer sitting between two airlines would have blocked them from ever offering again.</li>
+      </ul>
+
+      <p><strong>An airline that fails now leaves something behind for everyone else.</strong> Bankruptcy was a status change and a single news item. The fleet froze inside a save nobody would read again, the orderbook stopped existing, and the gates went back to the pool in silence &mdash; and only on gate-scarcity worlds, because that was the one branch anybody had written. A carrier could go under with forty aircraft and a dozen slots at a fortress hub and leave the world exactly as it found it.</p>
+      <ul>
+        <li><strong>The fleet goes to the used market at a distressed price.</strong> An administrator sells into a market that knows it has to, and the listing names the airline that failed.</li>
+        <li><strong>The gates are listed as administrator&rsquo;s sales</strong> on worlds where gates are scarce, priced off each airport&rsquo;s own auction reserve &mdash; a Heathrow slot is not valued like a regional one.</li>
+        <li><strong>Nobody gets paid.</strong> The money leaves the world rather than being credited to a company that no longer exists. Every check that protects <em>you</em> as the buyer still applies.</li>
+      </ul>
+      <p>A rival going under should be an opportunity for everyone still flying, and now it is.</p>
+
+      <p><strong>The interest rate on your loans is no longer the client&rsquo;s to choose.</strong> A modified client could ask for the 3% floor on a loan that should have cost 18%, and the server would write it down as asked &mdash; about $790,000 a year of interest that simply did not happen. Credit scoring now lives in the shared engine, computed from what your airline actually earned rather than from a forecast the server never had, and the server prices every loan itself.</p>
+
+      <p><strong>Batched fleet actions are safe in multiplayer.</strong> Selling, retiring, scheduling checks or extending leases across a selection runs inside one write, with the number of aircraft capped so a huge list cannot hold row locks while everyone else waits. If one aircraft cannot be actioned it is skipped and reported rather than aborting the batch &mdash; seven of twelve checks scheduled before the money ran out is the honest outcome.</p>
+
+      <p>Come and complain about any of it on the <a href="/contact.html">Discord</a>.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">August 2, 2026</p>
       <h2>The map stays where you put it</h2>
       <p>Straight from the Discord: &ldquo;when you zoom in and pass your mouse over a route, it resets your zoom.&rdquo; It did, and it should not have.</p>
