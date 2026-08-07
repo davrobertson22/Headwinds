@@ -602,7 +602,7 @@ export function projectRivalState(state) {
 // → status; buildGateMarketViews → id/name. `version` rides along because the
 // caller's stamp arithmetic is derived from it and a future call site will want
 // it. Anything else is deliberately not fetched.
-async function loadRivalRows(prisma, worldId) {
+export async function loadRivalRows(prisma, worldId) {
   if (typeof prisma.$queryRaw !== 'function') {
     // Test double (tools/headwinds-rivals-test.mjs). Take the ORM path and trim
     // in JS so both branches yield byte-identical rows.
