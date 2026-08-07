@@ -4,6 +4,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, routeQualityBreakdown } from '../utils/simulation.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import AllianceDashboard from './AllianceDashboard.jsx';
+import CodeshareOffers from './CodeshareOffers.jsx';
 import { partnershipActuals } from '../utils/allianceStats.js';
 import {
   ALLIANCES,
@@ -77,7 +78,11 @@ function buildServedAirports(routes) {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function Alliances() {
-  const { state, dispatch, remote } = useGame();
+  const { state, dispatch, remote, remoteApi } = useGame();
+  // Bumped by any codeshare action so the offers panel re-reads immediately
+  // instead of waiting out its poll.
+  const [codeshareTick, setCodeshareTick] = useState(0);
+  const bumpCodeshares = useCallback(() => setCodeshareTick((n) => n + 1), []);
   const { routes = [], competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
   const servedAirports = buildServedAirports(routes);
@@ -196,6 +201,15 @@ export default function Alliances() {
       {/* ── Codeshare agreements ─────────────────────────────────────────── */}
       <SectionHeader>Bilateral Codeshare Agreements</SectionHeader>
 
+      {/* Offers waiting on somebody. Multiplayer only — solo has nobody to ask. */}
+      {remote && (
+        <CodeshareOffers
+          remoteApi={remoteApi}
+          refreshKey={codeshareTick}
+          onChanged={bumpCodeshares}
+        />
+      )}
+
       {/* Active agreements */}
       {codeshareAgreements.length > 0 && (
         <div style={{ marginBottom: 16 }}>
@@ -213,6 +227,9 @@ export default function Alliances() {
                   comp={comp}
                   weeklyRevenue={revenue}
                   dispatch={dispatch}
+                  remote={remote}
+                  remoteApi={remoteApi}
+                  onChanged={bumpCodeshares}
                 />
               );
             })}
@@ -228,6 +245,9 @@ export default function Alliances() {
         alliancePartnerIds={currentAlliance ? allianceMembers(currentAlliance.id, competitors).map(c => c.id) : []}
         state={state}
         dispatch={dispatch}
+        remote={remote}
+        remoteApi={remoteApi}
+        onChanged={bumpCodeshares}
       />
     </div>
   );
@@ -699,8 +719,19 @@ function AllianceCard({
 
 // ─── Active codeshare row ────────────────────────────────────────────────────
 
-function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch }) {
+function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch, remote, remoteApi, onChanged }) {
   const net  = weeklyRevenue - agreement.weeklyFee;
+  const [busy, setBusy] = useState(false);
+
+  // Cancelling tears down BOTH sides. Ending only your own half would leave the
+  // other player paying a weekly fee for a partner who no longer carries their
+  // passengers — a worse asymmetry than the one this replaced.
+  async function cancel() {
+    if (!remote) { dispatch({ type: 'CANCEL_CODESHARE', agreementId: agreement.id }); return; }
+    setBusy(true);
+    try { await remoteApi?.cancelCodeshare?.(agreement.competitorId); onChanged?.(); }
+    finally { setBusy(false); }
+  }
 
   return (
     <div className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -739,10 +770,11 @@ function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch }) {
           fontSize: 11, padding: '4px 10px',
           background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text-muted)',
         }}
-        onClick={() => dispatch({ type: 'CANCEL_CODESHARE', agreementId: agreement.id })}
-        title="Cancel agreement"
+        onClick={cancel}
+        disabled={busy}
+        title={remote ? 'Cancel — ends the agreement for both airlines' : 'Cancel agreement'}
       >
-        Cancel
+        {busy ? 'Cancelling…' : 'Cancel'}
       </button>
     </div>
   );
@@ -750,7 +782,26 @@ function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch }) {
 
 // ─── Available codeshare partners ────────────────────────────────────────────
 
-function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports, alliancePartnerIds, state, dispatch }) {
+function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports, alliancePartnerIds, state, dispatch, remote, remoteApi, onChanged }) {
+  const [busyId, setBusyId] = useState(null);
+  const [note, setNote]     = useState(null);
+
+  // Solo signs; multiplayer asks. The partner is a person, and until this the
+  // button took a fee off you and paid you interline revenue computed from
+  // their network without them ever being told the deal existed.
+  async function sign(comp) {
+    if (!remote) { dispatch({ type: 'SIGN_CODESHARE', competitorId: comp.id }); return; }
+    setBusyId(comp.id); setNote(null);
+    try {
+      const res = await remoteApi?.offerCodeshare?.(comp.id);
+      setNote(res?.mutual
+        ? `${comp.name} had already offered — the codeshare is signed.`
+        : `Offer sent to ${comp.name}.`);
+      onChanged?.();
+    } catch (e) {
+      setNote(String(e?.message ?? e));
+    } finally { setBusyId(null); }
+  }
   const activePartnerIds = new Set([
     ...codeshareAgreements.map(a => a.competitorId),
     ...alliancePartnerIds,
@@ -794,6 +845,11 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {note && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 2px' }}>
+              {note}
+            </div>
+          )}
           {available.map(({ comp, adjacent, weeklyFee, estRevenue }) => {
             const netBenefit = estRevenue - weeklyFee;
             const worthwhile = netBenefit > 0;
@@ -828,10 +884,11 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
                 <button
                   className={`btn ${worthwhile && !atCap ? 'btn-primary' : ''}`}
                   style={{ fontSize: 12, padding: '6px 14px', opacity: atCap ? 0.5 : 1 }}
-                  disabled={atCap}
-                  onClick={() => dispatch({ type: 'SIGN_CODESHARE', competitorId: comp.id })}
+                  disabled={atCap || busyId === comp.id}
+                  onClick={() => sign(comp)}
+                  title={remote ? `Send ${comp.name} a codeshare offer` : undefined}
                 >
-                  Sign
+                  {busyId === comp.id ? '…' : remote ? 'Offer' : 'Sign'}
                 </button>
               </div>
             );

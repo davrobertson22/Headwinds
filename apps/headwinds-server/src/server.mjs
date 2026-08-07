@@ -18,6 +18,7 @@ import decisionRoutes from './routes/decisions.mjs';
 import gateRoutes from './routes/gates.mjs';
 import aircraftMarketRoutes from './routes/aircraftMarket.mjs';
 import allianceRoutes from './routes/alliances.mjs';
+import codeshareRoutes from './routes/codeshares.mjs';
 import messageRoutes from './routes/messages.mjs';
 import reportRoutes from './routes/reports.mjs';
 import adminRoutes from './routes/admin.mjs';
@@ -94,6 +95,7 @@ export function buildServer() {
   app.register(gateRoutes);
   app.register(aircraftMarketRoutes);
   app.register(allianceRoutes);
+  app.register(codeshareRoutes);
   app.register(messageRoutes);
   app.register(reportRoutes);
   app.register(adminRoutes);

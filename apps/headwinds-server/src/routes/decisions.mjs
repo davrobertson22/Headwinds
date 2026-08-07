@@ -292,6 +292,12 @@ export default async function decisionRoutes(fastify) {
     if (type === 'JOIN_ALLIANCE' || type === 'LEAVE_ALLIANCE') {
       throw httpError(403, 'Alliances in Headwinds are managed from the world lobby, not in-game.');
     }
+    // A codeshare binds two real players. Signed as a one-sided decision it
+    // took a fee off you and paid interline revenue computed from a rival's
+    // network without that rival ever being asked — or told.
+    if (type === 'SIGN_CODESHARE' || type === 'CANCEL_CODESHARE') {
+      throw httpError(403, 'Codeshares are agreed with the other airline — offer one from the Alliances tab.');
+    }
     // Defense in depth: a payload can't override the validated type.
     if ('type' in payload) delete payload.type;
     assertFinitePayload(payload);

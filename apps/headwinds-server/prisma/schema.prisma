@@ -86,6 +86,7 @@ model World {
   dividends   DividendCredit[]
   gateAuctions GateAuction[]
   gateListings GateListing[]
+  codeshareOffers CodeshareOffer[]
   gateSlotShares GateSlotShare[]
   usedAircraftListings UsedAircraftListing[]
   news                 WorldNews[]
@@ -204,6 +205,26 @@ model AllianceMember {
   alliance   Alliance             @relation(fields: [allianceId], references: [id], onDelete: Cascade)
 
   @@index([allianceId, status])
+}
+
+// ── Bilateral codeshares ─────────────────────────────────────────────────────
+// A row IS a live offer. Accepting, rejecting or withdrawing DELETES it — the
+// same choice AllianceMember makes on reject, and what lets the unique
+// constraint stay a plain triple instead of needing a status discriminator.
+// Once accepted the agreement lives in BOTH airlines' state blobs, which
+// remain its source of truth; this table is only the handshake.
+model CodeshareOffer {
+  id            String   @id @default(cuid())
+  worldId       String
+  fromAirlineId String
+  toAirlineId   String
+  offeredWeek   Int // linear week — drives the staleness sweep
+  createdAt     DateTime @default(now())
+  world         World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, fromAirlineId, toAirlineId]) // one open offer per direction
+  @@index([worldId, toAirlineId])
+  @@index([worldId, fromAirlineId])
 }
 
 // ── In-game messaging: airline-to-airline DMs + alliance chat ─────────────────
@@ -396,7 +417,11 @@ model GateListing {
   id          String    @id @default(cuid())
   worldId     String
   airportCode String
-  sellerId    String // airlineId
+  sellerId    String // airlineId — on an estate sale, the airline that FAILED
+  // An administrator's listing from a bankrupt estate. The seller still points
+  // at whoever held the gate (the ledger has to debit somebody, and the feed
+  // wants to name them) — what differs is that nobody is paid.
+  distressed  Boolean   @default(false)
   askPrice    Int
   status      String    @default("OPEN") // OPEN | SOLD | WITHDRAWN
   buyerId     String? // airlineId, set when SOLD
@@ -411,6 +436,7 @@ model GateListing {
 model UsedAircraftListing {
   id         String    @id @default(cuid())
   worldId    String
+  distressed Boolean   @default(false) // from a bankrupt estate, priced to move
   origin     String?   // ex-operator airline name (feed flavor)
   typeId     String    // aircraft type key (into AIRCRAFT_TYPES)
   snapshot   Json      // portable tail: frozen ageWeeks, config, engine mods, maintenance

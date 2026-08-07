@@ -249,6 +249,18 @@ export default function GamePlayScreen({ worldId, token }) {
     setState((s) => (s ? { ...s, gateMarket } : s));
   }, []);
 
+  // A codeshare write returns the authoritative blob for OUR side. Same
+  // older-week guard the gate purchases use: a response that raced a tick must
+  // not drag the client back a week.
+  const adoptCodeshareState = useCallback((res) => {
+    if (!res?.state) return;
+    setState((cur) => {
+      if (res.state.week != null && cur?.week != null
+          && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
+      return withStatsBackfill(res.state);
+    });
+  }, []);
+
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => authedApi(`/worlds/${worldId}/feed${params}`, { token }),
@@ -320,6 +332,23 @@ export default function GamePlayScreen({ worldId, token }) {
         method: 'PUT', token, body: { sharing, reservedSlots },
       }).then((res) => { adoptGateMarket(res.gateMarket); return res; }),
     fetchAlliances: () => authedApi(`/worlds/${worldId}/alliances`, { token }),
+    // ── Codeshares ───────────────────────────────────────────────────────────
+    // A codeshare binds two real players, so signing one is a negotiation, not
+    // a decision. Responses that change your own state carry it back whole —
+    // waiting a poll to see a deal you just struck reads as the click failing.
+    fetchCodeshares: () => authedApi(`/worlds/${worldId}/codeshares`, { token }),
+    offerCodeshare: (toAirlineId) =>
+      authedApi(`/worlds/${worldId}/codeshares/offer`, {
+        method: 'POST', token, body: { toAirlineId },
+      }).then((res) => { adoptCodeshareState(res); return res; }),
+    decideCodeshareOffer: (offerId, decision) =>
+      authedApi(`/worlds/${worldId}/codeshares/offers/${offerId}`, {
+        method: 'POST', token, body: { decision },
+      }).then((res) => { adoptCodeshareState(res); return res; }),
+    cancelCodeshare: (partnerId) =>
+      authedApi(`/worlds/${worldId}/codeshares/cancel`, {
+        method: 'POST', token, body: { partnerId },
+      }).then((res) => { adoptCodeshareState(res); return res; }),
     createAlliance: (name) =>
       authedApi(`/worlds/${worldId}/alliances`, { method: 'POST', token, body: { name } }),
     requestJoinAlliance: (allianceId) =>
@@ -328,7 +357,7 @@ export default function GamePlayScreen({ worldId, token }) {
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/requests/${airlineId}`, { method: 'POST', token, body: { decision } }),
     leaveAlliance: (allianceId) =>
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
-  }), [worldId, token, adoptGateMarket, meta?.airlineId, meta?.restartsLeft, load]);
+  }), [worldId, token, adoptGateMarket, adoptCodeshareState, meta?.airlineId, meta?.restartsLeft, load]);
 
   const decisionSeq = useRef(0);
   // Serialize the authoritative writes. A burst of dispatches — bulk close/sell/

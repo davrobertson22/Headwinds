@@ -2669,12 +2669,19 @@ function reducer(state, action) {
     }
 
     case 'SIGN_CODESHARE': {
-      // action: { competitorId }
+      // action: { competitorId, partner? }
       const activeAgreements = state.codeshareAgreements ?? [];
       if (activeAgreements.length >= MAX_CODESHARE_AGREEMENTS) return state;
       if (activeAgreements.some(a => a.competitorId === action.competitorId)) return state;
 
-      const comp = (state.competitors ?? []).find(c => c.id === action.competitorId);
+      // `partner` is how the SERVER signs the other side of a bilateral deal.
+      // state.competitors is rebuilt on every read and stripped before
+      // persistence, so a dispatch against a raw stored blob finds nobody —
+      // which would have made an accepted codeshare silently no-op for the
+      // acceptor while charging the offerer. Solo and the client keep taking
+      // the first branch, unchanged.
+      const comp = (state.competitors ?? []).find(c => c.id === action.competitorId)
+        ?? (action.partner?.id === action.competitorId ? action.partner : null);
       if (!comp) return state;
 
       const weeklyFee = CODESHARE_WEEKLY_FEE_BY_TIER[comp.tier] ?? CODESHARE_WEEKLY_FEE_BY_TIER.legacy;
@@ -2695,10 +2702,17 @@ function reducer(state, action) {
     }
 
     case 'CANCEL_CODESHARE': {
-      // action: { agreementId }
+      // action: { agreementId } | { competitorId }
+      //
+      // By partner as well as by id, because cancelling is bilateral now: the
+      // server tears down BOTH sides, and it knows who the partner is without
+      // knowing what the other airline happened to call its copy of the deal.
       return {
         ...state,
-        codeshareAgreements: (state.codeshareAgreements ?? []).filter(a => a.id !== action.agreementId),
+        codeshareAgreements: (state.codeshareAgreements ?? []).filter(a =>
+          action.competitorId != null
+            ? a.competitorId !== action.competitorId
+            : a.id !== action.agreementId),
       };
     }
 
