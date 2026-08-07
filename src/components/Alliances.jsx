@@ -808,6 +808,9 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
   ]);
 
   const available = competitors
+    // Solo signs a codeshare with anybody. Multiplayer asks, and only a person
+    // can be asked — an AI carrier has no account to send an offer to.
+    .filter(c => (remote ? c.human === true : true))
     .filter(c => !activePartnerIds.has(c.id))
     .map(c => ({
       comp:    c,

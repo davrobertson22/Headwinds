@@ -192,14 +192,19 @@ function fakeDb(airlines) {
 
 // `withTx` is imported by the service; the stand-in's transaction is the db.
 const airline = (id, name, over = {}) => ({
-  id, name, worldId: 'w1', status: 'ACTIVE', version: 1,
+  id, name, worldId: 'w1', status: 'ACTIVE', version: 1, restarts: 0,
   state: { week: 20, year: 1, codeshareAgreements: [], competitors: [] }, ...over,
 });
+
+// The id a rival sees, which is the id everything except the database uses.
+// `restarts` is part of it: a re-founded airline is a different company to its
+// rivals even though it reuses the row. See humanRivals.rivalIdOf.
+const rid = (id, gen = 0) => (gen > 0 ? `human:${id}~g${gen}` : `human:${id}`);
 
 await atest('an offer changes nothing until it is answered', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
   const res = await offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20,
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20,
   });
   assert.ok(res.offer);
   assert.equal(db._offers.size, 1);
@@ -211,7 +216,7 @@ await atest('accepting writes BOTH sides', async () => {
   // The whole package in one assertion: before this, only the signer's blob
   // ever changed.
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   const offer = [...db._offers.values()][0];
   const res = await acceptOffer(db, { world: WORLD, offer, acceptor: db._rows.get('a2'), weekIndex: 20 });
 
@@ -219,8 +224,13 @@ await atest('accepting writes BOTH sides', async () => {
   const a2 = db._rows.get('a2').state.codeshareAgreements;
   assert.equal(a1.length, 1, 'the offerer has the agreement');
   assert.equal(a2.length, 1, 'and so does the acceptor');
-  assert.equal(a1[0].competitorId, 'a2');
-  assert.equal(a2[0].competitorId, 'a1');
+  // THE BUG THIS FIXES. These used to read 'a2' and 'a1' — raw database ids —
+  // while state.competitors knows a human rival as `human:<dbId>`. The engine
+  // resolves a partner with `competitors.find(c => c.id === partnerId)`, so a
+  // signed codeshare charged its weekly fee, showed a nameless partner and paid
+  // no interline revenue at all.
+  assert.equal(a1[0].competitorId, rid('a2'));
+  assert.equal(a2[0].competitorId, rid('a1'));
   assert.equal(a1[0].weeklyFee, a2[0].weeklyFee, 'both pay the same fee');
   assert.equal(res.partnerName, 'Alpha');
   assert.equal(db._offers.size, 0, 'the offer row is consumed');
@@ -228,9 +238,9 @@ await atest('accepting writes BOTH sides', async () => {
 
 await atest('two players who both offered are simply partners', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   const res = await offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a2'), toAirlineId: 'a1', weekIndex: 20,
+    world: WORLD, from: db._rows.get('a2'), toAirlineId: rid('a1'), weekIndex: 20,
   });
   assert.equal(res.mutual, true, 'a mirror-image offer is consent, not a second proposal');
   assert.equal(db._rows.get('a1').state.codeshareAgreements.length, 1);
@@ -241,15 +251,15 @@ await atest('two players who both offered are simply partners', async () => {
 await atest('you cannot offer to yourself, or to a ghost', async () => {
   const db = fakeDb([airline('a1', 'Alpha')]);
   await rejects(() => offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a1', weekIndex: 20 }), /yourself/i);
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a1'), weekIndex: 20 }), /yourself/i);
   await rejects(() => offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'nope', weekIndex: 20 }), /No such airline/i);
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('nope'), weekIndex: 20 }), /No such airline/i);
 });
 
 await atest('a bankrupt airline is not a counterparty', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta', { status: 'BANKRUPT' })]);
   await rejects(() => offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 }), /bankrupt/i);
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 }), /bankrupt/i);
 });
 
 await atest('a partner at the agreement cap is refused, on both sides', async () => {
@@ -260,28 +270,28 @@ await atest('a partner at the agreement cap is refused, on both sides', async ()
   });
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta', { state: capped() })]);
   await rejects(() => offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 }), /maximum/i);
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 }), /maximum/i);
 
   const db2 = fakeDb([airline('a1', 'Alpha', { state: capped() }), airline('a2', 'Beta')]);
   await rejects(() => offerCodeshare(db2, {
-    world: WORLD, from: db2._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 }), /maximum/i);
+    world: WORLD, from: db2._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 }), /maximum/i);
 });
 
 await atest('a pair already partnered cannot double up', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   await acceptOffer(db, {
     world: WORLD, offer: [...db._offers.values()][0], acceptor: db._rows.get('a2'), weekIndex: 20 });
   assert.ok(alreadyPartnered(db._rows.get('a1'), db._rows.get('a2')));
   await rejects(() => offerCodeshare(db, {
-    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 }), /already have a codeshare/i);
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 }), /already have a codeshare/i);
 });
 
 await atest('a stale version loses rather than half-signing', async () => {
   // Both blobs move together or neither does. Half a bilateral agreement is
   // worse than none: one side pays for a partner that does not know it.
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   const offer = [...db._offers.values()][0];
   // Somebody else writes a2 between the read and the commit.
   const realUpdate = db.airline.updateMany;
@@ -297,7 +307,7 @@ console.log('\n── Answering ────────────────
 
 await atest('only the recipient may accept', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   const offer = [...db._offers.values()][0];
   await rejects(() => resolveOffer(db, {
     world: WORLD, offerId: offer.id, airlineId: 'a1', decision: 'accept' }), /can accept/i);
@@ -308,7 +318,7 @@ await atest('only the recipient may accept', async () => {
 
 await atest('a stranger cannot touch somebody else\'s offer', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta'), airline('a3', 'Gamma')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   const offer = [...db._offers.values()][0];
   await rejects(() => resolveOffer(db, {
     world: WORLD, offerId: offer.id, airlineId: 'a3', decision: 'reject' }), /not yours/i);
@@ -316,11 +326,115 @@ await atest('a stranger cannot touch somebody else\'s offer', async () => {
 
 // ── Cancelling ──────────────────────────────────────────────────────────────
 
+// ── Which id is which ───────────────────────────────────────────────────────
+
+console.log('\n── The id a rival is known by ───────────────────────────');
+
+await atest('an offer arrives as a rival id, not a database id', async () => {
+  // THE REPORTED BUG. Every other multiplayer subsystem addresses an airline as
+  // `human:<dbId>`; this service used the raw row id and imported neither
+  // rivalIdOf nor poolKeyOf. The client sent what it had, the lookup asked for a
+  // row whose id was literally `human:a2`, and every single offer answered
+  // "No such airline in this world" — on the first check, before anything else
+  // was examined, which is why it fired regardless of who was picked.
+  const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
+  const res = await offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
+  assert.ok(res?.offer, 'a rival id must be accepted');
+  assert.equal(res.offer.toAirlineId, 'a2', 'and stored against the row it names');
+  assert.equal(res.toName, 'Beta');
+});
+
+await atest('a raw row id still works, for callers on this side of the wire', async () => {
+  const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
+  const res = await offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  assert.equal(res.offer.toAirlineId, 'a2');
+});
+
+await atest('an id for an airline that has since re-founded is refused', async () => {
+  // Not pedantry. The generation suffix is what makes a bankrupt company delist
+  // instead of handing its stock and its deals to the airline that replaced it.
+  // Silently accepting a stale id would sign the new company into a deal struck
+  // with the dead one — the exact substitution the suffix exists to prevent.
+  const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta', { restarts: 2 })]);
+  await rejects(() => offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 }),
+    /re-founded/i);
+  const ok = await offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2', 2), weekIndex: 20 });
+  assert.equal(ok.offer.toAirlineId, 'a2', 'the CURRENT generation is fine');
+});
+
+await atest('a re-founded airline signs under its own generation', async () => {
+  const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta', { restarts: 2 })]);
+  await offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2', 2), weekIndex: 20 });
+  const offer = [...db._offers.values()][0];
+  await acceptOffer(db, { world: WORLD, offer, acceptor: db._rows.get('a2'), weekIndex: 20 });
+  assert.equal(db._rows.get('a1').state.codeshareAgreements[0].competitorId, rid('a2', 2));
+  assert.equal(db._rows.get('a2').state.codeshareAgreements[0].competitorId, rid('a1'));
+});
+
+await atest('the agreement id is the one the engine can resolve', async () => {
+  // simulation.js does `competitors.find(c => c.id === partnerId)` and
+  // network.js keys its partnership map the same way. This asserts the stored id
+  // against a competitor entry shaped exactly as humanRivals builds one.
+  const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
+  await offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
+  const offer = [...db._offers.values()][0];
+  await acceptOffer(db, { world: WORLD, offer, acceptor: db._rows.get('a2'), weekIndex: 20 });
+
+  const competitorsAsTheEngineSeesThem = [{ id: rid('a2'), name: 'Beta', human: true }];
+  const agreement = db._rows.get('a1').state.codeshareAgreements[0];
+  const resolved = competitorsAsTheEngineSeesThem.find(c => c.id === agreement.competitorId);
+  assert.ok(resolved, 'a signed partner must be findable in state.competitors');
+  assert.equal(resolved.name, 'Beta');
+});
+
+await atest('the offers view names the other airline the way the client does', async () => {
+  const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta', { restarts: 3 })]);
+  await offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2', 3), weekIndex: 20 });
+  const view = await buildOfferView(db, { worldId: 'w1', airlineId: 'a1' });
+  assert.equal(view.outgoing.length, 1);
+  assert.equal(view.outgoing[0].airlineId, rid('a2', 3),
+    'the client matches this against state.competitors to show who it is with');
+  assert.equal(view.outgoing[0].name, 'Beta');
+});
+
+await atest('a codeshare written the old way can still be cancelled', async () => {
+  // Nothing in production can carry one — the offer table did not exist until
+  // this shipped, so no offer was ever accepted. But a repair that needs a data
+  // migration before it is safe is a repair with a second bug in it.
+  const db = fakeDb([
+    airline('a1', 'Alpha', { state: { week: 20, year: 1, competitors: [],
+      codeshareAgreements: [{ id: 'old1', competitorId: 'a2', weeklyFee: 1000 }] } }),
+    airline('a2', 'Beta', { state: { week: 20, year: 1, competitors: [],
+      codeshareAgreements: [{ id: 'old2', competitorId: 'a1', weeklyFee: 1000 }] } }),
+  ]);
+  await cancelCodeshare(db, { world: WORLD, airline: db._rows.get('a1'), partnerId: rid('a2') });
+  assert.deepEqual(db._rows.get('a1').state.codeshareAgreements, []);
+  assert.deepEqual(db._rows.get('a2').state.codeshareAgreements, []);
+});
+
+await atest('a codeshare written the old way is not offered a second time', async () => {
+  const db = fakeDb([
+    airline('a1', 'Alpha', { state: { week: 20, year: 1, competitors: [],
+      codeshareAgreements: [{ id: 'old1', competitorId: 'a2', weeklyFee: 1000 }] } }),
+    airline('a2', 'Beta'),
+  ]);
+  await rejects(() => offerCodeshare(db, {
+    world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 }),
+    /already have a codeshare/i);
+});
+
 console.log('\n── Cancelling ───────────────────────────────────────────');
 
 await atest('cancelling ends the agreement for both airlines', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   await acceptOffer(db, {
     world: WORLD, offer: [...db._offers.values()][0], acceptor: db._rows.get('a2'), weekIndex: 20 });
 
@@ -332,7 +446,7 @@ await atest('cancelling ends the agreement for both airlines', async () => {
 
 await atest('a dead partner cannot hold you hostage', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   await acceptOffer(db, {
     world: WORLD, offer: [...db._offers.values()][0], acceptor: db._rows.get('a2'), weekIndex: 20 });
   // Beta goes bankrupt and its side of the deal is swept by the tick.
@@ -353,7 +467,7 @@ console.log('\n── Offers on screen, and offers swept ───────�
 
 await atest('the view separates what you were asked from what you asked', async () => {
   const db = fakeDb([airline('a1', 'Alpha'), airline('a2', 'Beta'), airline('a3', 'Gamma')]);
-  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: 'a2', weekIndex: 20 });
+  await offerCodeshare(db, { world: WORLD, from: db._rows.get('a1'), toAirlineId: rid('a2'), weekIndex: 20 });
   await offerCodeshare(db, { world: WORLD, from: db._rows.get('a3'), toAirlineId: 'a1', weekIndex: 18 });
   const view = await buildOfferView(db, { worldId: 'w1', airlineId: 'a1' });
   assert.deepEqual(view.outgoing.map((o) => o.name), ['Beta']);

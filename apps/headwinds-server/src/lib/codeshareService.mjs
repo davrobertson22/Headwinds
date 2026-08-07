@@ -20,6 +20,8 @@
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { MAX_CODESHARE_AGREEMENTS } from '@tailwinds/engine/data/alliances.js';
 import { withTx } from './tx.mjs';
+import { rivalIdOf } from './humanRivals.mjs';
+import { poolKeyOf } from './marketService.mjs';
 
 export class CodeshareError extends Error {
   constructor(message, statusCode = 400) {
@@ -38,14 +40,55 @@ export const CODESHARE_OFFER_EXPIRY_WEEKS = 8;
 /** Human rivals are all one tier to the engine (see humanRivals.toHumanCompetitor). */
 const HUMAN_TIER = 'legacy';
 
-const partnerOf = (airline) => ({ id: airline.id, name: airline.name, tier: HUMAN_TIER });
+// ── Which id is which ───────────────────────────────────────────────────────
+// The database addresses an airline by its row id. Everything a player's client
+// can see addresses the same airline as `human:<dbId>`, or `human:<dbId>~g2`
+// once it has been re-founded — see humanRivals.rivalIdOf for why the generation
+// is part of the identity. This module is the boundary: rival ids in and out,
+// row ids only for queries.
+//
+// Every read below accepts BOTH forms. Nothing in production stores the raw one
+// (the offer table did not exist until this shipped, so no offer was ever
+// accepted), but a repair that only works after a data migration is a repair
+// with a second bug in it.
+const partnerMatches = (agreement, row) =>
+  agreement?.competitorId === rivalIdOf(row) || agreement?.competitorId === row?.id;
+
+/**
+ * The airline behind a rival-facing id, or a refusal a player can act on.
+ *
+ * A stale generation is refused rather than silently retargeted: `human:x~g1`
+ * after that airline has re-founded as `~g2` means the client is looking at a
+ * company that no longer exists, and signing the new one in its place is
+ * precisely the substitution the generation suffix exists to prevent.
+ */
+async function resolveRival(db, world, rivalId, { select } = {}) {
+  const row = await db.airline.findUnique({
+    where: { id: poolKeyOf(rivalId) },
+    select: select ?? {
+      id: true, worldId: true, name: true, status: true, state: true, restarts: true,
+    },
+  });
+  if (!row || row.worldId !== world.id) {
+    throw new CodeshareError('No such airline in this world.', 404);
+  }
+  // The raw form is accepted for server-internal callers; a client only ever
+  // holds the rival form.
+  if (rivalId !== rivalIdOf(row) && rivalId !== row.id) {
+    throw new CodeshareError(
+      `${row.name} has re-founded since — reload and try again.`, 409);
+  }
+  return row;
+}
+
+const partnerOf = (airline) => ({ id: rivalIdOf(airline), name: airline.name, tier: HUMAN_TIER });
 
 const agreementsOf = (airline) => airline?.state?.codeshareAgreements ?? [];
 
 /** Do these two already have a deal? Either side's blob is authoritative. */
 export function alreadyPartnered(a, b) {
-  return agreementsOf(a).some((x) => x.competitorId === b.id)
-      || agreementsOf(b).some((x) => x.competitorId === a.id);
+  return agreementsOf(a).some((x) => partnerMatches(x, b))
+      || agreementsOf(b).some((x) => partnerMatches(x, a));
 }
 
 function assertCanSign(airline, label) {
@@ -65,13 +108,9 @@ function assertCanSign(airline, label) {
  * other side accepts — which is the entire point of the feature.
  */
 export async function offerCodeshare(prisma, { world, from, toAirlineId, weekIndex }) {
-  if (from.id === toAirlineId) throw new CodeshareError('You cannot codeshare with yourself.');
-
-  const to = await prisma.airline.findUnique({
-    where: { id: toAirlineId },
-    select: { id: true, worldId: true, name: true, status: true, state: true },
-  });
-  if (!to || to.worldId !== world.id) throw new CodeshareError('No such airline in this world.', 404);
+  // `toAirlineId` is a RIVAL id off a competitor entry, not a row id.
+  const to = await resolveRival(prisma, world, toAirlineId);
+  if (from.id === to.id) throw new CodeshareError('You cannot codeshare with yourself.');
   if (to.status !== 'ACTIVE') throw new CodeshareError(`${to.name} is ${to.status.toLowerCase()}.`, 409);
 
   assertCanSign(from, 'You');
@@ -150,11 +189,18 @@ export async function acceptOffer(prisma, { world, offer, acceptor, weekIndex })
     // The reducer normally finds the partner in `state.competitors`, which is
     // stripped before persistence — so a server-side dispatch reading the raw
     // blob would find nobody and silently no-op. Hand it the partner directly.
+    //
+    // The id stored on the agreement must be the one the ENGINE can resolve:
+    // simulation.js does `competitors.find(c => c.id === partnerId)` and
+    // network.js keys its partnership map the same way, and a human rival
+    // appears in `state.competitors` as rivalIdOf(row). Storing the row id
+    // instead would have charged the weekly fee, named no partner on screen,
+    // and paid no interline revenue.
     const aNext = gameReducer(a.state, {
-      type: 'SIGN_CODESHARE', competitorId: b.id, partner: partnerOf(b),
+      type: 'SIGN_CODESHARE', competitorId: rivalIdOf(b), partner: partnerOf(b),
     });
     const bNext = gameReducer(b.state, {
-      type: 'SIGN_CODESHARE', competitorId: a.id, partner: partnerOf(a),
+      type: 'SIGN_CODESHARE', competitorId: rivalIdOf(a), partner: partnerOf(a),
     });
     // A reducer that declines returns the state it was given. Half a bilateral
     // agreement is worse than none, so refuse the whole thing.
@@ -184,7 +230,7 @@ export async function acceptOffer(prisma, { world, offer, acceptor, weekIndex })
 
     const mine = acceptor.id === a.id ? aNext : bNext;
     const partner = acceptor.id === a.id ? b : a;
-    return { myState: mine, partnerName: partner.name, partnerId: partner.id };
+    return { myState: mine, partnerName: partner.name, partnerId: rivalIdOf(partner) };
   });
 }
 
@@ -197,22 +243,30 @@ export async function acceptOffer(prisma, { world, offer, acceptor, weekIndex })
  */
 export async function cancelCodeshare(prisma, { world, airline, partnerId }) {
   return withTx(prisma, async (tx) => {
+    // A re-founded or vanished partner must not block a cancellation, so the
+    // partner row is looked up leniently — by row id, without asserting the
+    // generation. Our OWN agreement is what authorises the teardown.
     const [a, b] = await Promise.all([
       tx.airline.findUnique({ where: { id: airline.id } }),
-      tx.airline.findUnique({ where: { id: partnerId } }),
+      tx.airline.findUnique({ where: { id: poolKeyOf(partnerId) } }),
     ]);
     if (!a) throw new CodeshareError('Your airline is missing.', 404);
-    if (!agreementsOf(a).some((x) => x.competitorId === partnerId)) {
+    // Match on whichever form the agreement was stored under, and then cancel
+    // using that same stored id so the reducer's filter cannot miss it.
+    const mine = agreementsOf(a).find((x) => x.competitorId === partnerId
+      || (b && partnerMatches(x, b)));
+    if (!mine) {
       throw new CodeshareError('You have no codeshare with that airline.', 404);
     }
 
-    const aNext = gameReducer(a.state, { type: 'CANCEL_CODESHARE', competitorId: partnerId });
+    const aNext = gameReducer(a.state, { type: 'CANCEL_CODESHARE', competitorId: mine.competitorId });
     const sides = [{ row: a, next: aNext }];
     // The partner may have gone bankrupt or been re-founded since — in which
     // case their side of the deal is already gone and only ours needs tearing
     // down. Cancelling must still work; a dead partner cannot be a hostage.
-    if (b && agreementsOf(b).some((x) => x.competitorId === a.id)) {
-      sides.push({ row: b, next: gameReducer(b.state, { type: 'CANCEL_CODESHARE', competitorId: a.id }) });
+    const theirs = b ? agreementsOf(b).find((x) => partnerMatches(x, a)) : null;
+    if (b && theirs) {
+      sides.push({ row: b, next: gameReducer(b.state, { type: 'CANCEL_CODESHARE', competitorId: theirs.competitorId }) });
     }
     sides.sort((x, y) => (x.row.id < y.row.id ? -1 : x.row.id > y.row.id ? 1 : 0));
 
@@ -243,12 +297,15 @@ export async function buildOfferView(prisma, { worldId, airlineId }) {
   const names = new Map(
     (await prisma.airline.findMany({
       where: { id: { in: ids } },
-      select: { id: true, name: true, hub: true, status: true },
+      select: { id: true, name: true, hub: true, status: true, restarts: true },
     })).map((a) => [a.id, a]),
   );
+  // `airlineId` goes out in RIVAL form: the client matches it against
+  // state.competitors to show who the offer is with. The offer's own `id` is
+  // what accept/reject act on, so it stays a plain row id.
   const shape = (r, otherId) => ({
     id: r.id,
-    airlineId: otherId,
+    airlineId: names.has(otherId) ? rivalIdOf(names.get(otherId)) : otherId,
     name: names.get(otherId)?.name ?? 'Unknown airline',
     hub: names.get(otherId)?.hub ?? null,
     status: names.get(otherId)?.status ?? null,
