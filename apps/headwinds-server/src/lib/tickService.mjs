@@ -15,11 +15,13 @@ import { GATE_AUCTION_OPEN_WEEK } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
 import {
-  isGateScarcity, reconcileForfeitures, releaseAllFor,
+  isGateScarcity, reconcileForfeitures,
   openDueAuctions, resolveDueAuctions,
 } from './gateService.mjs';
 import { scrapStale } from './aircraftMarketService.mjs';
 import { snapshotWorldCareers, passengerTotalsFrom } from './careerService.mjs';
+import { expireStaleOffers } from './codeshareService.mjs';
+import { fireSaleAirline } from './fireSaleService.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
@@ -469,11 +471,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           .filter((c) => writtenIds.has(c.airline.id))
           .flatMap((c) => c.gateReleases ?? []);
         if (releases.length > 0) await reconcileForfeitures(prisma, world.id, releases, { log });
-        for (const c of computed) {
-          if (c.bankrupt && writtenIds.has(c.airline.id)) {
-            await releaseAllFor(prisma, world.id, c.airline.id, { log });
-          }
-        }
+        // Bankrupt airlines' gates used to be released back to the pool here,
+        // in silence — the entire consequence of a carrier failing. They are
+        // now listed as administrator's sales instead (see fireSaleService),
+        // which is handled below for EVERY world rather than only scarcity
+        // ones, so nothing is released here any more.
         const tickedWorld = { ...world, currentWeek: newWeek, currentYear: newYear };
         if (newWeek === GATE_AUCTION_OPEN_WEEK) await openDueAuctions(prisma, tickedWorld, { log });
         if (newWeek === 1 && toIndex > 1) await resolveDueAuctions(prisma, tickedWorld, { log });
@@ -506,6 +508,37 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       } catch (err) {
         log.error(`[tick] world ${world.id} career snapshot failed (world still ENDED):`, err?.message ?? err);
       }
+    }
+
+    // ── Administration ───────────────────────────────────────────────────────
+    // An airline that failed this week has an estate. Its owned fleet goes to
+    // the used market at a distressed price and, on scarcity worlds, its gates
+    // are listed with no seller. Post-commit and best-effort: a failure here
+    // leaves a bankruptcy exactly as uneventful as it used to be, never a
+    // rolled-back week.
+    try {
+      const writtenIds = new Set((outcome.written ?? []).map((w) => w.airlineId));
+      const failed = computed.filter((c) => c.bankrupt && writtenIds.has(c.airline.id));
+      for (const c of failed) {
+        await fireSaleAirline(prisma, {
+          world,
+          airline: { id: c.airline.id, name: c.airline.name, fleet: c.next.fleet ?? [] },
+          weekIndex: toIndex,
+          log,
+        });
+      }
+    } catch (err) {
+      log.error(`[tick] world ${world.id} fire sale failed (week still committed):`, err?.message ?? err);
+    }
+
+    // Codeshare offers nobody answered. Unanswered proposals are not just
+    // clutter: the unique constraint that stops duplicates also stops the same
+    // pair ever offering again while a dead row sits between them.
+    try {
+      const expired = await expireStaleOffers(prisma, world.id, toIndex);
+      if (expired > 0) log.info?.(`[tick] world ${world.id} expired ${expired} stale codeshare offer(s)`);
+    } catch (err) {
+      log.error(`[tick] world ${world.id} codeshare sweep failed (week still committed):`, err?.message ?? err);
     }
 
     // Used-aircraft market: scrap listings unsold for 2 game-years (best-effort;

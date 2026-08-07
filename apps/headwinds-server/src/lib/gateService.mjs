@@ -1015,12 +1015,20 @@ export async function buyListing(prisma, { world, buyer, listingId, allianceMap 
     if (listing.sellerId === buyer.id) throw new GateError('You cannot buy your own listing.');
     const code = listing.airportCode;
 
-    const seller = await tx.airline.findUnique({ where: { id: listing.sellerId } });
-    if (!seller || seller.status !== 'ACTIVE') throw new GateError('The seller is no longer active.', 409);
-    const sellerCount = seller.state?.gates?.[code] ?? 0;
-    if (sellerCount <= 0) throw new GateError('The seller no longer holds that gate.', 409);
-    if (slotsUsedAt(seller.state, code) > (sellerCount - 1) * SLOTS_PER_GATE) {
-      throw new GateError('The seller can no longer spare that gate (their routes are using it).', 409);
+    // An estate listing has no counterparty to protect: the airline named on it
+    // is gone. Every seller-side check below exists for a live seller — but
+    // every BUYER-side check still applies, which is why those live after this
+    // branch rather than inside it.
+    const estate = listing.distressed === true;
+    let seller = null;
+    if (!estate) {
+      seller = await tx.airline.findUnique({ where: { id: listing.sellerId } });
+      if (!seller || seller.status !== 'ACTIVE') throw new GateError('The seller is no longer active.', 409);
+      const sellerCount = seller.state?.gates?.[code] ?? 0;
+      if (sellerCount <= 0) throw new GateError('The seller no longer holds that gate.', 409);
+      if (slotsUsedAt(seller.state, code) > (sellerCount - 1) * SLOTS_PER_GATE) {
+        throw new GateError('The seller can no longer spare that gate (their routes are using it).', 409);
+      }
     }
 
     // Buyer-side checks: cash, lockout, 60% cap, 80% alliance cap.
@@ -1047,9 +1055,13 @@ export async function buyListing(prisma, { world, buyer, listingId, allianceMap 
       }
     }
 
-    // Engine applies both sides (cash math lives in the reducer).
+    // Engine applies both sides (cash math lives in the reducer). On an estate
+    // sale the money simply leaves the world: crediting a bankrupt airline's
+    // blob would be paying a company that no longer exists, and it would put
+    // cash back into a world that has already written it off.
     const buyerNext = gameReducer(buyer.state, { type: 'GATE_PURCHASED', airportCode: code, price: listing.askPrice });
-    const sellerNext = gameReducer(seller.state, { type: 'GATE_SOLD', airportCode: code, proceeds: listing.askPrice });
+    const sellerNext = estate ? null
+      : gameReducer(seller.state, { type: 'GATE_SOLD', airportCode: code, proceeds: listing.askPrice });
 
     // Both sides are written in a deterministic order (by airline id), NOT
     // buyer-then-seller. If A is buying a gate from B at the same moment B is
@@ -1062,10 +1074,11 @@ export async function buyListing(prisma, { world, buyer, listingId, allianceMap 
         id: buyer.id, version: buyer.version, next: buyerNext,
         conflict: 'Your airline just changed — reload and try again.',
       },
-      {
+      // No second side on an estate sale — one row, so nothing to order.
+      ...(estate ? [] : [{
         id: seller.id, version: seller.version, next: sellerNext,
         conflict: 'The seller just changed — try again.',
-      },
+      }]),
     ].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
     for (const side of sides) {
@@ -1076,12 +1089,18 @@ export async function buyListing(prisma, { world, buyer, listingId, allianceMap 
       if (wrote.count === 0) throw new GateError(side.conflict, 409);
     }
 
-    // Holdings move; the buyer inherits an anti-flip cooldown.
+    // Holdings move; the buyer inherits an anti-flip cooldown. On an estate
+    // sale the gate is still on the ledger under the DEAD airline's id — it was
+    // deliberately not released, so the airport could not quietly re-sell
+    // capacity it had already committed. This is where it finally moves.
     const holdings = { ...(row.holdings ?? {}) };
-    const sellerEntry = { ...(holdings[seller.id] ?? { count: 0 }) };
-    sellerEntry.count = Math.max(0, sellerEntry.count - 1);
-    if (sellerEntry.count === 0) delete holdings[seller.id];
-    else holdings[seller.id] = sellerEntry;
+    const fromId = listing.sellerId;
+    if (fromId && holdings[fromId]) {
+      const sellerEntry = { ...holdings[fromId] };
+      sellerEntry.count = Math.max(0, (sellerEntry.count ?? 0) - 1);
+      if (sellerEntry.count === 0) delete holdings[fromId];
+      else holdings[fromId] = sellerEntry;
+    }
     const buyerEntry = { ...(holdings[buyer.id] ?? { count: 0 }) };
     buyerEntry.count += 1;
     buyerEntry.cooldownUntilWeek = weekIdx + GATE_ANTI_FLIP_WEEKS;

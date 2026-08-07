@@ -40,7 +40,7 @@ export function aircraftSnapshot(aircraft) {
 // `navPrice` is the exact NAV the sale was valued at (the reducer exposes it as
 // state.lastSale.nav), so the listing price can never drift from what the seller
 // was paid for.
-export async function listSoldAircraftTx(tx, { worldId, sellerName, aircraft, navPrice, weekIdx }) {
+export async function listSoldAircraftTx(tx, { worldId, sellerName, aircraft, navPrice, weekIdx, distressed = false }) {
   const price = Math.max(0, Math.round(Number(navPrice) || 0));
   if (!aircraft || !aircraft.typeId || price <= 0) return null;
   return tx.usedAircraftListing.create({
@@ -51,6 +51,10 @@ export async function listSoldAircraftTx(tx, { worldId, sellerName, aircraft, na
       snapshot:   aircraftSnapshot(aircraft),
       navPrice:   price,
       listedWeek: weekIdx,
+      // An administrator's sale from a failed airline's estate. Priced below
+      // book because the seller has no choice, and worth saying so on the
+      // listing — a bargain nobody can explain looks like a bug.
+      distressed,
     },
   });
 }
