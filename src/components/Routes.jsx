@@ -13,6 +13,7 @@ import AddGateButton from './AddGateButton.jsx';
 import AirportSelect from './AirportSelect.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { isReserve } from '../data/reserve.js';
+import ReserveNotice, { reserveOptionTag } from './ReserveNotice.jsx';
 import { normalizeCateringLevel, CATERING_LEVELS, CATERING_LEVEL_ORDER } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -2322,9 +2323,13 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
     const served = servedBy(a);
     return served.size === 0 || served.has(origin) || (!!dest && served.has(dest));
   };
+  // Reserves stay in the list — deploying one is legal, it just ends the
+  // standby — but they sort last so the picker never lands on a paid-for
+  // standby cover by default.
   const pickerFleet = paxFleet
     .filter(a => hasHours(a) && canServePair(a))
-    .sort((a, b) => usedBlockHrsFor(a) - usedBlockHrsFor(b));
+    .sort((a, b) => (Number(isReserve(a)) - Number(isReserve(b)))
+      || (usedBlockHrsFor(a) - usedBlockHrsFor(b)));
 
   // Changing the origin/destination can strand the current selection (its
   // network no longer touches the pair) — fall back to the best remaining one.
@@ -2525,7 +2530,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
                   : (t?.seats ?? '?');
                 return (
                   <option key={a.id} value={a.id} disabled={full}>
-                    {a.name} ({seats} seats) — {full || rem <= MIN_SPARE_BLOCK_HOURS ? 'no spare hours' : `${rem.toFixed(0)}h free`}
+                    {a.name} ({seats} seats) — {full || rem <= MIN_SPARE_BLOCK_HOURS ? 'no spare hours' : `${rem.toFixed(0)}h free`}{reserveOptionTag(a)}
                   </option>
                 );
               })}
@@ -2707,9 +2712,17 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
           </div>
         )}
 
+        <ReserveNotice
+          aircraft={aircraft}
+          fleet={fleet}
+          ops={[...routes, ...cargoRoutes]}
+          action={isAddingFlights ? 'Adding flights here' : 'Opening this route'}
+          typeName={type?.name}
+        />
+
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
-            {isAddingFlights ? 'Add Flights' : 'Open Route'}
+            {isAddingFlights ? 'Add Flights' : 'Open Route'}{isReserve(aircraft) ? ' · ends standby' : ''}
           </button>
           <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
         </div>

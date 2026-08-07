@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useGame, reassignCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { Glyph } from './Icons.jsx';
-import { isReserve } from '../data/reserve.js';
+import { isReserve, reserveCoverageSummary } from '../data/reserve.js';
+import { ReserveBadge } from './ReserveNotice.jsx';
 
 /**
  * Move ONE route onto a different aircraft.
@@ -23,6 +24,8 @@ import { isReserve } from '../data/reserve.js';
 export default function ReassignRouteButton({ route }) {
   const { state, dispatch } = useGame();
   const [open, setOpen] = useState(false);
+
+  const ops = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
 
   const candidates = (state.fleet ?? [])
     .filter(a => a.id !== route.aircraftId && a.status !== 'retired')
@@ -99,8 +102,16 @@ export default function ReassignRouteButton({ route }) {
                 <span style={{ fontWeight: 600 }}>{a.name}</span>
                 <span style={{ color: 'var(--text-muted)' }}> · {type?.name ?? a.typeId}</span>
                 {compat.ok && isReserve(a) && (
-                  <span style={{ display: 'block', fontSize: 10.5, color: 'var(--yellow)', fontWeight: 600 }}>
-                    <Glyph e="🛡️" size={10} /> On reserve at {a.reserveBase} — moving this route here ends its standby
+                  <span style={{ display: 'block', marginTop: 3 }}>
+                    <ReserveBadge aircraft={a} />
+                    <span style={{ display: 'block', fontSize: 10.5, color: 'var(--yellow)', marginTop: 2 }}>
+                      Moving this route here ends its standby{(() => {
+                        const cov = reserveCoverageSummary(a, state.fleet, ops);
+                        return cov && cov.tails > 0
+                          ? ` — it stops covering ${cov.tails} other ${type?.name ?? 'aircraft'}${cov.tails !== 1 ? 's' : ''} at ${cov.base}`
+                          : '';
+                      })()}.
+                    </span>
                   </span>
                 )}
                 {!compat.ok && (

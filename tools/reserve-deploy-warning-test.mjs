@@ -132,33 +132,62 @@ t('ReserveNotice and ReserveBadge render nothing for a normal aircraft', () => {
   assert.match(renderToString(React.createElement(ReserveBadge, { aircraft: RES })), /DFW/);
 });
 
-// ── Coverage guard: every deploy path must carry a signal ────────────────────
-// Source-level on purpose. The bug this replaces was not a broken warning, it
-// was a MISSING one in two of five pickers — only an inventory catches that.
+// ── Coverage guard, derived from the code not from a list ────────────────────
+// The first version of this guard hand-listed five picker files and passed
+// while the Routes-tab "Open New Route" form — a SIXTH dispatch site, in a file
+// that already imported isReserve for its idle/reserve counters — shipped with
+// no warning at all. A hand-written inventory only ever proves the author
+// remembered. So: find every UI site that dispatches a reserve-spending action
+// by reading the source, and require each one to carry a signal.
 
-const DEPLOY_SITES = [
-  ['src/components/RoutePlanner.jsx',        'single-leg passenger planner'],
-  ['src/components/CargoRoutePlanner.jsx',   'cargo lane planner'],
-  ['src/components/TagRoutePlanner.jsx',     'multi-stop planner'],
-  ['src/components/Fleet.jsx',               'transfer-all-routes modal'],
-  ['src/components/ReassignRouteButton.jsx', 'route Move menu'],
+const SPENDING_ACTIONS = [
+  'ADD_ROUTE', 'ADD_TAG_ROUTE', 'ADD_CARGO_ROUTE', 'TRANSFER_ROUTES', 'REASSIGN_ROUTE',
 ];
 
-for (const [rel, label] of DEPLOY_SITES) {
-  t(`${label} warns before it spends a reserve`, () => {
-    const src = read(rel);
-    assert.match(src, /ReserveNotice|ReserveBadge|reserveOptionTag|isReserve/,
-      `${rel} can deploy a reserve but shows no reserve signal`);
+// Every file under src/components that dispatches one of them.
+function dispatchSites() {
+  const dir = path.join(ROOT, 'src/components');
+  const hits = [];
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.jsx') && !f.endsWith('.js')) continue;
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (SPENDING_ACTIONS.some(a => src.includes(`type: '${a}'`))) hits.push(f);
+  }
+  return hits.sort();
+}
+
+const SITES = dispatchSites();
+
+t('the deploy surface is the six pickers we know about', () => {
+  // Not a rubber stamp: if a seventh way to put a plane on a route appears,
+  // this fails and whoever added it has to wire the warning and update the list.
+  assert.deepEqual(SITES, [
+    'CargoRoutePlanner.jsx',
+    'Fleet.jsx',
+    'ReassignRouteButton.jsx',
+    'RoutePlanner.jsx',
+    'Routes.jsx',
+    'TagRoutePlanner.jsx',
+  ]);
+});
+
+for (const file of SITES) {
+  t(`${file} warns before it spends a reserve`, () => {
+    const src = read(path.join('src/components', file));
+    // Importing isReserve for an unrelated counter is NOT a warning — the
+    // Routes.jsx miss looked exactly like that. Require a real surface.
+    assert.match(src, /ReserveNotice|ReserveBadge|reserveOptionTag|reserveButtonTag/,
+      `${file} dispatches a reserve-spending action but renders no reserve warning`);
   });
 }
 
 t('every reducer action that clears reserveBase has a picker that warns', () => {
-  // If this count grows, a sixth way to spend a reserve has appeared and needs
-  // its own warning — add it to DEPLOY_SITES above rather than muting this.
+  // If this count grows, a new way to spend a reserve has appeared in the
+  // engine — add its picker to the list above rather than muting this.
   const reducer = read('packages/engine/src/reducer.mjs');
   const clears = (reducer.match(/reserveBase: null/g) ?? []).length;
   assert.equal(clears, 8,
-    `expected ${8} reserveBase-clearing sites in the reducer, found ${clears}`);
+    `expected 8 reserveBase-clearing sites in the reducer, found ${clears}`);
 });
 
 console.log(`\nreserve-deploy-warning-test: ${pass} passed, ${fail} failed`);
