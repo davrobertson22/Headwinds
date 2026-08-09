@@ -22,7 +22,7 @@ import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
   fuelIndexStatus, fuelIndexDelta, absoluteWeek,
-  HEDGE_DURATIONS, HEDGE_COVERAGES, expectedMeanIndex,
+  HEDGE_DURATIONS, HEDGE_COVERAGES, expectedMeanIndex, hedgeLockedPrice,
   effectiveFuelMultiplier, totalHedgedCoverage,
   FUEL_MIN_INDEX, FUEL_MAX_INDEX,
 } from '../utils/fuel.js';
@@ -3680,9 +3680,15 @@ function FuelHedging() {
   // Where index 1.0 actually falls on that linear axis (~33%), not the visual midpoint
   const normalPos   = ((1 - FUEL_MIN_INDEX) / gaugeRange) * 100;
 
-  // Preview for selected option
+  // Preview for selected option. This MUST be the engine's own pricing call:
+  // BUY_HEDGE stores hedgeLockedPrice(...), and a preview that recomputes the
+  // price by hand is a second pricing model waiting to drift from it. It already
+  // did — this line was spot × (1 + premium), the formula Fuel economy v2
+  // retired, so at a market index of 0.794 the desk quoted a 26-week lock at
+  // 0.873× and then sold the player one at 0.991×.
   const selOpt        = HEDGE_DURATIONS.find(o => o.id === selDuration);
-  const lockedPreview = selOpt ? parseFloat((fuelIndex * (1 + selOpt.premium)).toFixed(3)) : fuelIndex;
+  const lockedPreview = selOpt ? hedgeLockedPrice(fuelIndex, selOpt) : fuelIndex;
+  const expectedAvg   = selOpt ? expectedMeanIndex(fuelIndex, selOpt.weeks) : fuelIndex;
   const canBuy        = hedgedPct + selCoverage * 100 <= 100;
 
   // History chart. In multiplayer the just-ticked world index is stored as BOTH
@@ -3801,16 +3807,17 @@ function FuelHedging() {
       <div style={card}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Buy Fuel Hedge</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
-          Lock in today's fuel price for a portion of your fleet's fuel bill. A small premium is baked into
-          the locked rate. If the market rises above your rate, you save. If it falls, you pay a little
-          over market — the cost of certainty. Contracts stack up to 100% total coverage.
+          Lock a fixed rate for part of your fleet's fuel bill. The rate is priced off where fuel is
+          expected to average over the term — not off today's index — plus a small premium for the
+          certainty. If the market runs hotter than that, you save. If it doesn't, you pay a little over
+          market — the cost of certainty. Contracts stack up to 100% total coverage.
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>DURATION</div>
             {HEDGE_DURATIONS.map(opt => {
-              const locked = parseFloat((fuelIndex * (1 + opt.premium)).toFixed(3));
+              const locked = hedgeLockedPrice(fuelIndex, opt);
               const isSel  = selDuration === opt.id;
               return (
                 <button key={opt.id} onClick={() => setSelDuration(opt.id)} style={{
@@ -3868,7 +3875,7 @@ function FuelHedging() {
               // is. Showing both makes the premium visible as the price of
               // certainty rather than leaving the player to guess whether a
               // lock above or below today's index is a good deal.
-              ['Expected average over term', `${expectedMeanIndex(fuelIndex, selOpt?.weeks ?? 0).toFixed(3)}×`],
+              ['Expected average over term', `${expectedAvg.toFixed(3)}×`],
               ['Locked price', `${lockedPreview.toFixed(3)}× (${Math.round((selOpt?.premium ?? 0) * 100)}% premium for certainty)`],
               ['Expires', `W${Math.min(52, state.week + (selOpt?.weeks ?? 0))}, ${state.year + (state.week + (selOpt?.weeks ?? 0) > 52 ? 1 : 0)}`],
             ].map(([k, v]) => (
@@ -3876,7 +3883,11 @@ function FuelHedging() {
                 <span key={k + '_k'} style={{ color: 'var(--muted)' }}>{k}</span>
                 <span key={k + '_v'} style={{
                   fontWeight: k === 'Locked price' ? 600 : 400,
-                  color: k === 'Locked price' && lockedPreview > fuelIndex ? 'var(--yellow)' : 'inherit',
+                  // Against the expected path, not spot: with curve pricing a lock
+                  // sitting above today's index is normal whenever fuel is cheap, so
+                  // flagging that told the player nothing. What costs them is the gap
+                  // to the average the term is actually priced on.
+                  color: k === 'Locked price' && lockedPreview > expectedAvg ? 'var(--yellow)' : 'inherit',
                 }}>{v}</span>
               </>
             ))}
@@ -3907,7 +3918,12 @@ function FuelHedging() {
             <tbody>
               {active.map(h => {
                 const weeksLeft = h.expiryAbsWeek - nowAbsWeek;
-                const saving    = fuelIndex - h.lockedPrice;  // positive = saving, negative = overpaying
+                // Relative to the market, not a subtraction of two index values.
+                // A 0.991 lock against a 0.794 market is 24.8% over it; the gap
+                // between the indices is 0.197, and printing that as "19.7%" was
+                // a percentage of nothing. The ±0.5% threshold below is relative
+                // too, so "≈ at market" means the same thing at any index.
+                const saving    = fuelIndex > 0 ? (fuelIndex - h.lockedPrice) / fuelIndex : 0;  // positive = saving, negative = overpaying
                 return (
                   <tr key={h.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 10px' }}>{h.durationLabel}</td>

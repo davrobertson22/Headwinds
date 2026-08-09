@@ -109,7 +109,7 @@ function baseTier(item) {
     case 'event_started': case 'event_ended':
     case 'bankruptcy': case 'abandoned': case 'rank_change':
     case 'alliance_founded': case 'gate_auction_won':
-    case 'gate_auction_unsold':
+    case 'gate_auction_unsold': case 'gate_forfeited':
     case 'hub_designated': case 'hub_upgraded':
       return 1;
     case 'joined':
@@ -554,6 +554,43 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
 // event set, so once a fuel spike expires it is gone. These helpers build rows
 // for the tick to insert inside its own transaction, so the news is atomic with
 // the week it describes.
+
+/**
+ * Rows for rule-5 gate forfeitures (use-it-or-lose-it).
+ *
+ * A forfeiture used to leave exactly ONE trace: a toast in the airline's blob.
+ * Headwinds ticks server-side on a schedule, and ADVANCE_WEEK REPLACES
+ * `pendingToasts` rather than appending to it — so the next week's tick wiped
+ * it and a player who was not looking at the tab when it happened never learned
+ * that their gates were gone, or why they were suddenly locked out. This is the
+ * durable record: it survives every subsequent tick and sits in the feed for
+ * the whole retention window.
+ *
+ * @param {Array<{airlineId, airportCode, count}>} releases  diffed pre/post tick
+ */
+export function gateForfeitureNewsRows({ worldId, week, releases, lockoutWeeks, nameOf }) {
+  // One item per airport, not per gate.
+  const byKey = new Map();
+  for (const r of releases ?? []) {
+    if (!r?.airlineId || !r?.airportCode || !(r.count > 0)) continue;
+    const key = `${r.airlineId}:${r.airportCode}`;
+    byKey.set(key, (byKey.get(key) ?? 0) + r.count);
+  }
+  return [...byKey.entries()].map(([key, gates]) => {
+    const [airlineId, airport] = key.split(':');
+    return {
+      worldId, week, category: 'airports', kind: 'gate_forfeited', tier: 1,
+      airlineId,
+      payload: {
+        airport,
+        gates,
+        lockoutWeeks: lockoutWeeks ?? null,
+        lockedUntilWeek: lockoutWeeks ? week + lockoutWeeks : null,
+        name: nameOf?.get?.(airlineId) ?? null,
+      },
+    };
+  });
+}
 
 /** Rows for events that started or ended this week. */
 export function worldEventNewsRows({ worldId, week, prevEvents, nextEvents }) {

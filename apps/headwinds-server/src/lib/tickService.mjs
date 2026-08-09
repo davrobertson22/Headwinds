@@ -11,7 +11,7 @@
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
-import { GATE_AUCTION_OPEN_WEEK } from '@tailwinds/engine/data/airports.js';
+import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
 import {
@@ -27,12 +27,18 @@ import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
+  gateForfeitureNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
 // default 5s interactive-transaction timeout — at scale that timed out and rolled
 // the whole week back, so the world could never advance. Give it real headroom.
 const TICK_TX_OPTS = { timeout: 30_000, maxWait: 15_000 };
+
+// How many undrained toasts an airline's blob may carry between ticks. Only
+// reached by an airline nobody has opened in weeks; the news feed is the
+// durable record, so losing the oldest of a long backlog costs nothing.
+const TOAST_CARRY_CAP = 40;
 
 // ── Shared world economy (fuel + events) ──────────────────────────────────────
 // Without this, each airline rolled its OWN fuel price and its OWN events, so two
@@ -141,6 +147,28 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         marketIndex: worldMarket,
         incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0 },
     );
+    // ── Toast durability ─────────────────────────────────────────────────
+    // ADVANCE_WEEK REPLACES state.pendingToasts (see reducer.mjs). In SOLO that
+    // is correct and load-bearing: the app drains the queue the moment it
+    // renders, so the array is always empty when the next week starts, and the
+    // golden-master harness hashes a state that depends on the replace.
+    //
+    // Headwinds ticks server-side on a schedule with nobody watching, so the
+    // replace silently destroyed the previous week's toasts — a player away for
+    // two ticks only ever saw the most recent week. Carry the undrained ones
+    // forward HERE instead of changing the engine: CLEAR_TOASTS is an allowed
+    // player action (world.mjs), so the queue really is emptied server-side once
+    // the player has seen it, and solo behaviour is untouched.
+    //
+    // Capped because an airline nobody logs into never drains: keep the most
+    // recent TOAST_CARRY_CAP. Dropping the OLDEST is the right end to lose —
+    // "your gates were forfeited" is followed by a lockout the player can still
+    // see on the airport, and the durable record is the news feed either way.
+    const carried = airline.state?.pendingToasts ?? [];
+    if (carried.length > 0) {
+      next.pendingToasts = [...carried, ...(next.pendingToasts ?? [])].slice(-TOAST_CARRY_CAP);
+    }
+
     // Gate scarcity: rule-5 forfeitures happen inside ADVANCE_WEEK (gates
     // vanish from the blob). Diff pre/post so the world's gate ledger can be
     // reconciled after the commit — only for airlines whose write lands.
@@ -418,6 +446,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         }),
         ...rankChangeNewsRows({
           worldId: world.id, week: toIndex, prevTop5, nextTop5, nameOf,
+        }),
+        // Gate forfeitures, for the airlines whose write actually landed. The
+        // toast that used to be the only record of this is perishable; this is
+        // not.
+        ...gateForfeitureNewsRows({
+          worldId: world.id, week: toIndex, lockoutWeeks: GATE_LOCKOUT_WEEKS, nameOf,
+          releases: computed
+            .filter((c) => writtenIds.has(c.airline.id))
+            .flatMap((c) => c.gateReleases ?? []),
         }),
       ];
       if (newsRows.length > 0) await tx.worldNews.createMany({ data: newsRows });

@@ -4,8 +4,10 @@ import AirportDetail from './AirportDetail.jsx';
 import {
   AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName,
   gateCapacityOf, gateAirlineCapOf, GATE_HUB_GUARANTEE, GATE_SURCHARGE_MULT, GATE_BID_MAX_QTY,
+  GATE_IDLE_FORFEIT_WEEKS, GATE_IDLE_WARN_WEEKS,
 } from '../data/airports.js';
 import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
+import { GateDenialNote, DisabledHint, lockoutWeeksLeft, idleWeeksAt, idleWarningFor } from './GateDenial.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
 
@@ -42,6 +44,11 @@ function AvailabilityChips({ state, code }) {
   if (!state.gateScarcityWorld) return null;
   const { capacity, taken, m, full, surcharge } = capacityInfo(state, code);
   const nearly = !full && taken >= 0.9 * capacity;
+  // The rule-5 lockout was the ONE denial with no visual footprint at all —
+  // no chip, no count, nothing. It is the likeliest reason a player who holds
+  // no gates at an airport still cannot lease one.
+  const locked = lockoutWeeksLeft(state, code);
+  const idle   = idleWeeksAt(state, code);
   return (
     <>
       <span style={{ fontSize: 11, color: full ? 'var(--red)' : nearly ? 'var(--yellow)' : 'var(--text-dim)', whiteSpace: 'nowrap' }}>
@@ -50,6 +57,22 @@ function AvailabilityChips({ state, code }) {
       {full && <ScarcityChip color="var(--red)" bg="rgba(248,81,73,0.12)" border="rgba(248,81,73,0.35)" title="Every gate is taken — win one at auction or buy one from another airline">FULL</ScarcityChip>}
       {surcharge && <ScarcityChip color="var(--yellow)" bg="rgba(210,153,34,0.12)" border="rgba(210,153,34,0.4)" title={`Congestion surcharge: this airport is over 90% full — all gate fees here cost ${Math.round((GATE_SURCHARGE_MULT - 1) * 100)}% extra`}>+{Math.round((GATE_SURCHARGE_MULT - 1) * 100)}% fees</ScarcityChip>}
       {m?.auction && <ScarcityChip color="var(--accent)" bg="rgba(56,201,180,0.12)" border="rgba(56,201,180,0.4)" title="A gate auction is open — place a sealed bid in the Gate Market below">🔨 Auction</ScarcityChip>}
+      {locked > 0 && (
+        <ScarcityChip
+          color="var(--red)" bg="rgba(248,81,73,0.12)" border="rgba(248,81,73,0.35)"
+          title={`Your gates here were forfeited after ${GATE_IDLE_FORFEIT_WEEKS} weeks with no service. You can lease at ${code} again in ${locked} week${locked === 1 ? '' : 's'}.`}
+        >
+          🔒 Locked · {locked} wk
+        </ScarcityChip>
+      )}
+      {idle >= GATE_IDLE_WARN_WEEKS && locked === 0 && (
+        <ScarcityChip
+          color="var(--yellow)" bg="rgba(210,153,34,0.12)" border="rgba(210,153,34,0.4)"
+          title={idleWarningFor(state, code) ?? ''}
+        >
+          ⚠️ Idle {idle}/{GATE_IDLE_FORFEIT_WEEKS} wk
+        </ScarcityChip>
+      )}
     </>
   );
 }
@@ -152,6 +175,15 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
                     {r.isHub && <span title="Hub" style={{ color: 'var(--accent)', marginLeft: 4 }}>★</span>}
                     <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{r.city}</span>
                     <span style={{ marginLeft: 6 }}><TierBadge tier={r.tier} /></span>
+                    <GateDenialNote reason={r.addDenial} compact />
+                    {r.idleWarning && (
+                      <div style={{
+                        fontSize: 10, lineHeight: 1.35, color: 'var(--yellow)',
+                        marginTop: 3, maxWidth: 420, whiteSpace: 'normal',
+                      }}>
+                        ⚠️ {r.idleWarning}
+                      </div>
+                    )}
                   </td>
                   <td style={{ ...TD, color: 'var(--text-muted)' }}>{r.region}</td>
                   <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{r.count}</td>
@@ -193,19 +225,21 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
                       >
                         −
                       </button>
-                      <button
-                        className="btn btn-primary"
-                        style={{
-                          padding: '2px 8px', fontSize: 12,
-                          opacity: r.addDenial ? 0.35 : 1,
-                          cursor: r.addDenial ? 'not-allowed' : 'pointer',
-                        }}
-                        disabled={!!r.addDenial}
-                        title={r.addDenial ?? 'Lease one more gate'}
-                        onClick={() => onAdd(r.code)}
-                      >
-                        +
-                      </button>
+                      <DisabledHint title={r.addDenial}>
+                        <button
+                          className="btn btn-primary"
+                          style={{
+                            padding: '2px 8px', fontSize: 12,
+                            opacity: r.addDenial ? 0.35 : 1,
+                            cursor: r.addDenial ? 'not-allowed' : 'pointer',
+                          }}
+                          disabled={!!r.addDenial}
+                          title={r.addDenial ? undefined : 'Lease one more gate'}
+                          onClick={() => onAdd(r.code)}
+                        >
+                          +
+                        </button>
+                      </DisabledHint>
                     </div>
                   </td>
                 </tr>
@@ -615,7 +649,7 @@ function GateMarketSection({ state, remoteApi }) {
   );
 }
 
-export default function Airports() {
+export default function Airports({ initialRegion = null }) {
   const { state, dispatch, remoteApi } = useGame();
   const { gates = {}, routes, cargoRoutes = [], cash, hubs = {} } = state;
   const scarcity = !!state.gateScarcityWorld;
@@ -625,7 +659,7 @@ export default function Airports() {
     && Object.values(state.gateMarket?.airports ?? {}).some((m) => m?.auction);
   const addDenialFor = (code) => (scarcity ? gateLeaseDenial(state, code) : null);
   const [search, setSearch]                       = useState('');
-  const [regionFilter, setRegionFilter]           = useState(null); // null = show picker
+  const [regionFilter, setRegionFilter]           = useState(initialRegion); // null = show picker
   const [myGatesRegion, setMyGatesRegion]         = useState(null); // null = All
   const [selectedAirport, setSelectedAirport]     = useState(null);
   // 'table' scales to a big network (30+ airports of gates); phones default to
@@ -802,6 +836,12 @@ export default function Airports() {
                   canRemove:  used <= (count - 1) * SLOTS_PER_GATE,
                   isHub:      !!hubs[code],
                   addDenial:  addDenialFor(code),
+                  // Use-it-or-lose-it countdown. This is the ONLY place a
+                  // player can see a forfeiture coming: the warning toast the
+                  // engine raises at week 16 does not survive the next
+                  // server-side tick.
+                  idleWeeks:   idleWeeksAt(state, code),
+                  idleWarning: idleWarningFor(state, code),
                 };
               })}
               onAdd={code => dispatch({ type: 'ADD_GATE', airportCode: code })}
@@ -893,6 +933,12 @@ export default function Airports() {
                         <span>{count} gate{count > 1 ? 's' : ''} · {formatMoney(weeklyCost)}/wk ({formatMoney(weeklyCost * 4)}/mo)</span>
                         <AvailabilityChips state={state} code={code} />
                       </div>
+                      <GateDenialNote state={state} code={code} />
+                      {idleWarningFor(state, code) && (
+                        <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 3, lineHeight: 1.35 }}>
+                          ⚠️ {idleWarningFor(state, code)}
+                        </div>
+                      )}
                     </div>
 
                     {/* Add / remove / view buttons */}
@@ -907,19 +953,21 @@ export default function Airports() {
                       {(() => {
                         const denial = addDenialFor(code);
                         return (
-                          <button
-                            className="btn btn-primary"
-                            style={{
-                              padding: '4px 12px', fontSize: 12,
-                              opacity: denial ? 0.35 : 1,
-                              cursor: denial ? 'not-allowed' : 'pointer',
-                            }}
-                            disabled={!!denial}
-                            title={denial ?? 'Lease one more gate'}
-                            onClick={() => dispatch({ type: 'ADD_GATE', airportCode: code })}
-                          >
-                            + Gate
-                          </button>
+                          <DisabledHint title={denial}>
+                            <button
+                              className="btn btn-primary"
+                              style={{
+                                padding: '4px 12px', fontSize: 12,
+                                opacity: denial ? 0.35 : 1,
+                                cursor: denial ? 'not-allowed' : 'pointer',
+                              }}
+                              disabled={!!denial}
+                              title={denial ? undefined : 'Lease one more gate'}
+                              onClick={() => dispatch({ type: 'ADD_GATE', airportCode: code })}
+                            >
+                              + Gate
+                            </button>
+                          </DisabledHint>
                         );
                       })()}
                       <button
@@ -1079,6 +1127,10 @@ export default function Airports() {
                 const count      = gates[airport.code] ?? 0;
                 const weeklyCost = Math.round(gateMonthlyFee(airport, count + 1) / 4);
                 const held       = count > 0;
+                // Hoisted so the reason can style the whole row, not just grey
+                // out the button — a greyed button with no words next to it is
+                // what made this page unreadable in the first place.
+                const denial     = addDenialFor(airport.code);
 
                 return (
                   <div
@@ -1086,8 +1138,8 @@ export default function Airports() {
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '7px 10px', borderRadius: 'var(--radius)',
-                      background: held ? 'var(--surface2)' : 'var(--surface)',
-                      border: `1px solid ${held ? 'var(--accent-dim)' : 'var(--border)'}`,
+                      background: denial ? 'rgba(248,81,73,0.06)' : held ? 'var(--surface2)' : 'var(--surface)',
+                      border: `1px solid ${denial ? 'rgba(248,81,73,0.3)' : held ? 'var(--accent-dim)' : 'var(--border)'}`,
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1109,6 +1161,7 @@ export default function Airports() {
                         <span>{formatMoney(weeklyCost)}/wk · {SLOTS_PER_GATE} slots/gate</span>
                         <AvailabilityChips state={state} code={airport.code} />
                       </div>
+                      <GateDenialNote reason={denial} style={{ paddingLeft: 42 }} />
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 10 }}>
                       <button
@@ -1118,24 +1171,21 @@ export default function Airports() {
                       >
                         Details
                       </button>
-                      {(() => {
-                        const denial = addDenialFor(airport.code);
-                        return (
-                          <button
-                            className="btn btn-primary"
-                            style={{
-                              padding: '3px 10px', fontSize: 12,
-                              opacity: denial ? 0.35 : 1,
-                              cursor: denial ? 'not-allowed' : 'pointer',
-                            }}
-                            disabled={!!denial}
-                            title={denial ?? 'Lease a gate here'}
-                            onClick={() => dispatch({ type: 'ADD_GATE', airportCode: airport.code })}
-                          >
-                            + Gate
-                          </button>
-                        );
-                      })()}
+                      <DisabledHint title={denial}>
+                        <button
+                          className="btn btn-primary"
+                          style={{
+                            padding: '3px 10px', fontSize: 12,
+                            opacity: denial ? 0.35 : 1,
+                            cursor: denial ? 'not-allowed' : 'pointer',
+                          }}
+                          disabled={!!denial}
+                          title={denial ? undefined : 'Lease a gate here'}
+                          onClick={() => dispatch({ type: 'ADD_GATE', airportCode: airport.code })}
+                        >
+                          + Gate
+                        </button>
+                      </DisabledHint>
                     </div>
                   </div>
                 );

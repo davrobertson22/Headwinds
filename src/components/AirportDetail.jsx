@@ -10,6 +10,7 @@ import {
 } from '../models/demand.js';
 import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
+import { gateDenialFor, lockoutWeeksLeft, idleWarningFor } from './GateDenial.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -317,6 +318,43 @@ export default function AirportDetail({ code, onBack }) {
                 {gateAvail === 0 ? 'FULL' : `${gateAvail} open`}
               </span>
             </div>
+            {/* WHY_YOU_CANNOT_LEASE — the Details panel is where a player goes
+                after the "+ Gate" button refuses them, so the refusal has to be
+                answered HERE too, in the same words the server uses. */}
+            {(() => {
+              const denial = gateDenialFor(state, code);
+              if (!denial) return null;
+              const locked = lockoutWeeksLeft(state, code);
+              return (
+                <div style={{
+                  fontSize: 12, lineHeight: 1.5, marginBottom: 14, padding: '10px 12px',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid rgba(248,81,73,0.35)',
+                  background: 'rgba(248,81,73,0.08)', color: 'var(--text-muted)',
+                }}>
+                  <div style={{ color: 'var(--red)', fontWeight: 700, marginBottom: 4 }}>
+                    ⛔ You cannot lease a gate at {code} right now
+                  </div>
+                  <div style={{ color: 'var(--text)' }}>{denial}</div>
+                  {locked > 0 && (
+                    <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
+                      The lockout lifts on its own — nothing else is required of you, and no
+                      other airline (alliance partner or rival) can extend it.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {idleWarningFor(state, code) && (
+              <div style={{
+                fontSize: 12, lineHeight: 1.5, marginBottom: 14, padding: '10px 12px',
+                borderRadius: 'var(--radius)', border: '1px solid rgba(210,153,34,0.4)',
+                background: 'rgba(210,153,34,0.08)', color: 'var(--text-muted)',
+              }}>
+                <strong style={{ color: 'var(--yellow)' }}>⚠️ Use it or lose it · </strong>
+                {idleWarningFor(state, code)}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
               <Stat label="Total Gates" value={gateCap} sub="airport capacity" />
               <Stat label="Taken" value={gateTaken} color={gateTaken >= 0.9 * gateCap ? 'var(--yellow)' : 'var(--text)'} />
