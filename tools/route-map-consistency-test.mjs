@@ -100,6 +100,12 @@ for (const dest of SPOKES.slice(0, 2)) {
 const save = {
   ...freshState(),
   phase: 'playing', week: 20, year: 2, hub: HUB, cash: 20_000_000,
+  // FREQ=16 on a single tail is deliberately above the 140h weekly block-hour
+  // cap — the fixture wants capacity a contested pool cannot fill. Marking the
+  // save as already through the one-off over-cap trim keeps loading it from
+  // rewriting the frequencies under the suite; the subject here is the MAP
+  // agreeing with the engine, not the migration.
+  scheduleTrimVersion: 1,
   gates: { [HUB]: 12, ...Object.fromEntries(SPOKES.map(c => [c, 8])) },
   fleet,
   routes,

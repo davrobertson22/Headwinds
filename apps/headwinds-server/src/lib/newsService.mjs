@@ -310,6 +310,11 @@ function composeGroup(g) {
 }
 
 // ── The builder ──────────────────────────────────────────────────────────────
+// Categories stored in the worldNews table. Everything else in NEWS_CATEGORIES
+// is derived from a domain table (gate auctions, used-aircraft sales...), so a
+// category missing from this list means rows written under it are never read.
+const WORLD_NEWS_CATEGORIES = ['world', 'standings', 'airports'];
+
 /**
  * Compose a page of world news.
  *
@@ -393,10 +398,14 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
         orderBy: { soldAt: 'desc' },
         take,
       }) : [],
-      (want.has('world') || want.has('standings')) ? prisma.worldNews.findMany({
+      // Categories that live in the worldNews table rather than being derived
+      // from a domain table. 'airports' belongs here as well as in the gate
+      // auction/lease queries above: a rule-5 forfeiture has no row of its own
+      // anywhere else, so omitting it here wrote the notice and never read it.
+      WORLD_NEWS_CATEGORIES.some((c) => want.has(c)) ? prisma.worldNews.findMany({
         where: {
           worldId: world.id,
-          category: { in: [...want].filter((c) => c === 'world' || c === 'standings') },
+          category: { in: WORLD_NEWS_CATEGORIES.filter((c) => want.has(c)) },
           week: { gte: minWeek },
           ...at(),
         },
@@ -568,6 +577,42 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
  *
  * @param {Array<{airlineId, airportCode, count}>} releases  diffed pre/post tick
  */
+/**
+ * The one-off over-cap schedule trim, one row per AIRCRAFT (never one per
+ * frequency decrement). This migration edits schedules players paid launch
+ * costs for, so the record has to outlive the session — a toast is replaced by
+ * the next tick, and the player may not be logged in when the tick runs.
+ *
+ * category is 'world', not 'fleet'/'routes', because the worldNews query only
+ * fetches the 'world' and 'standings' buckets — a row written under any other
+ * category is stored and never read.
+ */
+export function scheduleTrimNewsRows({ worldId, week, notices }) {
+  return (notices ?? [])
+    .filter((n) => n?.airlineId && (n.cuts ?? []).length > 0)
+    .map((n) => ({
+      worldId, week, category: 'world', kind: 'schedule_trim', tier: 1,
+      airlineId: n.airlineId,
+      payload: {
+        aircraft:   n.tailNumber || n.name || null,
+        aircraftId: n.aircraftId ?? null,
+        name:       n.name ?? null,
+        tailNumber: n.tailNumber ?? null,
+        capHours:   n.capHours ?? null,
+        peakBefore: n.peakBefore ?? null,
+        peakAfter:  n.peakAfter ?? null,
+        cuts: (n.cuts ?? []).map((c) => ({
+          origin:        c.origin,
+          destination:   c.destination,
+          cargo:         !!c.cargo,
+          fromFrequency: c.fromFrequency,
+          toFrequency:   c.toFrequency,
+          closed:        !!c.closed,
+        })),
+      },
+    }));
+}
+
 export function gateForfeitureNewsRows({ worldId, week, releases, lockoutWeeks, nameOf }) {
   // One item per airport, not per gate.
   const byKey = new Map();

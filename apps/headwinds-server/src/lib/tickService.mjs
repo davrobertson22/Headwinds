@@ -9,6 +9,7 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
+import { applyScheduleTrimMigration } from '@tailwinds/engine/utils/simulation.js';
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
@@ -27,7 +28,7 @@ import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
-  gateForfeitureNewsRows,
+  gateForfeitureNewsRows, scheduleTrimNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
@@ -141,8 +142,17 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     // Seeded on the airline ID, not on its state, so a recompute of the same
     // airline in the same week reproduces the identical print.
     const valuationNoise = (seededRand(world.worldSeed ?? world.id, `mcnoise:${toIndex}:${airline.id}`) * 2 - 1) * VALUATION.NOISE_PCT;
+    // ── One-off schedule trim (see simulation.js applyScheduleTrimMigration) ──
+    // The SERVER blob is authoritative, so the migration has to happen here: a
+    // player who never opens the client still gets migrated, and every client
+    // that polls afterwards adopts the trimmed schedule rather than fighting it.
+    // Pure, version-stamped and deterministic, so running it again in the
+    // recompute pass below (or on the client's own load) is a no-op.
+    const preState = applyScheduleTrimMigration(airline.state);
+    const trimNotices = preState === airline.state ? []
+      : (preState.scheduleTrimNotices ?? []).slice((airline.state?.scheduleTrimNotices ?? []).length);
     const next = gameReducer(
-      withRivals(airline.state, rivalViews.get(airline.id)),
+      withRivals(preState, rivalViews.get(airline.id)),
       { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
         marketIndex: worldMarket,
         incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0 },
@@ -189,6 +199,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // A dividend this airline just declared, for cross-player settlement below.
       dividend: next.lastReport?.dividend ?? null,
       consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
+      // Aircraft whose schedule this tick trimmed, for the news feed below.
+      trimNotices,
       cash: safeInt(next.cash),
       marketCap: safeInt(next.marketCap),
       // Leaderboard metric: per-share value including lifetime dividends.
@@ -455,6 +467,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           releases: computed
             .filter((c) => writtenIds.has(c.airline.id))
             .flatMap((c) => c.gateReleases ?? []),
+        }),
+        // The one-off over-cap schedule trim. This edits schedules the player
+        // paid launch costs for, so it gets a durable, per-aircraft record —
+        // a toast would be gone by the next tick.
+        ...scheduleTrimNewsRows({
+          worldId: world.id, week: toIndex,
+          notices: computed
+            .filter((c) => writtenIds.has(c.airline.id))
+            .flatMap((c) => (c.trimNotices ?? []).map((n) => ({ ...n, airlineId: c.airline.id }))),
         }),
       ];
       if (newsRows.length > 0) await tx.worldNews.createMany({ data: newsRows });

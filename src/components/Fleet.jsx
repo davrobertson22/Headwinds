@@ -9,7 +9,7 @@ import {
   simulateRoute, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
-  freighterLandingCategory,
+  freighterLandingCategory, aircraftUtilization,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { ReserveBadge } from './ReserveNotice.jsx';
@@ -42,6 +42,87 @@ const CABIN_LABELS = {
   firstClass: 'First', businessClass: 'Business',
   premiumEconomy: 'Prem-Eco', economy: 'Economy',
 };
+
+// ── Utilisation, read one way everywhere ─────────────────────────────────────
+// Every utilisation figure on this page comes from aircraftUtilization() in the
+// engine, which answers the question the way the weekly tick answers it: the
+// routes that OPERATE THIS MONTH, leg by leg, and nothing at all for an
+// aircraft that is out of service. Summing the whole year at the direct O&D
+// distance — what this file used to do in five separate places — showed a legal
+// 138h airframe as 264h, and the Math.min(100, …) bar saturated so 145h and
+// 278h drew the same rectangle.
+const utilFor = (state, aircraft, month) => aircraftUtilization({
+  aircraft,
+  type:        getAircraftType(aircraft?.typeId),
+  routes:      state.routes ?? [],
+  cargoRoutes: state.cargoRoutes ?? [],
+  month,
+  capHours:    maxWeeklyBlockHoursFor(state),
+});
+
+/** Bar width % — full (not clipped-and-forgotten) once the cap is breached. */
+const utilBarWidth = (pct) => `${Math.max(0, Math.min(100, pct * 100))}%`;
+
+/** Colour ramp. Over-cap gets its own colour so it cannot read as "healthy busy". */
+const OVER_CAP_COLOR = 'var(--red)';
+function utilColorFor(pct, overCap) {
+  if (overCap) return OVER_CAP_COLOR;
+  return pct >= 0.95 ? 'var(--red)' : pct >= 0.75 ? 'var(--yellow)' : 'var(--accent)';
+}
+
+/**
+ * The utilisation bar + figure, used by the fleet table and the detail card.
+ * Over the cap it renders "278h / 140h" beside a full, hatched bar, so the one
+ * visual that should scream cannot flatline into looking like 145h.
+ */
+function UtilBar({ util, width = 44, height = 4, fontSize = 11 }) {
+  const { flyingHours, peakHours, capHours, overCap, grounded, seasonal, peakMonth } = util;
+  // The figure is always THIS month's flying — printing a July peak in May would
+  // put the screen back out of step with the tick. A tail that only breaches in
+  // some other month is flagged, not restated.
+  const shown    = flyingHours;
+  const overNow  = !grounded && shown > capHours + 1e-6;
+  const overSoon = overCap && !overNow;
+  const pct      = shown / capHours;
+  const colour   = utilColorFor(pct, overNow);
+  const title  = overNow
+    ? `Over the ${capHours}h weekly block-hour limit by ${(shown - capHours).toFixed(1)}h — trim frequency or move a route to another tail`
+    : overSoon
+      ? `Scheduled over the ${capHours}h limit in ${UTIL_MONTH_NAMES[peakMonth - 1]} (${peakHours.toFixed(1)}h)`
+      : grounded
+        ? `Out of service — flying nothing this week; its schedule is ${peakHours.toFixed(1)}h/wk when it returns`
+        : seasonal
+          ? `${flyingHours.toFixed(1)}h this month; busiest month (${UTIL_MONTH_NAMES[peakMonth - 1]}) is ${peakHours.toFixed(1)}h of a ${capHours}h limit`
+          : `${flyingHours.toFixed(1)}h of a ${capHours}h weekly block-hour limit`;
+  // Over the cap the bar is FULL — but the share of it that is illegal is drawn
+  // hatched, so a tail at 141h and one at 271h no longer draw the same
+  // rectangle. That saturation (a bare Math.min(100, …)) is what let eight
+  // over-cap airframes look like eight busy ones.
+  const overrunShare = overNow && shown > 0 ? Math.min(1, (shown - capHours) / shown) : 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} title={title}>
+      <div style={{ width, height, borderRadius: 2, background: 'var(--surface3)', overflow: 'hidden', display: 'flex' }}>
+        {overNow ? (
+          <>
+            <div style={{ height: '100%', width: `${(1 - overrunShare) * 100}%`, background: OVER_CAP_COLOR }} />
+            <div style={{
+              height: '100%', width: `${overrunShare * 100}%`,
+              background: `repeating-linear-gradient(45deg, ${OVER_CAP_COLOR} 0 2px, rgba(0,0,0,0.45) 2px 4px)`,
+            }} />
+          </>
+        ) : (
+          <div style={{ height: '100%', width: utilBarWidth(pct), borderRadius: 2, background: colour }} />
+        )}
+      </div>
+      <span style={{ fontSize, color: colour, fontWeight: overNow ? 700 : 400 }}>
+        {shown.toFixed(0)}h{overNow ? ` / ${capHours}h` : ''}{overSoon ? ' ⚠' : ''}
+      </span>
+    </div>
+  );
+}
+
+const UTIL_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December'];
 
 // Clickable column header for the fleet table. Click to sort by that column,
 // click again to flip the direction.
@@ -425,11 +506,14 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const ageColor    = ageYrs < 5 ? 'var(--green)' : ageYrs < 12 ? 'var(--yellow)' : 'var(--red)';
 
   // Aggregate across all routes
-  const totalBlockHrs  = routeResults.reduce((s, { blockHrs }) => s + blockHrs, 0);
+  // Utilisation comes from the shared reading, not from the per-route sim rows:
+  // those cover passenger routes only, and they carry no season or cover logic.
+  const util           = utilFor(state, aircraft, gd.month);
+  const totalBlockHrs  = util.flyingHours;
   const totalRevenue   = routeResults.reduce((s, { result }) => s + result.revenue, 0);
   const totalOpCost    = routeResults.reduce((s, { result }) => s + result.totalOpCost, 0);
-  const blockPct       = totalBlockHrs / bhCap;
-  const blockColor     = blockPct >= 0.95 ? 'var(--red)' : blockPct >= 0.75 ? 'var(--yellow)' : 'var(--accent)';
+  const blockPct       = util.pct;
+  const blockColor     = utilColorFor(blockPct, util.overCap);
 
   const weeklyTotal   = weeklyLease + weeklyMaint + totalOpCost;
   const weeklyProfit  = totalRevenue - weeklyTotal;
@@ -594,15 +678,31 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
       }}>
         {/* Utilisation */}
         <div className="stat-box" style={{ padding: '12px 14px' }}>
-          <div className="stat-label">Utilisation ({aircraftRoutes.length} route{aircraftRoutes.length !== 1 ? 's' : ''})</div>
-          <div style={{ fontWeight: 700, fontSize: 17, color: totalBlockHrs > 0 ? blockColor : 'var(--text-muted)', marginTop: 4 }}>
+          <div className="stat-label">Utilisation ({util.routes.length} route{util.routes.length !== 1 ? 's' : ''})</div>
+          <div style={{ fontWeight: 700, fontSize: 17, color: totalBlockHrs > 0 || util.overCap ? blockColor : 'var(--text-muted)', marginTop: 4 }}>
             {totalBlockHrs.toFixed(1)}h
             <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}> / {bhCap}h</span>
           </div>
           <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
-            <div style={{ height: '100%', width: `${Math.min(100, blockPct * 100)}%`, background: totalBlockHrs > 0 ? blockColor : 'var(--surface3)', borderRadius: 2, transition: 'width 0.3s' }} />
+            <div style={{
+              height: '100%', borderRadius: 2, transition: 'width 0.3s',
+              width: utilBarWidth(blockPct),
+              background: blockPct > 1
+                ? `repeating-linear-gradient(45deg, ${OVER_CAP_COLOR} 0 3px, rgba(0,0,0,0.35) 3px 6px)`
+                : (totalBlockHrs > 0 ? blockColor : 'var(--surface3)'),
+            }} />
           </div>
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>block hrs/wk across all routes</div>
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
+            {blockPct > 1
+              ? `over the ${bhCap}h weekly limit by ${(totalBlockHrs - bhCap).toFixed(1)}h — trim frequency or move a route`
+              : util.overCap
+                ? `⚠ scheduled over the ${bhCap}h limit in ${UTIL_MONTH_NAMES[util.peakMonth - 1]} (${util.peakHours.toFixed(1)}h)`
+                : util.grounded
+                  ? `out of service — ${util.peakHours.toFixed(1)}h/wk scheduled for its return`
+                  : util.seasonal
+                    ? `block hrs/wk this month · peak ${util.peakHours.toFixed(1)}h in ${UTIL_MONTH_NAMES[util.peakMonth - 1]}`
+                    : 'block hrs/wk across all routes'}
+          </div>
         </div>
 
         {/* Age */}
@@ -914,6 +1014,7 @@ const CATEGORY_ORDER = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body']
 function FleetByType({ fleet, routes, cargoRoutes = [] }) {
   const { state } = useGame();
   const bhCap = maxWeeklyBlockHoursFor(state);
+  const gameMonth = currentGameDate(state).month;
   const gd = { year: 1, week: 1 }; // just for label purposes
   // Group by typeId
   const groups = {};
@@ -963,16 +1064,13 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
           return s + lease + maint;
         }, 0);
 
-        // Avg utilisation
-        const allBlockHrs = aircraft.map(a => {
-          const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
-          return type
-            ? aRoutes.reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0)
-            : 0;
-        });
-        const avgBlock  = allBlockHrs.reduce((s, h) => s + h, 0) / count;
+        // Avg utilisation — the shared reading, so this agrees with the table.
+        const utils     = aircraft.map(a => utilFor(state, a, gameMonth));
+        const avgBlock  = utils.reduce((s, u) => s + u.flyingHours, 0) / count;
+        const anyOver   = utils.some(u => u.overCap);
         const avgPct    = avgBlock / bhCap;
-        const blockColor = avgPct >= 0.8 ? 'var(--red)' : avgPct >= 0.5 ? 'var(--yellow)' : avgPct > 0 ? 'var(--accent)' : 'var(--surface3)';
+        const blockColor = anyOver ? OVER_CAP_COLOR
+          : avgPct >= 0.8 ? 'var(--red)' : avgPct >= 0.5 ? 'var(--yellow)' : avgPct > 0 ? 'var(--accent)' : 'var(--surface3)';
 
         return (
           <div key={typeId} className="card" style={{ padding: '16px 18px', borderTop: `3px solid ${catColor}` }}>
@@ -1004,10 +1102,12 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
             <div style={{ marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
                 <span>Avg utilisation</span>
-                <span style={{ color: blockColor, fontWeight: 600 }}>{avgBlock.toFixed(1)}h / {bhCap}h</span>
+                <span style={{ color: blockColor, fontWeight: 600 }}>
+                  {avgBlock.toFixed(1)}h / {bhCap}h{anyOver ? ' ⚠' : ''}
+                </span>
               </div>
               <div style={{ height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, avgPct * 100)}%`, background: blockColor, borderRadius: 3, transition: 'width 0.3s' }} />
+                <div style={{ height: '100%', width: utilBarWidth(avgPct), background: blockColor, borderRadius: 3, transition: 'width 0.3s' }} />
               </div>
             </div>
 
@@ -1065,6 +1165,7 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
 function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
   const { state } = useGame();
   const bhCap = maxWeeklyBlockHoursFor(state);
+  const gameMonth = currentGameDate(state).month;
   const categories = CATEGORY_ORDER.filter(cat =>
     fleet.some(a => getAircraftType(a.typeId)?.category === cat)
   );
@@ -1135,15 +1236,13 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
           return s + lease + maint;
         }, 0);
 
-        // Avg utilisation
-        const avgBlock = catFleet.reduce((s, a) => {
-          const t = getAircraftType(a.typeId);
-          const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
-          const bh = t ? aRoutes.reduce((x, r) => x + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0) : 0;
-          return s + bh;
-        }, 0) / catFleet.length;
+        // Avg utilisation — the shared reading, so this agrees with the table.
+        const catUtils  = catFleet.map(a => utilFor(state, a, gameMonth));
+        const avgBlock  = catUtils.reduce((s, u) => s + u.flyingHours, 0) / catFleet.length;
+        const anyOver   = catUtils.some(u => u.overCap);
         const avgPct    = avgBlock / bhCap;
-        const blockColor = avgPct >= 0.8 ? 'var(--red)' : avgPct >= 0.5 ? 'var(--yellow)' : avgPct > 0 ? 'var(--accent)' : 'var(--surface3)';
+        const blockColor = anyOver ? OVER_CAP_COLOR
+          : avgPct >= 0.8 ? 'var(--red)' : avgPct >= 0.5 ? 'var(--yellow)' : avgPct > 0 ? 'var(--accent)' : 'var(--surface3)';
 
         return (
           <div key={cat} className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -1177,7 +1276,7 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Avg utilisation</div>
                   <div style={{ fontWeight: 600, color: blockColor, marginTop: 2 }}>{avgBlock.toFixed(1)}h / wk</div>
                   <div style={{ height: 3, background: 'var(--surface3)', borderRadius: 2, marginTop: 4, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.min(100, avgPct * 100)}%`, background: blockColor, borderRadius: 2 }} />
+                    <div style={{ height: '100%', width: utilBarWidth(avgPct), background: blockColor, borderRadius: 2 }} />
                   </div>
                 </div>
                 <div>
@@ -1244,6 +1343,7 @@ export default function Fleet() {
   const confirm = useConfirm();
   const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week } = state;
   const bhCap = maxWeeklyBlockHoursFor(state);
+  const gameMonth = currentGameDate(state).month;
   const nowAbs = absoluteWeek(year, week);
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
@@ -1422,14 +1522,13 @@ export default function Fleet() {
       case 'age': return a.ageWeeks ?? 0;
       // Owned aircraft sort last: they have no lease clock to run out.
       case 'lease': return leaseRemainingWeeks(a) ?? Number.POSITIVE_INFINITY;
+      // Sort by the same number the column prints — an over-cap tail sorts by
+      // the hours it is actually breaching the cap with, so "sort by UTIL." puts
+      // the offenders on top instead of scattering them.
       case 'util': {
         if (!t) return 0;
-        const assigned = [
-          ...routes.filter(r => r.aircraftId === a.id),
-          ...cargoRoutes.filter(r => r.aircraftId === a.id),
-        ];
-        return assigned.reduce((s, r) =>
-          s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0);
+        const u = utilFor(state, a, gameMonth);
+        return u.overCap ? Math.max(u.flyingHours, u.peakHours) : u.flyingHours;
       }
       case 'fixed': {
         const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
@@ -1670,21 +1769,20 @@ export default function Fleet() {
           const catColor = CAT_COLORS[type?.category] || '#93a4ba';
           const count = aircraft.length;
           const avgAgeYrs = aircraft.reduce((s, a) => s + (a.ageWeeks ?? 0), 0) / count / 52;
-          const allBH = aircraft.map(a => {
-            const aRoutes = [...routes, ...cargoRoutes].filter(r => r.aircraftId === a.id);
-            return type ? aRoutes.reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0) : 0;
-          });
-          const avgUtil = allBH.reduce((s, h) => s + h, 0) / count / bhCap;
+          const chipUtils = aircraft.map(a => utilFor(state, a, gameMonth));
+          const avgUtil   = chipUtils.reduce((s, u) => s + u.flyingHours, 0) / count / bhCap;
+          const anyOver   = chipUtils.some(u => u.overCap);
           const idle = aircraft.filter(a => a.status === 'idle' && !isReserve(a)).length;
           const res  = aircraft.filter(a => isReserve(a)).length;
-          return { typeId, type, catColor, count, avgAgeYrs, avgUtil, idle, res };
+          return { typeId, type, catColor, count, avgAgeYrs, avgUtil, anyOver, idle, res };
         });
         const isActive = (tid) => filterTypeId === tid;
         return (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-            {typeSummaries.map(({ typeId, type, catColor, count, avgAgeYrs, avgUtil, idle, res }) => {
+            {typeSummaries.map(({ typeId, type, catColor, count, avgAgeYrs, avgUtil, anyOver, idle, res }) => {
               const active = isActive(typeId);
-              const utilColor = avgUtil >= 0.8 ? 'var(--red)' : avgUtil >= 0.5 ? 'var(--yellow)' : avgUtil > 0 ? 'var(--accent)' : 'var(--text-dim)';
+              const utilColor = anyOver ? OVER_CAP_COLOR
+                : avgUtil >= 0.8 ? 'var(--red)' : avgUtil >= 0.5 ? 'var(--yellow)' : avgUtil > 0 ? 'var(--accent)' : 'var(--text-dim)';
               return (
                 <button
                   key={typeId}
@@ -1708,14 +1806,14 @@ export default function Fleet() {
                     }}>×{count}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 10, fontSize: 11, color: 'var(--text-muted)' }}>
-                    <span style={{ color: utilColor, fontWeight: 600 }}>{(avgUtil * 100).toFixed(0)}% util</span>
+                    <span style={{ color: utilColor, fontWeight: 600 }}>{(avgUtil * 100).toFixed(0)}% util{anyOver ? ' ⚠' : ''}</span>
                     <span>{avgAgeYrs < 1 ? '<1yr' : `${avgAgeYrs.toFixed(1)}yr`} avg</span>
                     {idle > 0 && <span style={{ color: 'var(--yellow)' }}>{idle} idle</span>}
                     {res > 0 && <span style={{ color: 'var(--accent)' }}>{res} reserve</span>}
                   </div>
                   {/* Mini util bar */}
                   <div style={{ height: 3, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${Math.min(100, avgUtil * 100)}%`, background: utilColor, borderRadius: 2 }} />
+                    <div style={{ height: '100%', width: utilBarWidth(avgUtil), background: utilColor, borderRadius: 2 }} />
                   </div>
                 </button>
               );
@@ -2122,18 +2220,11 @@ export default function Fleet() {
               const ageYrs = ageWks / 52;
               const ageColor = ageYrs < 5 ? 'var(--green)' : ageYrs < 12 ? 'var(--yellow)' : 'var(--red)';
 
-              // Block hours — sum across ALL routes (passenger + cargo) for this aircraft
+              // Utilisation — one reading, the same one the tick uses.
+              const util = utilFor(state, aircraft, gameMonth);
               const allRoutes = routes.filter(r => r.aircraftId === aircraft.id);
               const allCargo  = cargoRoutes.filter(r => r.aircraftId === aircraft.id);
               const assignedRoutes = [...allRoutes, ...allCargo];
-              const blockHrs = type
-                ? assignedRoutes.reduce((s, r) => {
-                    const dist = routeDistanceKm(r.origin, r.destination);
-                    return s + weeklyBlockHours(dist, r.weeklyFrequency, type);
-                  }, 0)
-                : 0;
-              const blockPct   = blockHrs / bhCap;
-              const blockColor = blockPct >= 0.95 ? 'var(--red)' : blockPct >= 0.75 ? 'var(--yellow)' : 'var(--accent)';
 
               // Cabin summary
               const cfg = aircraft.config;
@@ -2195,15 +2286,15 @@ export default function Fleet() {
                     <span style={{ color: ageColor, fontWeight: 600 }}>{ageLabel(ageWks)}</span>
                   </td>
                   <td>
-                    {blockHrs > 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ width: 44, height: 4, borderRadius: 2, background: 'var(--surface3)', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${Math.min(100, blockPct * 100)}%`, background: blockColor, borderRadius: 2 }} />
-                        </div>
-                        <span style={{ fontSize: 11, color: blockColor }}>{blockHrs.toFixed(0)}h</span>
-                      </div>
+                    {(util.flyingHours > 0 || util.overCap) ? (
+                      <UtilBar util={util} />
                     ) : (
-                      <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>—</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-dim)' }}
+                            title={util.grounded && util.peakHours > 0
+                              ? `Out of service — flying nothing this week; its schedule is ${util.peakHours.toFixed(1)}h/wk when it returns`
+                              : util.peakHours > 0
+                                ? `Dormant this month; ${util.peakHours.toFixed(1)}h/wk in its season`
+                                : undefined}>—</span>
                     )}
                   </td>
                   <td style={{ color: 'var(--red)', fontSize: 12 }}>

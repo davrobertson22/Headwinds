@@ -132,8 +132,13 @@ test('a plane with no block hours left is not offered', () => {
   const t = AIRCRAFT_TYPES.find(x => x.id === jet.id);
   assert.ok(t, 'jet type missing');
   // Saturate the hub plane: enough frequency to blow past the weekly cap.
+  // scheduleTrimVersion marks the save as already through the one-off over-cap
+  // migration, so loading it leaves this deliberately-over-cap fixture alone —
+  // the subject here is the PICKER, not the migration. A real save in this shape
+  // is an NWR tail grandfathered above its world's scheduling ceiling.
   const saturated = {
     ...save,
+    scheduleTrimVersion: 1,
     routes: [
       { ...save.routes[0], weeklyFrequency: 21 },
       { id: 'r1b', origin: HUB, destination: FAR1, aircraftId: 'ac_hub', weeklyFrequency: 21, weeksOpen: 20, hub: HUB, ticketPrice: 300, cateringLevel: 'full' },

@@ -17,7 +17,8 @@ import {
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
   MAX_ROUTE_STOPS,
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
-  isRouteActive, routeActiveMonths, aircraftHubMaintFactor,
+  isRouteActive, routeActiveMonths, aircraftHubMaintFactor, routesCommittedTo,
+  applyScheduleTrimMigration,
   applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
@@ -131,18 +132,22 @@ export function transferCompatibility(state, fromAircraftId, toAircraftId) {
   const toType   = to   ? getAircraftType(to.typeId)   : null;
   if (!from || !to || !fromType || !toType) return { ok: false, reason: 'Aircraft not found' };
 
-  const paxRoutes   = state.routes.filter(r => r.aircraftId === fromAircraftId);
-  const cargoRoutes = (state.cargoRoutes ?? []).filter(r => r.aircraftId === fromAircraftId);
-  const all = [...paxRoutes, ...cargoRoutes];
+  const all = routesCommittedTo(fromAircraftId, state.routes, state.cargoRoutes ?? []);
+  const paxRoutes   = all.filter(r => !(state.cargoRoutes ?? []).some(c => c.id === r.id));
+  const cargoRoutes = all.filter(r =>  (state.cargoRoutes ?? []).some(c => c.id === r.id));
   if (all.length === 0) return { ok: false, reason: 'No routes to transfer' };
   // Reserve covers are engine-managed temporary assignments — the routes
-  // belong to the broken tail and go home when it returns. Not transferable.
+  // belong to the broken tail and go home when it returns. Not transferable,
+  // in either direction: a route this tail is FLYING as a cover, and a route of
+  // its own that a reserve is currently covering, both stay put.
   if (all.some(r => r.coverForAircraftId)) return { ok: false, reason: 'Covering for an out-of-service aircraft' };
 
   // Target must be an open tail — a swap, not a merge onto a working aircraft.
-  const targetBusy = state.routes.some(r => r.aircraftId === toAircraftId)
-    || (state.cargoRoutes ?? []).some(r => r.aircraftId === toAircraftId);
-  if (targetBusy) return { ok: false, reason: 'Already flying routes' };
+  // "Open" means nothing is committed to it, including a network of its own
+  // that a reserve happens to be covering right now.
+  if (routesCommittedTo(toAircraftId, state.routes, state.cargoRoutes ?? []).length > 0) {
+    return { ok: false, reason: 'Already flying routes' };
+  }
 
   // Pax routes need a passenger aircraft; cargo routes need a freighter.
   if (paxRoutes.length   > 0 && toType.freighter)  return { ok: false, reason: 'Freighter — passenger routes need a passenger aircraft' };
@@ -244,7 +249,7 @@ export function reassignCompatibility(state, routeId, toAircraftId) {
 
   // Block hours: this route ON TOP of whatever the target already flies, at the
   // per-month peak so counter-seasonal routes that never overlap can share.
-  const targetRoutes = [...paxRoutes, ...cargoRoutes].filter(r => r.aircraftId === toAircraftId);
+  const targetRoutes = routesCommittedTo(toAircraftId, paxRoutes, cargoRoutes);
   const withRoute    = [...targetRoutes, route];
   const months12     = Array.from({ length: 12 }, (_, i) => i + 1);
   const peakOf = (list) => Math.max(...months12.map(m => list
@@ -352,11 +357,23 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
         { routes: state.routes, excludeKey: pairKey, aircraftType: type })) return 'Regulatory frequency cap on this route';
 
   // Block-hours on this aircraft, per-month peak, with this route at the new freq.
-  const acRoutes = state.routes.filter(r => r.aircraftId === route.aircraftId);
-  const peakBlockHrs = Math.max(0, ...months.map(m =>
-    acRoutes.filter(r => isRouteActive(r, m)).reduce((s, r) =>
-      s + routeBlockHours(r, type, freqOf(r)), 0)));
-  if (peakBlockHrs > maxWeeklyBlockHoursFor(state)) return "Aircraft's weekly block-hour limit";
+  // Counts the tail's WHOLE committed schedule (passenger + cargo, including any
+  // routes a reserve is covering for it), not just what it happens to fly today.
+  const acRoutes = routesCommittedTo(route.aircraftId, state.routes, state.cargoRoutes ?? []);
+  const peakOn = (t, list) => Math.max(0, ...months.map(m =>
+    list.filter(r => isRouteActive(r, m)).reduce((s, r) =>
+      s + routeBlockHours(r, t, freqOf(r)), 0)));
+  if (peakOn(type, acRoutes) > maxWeeklyBlockHoursFor(state)) return "Aircraft's weekly block-hour limit";
+  // If this route is out on COVER, the extra frequency comes home to the
+  // original tail when the cover ends — so it has to fit there too.
+  if (route.coverForAircraftId) {
+    const orig     = state.fleet.find(a => a.id === route.coverForAircraftId);
+    const origType = orig ? getAircraftType(orig.typeId) : null;
+    if (origType && peakOn(origType, routesCommittedTo(orig.id, state.routes, state.cargoRoutes ?? []))
+          > maxWeeklyBlockHoursFor(state)) {
+      return "Aircraft's weekly block-hour limit";
+    }
+  }
 
   // Gate slots at each endpoint, per-month peak.
   const gates = state.gates ?? {};
@@ -426,7 +443,7 @@ export function addRouteBlockReason(state, action) {
   }
 
   // ── Block-hours on this airframe, per-month peak across its routes ─────────
-  const acRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
+  const acRoutes = routesCommittedTo(action.aircraftId, state.routes, state.cargoRoutes ?? []);
   const newBlockHrs = weeklyBlockHours(dist, weeklyFrequency, type);
   const maxBlockHrs = maxWeeklyBlockHoursFor(state);
   const peakBlockHrs = Math.max(0, ...newMonths.map(m =>
@@ -440,7 +457,7 @@ export function addRouteBlockReason(state, action) {
   // ── Network connectivity: a plane that already flies can only extend its ───
   // network from an airport it already serves — no teleporting.
   if (acRoutes.length > 0) {
-    const served = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
+    const served = new Set(acRoutes.flatMap(r => routeStops(r)));
     if (!served.has(action.origin) && !served.has(action.destination)) {
       return `${tail} doesn't serve ${action.origin} or ${action.destination} — an aircraft can only add a route that touches its existing network`;
     }
@@ -507,9 +524,10 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
   const type = ac ? getAircraftType(ac.typeId) : null;
   if (!type) return null; // no freighter/type → nothing to enforce
 
-  // Block-hours on this freighter, with this route at the new freq.
-  const otherBlockHrs = (state.cargoRoutes ?? [])
-    .filter(r => r.aircraftId === route.aircraftId && r.id !== route.id)
+  // Block-hours on this freighter, with this route at the new freq. Counts the
+  // whole committed schedule, including routes a reserve is covering for it.
+  const otherBlockHrs = routesCommittedTo(route.aircraftId, state.routes, state.cargoRoutes ?? [])
+    .filter(r => r.id !== route.id)
     .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
   if (otherBlockHrs + routeBlockHours(route, type, target) > maxWeeklyBlockHoursFor(state))
     return "Freighter's weekly block-hour limit — add another freighter for more frequency";
@@ -1761,14 +1779,14 @@ function reducer(state, action) {
               { routes: state.routes, excludeKey: pk, aircraftType: type })) return state;
       }
 
-      // ── Block hours: cumulative across this aircraft's routes, legs-aware ──
-      const existingBlockHrs = state.routes
-        .filter(r => r.aircraftId === action.aircraftId)
+      // ── Block hours: cumulative across this aircraft's COMMITTED routes,
+      //    legs-aware (and including any a reserve is covering for it) ──
+      const existingBlockHrs = routesCommittedTo(action.aircraftId, state.routes, state.cargoRoutes ?? [])
         .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
       if (existingBlockHrs + routeBlockHours(proto, type, weeklyFrequency) > maxWeeklyBlockHoursFor(state)) return state;
 
       // ── Connectivity: a plane already flying can only extend from a served stop ──
-      const aircraftRoutes = state.routes.filter(r => r.aircraftId === action.aircraftId);
+      const aircraftRoutes = routesCommittedTo(action.aircraftId, state.routes, state.cargoRoutes ?? []);
       if (aircraftRoutes.length > 0) {
         const served = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
         if (!stops.some(c => served.has(c))) return state;
@@ -2041,14 +2059,15 @@ function reducer(state, action) {
       if (checkRouteRestrictions(action.origin, action.destination, dist, existingPairFreq + weeklyFrequency,
             freighterBodyClass(type), { routes: allOps, excludeKey: pairKey, aircraftType: type })) return state;
 
-      // Block-hours across this freighter's existing cargo routes.
-      const existingBlockHrs = (state.cargoRoutes ?? [])
-        .filter(r => r.aircraftId === action.aircraftId)
+      // Block-hours across everything committed to this freighter — its cargo
+      // network, anything a reserve is covering for it, and (defensively) any
+      // passenger route that ever reached it.
+      const existingBlockHrs = routesCommittedTo(action.aircraftId, state.routes, state.cargoRoutes ?? [])
         .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0);
       if (existingBlockHrs + weeklyBlockHours(dist, weeklyFrequency, type) > maxWeeklyBlockHoursFor(state)) return state;
 
       // Network connectivity: a freighter already flying can only extend from airports it serves.
-      const acCargoRoutes = (state.cargoRoutes ?? []).filter(r => r.aircraftId === action.aircraftId);
+      const acCargoRoutes = routesCommittedTo(action.aircraftId, state.routes, state.cargoRoutes ?? []);
       if (acCargoRoutes.length > 0) {
         const served = new Set(acCargoRoutes.flatMap(r => [r.origin, r.destination]));
         if (!served.has(action.origin) && !served.has(action.destination)) return state;
@@ -2136,8 +2155,8 @@ function reducer(state, action) {
         // what lets an over-cap grandfathered freighter (NWR dropped the cap
         // under its existing schedule) ratchet its hours DOWN without being
         // told it exceeds the very limit it is trying to move toward.
-        const otherBlockHrs = (state.cargoRoutes ?? [])
-          .filter(r => r.aircraftId === targetRoute.aircraftId && r.id !== targetRoute.id)
+        const otherBlockHrs = routesCommittedTo(targetRoute.aircraftId, state.routes, state.cargoRoutes ?? [])
+          .filter(r => r.id !== targetRoute.id)
           .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
         if (otherBlockHrs + routeBlockHours(targetRoute, type, newFreq) > maxWeeklyBlockHoursFor(state)) return state;
 
@@ -5339,7 +5358,13 @@ function reconcileState(parsed) {
     return normalizeRouteStops(base);
   });
 
-  return {
+  // 8. One-off: trim schedules already flying past the PHYSICAL block-hour cap.
+  //    Applied at the very end so it sees the cleaned fleet/route lists, and
+  //    stamped with a version so it can never run twice on the same save. In
+  //    multiplayer the SERVER runs the same pure function on the authoritative
+  //    blob (apps/headwinds-server/src/lib/tickService.mjs) — this is the client
+  //    /solo path and the two are deterministic, so they converge.
+  const reconciled = {
     ...parsed,
     fleet:            cleanFleet,
     routes:           normalizedRoutes,
@@ -5441,4 +5466,5 @@ function reconcileState(parsed) {
     // for a private airline WAS the fair value, so nothing moves at the migration.
     fairValue:   Number.isFinite(parsed.fairValue) ? parsed.fairValue : (parsed.marketCap ?? null),
   };
+  return applyScheduleTrimMigration(reconciled);
 }

@@ -740,6 +740,362 @@ export function fleetAvgUtilization(fleet = [], routes = []) {
   return n > 0 ? sum / n : 0;
 }
 
+// ─────────────────────────────────────────────
+// ONE SOURCE OF TRUTH FOR "WHAT IS THIS TAIL FLYING?"
+// ─────────────────────────────────────────────
+// Every screen that shows utilisation, and every guard that enforces the
+// block-hour cap, must answer this question the same way the weekly tick does.
+// They did not, and it produced a Fleet list showing eight airframes above the
+// 140h cap (top one 278h, i.e. 199% of it):
+//
+//   · the tick charges hours for the routes that OPERATE THIS MONTH, leg by leg
+//     (ADVANCE_WEEK's heavy-maintenance accrual), and nothing at all for an
+//     aircraft that is out of service;
+//   · the cap is enforced as a PER-MONTH PEAK, which is the whole reason a
+//     summer route and a winter route can share one airframe;
+//   · the Fleet list summed the WHOLE YEAR at the direct O&D distance and
+//     compared that to a per-week cap — over-counting every dormant route and
+//     under-counting every tag route's intermediate legs at the same time.
+//
+// It also has to count routes a reserve is temporarily covering. A covered
+// route's aircraftId points at the RESERVE (coverForAircraftId remembers the
+// original), so a tail with its network out on cover looked EMPTY to every
+// guard: the route pickers offered it as a free airframe and the reducer took a
+// second full 140h load, which came home the week the tail did.
+
+/**
+ * Every route a tail is on the hook for: the ones it flies now, plus the ones a
+ * reserve is temporarily covering for it (those come home the week it returns).
+ * Passenger and cargo networks together — one airframe, one schedule.
+ */
+export function routesCommittedTo(aircraftId, routes = [], cargoRoutes = []) {
+  if (!aircraftId) return [];
+  const all = cargoRoutes && cargoRoutes.length ? [...(routes ?? []), ...cargoRoutes] : (routes ?? []);
+  return all.filter(r => r && (r.aircraftId === aircraftId || r.coverForAircraftId === aircraftId));
+}
+
+/**
+ * Weekly block-hours this tail is committed to in each 1-indexed month.
+ * Legs-aware (a tag flight costs every sector it flies) and season-aware
+ * (a dormant month costs nothing).
+ */
+export function committedBlockHoursByMonth(aircraftId, type, routes = [], cargoRoutes = []) {
+  const mine = routesCommittedTo(aircraftId, routes, cargoRoutes);
+  if (!type || mine.length === 0) return ALL_MONTHS.map(() => 0);
+  return ALL_MONTHS.map(m => mine
+    .filter(r => isRouteActive(r, m))
+    .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0));
+}
+
+/**
+ * The per-month PEAK weekly block-hours for a tail — the quantity
+ * MAX_WEEKLY_BLOCK_HOURS actually governs. Use this, never an annual sum, in
+ * any check of the form "would this fit?".
+ */
+export function committedPeakBlockHours(aircraftId, type, routes = [], cargoRoutes = []) {
+  return Math.max(0, ...committedBlockHoursByMonth(aircraftId, type, routes, cargoRoutes));
+}
+
+/**
+ * The single utilisation reading every screen must use.
+ *
+ * @param {object}  aircraft     the tail (object; an id is accepted but then
+ *                               out-of-service can't be detected)
+ * @param {object}  type         its aircraft type
+ * @param {array}   routes       state.routes
+ * @param {array}   cargoRoutes  state.cargoRoutes
+ * @param {number?} month        1-indexed game month; omit for the peak month
+ * @param {number}  capHours     maxWeeklyBlockHoursFor(state)
+ *
+ * @returns {{
+ *   flyingHours:    number,  // what the tick charges THIS week (0 if out of service)
+ *   scheduledHours: number,  // hours on the schedule in `month`, flying or not
+ *   peakHours:      number,  // busiest month — the figure the cap governs
+ *   peakMonth:      number,
+ *   capHours:       number,
+ *   pct:            number,  // flyingHours / capHours, UNCLAMPED (may exceed 1)
+ *   peakPct:        number,
+ *   overCap:        boolean, // the schedule breaches the cap in some month
+ *   grounded:       boolean,
+ *   seasonal:       boolean, // the schedule differs month to month
+ *   routes:         array    // the committed routes, for counters/badges
+ * }}
+ */
+export function aircraftUtilization({
+  aircraft, type, routes = [], cargoRoutes = [], month = null,
+  capHours = MAX_WEEKLY_BLOCK_HOURS,
+} = {}) {
+  const id = (aircraft && typeof aircraft === 'object') ? aircraft.id : aircraft;
+  const t  = type ?? ((aircraft && typeof aircraft === 'object') ? getAircraftType(aircraft.typeId) : null);
+  const committed = routesCommittedTo(id, routes, cargoRoutes);
+  const byMonth   = committedBlockHoursByMonth(id, t, routes, cargoRoutes);
+
+  let peakHours = 0, peakMonth = 1;
+  byMonth.forEach((h, i) => { if (h > peakHours) { peakHours = h; peakMonth = i + 1; } });
+
+  const scheduledHours = month != null ? (byMonth[month - 1] ?? 0) : peakHours;
+  const grounded    = !!(aircraft && typeof aircraft === 'object' && isOutOfService(aircraft));
+  const flyingHours = grounded ? 0 : scheduledHours;
+  const cap = capHours > 0 ? capHours : MAX_WEEKLY_BLOCK_HOURS;
+
+  return {
+    flyingHours, scheduledHours, peakHours, peakMonth,
+    capHours: cap,
+    pct:      flyingHours / cap,
+    peakPct:  peakHours / cap,
+    overCap:  peakHours > cap + 1e-6,
+    grounded,
+    seasonal: byMonth.some(h => Math.abs(h - byMonth[0]) > 1e-6),
+    routes:   committed,
+  };
+}
+
+// ─────────────────────────────────────────────
+// ONE-OFF MIGRATION: TRIM SCHEDULES THAT ARE ALREADY OVER THE PHYSICAL CAP
+// ─────────────────────────────────────────────
+// Companion to routesCommittedTo above. Closing the guards stopped NEW
+// over-cap schedules; it did nothing for saves that already had one, and a
+// player reported a Fleet list with eight airframes above 140h/wk, the worst at
+// 278h. Those aeroplanes have been flying — and earning, and accruing wear —
+// on hours that do not exist, which in a shared world is other players' money.
+//
+// WHICH CAP. Deliberately MAX_WEEKLY_BLOCK_HOURS, the PHYSICAL limit, and not
+// maxWeeklyBlockHoursFor(state). New World Restrictions worlds cap SCHEDULING
+// at 100h, and that lower ceiling is explicitly grandfathered (see the comment
+// on NWR_MAX_WEEKLY_BLOCK_HOURS): an aircraft already scheduled above it keeps
+// flying every route it has, and may only ratchet down. Trimming those tails to
+// 100h would delete frequency the engine has always considered legal — a
+// balance change to NWR worlds, not a repair. 140h is the only figure that is
+// physically impossible, so 140h is what this migration enforces.
+//
+// WHAT IT DOES, in priority order:
+//   1. TRIM, never delete. Frequency comes down on one route at a time until the
+//      tail's PEAK MONTH fits — peak month, because that is the quantity the cap
+//      governs (counter-seasonal routes sharing an airframe are legal and must
+//      stay legal).
+//   2. Cheapest schedule first: routes are cut in ascending revenue PER BLOCK
+//      HOUR, so the airline sheds the most hours for the least money.
+//   3. Closing a route is the LAST RESORT — only once every route active in the
+//      peak month is already down to one weekly flight.
+//   4. Nothing on a tail that is within the cap is touched, ever.
+
+/** Save-schema version for the over-cap schedule trim. Bump to re-run. */
+export const SCHEDULE_TRIM_VERSION = 1;
+
+/** How many trim notices a save keeps (they are the player's durable receipt). */
+export const SCHEDULE_TRIM_NOTICE_CAP = 50;
+
+/**
+ * Per-route weekly revenue for ranking cuts, and where it came from.
+ *
+ * Preference order:
+ *   'lastReport'       — report.routeResults / report.cargoRouteResults, the most
+ *                        recent week actually simulated. Covers cargo too.
+ *   'financialHistory' — the prior week's routeRevenues map (passenger only).
+ *   null               — no revenue anywhere (a save that has never ticked).
+ *
+ * A route with no entry scores 0, which sorts it first: an unflown route is the
+ * cheapest thing on the airframe to give up.
+ */
+export function routeRevenueSource(state) {
+  const revenues = {};
+  const pax   = state?.lastReport?.routeResults;
+  const cargo = state?.lastReport?.cargoRouteResults;
+  let source = null;
+  if (Array.isArray(pax) && pax.length > 0) {
+    for (const r of pax) revenues[r.routeId] = Math.max(0, Number(r.revenue) || 0);
+    source = 'lastReport';
+  }
+  if (Array.isArray(cargo) && cargo.length > 0) {
+    for (const r of cargo) revenues[r.routeId] = Math.max(0, Number(r.revenue) || 0);
+    source = 'lastReport';
+  }
+  if (!source) {
+    const hist = state?.financialHistory?.[state.financialHistory.length - 1]?.routeRevenues;
+    if (hist && Object.keys(hist).length > 0) {
+      for (const [id, v] of Object.entries(hist)) revenues[id] = Math.max(0, Number(v) || 0);
+      source = 'financialHistory';
+    }
+  }
+  return { revenues, source };
+}
+
+/**
+ * Compute the trim. PURE — takes a state, returns new route lists plus a notice
+ * per affected aircraft. Does not decide whether the migration should run; see
+ * applyScheduleTrimMigration for that.
+ *
+ * @returns {{ routes, cargoRoutes, fleet, notices, changed, revenueSource }}
+ */
+export function trimOverCapSchedules(state, { capHours = MAX_WEEKLY_BLOCK_HOURS } = {}) {
+  const routes      = (state?.routes ?? []).map(r => ({ ...r }));
+  const cargoRoutes = (state?.cargoRoutes ?? []).map(r => ({ ...r }));
+  const cargoIds    = new Set(cargoRoutes.map(r => r.id));
+  const { revenues, source } = routeRevenueSource(state);
+
+  const committed = (id) => [...routes, ...cargoRoutes]
+    .filter(r => r.aircraftId === id || r.coverForAircraftId === id);
+
+  const peakInfo = (id, type) => {
+    const mine = committed(id);
+    let hours = 0, month = 1;
+    for (const m of ALL_MONTHS) {
+      const h = mine.filter(r => isRouteActive(r, m))
+        .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+      if (h > hours) { hours = h; month = m; }
+    }
+    return { hours, month };
+  };
+
+  const notices = [];
+  // Deterministic order so server and client converge on the same result.
+  const fleet = [...(state?.fleet ?? [])].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  for (const a of fleet) {
+    const type = getAircraftType(a.typeId);
+    if (!type) continue;
+    let { hours: peak, month } = peakInfo(a.id, type);
+    if (peak <= capHours + 1e-6) continue;
+
+    const peakBefore = peak;
+    const monthBefore = month;
+    const cuts = new Map();   // routeId → { ..., fromFrequency, toFrequency, closed }
+    const noteCut = (r, from, to, closed) => {
+      const prev = cuts.get(r.id);
+      cuts.set(r.id, {
+        routeId:       r.id,
+        origin:        r.origin,
+        destination:   r.destination,
+        cargo:         cargoIds.has(r.id),
+        multiStop:     isMultiStop(r),
+        fromFrequency: prev ? prev.fromFrequency : from,
+        toFrequency:   to,
+        closed,
+      });
+    };
+
+    // Bounded: every pass strictly lowers one route's frequency, and there are
+    // finitely many frequency units on a tail.
+    let guard = 0;
+    while (peak > capHours + 1e-6 && guard++ < 1000) {
+      const active = committed(a.id)
+        .filter(r => isRouteActive(r, month) && (r.weeklyFrequency ?? 0) > 0);
+      if (active.length === 0) break;
+
+      const hoursPerFreq = (r) => routeBlockHours(r, type, 1);
+      const revPerHour   = (r) => {
+        const h = routeBlockHours(r, type, r.weeklyFrequency);
+        return h > 0 ? (revenues[r.id] ?? 0) / h : 0;
+      };
+      // Cheapest schedule first. Ties: shed the biggest hour-consumer, then id —
+      // so a save with no revenue history at all still trims deterministically.
+      const order = [...active].sort((x, y) =>
+        revPerHour(x) - revPerHour(y)
+        || hoursPerFreq(y) - hoursPerFreq(x)
+        || String(x.id).localeCompare(String(y.id)));
+
+      const reducible = order.find(r => (r.weeklyFrequency ?? 0) > 1);
+      if (reducible) {
+        const per  = hoursPerFreq(reducible);
+        const need = peak - capHours;
+        let drop = per > 0 ? Math.ceil(need / per - 1e-9) : (reducible.weeklyFrequency - 1);
+        drop = Math.max(1, Math.min(drop, reducible.weeklyFrequency - 1));
+        const from = reducible.weeklyFrequency;
+        reducible.weeklyFrequency = from - drop;
+        noteCut(reducible, from, reducible.weeklyFrequency, false);
+      } else {
+        // LAST RESORT: everything active in the peak month is down to one
+        // weekly flight and it still does not fit. Close the cheapest.
+        const victim = order[0];
+        const from = victim.weeklyFrequency;
+        victim.weeklyFrequency = 0;
+        noteCut(victim, from, 0, true);
+      }
+      ({ hours: peak, month } = peakInfo(a.id, type));
+    }
+
+    if (cuts.size > 0) {
+      notices.push({
+        aircraftId:  a.id,
+        name:        a.name ?? null,
+        tailNumber:  a.tailNumber ?? null,
+        typeId:      a.typeId,
+        capHours,
+        peakBefore:  Math.round(peakBefore * 10) / 10,
+        peakAfter:   Math.round(peak * 10) / 10,
+        peakMonth:   monthBefore,
+        cuts:        [...cuts.values()],
+      });
+    }
+  }
+
+  if (notices.length === 0) {
+    return { routes: state?.routes ?? [], cargoRoutes: state?.cargoRoutes ?? [],
+             fleet: state?.fleet ?? [], notices, changed: false, revenueSource: source };
+  }
+
+  // Routes driven to zero are closed; survivors keep their identity (id,
+  // weeksOpen ramp, pricing, season) so nothing re-enters its maturity ramp.
+  const keptRoutes = routes.filter(r => (r.weeklyFrequency ?? 0) > 0);
+  const keptCargo  = cargoRoutes.filter(r => (r.weeklyFrequency ?? 0) > 0);
+  // Status is re-derived ONLY for tails that actually lost a whole route, so the
+  // migration cannot quietly restatus airframes it never touched.
+  const closedOn = new Set(notices
+    .filter(n => n.cuts.some(c => c.closed))
+    .map(n => n.aircraftId));
+  const stillFlying = new Set([...keptRoutes, ...keptCargo].map(r => r.aircraftId));
+  const nextFleet = closedOn.size === 0 ? (state?.fleet ?? []) : (state?.fleet ?? []).map(a => {
+    if (!closedOn.has(a.id) || a.status === 'retired' || isOutOfService(a)) return a;
+    const want = stillFlying.has(a.id) ? 'assigned' : 'idle';
+    return a.status === want ? a : { ...a, status: want };
+  });
+
+  return { routes: keptRoutes, cargoRoutes: keptCargo, fleet: nextFleet,
+           notices, changed: true, revenueSource: source };
+}
+
+/**
+ * The migration as the save sees it. Runs AT MOST ONCE per save: the version
+ * flag is stamped whether or not anything needed trimming, so a schedule the
+ * player rebuilds afterwards is never touched again.
+ *
+ * Called from reconcileState (every client save load, solo and multiplayer) and,
+ * in Headwinds, from the server tick — because the server blob is authoritative
+ * and a player who never opens the client must still be migrated.
+ */
+export function applyScheduleTrimMigration(state, opts = {}) {
+  if (!state) return state;
+  if ((state.scheduleTrimVersion ?? 0) >= SCHEDULE_TRIM_VERSION) return state;
+  const res = trimOverCapSchedules(state, opts);
+  const stamped = { ...state, scheduleTrimVersion: SCHEDULE_TRIM_VERSION };
+  if (!res.changed) return stamped;
+  return {
+    ...stamped,
+    routes:      res.routes,
+    cargoRoutes: res.cargoRoutes,
+    fleet:       res.fleet,
+    scheduleTrimNotices: [...(state.scheduleTrimNotices ?? []), ...res.notices]
+      .slice(-SCHEDULE_TRIM_NOTICE_CAP),
+  };
+}
+
+/** Human sentence for one aircraft's trim. Shared so every surface words it identically. */
+export function scheduleTrimMessage(notice) {
+  if (!notice) return '';
+  const tail  = notice.tailNumber || notice.name || 'An aircraft';
+  const flights = (n) => `${n} weekly flight${n === 1 ? '' : 's'}`;
+  const parts = (notice.cuts ?? []).map(c => {
+    const pair = `${c.origin}–${c.destination}`;
+    return c.closed
+      ? `${pair} was closed — it was already down to ${flights(c.fromFrequency)}`
+      : `${pair} was reduced from ${c.fromFrequency} to ${flights(c.toFrequency)}`;
+  });
+  const list = parts.length <= 1 ? (parts[0] ?? '')
+    : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `${tail} was scheduled for ${Math.round(notice.peakBefore)}h a week against a `
+       + `${notice.capHours}h limit. ${list} to bring it back within limits.`;
+}
+
 /**
  * Which aircraft of a given type can be deployed to open (or join) a route.
  *
@@ -766,7 +1122,7 @@ export function deployableFleetForRoute({
   return fleet
     .filter(a => a.typeId === typeId && !isOutOfService(a) && a.status !== 'retired')
     .map(a => {
-      const acRoutes = existingRoutes.filter(r => r.aircraftId === a.id);
+      const acRoutes = routesCommittedTo(a.id, existingRoutes);
       const usedBH   = acRoutes.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
       const served   = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
       const connectivityOk = acRoutes.length === 0 || served.has(origin) || served.has(dest);

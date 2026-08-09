@@ -35,7 +35,7 @@ import {
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
-  buildEventDemandModel,
+  buildEventDemandModel, committedPeakBlockHours, routesCommittedTo,
 } from '../utils/simulation.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -201,12 +201,11 @@ export default function Routes() {
     catch { return 'table'; }
   });
 
-  const usedHrsFor = (a) => {
-    const t = getAircraftType(a.typeId);
-    if (!t) return 0;
-    return routes.filter(r => r.aircraftId === a.id)
-      .reduce((s, r) => s + routeBlockHours(r, t, r.weeklyFrequency), 0);
-  };
+  // Hours committed to a tail at its BUSIEST month — the quantity the cap
+  // governs — including any routes a reserve is currently covering for it.
+  // Counting only what it flies today made an out-of-service tail read as free.
+  const usedHrsFor = (a) =>
+    committedPeakBlockHours(a?.id, getAircraftType(a?.typeId), routes, state.cargoRoutes ?? []);
   const availableFleet = fleet.filter(a => usedHrsFor(a) < bhCap);
   // Reserves stand by on purpose — they aren't part of the "idle, earning
   // nothing" nudge (Fleet tab has a Reserve chip for them).
@@ -2269,13 +2268,15 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
 
   const isAddingFlights = initialOrigin != null && initialDest != null;
 
-  // Helper: total block hours already assigned to an aircraft
-  const usedBlockHrsFor = (a) => {
-    const t = getAircraftType(a?.typeId);
-    if (!a || !t) return 0;
-    return routes.filter(r => r.aircraftId === a.id)
-      .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, t), 0);
-  };
+  // Hours already committed to an aircraft, measured the way the reducer
+  // measures them: per-month PEAK, legs-aware, across the passenger AND cargo
+  // networks, and including any routes a reserve is covering for it. The old
+  // reading (annual sum of direct O&D hops on routes it flies right now) both
+  // over-counted counter-seasonal schedules and — worse — showed a tail whose
+  // network was out on cover as completely free, so this form offered a
+  // grounded airframe as if it were spare metal and the reducer took the load.
+  const usedBlockHrsFor = (a) =>
+    committedPeakBlockHours(a?.id, getAircraftType(a?.typeId), routes, state.cargoRoutes ?? []);
 
   // Freighters can't fly passenger routes (the reducer rejects them) — keep them
   // out of this form entirely; they're managed in the cargo planner.
@@ -2284,9 +2285,10 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
 
   // Airports an aircraft already serves. The reducer only lets a plane pick up
   // an extra route that touches one of them; an idle plane (no routes) is free
-  // to go anywhere. Used to keep ineligible airframes out of the picker.
+  // to go anywhere. Used to keep ineligible airframes out of the picker. Tag
+  // stops count, and so do routes out on cover — they come home.
   const servedBy = (a) => new Set(
-    routes.filter(r => r.aircraftId === a.id).flatMap(r => [r.origin, r.destination])
+    routesCommittedTo(a?.id, routes, state.cargoRoutes ?? []).flatMap(r => routeStops(r))
   );
 
   // Default aircraft. In add-flights mode, prefer one already flying this pair

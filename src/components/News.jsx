@@ -191,6 +191,24 @@ export function compose(item) {
           .filter(Boolean).join(' · ') || null,
       };
 
+    // One-off migration: a schedule that was flying past the physical
+    // block-hour limit was trimmed back. Named in full — this changed something
+    // the player paid for, so it must say exactly what and by how much.
+    case 'schedule_trim': {
+      const cuts = (d.cuts ?? []).map(c => {
+        const pair = `${c.origin}–${c.destination}`;
+        return c.closed
+          ? `${pair} closed (was ${c.fromFrequency}/wk)`
+          : `${pair} ${c.fromFrequency} → ${c.toFrequency}/wk`;
+      });
+      return {
+        icon: '⏱',
+        headline: `had ${d.aircraft ?? 'an aircraft'} trimmed to the ${d.capHours}h weekly flying limit`,
+        sub: `${d.aircraft ?? 'It'} was scheduled for ${Math.round(d.peakBefore ?? 0)}h a week against a `
+           + `${d.capHours}h limit. ${cuts.join(' · ')}${cuts.length ? '.' : ''}`,
+      };
+    }
+
     case 'joined':
       return { icon: '🛬', headline: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}` };
     case 'alliance_founded':
