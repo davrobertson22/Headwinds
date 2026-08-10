@@ -19,11 +19,19 @@ const SORT_OPTIONS = [
  * Route Finder — scans every airport pair from a chosen origin and lists
  * unserved routes (ones you don't fly yet) ordered by market demand.
  * Filters: distance range, aircraft-range preset, competition.
+ *
+ * `standalone` is the Route Finder tab (components/RouteFinderScreen.jsx): the
+ * panel is the whole screen, so it opens expanded and drops the show/hide
+ * header. Collapsed-by-default is for when it is one card among many.
+ *
+ * `onPick` is optional in every sense — a finder with no planner attached is a
+ * perfectly good market browser, and the button that calls it is one exit from
+ * this screen rather than the next step of a form.
  */
-export default function RouteFinder({ onPick }) {
+export default function RouteFinder({ onPick, standalone = false }) {
   const { state } = useGame();
 
-  const [open, setOpen]         = useState(false);
+  const [open, setOpen]         = useState(!!standalone);
   const [origin, setOrigin]     = useState(state.hub || '');
   const [query, setQuery]       = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -132,20 +140,20 @@ export default function RouteFinder({ onPick }) {
     <div className="card" style={{ marginBottom: 12 }}>
       {/* Header / toggle */}
       <div
-        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
-        onClick={() => setOpen(v => !v)}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: standalone ? 'default' : 'pointer' }}
+        onClick={standalone ? undefined : () => setOpen(v => !v)}
       >
         <span style={{ fontSize: 16 }}><Glyph e="🔍" /></span>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>
             Route Finder
-            <InfoTip text="Scans every airport reachable from a chosen origin and lists routes you don't serve yet, ordered by estimated market demand. Set a distance band (or pick an aircraft to use its range) and click a result to load it into the planner below." />
+            <InfoTip text="Scans every airport reachable from a chosen origin and lists routes you don't serve yet, ordered by estimated market demand. Set a distance band, or pick an aircraft to search only what its range can reach. Looking costs nothing and commits nothing — Plan hands a pair to the Route Planner only if you want it." />
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             Discover unserved routes by demand from any airport
           </div>
         </div>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{open ? '▴ Hide' : '▾ Show'}</span>
+        {!standalone && <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{open ? '▴ Hide' : '▾ Show'}</span>}
       </div>
 
       {open && (
@@ -321,13 +329,16 @@ export default function RouteFinder({ onPick }) {
                               : <span style={{ fontSize: 12, color: 'var(--yellow)' }}>{comps} airline{comps !== 1 ? 's' : ''}</span>}
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right' }}>
-                            <button
-                              className="btn btn-ghost"
-                              style={{ padding: '3px 10px', fontSize: 12, color: 'var(--accent)' }}
-                              onClick={() => onPick(origin, a.code)}
-                            >
-                              Plan →
-                            </button>
+                            {onPick && (
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '3px 10px', fontSize: 12, color: 'var(--accent)' }}
+                                title={`Take ${origin} → ${a.code} to the Route Planner — nothing is booked until you open the route there`}
+                                onClick={() => onPick(origin, a.code)}
+                              >
+                                Plan →
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

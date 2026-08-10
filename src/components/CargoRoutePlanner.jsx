@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
@@ -6,8 +6,9 @@ import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, S
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
-import CargoRouteFinder from './CargoRouteFinder.jsx';
 import { Glyph } from './Icons.jsx';
+import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
+import { navPathFor } from '../navPath.js';
 import ReserveNotice from './ReserveNotice.jsx';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
@@ -127,6 +128,20 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
   const [selectedTypeId, setSelectedTypeId] = useState('');
   const [frequency, setFrequency] = useState(7);
   const [yieldPrice, setYieldPrice] = useState(null); // null = auto reference yield
+
+  // A lane handed over by the Route Finder's optional "Plan". The finder is its
+  // own screen now, so the pair is parked as a nav intent and read once, on
+  // mount — the component does not exist yet when the button is clicked. See
+  // utils/navIntent.js. RoutePlanner peeks at the same intent to switch into
+  // freight mode and deliberately leaves it for us.
+  useEffect(() => {
+    if (embedded) return;
+    const nav = consumeNavFilter('planner');
+    if (!nav || nav.mode !== 'freight') return;
+    if (nav.origin) setOrigin(nav.origin);
+    if (nav.dest) setDest(nav.dest);
+    setYieldPrice(null);
+  }, []);
 
   const originAirport = getAirport(origin);
   const destAirport   = getAirport(dest);
@@ -265,9 +280,6 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     <div>
       {!embedded && <ModeToggle mode={mode} setMode={setMode} />}
 
-      {/* Cargo route finder — discover unserved freight lanes by demand */}
-      <CargoRouteFinder onPick={(o, d) => { setOrigin(o); setDest(d); setYieldPrice(null); }} />
-
       {/* Route picker */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
@@ -284,6 +296,16 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
           <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
             Cargo demand is driven by trade, not tourism — manufacturing and gateway hubs ship the most.
           </div>
+          {!embedded && (
+            <button
+              className="btn btn-ghost"
+              style={{ marginTop: 14, fontSize: 13 }}
+              title={navPathFor('finder')}
+              onClick={() => requestNav('finder')}
+            >
+              <Glyph e="🔍" /> Don't know where yet? Browse the Route Finder
+            </button>
+          )}
         </div>
       )}
 

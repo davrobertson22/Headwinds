@@ -23,10 +23,11 @@ import { cateringQualityBonus, normalizeCateringLevel } from '../data/catering.j
 import CateringSelector from './CateringSelector.jsx';
 import CargoRoutePlanner, { ModeToggle } from './CargoRoutePlanner.jsx';
 import TagRoutePlanner from './TagRoutePlanner.jsx';
-import RouteFinder from './RouteFinder.jsx';
 import InfoTip from './InfoTip.jsx';
 import AddGateButton from './AddGateButton.jsx';
 import ReserveNotice, { reserveOptionTag } from './ReserveNotice.jsx';
+import { consumeNavFilter, peekNavFilter, requestNav } from '../utils/navIntent.js';
+import { navPathFor } from '../navPath.js';
 import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
@@ -427,6 +428,23 @@ export default function RoutePlanner() {
   const [cabinConfig, setCabinConfig] = useState(null);
   const [configSource, setConfigSource] = useState('economy');
 
+  // A pair handed over by the Route Finder's optional "Plan". Parked rather
+  // than passed as a prop, because this component does not exist yet when the
+  // button is clicked, and read once on mount so a later manual visit doesn't
+  // reload someone's old search. See utils/navIntent.js.
+  //
+  // A freight pick is only peeked at: we flip to freight mode and leave the
+  // intent parked for CargoRoutePlanner, which owns the airports in that mode.
+  useEffect(() => {
+    const nav = peekNavFilter('planner');
+    if (!nav) return;
+    if (nav.mode === 'freight') { setMode('freight'); return; }
+    consumeNavFilter('planner');
+    if (nav.origin) setOrigin(nav.origin);
+    if (nav.dest) setDest(nav.dest);
+    setFares({});
+  }, []);
+
   const gameDate = { week: state.week, month: weekToMonth(state.week) };
 
   const originAirport = getAirport(origin);
@@ -503,13 +521,6 @@ export default function RoutePlanner() {
     return AIRCRAFT_TYPES.filter(t => t.range >= routeData.dist);
   }, [routeData]);
 
-  // Auto-select first reachable type when route changes
-  useMemo(() => {
-    if (reachableTypes.length && !reachableTypes.find(t => t.id === selectedTypeId)) {
-      setSelectedTypeId(reachableTypes[0]?.id ?? '');
-    }
-  }, [reachableTypes]);
-
   // Hard ceiling on flights/week for this aircraft on this route: one airframe
   // has MAX_WEEKLY_BLOCK_HOURS flying hours a week, so longer sectors fit fewer
   // round trips. The slider is capped here so you can't plan an impossible
@@ -552,6 +563,54 @@ export default function RoutePlanner() {
     }
     return map;
   }, [state.fleet, state.routes, reachableTypes, routeData, origin, dest, frequency]);
+
+  // Types you own, whatever state they're in.
+  const ownedTypeIds = useMemo(
+    () => new Set((state.fleet ?? []).map(a => a.typeId)),
+    [state.fleet]
+  );
+
+  // The picker is split rather than filtered. The planner used to preselect the
+  // first type in the CATALOGUE that could reach the route, so the forecast a
+  // player landed on was almost always for an aircraft they had never leased —
+  // it read as the game recommending a plane, over an Open Route button that
+  // could not fire. Ownership decides the default; the rest of the catalogue
+  // stays visible under its own heading, because sizing a future order against
+  // a real market is the other honest reason to be on this screen.
+  const typeGroups = useMemo(() => {
+    const inFleet = [], catalogue = [];
+    for (const t of reachableTypes) (ownedTypeIds.has(t.id) ? inFleet : catalogue).push(t);
+    return { inFleet, catalogue };
+  }, [reachableTypes, ownedTypeIds]);
+
+  // Default: a type with an aircraft free to fly this lane today, then one only
+  // a reserve could cover, then any type you own, and only then the catalogue.
+  // Freighters never win the default on a passenger route. Ties keep catalogue
+  // order, so the pick doesn't jitter as the fleet changes around it.
+  const defaultTypeId = useMemo(() => {
+    if (!reachableTypes.length) return '';
+    const rank = (t) => {
+      if (t.freighter) return 4;
+      const pool = (deployableByType[t.id] ?? []).filter(d => d.eligible);
+      if (pool.some(d => !d.reserve)) return 0;
+      if (pool.length) return 1;
+      return ownedTypeIds.has(t.id) ? 2 : 3;
+    };
+    let best = reachableTypes[0], bestRank = rank(best);
+    for (const t of reachableTypes) {
+      const r = rank(t);
+      if (r < bestRank) { best = t; bestRank = r; }
+    }
+    return best.id;
+  }, [reachableTypes, deployableByType, ownedTypeIds]);
+
+  // Seed the selection whenever the route moves out from under the old pick.
+  // Derived during render, not in an effect, so the economics below are never
+  // drawn for a type this route cannot fly. The guard is what stops it looping:
+  // one pass makes the selection valid, and a valid selection is left alone.
+  if (reachableTypes.length && !reachableTypes.some(t => t.id === selectedTypeId)) {
+    setSelectedTypeId(defaultTypeId);
+  }
 
   // All aircraft you own of the selected type (free idle first, reserves last) —
   // used as config sources and as the plane the Open Route button reaches for.
@@ -747,9 +806,6 @@ export default function RoutePlanner() {
 
       <ModeToggle mode={mode} setMode={setMode} />
 
-      {/* ── Route Finder: discover unserved routes by demand ── */}
-      <RouteFinder onPick={(o, d) => { setOrigin(o); setDest(d); setFares({}); }} />
-
       {/* ── Route picker ── */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
@@ -772,6 +828,14 @@ export default function RoutePlanner() {
           <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
             You'll see market demand, competitor activity, and estimated economics.
           </div>
+          <button
+            className="btn btn-ghost"
+            style={{ marginTop: 14, fontSize: 13 }}
+            title={navPathFor('finder')}
+            onClick={() => requestNav('finder')}
+          >
+            <Glyph e="🔍" /> Don't know where yet? Browse the Route Finder
+          </button>
         </div>
       )}
 
@@ -917,25 +981,32 @@ export default function RoutePlanner() {
                   <div style={{ flex: '1 1 200px', maxWidth: 320 }}>
                     <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Aircraft type
-                      <InfoTip text="Only aircraft that can reach this route are listed. “N ready” is how many planes of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by." />
+                      <InfoTip text="Only aircraft that can reach this route are listed, and the ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open." />
                     </div>
                     <select
                       className="form-select"
                       value={selectedTypeId}
                       onChange={e => setSelectedTypeId(e.target.value)}
                     >
-                      {reachableTypes.map(t => {
-                        // Reserves are counted apart from "ready": a standby cover is
-                        // deployable, but it isn't spare capacity you should plan around.
-                        const pool    = (deployableByType[t.id] ?? []).filter(d => d.eligible);
-                        const ready   = pool.filter(d => !d.reserve).length;
-                        const onRes   = pool.filter(d => d.reserve).length;
-                        return (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({t.seats} seats){ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}
-                          </option>
-                        );
-                      })}
+                      {[['In your fleet', typeGroups.inFleet], ['Not in your fleet', typeGroups.catalogue]]
+                        .filter(([, types]) => types.length > 0)
+                        .map(([label, types]) => (
+                          <optgroup key={label} label={label}>
+                            {types.map(t => {
+                              // Reserves are counted apart from "ready": a standby cover is
+                              // deployable, but it isn't spare capacity you should plan around.
+                              const pool    = (deployableByType[t.id] ?? []).filter(d => d.eligible);
+                              const ready   = pool.filter(d => !d.reserve).length;
+                              const onRes   = pool.filter(d => d.reserve).length;
+                              const owned   = ownedTypeIds.has(t.id);
+                              return (
+                                <option key={t.id} value={t.id}>
+                                  {t.name} ({t.seats} seats){ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : ' · lease required'}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ))}
                     </select>
                   </div>
 

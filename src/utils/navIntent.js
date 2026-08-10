@@ -48,6 +48,19 @@ export function consumeNavFilter(tab) {
   return filter;
 }
 
+/**
+ * Read the intent parked for this tab WITHOUT taking it.
+ *
+ * A tab that hands the intent straight on to a child needs to look before that
+ * child exists — the Route Planner has to switch itself into freight mode, but
+ * CargoRoutePlanner is the component that owns the airports and must be the one
+ * to consume them. Peeking leaves the intent in place for whoever consumes it.
+ */
+export function peekNavFilter(tab) {
+  if (!pending || pending.tab !== tab) return null;
+  return pending.filter;
+}
+
 /** Test seam: drop any parked intent. */
 export function clearNavIntent() {
   pending = null;

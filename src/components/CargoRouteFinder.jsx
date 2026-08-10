@@ -24,10 +24,10 @@ const SORT_OPTIONS = [
  * Filters: distance band, freighter-range preset. Cargo demand is driven by
  * trade, not tourism, so the results look very different from passenger ones.
  */
-export default function CargoRouteFinder({ onPick }) {
+export default function CargoRouteFinder({ onPick, standalone = false }) {
   const { state } = useGame();
 
-  const [open, setOpen]         = useState(false);
+  const [open, setOpen]         = useState(!!standalone);
   const [origin, setOrigin]     = useState(state.hub || '');
   const [query, setQuery]       = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -122,20 +122,20 @@ export default function CargoRouteFinder({ onPick }) {
     <div className="card" style={{ marginBottom: 12, borderLeft: `3px solid ${ACCENT}` }}>
       {/* Header / toggle */}
       <div
-        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
-        onClick={() => setOpen(v => !v)}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: standalone ? 'default' : 'pointer' }}
+        onClick={standalone ? undefined : () => setOpen(v => !v)}
       >
         <span style={{ fontSize: 16 }}><Glyph e="🔍" /></span>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>
             Cargo Route Finder
-            <InfoTip text="Scans every airport reachable from a chosen origin and lists freight lanes you don't serve yet, ordered by cargo demand or revenue potential. Set a distance band (or pick a freighter to use its range) and click a result to load it into the freight planner below." />
+            <InfoTip text="Scans every airport reachable from a chosen origin and lists freight lanes you don't serve yet, ordered by cargo demand or revenue potential. Set a distance band, or pick a freighter to search only what its range can reach. Looking commits nothing — Plan hands a lane to the freight planner only if you want it." />
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             Discover unserved freight lanes by tonnage from any airport
           </div>
         </div>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{open ? '▴ Hide' : '▾ Show'}</span>
+        {!standalone && <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{open ? '▴ Hide' : '▾ Show'}</span>}
       </div>
 
       {open && (
@@ -293,13 +293,16 @@ export default function CargoRouteFinder({ onPick }) {
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>${(refYield * dist / 1000).toFixed(2)}/kg</td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--green)', whiteSpace: 'nowrap' }} title="Weekly lane revenue at reference yield IF you carried the whole pool — a comparison scale, not a promise">{formatMoney(revPotential)}</td>
                           <td style={{ padding: '7px 12px', textAlign: 'right' }}>
-                            <button
-                              className="btn btn-ghost"
-                              style={{ padding: '3px 10px', fontSize: 12, color: ACCENT }}
-                              onClick={() => onPick(origin, a.code)}
-                            >
-                              Plan →
-                            </button>
+                            {onPick && (
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '3px 10px', fontSize: 12, color: ACCENT }}
+                                title={`Take ${origin} → ${a.code} to the freight planner — nothing is booked until you open the route there`}
+                                onClick={() => onPick(origin, a.code)}
+                              >
+                                Plan →
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
