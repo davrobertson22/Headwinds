@@ -47,7 +47,7 @@ import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, check
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
          autoSchedulingActive, aogRepairCost } from './data/maintenance.js';
 import {
-  mroLevelDef, canBuildBase, makeBase, closeRefund, certCapacity, clampPartsPool,
+  mroLevelDef, canBuildBase, makeBase, closeRefund, clampPartsPool,
   tickBaseConstruction, newSlotLedger, claimSlot, hasSlot, partsPoolDurationMult,
   resolveBaseFor, mroFactorsFor,
   MRO_MAX_LEVEL, MRO_MAX_CERTS_PER_BASE,
@@ -1308,10 +1308,13 @@ function reducer(state, action) {
       const level = Math.max(1, Math.min(MRO_MAX_LEVEL, Math.round(Number(action.level) || 1)));
       const bases = state.mroBases ?? {};
       if (!code || bases[code]) return state;
-      const check = canBuildBase(code, level, { bases, gates: state.gates ?? {}, cash: state.cash });
-      if (!check.ok) return { ...state, error: check.reasons[0] };
-      const fams = [...new Set((action.families ?? []).filter(Boolean))].slice(0, certCapacity(level));
+      // Certifications are counted BEFORE the cash check, not clamped after it:
+      // a base may be built certified for more families than its level includes,
+      // at extraCertCapex each, so the count is an input to the quote.
+      const fams = [...new Set((action.families ?? []).filter(Boolean))].slice(0, MRO_MAX_CERTS_PER_BASE);
       if (fams.length === 0) return { ...state, error: 'Certify at least one aircraft family.' };
+      const check = canBuildBase(code, level, { bases, gates: state.gates ?? {}, cash: state.cash }, fams.length);
+      if (!check.ok) return { ...state, error: check.reasons[0] };
       return {
         ...state,
         cash:     state.cash - check.capex,

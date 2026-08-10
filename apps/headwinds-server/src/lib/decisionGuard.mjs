@@ -19,6 +19,7 @@ import {
   LOAN_MIN_PRINCIPAL, getLoanProduct, loanProductForTerm,
   borrowingCapacity, unencumberedOwnedFleet,
 } from '@tailwinds/engine/data/credit.js';
+import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
 
 export class GuardError extends Error {
   constructor(message) {
@@ -268,7 +269,10 @@ function guardMroBase(payload, { needLevel = false, needFamilies = false } = {})
     const fams = Array.isArray(payload.families) ? payload.families : [];
     const clean = [...new Set(fams.filter((f) => typeof f === 'string' && f.length > 0 && f.length <= 40))];
     if (clean.length === 0) throw new GuardError('Certify at least one aircraft family.');
-    if (clean.length > 8) throw new GuardError('Too many certifications.');
+    // The ceiling comes from the engine, not a literal: the build form can now
+    // legitimately buy every certification a base can hold, so a guard that
+    // drifted below MRO_MAX_CERTS_PER_BASE would reject a legal build.
+    if (clean.length > MRO_MAX_CERTS_PER_BASE) throw new GuardError('Too many certifications.');
     out.families = clean;
   }
   return out;

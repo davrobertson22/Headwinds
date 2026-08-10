@@ -57,6 +57,8 @@ const RouteDetail   = (await import('../src/components/RouteDetail.jsx')).defaul
 const Wiki          = (await import('../src/components/Wiki.jsx')).default;
 const Maintenance   = (await import('../src/components/Maintenance.jsx')).default;
 const Operations    = (await import('../src/components/Operations.jsx')).default;
+const { aircraftFamily, FAMILY_INFO } = await import('../src/data/families.js');
+const { MRO_MAX_CERTS_PER_BASE } = await import('../src/data/mroBase.js');
 
 const save = {
   ...freshState(),
@@ -120,6 +122,31 @@ test('Maintenance page mounts with an empty MRO network', () => {
   assert.ok(html.includes('MRO Network'), 'the jet-base section is present');
   assert.ok(html.includes('Shop Board'), 'the shop board is present');
   assert.ok(html.includes('Outsourced MRO Contracts'), 'contracts section is present');
+});
+
+// The certification affordance is a UI-only fix over an engine action that has
+// always worked, so the engine suite stays green with the buttons gone. Render
+// a base the fleet's family is NOT certified for and check the offer is made.
+test('a base card offers to certify a family it does not yet cover', () => {
+  const flownFamily = aircraftFamily(jet.id);
+  const otherFamily = Object.keys(FAMILY_INFO).find(f => f !== flownFamily);
+
+  store.set('bbae_save_v2', JSON.stringify({
+    ...save,
+    mroBases: {
+      [P]: { code: P, level: 1, families: [otherFamily], openedWeek: 1, buildWeeksLeft: 0, partsPool: 1.0 },
+    },
+  }));
+  try {
+    // SSR splits adjacent expressions with <!-- --> separators, so compare on
+    // the text rather than the markup.
+    const html = render(React.createElement(Maintenance)).replaceAll('<!-- -->', '');
+    assert.ok(html.includes('Certify another family'), 'the certification offer is rendered');
+    assert.ok(html.includes(FAMILY_INFO[flownFamily].name), 'the uncertified family the fleet flies is offered');
+    assert.ok(html.includes(`1/${MRO_MAX_CERTS_PER_BASE}`), 'the ceiling is shown, not the level allowance');
+  } finally {
+    store.set('bbae_save_v2', JSON.stringify(save));
+  }
 });
 
 test('Operations no longer owns the maintenance budget', () => {
