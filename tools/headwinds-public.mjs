@@ -277,6 +277,31 @@ function injectSocialMeta(html, file) {
   return html.replace('</head>', block + '</head>');
 }
 
+// Tailwinds-only editorial, stripped on the way in.
+//
+// The six aircraft category guides are generated in the Tailwinds repo
+// (tools/generate-aircraft-pages.mjs) and synced here inside root public/. That
+// generator wraps its hand-written "which of these to actually fly" section in
+// TW-ONLY markers because the prose is single-player advice — fare wars with AI
+// carriers, cash-constrained openings — and because publishing the same
+// editorial on both domains is exactly the duplication that got these pages
+// into trouble in the first place (see the CROSS_CANONICAL history above).
+//
+// Headwinds replaces it with its own multiplayer section from
+// apps/headwinds-web/sections/, injected further down. Removing the markers
+// here without adding a section leaves the page thinner, so keep the two in
+// step: every page that carries a TW-ONLY block should have a section file.
+const TW_ONLY = /[ \t]*<!-- TW-ONLY:START -->[\s\S]*?<!-- TW-ONLY:END -->\n?/g;
+
+function stripTailwindsOnly(html, f) {
+  if (!html.includes('TW-ONLY:START')) return html;
+  const out = html.replace(TW_ONLY, '');
+  if (out.includes('TW-ONLY:START') || out.includes('TW-ONLY:END')) {
+    console.warn(`  \u26a0 ${f}: unbalanced TW-ONLY markers — Tailwinds-only prose may have shipped to this domain`);
+  }
+  return out;
+}
+
 const ANALYTICS_SNIPPET = `  <!-- Vercel Web Analytics -->
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
@@ -297,7 +322,7 @@ let copied = 0, branded = 0, patchMisses = 0, metaMisses = 0;
 for (const f of readdirSync(SRC)) {
   if (EXCLUDE.has(f) || isJunk(f) || statSync(path.join(SRC, f)).isDirectory()) continue;
   if (f.endsWith('.html')) {
-    let html = rebrand(readFileSync(path.join(SRC, f), 'utf8'));
+    let html = stripTailwindsOnly(rebrand(readFileSync(path.join(SRC, f), 'utf8')), f);
     for (const p of CONTENT_PATCHES) {
       if (p.file !== f) continue;
       if (html.includes(p.find)) {
