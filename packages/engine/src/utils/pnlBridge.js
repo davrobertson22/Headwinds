@@ -95,8 +95,14 @@ export function costBridge(proj, state = {}) {
 
   const gates        = n(r.totalGateFees);          // congestion surcharge already inside
   const labour       = n(r.totalLaborCosts);
+  // Facilities and fleet-wide equipment the airline runs whether or not any
+  // particular route operates: head office, insurance, the outsourced family
+  // maintenance contract, jet bases, onboard connectivity (one charge per
+  // equipped tail) and the lounge network (rent, staff and free-access guests,
+  // net of what alliance partners settle).
   const overhead     = n(r.totalHQCost) + n(r.totalInsurance)
-                     + n(r.totalFamilyBaseCosts) + n(r.totalMroBaseCosts);
+                     + n(r.totalFamilyBaseCosts) + n(r.totalMroBaseCosts)
+                     + n(r.totalWifiCosts) + n(r.totalLoungeCosts);
   const brand        = n(r.totalMarketingSpend) + n(r.totalLoyaltyCost) + n(r.totalHubInvestment);
   const distribution = n(r.totalDistributionCost) + n(r.totalPartnerFees);
   // A strike forfeits revenue but SAVES the variable cost of the flights it

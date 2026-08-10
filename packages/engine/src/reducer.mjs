@@ -53,6 +53,13 @@ import {
   MRO_MAX_LEVEL, MRO_MAX_CERTS_PER_BASE,
 } from './data/mroBase.js';
 import {
+  wifiInstallCost, wifiRetrofitCost, wifiLeaseSurcharge, canRetrofitWifi, isWifiEquipped,
+} from './data/wifi.js';
+import {
+  canBuildLounge, makeLounge, loungeCloseRefund, tickLoungeConstruction,
+  normalizeLoungePolicy, isLoungeOpen, LOUNGE_BUILD_COST,
+} from './data/lounges.js';
+import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
   MAX_PAY_MULTIPLIER,
@@ -657,8 +664,8 @@ function freshState() {
     pendingToasts: [],    // toast configs waiting to be shown
     week: 1,
     year: 1,
-    fleet: [],         // { id, typeId, name, status, ageWeeks, config, ownershipType, fuelMod, rangeMod, maintMod, engineId, engineLabel, hasWingtips }
-    pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }
+    fleet: [],         // { id, typeId, name, status, ageWeeks, config, ownershipType, fuelMod, rangeMod, maintMod, engineId, engineLabel, hasWingtips, hasWifi }
+    pendingOrders: [], // { id, typeId, ownershipType, name, engineId, engineLabel, hasWingtips, hasWifi, fuelMod, rangeMod, maintMod, deliverAbsWeek, totalPrice }
     // NOTE: `foundedAbsWeek` is deliberately NOT seeded here. It is stamped by
   // worldService.joinWorld (multiplayer only, where the world clock and the
   // airline's own age diverge). Adding it to freshState would change the solo
@@ -677,6 +684,8 @@ function freshState() {
     laborRelations:    DEFAULT_LABOR_RELATIONS,  // union unrest, strikes, contract negotiations
     maintenanceBudget: DEFAULT_MAINTENANCE_BUDGET,
     mroBases:          {},    // { [code]: { level, families[], openedWeek, buildWeeksLeft, partsPool } }
+    lounges:           {},    // { [code]: { code, openedWeek, buildWeeksLeft, capex } } — built airport lounges
+    loungePolicy:      null,  // { loyaltyAccess, allianceAccess } — null until the first lounge is built
     marketingBudget:   0,          // weekly BRAND marketing spend ($) — builds awareness (adstock), no instant boost
     targetedMarketing: {},         // { [airportCode]: weeklySpend } — tactical campaigns per airport
     campaignStrength:  {},         // { [airportCode]: 0-100 } — campaign stock, fast build/fast decay
@@ -978,6 +987,11 @@ function reducer(state, action) {
       // plus the per-seat install fee for any premium cabins (first/business/prem-eco).
       const seatFittingFee = (SEAT_QUALITY_FITTING_FEE[action.config?.seatQuality ?? 'basic'] ?? 0)
                            + cabinInstallFee(action.config);
+      // Onboard connectivity, fitted on the production line. Cheaper than the
+      // retrofit (see data/wifi.js), which is the entire reason this is a
+      // decision at order time rather than something you get round to later.
+      const wantsWifi    = action.hasWifi === true;
+      const wifiFitCost  = wantsWifi ? wifiInstallCost() : 0;
       const newOrders       = [];
       const instantAircraft = [];
       const instantToasts   = [];
@@ -1023,7 +1037,7 @@ function reducer(state, action) {
       if (action.ownershipType === 'owned') {
         const unitCostAt = (disc) =>
           Math.round(Math.round(type.purchasePrice * (1 - disc)) * enginePriceMod)
-          + wingtipCost + seatFittingFee;
+          + wingtipCost + seatFittingFee + wifiFitCost;
         while (orderQty > 0) {
           orderDisc = orderDiscount(orderQty);
           if (cashBalance >= unitCostAt(orderDisc) * orderQty) break;
@@ -1073,13 +1087,20 @@ function reducer(state, action) {
         const baseWeeklyLease   = type.weeklyLease ?? 0;
         const engineLeaseAdj    = Math.round(baseWeeklyLease * (enginePriceMod - 1));
         const wingtipLeaseAdj   = (action.hasWingtips && wingtipDef) ? Math.round((wingtipDef.cost ?? 0) / 200) : 0;
-        const unitWeeklyLease   = Math.round((baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj) * leaseRateMult);
+        // A lessor recovers a factory-fitted connectivity package through the
+        // rate, on the same amortisation the wingtip surcharge uses.
+        const wifiLeaseAdj      = wantsWifi ? wifiLeaseSurcharge() : 0;
+        const unitWeeklyLease   = Math.round((baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj + wifiLeaseAdj) * leaseRateMult);
         const leaseDeposit      = action.ownershipType === 'lease' ? unitWeeklyLease * LEASE_DEPOSIT_WEEKS : 0;
 
         // Stop if we can't afford this unit (buy price or lease deposit).
         // Record what we needed so the partial fill can explain itself below —
         // silently trimming an order is indistinguishable from losing it.
-        const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice : leaseDeposit) + seatFittingFee;
+        // Owned aircraft pay the connectivity capex up front; leased ones have
+        // already had it amortised into unitWeeklyLease above, so charging it
+        // here as well would bill for the same antenna twice.
+        const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice + wifiFitCost : leaseDeposit)
+                              + seatFittingFee;
         if (cashBalance < unitUpfrontCost) { cashShortfallAt = unitUpfrontCost; break; }
 
         const serialNum = nextAircraftNumber(action.typeId, runningFleet, runningPending);
@@ -1095,6 +1116,7 @@ function reducer(state, action) {
           engineId:      engineOpt?.id    ?? null,
           engineLabel:   engineOpt?.label ?? null,
           hasWingtips:   action.hasWingtips ?? false,
+          hasWifi:       wantsWifi,
           fuelMod,
           rangeMod,
           maintMod,
@@ -1139,6 +1161,7 @@ function reducer(state, action) {
             engineId:      order.engineId  ?? null,
             engineLabel:   order.engineLabel ?? null,
             hasWingtips:   order.hasWingtips ?? false,
+            hasWifi:       order.hasWifi ?? false,
           };
           runningFleet = [...runningFleet, aircraft];
           instantAircraft.push(aircraft);
@@ -1377,6 +1400,96 @@ function reducer(state, action) {
       const rest = { ...bases };
       delete rest[action.code];
       return { ...state, cash: state.cash + closeRefund(base), mroBases: rest };
+    }
+
+    // ─── Onboard connectivity (Wi-Fi retrofit) ───────────────────────────────
+    // The only per-tail RETROFIT in the game besides a cabin reconfigure. Bulk
+    // by design: nobody fits connectivity one aircraft at a time, and the Fleet
+    // page applies it to a selection. Aircraft already fitted are silently
+    // skipped rather than charged again, which is why the quote comes from
+    // canRetrofitWifi() — the same function the UI shows the player, so the
+    // number on the button is the number the reducer takes.
+    case 'INSTALL_WIFI': {
+      const ids = [...new Set((action.aircraftIds ?? (action.aircraftId ? [action.aircraftId] : [])).filter(Boolean))];
+      if (ids.length === 0) return state;
+      const targets = (state.fleet ?? []).filter(a => ids.includes(a.id));
+      if (targets.length === 0) return state;
+
+      const check = canRetrofitWifi(targets, state.cash);
+      if (!check.ok) {
+        return {
+          ...state,
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            {
+              type: 'warning', icon: '📶',
+              title: 'Wi-Fi not fitted',
+              // Only quote a price when there is something to buy. When every
+              // selected tail is already fitted the capex is 0, and "costs $0;
+              // you have $X" reads as a bug rather than as "nothing to do".
+              message: check.eligible.length === 0
+                ? check.reasons[0]
+                : `${check.reasons[0]} Fitting ${check.eligible.length} aircraft costs `
+                  + `${formatMoney(check.capex)}; you have ${formatMoney(state.cash)}.`,
+            },
+          ],
+        };
+      }
+
+      const fitted = new Set(check.eligible.map(a => a.id));
+      return {
+        ...state,
+        cash:  state.cash - check.capex,
+        fleet: state.fleet.map(a => (fitted.has(a.id) ? { ...a, hasWifi: true } : a)),
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'success', icon: '📶',
+            title: fitted.size === 1 ? 'Wi-Fi fitted' : `Wi-Fi fitted to ${fitted.size} aircraft`,
+            message: `${formatMoney(check.capex)} spent. Set what you charge for it on the `
+                   + `Ancillaries tab — the fee is airline-wide.`,
+            duration: 6000,
+          },
+        ],
+      };
+    }
+
+    // ─── Airport lounges ─────────────────────────────────────────────────────
+    case 'BUILD_LOUNGE': {
+      const code    = action.code;
+      const lounges = state.lounges ?? {};
+      const check   = canBuildLounge(code, { lounges, gates: state.gates ?? {}, cash: state.cash });
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      return {
+        ...state,
+        cash:    state.cash - check.capex,
+        lounges: { ...lounges, [code]: makeLounge(code, absoluteWeek(state.year, state.week)) },
+        // Building your first lounge activates the access policy with both doors
+        // shut — free access is a decision, not a default, and switching it on
+        // costs servicing on every guest who walks in.
+        loungePolicy: state.loungePolicy ?? normalizeLoungePolicy(null),
+      };
+    }
+
+    case 'CLOSE_LOUNGE': {
+      const lounges = state.lounges ?? {};
+      const lounge  = lounges[action.code];
+      if (!lounge) return state;
+      const rest = { ...lounges };
+      delete rest[action.code];
+      return { ...state, cash: state.cash + loungeCloseRefund(lounge), lounges: rest };
+    }
+
+    case 'SET_LOUNGE_POLICY': {
+      // Partial updates: the UI toggles one switch at a time.
+      const current = normalizeLoungePolicy(state.loungePolicy);
+      return {
+        ...state,
+        loungePolicy: normalizeLoungePolicy({
+          loyaltyAccess:  action.loyaltyAccess  ?? current.loyaltyAccess,
+          allianceAccess: action.allianceAccess ?? current.allianceAccess,
+        }),
+      };
     }
 
     case 'SET_RESERVE': {
@@ -3114,13 +3227,19 @@ function reducer(state, action) {
       const baseBuild  = tickBaseConstruction(state.mroBases ?? {}, curAbsWeek);
       const tickedBases = baseBuild.bases;
 
+      // Lounges advance on the same schedule and for the same reason: a room
+      // that finishes its fit-out this week should be earning its keep this
+      // week, not next.
+      const loungeBuild  = tickLoungeConstruction(state.lounges ?? {}, curAbsWeek);
+      const tickedLounges = loungeBuild.lounges;
+
       // Disruption events reach the schedule through a transient field on the
       // labor object the tick hands down — see laborEffects. state.labor itself
       // is untouched, so nothing about it persists past this week.
       const laborThisWeek = eventOtpDelta > 0
         ? { ...(state.labor ?? {}), eventOtpDelta }
         : state.labor;
-      const report = weeklyTick({ ...state, labor: laborThisWeek, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents, mroBases: tickedBases, absWeek: curAbsWeek });
+      const report = weeklyTick({ ...state, labor: laborThisWeek, fleet: coverPass.fleet, routes: seasonAdjustedRoutes, cargoRoutes: coverPass.cargoRoutes, fuelMultiplier, loyalty: state.loyalty, gameDate, encroachments: updatedEncroachments, activeEvents: allEvents, mroBases: tickedBases, lounges: tickedLounges, loungePolicy: state.loungePolicy ?? null, absWeek: curAbsWeek });
 
       // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the
@@ -3500,6 +3619,13 @@ function reducer(state, action) {
           type: 'success', icon: '\uD83D\uDD27', duration: 9000,
           title: `\uD83D\uDD27 ${b.code} upgraded to ${mroLevelDef(b.level)?.name ?? 'a higher tier'}`,
           message: `Heavier work can now be done in-house at ${b.code}.`,
+        })),
+        ...loungeBuild.opened.map(code => ({
+          type: 'success', icon: '\uD83D\uDECB', duration: 9000,
+          title: `\uD83D\uDECB Lounge open — ${code}`,
+          message: `Your ${code} lounge is taking guests. Business travellers on routes through `
+                 + `${code} now rate you higher, premium ground costs there have dropped, and you `
+                 + `can sell day passes on the Ancillaries tab.`,
         })),
       ];
 
@@ -4364,6 +4490,7 @@ function reducer(state, action) {
           engineId:      order.engineId  ?? null,
           engineLabel:   order.engineLabel ?? null,
           hasWingtips:   order.hasWingtips ?? false,
+          hasWifi:       order.hasWifi ?? false,
         });
         newToasts.push({
           type:     'success',
@@ -4598,6 +4725,7 @@ function reducer(state, action) {
         laborRelations:    updatedRelations,
         maintenanceBudget: mainBudget,
         mroBases:          tickedBases,
+        lounges:           tickedLounges,
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory },
         marketIndex:       nextMarketIndex,
@@ -5428,6 +5556,11 @@ function reconcileState(parsed) {
     campaignStrength:         parsed.campaignStrength         ?? {},
     defaultCateringLevel:     normalizeCateringLevel(parsed.defaultCateringLevel),
     ancillaries:              normalizeAncillaries(parsed.ancillaries),
+    // Lounges — added with the ancillary facilities rework. Old saves have no
+    // lounges and no policy, which is exactly the neutral state: appeal 1, no
+    // day passes, full third-party premium ground contract.
+    lounges:                  parsed.lounges                  ?? {},
+    loungePolicy:             parsed.loungePolicy ? normalizeLoungePolicy(parsed.loungePolicy) : null,
     awareness:                parsed.awareness                ?? 5,
     // Labor relations (unrest / strikes / negotiations) — added later; old saves
     // start calm and get their first negotiations scheduled on the next tick.

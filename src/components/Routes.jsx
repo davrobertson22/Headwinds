@@ -36,6 +36,7 @@ import {
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
   buildEventDemandModel, committedPeakBlockHours, routesCommittedTo,
+  stateLoungeFields,
 } from '../utils/simulation.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -247,7 +248,9 @@ export default function Routes() {
     if (rr) return rr;
     const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
     const evMult  = buildEventDemandModel(state.activeEvents).multFor(route.origin, route.destination);
-    return simulateRoute(route, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
+    return simulateRoute(
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+      aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
   };
 
   // Each route's share of its aircraft's weekly lease + maintenance. The engine
@@ -1051,7 +1054,12 @@ function TagRouteCard({ route, onClose }) {
   const aircraft = fleet.find(a => a.id === route.aircraftId);
   const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
   const stops    = routeStops(route);
-  const sim      = aircraft ? simulateTagRoute(route, aircraft, gd, state.labor ?? null, 1.0,
+  // Lounge fields on the rotation's TRUE endpoints — the same three the tick
+  // attaches. Without them this card understated a two-lounge rotation's weekly
+  // profit by the whole premium ground discount.
+  const sim      = aircraft ? simulateTagRoute(
+    { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+    aircraft, gd, state.labor ?? null, 1.0,
     fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
     state.satisfaction ?? null, buildEventDemandModel(state.activeEvents).multFor) : null;
   const landingFee = type ? routeLandingFee(route, type, route.weeklyFrequency) : 0;

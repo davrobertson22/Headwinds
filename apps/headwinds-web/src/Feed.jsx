@@ -63,6 +63,7 @@ function describe(e) {
     case 'hub_designated': return { who: e.airline, what: `designated ${d.airportCode ?? 'a new'} hub`, icon: '🏛️' };
     case 'hub_upgraded':   return { who: e.airline, what: `upgraded ${d.airportCode ? `its ${d.airportCode} hub` : 'a hub'}`, icon: '🏛️' };
     case 'focus_city':     return { who: e.airline, what: `made ${d.airportCode ?? 'an airport'} a focus city`, icon: '📍' };
+    case 'lounge_built':   return { who: e.airline, what: `is building a lounge at ${d.code ?? d.airportCode ?? 'an airport'}`, icon: '🛋️' };
     case 'stock_tape':     return {
       who: e.airline,
       what: `${d.direction === 'buy' ? 'bought into' : 'sold down'} ${d.targetName ?? 'a rival'}${d.stakePct ? ` — now ${d.stakePct}%` : ''}`,

@@ -601,6 +601,13 @@ const MOVE_LABELS = {
   UPGRADE_HUB: (p) => `Upgraded hub ${p.airportCode ?? ''}`.trim(),
   DESIGNATE_HUB: (p) => `Designated ${p.airportCode ?? 'a'} hub`,
   DESIGNATE_FOCUS_CITY: (p) => `Designated ${p.airportCode ?? 'a'} focus city`,
+  BUILD_LOUNGE: (p) => `Started a lounge at ${p.code ?? p.airportCode ?? '?'}`,
+  CLOSE_LOUNGE: (p) => `Closed the lounge at ${p.code ?? p.airportCode ?? '?'}`,
+  SET_LOUNGE_POLICY: () => 'Changed lounge access',
+  INSTALL_WIFI: (p) => {
+    const n = p.aircraftIds?.length ?? 1;
+    return n > 1 ? `Fitted Wi-Fi to ${n} aircraft` : 'Fitted Wi-Fi to an aircraft';
+  },
   JOIN_ALLIANCE: (p) => `Joined the ${p.allianceId ?? ''} alliance`.replace('  ', ' '),
   LEAVE_ALLIANCE: () => 'Left their alliance',
 };

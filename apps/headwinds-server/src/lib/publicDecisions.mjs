@@ -27,6 +27,14 @@ export const PUBLIC_DECISIONS = new Set([
   'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'ORDER_AIRCRAFT',
   // ── Airports & hubs ────────────────────────────────────────────────────────
   'ADD_GATE', 'REMOVE_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
+  // A lounge is a room with your name over the door in a public terminal — you
+  // cannot build one quietly, and rivals price against it. CLOSE_LOUNGE is
+  // deliberately absent for the same reason RETIRE-style retreats are handled
+  // carefully elsewhere: it is a withdrawal, and the airport notices soon enough.
+  // SET_LOUNGE_POLICY is absent too — who you let in free is commercial policy,
+  // not a public fact, and it is exactly the sort of thing rivals should have to
+  // infer rather than read off a feed.
+  'BUILD_LOUNGE',
   // ── Alliances ──────────────────────────────────────────────────────────────
   'JOIN_ALLIANCE', 'LEAVE_ALLIANCE',
   // ── Share dealings: Headwinds runs a FULL PUBLIC TAPE — every trade prints ──
@@ -52,6 +60,10 @@ export function publicPayload(d) {
     ...(p.destination ? { destination: p.destination } : {}),
     ...(p.typeId ? { typeId: p.typeId } : {}),
     ...(p.airportCode ? { airportCode: p.airportCode } : {}),
+    // Facility actions name their airport as `code`. Public by definition — it
+    // is the same airport identifier `airportCode` carries, under the key the
+    // engine action uses.
+    ...(p.code ? { code: str(p.code, 4) } : {}),
     ...(p.allianceId ? { allianceId: p.allianceId } : {}),
     // Batched route closes: pass through only scrubbed origin/destination
     // pairs (public info) and the count — never raw ids or anything else.

@@ -168,6 +168,15 @@ export function buildEncroachmentOffer(spec, market) {
     // Solo AI encroachers carry no figure and stay at parity, which is correct:
     // they are the incumbents and the player is the unknown.
     brandReach:        spec.brandReach ?? 1,
+    // Airport lounges — the same story as brandReach one field up, and it needs
+    // the same plumbing for the same reason. A human rival who has built lounges
+    // at both ends of a contested pair scores loungeAppeal 1.28 in their OWN
+    // tick's business softmax; if this offer drops the field, every other
+    // player's tick scores them at parity, the two ticks disagree about the same
+    // pair's business split, and the shares no longer sum to one. Solo AI
+    // encroachers carry no figure and stay at parity, which is correct — the AI
+    // bank has no lounge network to model.
+    loungeAppeal:      spec.loungeAppeal ?? 1,
   };
 }
 

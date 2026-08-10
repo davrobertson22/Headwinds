@@ -45,6 +45,27 @@
  * where the international norm is an included bag and a changeable ticket.
  * Callers that have no route in hand (airline-wide reputation, the policy UI)
  * simply omit the distance and get neutral medium-haul behaviour.
+ *
+ * ── Provision coverage: policy is not the same as capability ─────────────────
+ * A provisioned amenity now has TWO gates, not one. The policy says whether you
+ * WANT to offer it; coverage says whether you actually CAN. Wi-Fi is an antenna
+ * fitted to a particular airframe (see data/wifi.js) and a lounge is a room built
+ * at a particular airport (see data/lounges.js) — neither follows from ticking a
+ * box on this screen. So every function that scores a provisioned product takes
+ * an optional `coverage` map, `{ [productId]: 0..1 }`:
+ *
+ *     1    fully capable — the tail is fitted / you own lounges at both ends
+ *     0    not capable — scored exactly as "not offered": absentQ, no revenue,
+ *          no provisioning cost, whatever the policy says
+ *     0.5  partly capable — half the fleet is fitted, or one of the two
+ *          endpoints has a lounge. Revenue, cost and quality all blend linearly
+ *          between the two, because half a network genuinely is half a promise.
+ *
+ * Coverage DEFAULTS TO 1 when a caller omits it, so a preview or a test that
+ * hasn't opted in is scored exactly as this engine scored it before coverage
+ * existed — the same convention `brandReach` follows. That does mean a call site
+ * that forgets to pass coverage silently hands out free Wi-Fi, which is what
+ * tools/wifi-lounge-test.mjs exists to catch.
  */
 
 import { CABIN_CLASSES } from './catering.js';
@@ -136,7 +157,12 @@ export const ANCILLARY_PRODUCTS = [
     baseTake: 0.10, elasticity: 1.35,
     elig: { economy: 1.0, premiumEconomy: 1.0, businessClass: 1.0, firstClass: 1.0 },
     haul: { s: 0.35, l: 1.6 },
-    unitCost: 1.0, provisionCost: 1.4,
+    // provisionCost is now SATELLITE AIRTIME ONLY. It used to bundle the
+    // amortised cost of the hardware, because there was nowhere else for that to
+    // live; the kit is now explicit capex per airframe plus WIFI_WEEKLY_OPEX per
+    // equipped tail (see data/wifi.js), so leaving this at its old 1.4 would
+    // charge for the same antenna twice.
+    unitCost: 1.0, provisionCost: 0.9,
     qFree: 2.5, qAtRef: -0.3, absentQ: -3.5, qFloor: -6,
   },
   {
@@ -203,6 +229,18 @@ export function resolveItem(product, policy) {
 }
 
 /**
+ * Resolved capability for ONE product, 0–1. Non-provisioned products (bags,
+ * seats, priority, flex) are pure policy — you can always choose to charge for a
+ * bag — so they are always fully covered.
+ */
+export function ancillaryProvisionCoverage(product, coverage = null) {
+  if (!product?.provisioned) return 1;
+  const c = coverage?.[product.id];
+  if (c == null) return 1;                 // caller hasn't opted in — parity
+  return clamp(Number(c) || 0, 0, 1);
+}
+
+/**
  * 0 → fully short-haul, 1 → fully long-haul, interpolated between the anchors.
  * No/unknown distance (0, negative, non-finite) → mid-haul neutral behaviour.
  */
@@ -243,17 +281,26 @@ export function ancillaryTakeRate(product, price, distKm = 0) {
  * Quality points contributed by ONE product under the current policy. On haulQ
  * products (bags, flex) a NEGATIVE contribution deepens with route length —
  * charging for what long-haul norms include stings more.
+ *
+ * A provisioned product that is switched off, or that the airline is not capable
+ * of delivering here (coverage 0), scores `absentQ`. Partial coverage blends
+ * between absentQ and the fully-covered score: a passenger who finds Wi-Fi on
+ * half your aircraft has half the experience you advertised.
  */
-export function ancillaryItemQuality(product, policy, distKm = 0) {
+export function ancillaryItemQuality(product, policy, distKm = 0, coverage = null) {
   const { offered, price } = resolveItem(product, policy);
-  if (product.provisioned && !offered) return product.absentQ ?? 0;
+  const absent = product.absentQ ?? 0;
+  const cov    = ancillaryProvisionCoverage(product, coverage);
+  if (product.provisioned && (!offered || cov <= 0)) return absent;
   const ratio = product.refPrice > 0 ? price / product.refPrice : 0;
   let q = product.qFree + (product.qAtRef - product.qFree) * ratio;
   if (q < 0 && product.haulQ) {
     const blend = haulBlend(distKm);
     if (blend && blend.zone === 'long') q *= 1 + ANC_HAUL_STING * blend.t;
   }
-  return clamp(q, product.qFloor ?? -6, product.qFree);
+  q = clamp(q, product.qFloor ?? -6, product.qFree);
+  if (product.provisioned && cov < 1) q = absent + (q - absent) * cov;
+  return q;
 }
 
 /**
@@ -262,10 +309,10 @@ export function ancillaryItemQuality(product, policy, distKm = 0) {
  * route's distance to include the long-haul fee sting; omit it for the airline-
  * wide (reputation / delivered-experience) figure.
  */
-export function ancillaryQualityBonus(policy, distKm = 0) {
+export function ancillaryQualityBonus(policy, distKm = 0, coverage = null) {
   if (!isAncillariesActive(policy)) return 0;
   let sum = 0;
-  for (const p of ANCILLARY_PRODUCTS) sum += ancillaryItemQuality(p, policy, distKm);
+  for (const p of ANCILLARY_PRODUCTS) sum += ancillaryItemQuality(p, policy, distKm, coverage);
   return clamp(Math.round(sum), -ANC_QUALITY_CAP, ANC_QUALITY_CAP);
 }
 
@@ -285,18 +332,29 @@ function eligiblePaxBoth(product, classSummary) {
  * @param {object|null} policy       state.ancillaries (null → inactive → zeros)
  * @param {object} classSummary      { [cls]: { passengers } } — ONE-WAY pax per direction
  * @param {number} distKm            route distance — scales take-rates & provisioning
+ * @param {object|null} coverage     { [productId]: 0..1 } capability for provisioned
+ *                                   products — which tails are fitted, which
+ *                                   airports have a lounge. Omitted → 1 (parity).
  * @returns {{ revenue, cost, net, byItem }}
  */
-export function routeAncillaries(policy, classSummary = {}, distKm = 0) {
+export function routeAncillaries(policy, classSummary = {}, distKm = 0, coverage = null) {
   if (!isAncillariesActive(policy)) return { revenue: 0, cost: 0, net: 0, byItem: {} };
 
   let revenue = 0, cost = 0;
   const byItem = {};
   for (const p of ANCILLARY_PRODUCTS) {
     const { offered, price } = resolveItem(p, policy);
-    if (p.provisioned && !offered) { byItem[p.id] = { offered: false, revenue: 0, cost: 0, buyers: 0, price }; continue; }
+    const cov = ancillaryProvisionCoverage(p, coverage);
+    // Switched off, or nothing to switch on: an unfitted aircraft sells no Wi-Fi
+    // and an airline with no lounge sells no lounge passes, whatever the policy
+    // screen says. Reported as `offered: false` so the UI can say WHY it earns
+    // nothing rather than showing a live product making $0.
+    if (p.provisioned && (!offered || cov <= 0)) {
+      byItem[p.id] = { offered: false, revenue: 0, cost: 0, buyers: 0, price, coverage: cov };
+      continue;
+    }
 
-    const eligPax  = eligiblePaxBoth(p, classSummary);
+    const eligPax  = eligiblePaxBoth(p, classSummary) * cov;
     const take     = ancillaryTakeRate(p, price, distKm);
     const buyers   = eligPax * take;
     const haulMult = ancillaryHaulMult(p, distKm);
@@ -311,6 +369,7 @@ export function routeAncillaries(policy, classSummary = {}, distKm = 0) {
       cost:    Math.round(cst),
       buyers:  Math.round(buyers),
       price,
+      ...(p.provisioned ? { coverage: cov } : {}),
     };
   }
 

@@ -10,6 +10,7 @@ import {
   fleetAvgUtilization, buildEventDemandModel,
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
   freighterLandingCategory, aircraftUtilization,
+  stateLoungeFields,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { ReserveBadge } from './ReserveNotice.jsx';
@@ -24,6 +25,7 @@ import { isLeaseExpiring, leaseRemainingWeeks, LEASE_EXPIRY_WARN_WEEKS } from '.
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import { canRetrofitWifi, isWifiEquipped, WIFI_WEEKLY_OPEX } from '../data/wifi.js';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -412,6 +414,61 @@ function ReserveSection({ aircraft, type }) {
   );
 }
 
+/**
+ * Connectivity status for one tail, plus the retrofit offer when it has none.
+ * The quote comes from the engine's canRetrofitWifi — the same function the
+ * reducer charges from — so the price on the button cannot drift from the price
+ * the player is actually charged.
+ */
+function WifiBadge({ aircraft }) {
+  const { state, dispatch } = useGame();
+  const confirm = useConfirm();
+  const fitted  = isWifiEquipped(aircraft);
+  const quote   = canRetrofitWifi([aircraft], state.cash);
+
+  if (fitted) {
+    return (
+      <span className="badge" style={{ background: 'rgba(56,139,253,.12)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.35)' }}
+            title={`Connectivity fitted — ${formatMoney(WIFI_WEEKLY_OPEX)}/wk to run. The fee is set airline-wide on the Ancillaries tab.`}>
+        <Glyph e="📶" /> Wi-Fi
+      </span>
+    );
+  }
+  if (aircraft.status === 'retired') return null;
+
+  return (
+    <button
+      className="btn"
+      style={{
+        fontSize: 11, padding: '2px 9px',
+        background: quote.ok ? 'var(--surface3)' : 'var(--surface3)',
+        color: quote.ok ? 'var(--text-muted)' : 'var(--text-dim)',
+        border: '1px solid var(--border)',
+        cursor: quote.ok ? 'pointer' : 'not-allowed',
+      }}
+      disabled={!quote.ok}
+      title={quote.ok
+        ? `No Wi-Fi on this aircraft — it takes a quality penalty on every route it flies. Retrofit for ${formatMoney(quote.unitCost)}.`
+        : quote.reasons[0]}
+      onClick={async () => {
+        if (!quote.ok) return;
+        if (await confirm({
+          title: `Fit Wi-Fi to ${aircraft.name}?`,
+          body: `${formatMoney(quote.unitCost)} now, then ${formatMoney(WIFI_WEEKLY_OPEX)}/wk to run — `
+              + `charged whether the aircraft flies or sits.\n\n`
+              + `Fitting it on the production line at order time is cheaper; this is the retrofit price.\n\n`
+              + `What you charge passengers is set airline-wide on the Ancillaries tab.`,
+          confirmLabel: `Fit for ${formatMoney(quote.unitCost)}`,
+        })) {
+          dispatch({ type: 'INSTALL_WIFI', aircraftIds: [aircraft.id] });
+        }
+      }}
+    >
+      <Glyph e="📶" /> Fit Wi-Fi · {formatMoney(quote.unitCost)}
+    </button>
+  );
+}
+
 function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const { state, dispatch } = useGame();
   const bhCap = maxWeeklyBlockHoursFor(state);
@@ -488,7 +545,9 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
     if (!result) {
       const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
       const evMult  = buildEventDemandModel(state.activeEvents).multFor(r.origin, r.destination);
-      result = simulateRoute(r, aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
+      result = simulateRoute(
+        { ...r, ...stateLoungeFields(state, r.origin, r.destination) },
+        aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
     }
     if (!result) return null;
     const bh = type ? weeklyBlockHours(result.distance, r.weeklyFrequency, type) : 0;
@@ -580,6 +639,7 @@ function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
                     {aircraft.tailNumber}
                   </span>
                 )}
+                <WifiBadge aircraft={aircraft} />
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
                 {type?.name} · {type?.manufacturer}
@@ -1341,7 +1401,7 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
 export default function Fleet() {
   const { state, dispatch } = useGame();
   const confirm = useConfirm();
-  const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week } = state;
+  const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week, cash } = state;
   const bhCap = maxWeeklyBlockHoursFor(state);
   const gameMonth = currentGameDate(state).month;
   const nowAbs = absoluteWeek(year, week);
@@ -1564,6 +1624,11 @@ export default function Fleet() {
   const checkedTypeIds    = [...new Set(checkedAircraft.map(a => a.typeId))];
   const canBulkConfigure  = checkedAircraft.length > 0 && checkedTypeIds.length === 1;
   const checkedOwned      = checkedAircraft.filter(a => a.ownershipType === 'owned');
+  // Wi-Fi retrofit: only tails that don't already have it. Quoted through the
+  // engine's own canRetrofitWifi so the number on the button is the number the
+  // reducer takes — the same shared-predicate rule canBuildBase follows.
+  const wifiQuote         = canRetrofitWifi(checkedAircraft, cash);
+  const checkedNoWifi     = wifiQuote.eligible;
 
   function toggleChecked(id) {
     setCheckedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
@@ -1672,6 +1737,28 @@ export default function Fleet() {
   // them was one +1yr click per aircraft, which for a fleet of twenty leases is
   // twenty clicks to avoid twenty route closures.
   const checkedExpiring = checkedAircraft.filter(a => isLeaseExpiring(a));
+
+  async function handleBulkFitWifi() {
+    if (checkedNoWifi.length === 0) return;
+    const names = checkedNoWifi.slice(0, 8).map(a => a.name).join(', ')
+                + (checkedNoWifi.length > 8 ? `, +${checkedNoWifi.length - 8} more` : '');
+    const already = checkedAircraft.length - checkedNoWifi.length;
+    const body = `${names}\n\n`
+      + `${formatMoney(wifiQuote.unitCost)} per aircraft to retrofit — `
+      + `${formatMoney(wifiQuote.capex)} in total, due now.\n`
+      + `Running cost afterwards: ${formatMoney(WIFI_WEEKLY_OPEX)}/wk per aircraft, `
+      + `charged whether it flies or sits.\n\n`
+      + (already > 0 ? `${already} of the aircraft you selected already have it and won't be charged again.\n\n` : '')
+      + `What you charge passengers for Wi-Fi is set airline-wide on the Ancillaries tab.`;
+    if (await confirm({
+      title: `Fit Wi-Fi to ${checkedNoWifi.length} aircraft?`,
+      body,
+      confirmLabel: `Fit for ${formatMoney(wifiQuote.capex)}`,
+    })) {
+      dispatch({ type: 'INSTALL_WIFI', aircraftIds: checkedNoWifi.map(a => a.id) });
+      setCheckedIds([]);
+    }
+  }
 
   async function handleBulkExtend(list) {
     if (list.length === 0) return;
@@ -2129,6 +2216,25 @@ export default function Fleet() {
                 <Glyph e="⏳" /> Extend leases ({checkedExpiring.length})
               </button>
             )}
+            {checkedNoWifi.length > 0 && (
+              <button
+                className="btn"
+                style={{
+                  fontSize: 12, padding: '5px 12px',
+                  background: wifiQuote.ok ? 'rgba(56,139,253,0.15)' : 'var(--surface3)',
+                  color: wifiQuote.ok ? 'var(--accent)' : 'var(--text-dim)',
+                  border: `1px solid ${wifiQuote.ok ? 'rgba(56,139,253,0.4)' : 'var(--border)'}`,
+                  cursor: wifiQuote.ok ? 'pointer' : 'not-allowed',
+                }}
+                disabled={!wifiQuote.ok}
+                title={wifiQuote.ok
+                  ? `Retrofit Wi-Fi to ${checkedNoWifi.length} aircraft for ${formatMoney(wifiQuote.capex)}`
+                  : wifiQuote.reasons[0]}
+                onClick={handleBulkFitWifi}
+              >
+                <Glyph e="📶" /> Fit Wi-Fi ({checkedNoWifi.length}) · {formatMoney(wifiQuote.capex)}
+              </button>
+            )}
             <button
               className="btn"
               style={{
@@ -2274,6 +2380,12 @@ export default function Fleet() {
                   </td>
                   <td>
                     <strong>{aircraft.name}</strong>
+                    {isWifiEquipped(aircraft) && (
+                      <span
+                        title="Wi-Fi fitted — this aircraft can sell connectivity and avoids the no-Wi-Fi quality penalty"
+                        style={{ marginLeft: 5, fontSize: 10, color: 'var(--accent)' }}
+                      ><Glyph e="📶" size={11} /></span>
+                    )}
                     {aircraft.tailNumber && (
                       <div style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'monospace', marginTop: 1, letterSpacing: '0.05em' }}>
                         {aircraft.tailNumber}

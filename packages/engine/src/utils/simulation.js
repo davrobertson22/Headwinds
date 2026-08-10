@@ -32,6 +32,13 @@ import {
 import { routeCatering, cateringQualityBonus, normalizeCateringLevel } from '../data/catering.js';
 import { routeAncillaries, ancillaryQualityBonus } from '../data/ancillaries.js';
 import {
+  isWifiEquipped, wifiCoverageFor, groupWifiCoverage, fleetWifiCoverage, fleetWifiWeeklyCost,
+} from '../data/wifi.js';
+import {
+  isLoungeOpen, totalLoungeWeeklyOpex, routeLoungeAppeal, loungeContractFactor,
+  loungeEndpointCoverage, loungeGuestEconomics,
+} from '../data/lounges.js';
+import {
   buildRouteMarket,
   computeMarketShare,
   computeQualityScore,
@@ -489,12 +496,39 @@ export const SERVICE_QUALITY_COST_PER_ROUTE = {
 export const SATISFACTION_ADAPT_RATE = 0.15;
 
 /**
+ * The three lounge fields a route needs, resolved from STATE.
+ *
+ * THE single implementation. weeklyTick calls it, pairShare's projection calls
+ * it, and every screen that hand-builds a route object for simulateRoute or
+ * simulateTagRoute calls it — because a route object without these is scored at
+ * the parity default (appeal 1, coverage 1, contract factor 1), which means a
+ * lounge owner is quoted nearly three times the premium ground cost the tick
+ * actually charges, and an airline with no lounges is shown day-pass revenue the
+ * tick refuses to book. That preview/tick divergence is the single most
+ * repeated bug in this engine; there is one function so there is one answer.
+ *
+ * Spread it into the route: `{ ...route, ...stateLoungeFields(state, o, d) }`.
+ */
+export function stateLoungeFields(state, origin, destination) {
+  const lounges = state?.lounges ?? {};
+  const alliance = state?.allianceMembership
+    ? getAlliance(state.allianceMembership.allianceId) : null;
+  return {
+    loungeAppeal: routeLoungeAppeal({
+      lounges, policy: state?.loungePolicy ?? null, origin, destination, alliance,
+    }),
+    loungeCoverage:       loungeEndpointCoverage(lounges, origin, destination),
+    loungeContractFactor: loungeContractFactor(lounges, origin, destination),
+  };
+}
+
+/**
  * The experience delivered this week, 0–100. Inputs are what passengers
  * actually encountered: punctuality, crew service, the cabin product +
  * catering, and fleet age. Deliberately EXCLUDES customerRating itself so the
  * satisfaction loop has no feedback term.
  */
-export function deliveredExperience({ fleet = [], routes = [], labor = null, ancillaries = null }, avgUtilization = null) {
+export function deliveredExperience({ fleet = [], routes = [], labor = null, ancillaries = null, lounges = null }, avgUtilization = null) {
   const { onTimeRate } = laborEffects(labor, avgUtilization);
   const assigned = fleet.filter(a => routes.some(r => r.aircraftId === a.id));
   const avgCabinPts = assigned.length > 0
@@ -518,7 +552,23 @@ export function deliveredExperience({ fleet = [], routes = [], labor = null, anc
     : 0;
   const cabinMorale = labor?.cabinCrew?.morale ?? 80;
   // Airline-wide ancillary generosity lifts (or dents) the delivered experience.
-  const ancQ = ancillaryQualityBonus(ancillaries);
+  //
+  // Provisioned amenities are scored on what the airline can actually DELIVER,
+  // network-wide, not on what the policy screen claims. Wi-Fi coverage is
+  // weighted by SEATS rather than airframes, because the question here is what
+  // fraction of passengers found it on board — a fitted widebody carries far
+  // more of them than a fitted turboprop. Lounge coverage is the share of routes
+  // with at least one lounged endpoint, which is the same question asked of the
+  // ground product. Both default to full when the caller supplies nothing, so
+  // every existing call site is scored exactly as before.
+  const ancQ = ancillaryQualityBonus(ancillaries, 0, {
+    wifi:   fleetWifiCoverage(fleet, a => getAircraftType(a.typeId)?.seats ?? 0),
+    lounge: lounges
+      ? (routes.length > 0
+          ? routes.reduce((n, r) => n + loungeEndpointCoverage(lounges, r.origin, r.destination), 0) / routes.length
+          : 0)
+      : 1,
+  });
 
   const otpPts   = onTimeRate * 40;                                            // 0–40
   const crewPts  = (cabinMorale / 100) * 22;                                   // 0–22
@@ -559,7 +609,25 @@ export function routeQualityBreakdown(route, aircraft, state) {
   const spacePts    = configSpaceQualityBonus(config, type);
   const dist        = isMultiStop(r) ? routeMaxLegKm(r) : routeDistanceKm(r.origin, r.destination);
   const cateringPts = cateringQualityBonus(normalizeCateringLevel(r.cateringLevel), dist);
-  const ancillaryPts = ancillaryQualityBonus(state.ancillaries ?? null);
+  // Same two capability gates the tick applies, so this breakdown cannot claim
+  // quality points for a Wi-Fi kit that isn't fitted or a lounge that isn't
+  // built. A preview that disagrees with weeklyTick is a bug in one of them.
+  const lounges     = state.lounges ?? {};
+  const ancCoverage = {
+    wifi:   wifiCoverageFor(aircraft),
+    lounge: loungeEndpointCoverage(lounges, r.origin, r.destination),
+  };
+  const ancillaryPts = ancillaryQualityBonus(state.ancillaries ?? null, 0, ancCoverage);
+  // Not a quality term — lounges move the BUSINESS segment of the demand model
+  // directly rather than the route's quality score. Surfaced here so the route
+  // detail screen can explain a business share the quality ladder doesn't.
+  const loungeAppeal = routeLoungeAppeal({
+    lounges,
+    policy:      state.loungePolicy ?? null,
+    origin:      r.origin,
+    destination: r.destination,
+    alliance:    state.allianceMembership ? getAlliance(state.allianceMembership.allianceId) : null,
+  });
 
   // Hub investment bonus: best player hub touching the route (all stops for tag routes)
   const hubs = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
@@ -577,6 +645,12 @@ export function routeQualityBreakdown(route, aircraft, state) {
     groundPts: groundQualityBonus, spacePts, cateringPts, ancillaryPts, hubPts,
     raw, total,
     onTimeRate, customerRating, satisfaction, avgUtilization,
+    // Capability context for the UI: which of the provisioned amenities this
+    // route can actually deliver, and what the lounge network is worth to the
+    // business segment on it.
+    wifiEquipped: isWifiEquipped(aircraft),
+    loungeCoverage: ancCoverage.lounge,
+    loungeAppeal,
   };
 }
 
@@ -1329,10 +1403,21 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // the per-aircraft service quality already baked into rawQualityScore.
   const cateringLevel    = normalizeCateringLevel(route.cateringLevel);
   const cateringQuality  = cateringQualityBonus(cateringLevel, dist);
+  // Provisioned-amenity capability for THIS route. Policy says what you want to
+  // offer; these say what you can actually deliver here. Wi-Fi is read straight
+  // off the metal flying the route — simulateRoute already has the aircraft, so
+  // nothing has to be threaded in for it. Lounge coverage is a property of the
+  // two airports, so weeklyTick (and the pairShare preview) attach it to the
+  // route alongside hubQualityBonus and brandReach. A caller that attaches
+  // neither is scored at parity, exactly as before these existed.
+  const ancCoverage = {
+    wifi:   wifiCoverageFor(aircraft),
+    lounge: route.loungeCoverage ?? 1,
+  };
   // Ancillary quality: airline-wide à la carte generosity (free/cheap extras and
   // simply offering expected amenities lift perceived quality; nickel-and-diming
   // and dropping amenities drag it). Zero when no policy is active.
-  const ancillaryQuality = ancillaryQualityBonus(ancillaries, dist);
+  const ancillaryQuality = ancillaryQualityBonus(ancillaries, dist, ancCoverage);
   // Hub quality bonus: routes through a player-designated hub get a quality boost from hub investment
   const qualityScore = Math.max(0, Math.min(100, rawQualityScore + groundQualityBonus + spaceQualityBonus + cateringQuality + ancillaryQuality + (route.hubQualityBonus ?? 0)));
 
@@ -1385,6 +1470,10 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // ad pressure (attached by weeklyTick). Same two channels as marketingBoost.
     // Callers that don't attach it (previews, tests) sit at parity.
     brandReach: route.brandReach ?? 1,
+    // Airport lounges at this route's endpoints (attached by weeklyTick). Moves
+    // the BUSINESS segment only — a share term on a contested pair, a business
+    // pool term on a monopoly. 1 = no lounges, scored as before.
+    loungeAppeal: route.loungeAppeal ?? 1,
   };
 
   // Gather any AI competitors serving this route and compute market share.
@@ -1557,7 +1646,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 
   // À la carte ancillaries (bags, seats, Wi-Fi, lounge, …) — airline-wide policy.
   // Per-actual-passenger income + provisioning cost; both fold into the route.
-  const ancillary        = routeAncillaries(ancillaries, classSummary, dist);
+  const ancillary        = routeAncillaries(ancillaries, classSummary, dist, ancCoverage);
   const ancillaryRevenue = ancillary.revenue;
   const ancillaryCost    = ancillary.cost;
   totalRevenue += ancillaryRevenue;
@@ -1584,7 +1673,12 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 
   // Lounge & premium ground service — airport lounge access, fast-track security,
   // dedicated check-in for business/first pax. Per-passenger, both directions.
-  const loungeCost = weeklyLoungeCost(classSummary);
+  // An endpoint where the airline has BUILT its own lounge pays the marginal
+  // cost of the room instead of a contractor's per-head rate (see
+  // loungeContractFactor in data/lounges.js). This is the hard financial payback
+  // on a lounge, and it is why lounges earn at hubs and lose money at
+  // outstations: it scales with the premium traffic actually pushed through.
+  const loungeCost = weeklyLoungeCost(classSummary, route.loungeContractFactor ?? 1);
 
   const totalOpCost = fuelCost + crewCost + qualityCost + cateringCost + ancillaryCost + groundHandlingCost + layoverCost + compensationCost + loungeCost;
 
@@ -1743,6 +1837,14 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   });
   const spaceBonus    = configSpaceQualityBonus(config, type);
   const cateringLevel = normalizeCateringLevel(route.cateringLevel);
+  // Provisioned-amenity capability, same two gates as simulateRoute: Wi-Fi off
+  // the metal, lounges off the airports (attached by weeklyTick). On a tag
+  // rotation the lounge figure covers the ORIGIN and FINAL destination — the
+  // intermediate stops are a technical stop for most of the people on board.
+  const ancCoverage = {
+    wifi:   wifiCoverageFor(aircraft),
+    lounge: route.loungeCoverage ?? 1,
+  };
 
   // ── Per-leg seat capacity (one-way seats/week), economy vs pooled premium ──
   const ecoSeatsPerFlight = config.economy ?? type.seats;
@@ -1775,7 +1877,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     const biz    = Math.max(1, sp?.businessClass ?? eco * CLASS_FARE_MULTIPLIERS.businessClass);
     const quality = Math.max(0, Math.min(100,
       baseQuality + groundQualityBonus + spaceBonus
-      + cateringQualityBonus(cateringLevel, dist) + ancillaryQualityBonus(ancillaries, dist) + (route.hubQualityBonus ?? 0)));
+      + cateringQualityBonus(cateringLevel, dist) + ancillaryQualityBonus(ancillaries, dist, ancCoverage) + (route.hubQualityBonus ?? 0)));
     const connectivityBonus = computeConnectivityBonus(
       route.hub, seg.from, seg.to, route.hubSpokes ?? CONNECTIVITY_LEGACY_SPOKES);
     const offer = {
@@ -1787,6 +1889,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       priceSensitivityReduction: route.priceSensitivityReduction ?? 0,
       marketingBoost: route.marketingBoost ?? 0,
       brandReach: route.brandReach ?? 1,
+      loungeAppeal: route.loungeAppeal ?? 1,
     };
     const competitorOffers = COMPETITOR_AIRLINES
       .map(c => buildCompetitorOffer(c, market)).filter(Boolean);
@@ -1867,13 +1970,13 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   totalRevenue += cateringRevenue;
 
   // À la carte ancillaries — airline-wide policy, per-passenger across the tag route.
-  const ancillary        = routeAncillaries(ancillaries, classSummary, totalDist);
+  const ancillary        = routeAncillaries(ancillaries, classSummary, totalDist, ancCoverage);
   const ancillaryRevenue = ancillary.revenue;
   const ancillaryCost    = ancillary.cost;
   totalRevenue += ancillaryRevenue;
 
   const groundHandlingCost = Math.round(weeklyGroundHandlingCost(classSummary) * stationFT);
-  const loungeCost         = weeklyLoungeCost(classSummary);
+  const loungeCost         = weeklyLoungeCost(classSummary, route.loungeContractFactor ?? 1);
   // Layover cost accrues per leg whose one-way block time clears the threshold.
   const layoverCostRaw = legDistKm.reduce(
     (s, d) => s + weeklyLayoverCost(blockTimeHours(d, type), type.seats, type.category, f), 0);
@@ -2610,6 +2713,7 @@ export function weeklyTick(state) {
     fleet, routes: rawRoutes = [], cargoRoutes = [], gameDate = { month: 6 }, gates = {}, labor,
     maintenanceBudget = 1.0, fuelMultiplier = 1.0,
     mroBases = {}, absWeek = 0,
+    lounges = {}, loungePolicy = null,
     marketingBudget = 0,
     targetedMarketing = {},
     campaignStrength = {},
@@ -2628,6 +2732,47 @@ export function weeklyTick(state) {
   // Threaded to the route sims via the labor object they already receive, so the
   // per-km crew cost inflates with the same scale as the standing payroll.
   const laborWithSeniority = labor ? { ...labor, seniorityMult } : labor;
+
+  // ── Lounges ────────────────────────────────────────────────────────────────
+  // Three numbers per route, resolved once here and attached to the route copy
+  // handed to the simulators — the same channel hubQualityBonus and brandReach
+  // already use, so no simulator signature has to change:
+  //
+  //   loungeAppeal          business-segment demand multiplier (1 = no lounges)
+  //   loungeCoverage        0/0.5/1 — can you sell a day pass on this route
+  //   loungeContractFactor  discount on the third-party premium ground contract
+  //
+  // Resolved from the OPEN lounges only: a fit-out in progress is capex that has
+  // bought nothing yet. The alliance is looked up once, not per route.
+  const loungeAlliance = state.allianceMembership
+    ? getAlliance(state.allianceMembership.allianceId) : null;
+  const hasOpenLounge = Object.keys(lounges ?? {}).some(c => isLoungeOpen(lounges[c]));
+  // Always attached, never left to the simulators' parity default. Inside the
+  // tick, "this airline has no lounges" is a real answer (coverage 0 — no day
+  // passes, full contract rate) and must not be confused with "the caller didn't
+  // say", which is what the default 1 means for previews and tests.
+  //
+  // Delegates to the exported stateLoungeFields so the tick and every preview
+  // run the SAME code rather than two copies that agree today.
+  const loungeState = { lounges, loungePolicy, allianceMembership: state.allianceMembership };
+  const loungeFieldsFor = (origin, destination) => stateLoungeFields(loungeState, origin, destination);
+  // Non-premium passengers boarded at stations with an open lounge — the pool the
+  // free-access policies draw their guests from. Accumulated in the route loops.
+  let loungeThroughputPax = 0;
+  const loungeStationPax = (origin, destination, classSummary) => {
+    if (!hasOpenLounge || !classSummary) return 0;
+    const ends = (isLoungeOpen(lounges?.[origin]) ? 1 : 0) + (isLoungeOpen(lounges?.[destination]) ? 1 : 0);
+    if (ends === 0) return 0;
+    // Economy and premium economy only. Business and first are already paid for
+    // on the per-passenger premium ground line, which the contract-factor
+    // discount above has just cut for exactly these airports — counting them
+    // again here would charge the same passenger twice.
+    const nonPremium = (classSummary.economy?.passengers ?? 0)
+                     + (classSummary.premiumEconomy?.passengers ?? 0);
+    // One-way pax per direction; a passenger uses the lounge at the end where
+    // they depart, so `ends` of the two directions are lounge departures.
+    return nonPremium * ends;
+  };
 
   // ── Load-factor realism (New World Restrictions worlds only) ────────────────
   // Attaches a per-route, per-week deterministic jitter to every route copy
@@ -2677,7 +2822,7 @@ export function weeklyTick(state) {
   // the post-week value (EWMA toward this week's delivered experience) is
   // returned on the report for the reducer to persist.
   const satisfaction  = state.satisfaction ?? null;
-  const deliveredExp  = deliveredExperience({ fleet, routes, labor, ancillaries }, avgUtilization);
+  const deliveredExp  = deliveredExperience({ fleet, routes, labor, ancillaries, lounges }, avgUtilization);
   const satisfactionNext = nextSatisfaction(satisfaction, deliveredExp);
 
   // Awareness multiplier (adstock model): demand reach derives ONLY from the
@@ -3007,6 +3152,9 @@ export function weeklyTick(state) {
         hubs[r0.destination]?.tier ? (HUB_TIERS[hubs[r0.destination].tier]?.qualityBonus ?? 0) : 0,
       );
       const fx = laborEffects(labor, avgUtilization, satisfaction);
+      // Lounge context for the pair — identical for every tail in the group,
+      // because it is a property of the two airports, not of the metal.
+      const groupLounge = loungeFieldsFor(r0.origin, r0.destination);
 
       // Aggregate capacity across all aircraft in the group
       let totalEcoSeats = 0;
@@ -3033,12 +3181,19 @@ export function weeklyTick(state) {
           fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
           customerRating: fx.customerRating,
         });
-        // Full per-aircraft quality with every bonus simulateRoute applies.
+        // Full per-aircraft quality with every bonus simulateRoute applies —
+        // including this tail's OWN Wi-Fi equipage. Averaging the per-aircraft
+        // figures (rather than scoring the group once at blended coverage) is
+        // what makes an unfitted tail on a shared pair drag the pair's quality
+        // in proportion to how much of the schedule it flies.
         totalQuality += Math.max(0, Math.min(100,
           raw + fx.groundQualityBonus
           + configSpaceQualityBonus(cfg, type)
           + cateringQualityBonus(normalizeCateringLevel(route.cateringLevel), groupDist)
-          + ancillaryQualityBonus(ancillaries)
+          + ancillaryQualityBonus(ancillaries, 0, {
+              wifi:   wifiCoverageFor(aircraft),
+              lounge: groupLounge.loungeCoverage,
+            })
           + groupHubQ));
         if (biz > 0) hasBusinessCabin = true;
       }
@@ -3075,6 +3230,11 @@ export function weeklyTick(state) {
         // here would exempt every multi-aircraft route from the brand model.
         brandReach: brandReachFor(groupHubQ, [r0.origin, r0.destination],
           partnerContestedKeys.has(pairKeyOf(r0.origin, r0.destination))),
+        // And the same lounge term. The pooled demand this offer produces is
+        // handed straight to each aircraft as a demandOverride, so omitting it
+        // here would exempt every multi-aircraft route from the lounge model —
+        // exactly the hole brandReach fell into on this code path.
+        loungeAppeal: groupLounge.loungeAppeal,
       };
 
       // Live bank, not the module constant — see the note in simulateRoute().
@@ -3156,6 +3316,10 @@ export function weeklyTick(state) {
         // partnerContestedKeys is keyed by single city pairs, and a multi-stop
         // rotation isn't one — same omission the old combinedMult made here.
         brandReach: brandReachFor(tagHubQuality, stopsList, false),
+        // Lounges on the rotation's TRUE endpoints. The intermediate stops are a
+        // technical stop for most of the people on board, and a lounge there is
+        // not what sold them the ticket.
+        ...loungeFieldsFor(route.origin, route.destination),
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
         ...nwrLoadFieldsFor(route),
       };
@@ -3250,6 +3414,10 @@ export function weeklyTick(state) {
       brandReach: brandReachFor(hubQuality,
         [route.origin, route.destination],
         partnerContestedKeys.has(pairKeyOf(route.origin, route.destination))),
+      // Lounge appeal (business segment), day-pass coverage and the premium
+      // ground-contract discount. Spread conditionally so a game with no lounges
+      // produces a byte-identical route object and the golden master is unmoved.
+      ...loungeFieldsFor(route.origin, route.destination),
       ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
       ...nwrLoadFieldsFor(route),
     };
@@ -3648,6 +3816,40 @@ export function weeklyTick(state) {
   // 5b. Jet-base running costs — opex, extra certifications, parts pool.
   const totalMroBaseCosts = totalBaseWeeklyCost(mroBases);
 
+  // 5c. Onboard connectivity — one weekly charge per EQUIPPED tail, whether it
+  //     flew, sat on a reserve stand or spent the week in a hangar. The airtime
+  //     commitment and the support contract are bought by the airframe, which is
+  //     exactly why over-fitting a fleet quietly costs money. The traffic-driven
+  //     part of the bill is separate and already inside totalAncillaryCost.
+  const totalWifiCosts = fleetWifiWeeklyCost(fleet);
+
+  // 5d. Lounges — the room's own running cost, plus what the free-access
+  //     policies cost net of what alliance partners settle for their members.
+  //     Only OPEN lounges bill; a fit-out is capex, already paid.
+  const totalLoungeOpex = totalLoungeWeeklyOpex(lounges);
+  // Who walked through the door. Read off the route results rather than
+  // accumulated inside the route loops, so passenger, tag and (future) any other
+  // route path are all counted by the same rule and none can be forgotten.
+  if (hasOpenLounge) {
+    for (const rr of routeResults) {
+      const rt = routes.find(r => r.id === rr.routeId);
+      if (!rt) continue;
+      loungeThroughputPax += loungeStationPax(rt.origin, rt.destination, rr.classSummary);
+    }
+  }
+  const loungeGuests = loungeGuestEconomics({
+    throughputPax:      loungeThroughputPax,
+    loyaltyPenetration: loyaltyPenet,
+    policy:             loungePolicy,
+    allianceActive:     !!loungeAlliance,
+    hasOpenLounge,
+  });
+  // ONE cost line, not a cost and a revenue. Settlement income from partners is
+  // neither route revenue nor alliance partner revenue in the sense the P&L
+  // bridge means; presenting it as either puts a phantom row on the Finance page
+  // and breaks the bridge's residual check.
+  const totalLoungeCosts = totalLoungeOpex + loungeGuests.netCost;
+
   // 6. Hub investment costs — higher tiers require ongoing weekly spend
   let totalHubInvestment = 0;
   for (const [, hubData] of Object.entries(hubs)) {
@@ -3754,7 +3956,7 @@ export function weeklyTick(state) {
   const totalCost   = totalLeases + totalMaintenance + totalOpCost + totalGateFees
     + totalLaborCosts + totalFamilyBaseCosts + totalMroBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
-    + totalDistributionCost + totalReserveParking;
+    + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts;
   const cashDelta   = totalRevenue + totalPartnerRevenue - totalCost;
 
   // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
@@ -3834,6 +4036,14 @@ export function weeklyTick(state) {
     totalFamilyBaseCosts:   Math.round(totalFamilyBaseCosts),
     totalMroBaseCosts:      Math.round(totalMroBaseCosts),
     mroContractSavings:     Math.round(mroContractSavings),
+    // Connectivity & lounges. Always present (0 when unused) so the Finance page
+    // and the P&L bridge can name them unconditionally.
+    totalWifiCosts:         Math.round(totalWifiCosts),
+    totalLoungeCosts:       Math.round(totalLoungeCosts),
+    totalLoungeOpex:        Math.round(totalLoungeOpex),
+    loungeGuests:           loungeGuests,
+    wifiEquippedCount:      fleet.filter(a => isWifiEquipped(a) && a.status !== 'retired').length,
+    wifiFleetCoverage:      fleetWifiCoverage(fleet, a => getAircraftType(a.typeId)?.seats ?? 0),
     mroFactorsByAircraft,   // aircraftId → resolved jet-base benefits this week
     totalHubInvestment:     Math.round(totalHubInvestment),
     totalHQCost:            Math.round(totalHQCost),

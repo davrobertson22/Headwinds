@@ -13,6 +13,7 @@ import {
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
+  stateLoungeFields,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -66,7 +67,9 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
     { label: 'Fleet age',           pts: bd.agePts,      sub: 'newer aircraft score higher' },
     { label: 'Cabin space',         pts: bd.spacePts,    sub: 'floor left unfilled = more room' },
     { label: 'Catering',            pts: bd.cateringPts, sub: 'matters more on long flights' },
-    { label: 'Ancillaries',         pts: bd.ancillaryPts ?? 0, sub: 'à la carte generosity · Operations → Ancillaries' },
+    { label: 'Ancillaries',         pts: bd.ancillaryPts ?? 0, sub: bd.wifiEquipped === false
+        ? 'à la carte generosity — no Wi-Fi on this aircraft (fit it from the Fleet page)'
+        : 'à la carte generosity · Operations → Ancillaries' },
     { label: 'Ground staff',        pts: bd.groundPts,   sub: 'morale bonus / penalty' },
     { label: 'Hub investment',      pts: bd.hubPts,      sub: 'from hub tier at endpoints' },
   ].filter(r => r.pts !== 0 || ['On-time performance', 'Customer rating', 'Cabin product', 'Fleet age'].includes(r.label));
@@ -89,8 +92,26 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
           </span>
         </div>
       ))}
+      {/* Lounges are NOT a quality term — they move the business segment of the
+          demand model directly. Shown here because this panel is where a player
+          comes to ask why their business share looks the way it does, and a
+          lounge is the one lever that would otherwise be invisible. */}
+      {(bd.loungeAppeal ?? 1) > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
+          <span>
+            Lounges
+            <span style={{ color: 'var(--text-dim)', fontSize: 11, marginLeft: 6 }}>
+              {bd.loungeCoverage >= 1 ? 'both endpoints' : bd.loungeCoverage > 0 ? 'one endpoint' : 'via alliance partners'} · business travellers only
+            </span>
+          </span>
+          <span style={{ fontWeight: 600, color: 'var(--green)', whiteSpace: 'nowrap', marginLeft: 10 }}>
+            ×{bd.loungeAppeal.toFixed(2)} business pull
+          </span>
+        </div>
+      )}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
         Quality drives your share of passengers against competitors — business travelers weigh it heavily.
+        Lounges sit outside this score: they move the business segment on their own.
       </div>
     </div>
   );
@@ -236,6 +257,15 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           qualityScore:      routeQualityBreakdown(route, aircraft, state)?.total
             ?? Math.min(100, computeQualityScore({ onTimeRate: 0.85, serviceLevel: 'economy', fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52, customerRating: 3.5 }) + maxHubBonus),
           connectivityBonus: pairConnectivityBonus(hubSpokeCounts(state.routes ?? []), [state.hub], origin, dest),
+          // Lounges. This panel is where a player comes to ask why their
+          // BUSINESS share looks the way it does, so scoring their own offer at
+          // lounge parity while the tick scores it at 1.28 answers the question
+          // wrongly on the one screen built to answer it.
+          // (This offer still omits brandReach / marketingBoost /
+          // priceSensitivityReduction — a pre-existing divergence from the
+          // CLAUDE.md rule, tracked in docs/game-improvement-audit-2026-08-06.md
+          // and deliberately not widened here.)
+          loungeAppeal:      stateLoungeFields(state, origin, dest).loungeAppeal,
         };
       }
     }
@@ -282,6 +312,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           ? Math.max(1, cp0.businessClass) : hasBusinessCabin ? ecoP * CLASS_FARE_MULTIPLIERS.businessClass : null;
         const combinedOffer = {
           airlineId: 'player', origin, destination: dest,
+          loungeAppeal: stateLoungeFields(state, origin, dest).loungeAppeal,
           economyPrice: ecoP, businessPrice: bizP,
           weeklyFrequency: totalFreq,
           seatsPerFlight: Math.round((totalEcoSeats + totalBizSeats) / totalFreq),
@@ -320,7 +351,9 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       if (rr) return [{ route, aircraft, type, result: rr }];
       // Fallback for routes the engine skipped (grounded / dormant-seasonal) —
       // same labor / utilization / satisfaction inputs the engine uses.
-      const result = simulateRoute(route, aircraft, gameDate, state.labor ?? null, 1.0,
+      const result = simulateRoute(
+        { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+        aircraft, gameDate, state.labor ?? null, 1.0,
         demandAllocations.get(aircraft.id) ?? null, [],
         fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
         state.satisfaction ?? null, eventDemand.multFor(origin, dest));

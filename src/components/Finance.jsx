@@ -7,6 +7,7 @@ import {
   CLASS_FARE_MULTIPLIERS,
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
   buildEventDemandModel,
+  stateLoungeFields,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
@@ -392,7 +393,13 @@ function PLStatement({ proj }) {
     return routes.map(route => {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) return null;
-    const result = simulateRoute(route, aircraft, gd, labor, proj.fuelMultiplier, null, [], avgUtilization, state.satisfaction ?? null,
+    // Lounge fields, or this table stops reconciling to the report totals it
+    // exists to reconcile to: a lounge owner is shown nearly 3x the premium
+    // ground cost the tick actually charges. stateLoungeFields is the same
+    // implementation weeklyTick runs.
+    const result = simulateRoute(
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+      aircraft, gd, labor, proj.fuelMultiplier, null, [], avgUtilization, state.satisfaction ?? null,
       evDemand.multFor(route.origin, route.destination));
     if (!result) return null;
     const bookedRevenue = proj.revById[route.id] ?? result.revenue;
@@ -2271,7 +2278,9 @@ function UnitEconomics({ proj }) {
     if (!a || !type) return null;
     // Simulate with the engine's labor + fuel multiplier so costs match; use the
     // engine's BOOKED revenue (incl. connecting feed + demand lifts) for RASK/yield.
-    const raw = simulateRoute(route, a, gd, labor, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null,
+    const raw = simulateRoute(
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+      a, gd, labor, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null,
       evDemand.multFor(route.origin, route.destination));
     if (!raw) return null;
     const result = { ...raw, revenue: proj.revById[route.id] ?? raw.revenue };
@@ -2420,7 +2429,9 @@ function Forecast({ proj }) {
   const fcAvgUtil     = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
   const routeData = routes.map(r => {
     const a = fleet.find(x => x.id === r.aircraftId);
-    return a ? simulateRoute(r, a, gd, fcLaborState, fuelMultiplier, null, [], fcAvgUtil, state.satisfaction ?? null) : null;
+    return a ? simulateRoute(
+      { ...r, ...stateLoungeFields(state, r.origin, r.destination) },
+      a, gd, fcLaborState, fuelMultiplier, null, [], fcAvgUtil, state.satisfaction ?? null) : null;
   }).filter(Boolean);
 
   // ── Canonical current-week baseline (same engine the other tabs use) ───────

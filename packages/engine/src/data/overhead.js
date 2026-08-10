@@ -346,12 +346,21 @@ export const LOUNGE_COST_PER_PAX = {
  * Weekly lounge & premium airport service cost for one route.
  * classSummary: { [cls]: { passengers: number } } — one-way pax (per direction).
  * Multiply by 2 to get total boarded passengers in both directions.
+ *
+ * `contractFactor` is the discount for premium ground service you no longer buy
+ * from a contractor because you BUILT THE ROOM YOURSELF. It comes from
+ * loungeContractFactor() in data/lounges.js — 1 at an airport where you own
+ * nothing (the historical behaviour, and the default for every caller that
+ * doesn't pass it), falling toward LOUNGE_OWNED_COST_FACTOR as your own lounges
+ * cover the route's endpoints. You still feed and staff the room; you have
+ * stopped paying somebody else's margin on every premium passenger.
  */
-export function weeklyLoungeCost(classSummary) {
+export function weeklyLoungeCost(classSummary, contractFactor = 1) {
+  const f = Math.max(0, Number.isFinite(contractFactor) ? contractFactor : 1);
   return Math.round(
     Object.entries(LOUNGE_COST_PER_PAX).reduce((s, [cls, rate]) => {
       return s + (classSummary[cls]?.passengers ?? 0) * 2 * rate;
-    }, 0)
+    }, 0) * f
   );
 }
 

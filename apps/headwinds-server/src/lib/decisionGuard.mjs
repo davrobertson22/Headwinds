@@ -126,6 +126,9 @@ function guardOrderAircraft(payload) {
   if (payload.config && typeof payload.config === 'object') {
     assertConfigFitsAirframe(payload.config, getAircraftType(payload.typeId));
   }
+  // Line-fit Wi-Fi is a flag, not a price: the reducer adds wifiInstallCost()
+  // itself. Coerce to a real boolean so nothing truthy-but-odd reaches the blob.
+  if (payload.hasWifi !== undefined) payload.hasWifi = payload.hasWifi === true;
   return payload;
 }
 
@@ -278,6 +281,26 @@ function guardMroBase(payload, { needLevel = false, needFamilies = false } = {})
   return out;
 }
 
+// ── Lounges (mirror src/components/Airports.jsx build form) ────────────────
+// Nothing here is priceable by the client: LOUNGE_BUILD_COST, the gate
+// requirement and the refund all live in the engine and are re-checked by the
+// reducer. This is payload hygiene — a plausible airport code and two booleans.
+function guardLounge(payload) {
+  const code = String(payload.code ?? payload.airportCode ?? '').toUpperCase();
+  if (code.length < 3 || code.length > 4) throw new GuardError('Invalid airport code.');
+  // Both spellings go through: the reducer reads `code`, and the public news
+  // scrubber reads `airportCode` for the feed line.
+  return { code, airportCode: code };
+}
+
+function guardLoungePolicy(payload) {
+  const out = {};
+  if (payload.loyaltyAccess  !== undefined) out.loyaltyAccess  = !!payload.loyaltyAccess;
+  if (payload.allianceAccess !== undefined) out.allianceAccess = !!payload.allianceAccess;
+  if (Object.keys(out).length === 0) throw new GuardError('Nothing to change.');
+  return out;
+}
+
 function guardBaseCertification(payload) {
   const out = guardMroBase(payload);
   const fam = String(payload.familyId ?? '');
@@ -320,6 +343,10 @@ export function guardDecision(type, payload, state) {
     case 'ADD_BASE_CERTIFICATION': return guardBaseCertification(payload);
     case 'SET_BASE_PARTS_POOL': return guardPartsPool(payload);
     case 'CLOSE_MRO_BASE':     return guardMroBase(payload);
+    case 'INSTALL_WIFI':       return { aircraftIds: guardAircraftIds(payload, state) };
+    case 'BUILD_LOUNGE':
+    case 'CLOSE_LOUNGE':       return guardLounge(payload);
+    case 'SET_LOUNGE_POLICY':  return guardLoungePolicy(payload);
     case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);

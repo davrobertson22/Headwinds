@@ -6,6 +6,15 @@ import {
   ancillaryTakeRate, ancillaryItemQuality, ancillaryQualityBonus, routeAncillaries,
 } from '../data/ancillaries.js';
 import { Glyph } from './Icons.jsx';
+import { getAircraftType } from '../data/aircraft.js';
+import {
+  fleetWifiCoverage, wifiEquippedCount, isWifiEquipped, wifiRetrofitCost, WIFI_WEEKLY_OPEX,
+} from '../data/wifi.js';
+import {
+  isLoungeOpen, loungeEndpointCoverage, normalizeLoungePolicy,
+  LOUNGE_SERVICING_COST_PER_GUEST, LOUNGE_ALLIANCE_SETTLEMENT_PER_GUEST,
+  LOUNGE_LOYALTY_APPEAL_PER_END, LOUNGE_APPEAL_PER_END, LOUNGE_ALLIANCE_END_WEIGHT,
+} from '../data/lounges.js';
 
 // Sum the airline's boarded pax by cabin from last week's per-route results, so
 // the projected ancillary revenue uses the SAME function the engine runs.
@@ -74,12 +83,17 @@ function qualityColor(q) {
   return q > 0.3 ? 'var(--green)' : q < -0.3 ? 'var(--red)' : 'var(--text-dim)';
 }
 
-function ProductCard({ product, policy, active, byItem, dispatch }) {
+function ProductCard({ product, policy, active, byItem, dispatch, coverage, capability }) {
   const { offered, price } = resolveItem(product, policy);
-  const q       = ancillaryItemQuality(product, policy);
+  const cov     = product.provisioned ? (coverage?.[product.id] ?? 1) : 1;
+  const q       = ancillaryItemQuality(product, policy, 0, coverage);
   const take    = ancillaryTakeRate(product, price);
   const proj    = byItem?.[product.id];
-  const isOff   = product.provisioned && !offered;
+  // "Off" now means EITHER switched off OR nothing to switch on. A policy that
+  // offers Wi-Fi across a fleet with no Wi-Fi kit earns exactly nothing, and the
+  // card has to say so rather than showing a live product making $0.
+  const isOff   = product.provisioned && (!offered || cov <= 0);
+  const cap     = capability?.[product.id] ?? null;
 
   const setPrice   = (p) => dispatch({ type: 'SET_ANCILLARY', id: product.id, price: p });
   const setOffered = (o) => dispatch({ type: 'SET_ANCILLARY', id: product.id, offered: o });
@@ -114,6 +128,19 @@ function ProductCard({ product, policy, active, byItem, dispatch }) {
           )}
         </div>
       </div>
+
+      {/* What the airline can actually DELIVER, as distinct from what it offers */}
+      {cap && (
+        <div style={{
+          marginTop: 10, padding: '8px 11px', borderRadius: 6,
+          background: 'var(--surface2)',
+          borderLeft: `3px solid ${cov >= 0.999 ? 'var(--green)' : cov > 0 ? 'var(--yellow)' : 'var(--red)'}`,
+          fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45,
+        }}>
+          <span style={{ fontWeight: 700, color: 'var(--text)' }}>{cap.headline}</span>
+          {cap.detail && <> — {cap.detail}</>}
+        </div>
+      )}
 
       {/* Provisioned amenities can be switched off entirely */}
       {product.provisioned && (
@@ -159,6 +186,78 @@ function ProductCard({ product, policy, active, byItem, dispatch }) {
   );
 }
 
+/**
+ * Who gets into your lounges for free. Only shown once a lounge exists — there
+ * is nothing to decide until you have a room.
+ */
+function LoungeAccessPanel({ state, dispatch }) {
+  const lounges   = state.lounges ?? {};
+  const openCodes = Object.keys(lounges).filter(c => isLoungeOpen(lounges[c]));
+  const building  = Object.keys(lounges).filter(c => !isLoungeOpen(lounges[c]));
+  if (openCodes.length === 0 && building.length === 0) return null;
+
+  const p = normalizeLoungePolicy(state.loungePolicy);
+  const inAlliance = !!state.allianceMembership;
+  const set = (patch) => dispatch({ type: 'SET_LOUNGE_POLICY', ...patch });
+
+  const Toggle = ({ on, onClick, disabled, title, blurb, cost }) => (
+    <div style={{
+      padding: '11px 13px', borderRadius: 7, marginBottom: 8,
+      border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+      background: on ? 'rgba(56,139,253,0.07)' : 'var(--surface2)',
+      opacity: disabled ? 0.55 : 1,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
+        <button
+          type="button"
+          className={`btn ${on ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: 11, padding: '3px 10px', cursor: disabled ? 'not-allowed' : 'pointer' }}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          {on ? 'Included ✓' : 'Not included'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.45 }}>{blurb}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>{cost}</div>
+    </div>
+  );
+
+  return (
+    <div className="card" style={{ padding: '13px 16px', marginBottom: 16 }}>
+      <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 16 }}><Glyph e="🛋️" size={16} /></span>
+        Lounge access
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+        {openCodes.length > 0
+          ? <>You run {openCodes.length === 1 ? 'a lounge' : `${openCodes.length} lounges`} at <strong>{openCodes.join(', ')}</strong>. Everyone else pays the day-pass price set on the Lounge Passes card below.</>
+          : <>Your first lounge is still being fitted out. These switches take effect when it opens.</>}
+      </div>
+
+      <Toggle
+        on={p.loyaltyAccess}
+        onClick={() => set({ loyaltyAccess: !p.loyaltyAccess })}
+        title="Loyalty members"
+        blurb="Your own programme members walk in free. It costs you on every guest and earns no pass revenue from them — what you get back is a stronger pull with the business travellers who choose an airline on the ground experience."
+        cost={`−${formatMoney(LOUNGE_SERVICING_COST_PER_GUEST)} per guest · +${Math.round(LOUNGE_LOYALTY_APPEAL_PER_END * 100)}% extra business appeal per lounged endpoint`}
+      />
+      <Toggle
+        on={p.allianceAccess}
+        disabled={!inAlliance}
+        onClick={() => inAlliance && set({ allianceAccess: !p.allianceAccess })}
+        title="Alliance partners' members"
+        blurb={inAlliance
+          ? "Partner airlines' members use your rooms, and yours use theirs. Hosting them costs slightly more than the settlement fee you collect — what you are really buying is a lounge for your business travellers at every station where a partner has one and you do not."
+          : 'Join an alliance to open reciprocal lounge access.'}
+        cost={`−${formatMoney(LOUNGE_SERVICING_COST_PER_GUEST)} per guest, +${formatMoney(LOUNGE_ALLIANCE_SETTLEMENT_PER_GUEST)} settled back · `
+            + `partner lounges count for ${Math.round(LOUNGE_APPEAL_PER_END * LOUNGE_ALLIANCE_END_WEIGHT * 100)}% of your own`}
+      />
+    </div>
+  );
+}
+
 export default function Ancillaries() {
   const { state, dispatch } = useGame();
   const active = isAncillariesActive(state.ancillaries);
@@ -166,10 +265,52 @@ export default function Ancillaries() {
   // auto-activates (the reducer seeds the baseline on first touch).
   const policy = active ? state.ancillaries : defaultAncillaries();
 
+  // ── What the airline can actually deliver ─────────────────────────────────
+  // The policy on this screen says what you WANT to sell. These two say what you
+  // can. Wi-Fi follows the metal (an antenna per airframe); lounge passes follow
+  // the rooms you have built. Both are network-wide averages here, because this
+  // screen is airline-wide — the per-route figures live on Route Detail.
+  const fleet   = state.fleet ?? [];
+  const routes  = state.routes ?? [];
+  const lounges = state.lounges ?? {};
+  const seatsOf = (a) => getAircraftType(a.typeId)?.seats ?? 0;
+  const liveFleet   = fleet.filter(a => a.status !== 'retired');
+  const wifiCov     = fleetWifiCoverage(fleet, seatsOf);
+  const wifiFitted  = wifiEquippedCount(fleet);
+  const loungeCov   = routes.length > 0
+    ? routes.reduce((n, r) => n + loungeEndpointCoverage(lounges, r.origin, r.destination), 0) / routes.length
+    : 0;
+  const openLounges = Object.keys(lounges).filter(c => isLoungeOpen(lounges[c]));
+  const coverage    = { wifi: wifiCov, lounge: loungeCov };
+
+  const capability = {
+    wifi: {
+      headline: liveFleet.length === 0
+        ? 'No aircraft yet'
+        : wifiFitted === 0
+          ? 'No aircraft fitted'
+          : `${wifiFitted} of ${liveFleet.length} aircraft fitted — ${Math.round(wifiCov * 100)}% of your seats`,
+      detail: wifiFitted === 0
+        ? `fit it at order time, or retrofit from the Fleet page for ${formatMoney(wifiRetrofitCost())} per aircraft. `
+          + `Until then this earns nothing and every route takes the no-Wi-Fi quality penalty.`
+        : `${formatMoney(WIFI_WEEKLY_OPEX)}/wk per fitted aircraft to run. Routes flown by an unfitted tail `
+          + `sell no Wi-Fi and take the penalty.`,
+    },
+    lounge: {
+      headline: openLounges.length === 0
+        ? 'No lounges open'
+        : `Lounges at ${openLounges.join(', ')}`,
+      detail: openLounges.length === 0
+        ? 'build one from any airport where you hold a gate. You cannot sell access to a room you do not have.'
+        : `about ${Math.round(loungeCov * 100)}% of your route endpoints are covered — day passes sell only on `
+          + `the routes that touch a lounge.`,
+    },
+  };
+
   const agg      = aggregateClassSummary(state.lastReport);
   const hasPax   = Object.values(agg).some(c => c.passengers > 0);
-  const econ     = routeAncillaries(policy, agg);
-  const qBonus   = ancillaryQualityBonus(policy);
+  const econ     = routeAncillaries(policy, agg, 0, coverage);
+  const qBonus   = ancillaryQualityBonus(policy, 0, coverage);
 
   return (
     <div>
@@ -245,6 +386,8 @@ export default function Ancillaries() {
         </div>
       )}
 
+      <LoungeAccessPanel state={state} dispatch={dispatch} />
+
       {ANCILLARY_PRODUCTS.map(product => (
         <ProductCard
           key={product.id}
@@ -253,6 +396,8 @@ export default function Ancillaries() {
           active={active}
           byItem={hasPax ? econ.byItem : null}
           dispatch={dispatch}
+          coverage={coverage}
+          capability={capability}
         />
       ))}
 
@@ -264,6 +409,9 @@ export default function Ancillaries() {
         quality hardest on long-haul, where an included bag is the norm. Business and first class get bags, seats, priority,
         lounge access and flexibility bundled into the fare — fees apply mostly to economy. Amenities marked
         <em>Amenity</em> (Wi-Fi, extra legroom, lounges) cost money to run whenever offered, even for free.
+        Two of them are also things you have to <strong>own</strong> before you can sell them: Wi-Fi is fitted to
+        individual aircraft (at order time, or as a retrofit from the Fleet page), and lounge passes need a lounge you
+        have built at the airport. Setting a price for either does nothing on routes that cannot deliver it.
       </div>
     </div>
   );

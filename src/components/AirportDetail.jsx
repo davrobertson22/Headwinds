@@ -12,6 +12,12 @@ import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
 import { gateDenialFor, lockoutWeeksLeft, idleWarningFor } from './GateDenial.jsx';
 import { Glyph } from './Icons.jsx';
+import { useConfirm } from './ConfirmModal.jsx';
+import {
+  canBuildLounge, isLoungeOpen, loungeCloseRefund,
+  LOUNGE_BUILD_COST, LOUNGE_BUILD_WEEKS, LOUNGE_WEEKLY_OPEX,
+  LOUNGE_APPEAL_PER_END, LOUNGE_OWNED_COST_FACTOR,
+} from '../data/lounges.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,6 +33,117 @@ function Stat({ label, value, sub, color }) {
       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
       <div style={{ fontWeight: 700, fontSize: 15, color: color ?? 'var(--text)' }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/**
+ * Build / manage the lounge at ONE airport.
+ *
+ * The quote and every eligibility reason come from canBuildLounge — the same
+ * function the reducer enforces with — so the player is never shown a button
+ * that the engine will refuse, and never a price the engine won't charge.
+ */
+function LoungeCard({ code }) {
+  const { state, dispatch } = useGame();
+  const confirm = useConfirm();
+  const lounges = state.lounges ?? {};
+  const lounge  = lounges[code];
+  const check   = canBuildLounge(code, { lounges, gates: state.gates ?? {}, cash: state.cash });
+  const appealPct = Math.round(LOUNGE_APPEAL_PER_END * 100);
+  const savingPct = Math.round((1 - LOUNGE_OWNED_COST_FACTOR) * 100);
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 16 }}><Glyph e="🛋️" size={16} /></span>
+        <div style={{ fontWeight: 600 }}>Lounge</div>
+        {lounge && (
+          <span className="badge" style={isLoungeOpen(lounge)
+            ? { background: 'rgba(63,185,80,.12)', color: 'var(--green)', border: '1px solid rgba(63,185,80,.35)' }
+            : { background: 'rgba(210,153,34,.14)', color: 'var(--yellow)', border: '1px solid rgba(210,153,34,.4)' }}>
+            {isLoungeOpen(lounge) ? 'Open' : `Fitting out — ${lounge.buildWeeksLeft}w left`}
+          </span>
+        )}
+      </div>
+
+      {!lounge && (
+        <>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+            A lounge at {code} makes you materially more attractive to <strong>business travellers</strong> on
+            every route touching it (about +{appealPct}% weight in the business market, and again at the other
+            end if you have a lounge there too). It also cuts the premium ground bill on those routes by
+            roughly {savingPct}%, because you stop paying a contractor per head — which is why lounges pay for
+            themselves at a hub with real premium traffic and quietly bleed money at a thin outstation.
+            Once it opens you can sell day passes; the price is set on the Ancillaries tab.
+          </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
+            <Stat label="Build cost"  value={formatMoney(LOUNGE_BUILD_COST)} sub="one-off" />
+            <Stat label="Fit-out"     value={`${LOUNGE_BUILD_WEEKS} weeks`} sub="before it opens" />
+            <Stat label="Running"     value={`${formatMoney(LOUNGE_WEEKLY_OPEX)}/wk`} sub="staff, F&B, rent" color="var(--red)" />
+          </div>
+          {!check.ok && (
+            <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 10 }}>
+              {check.reasons[0]}
+            </div>
+          )}
+          <button
+            className={check.ok ? 'btn btn-primary' : 'btn'}
+            style={{ fontSize: 13, cursor: check.ok ? 'pointer' : 'not-allowed' }}
+            disabled={!check.ok}
+            onClick={async () => {
+              if (!check.ok) return;
+              if (await confirm({
+                title: `Build a lounge at ${code}?`,
+                body: `${formatMoney(check.capex)} now, then ${formatMoney(LOUNGE_WEEKLY_OPEX)}/wk once it opens `
+                    + `in ${LOUNGE_BUILD_WEEKS} weeks.\n\n`
+                    + `It lifts your standing with business travellers on routes through ${code} and cuts the `
+                    + `premium ground bill there. It earns nothing at all until the fit-out finishes.`,
+                confirmLabel: `Build for ${formatMoney(check.capex)}`,
+              })) {
+                dispatch({ type: 'BUILD_LOUNGE', code, airportCode: code });
+              }
+            }}
+          >
+            Build lounge — {formatMoney(LOUNGE_BUILD_COST)}
+          </button>
+        </>
+      )}
+
+      {lounge && (
+        <>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+            {isLoungeOpen(lounge)
+              ? `Open and taking guests. Business travellers rate you higher on every route through ${code}, `
+                + `premium ground costs here are down about ${savingPct}%, and you can sell day passes on `
+                + `routes touching this airport. Who gets in free is set on the Ancillaries tab.`
+              : `Under construction. It costs nothing to run and does nothing for you until it opens.`}
+          </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
+            <Stat label="Running cost" value={isLoungeOpen(lounge) ? `${formatMoney(LOUNGE_WEEKLY_OPEX)}/wk` : '—'} color="var(--red)" />
+            <Stat label="Close refund" value={formatMoney(loungeCloseRefund(lounge))} sub="if you shut it" />
+          </div>
+          <button
+            className="btn"
+            style={{ fontSize: 12, background: 'rgba(248,81,73,0.08)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)' }}
+            onClick={async () => {
+              if (await confirm({
+                title: `Close the ${code} lounge?`,
+                body: `You get ${formatMoney(loungeCloseRefund(lounge))} back for the fittings and the lease exit — `
+                    + `far less than the ${formatMoney(lounge.capex ?? LOUNGE_BUILD_COST)} you put in.\n\n`
+                    + `Business travellers on routes through ${code} will notice, and your premium ground `
+                    + `costs here go back to the full contract rate.`,
+                danger: true,
+                confirmLabel: 'Close lounge',
+              })) {
+                dispatch({ type: 'CLOSE_LOUNGE', code, airportCode: code });
+              }
+            }}
+          >
+            Close lounge
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -426,6 +543,8 @@ export default function AirportDetail({ code, onBack }) {
             )}
           </div>
         )}
+
+        <LoungeCard code={code} />
 
         {/* Your presence */}
         <div className="card">

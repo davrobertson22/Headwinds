@@ -49,6 +49,7 @@ const CATEGORY_OF_DECISION = {
   SELL_AIRCRAFT: 'fleet', RETIRE_AIRCRAFT: 'fleet',
   ADD_GATE: 'airports', REMOVE_GATE: 'airports',
   UPGRADE_HUB: 'airports', DESIGNATE_HUB: 'airports', DESIGNATE_FOCUS_CITY: 'airports',
+  BUILD_LOUNGE: 'airports',
   JOIN_ALLIANCE: 'players', LEAVE_ALLIANCE: 'players',
   BUY_STOCK: 'stocks', SELL_STOCK: 'stocks',
 };
@@ -183,6 +184,9 @@ function kindOfSingleDecision(type) {
     case 'DESIGNATE_HUB': return 'hub_designated';
     case 'UPGRADE_HUB': return 'hub_upgraded';
     case 'DESIGNATE_FOCUS_CITY': return 'focus_city';
+    // Never rolled: a lounge is a once-in-a-long-while capital commitment, not
+    // something you do five of in a week, so it always gets its own line.
+    case 'BUILD_LOUNGE': return 'lounge_built';
     case 'JOIN_ALLIANCE': return 'alliance_joined';
     case 'LEAVE_ALLIANCE': return 'alliance_left';
     default: return 'move';

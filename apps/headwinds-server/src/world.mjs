@@ -37,6 +37,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'BUILD_MRO_BASE', 'UPGRADE_MRO_BASE', 'ADD_BASE_CERTIFICATION',
   'SET_BASE_PARTS_POOL', 'CLOSE_MRO_BASE',
   'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
+  // Onboard connectivity retrofit. Like every other fleet action the capex is
+  // priced by the reducer from data/wifi.js, never from the request — the guard
+  // below only sanitizes the id list.
+  'INSTALL_WIFI',
   // Routes — passenger, cargo, tag
   'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',
   'TRANSFER_ROUTES', 'REASSIGN_ROUTE',
@@ -47,6 +51,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Airports, hubs, gates
   'ADD_GATE', 'REMOVE_GATE', 'UPGRADE_HUB', 'DOWNGRADE_HUB',
   'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
+  // Lounges. Build capex, the gate requirement and the close refund are all
+  // re-validated by the reducer through canBuildLounge/loungeCloseRefund; the
+  // guard only checks the airport code and the two access booleans.
+  'BUILD_LOUNGE', 'CLOSE_LOUNGE', 'SET_LOUNGE_POLICY',
   // Money & market
   'TAKE_LOAN', 'REPAY_LOAN', 'BUY_HEDGE', 'ACQUIRE_COMPETITOR',
   // Stock market — the reducer prices trades from the server-injected rival

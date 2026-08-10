@@ -140,6 +140,8 @@ export function compose(item) {
       return { icon: '🏛️', headline: `upgraded ${d.airportCode ? `its ${d.airportCode} hub` : 'a hub'}` };
     case 'focus_city':
       return { icon: '📍', headline: `made ${d.airportCode ?? 'an airport'} a focus city` };
+    case 'lounge_built':
+      return { icon: '🛋️', headline: `is building a lounge at ${d.code ?? d.airportCode ?? 'an airport'}` };
 
     case 'stock_tape': {
       const shares = Math.abs(d.netShares ?? 0);

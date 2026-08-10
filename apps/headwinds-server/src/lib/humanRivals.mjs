@@ -21,7 +21,7 @@
 import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwrYieldChoke } from '@tailwinds/engine/utils/market.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields } from '@tailwinds/engine/utils/simulation.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
@@ -358,6 +358,10 @@ export function toRivalSpecs(airlineRow) {
       qualityScore: quality,
       brandReach: (rivalHubQ(r.origin) > 0 || rivalHubQ(r.destination) > 0)
         ? reachOnHub : reachOffHub,
+      // The rival's lounge network on THIS pair, resolved through the same
+      // helper the tick runs on the player. Per pair, not per airline: a lounge
+      // only counts on routes that touch it.
+      loungeAppeal: stateLoungeFields(s, r.origin, r.destination).loungeAppeal,
       homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,

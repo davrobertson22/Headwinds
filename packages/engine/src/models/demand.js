@@ -133,8 +133,8 @@ export function connectingPriceFactor(price, refPrice, quality = 50) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0 },
 };
 
 /**
@@ -142,6 +142,15 @@ export const UTILITY_WEIGHTS = {
  * factor into utility space and should stay there unless you deliberately want
  * brand to bite harder or softer than it does on a monopoly pool — see the
  * brandUtil note in computeUtility for why 1.0 is the identity setting.
+ *
+ * `lounge` is the ONLY genuinely segment-specific weight in the table, and it is
+ * zero on leisure by design rather than by omission. An airport lounge is a
+ * product a leisure passenger on the cheapest fare in the market cannot enter,
+ * so it must not move their choice at all — a weight of 0 makes log(appeal) × 0
+ * exactly 0 and keeps the leisure softmax byte-identical to what it was before
+ * lounges existed. On business it is 1.0 for the same identity reason as brand:
+ * adding log(appeal) multiplies this offer's softmax weight by exactly `appeal`,
+ * which is the magnitude the monopoly path applies to the business POOL.
  */
 
 /**
@@ -672,8 +681,16 @@ export function computeUtility(offer, market, segment) {
   // parity and are scored exactly as before. Floored at 0.01 so a pathological
   // 0 can't produce -Infinity and NaN out the far side.
   const brandUtil   = Math.log(Math.max(offer.brandReach ?? 1, 0.01)) * w.brand;
+  // Airport lounges — a ground product, so it moves the BUSINESS segment and
+  // nothing else (UTILITY_WEIGHTS.leisure.lounge is 0, which zeroes this term
+  // outright rather than relying on a branch). Same log form and the same reason
+  // as brandUtil above: softmax share ∝ exp(utility), so log(appeal) multiplies
+  // this offer's weight by exactly `appeal` and the contested path applies the
+  // same magnitude _monopolyResult applies to the business pool. Offers that
+  // don't carry the field (AI rivals, previews, tests) sit at parity.
+  const loungeUtil  = Math.log(Math.max(offer.loungeAppeal ?? 1, 0.01)) * (w.lounge ?? 0);
 
-  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil;
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil;
 }
 
 /**
@@ -844,11 +861,20 @@ function _monopolyResult(market, offer) {
   // (see computeUtility); it must never be both, or the brand counts twice.
   const brandPool = Math.max(0, offer.brandReach ?? 1);
   const poolMult  = mktPool * brandPool;
+  // Lounges on an UNCONTESTED pair: with no rival to take share from, a lounge
+  // network instead brings business travellers into the market who would
+  // otherwise drive, connect on someone else, or send one person instead of
+  // three. It scales the BUSINESS pool only — before elasticity and before the
+  // capacity cap, so a full aircraft gains nothing, which is correct and is
+  // precisely the inversion brandReach used to have. Never applied to the
+  // leisure pool, and never to revenue.
+  const loungePool = Math.max(0, offer.loungeAppeal ?? 1);
 
   const businessAdj = noBusiness
     ? 0
     : Math.round(market.businessDemand
         * poolMult
+        * loungePool
         * businessQualityCapture(offer.qualityScore)
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
         * priceChokeFactor(offer.businessPrice, businessRef, offer.qualityScore));

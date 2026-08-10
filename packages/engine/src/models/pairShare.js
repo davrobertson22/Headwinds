@@ -50,7 +50,9 @@ import {
   fleetAvgUtilization,
   routeLandingFee,
   CLASS_FARE_MULTIPLIERS,
+  stateLoungeFields,
 } from '../utils/simulation.js';
+
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
 
@@ -132,8 +134,15 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     // week-one carrier would preview the market share of an established one —
     // the exact class of preview/tick divergence this module exists to prevent.
     brandReach:       stateBrandReach(state, hubQ, false),
+    // Lounges at this pair's endpoints. Same reason as brandReach: leaving it
+    // off would preview the business share of a carrier with a lounge network
+    // for one that has none (or vice versa), which is exactly the preview/tick
+    // divergence this module exists to prevent.
+    loungeAppeal:     stateLoungeFields(state, r0.origin, r0.destination).loungeAppeal,
   };
 }
+
+
 
 /** Targeted-campaign lift on a pair — strongest campaign at either endpoint. */
 export function playerCampaignBoost(state, origin, destination) {
@@ -409,6 +418,12 @@ export function projectRouteAddition(state, spec) {
       priceSensitivityReduction: stateSensReduction(state, hubQ),
       marketingBoost: playerCampaignBoost(state, origin, destination),
       brandReach: stateBrandReach(state, hubQ, false),
+      // The same three lounge fields weeklyTick attaches. Without loungeCoverage
+      // the projection would sell day passes at an airport with no lounge, and
+      // without loungeContractFactor it would quote the full third-party premium
+      // ground rate on a route the tick discounts — a launch forecast that is
+      // wrong in both directions at once.
+      ...stateLoungeFields(state, origin, destination),
       ...nwrFields,
     };
     const result = simulateRoute(
