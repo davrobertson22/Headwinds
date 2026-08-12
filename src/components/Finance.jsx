@@ -4,7 +4,7 @@ import { useConfirm } from './ConfirmModal.jsx';
 import {
   formatMoney, formatPercent,
   simulateRoute, maintenanceMultiplier, blockTimeHours,
-  CLASS_FARE_MULTIPLIERS,
+  breakEvenLoadFactor,
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
   buildEventDemandModel,
   stateLoungeFields,
@@ -97,23 +97,12 @@ function ytd(history, key) {
   return history.reduce((s, h) => s + (h[key] ?? 0), 0);
 }
 
-/** Blended fare per seat = ticketPrice × weighted cabin multiplier */
-function blendedFareMultiplier(config, type) {
-  const total = type?.seats ?? 1;
-  return (
-    ((config?.firstClass     ?? 0) / total) * CLASS_FARE_MULTIPLIERS.firstClass     +
-    ((config?.businessClass  ?? 0) / total) * CLASS_FARE_MULTIPLIERS.businessClass  +
-    ((config?.premiumEconomy ?? 0) / total) * CLASS_FARE_MULTIPLIERS.premiumEconomy +
-    ((config?.economy        ?? total) / total) * CLASS_FARE_MULTIPLIERS.economy
-  );
-}
-
 /**
  * Unit economics for one route.
  * Returns ASK, RPK, RASK, CASKop, CASKfull, yield, break-even LF.
  * `allRoutes` is the full route array (needed to allocate fleet costs proportionally).
  */
-function calcUnitEconomics(route, aircraft, type, result, fixedShare) {
+function calcUnitEconomics(route, type, result, fixedShare) {
   const dist  = result.distance;
   // ASK must use INSTALLED seats (configBodies × freq), not `type.seats` — the
   // latter is the max all-economy body count, so any premium cabin (or deliberately
@@ -137,12 +126,17 @@ function calcUnitEconomics(route, aircraft, type, result, fixedShare) {
   const CASKfull = ASK > 0 ? (result.totalOpCost + allocatedFleet) / ASK : 0;
   const yieldVal = RPK > 0 ? result.revenue / RPK : 0;
 
-  // Break-even: what load factor covers all costs at current fare mix?
-  const bfm = blendedFareMultiplier(aircraft.config, type);
-  const fullRevenue = type.seats * route.weeklyFrequency * 2 * route.ticketPrice * bfm;
-  const breakEvenLF = fullRevenue > 0
-    ? (result.totalOpCost + allocatedFleet) / fullRevenue
-    : 0;
+  // Break-even: the load factor at which this route's profit is exactly zero.
+  // Computed by the engine from the SAME booked revenue and cost lines that RASK
+  // and CASKfull above are divided out of, so the BEP column and the spread
+  // column can never contradict each other again (2026-08-11, Kat the Fox — see
+  // breakEvenLoadFactor in utils/simulation.js). It used to be re-derived from
+  // `type.seats × route.ticketPrice × default cabin ladder`, which ignored the
+  // per-class fares the player had actually set, the supersonic ticket premium,
+  // ancillary and catering income, and the connecting-feed revenue in
+  // proj.revById — and so stamped "Below BEP" on routes printing money.
+  // null → nothing flying; Infinity → no load factor covers the costs.
+  const breakEvenLF = breakEvenLoadFactor(result, allocatedFleet);
 
   return { ASK, RPK, RASK, CASKop, CASKfull, yield: yieldVal, breakEvenLF, allocatedFleet };
 }
@@ -2284,7 +2278,7 @@ function UnitEconomics({ proj }) {
       evDemand.multFor(route.origin, route.destination));
     if (!raw) return null;
     const result = { ...raw, revenue: proj.revById[route.id] ?? raw.revenue };
-    const ue = calcUnitEconomics(route, a, type, result, ueFixedByRoute[route.id] ?? 0);
+    const ue = calcUnitEconomics(route, type, result, ueFixedByRoute[route.id] ?? 0);
     return { route, aircraft: a, type, result, ue };
   }).filter(Boolean); }, [routes, fleet, state.week, proj]);  // eslint-disable-line
 
@@ -2305,7 +2299,9 @@ function UnitEconomics({ proj }) {
         case 'rask':   return r.ue.RASK;
         case 'cask':   return r.ue.CASKfull;
         case 'lf':     return r.result.loadFactor;
-        case 'bep':    return r.ue.breakEvenLF;
+        // null (nothing flying) and Infinity (never breaks even) both sort as
+        // "worst" rather than as 0, which is where they landed before.
+        case 'bep':    return r.ue.breakEvenLF == null ? Infinity : r.ue.breakEvenLF;
         default:       return r.result.revenue;
       }
     };
@@ -2362,7 +2358,11 @@ function UnitEconomics({ proj }) {
             {sortedRoutes.map(({ route, type, result, ue }) => {
               const spread   = ue.RASK - ue.CASKfull;
               const grade    = routeGrade(spread);
-              const aboveBEP = result.loadFactor >= ue.breakEvenLF;
+              // Read the badge off the spread itself. breakEvenLoadFactor is
+              // built so that `loadFactor >= breakEvenLF` is the same statement,
+              // but stating it once means the badge cannot drift from the two
+              // columns sitting next to it even if that ever stops being true.
+              const aboveBEP = spread >= 0;
               return (
                 <tr key={route.id}>
                   <td>
@@ -2381,7 +2381,14 @@ function UnitEconomics({ proj }) {
                       {formatPercent(result.loadFactor)}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>{formatPercent(ue.breakEvenLF)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}
+                      title={ue.breakEvenLF === Infinity
+                        ? 'No load factor covers this route\u2019s costs \u2014 the fare, the cabin or the aircraft has to change'
+                        : ue.breakEvenLF == null ? 'Route is flying no seats' : undefined}>
+                    {ue.breakEvenLF == null ? '\u2014'
+                      : ue.breakEvenLF === Infinity ? 'never'
+                      : formatPercent(ue.breakEvenLF)}
+                  </td>
                   <td style={{ textAlign: 'right' }}>
                     <span className="badge" style={{ background: aboveBEP?'rgba(63,185,80,.12)':'rgba(248,81,73,.12)', color: aboveBEP?'var(--green)':'var(--red)' }}>
                       <GlyphLabel size={11} text={aboveBEP ? '✓ Above BEP' : '✗ Below BEP'} />
