@@ -114,7 +114,8 @@ export const AIRPORTS = [
   { code: 'PEK', name: 'Beijing Capital Intl',       city: 'Beijing',        country: 'CN', lat: 40.08,  lon: 116.58,   population: 21.5, tier: 'mega'    , gateway: 15, runwayFt: 12467 },
   { code: 'PVG', name: 'Shanghai Pudong Intl',       city: 'Shanghai',       country: 'CN', lat: 31.14,  lon: 121.80,   population: 27.1, tier: 'mega'    , runwayFt: 13123 },
   { code: 'CAN', name: 'Guangzhou Baiyun Intl',      city: 'Guangzhou',      country: 'CN', lat: 23.39,  lon: 113.30,   population: 18.7, tier: 'mega'    , runwayFt: 12467 },
-  { code: 'CTU', name: 'Chengdu Tianfu Intl',        city: 'Chengdu',        country: 'CN', lat: 30.31,  lon: 104.44,   population: 9.1,  tier: 'major'   , runwayFt: 11811 },
+  { code: 'CTU', name: 'Chengdu Shuangliu Intl',     city: 'Chengdu',        country: 'CN', lat: 30.58,  lon: 103.95,   population: 9.1,  tier: 'major'   , runwayFt: 11811 },
+  { code: 'TFU', name: 'Chengdu Tianfu Intl',        city: 'Chengdu',        country: 'CN', lat: 30.31,  lon: 104.44,   population: 9.1,  tier: 'major'   , runwayFt: 13123 },
   { code: 'TPE', name: 'Taoyuan Intl',               city: 'Taipei',         country: 'TW', lat: 25.08,  lon: 121.23,   population: 7.0,  tier: 'major'   , runwayFt: 12008 },
 
   // ── OCEANIA ──────────────────────────────────────────────────────────────────
@@ -871,6 +872,7 @@ export const AIRPORTS = [
   { code: 'SKT', name: 'Sialkot Intl', city: 'Sialkot', country: 'PK', lat: 32.54, lon: 74.36, population: 0.7, tier: 'regional', runwayFt: 11811 },
   { code: 'CGO', name: 'Zhengzhou Xinzheng Intl', city: 'Zhengzhou', country: 'CN', lat: 34.52, lon: 113.84, population: 10.5, tier: 'major', runwayFt: 11811 },
   { code: 'FOC', name: 'Fuzhou Changle Intl', city: 'Fuzhou', country: 'CN', lat: 25.93, lon: 119.66, population: 8.1, tier: 'major', runwayFt: 11841 },
+  { code: 'HAK', name: 'Haikou Meilan Intl', city: 'Haikou', country: 'CN', lat: 19.93, lon: 110.46, population: 2.9, tier: 'major', visitors: 2, runwayFt: 11811 },
   { code: 'HFE', name: 'Hefei Xinqiao Intl', city: 'Hefei', country: 'CN', lat: 31.33, lon: 116.98, population: 8.4, tier: 'major', runwayFt: 11155 },
   { code: 'KHN', name: 'Nanchang Changbei Intl', city: 'Nanchang', country: 'CN', lat: 28.86, lon: 115.9, population: 6.0, tier: 'regional', runwayFt: 11155 },
   { code: 'KWE', name: 'Guiyang Longdongbao Intl', city: 'Guiyang', country: 'CN', lat: 26.54, lon: 106.8, population: 5.0, tier: 'regional', runwayFt: 13123 },
