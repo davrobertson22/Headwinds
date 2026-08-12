@@ -1724,6 +1724,119 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 }
 
 
+// ─── Break-even load factor ──────────────────────────────────────────────────
+//
+// 2026-08-11, Kat the Fox: "either BEP is wrong or the CASK/RASK is wrong. If
+// I'm not making a profit why isn't it showing that I'm losing money on said
+// route because of its CASK" — a screenshot of ten routes, every one of them
+// with RASK comfortably ABOVE CASK (spread +$0.041, grade A) and every one of
+// them stamped "✗ Below BEP" at break-even load factors of 130–412%.
+//
+// Both columns cannot be right, and the CASK/RASK pair was the honest one:
+// it divides the engine's booked revenue and the engine's totalOpCost by the
+// same ASK. The BEP column did not read the engine at all. It rebuilt a
+// theoretical 100%-load revenue from scratch:
+//
+//     fullRevenue = type.seats × frequency × 2 × route.ticketPrice × blendedMult
+//     breakEvenLF = cost / fullRevenue
+//
+// where `blendedMult` was the DEFAULT cabin ladder (F 5.0 / J 2.5 / W 1.4).
+// That estimate desynchronises from the fare the airline actually charges the
+// moment a player touches anything:
+//
+//   * per-class fares. `route.ticketPrice` is the ECONOMY fare. Sell economy
+//     cheap to fill the aeroplane and price the front cabins where they belong
+//     and the estimate collapses — Kat's A380 was booking ~$500/seat-leg while
+//     the formula priced all 853 seats off a $60 economy ticket. Reproduced at
+//     ASK 63.9M: BEP 393% on a route earning $2.4M/wk.
+//   * supersonic ticketPremium. Concorde charges 2.75×; the formula charged 1×,
+//     so a full Concorde read 217% break-even instead of 79%.
+//   * ancillary and catering income, which the engine folds into route revenue.
+//   * connecting-feed and itinerary revenue — the very figure (proj.revById)
+//     that the RASK beside it is computed from.
+//
+// The fix is to stop estimating. Break-even is a property of the cost
+// structure and the fare actually realised, both of which the engine already
+// reports. Split the week's costs into the part that is fixed once the
+// schedule is flown and the part that walks up the airbridge:
+//
+//     contributionPerPax = (revenue − paxVariableCost) / pax
+//     breakEvenPax       = fixedCost / contributionPerPax
+//     breakEvenLF        = breakEvenPax / configuredSeats
+//
+// which is algebraically the load factor at which profit is exactly zero, so
+// `loadFactor ≥ breakEvenLF` and `RASK ≥ CASKfull` can no longer disagree:
+//
+//     LF ≥ BEP  ⟺  pax × contribution ≥ fixed  ⟺  revenue ≥ totalCost
+//
+// guarded by tools/bep-consistency-test.mjs.
+
+/**
+ * Cost lines from simulateRoute that scale with passengers CARRIED rather than
+ * with seats flown. Everything else in totalOpCost (fuel, crew, cabin quality,
+ * crew layover) is spent whether the aeroplane goes out full or empty.
+ */
+export const PAX_VARIABLE_COST_KEYS = Object.freeze([
+  'cateringCost',
+  'ancillaryCost',
+  'groundHandlingCost',
+  'compensationCost',
+  'loungeCost',
+]);
+
+/**
+ * Split a route week into fixed and passenger-variable cost.
+ *
+ * `fixed` is derived by subtraction rather than by adding up a second list, so
+ * `fixed + variable` always equals the engine's total exactly — a cost line
+ * added to simulateRoute later lands on the fixed side instead of silently
+ * vanishing from break-even.
+ *
+ * @param {object} result          a simulateRoute() result
+ * @param {number} [allocatedFixed] lease + maintenance allocated to this route
+ * @returns {{ fixed: number, variable: number, total: number }}
+ */
+export function routeCostSplit(result, allocatedFixed = 0) {
+  const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const variable = PAX_VARIABLE_COST_KEYS.reduce((s, k) => s + num(result?.[k]), 0);
+  const total    = num(result?.totalOpCost) + Math.max(0, num(allocatedFixed));
+  return { fixed: Math.max(0, total - variable), variable, total };
+}
+
+/**
+ * Load factor at which this route's profit is exactly zero, from the revenue it
+ * actually booked — not from a re-derived list fare.
+ *
+ * @param {object} result           a simulateRoute() result. `revenue` may be
+ *                                  overridden by the caller with the tick's
+ *                                  booked figure; whatever is passed is the
+ *                                  figure break-even is measured against, which
+ *                                  is what keeps it agreeing with RASK.
+ * @param {number} [allocatedFixed] lease + maintenance allocated to this route
+ * @returns {number|null} 0…1 (or >1 when a full aeroplane still loses money),
+ *                        Infinity when no load factor breaks even,
+ *                        null when the route flies no seats at all.
+ */
+export function breakEvenLoadFactor(result, allocatedFixed = 0) {
+  const cap = Number(result?.configuredSeatsOneWay) || 0;
+  if (cap <= 0) return null;
+
+  const { fixed, variable, total } = routeCostSplit(result, allocatedFixed);
+  if (total <= 0) return 0;
+
+  const pax = Number(result?.passengers) || 0;
+  // Nobody flew, so there is no realised fare to extrapolate a break-even from.
+  if (pax <= 0) return Infinity;
+
+  const revenue = Number(result?.revenue) || 0;
+  const contributionPerPax = (revenue - variable) / pax;
+  // Each extra passenger costs more to carry than they pay: no load factor
+  // saves this route, only a higher fare or a cheaper cabin does.
+  if (contributionPerPax <= 0) return Infinity;
+
+  return (fixed / contributionPerPax) / cap;
+}
+
 // ─── Hub connectivity: how big is the network at this station? ──────────────
 // The demand model's connectivity bonus scales with the number of distinct
 // places you connect at a hub (see computeConnectivityBonus). This is where the
@@ -2551,18 +2664,51 @@ export function planCovers({ fleet = [], routes = [], cargoRoutes = [], hubs = {
     (routeRevenues[b.r.id] ?? 0) - (routeRevenues[a.r.id] ?? 0)
     || String(a.r.id).localeCompare(String(b.r.id)));
 
+  // A reserve that is ALREADY OUT ON A COVER is still a reserve. It is
+  // 'assigned' while covering (design doc §3), so filtering the pool on
+  // status === 'idle' quietly retired every reserve the moment it took its
+  // first cover: a second tail breaking down at the same base was told
+  // 'no-reserve' while a stationed, same-type spare sat on 9% of its block
+  // hours. The design is explicit that one reserve covers several broken tails
+  // at once (§4.3, "plus everything R is already covering"), and the monthly
+  // ledger below is what makes that safe.
+  const allOps = [...routes, ...cargoRoutes];
+  const coversFlownBy = new Map();   // reserveId -> routes it is covering right now
+  for (const r of allOps) {
+    if (!r.coverForAircraftId || !r.aircraftId) continue;
+    if (!coversFlownBy.has(r.aircraftId)) coversFlownBy.set(r.aircraftId, []);
+    coversFlownBy.get(r.aircraftId).push(r);
+  }
+  // Spare capacity only: a tail counts as available if everything it flies is a
+  // cover. A reserve that was deployed onto a route of its own has had its
+  // reserveBase nulled by the reducer, but check anyway rather than trust it.
+  const ownRouteCount = (id) => allOps
+    .filter(r => r.aircraftId === id && !r.coverForAircraftId).length;
+
   const reserves = fleet
     .filter(a => a.reserveBase
       && hubs[a.reserveBase] != null
-      && a.status === 'idle'
+      && a.status !== 'retired'
+      && (a.status === 'idle' || coversFlownBy.has(a.id))
+      && ownRouteCount(a.id) === 0
       && !isOutOfService(a)
       && !(a.scheduledCheck
            && (a.scheduledCheck.startWeek ?? 0) <= absWeek + RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS))
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
-  // Monthly block-hour ledger per reserve. A stationed reserve is idle so it
-  // starts empty; covers accumulate as they're assigned this pass.
-  const loads = new Map(reserves.map(a => [a.id, Array(12).fill(0)]));
+  // Monthly block-hour ledger per reserve, SEEDED with the covers it is already
+  // flying (an idle one seeds to zero). Without the seed a reserve re-entering
+  // the pool would look empty every week and stack itself past the cap.
+  const loads = new Map(reserves.map(a => {
+    const load = Array(12).fill(0);
+    const type = getAircraftType(a.typeId);
+    if (type) {
+      for (const r of (coversFlownBy.get(a.id) ?? [])) {
+        routeMonthlyHours(r, type).forEach((h, i) => { load[i] += h; });
+      }
+    }
+    return [a.id, load];
+  }));
 
   const assignments = [];
   const gaps = [];

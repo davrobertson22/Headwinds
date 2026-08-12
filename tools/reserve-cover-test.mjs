@@ -331,5 +331,93 @@ t('deployableFleetForRoute: a reserve also sorts behind a busy tail with spare h
   assert.equal(pool[1].reserve, true);
 });
 
+// ─── A reserve already out on a cover is still a reserve ─────────────────────
+// Discord (Kat the Fox, 2026-08-12): "reserve aircraft dont seem to cover
+// groundings"— two A380s down at DXB, two A380 reserves stationed at DXB, no
+// cover. The pool was filtered on status === 'idle', and a reserve is
+// 'assigned' the moment it takes a cover (design doc §3), so the FIRST cover
+// silently retired it: a second tail breaking down at the same base was told
+// 'no-reserve' while a same-type spare sat on 9% of its block hours. The design
+// is explicit (§4.3, §5 step 2) that one reserve covers several broken tails at
+// once, bounded only by the per-month block-hour ledger.
+
+t('one reserve covers a SECOND broken tail in a later week', () => {
+  let s = newGame();
+  let a, b, r;
+  ({ s, id: a } = buyJet(s));
+  ({ s, id: b } = buyJet(s));
+  ({ s, id: r } = buyJet(s));
+  s = gameReducer(s, { type: 'ADD_GATE', airportCode: 'ORD' });
+  s = gameReducer(s, { type: 'ADD_GATE', airportCode: 'BOS' });
+  s = gameReducer(s, { type: 'ADD_ROUTE', aircraftId: a, origin: 'JFK', destination: 'ORD', weeklyFrequency: 3 });
+  s = gameReducer(s, { type: 'ADD_ROUTE', aircraftId: b, origin: 'JFK', destination: 'BOS', weeklyFrequency: 3 });
+  s = gameReducer(s, { type: 'SET_RESERVE', aircraftId: r, baseCode: 'JFK' });
+
+  s = gameReducer(s, { type: 'SCHEDULE_CHECK', aircraftId: a, checkType: 'D', startNow: true });
+  s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  const first = s.routes.find(x => x.origin === 'JFK' && x.destination === 'ORD');
+  assert.equal(first.aircraftId, r, 'setup: the reserve took the first cover');
+
+  // Second tail breaks a week later. The reserve is 'assigned' now, but it is
+  // flying ~13h of a 140h week — it must take this one too.
+  s = gameReducer(s, { type: 'SCHEDULE_CHECK', aircraftId: b, checkType: 'D', startNow: true });
+  s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  const second = s.routes.find(x => x.origin === 'JFK' && x.destination === 'BOS');
+  assert.equal(second.aircraftId, r, 'the same reserve covers the second tail');
+  assert.equal(second.coverForAircraftId, b);
+  assert.equal(s.routes.find(x => x.destination === 'ORD').aircraftId, r, 'first cover unaffected');
+  assert.equal((s.lastReport.coverage?.gaps ?? []).length, 0, 'no gap reported');
+});
+
+t('a covering reserve is offered to a second tail, and the ledger still binds', () => {
+  const fleet = [
+    { id: 'brk1', typeId: TYPE, status: 'grounded', groundedWeeksLeft: 4 },
+    { id: 'brk2', typeId: TYPE, status: 'grounded', groundedWeeksLeft: 4 },
+    { id: 'res',  typeId: TYPE, status: 'assigned', reserveBase: 'JFK' },
+  ];
+  // res is already covering a ~120h rotation for brk1. brk2's ~60h route cannot
+  // also fit, so the honest answer is 'hours-full' — not 'no-reserve', and not
+  // a silent stack past the cap.
+  const routes = [
+    { id: 'r-live', origin: 'JFK', destination: 'ORD', aircraftId: 'res', coverForAircraftId: 'brk1', weeklyFrequency: 28 },
+    { id: 'r-new',  origin: 'JFK', destination: 'BOS', aircraftId: 'brk2', weeklyFrequency: 14 },
+  ];
+  const { assignments, gaps } = planCovers({ fleet, routes, cargoRoutes: [], hubs: { JFK: { tier: 1 } }, absWeek: 0, routeRevenues: {} });
+  assert.equal(assignments.length, 0, 'the cap is still enforced across weeks');
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].reason, 'hours-full', 'a busy reserve is not "no-reserve"');
+});
+
+t('a covering reserve with spare hours takes the second tail too', () => {
+  const fleet = [
+    { id: 'brk1', typeId: TYPE, status: 'grounded', groundedWeeksLeft: 4 },
+    { id: 'brk2', typeId: TYPE, status: 'grounded', groundedWeeksLeft: 4 },
+    { id: 'res',  typeId: TYPE, status: 'assigned', reserveBase: 'JFK' },
+  ];
+  const routes = [
+    { id: 'r-live', origin: 'JFK', destination: 'ORD', aircraftId: 'res', coverForAircraftId: 'brk1', weeklyFrequency: 7 },
+    { id: 'r-new',  origin: 'JFK', destination: 'BOS', aircraftId: 'brk2', weeklyFrequency: 7 },
+  ];
+  const { assignments, gaps } = planCovers({ fleet, routes, cargoRoutes: [], hubs: { JFK: { tier: 1 } }, absWeek: 0, routeRevenues: {} });
+  assert.equal(gaps.length, 0);
+  assert.equal(assignments.length, 1);
+  assert.deepEqual({ ...assignments[0] }, { routeId: 'r-new', cargo: false, reserveId: 'res', forId: 'brk2' });
+});
+
+t('a tail flying a route of its OWN is never treated as spare capacity', () => {
+  const fleet = [
+    { id: 'brk', typeId: TYPE, status: 'grounded', groundedWeeksLeft: 4 },
+    // Stale reserveBase on a tail that is genuinely flying its own line route.
+    { id: 'line', typeId: TYPE, status: 'assigned', reserveBase: 'JFK' },
+  ];
+  const routes = [
+    { id: 'r-own', origin: 'JFK', destination: 'ORD', aircraftId: 'line', weeklyFrequency: 3 },
+    { id: 'r-new', origin: 'JFK', destination: 'BOS', aircraftId: 'brk',  weeklyFrequency: 3 },
+  ];
+  const { assignments, gaps } = planCovers({ fleet, routes, cargoRoutes: [], hubs: { JFK: { tier: 1 } }, absWeek: 0, routeRevenues: {} });
+  assert.equal(assignments.length, 0, 'a working aeroplane is not a standby cover');
+  assert.equal(gaps[0].reason, 'no-reserve');
+});
+
 console.log(`\nreserve-cover-test: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -2436,8 +2436,16 @@ export default function Fleet() {
                       )}
                       {isOutOfService(aircraft) && (() => {
                         const covered = [...routes, ...cargoRoutes].filter(r => r.coverForAircraftId === aircraft.id).length;
-                        if (covered === 0) return null;
                         const own = assignedRoutes.length;
+                        if (covered === 0) {
+                          // Standby you are paying for that did not turn up is worth
+                          // saying out loud on the row. Silence here reads as "reserves
+                          // don't work" — the reason lives in the aircraft's card.
+                          const anyReserve = own > 0
+                            && (state.fleet ?? []).some(a => isReserve(a) && a.typeId === aircraft.typeId);
+                          if (!anyReserve) return null;
+                          return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--yellow)' }}><Glyph e="🛡️" size={10} /> no cover — {own} route{own !== 1 ? 's' : ''} idle</span>;
+                        }
                         return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}><Glyph e="🛡️" size={10} /> {covered}/{covered + own} covered</span>;
                       })()}
                       {aircraft.status === 'maintenance' && (
