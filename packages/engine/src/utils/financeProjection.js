@@ -14,10 +14,10 @@
 // predicted, by design — a projection should be deterministic).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { weeklyTick, weekToGameDate, isRouteActive, routeDistanceKm } from './simulation.js';
+import { weeklyTick } from './simulation.js';
+import { prepareWeek } from './tickPrep.js';
 import { getAircraftType } from '../data/aircraft.js';
-import { effectiveFuelMultiplier, absoluteWeek } from './fuel.js';
-import { DEPRECIATION_YEARS, routeLaunchCost } from '../data/overhead.js';
+import { DEPRECIATION_YEARS } from '../data/overhead.js';
 
 const CORPORATE_TAX_RATE = 0.21;
 
@@ -94,32 +94,35 @@ export function projectWeek(state) {
 function computeProjectWeek(state) {
   const fleet = state.fleet ?? [];
 
-  // Match the reducer's gameDate so seasonality agrees with the actual tick.
-  const gameMonth = weekToGameDate(state.week).monthIndex;
-  const gameDate  = { week: state.week, month: gameMonth };
+  // ── The week the reducer would actually run ────────────────────────────────
+  // NOT the raw state. ADVANCE_WEEK stands up the aircraft whose last week of
+  // grounding or heavy check is this one, dispatches reserve covers over the
+  // tails still down, expires spent events, folds the fuel shock into the index
+  // so hedges cover it, and opens finished bases and lounges — all before the
+  // tick. Projecting the raw state forecast a week that could not happen: a
+  // recovering aircraft's routes read as dead, so the card showed an eight-figure
+  // cliff the player had no way to explain, and then the week came in higher than
+  // the forecast every single time. See utils/tickPrep.js.
+  //
+  // rollNewEvents: false is the line between "the projection was wrong" and "the
+  // projection is deterministic by design". Newly-rolled events, this week's
+  // mechanical failures, AI encroachment and next week's fuel walk are all dice
+  // that have not been thrown; the projection does not pretend to know them, and
+  // that residual — not the prep — is the honest gap between forecast and result.
+  const prep = prepareWeek(state, { rollNewEvents: false });
+  const { gameDate, fuelMultiplier } = prep;
 
-  // Event effects from CURRENTLY active events (deterministic — we don't roll new ones).
-  let eventFuelMult     = 1.0;
-  let globalDemandMult  = 1.0;
-  for (const ev of state.activeEvents ?? []) {
+  // Demand shock from the events that will still be live this week, for callers
+  // that want to show the multiplier. The shock itself is applied INSIDE
+  // weeklyTick, which scales each route's passenger pool.
+  let globalDemandMult = 1.0;
+  for (const ev of prep.allEvents) {
     const fx = ev.effects ?? {};
-    if (fx.fuelMult)         eventFuelMult    *= fx.fuelMult;
     if (fx.globalDemandMult) globalDemandMult *= fx.globalDemandMult;
   }
 
-  // Fuel multiplier: hedged/unhedged blend × event fuel shock (mirrors reducer).
-  const currentFuelIndex = state.fuelPrice?.index ?? state.fuelMultiplier ?? 1.0;
-  const nowAbsWeek       = absoluteWeek(state.year ?? 1, state.week ?? 1);
-  const activeHedges     = (state.hedgeContracts ?? []).filter(h => h.expiryAbsWeek > nowAbsWeek);
-  const fuelMultiplier   = state.fuelPrice
-    ? effectiveFuelMultiplier(currentFuelIndex, activeHedges) * eventFuelMult
-    : (state.fuelMultiplier ?? 1.0) * eventFuelMult;
-
   // ── Canonical engine pass ──────────────────────────────────────────────────
-  // Event demand shocks are applied INSIDE weeklyTick (state.activeEvents flows
-  // through in the spread): each route's passenger pool is scaled, so per-route
-  // revenue, pax and load factors already reflect active events.
-  const report = weeklyTick({ ...state, fuelMultiplier, loyalty: state.loyalty, gameDate });
+  const report = weeklyTick(prep.tickInput);
 
   // Per-route boosted revenue (what actually books) keyed by routeId.
   const revById = {};
@@ -146,17 +149,11 @@ function computeProjectWeek(state) {
   const principal = loanPayments - interest;
 
   // ── Seasonal reactivation: routes that resume service this projected week ──────
-  // Mirrors the reducer — a dormant seasonal route flipping active in this month
-  // pays 1/3 of its launch cost. Deductible, like lease redelivery.
-  let seasonalReactivation = 0;
-  for (const r of state.routes ?? []) {
-    if (!r.season) continue;
-    const shouldBeActive = isRouteActive(r, gameMonth);
-    const prevState = r.seasonState ?? (shouldBeActive ? 'active' : 'dormant');
-    if (shouldBeActive && prevState === 'dormant') {
-      seasonalReactivation += Math.round(routeLaunchCost(routeDistanceKm(r.origin, r.destination)) / 3);
-    }
-  }
+  // A dormant seasonal route flipping active this month pays 1/3 of its launch
+  // cost. Deductible, like lease redelivery. Charged by the same pass that flips
+  // the route, so the fee and the flying can never disagree about which routes
+  // resumed.
+  const seasonalReactivation = prep.seasonalReactivationCost;
 
   // ── Tax & bottom line ────────────────────────────────────────────────────────
   // Tax base is EBT = EBITDA − depreciation − interest − reactivation (loan
