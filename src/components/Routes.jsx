@@ -27,7 +27,7 @@ import {
 import { consumeNavFilter } from '../utils/navIntent.js';
 import { useToast } from './ToastSystem.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
-import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
+import { projectRouteAddition, rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
@@ -1061,7 +1061,11 @@ function TagRouteCard({ route, onClose }) {
     { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
     aircraft, gd, state.labor ?? null, 1.0,
     fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
-    state.satisfaction ?? null, buildEventDemandModel(state.activeEvents).multFor) : null;
+    state.satisfaction ?? null, buildEventDemandModel(state.activeEvents).multFor,
+    state.ancillaries ?? null,
+    // The live carrier bank and this segment's challengers. Without them a tag
+    // route previewed as an uncontested monopoly on every one of its segments.
+    state.competitors ?? [], (key) => rivalSpecsFor(state, key)) : null;
   const landingFee = type ? routeLandingFee(route, type, route.weeklyFrequency) : 0;
   const profit   = sim ? sim.profit - landingFee : 0;
 

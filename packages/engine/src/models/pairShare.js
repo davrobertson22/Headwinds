@@ -46,6 +46,7 @@ import {
   pairConnectivityBonus,
   stateSensReduction,
   stateBrandReach,
+  currentGameDate,
   simulateRoute,
   fleetAvgUtilization,
   routeLandingFee,
@@ -162,8 +163,10 @@ export function playerCampaignBoost(state, origin, destination) {
 export function buildRivalPairOffers(state, market) {
   const key = pairKeyOf(market.origin, market.destination);
   const offers = [];
+  const spokenFor = new Set();
 
   for (const spec of state.humanRivals?.[key] ?? []) {
+    if (spec?.competitorId != null) spokenFor.add(spec.competitorId);
     const offer = buildEncroachmentOffer(spec, market);
     if (offer) offers.push(offer);
   }
@@ -173,8 +176,13 @@ export function buildRivalPairOffers(state, market) {
     if (offer) offers.push(offer);
   }
   for (const c of state.competitors ?? []) {
-    if (c.human) continue;                 // already counted via humanRivals
     if (!c.routes?.[key]) continue;
+    // Already counted via humanRivals. Keyed on the id rather than on the
+    // `human` flag alone: a human rival with no spec on THIS pair still has to
+    // be counted, or a gap in state.humanRivals silently exempts them from the
+    // share fight instead of merely thinning their offer. Same rule as
+    // rivalOffersFor() in the tick, so the preview and the tick agree.
+    if (c.human && spokenFor.has(c.id)) continue;
     const offer = buildCompetitorOffer(c, market);
     if (offer) offers.push(offer);
   }
@@ -348,7 +356,15 @@ export function projectRouteAddition(state, spec) {
     origin, destination, aircraft, weeklyFrequency,
     classPrices, ticketPrice, cateringLevel, season,
     replacesRouteId = null,
-    gameDate = state.gameDate ?? { month: 6 },
+    // The week the tick will actually run, not a hardcoded June.
+    //
+    // `state.gameDate` is a value prepareWeek() DERIVES (tickPrep.js:141-142);
+    // it is not a field a saved state carries, so this default was always the
+    // literal — every projection in the game forecast a peak-summer week no
+    // matter what month the airline was in. On a JFK–LAX fixture sitting in
+    // week 1 that alone was a 42% overstatement of passengers (784 previewed
+    // against 551 booked); previewing the real month brings it to 1.6%.
+    gameDate = state.gameDate ?? currentGameDate(state),
     // The world's CURRENT fuel price, not a hardcoded 1.0 — the forms used to
     // forecast every route at par no matter what fuel was doing.
     fuelMultiplier = state.fuelMultiplier ?? 1.0,
@@ -383,7 +399,34 @@ export function projectRouteAddition(state, spec) {
       && r.id !== PREVIEW_ROUTE_ID
   );
   const pairRoutes = [...others, previewRoute];
-  const stateForOffer = { ...state, fleet: fleetPlus, routes: [...(state.routes ?? []).filter(r => r.id !== replacesRouteId), previewRoute] };
+  // Preview the DRAFT fare as the pair's fare.
+  //
+  // Fares belong to the pair, not the route: ADD_ROUTE writes
+  // routePricing[pairKey] and every tail on the lane flies that price, so
+  // repricing one route reprices all of them. buildPlayerPairOffer reads
+  // routePricing first (correctly — that is the single source of truth), which
+  // meant a draft fare never reached the POOLED offer. On a pair with two or
+  // more tails the projection slices its demandOverride out of that pooled
+  // result, so the passenger count was frozen at the fare the pair is flying
+  // today and simulateRoute merely multiplied it by the draft one: dragging
+  // economy from $120 to $700 held pax at 1475 while revenue rose exactly 4x.
+  // The fare editor answered a question nobody asked.
+  const draftPricing = (classPrices || ticketPrice != null)
+    ? {
+        ...(state.routePricing ?? {}),
+        [key]: {
+          ...(state.routePricing?.[key] ?? {}),
+          ...(ticketPrice != null ? { economy: ticketPrice } : {}),
+          ...(classPrices ?? {}),
+        },
+      }
+    : state.routePricing;
+  const stateForOffer = {
+    ...state,
+    fleet: fleetPlus,
+    routes: [...(state.routes ?? []).filter(r => r.id !== replacesRouteId), previewRoute],
+    routePricing: draftPricing,
+  };
 
   // Lane maturity. An established pair is already mature and does NOT re-ramp
   // when you add a tail; only a pair you have never flown starts at week 0.
@@ -487,8 +530,14 @@ function hubQualityFor(state, origin, destination) {
  * simulateRoute via encroachByPair(), so a solo-route projection contests the
  * identical set. AI carriers do NOT belong here: they reach simulateRoute
  * through the competitors bank instead.
+ *
+ * Exported because the UI needs it too: a screen that falls back to its own
+ * simulateRoute call has to contest the same rivals the tick does, and passing
+ * a bare `[]` there is what made a contested route preview as a monopoly.
+ * Takes either (state, origin, destination) or (state, pairKey).
  */
-function rivalSpecsFor(state, key) {
+export function rivalSpecsFor(state, originOrKey, destination) {
+  const key = destination != null ? pairKeyOf(originOrKey, destination) : originOrKey;
   const enc    = state.encroachments?.[key];
   const humans = state.humanRivals?.[key] ?? [];
   return enc ? [enc, ...humans] : humans;

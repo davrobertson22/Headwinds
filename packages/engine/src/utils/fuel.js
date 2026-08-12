@@ -131,15 +131,31 @@ export function expectedMeanIndex(spot, weeks, theta = FUEL_MEAN_REVERSION, base
 export function effectiveFuelMultiplier(marketIndex, activeHedges = []) {
   if (!activeHedges.length) return marketIndex;
 
+  // Only real fractions get a vote.
+  //
+  // The reducer now refuses a BUY_HEDGE whose coverage is not in (0, 1], but a
+  // world that was exploited before that landed still carries the poisoned
+  // contracts in its saved blob — and this function is where they cash out. A
+  // signed sum let a pair of contracts at -1000 and +1000.1 slip past the
+  // `rawCoverage <= 0` guard below and return -68.997, i.e. a large NEGATIVE
+  // fuel bill on every route, every week. Sanitising here means such a blob
+  // heals itself on the next tick instead of minting money until someone
+  // notices.
+  const hedges = (activeHedges ?? []).filter((h) => {
+    const c = Number(h?.coverage);
+    return Number.isFinite(c) && c > 0 && Number.isFinite(Number(h?.lockedPrice));
+  }).map((h) => ({ ...h, coverage: Math.min(1, Number(h.coverage)) }));
+  if (!hedges.length) return marketIndex;
+
   // rawCoverage may exceed 1.0 when multiple contracts are stacked.
   // Use it as the denominator for the weighted average so each contract's
   // contribution is normalised correctly, then cap effective coverage at 1.0.
-  const rawCoverage   = activeHedges.reduce((s, h) => s + h.coverage, 0);
+  const rawCoverage   = hedges.reduce((s, h) => s + h.coverage, 0);
   const totalCoverage = Math.min(1.0, rawCoverage);
   if (rawCoverage <= 0) return marketIndex;
 
   // Coverage-weighted average of locked prices (normalised over raw sum)
-  const weightedLocked = activeHedges.reduce((s, h) => s + h.coverage * h.lockedPrice, 0)
+  const weightedLocked = hedges.reduce((s, h) => s + h.coverage * Number(h.lockedPrice), 0)
     / rawCoverage;
 
   return parseFloat(

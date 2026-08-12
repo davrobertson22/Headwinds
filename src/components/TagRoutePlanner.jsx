@@ -10,8 +10,9 @@ import {
   routeLegs, routeSegments, routeSegmentKey, routeMaxLegKm, routeBlockHours,
   routeLandingFee, routeStops, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, MAX_ROUTE_STOPS,
   cargoSlotsUsedAt, fleetAvgUtilization,
-  stateLoungeFields,
+  stateLoungeFields, buildEventDemandModel,
 } from '../utils/simulation.js';
+import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import { ModeToggle } from './CargoRoutePlanner.jsx';
 import AddGateButton from './AddGateButton.jsx';
 import AirportSelect from './AirportSelect.jsx';
@@ -116,7 +117,11 @@ export default function TagRoutePlanner({ mode, setMode }) {
     const avgUtil = fleetAvgUtilization(fleet, [...routes, ...cargoRoutes, { ...route, aircraftId: aircraft.id }]);
     return simulateTagRoute(
       { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
-      aircraft, gd, state.labor ?? null, 1.0, avgUtil, state.satisfaction ?? null);
+      aircraft, gd, state.labor ?? null, 1.0, avgUtil, state.satisfaction ?? null,
+      buildEventDemandModel(state.activeEvents).multFor, state.ancillaries ?? null,
+      // Same rivals the tick contests this rotation against — the planner used
+      // to forecast every segment as a monopoly.
+      state.competitors ?? [], (key) => rivalSpecsFor(state, key));
   }, [route, aircraft, inRange, gd.month, state.labor]); // eslint-disable-line
 
   // ── Validation (mirrors the reducer; advisory only) ──

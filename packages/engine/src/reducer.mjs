@@ -4672,6 +4672,15 @@ function reducer(state, action) {
       const opt = HEDGE_DURATIONS.find(o => o.id === action.durationId);
       if (!opt) return state;
 
+      // Coverage is a FRACTION of the fuel bill, and has to be policed like the
+      // duration above it. It used to be stored verbatim: buying a hedge costs
+      // no cash, so a coverage of -1000 paired with one of +1000.1 made
+      // effectiveFuelMultiplier (which divides by the SIGNED sum of coverages)
+      // return -68.997, and every route on the airline booked a large negative
+      // fuel cost for the life of the contract.
+      const coverage = Number(action.coverage);
+      if (!Number.isFinite(coverage) || coverage <= 0 || coverage > 1) return state;
+
       const marketIndex  = state.fuelPrice?.index ?? 1.0;
       const locked       = hedgeLockedPrice(marketIndex, opt);
       const startAbsWeek = absoluteWeek(state.year, state.week);
@@ -4679,7 +4688,7 @@ function reducer(state, action) {
         id:            uid(),
         durationId:    opt.id,
         durationLabel: opt.label,
-        coverage:      action.coverage,
+        coverage,
         lockedPrice:   locked,
         marketAtPurchase: marketIndex,
         startAbsWeek,

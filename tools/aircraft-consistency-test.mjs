@@ -26,6 +26,7 @@
 
 import assert from 'node:assert/strict';
 import { AIRCRAFT_TYPES, seatEfficiency } from '../src/data/aircraft.js';
+import { AIRCRAFT_FAMILY, FAMILY_INFO, aircraftFamily } from '../src/data/families.js';
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -576,6 +577,86 @@ test('every aircraft carries the fields the market card renders', () => {
   assert.deepEqual(missing.map(t => t.id), []);
 });
 
+
+// ── 7. Every type has a maintenance family (2026-08-12) ──────────────────────
+// data/families.js is a hand-maintained id → family map, and nothing forced it
+// to keep up with data/aircraft.js. It had drifted to 92 of 164 entries. An
+// unmapped type is INVISIBLE to activeFamilies(), which means:
+//
+//   * weeklyFamilyBaseCost() charges it $0 — the whole outsourced-MRO contract
+//     line disappears for that airframe;
+//   * fleetComplexityMultiplier() does not count it, so adding a wholly new
+//     type to the fleet costs nothing in split pilot pools or type ratings;
+//   * resolveBaseFor() (data/mroBase.js) returns null for it — no jet-base line
+//     factor, no AOG reduction, and no family a base can even be certified for.
+//
+// All 23 freighters were unmapped, so a cargo-only airline paid nothing at all
+// and opened Maintenance → MRO Network to an empty certification list: the
+// feature was unreachable for freight. The 737 MAX 8-200 was unmapped while the
+// MAX 8 it is built from cost $42,000/wk, and the E195 was unmapped while the
+// E190 cost $23,000/wk — the same airframe and tooling, one of them free.
+//
+// This is the assertion that would have caught it. The invariant is TOTAL: a
+// genuinely one-off airframe gets its own single-type family rather than being
+// left out, because "no plausible commonality group" means full freight, not free.
+
+test('every aircraft type belongs to a maintenance family', () => {
+  const orphans = AIRCRAFT_TYPES.filter(t => !aircraftFamily(t.id)).map(t => `${t.id} (${t.name})`);
+  assert.deepEqual(orphans, [],
+    `${orphans.length} of ${AIRCRAFT_TYPES.length} types have no entry in AIRCRAFT_FAMILY. ` +
+    `An unmapped type pays $0 weeklyFamilyBaseCost, adds nothing to fleetComplexityMultiplier, ` +
+    `and resolveBaseFor() returns null for it — no base can be certified for a family it has none of`);
+});
+
+test('every AIRCRAFT_FAMILY key is a real aircraft type', () => {
+  // The complement: a stale key is a silent typo. `b737max8200` mapped as
+  // `b737max8_200` would leave the real type unmapped while the map still
+  // looked complete, so the first test alone is not enough.
+  const ids = new Set(AIRCRAFT_TYPES.map(t => t.id));
+  const ghosts = Object.keys(AIRCRAFT_FAMILY).filter(id => !ids.has(id));
+  assert.deepEqual(ghosts, [],
+    'AIRCRAFT_FAMILY maps ids that do not exist in AIRCRAFT_TYPES — a rename or a typo');
+});
+
+test('every family referenced by the map has a FAMILY_INFO entry', () => {
+  // weeklyFamilyBaseCost() falls back to `?? 0` on a missing entry, so a family
+  // key with no metadata is the same free ride as no key at all — just harder
+  // to see, because activeFamilies() reports the aircraft as covered.
+  const missing = [...new Set(Object.values(AIRCRAFT_FAMILY))].filter(f => !FAMILY_INFO[f]);
+  assert.deepEqual(missing, []);
+});
+
+test('every family costs something and carries a renderable category', () => {
+  const bad = Object.entries(FAMILY_INFO)
+    .filter(([, i]) => !(i.weeklyBaseCost > 0) || !i.name || !i.category)
+    .map(([k]) => k);
+  assert.deepEqual(bad, []);
+});
+
+test('every freighter is grouped with the airframe it is converted from', () => {
+  // A P2F/SF/BCF conversion is the same tube, the same engines and the same type
+  // rating as its passenger sibling, so it must reuse that family rather than
+  // getting one of its own. TWINS is the pax↔freight pairing already used by the
+  // fuel-burn checks at the top of this file; reuse it so the two cannot drift.
+  const split = TWINS
+    .filter(([pax, frt]) => aircraftFamily(pax) !== aircraftFamily(frt))
+    .map(([pax, frt]) => `${get(frt).name} is ${aircraftFamily(frt)} but ${get(pax).name} is ${aircraftFamily(pax)}`);
+  assert.deepEqual(split, []);
+});
+
+test('no freighter sits in a family of its own invention', () => {
+  // Every freighter's family must also be flown by something else — either its
+  // passenger sibling or another freighter of the same airframe. The exceptions
+  // are the two purpose-built outsize Antonovs, which have no passenger version
+  // anywhere in the catalogue and legitimately carry their own family.
+  const ALLOWED_FREIGHT_ONLY = new Set(['antonov_an124', 'antonov_an12']);
+  const lonely = AIRCRAFT_TYPES.filter(t => t.freighter).filter((t) => {
+    const fam = aircraftFamily(t.id);
+    if (ALLOWED_FREIGHT_ONLY.has(fam)) return false;
+    return !AIRCRAFT_TYPES.some(o => o.id !== t.id && !o.freighter && aircraftFamily(o.id) === fam);
+  }).map(t => `${t.name} → ${aircraftFamily(t.id)}`);
+  assert.deepEqual(lonely, []);
+});
 
 // ── 8. Passenger-side guards (2026-07-31) ────────────────────────────────────
 // Everything above guards the FREIGHTER table. The passenger table had the exact

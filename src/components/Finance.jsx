@@ -37,6 +37,8 @@ import {
   DEPRECIATION_YEARS,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
+// pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
+import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
 import {
@@ -384,17 +386,22 @@ function PLStatement({ proj }) {
   const avgUtilization = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
   const routeData = useMemo(() => {
     const evDemand = buildEventDemandModel(state.activeEvents);
+    // Read the engine's result first — this table's whole purpose is to
+    // reconcile to the report totals, and a re-simulation that sees no rivals
+    // and no pooled demand overstated operating cost by ~19% on a contested
+    // pair. Lounge fields, rivals and ancillaries are carried on the fallback
+    // for the routes the report skipped, for the same reason.
+    const rrById = {};
+    for (const rr of proj.report.routeResults ?? []) rrById[rr.routeId] = rr;
     return routes.map(route => {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) return null;
-    // Lounge fields, or this table stops reconciling to the report totals it
-    // exists to reconcile to: a lounge owner is shown nearly 3x the premium
-    // ground cost the tick actually charges. stateLoungeFields is the same
-    // implementation weeklyTick runs.
-    const result = simulateRoute(
+    const result = rrById[route.id] ?? simulateRoute(
       { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
-      aircraft, gd, labor, proj.fuelMultiplier, null, [], avgUtilization, state.satisfaction ?? null,
-      evDemand.multFor(route.origin, route.destination));
+      aircraft, gd, labor, proj.fuelMultiplier, null,
+      rivalSpecsFor(state, route.origin, route.destination), avgUtilization, state.satisfaction ?? null,
+      evDemand.multFor(route.origin, route.destination),
+      state.ancillaries ?? null, state.competitors ?? []);
     if (!result) return null;
     const bookedRevenue = proj.revById[route.id] ?? result.revenue;
     return { route, aircraft, result, bookedRevenue };
@@ -2266,16 +2273,32 @@ function UnitEconomics({ proj }) {
   const routeData = useMemo(() => {
     const avgUtil = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
     const evDemand = buildEventDemandModel(state.activeEvents);
+    // The engine's own per-route results, keyed by route id — the same map
+    // RouteBreakdown and AirportBreakdown already build.
+    //
+    // This tab used to re-simulate every route from scratch with `null` demand,
+    // `[]` rivals and no competitors bank, then overwrite only `revenue` with
+    // the engine's booked figure. So RASK divided a CONTESTED numerator by an
+    // UNCONTESTED denominator, and Load %, System Load, RPK, Yield, CASK, Spread,
+    // Grade and the BEP badge all described a monopoly the player does not have:
+    // 100.0% load rendered against 81.3% booked on a two-tail contested pair.
+    // Two errors stacked — no rivals, and no pooled demandOverride on a shared
+    // pair — so even a solo carrier read 56.7% as 100.0%.
+    const rrById = {};
+    for (const rr of proj.report.routeResults ?? []) rrById[rr.routeId] = rr;
     return routes.map(route => {
     const a    = fleet.find(x => x.id === route.aircraftId);
     const type = a ? getAircraftType(a.typeId) : null;
     if (!a || !type) return null;
-    // Simulate with the engine's labor + fuel multiplier so costs match; use the
-    // engine's BOOKED revenue (incl. connecting feed + demand lifts) for RASK/yield.
-    const raw = simulateRoute(
+    // Fall back to a standalone sim only for a route the weekly report skipped
+    // (grounded tail, dormant seasonal, opened since the last tick) — and even
+    // then contest the same rivals and carry the same ancillaries the tick does.
+    const raw = rrById[route.id] ?? simulateRoute(
       { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
-      a, gd, labor, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null,
-      evDemand.multFor(route.origin, route.destination));
+      a, gd, labor, proj.fuelMultiplier, null,
+      rivalSpecsFor(state, route.origin, route.destination), avgUtil, state.satisfaction ?? null,
+      evDemand.multFor(route.origin, route.destination),
+      state.ancillaries ?? null, state.competitors ?? []);
     if (!raw) return null;
     const result = { ...raw, revenue: proj.revById[route.id] ?? raw.revenue };
     const ue = calcUnitEconomics(route, type, result, ueFixedByRoute[route.id] ?? 0);
@@ -2434,11 +2457,25 @@ function Forecast({ proj }) {
 
   const fcLaborState  = state.labor ?? DEFAULT_LABOR_STATE;
   const fcAvgUtil     = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
+  // Route revenue for the seasonal weighting below. Each row keeps its ROUTE
+  // attached rather than relying on position: this used to be
+  // `routes.map(...).filter(Boolean)` read back as `routeData[idx]` against the
+  // unfiltered `routes`, so the first route the engine skipped shifted every
+  // later route onto a different route's revenue and dropped the tail of the
+  // list entirely. simulateRoute returns null whenever direct O&D distance
+  // exceeds effective range — the defining property of a tag route, and
+  // reachable on a normal route after a denser cabin reconfigure.
+  const fcRrById = {};
+  for (const rr of proj.report.routeResults ?? []) fcRrById[rr.routeId] = rr;
   const routeData = routes.map(r => {
     const a = fleet.find(x => x.id === r.aircraftId);
-    return a ? simulateRoute(
+    if (!a) return null;
+    const result = fcRrById[r.id] ?? simulateRoute(
       { ...r, ...stateLoungeFields(state, r.origin, r.destination) },
-      a, gd, fcLaborState, fuelMultiplier, null, [], fcAvgUtil, state.satisfaction ?? null) : null;
+      a, gd, fcLaborState, proj.fuelMultiplier, null,
+      rivalSpecsFor(state, r.origin, r.destination), fcAvgUtil, state.satisfaction ?? null,
+      1.0, state.ancillaries ?? null, state.competitors ?? []);
+    return result ? { route: r, result } : null;
   }).filter(Boolean);
 
   // ── Canonical current-week baseline (same engine the other tabs use) ───────
@@ -2455,8 +2492,8 @@ function Forecast({ proj }) {
   const fleetSeasonalAt = (month) => {
     if (routeData.length === 0) return 1;
     let totalW = 0, totalWS = 0;
-    routes.forEach((r, idx) => {
-      const rev = routeData[idx]?.revenue ?? 0;
+    routeData.forEach(({ route: r, result }) => {
+      const rev = result?.revenue ?? 0;
       if (rev <= 0) return;
       const factor = getSeasonalProfile(r.origin, r.destination)[month] ?? 1;
       totalW  += rev;

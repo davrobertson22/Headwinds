@@ -1354,6 +1354,71 @@ export function defaultConfig(totalSeats) {
 }
 
 /**
+ * The rival offers contesting one city pair — each airline exactly ONCE.
+ *
+ * A rival can reach the demand model down two channels, and on a contested pair
+ * it usually reaches it down both at the same time:
+ *
+ *   • `competitors[].routes[pairKey]` — a carrier's real scheduled network.
+ *     In Headwinds every other active player is published here as a dossier row
+ *     by buildRivalViews(), flagged `human: true`.
+ *   • an offer spec — `state.encroachments[pairKey]` (a synthetic AI entrant
+ *     ramping into the pair) or, in multiplayer, `state.humanRivals[pairKey]`
+ *     (a real player's actual offer on that pair).
+ *
+ * Both channels were concatenated blind, so one airline published down both was
+ * scored by computeMarketShare as TWO airlines — the encroachment offer
+ * publishes as `encroach:<id>` and the carrier offer as `<id>`, so nothing
+ * collided and the softmax had no way to notice. Measured on the fixture in
+ * tools/rival-dedupe-test.mjs: 240 passengers where one counting gives 642, a
+ * 62% haircut applied to every player on every contested pair, symmetrically,
+ * with world-wide booked passengers exceeding the demand pool. The preview
+ * helper (pairShare.buildRivalPairOffers) had carried the dedupe from the start;
+ * only the tick was missing it, so the two disagreed by the same third.
+ *
+ * Precedence depends on which channel the duplicate came down, and the two rules
+ * point opposite ways:
+ *
+ *   • Human rival — the SPEC wins. state.humanRivals is the purpose-built
+ *     representation of a player on a pair: their real economy and business
+ *     fares, quality score, brand reach, lounge network and frequency-blended
+ *     seats-per-flight. The dossier row is the thinner of the two.
+ *   • Encroachment — the CARRIER wins. A scheduled route is that carrier's
+ *     actual capacity on the pair; a spec naming them is a ramping stand-in for
+ *     capacity that already exists.
+ *
+ * A human competitor with no spec on this pair is still counted, so a gap in
+ * state.humanRivals costs a rival's presence rather than silently exempting them.
+ *
+ * @param {object[]|null} competitors  state.competitors — the live carrier bank
+ * @param {object[]|null} specs        offer specs contesting this pair
+ * @param {object}        market       from buildRouteMarket
+ */
+export function rivalOffersFor(competitors, specs, market) {
+  const key = [market.origin, market.destination].sort().join('-');
+  const specList = (specs ?? []).filter(Boolean);
+  const spokenFor = new Set(
+    specList.map(s => s.competitorId).filter(id => id != null));
+  const offers = [];
+  const servingByRoute = new Set();
+
+  for (const c of competitors ?? []) {
+    if (!c?.routes?.[key]) continue;
+    if (c.human && spokenFor.has(c.id)) continue;   // their spec speaks for them
+    const offer = buildCompetitorOffer(c, market);
+    if (!offer) continue;
+    servingByRoute.add(c.id);
+    offers.push(offer);
+  }
+  for (const spec of specList) {
+    if (spec.competitorId != null && servingByRoute.has(spec.competitorId)) continue;
+    const offer = buildEncroachmentOffer(spec, market);
+    if (offer) offers.push(offer);
+  }
+  return offers;
+}
+
+/**
  * Simulate one week of a route.
  *
  * Demand is computed via the rich demand model in demand.js:
@@ -1499,16 +1564,11 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // Callers that pass nothing still get an empty bank (today's behaviour) rather
     // than a silently-empty constant, so a missed call site reads as "no rivals
     // supplied" instead of masquerading as "no rivals exist".
-    const competitorOffers = (competitors ?? [])
-      .map(c => buildCompetitorOffer(c, market))
-      .filter(Boolean);
-    // Injected challengers (e.g. route encroachment) contest this O&D directly.
-    if (encroachmentSpecs && encroachmentSpecs.length) {
-      for (const spec of encroachmentSpecs) {
-        const offer = buildEncroachmentOffer(spec, market);
-        if (offer) competitorOffers.push(offer);
-      }
-    }
+    //
+    // Injected challengers (route encroachment, and every human rival in
+    // multiplayer) contest this O&D through the same channel — rivalOffersFor()
+    // merges the two banks and publishes each airline exactly once.
+    const competitorOffers = rivalOffersFor(competitors, encroachmentSpecs, market);
     competitorOffersCount = competitorOffers.length;
     const allOffers = [playerOffer, ...competitorOffers];
     const shareResults = computeMarketShare(market, allOffers);
@@ -1923,7 +1983,7 @@ export function pairConnectivityBonus(spokeCounts, hubCodes, origin, destination
  * @param {object} [gameDate={month:6}]
  * @returns {object|null}   null if an aircraft/airport is invalid or a leg exceeds range
  */
-export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null, demandMultFor = null, ancillaries = null) {
+export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null, demandMultFor = null, ancillaries = null, competitors = null, encroachSpecsFor = null) {
   const type  = getAircraftType(aircraft.typeId);
   if (!type) return null;
   const stops = routeStops(route);
@@ -2004,8 +2064,21 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       brandReach: route.brandReach ?? 1,
       loungeAppeal: route.loungeAppeal ?? 1,
     };
-    const competitorOffers = COMPETITOR_AIRLINES
-      .map(c => buildCompetitorOffer(c, market)).filter(Boolean);
+    // The LIVE bank, plus whatever contests this SEGMENT — same channel and same
+    // one-airline-one-offer merge the single-leg path uses.
+    //
+    // This loop read the COMPETITOR_AIRLINES module constant, which is the dead
+    // branch simulateRoute was fixed for and this function was missed by:
+    // sampleAndInitializeCompetitors() does `{ ...c, routes: {} }` and populates
+    // the COPIES it hands to state.competitors, so every entry in the constant
+    // keeps an empty routes map forever and buildCompetitorOffer() returns null
+    // 70 times out of 70. Every segment of every tag route was scored as an
+    // uncontested monopoly — so rerouting a trunk through one intermediate stop
+    // made every competitor on it disappear, permanently and for free, and no
+    // human rival could reach a tag route at all.
+    const segKey = [seg.from, seg.to].sort().join('-');
+    const competitorOffers = rivalOffersFor(
+      competitors, encroachSpecsFor ? encroachSpecsFor(segKey) : null, market);
     const [res] = computeMarketShare(market, [offer, ...competitorOffers]);
     const legIdxs = [];
     for (let k = seg.fromIdx; k < seg.toIdx; k++) legIdxs.push(k);
@@ -3384,15 +3457,10 @@ export function weeklyTick(state) {
       };
 
       // Live bank, not the module constant — see the note in simulateRoute().
-      const competitorOffers = competitors
-        .map(c => buildCompetitorOffer(c, market))
-        .filter(Boolean);
-      // Inject any encroachment challengers contesting this O&D pair.
+      // Same one-airline-one-offer merge as the single-aircraft path: without it
+      // a pooled pair double-counted every human rival exactly like a solo one.
       const rkPre = [r0.origin, r0.destination].sort().join('-');
-      for (const spec of encroachByPair(rkPre)) {
-        const offer = buildEncroachmentOffer(spec, market);
-        if (offer) competitorOffers.push(offer);
-      }
+      const competitorOffers = rivalOffersFor(competitors, encroachByPair(rkPre), market);
       const [combinedResult] = computeMarketShare(market, [combinedOffer, ...competitorOffers]);
 
       // Distribute pax to each aircraft proportionally by seat share
@@ -3469,7 +3537,7 @@ export function weeklyTick(state) {
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
         ...nwrLoadFieldsFor(route),
       };
-      const result = simulateTagRoute(tagRoute, aircraft, gameDate, laborWithSeniority, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries);
+      const result = simulateTagRoute(tagRoute, aircraft, gameDate, laborWithSeniority, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries, competitors, encroachByPair);
       if (!result) continue;
 
       const cateringRev    = result.cateringRevenue ?? 0;

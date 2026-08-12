@@ -20,6 +20,7 @@ import {
   borrowingCapacity, unencumberedOwnedFleet,
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
+import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 
 export class GuardError extends Error {
   constructor(message) {
@@ -317,8 +318,24 @@ function guardPartsPool(payload) {
   return out;
 }
 
+// ── Fuel hedging ─────────────────────────────────────────────────────────────
+// A hedge costs no cash, so the only thing standing between a forged payload and
+// the airline's fuel bill is this guard and the reducer's own bounds check. Both
+// exist: coverage is a fraction of the fuel bill and a negative one used to make
+// the whole bill negative (see the note in utils/fuel.js).
+function guardBuyHedge(payload) {
+  const opt = HEDGE_DURATIONS.find(o => o.id === payload?.durationId);
+  if (!opt) throw new GuardError('That hedge term is not on offer.');
+  const coverage = Number(payload?.coverage);
+  if (!HEDGE_COVERAGES.includes(coverage)) {
+    throw new GuardError('That hedge coverage is not on offer.');
+  }
+  return { durationId: opt.id, coverage };
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
+    case 'BUY_HEDGE':          return guardBuyHedge(payload);
     case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
     case 'SELL_AIRCRAFT_BULK':
     case 'RETIRE_AIRCRAFT_BULK': return { aircraftIds: guardAircraftIds(payload, state) };

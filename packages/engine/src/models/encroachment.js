@@ -299,7 +299,14 @@ export function tickEncroachment({ routes = [], routePricing = {}, lastReport = 
       // Pick a challenger. Growth-hungry personalities (aggressive/expansionist/
       // copycat) jump on fat routes first; otherwise prefer a budget carrier
       // (sharper undercut) ~half the time.
-      const pool   = competitors.filter(Boolean);
+      //
+      // A carrier that ALREADY flies this pair is not a challenger — drawing one
+      // published it twice into the demand model, once as its real scheduled
+      // route and once as a synthetic entrant ramping into a market it is
+      // already in. rivalOffersFor() now drops the duplicate spec downstream, so
+      // this is belt and braces; it also stops a wasted draw producing an
+      // encroachment record that can never contest anything.
+      const pool   = competitors.filter(c => c && !c.routes?.[key]);
       const hungry = pool.filter(c =>
         c._archetype === 'aggressive' || c._archetype === 'expansionist' || c._archetype === 'copycat');
       const budgets = pool.filter(c => c.tier === 'budget');
