@@ -209,17 +209,47 @@ export const COUNTRY_DEMAND_GROWTH = {
   AU: 0.025, NZ: 0.020,
 };
 export const DEFAULT_DEMAND_GROWTH = 0.030;
-/** Hard ceiling on the compounded growth factor (≈ year 25+ for an 8% market). */
+/** Hard backstop on the pair growth factor — the curve below rarely nears it. */
 export const DEMAND_GROWTH_CAP = 3.0;
+/**
+ * A country's lifetime growth ceiling is 1 + rate × this. India (0.08) tops
+ * out at 2.2x, the US (0.02) at 1.3x, an unlisted country (0.03) at 1.45x.
+ */
+export const GROWTH_CEILING_RATE_YEARS = 15;
+/** Years to reach HALF of a country's ceiling — the pace knob. */
+export const GROWTH_HALF_LIFE_YEARS = 30;
 
 /**
- * Compounded demand-growth factor for a pair, `absWeek` weeks into a world's
- * life (absWeek 1 = the world's first week → factor 1). Callers without a
- * calendar pass null/undefined and get exactly 1 — every historical fixture
- * and preview built from a bare { week, month } gameDate is unchanged.
+ * SATURATING growth, not compounding — worlds run for up to a century, and
+ * straight (1+g)^years either triples an emerging market by year 14 (then
+ * slams into the cap and flat-lines for 86 years) or has to be tuned so low
+ * that mature markets never move at all. Instead each country follows
  *
- * Metro members grow at their metro primary's country rate (identical country
- * in practice), so member pairs keep returning identical totals.
+ *   factor(t) = 1 + (ceiling − 1) · t / (t + GROWTH_HALF_LIFE_YEARS)
+ *
+ * which starts at roughly HALF the listed annual rate, slows as the market
+ * matures, and approaches `ceiling` asymptotically — the shape real air-travel
+ * S-curves take as propensity converges. India: ~+17% by year 5, ~+55% by year
+ * 25, ~1.9x at year 100. The US: ~+4% / +14% / +23%. A thin route seeded early
+ * in an emerging market becomes meaningfully bigger over a world's life; it
+ * does not become a trunk route inside a decade.
+ */
+function countryGrowthFactor(country, years) {
+  const g = COUNTRY_DEMAND_GROWTH[country] ?? DEFAULT_DEMAND_GROWTH;
+  const ceiling = 1 + g * GROWTH_CEILING_RATE_YEARS;
+  return 1 + (ceiling - 1) * years / (years + GROWTH_HALF_LIFE_YEARS);
+}
+
+/**
+ * Demand-growth factor for a pair, `absWeek` weeks into a world's life
+ * (absWeek 1 = the world's first week → factor 1). Callers without a calendar
+ * pass null/undefined and get exactly 1 — every historical fixture and preview
+ * built from a bare { week, month } gameDate is unchanged.
+ *
+ * Each end contributes the square root of its country's factor, like every
+ * other endpoint term under the gravity sqrt. Metro members grow at their
+ * metro primary's country rate (identical country in practice), so member
+ * pairs keep returning identical totals.
  *
  * @param {string} originCode
  * @param {string} destCode
@@ -231,10 +261,9 @@ export function pairDemandGrowth(originCode, destCode, absWeek) {
   const o = getAirport(metroPrimary(originCode));
   const d = getAirport(metroPrimary(destCode));
   if (!o || !d) return 1;
-  const gO = COUNTRY_DEMAND_GROWTH[o.country] ?? DEFAULT_DEMAND_GROWTH;
-  const gD = COUNTRY_DEMAND_GROWTH[d.country] ?? DEFAULT_DEMAND_GROWTH;
   const years = (absWeek - 1) / 52;
-  const factor = Math.pow(Math.sqrt((1 + gO) * (1 + gD)), years);
+  const factor = Math.sqrt(
+    countryGrowthFactor(o.country, years) * countryGrowthFactor(d.country, years));
   return Math.min(DEMAND_GROWTH_CAP, factor);
 }
 

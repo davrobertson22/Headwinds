@@ -444,8 +444,12 @@ test('a balanced or degenerate week is exactly 1', () => {
 test('a seasonal route carries less than its average seasonality promises', () => {
   const type = getAircraftType('a320ceo');
   const ac = { id: 'a', typeId: 'a320ceo', ageWeeks: 60, config: defaultConfig(type.seats) };
+  // $200, not $140: the 2026-08 metro rework lifted London's pool (data/metros.js
+  // metro lift), and at $140 — a hair above the $129 reference — LHR–GVA is
+  // jammed at exactly 100% load, where BOTH branches below are unsatisfiable.
+  // A fare with headroom restores what this test is actually about: the skew.
   const mk = (o, d) => ({ id: 'r', origin: o, destination: d, hub: o, hubSpokes: 12,
-    aircraftId: 'a', weeklyFrequency: 21, ticketPrice: 140, weeksOpen: 60 });
+    aircraftId: 'a', weeklyFrequency: 21, ticketPrice: 200, weeksOpen: 60 });
   const jan = simulateRoute(mk('LHR', 'GVA'), ac, { week: 4, month: 1 });
   assert.ok(jan, 'LHR–GVA should be flyable by an A320');
   assert.ok(jan.seasonalSkew < 0, `expected a January skew, got ${jan.seasonalSkew}`);

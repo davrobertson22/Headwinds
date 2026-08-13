@@ -110,8 +110,17 @@ export const ENCROACH_REACTIVATE_FARE_RATIO = ENCROACH_TARGET_MIN_FARE_RATIO;
  * Build a demand-model AirlineOffer for an encroachment entry on a given market.
  * Mirrors buildCompetitorOffer so computeMarketShare treats it identically.
  */
-export function buildEncroachmentOffer(spec, market) {
+/**
+ * @param {{origin: string, destination: string}|null} [pairCodes]  the member
+ *   airport pair this spec flies, when it differs from the market's own codes —
+ *   metro-pair pooling passes this for sibling pairs so the offer's
+ *   origin/destination (which drive airportAppeal) and the rival's hub
+ *   connectivity name the airports actually served.
+ */
+export function buildEncroachmentOffer(spec, market, pairCodes = null) {
   if (!spec || !spec.frequency) return null;
+  const oCode = pairCodes?.origin      ?? market.origin;
+  const dCode = pairCodes?.destination ?? market.destination;
   // A human rival (Headwinds) publishes its real fare; an AI encroacher only has
   // a reference multiple, which IS its pricing decision.
   const economyPrice = spec.economyFare != null
@@ -139,8 +148,8 @@ export function buildEncroachmentOffer(spec, market) {
 
   return {
     airlineId:         `encroach:${spec.competitorId}`,
-    origin:            market.origin,
-    destination:       market.destination,
+    origin:            oCode,
+    destination:       dCode,
     economyPrice,
     businessPrice,
     weeklyFrequency:   spec.frequency,
@@ -156,7 +165,7 @@ export function buildEncroachmentOffer(spec, market) {
     // disagreed about who was winning a contested pair. Solo AI encroachers carry
     // no homeHub on their spec and stay at 0 — unchanged.
     connectivityBonus: spec.homeHub
-      ? computeConnectivityBonus(spec.homeHub, market.origin, market.destination)
+      ? computeConnectivityBonus(spec.homeHub, oCode, dCode)
       : 0,
     marketingBoost:    spec.marketingBoost ?? 0,
     // Brand reach — how much of the market knows this carrier. Human rivals

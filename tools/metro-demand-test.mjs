@@ -55,7 +55,7 @@ const TYPE = getAircraftType('a320neo');
  * fares, no hubs / loyalty / campaigns / competitors, parity awareness so
  * brandReach is 1 and any difference between runs is route structure alone.
  */
-function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1 } = {}) {
+function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1, freq = 7 } = {}) {
   const routePricing = {};
   for (const [o, d] of routeSpecs) {
     routePricing[[o, d].sort().join('-')] =
@@ -68,11 +68,11 @@ function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1 } =
     })),
     routes: routeSpecs.map(([o, d, id]) => ({
       id: `r-${id}`, origin: o, destination: d, aircraftId: id,
-      weeklyFrequency: 7, weeksOpen: 60,      // matured: maturityFactor = 1
+      weeklyFrequency: freq, weeksOpen: 60,   // matured: maturityFactor = 1
     })),
     cargoRoutes: [],
     gameDate: { week: 1, month: 6 },
-    gates: Object.fromEntries(routeSpecs.flatMap(([o, d]) => [[o, 10], [d, 10]])),
+    gates: Object.fromEntries(routeSpecs.flatMap(([o, d]) => [[o, 20], [d, 20]])),
     hubs: {},
     routePricing,
     routeCatering: {},
@@ -110,13 +110,15 @@ test('every member pair of a metro pair prices the SAME total market', () => {
 // ── 2. Serving two member pairs must NOT double the passengers ───────────────
 
 test('a second route on a sibling member pair splits the pool instead of duplicating it', () => {
-  // Priced above reference so the fixture is DEMAND-constrained: at the
-  // reference fare the New York–London pool dwarfs two A320s and every run is
-  // capacity-capped, which hides pooling entirely (capacity caps are correct —
-  // they are just the wrong instrument for this assertion).
-  const PM = 2.4;
-  const solo = run([['JFK', 'LHR', 'a1']], { priceMult: PM });
-  const both = run([['JFK', 'LHR', 'a1'], ['EWR', 'LHR', 'a2']], { priceMult: PM });
+  // Priced above reference AND flown at high frequency so the fixture is
+  // DEMAND-constrained: at the reference fare (or at 7/wk) the New York–London
+  // pool dwarfs the aircraft and every run is capacity-capped, which hides
+  // pooling entirely — two full aeroplanes carry 2x one full aeroplane whether
+  // or not they share a market. Capacity caps are correct; they are just the
+  // wrong instrument for this assertion, so give the offers room to spare.
+  const PM = 2, FREQ = 30;
+  const solo = run([['JFK', 'LHR', 'a1']], { priceMult: PM, freq: FREQ });
+  const both = run([['JFK', 'LHR', 'a1'], ['EWR', 'LHR', 'a2']], { priceMult: PM, freq: FREQ });
   const soloPax = solo.pax('a1');
   const bothPax = both.pax('a1') + both.pax('a2');
   assert.ok(soloPax > 0, 'solo route must carry passengers');
