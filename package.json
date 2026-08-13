@@ -18,7 +18,7 @@
     "test:route-config": "node --import ./tools/_register-loader.mjs tools/route-config-test.mjs",
     "test:route-planner": "node --import ./tools/_register-loader.mjs tools/route-planner-render-test.mjs",
     "test:finder": "node --import ./tools/_register-loader.mjs tools/route-finder-handoff-test.mjs",
-    "test:undef": "node tools/undefined-identifier-check.mjs",
+    "test:undef": "node tools/undefined-identifier-check.mjs && node tools/conditional-hooks-check.mjs && node tools/conditional-hooks-check-test.mjs",
     "test:bulk-pricing": "node --import ./tools/_register-loader.mjs tools/bulk-pricing-test.mjs",
     "test:web": "node --import ./tools/_register-loader.mjs tools/headwinds-web-smoke-test.mjs",
     "test:tick": "node tools/headwinds-tick-test.mjs",

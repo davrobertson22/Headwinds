@@ -152,14 +152,20 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
     : 0;
 
   const type = getAircraftType(typeId);
-  if (!type) return null;
-
-  const isFreighter   = !!type.freighter;
-  const catColor      = CAT_COLORS[type.category] || '#93a4ba';
-  const configOptions = type.configOptions ?? {};
+  // The `!type` guard is deliberately BELOW every hook in this component rather
+  // than here. React requires the same hooks in the same order on every render;
+  // returning above them meant an unknown typeId rendered a different number of
+  // hooks than a known one, so any render that changed `typeId` from unknown to
+  // known (or back) while this modal stayed mounted would throw "Rendered more
+  // hooks than during the previous render" and unmount the tree. That is the
+  // same fault that black-screened every new game from App.jsx. Everything
+  // between here and the guard therefore tolerates a null type.
+  const isFreighter   = !!type?.freighter;
+  const catColor      = CAT_COLORS[type?.category] || '#93a4ba';
+  const configOptions = type?.configOptions ?? {};
   const engines       = configOptions.engines ?? [];
   const wingtipDef    = configOptions.wingtips ?? null;
-  const maxSeats      = type.seats;
+  const maxSeats      = type?.seats ?? 0;
 
   // ── Engine / wingtip ──────────────────────────────────────────────────────
   const defaultEngine = engines.find(e => e.default) ?? engines[0];
@@ -185,6 +191,9 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const [prem,  setPremRaw]  = useState(0);
   const [eco,   setEcoRaw]   = useState(maxSeats);   // ← now user-controlled
   const [seatQ, setSeatQ]    = useState('basic');
+
+  // Every hook above has now run unconditionally. Safe to bail.
+  if (!type) return null;
 
   // Clamp economy whenever premium classes change to avoid over-allocation
   function clampEco(f, b, p, currentEco) {

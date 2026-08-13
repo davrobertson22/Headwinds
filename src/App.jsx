@@ -422,6 +422,39 @@ function AppInner() {
     }
   }, [state.phase]);
 
+  // Multiplayer chrome rendered by this shell (the 🌍 headlines ticker) sits
+  // outside the tab system and has no handle on activeTab. It asks to navigate
+  // by dispatching 'hw:navigate' — see apps/headwinds-web/src/Feed.jsx.
+  //
+  // THIS MUST STAY ABOVE the `state.phase === 'setup'` early return below, and
+  // so must any hook added later. A hook placed after that return is only
+  // called while the game is playing, so the first render after setup finishes
+  // has one more hook than the render before it — React throws "Rendered more
+  // hooks than during the previous render", unmounts the whole tree, and the
+  // player gets a black screen. Only a NEW game crosses that boundary; loading
+  // a save goes straight to 'playing' and the count never changes, which is why
+  // this survived every test we had. tools/conditional-hooks-check.mjs now
+  // fails the build if a hook drifts below a component's early return.
+  //
+  // It also sets the tab state directly rather than calling navigate(), which
+  // is declared after the early return and would be in its temporal dead zone
+  // during setup.
+  useEffect(() => {
+    const onNavigate = (e) => {
+      // detail is either a tab id, or { tab, focus } to also scroll a named
+      // section of that tab into view once it renders.
+      const d = e?.detail;
+      const id = typeof d === 'string' ? d : d?.tab;
+      if (typeof id !== 'string' || !TABS_BY_ID[id]) return;
+      setActiveTab(id);
+      setOpenGroup(null);
+      const focus = typeof d === 'object' && d ? d.focus : null;
+      if (focus) focusSection(focus);
+    };
+    window.addEventListener('hw:navigate', onNavigate);
+    return () => window.removeEventListener('hw:navigate', onNavigate);
+  }, []);
+
   if (state.phase === 'setup') return <SetupScreen />;
 
   function handleAdvanceWeek() {
@@ -455,24 +488,6 @@ function AppInner() {
   // solo has no other players. Hidden entirely rather than shown empty.
   const navGroups = remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news');
   const navigate = (id) => { setActiveTab(id); setOpenGroup(null); };
-
-  // Multiplayer chrome rendered by this shell (the 🌍 headlines ticker) sits
-  // outside the tab system and has no handle on activeTab. It asks to navigate
-  // by dispatching 'hw:navigate' — see apps/headwinds-web/src/Feed.jsx.
-  useEffect(() => {
-    const onNavigate = (e) => {
-      // detail is either a tab id, or { tab, focus } to also scroll a named
-      // section of that tab into view once it renders.
-      const d = e?.detail;
-      const id = typeof d === 'string' ? d : d?.tab;
-      if (typeof id !== 'string' || !TABS_BY_ID[id]) return;
-      navigate(id);
-      const focus = typeof d === 'object' && d ? d.focus : null;
-      if (focus) focusSection(focus);
-    };
-    window.addEventListener('hw:navigate', onNavigate);
-    return () => window.removeEventListener('hw:navigate', onNavigate);
-  }, []);
 
   const tabContent = {
     dashboard:   <Dashboard onNavigate={navigate} />,
