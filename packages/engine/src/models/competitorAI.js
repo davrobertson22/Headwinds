@@ -21,7 +21,7 @@
 // from GameContext, before competitor weekly stats are computed.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { baseCityPairDemand, routeDistance, referencePrice } from '../utils/market.js';
+import { baseCityPairDemand, routeDistance, referencePrice, metroPairKeyOf } from '../utils/market.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { ALLIANCES } from '../data/alliances.js';
 import {
@@ -743,7 +743,11 @@ function pickExpansionTarget(airline, routes, { incumbents, playerPairs, playerH
       const demand = baseCityPairDemand(base, ap.code);
       if (!demand || demand < 40) continue;
 
-      const inc          = incumbents.get(key) ?? 0;
+      // Crowding is judged on the METRO LANE the candidate pair belongs to
+      // (buildPairIncumbents counts distinct carriers per lane): sneaking into
+      // New York↔London via Newark is entering a market three rivals already
+      // fly, not an empty pair.
+      const inc          = incumbents.get(metroPairKeyOf(base, ap.code)) ?? 0;
       const onPlayerPair = playerPairs.has(key);
       const touchesPlayerHub = playerHubSet.has(base) || playerHubSet.has(ap.code);
 

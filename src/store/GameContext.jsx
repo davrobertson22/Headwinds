@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useMemo } from 'react';
+import { createContext, useContext, useReducer, useEffect, useMemo, useRef } from 'react';
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
 import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke } from '../../packages/engine/src/utils/market.js';
@@ -16,6 +16,43 @@ export * from '../../packages/engine/src/reducer.mjs';
 
 const GameContext = createContext(null);
 const SAVE_KEY = 'bbae_save_v2'; // bump version to avoid old-format conflicts
+
+/**
+ * Write the autosave, and SAY whether it worked.
+ *
+ * This used to be `try { localStorage.setItem(...) } catch (_) {}` inline in the
+ * provider's effect. Once the browser's storage for the site filled up — which a
+ * long game does on its own — every subsequent write threw QuotaExceededError,
+ * the catch swallowed it, and the game carried on looking completely normal
+ * while persisting nothing. The player found out at the next refresh, having
+ * lost the session, and the Save/Load screen was still telling them "your game
+ * also auto-saves continuously in the background". A failure the player cannot
+ * see is worse than no autosave at all.
+ *
+ * Returns a result rather than throwing so the caller can surface it, and takes
+ * the storage explicitly so it is testable outside a browser.
+ *
+ * @returns {{ok: boolean, reason?: 'quota'|'unavailable'|'error', message?: string}}
+ */
+export function persistAutosave(state, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
+  if (!storage) return { ok: false, reason: 'unavailable', message: 'This browser is not allowing the game to store data. Private browsing usually causes this.' };
+  try {
+    storage.setItem(SAVE_KEY, JSON.stringify(state));
+    return { ok: true };
+  } catch (err) {
+    // Quota is the case worth naming precisely, because the player can act on
+    // it. Browsers disagree on how they report it: name, legacy code 22, and
+    // Firefox's 1014 are all in the wild.
+    const quota = err && (
+      err.name === 'QuotaExceededError' ||
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err.code === 22 || err.code === 1014
+    );
+    return quota
+      ? { ok: false, reason: 'quota', message: 'Your browser’s storage for this game is full, so your progress is no longer being saved automatically. Delete a save slot to free space — anything you do until then will be lost if you refresh.' }
+      : { ok: false, reason: 'error', message: 'Your progress could not be saved. Anything you do from here will be lost if you refresh.' };
+  }
+}
 
 // Routes hydrated with their per-pair price so every consumer can keep reading
 // route.classPrices / route.ticketPrice unchanged (the reducer stores the
@@ -63,8 +100,29 @@ export function GameProvider({ children }) {
     setNwrYieldChoke(state?.newWorldRestrictions === true);
   }, [state?.fareIndex, state?.newWorldRestrictions]);
 
+  // Latched so the warning fires on the transition, not on every state change —
+  // a broken autosave would otherwise queue a toast on every click.
+  const autosaveBroken = useRef(false);
+
   useEffect(() => {
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
+    // persistAutosave() returns {ok, reason, message} instead of swallowing the
+    // failure, so the quota path is describable, testable, and — via PUSH_TOAST
+    // in the engine reducer — visible to the player
+    // (tools/save-quota-test.mjs).
+    const result = persistAutosave(state);
+    if (!result.ok && !autosaveBroken.current) {
+      autosaveBroken.current = true;
+      dispatch({ type: 'PUSH_TOAST', toast: {
+        type: 'danger', title: '⚠ Your game is not being saved',
+        message: result.message, duration: 20000,
+      } });
+    } else if (result.ok && autosaveBroken.current) {
+      autosaveBroken.current = false;
+      dispatch({ type: 'PUSH_TOAST', toast: {
+        type: 'success', title: '✓ Saving again',
+        message: 'Your progress is being saved automatically once more.', duration: 8000,
+      } });
+    }
   }, [state]);
 
   const value = useMemo(() => hydratedValue(state, dispatch), [state]);

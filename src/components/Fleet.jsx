@@ -1497,9 +1497,12 @@ export default function Fleet() {
   async function handleCancelOrder(order) {
     const hasRefund = order.ownershipType === 'owned' && order.totalPrice > 0;
     const refund    = hasRefund ? Math.round(order.totalPrice * 0.95) : 0;
+    const deposit = order.ownershipType === 'lease' ? (order.leaseDeposit ?? 0) : 0;
     const body = hasRefund
       ? `You'll be refunded ${formatMoney(refund)} (a 5% cancellation fee applies).`
-      : `Lease orders are free to cancel before delivery.`;
+      : deposit > 0
+        ? `Lease orders are free to cancel before delivery — your ${formatMoney(deposit)} security deposit is returned in full.`
+        : `Lease orders are free to cancel before delivery.`;
     if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
       dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
     }

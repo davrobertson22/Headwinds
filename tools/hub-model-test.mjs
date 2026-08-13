@@ -214,6 +214,50 @@ console.log('\n── computeOwnMetalODRevenue ───────────
   ok('penalty helper: tiered', ownMetalPenaltyAt({ DXB: { tier: 3 } }, 'DXB') === HUB_TIERS[3].connPenalty);
 }
 
+// ── 7b. Own-metal orientation independence ────────────────────────────────────
+// A player route is a ROUND TRIP — the aircraft flies both ways every week and
+// simulateRoute sells both directions. So the stored origin/destination order is
+// a UI artefact, not a physical fact. Three fixtures below describe the SAME
+// physical network (DXB hub, CAI + SIN spokes) and must yield identical own-metal
+// connecting revenue. Enumerating legs by stored orientation makes a hub whose
+// spokes are all stored hub→spoke have zero "inbound" legs, so every A→hub→C
+// market silently disappears.
+console.log('\n── own-metal orientation independence ───');
+{
+  const R = (id, o, d) => ({ id, origin: o, destination: d, weeklyFrequency: 7 });
+  const tick = (routes) => runNetworkTick({
+    routes, competitors: [],
+    hubs: { DXB: { tier: 3 } }, gates: { DXB: 20 },
+    routeCountByAirport: { DXB: routes.length },
+  }).ownMetalOD;
+
+  const hubOut = tick([R('r1', 'DXB', 'CAI'), R('r2', 'DXB', 'SIN')]);   // all stored hub→spoke
+  const hubIn  = tick([R('r1', 'CAI', 'DXB'), R('r2', 'SIN', 'DXB')]);   // all stored spoke→hub
+  const mixed  = tick([R('r1', 'CAI', 'DXB'), R('r2', 'DXB', 'SIN')]);   // one of each
+
+  ok('hub→spoke orientation earns own-metal revenue', hubOut.totalRevenue > 0);
+  ok('spoke→hub orientation earns own-metal revenue', hubIn.totalRevenue > 0);
+  ok('mixed orientation earns own-metal revenue', mixed.totalRevenue > 0);
+  ok('revenue identical: hub→spoke vs mixed', hubOut.totalRevenue === mixed.totalRevenue);
+  ok('revenue identical: spoke→hub vs mixed', hubIn.totalRevenue === mixed.totalRevenue);
+  ok('revenue identical: hub→spoke vs spoke→hub', hubOut.totalRevenue === hubIn.totalRevenue);
+  ok('pax identical across all three orientations',
+    hubOut.totalPax === mixed.totalPax && hubIn.totalPax === mixed.totalPax);
+  ok('each orientation forms exactly 1 market (CAI↔SIN)',
+    (hubOut.byHub?.DXB?.markets ?? 0) === 1
+    && (hubIn.byHub?.DXB?.markets ?? 0) === 1
+    && (mixed.byHub?.DXB?.markets ?? 0) === 1);
+
+  // n spokes at a hub form C(n,2) unordered markets, not inbound × outbound.
+  const spokes4 = ['CAI', 'SIN', 'LHR', 'BOM'];
+  const four    = tick(spokes4.map((s, i) => R(`r${i}`, 'DXB', s)));
+  const four2   = tick(spokes4.map((s, i) => (i % 2 ? R(`r${i}`, s, 'DXB') : R(`r${i}`, 'DXB', s))));
+  ok('4 spokes → C(4,2) = 6 markets', (four.byHub?.DXB?.markets ?? 0) === 6);
+  ok('4 spokes → 6 markets regardless of orientation', (four2.byHub?.DXB?.markets ?? 0) === 6);
+  ok('4-spoke revenue orientation-independent', four.totalRevenue === four2.totalRevenue);
+  ok('4-spoke network out-earns 2-spoke', four.totalRevenue > mixed.totalRevenue);
+}
+
 // ── 8. weeklyTick integration ─────────────────────────────────────────────────
 console.log('\n── weeklyTick smoke ─────────────────────');
 {

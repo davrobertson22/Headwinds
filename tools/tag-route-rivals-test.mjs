@@ -138,8 +138,12 @@ test('routing a trunk through a stop does not make its rivals disappear', () => 
   // The same O&D, flown nonstop and flown as a tag leg, against the same bank.
   const nonstopRoute = {
     id: 'r0', origin: busiest.from, destination: busiest.to, aircraftId: 'ac0',
-    weeklyFrequency: 7, weeksOpen: 60, hub: busiest.from, ticketPrice: 400,
-    classPrices: { economy: 400, businessClass: 1000 },
+    // The SAME fare the tag fixture swept to, not a hardcoded 400: at 400 this
+    // pair is capacity-capped with or without rivals, so the control measured a
+    // 0% bite and the comparison below proved nothing.
+    weeklyFrequency: 7, weeksOpen: 60, hub: busiest.from,
+    ticketPrice: LEG_FARE.economy,
+    classPrices: { economy: LEG_FARE.economy, businessClass: LEG_FARE.businessClass },
   };
   const nsAlone = simulateRoute(nonstopRoute, aircraft, GD, null, 1.0, null, [], null, null, 1.0, null, []);
   const nsContested = simulateRoute(nonstopRoute, aircraft, GD, null, 1.0, null, [], null, null, 1.0, null, base.competitors);

@@ -19,7 +19,18 @@ function readAllSlots() {
   return Array.from({ length: NUM_SLOTS }, (_, i) => readSlot(i));
 }
 
-function writeSlot(i, state) {
+/**
+ * Write a save slot, and SAY whether it worked.
+ *
+ * This used to call setItem bare. When the browser's storage for the site was
+ * full the call threw QuotaExceededError straight out of the click handler:
+ * the slot list re-read and showed the OLD contents, no message appeared, and
+ * the player was left believing they had saved. Exported so the quota path can
+ * be tested outside a browser.
+ *
+ * @returns {{ok: boolean, reason?: 'quota'|'unavailable'|'error', message?: string}}
+ */
+export function writeSlot(i, state, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
   const record = {
     airlineName: state.airlineName,
     logoId:      state.logoId,
@@ -32,7 +43,20 @@ function writeSlot(i, state) {
     savedAt:     Date.now(),
     gameState:   state,
   };
-  localStorage.setItem(SLOT_PREFIX + i, JSON.stringify(record));
+  if (!storage) return { ok: false, reason: 'unavailable', message: 'This browser is not allowing the game to store data. Private browsing usually causes this.' };
+  try {
+    storage.setItem(SLOT_PREFIX + i, JSON.stringify(record));
+    return { ok: true };
+  } catch (err) {
+    const quota = err && (
+      err.name === 'QuotaExceededError' ||
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err.code === 22 || err.code === 1014
+    );
+    return quota
+      ? { ok: false, reason: 'quota', message: 'Your browser’s storage for this game is full. Delete another save slot to make room, then try again.' }
+      : { ok: false, reason: 'error', message: 'That slot could not be written. Your game is unchanged.' };
+  }
 }
 
 function deleteSlot(i) {
@@ -115,8 +139,11 @@ export default function SaveLoadModal({ mode, onClose }) {
   const confirm = useConfirm();
   const [slots, setSlots] = useState(readAllSlots);
 
+  const [saveError, setSaveError] = useState(null);
+
   function handleSave(i) {
-    writeSlot(i, state);
+    const result = writeSlot(i, state);
+    setSaveError(result.ok ? null : { slot: i, message: result.message });
     setSlots(readAllSlots());
   }
 
@@ -147,6 +174,15 @@ export default function SaveLoadModal({ mode, onClose }) {
             ? 'Pick a slot. Your game also auto-saves continuously in the background.'
             : 'Pick a slot to restore. Your current auto-save is unaffected.'}
         </p>
+        {saveError && (
+          <p role="alert" style={{
+            margin: '0 0 12px', padding: '10px 12px', borderRadius: 8,
+            background: 'rgba(248,81,73,0.10)', border: '1px solid rgba(248,81,73,0.35)',
+            color: 'var(--red)', fontSize: '0.9rem', lineHeight: 1.5,
+          }}>
+            <strong>Slot {saveError.slot + 1} was not saved.</strong> {saveError.message}
+          </p>
+        )}
         <div className="save-slots">
           {slots.map((slot, i) => (
             <SlotCard

@@ -55,6 +55,32 @@
 
     <div class="entry">
       <p class="date">August 13, 2026</p>
+      <h2>Deposits come back, hubs connect properly, and a failed save says so</h2>
+      <p>A fixes release, mostly shared-engine work &mdash; the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a> has the same list in more detail.</p>
+      <ul>
+        <li><strong>Lease security deposits are refundable again.</strong> The twelve weeks of rent taken when you order a leased aircraft now come back in full if you cancel before delivery, and come back when the aircraft returns to the lessor &mdash; at end of term or early. The redelivery fee and the early-termination penalty are unchanged; a deposit was never meant to be one of them. It shows as its own untaxed line on the weekly P&amp;L. Buying a lease out already credited the deposit against the price, and still does.</li>
+        <li><strong>Connecting traffic no longer depends on route orientation.</strong> Passengers connecting between two of your own flights at a hub were only being found when the two routes happened to be stored in opposite directions &mdash; build every spoke outward from the hub and the model found none. It now sees every pair of spokes whichever way they were entered. If you run a hub, connecting revenue goes up.</li>
+        <li><strong>Statistics agrees with the P&amp;L about cargo.</strong> Weekly Revenue and the revenue-mix chart were adding freight revenue on top of a total that already included it. Both now read the figure the rest of the game uses. Weeks already recorded keep their old numbers, so the chart steps at this update.</li>
+        <li><strong>A save that fails now tells you</strong> rather than failing silently and surfacing at your next refresh. This affects the solo game; multiplayer worlds have always saved server-side.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">August 13, 2026</p>
+      <h2>One city, one market &mdash; and secondary airports that behave like it</h2>
+      <p>A structural change in the shared engine, and one with real consequences for how you pick a base. The <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a> covers the model detail; the short version, and what it means in a world with other airlines in it:</p>
+      <ul>
+        <li><strong>A metro area is one market.</strong> New York to London is a single pool of passengers, whether it is flown from JFK, Newark or LaGuardia. Routes on sibling airports now split that pool and compete inside it instead of each being priced as its own market. Two fields into the same city pair will settle lower than they read last week.</li>
+        <li><strong>Airports have appeal.</strong> A secondary field pulls fewer passengers than the primary, by an amount that depends on the trip &mdash; LaGuardia is a fine domestic airport and a poor long-haul international one. This changes the calculus on gate bidding: a cheap slot at a quiet field is cheap for a reason, and the discount is now priced into what you can carry from it rather than being free upside.</li>
+        <li><strong>Your rivals are in the same market you are.</strong> A competitor flying the sibling airport on a city pair you serve now takes traffic from you, in the weekly result and in the planner. Basing away from a crowded primary is still a legitimate strategy &mdash; it is no longer a way to fly an uncontested copy of someone else's route.</li>
+        <li><strong>Freight lanes pool the same way,</strong> and are scored on freight handling rather than passenger convenience, so airport appeal does not apply to cargo.</li>
+        <li><strong>AI carriers play by these rules too,</strong> including on their own home fields.</li>
+      </ul>
+      <p>Everyone in a world is affected at the same moment, so relative standings should hold broadly steady. If you have built deliberately across two fields in one city, expect those routes to converge &mdash; and it is worth another look at where your gates are before the next auction.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">August 13, 2026</p>
       <h2>Full is full, rivals with real reputations, and clearer refusals</h2>
       <p>The second accuracy wave. The demand-model half is shared with Tailwinds &mdash; the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a> has the detail on oversubscribed routes filling toward the ceiling, seasonal skew sparing full routes, all-economy pairs keeping their business travellers, and multi-stop routes sharing a pair's market with your own nonstops. In restricted worlds the ceiling change is the visible one: deeply oversubscribed routes now climb toward 95% instead of stalling in the high 80s.</p>
       <p>The multiplayer-specific work this round:</p>

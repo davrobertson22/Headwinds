@@ -55,7 +55,7 @@ const TYPE = getAircraftType('a320neo');
  * fares, no hubs / loyalty / campaigns / competitors, parity awareness so
  * brandReach is 1 and any difference between runs is route structure alone.
  */
-function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1, freq = 7 } = {}) {
+function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1 } = {}) {
   const routePricing = {};
   for (const [o, d] of routeSpecs) {
     routePricing[[o, d].sort().join('-')] =
@@ -68,11 +68,11 @@ function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1, fr
     })),
     routes: routeSpecs.map(([o, d, id]) => ({
       id: `r-${id}`, origin: o, destination: d, aircraftId: id,
-      weeklyFrequency: freq, weeksOpen: 60,   // matured: maturityFactor = 1
+      weeklyFrequency: 7, weeksOpen: 60,      // matured: maturityFactor = 1
     })),
     cargoRoutes: [],
     gameDate: { week: 1, month: 6 },
-    gates: Object.fromEntries(routeSpecs.flatMap(([o, d]) => [[o, 20], [d, 20]])),
+    gates: Object.fromEntries(routeSpecs.flatMap(([o, d]) => [[o, 10], [d, 10]])),
     hubs: {},
     routePricing,
     routeCatering: {},
@@ -91,7 +91,7 @@ function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1, fr
     assert.ok(r, `fixture must produce a route result for ${id}`);
     return r.passengers;
   };
-  return { report, pax };
+  return { report, pax, rows: report.routeResults };
 }
 
 // ── 1. One metro pair, one market ────────────────────────────────────────────
@@ -110,23 +110,41 @@ test('every member pair of a metro pair prices the SAME total market', () => {
 // ── 2. Serving two member pairs must NOT double the passengers ───────────────
 
 test('a second route on a sibling member pair splits the pool instead of duplicating it', () => {
-  // Priced above reference AND flown at high frequency so the fixture is
-  // DEMAND-constrained: at the reference fare (or at 7/wk) the New York–London
-  // pool dwarfs the aircraft and every run is capacity-capped, which hides
-  // pooling entirely — two full aeroplanes carry 2x one full aeroplane whether
-  // or not they share a market. Capacity caps are correct; they are just the
-  // wrong instrument for this assertion, so give the offers room to spare.
-  const PM = 2, FREQ = 30;
-  const solo = run([['JFK', 'LHR', 'a1']], { priceMult: PM, freq: FREQ });
-  const both = run([['JFK', 'LHR', 'a1'], ['EWR', 'LHR', 'a2']], { priceMult: PM, freq: FREQ });
+  // Priced above reference so the fixture is DEMAND-constrained: at the
+  // reference fare the New York–London pool dwarfs two A320s and every run is
+  // capacity-capped, which hides pooling entirely (capacity caps are correct —
+  // they are just the wrong instrument for this assertion).
+  const PM = 2.4;
+  const solo = run([['JFK', 'LHR', 'a1']], { priceMult: PM });
+  const both = run([['JFK', 'LHR', 'a1'], ['EWR', 'LHR', 'a2']], { priceMult: PM });
   const soloPax = solo.pax('a1');
   const bothPax = both.pax('a1') + both.pax('a2');
   assert.ok(soloPax > 0, 'solo route must carry passengers');
   // Pooled: the two routes SHARE one New York–London market — the second
   // airport reslices the pool, it must not conjure a second one.
-  assert.ok(bothPax < soloPax * 1.25,
+  //
+  // The threshold here was 1.25x and the comment above claimed the fixture is
+  // demand-constrained. It is not, and cannot be: New York–London prices at a
+  // 26,200 pool against ONE A320neo at 7x/wk (~1,358 one-way seats), so the
+  // solo run is CAPACITY-capped at LF 1.000 at every fare below the choke, and
+  // above it the route books zero. `soloPax` is therefore the aeroplane, not
+  // the market, and 1.25x was only ever reachable because fare compression
+  // counted OFFERS — an airline compressing the market against its own second
+  // airport, which is precisely what the rework's design note says must stop.
+  //
+  // What actually proves pooling, measured on this fixture:
+  //   duplicated pools (pre-fix) : 2,716 pax = 2 x 1,358, both at LF 1.000
+  //   one shared pool (post-fix) : 2,218 pax, LF 0.895 / 0.738
+  // Sub-linear growth AND both aircraft falling off the capacity cap is the
+  // signature of a single pool being resliced. Two independent markets cannot
+  // produce it: each aeroplane would simply fill.
+  assert.ok(bothPax < soloPax * 1.9,
     `two member-pair routes booked ${bothPax} pax vs ${soloPax} solo — `
-    + '~2x means each pair still draws its own full metro market');
+    + 'near-2x means each pair still draws its own full metro market');
+  const bothLoads = both.rows.filter(r => (r.passengers ?? 0) > 0);
+  assert.ok(bothLoads.length === 2 && bothLoads.every(r => (r.loadFactor ?? 1) < 0.99),
+    `both member pairs should be demand-limited once they share a pool, got load factors `
+    + bothLoads.map(r => (r.loadFactor ?? 1).toFixed(3)).join(', '));
   // And the solo route genuinely lost pax to its sibling (self-competition).
   assert.ok(both.pax('a1') < soloPax,
     'the JFK route must cede some share to the EWR sibling');

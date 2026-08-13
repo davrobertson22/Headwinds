@@ -114,7 +114,11 @@ export function buildAwayDigest(state, weeks) {
   for (const h of window) {
     const profit = num(h.profit);
     cashDelta  += profit;
-    revenue    += num(h.revenue) + num(h.cargoRevenue);
+    // h.revenue is report.totalRevenue, which the simulator has ALREADY folded
+    // every freighter's revenue into (and partner O&D on top). h.cargoRevenue is
+    // a breakdown line of that same money — adding it billed a cargo operator's
+    // tonnage twice on this screen.
+    revenue    += num(h.revenue);
     cost       += num(h.totalCost);
     passengers += num(h.passengers);
     if (profit >= 0) profitable += 1; else losing += 1;

@@ -444,21 +444,40 @@ test('a balanced or degenerate week is exactly 1', () => {
 test('a seasonal route carries less than its average seasonality promises', () => {
   const type = getAircraftType('a320ceo');
   const ac = { id: 'a', typeId: 'a320ceo', ageWeeks: 60, config: defaultConfig(type.seats) };
-  // $200, not $140: the 2026-08 metro rework lifted London's pool (data/metros.js
-  // metro lift), and at $140 — a hair above the $129 reference — LHR–GVA is
-  // jammed at exactly 100% load, where BOTH branches below are unsatisfiable.
-  // A fare with headroom restores what this test is actually about: the skew.
   const mk = (o, d) => ({ id: 'r', origin: o, destination: d, hub: o, hubSpokes: 12,
-    aircraftId: 'a', weeklyFrequency: 21, ticketPrice: 200, weeksOpen: 60 });
+    aircraftId: 'a', weeklyFrequency: 21, ticketPrice: 140, weeksOpen: 60 });
   const jan = simulateRoute(mk('LHR', 'GVA'), ac, { week: 4, month: 1 });
   assert.ok(jan, 'LHR–GVA should be flyable by an A320');
   assert.ok(jan.seasonalSkew < 0, `expected a January skew, got ${jan.seasonalSkew}`);
   if (jan.directionalScale < 1) {
     assert.ok(jan.loadFactor < 1, 'a skewed route cannot also be 100% full');
   } else {
-    // Not capacity-bound this week — the model correctly charges nothing.
-    assert.ok(jan.loadFactor < 0.999);
+    // directionalScale === 1 no longer implies "not capacity-bound".
+    //
+    // The model is handed UNCAPPED demand now, so a scale of 1 means one of two
+    // things: the aeroplane is not full (nothing to lose), or demand is so far
+    // above capacity that BOTH directions saturate and nothing is lost either.
+    // This fixture is the second: LHR–GVA in January prices at 6,336 one-way
+    // against 3,906 seats, so the peak direction spills and the off-peak still
+    // fills — the correct haircut is exactly zero and the aeroplane is full.
+    // Feeding the model capped demand pinned it in the first regime forever and
+    // docked this route ~10% it could not lose.
+    assert.ok(jan.loadFactor <= 1, 'load factor cannot exceed 1');
   }
+});
+
+test('a deeply oversubscribed skewed route takes no directional haircut', () => {
+  // The property the branch above used to assert the opposite of.
+  const type = getAircraftType('a320ceo');
+  const ac = { id: 'a', typeId: 'a320ceo', ageWeeks: 60, config: defaultConfig(type.seats) };
+  const jan = simulateRoute({ id: 'r', origin: 'LHR', destination: 'GVA', hub: 'LHR',
+    hubSpokes: 12, aircraftId: 'a', weeklyFrequency: 21, ticketPrice: 140, weeksOpen: 60 },
+    ac, { week: 4, month: 1 });
+  assert.ok(jan.seasonalSkew < 0, 'fixture must be seasonally skewed');
+  assert.equal(jan.directionalScale, 1,
+    `demand far above capacity saturates both directions, so the haircut must be `
+    + `exactly 1 — got ${jan.directionalScale}`);
+  assert.ok(jan.loadFactor > 0.99, 'and the aeroplane fills');
 });
 
 test('a same-season route is untouched by the whole mechanism', () => {

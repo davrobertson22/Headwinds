@@ -29,7 +29,8 @@
  * needed — they capture min(adjustedDemand, capacity).
  */
 
-import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, isMetroPair, pairAppeal, metroPairKeyOf, pairDemandGrowth } from '../utils/market.js';
+import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth } from '../utils/market.js';
+import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 
@@ -133,8 +134,8 @@ export function connectingPriceFactor(price, refPrice, quality = 50) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0, airport: 1.0 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, airport: 1.0 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0 },
 };
 
 /**
@@ -474,10 +475,12 @@ export function buildRouteMarket(origin, destination, gameDate, maturityFactor =
   const base     = baseCityPairDemand(origin, destination);
   const refPrice = referencePrice(origin, destination);
   const seasonal = getSeasonalProfile(origin, destination)[gameDate.month] ?? 1;
-  // Demand growth over game time: gameDate.absWeek is attached by the tick's
-  // calendar prep (and currentGameDate); a bare { week, month } gameDate —
-  // tests, fixtures, legacy callers — gets exactly 1. See pairDemandGrowth.
-  const growth   = pairDemandGrowth(origin, destination, gameDate.absWeek ?? null);
+  // Air travel grows as a world ages, fastest in emerging markets. Keyed on the
+  // calendar's ABSOLUTE week, which prepareWeek and currentGameDate stamp; a
+  // bare { week, month } gameDate (fixtures, legacy callers, previews built by
+  // hand) gets exactly 1, so nothing that predates the growth model moves.
+  const growth   = gameDate.absWeek != null
+    ? pairDemandGrowth(origin, destination, gameDate.absWeek) : 1;
   const adjusted = Math.round(base * seasonal * maturityFactor * demandMult * growth);
 
   const shares        = getRouteClassDemandShares(origin, destination);
@@ -492,9 +495,9 @@ export function buildRouteMarket(origin, destination, gameDate, maturityFactor =
     leisureDemand,
     businessDemand,
     seasonalityFactor: seasonal,
+    demandGrowth: growth,
     maturityFactor,
     eventDemandMult: demandMult,
-    demandGrowth: growth,
     referencePrice: refPrice,
     distanceKm: routeDistance(origin, destination),
   };
@@ -645,47 +648,6 @@ export function computeConnectivityBonus(airlineHub, origin, destination, spokes
  * @param {'leisure'|'business'} segment
  * @returns {number}
  */
-/**
- * Airport appeal for one offer — how attractive this offer's DEPARTURE and
- * ARRIVAL airports are to the metro's travellers (data/metros.js). In a pooled
- * metro-pair market, every offer flies a specific member airport pair; this is
- * the term that lets JFK–LHR beat SWF–STN at identical fares, and it is what
- * keeps a monopolist at a secondary field from capturing the whole metro pool.
- *
- * Resolved from the offer's own origin/destination, so every existing caller —
- * the tick, previews, competitor P&L, tests — gets it without threading a new
- * field. An explicit `offer.airportAppeal` wins (tests / previews may pin it),
- * and any offer the resolver can't price sits at parity, exactly like
- * brandReach. Non-metro pairs always resolve to 1 — behavior unchanged.
- */
-export function offerAirportAppeal(offer) {
-  if (offer.airportAppeal != null) return offer.airportAppeal;
-  const oCode = offer.origin, dCode = offer.destination;
-  if (!oCode || !dCode || !isMetroPair(oCode, dCode)) return 1;
-  const o = getAirport(oCode), d = getAirport(dCode);
-  if (!o || !d) return 1;
-  return pairAppeal(oCode, dCode, o.country === d.country, routeDistance(oCode, dCode));
-}
-
-/**
- * Fraction of a pooled metro market's travellers with practical access to at
- * least one of the offers on it — the union of the offers' appeals:
- *   capture = 1 − ∏(1 − min(1, appeal_i))
- * One full-appeal airport in the market ⇒ 1.0 (the whole metro can fly). A
- * market served ONLY from weak secondary fields (Newburgh + Islip) reaches only
- * the union of their slices. With a single offer this reduces exactly to that
- * offer's appeal, which is what _monopolyResult applies — the two paths agree.
- * All offers at parity ⇒ exactly 1, so non-metro markets are byte-identical.
- */
-function marketAirportCapture(offers) {
-  let missed = 1;
-  for (const o of offers) {
-    missed *= 1 - Math.min(1, Math.max(0, offerAirportAppeal(o)));
-    if (missed === 0) return 1;
-  }
-  return 1 - missed;
-}
-
 export function computeUtility(offer, market, segment) {
   const w        = UTILITY_WEIGHTS[segment];
   const price    = segment === 'business' && offer.businessPrice != null
@@ -737,15 +699,74 @@ export function computeUtility(offer, market, segment) {
   // same magnitude _monopolyResult applies to the business pool. Offers that
   // don't carry the field (AI rivals, previews, tests) sit at parity.
   const loungeUtil  = Math.log(Math.max(offer.loungeAppeal ?? 1, 0.01)) * (w.lounge ?? 0);
-  // Airport appeal — which member airport of a pooled metro pair this offer
-  // actually flies (data/metros.js). Same log form and the same identity
-  // reasoning as brandUtil: softmax share ∝ exp(utility), so log(appeal)
-  // multiplies this offer's weight by exactly `appeal`. LGA's collapsed appeal
-  // beyond its perimeter is what stops a notional LGA–LHR offer from splitting
-  // the New York–London pool with JFK. Non-metro offers resolve to 1 → 0 here.
-  const airportUtil = Math.log(Math.max(offerAirportAppeal(offer), 0.01)) * (w.airport ?? 1);
 
-  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + airportUtil;
+  // Airport appeal — the same log identity as brandUtil and loungeUtil, and for
+  // the same reason: softmax share is proportional to exp(utility), so
+  // log(appeal) multiplies this offer's weight by exactly `appeal`. Weight 1.0
+  // on BOTH segments (an unusable airport is unusable whoever you are), which
+  // makes the contested treatment the faithful translation of the multiplicative
+  // factor the monopoly path applies to the pool. Offers that resolve to a
+  // primary airport — or to no registry entry at all — get log(1) = 0 and are
+  // scored exactly as before.
+  const appealUtil  = Math.log(Math.max(offerAirportAppeal(offer), 0.001)) * (w.appeal ?? 0);
+
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil;
+}
+
+/**
+ * Airport appeal for an offer — how much of a metro's travellers the airports it
+ * actually uses can reach.
+ *
+ * `data/metros.js` prices every member pair of a metro pair at the SAME metro
+ * total, which is right: New York↔London is one market however you fly it. What
+ * stops a lone Newburgh–Stansted service from harvesting all of it is appeal —
+ * per-member, haul-aware, with perimeter rules (LGA/DCA/LCY beyond their
+ * perimeter collapse to a twentieth).
+ *
+ * The registry, the tables and the tests for this all shipped; the resolver did
+ * not, so `airportAppeal`/`pairAppeal` sat imported-but-uncalled and every
+ * secondary field scored at parity. Measured before this: SWF–LHR and JFK–LHR
+ * both returned a pool of 27,510, ratio 1.000.
+ *
+ * Resolution order mirrors brandReach: an explicit `offer.airportAppeal` wins
+ * (so a caller can pin it), otherwise it is derived from the offer's real
+ * endpoint codes, and anything unresolvable sits at parity rather than
+ * penalising an offer for missing metadata.
+ *
+ * @param {{origin?: string, destination?: string, airportAppeal?: number}} offer
+ * @returns {number} 0…1 (1 = a primary airport, or not in the registry at all)
+ */
+export function offerAirportAppeal(offer) {
+  if (offer?.airportAppeal != null) {
+    const explicit = Number(offer.airportAppeal);
+    return Number.isFinite(explicit) && explicit > 0 ? explicit : 1;
+  }
+  const o = offer?.origin, d = offer?.destination;
+  if (!o || !d) return 1;
+  const ao = getAirport(o), ad = getAirport(d);
+  if (!ao || !ad) return 1;
+  const domestic = ao.country === ad.country;
+  return pairAppeal(o, d, domestic, routeDistance(o, d));
+}
+
+/**
+ * How much of a metro pair's travellers the SET of offers serving it can reach
+ * between them — `1 − ∏(1 − appeal_i)`.
+ *
+ * One primary airport anywhere in the fight and this is 1.0: the market is fully
+ * served, and appeal then only decides who wins it (the utility term). A lane
+ * flown solely out of weak secondary fields genuinely shrinks — those travellers
+ * drive, connect elsewhere, or do not go. For a single offer it reduces to that
+ * offer's own appeal, which is exactly the monopoly rule, so the contested and
+ * monopoly paths agree at the boundary.
+ */
+export function offersAppealCapture(offers) {
+  let unreached = 1;
+  for (const o of offers ?? []) {
+    unreached *= (1 - Math.min(1, Math.max(0, offerAirportAppeal(o))));
+    if (unreached <= 0) return 1;
+  }
+  return 1 - unreached;
 }
 
 /**
@@ -788,12 +809,14 @@ export function computeMarketShare(market, offers) {
   // top of the passenger split). The elasticity/choke reference drifts down 5% per
   // additional carrier, floored at −10% — so holding monopoly-era fares in a
   // contested market shrinks demand instead of merely splitting it.
-  // Count CARRIERS, not offers: metro-pair pooling fields one offer per member
-  // airport pair, so a single airline serving JFK–LHR and EWR–LHR is two offers
-  // — but your own second airport is not a rival and must not compress the
-  // pair's reference fare. Before pooling existed the two counts were always
-  // equal (one merged offer per airline), so non-metro markets are unchanged.
-  const distinctCarriers = new Set(offers.map(o => o.airlineId)).size;
+  // Distinct CARRIERS, not offers. Since the share fight pools a whole metro
+  // pair, one airline can now bring several offers to it (JFK–LHR and EWR–LHR
+  // are different products) — counting offers would have an airline compressing
+  // the market's fares against itself simply for serving two of its own
+  // airports. Offers with no airlineId are treated as distinct, which is what
+  // every pre-metro caller gets and keeps their arithmetic identical.
+  const distinctCarriers = new Set(
+    offers.map((o, i) => o.airlineId ?? `__offer${i}`)).size;
   const fareCompression = Math.max(
     COMPETITIVE_FARE_COMPRESSION_FLOOR,
     1 - COMPETITIVE_FARE_COMPRESSION_PER_RIVAL * (distinctCarriers - 1)
@@ -841,21 +864,21 @@ export function computeMarketShare(market, offers) {
   const leisurePool = anyBiz
     ? market.leisureDemand
     : market.leisureDemand + market.businessDemand;
-  // Airport-access capture: in a pooled metro-pair market, only travellers with
-  // practical access to a SERVED member airport are in the market at all. One
-  // primary-airport offer ⇒ 1.0; a metro pair served only from weak secondary
-  // fields shrinks. Exactly 1 for non-metro markets (all appeals parity).
-  const airportCapture = marketAirportCapture(offers);
-  const adjustedLeisureDemand  = Math.round(
-    leisurePool * Math.min(1.5, leisureElasticityFactor) * airportCapture);
+  // How much of the metro pair these offers can reach BETWEEN them. One primary
+  // airport in the fight and this is 1.0 — the market is fully served and appeal
+  // only decides who wins it, via the utility term. A lane flown solely out of
+  // weak secondary fields shrinks. For a single offer it equals that offer's own
+  // appeal, i.e. exactly the monopoly rule, so the two paths agree where they
+  // meet.
+  const appealCapture = offersAppealCapture(offers);
+  const adjustedLeisureDemand  = Math.round(leisurePool * appealCapture * Math.min(1.5, leisureElasticityFactor));
   // Business pool scales with the market's share-weighted quality: an
   // all-budget pair loses business travelers to other modes entirely, while a
   // premium-served market attracts extra (see businessQualityCapture).
   const marketBizCapture = offers.reduce(
     (s, o, i) => s + businessQualityCapture(o.qualityScore) * businessShares[i], 0);
   const adjustedBusinessDemand = Math.round(
-    market.businessDemand * Math.min(1.5, businessElasticityFactor) * marketBizCapture
-    * airportCapture);
+    market.businessDemand * appealCapture * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
 
   return offers.map((offer, i) => {
     const lShare = leisureShares[i];
@@ -949,15 +972,16 @@ function _monopolyResult(market, offer) {
   // a thin one cannot. In competitive markets it is a utility term instead
   // (see computeUtility); it must never be both, or the brand counts twice.
   const brandPool = Math.max(0, offer.brandReach ?? 1);
-  // Airport appeal on an UNCONTESTED pooled metro pair: a monopolist reaches
-  // only the travellers with practical access to the member airports it
-  // actually flies — a lone Newburgh–Stansted route cannot capture the whole
-  // New York–London market, while a lone JFK–LHR route can. Capped at 1: being
-  // the metro's best airport never conjures extra travellers. Mirrors the
-  // contested path's marketAirportCapture (which reduces to exactly this for a
-  // single offer). Non-metro pairs resolve to 1 — behavior unchanged.
-  const airportPool = Math.min(1, Math.max(0, offerAirportAppeal(offer)));
-  const poolMult  = mktPool * brandPool * airportPool;
+  // Airport appeal on an UNCONTESTED pair: a metro pair prices at its metro
+  // total however you fly it, so a lone service from a weak secondary field
+  // would otherwise harvest the whole of New York↔London out of Newburgh. It
+  // reaches only the travellers that field can serve; the rest drive, connect
+  // elsewhere, or do not go. Same shape and the same stage as brandReach —
+  // before elasticity, before the capacity cap — so a full aircraft is
+  // unaffected and only a demand-limited route feels it. Capped at 1 so a
+  // registry entry can never manufacture demand.
+  const appealPool = Math.min(1, Math.max(0, offerAirportAppeal(offer)));
+  const poolMult  = mktPool * brandPool * appealPool;
   // Lounges on an UNCONTESTED pair: with no rival to take share from, a lounge
   // network instead brings business travellers into the market who would
   // otherwise drive, connect on someone else, or send one person instead of
@@ -2817,41 +2841,55 @@ function competitorOverhead(routeCount) {
   return 150_000 + 40_000 * Math.pow(routeCount, 1.15);
 }
 
+/** Identity for "the player" in the incumbent set — one carrier, many airports. */
+const PLAYER_CARRIER = Symbol('player');
+
 /**
- * Build a map of pairKey → number of carriers serving that O&D (player included).
- * Feeds demand-splitting in competitor economics: carriers sharing a city pair
+ * Build a map of lane → number of DISTINCT carriers serving it (player included).
+ * Feeds demand-splitting in competitor economics: carriers sharing a market
  * share its passenger pool instead of each pretending to fly a monopoly.
+ *
+ * The unit is the METRO LANE, not the airport pair (design point 5 of the metro
+ * rework). baseCityPairDemand prices JFK–LHR, EWR–LHR and LGA–STN as ONE New
+ * York↔London market, so two AI carriers at sibling airports are two incumbents
+ * of that one market — before this they each counted a monopoly and booked the
+ * full pool. Two consequences fall out of "distinct carriers per lane":
+ *   · a player who serves the lane from JFK *and* Newark is still ONE carrier
+ *     (its own second airport is not a rival — same rule the fare-compression
+ *     count follows on the passenger side);
+ *   · a carrier flying several member pairs itself counts once.
+ *
+ * Keys: every lane key (`metroPairKeyOf`), plus every SERVED airport-pair key
+ * carrying that lane's count, so a caller holding an ordinary pair key reads the
+ * same number. For a pair with no metro member the two are identical and this is
+ * exactly the old per-pair map.
  *
  * @param {CompetitorAirline[]} competitors
  * @param {Array<{origin:string,destination:string}>} [playerRoutes]
  * @returns {Map<string, number>}
  */
 export function buildPairIncumbents(competitors, playerRoutes = []) {
-  // DISTINCT CARRIERS per METRO LANE (data/metros.js): an AI carrier on
-  // EWR–LHR and the player on JFK–LHR are in the same New York–London market
-  // and split it — baseCityPairDemand now returns the metro total for every
-  // member pair, so counting incumbents per airport pair would hand each
-  // member pair the whole metro pool at solo-incumbent generosity. Non-metro
-  // pairs are their own lane and count exactly as before. A carrier serving
-  // two member pairs of one lane counts once — it is one airline in the market.
-  const laneCarriers = new Map(); // laneKey → Set(carrierId)
-  const keysSeen = new Set();
-  const laneOf = (key) => {
-    const [a, b] = key.split('-');
-    return metroPairKeyOf(a, b);
-  };
-  const add = (key, id) => {
-    const lane = laneOf(key);
+  const laneCarriers = new Map();   // laneKey  → Set of carrier identities
+  const laneOfPair   = new Map();   // pairKey  → laneKey (served pairs only)
+  const note = (o, d, carrier) => {
+    if (!o || !d) return;
+    const lane = metroPairKeyOf(o, d);
     if (!laneCarriers.has(lane)) laneCarriers.set(lane, new Set());
-    laneCarriers.get(lane).add(id);
-    keysSeen.add(key);
+    laneCarriers.get(lane).add(carrier);
+    laneOfPair.set([o, d].sort().join('-'), lane);
   };
-  for (const r of playerRoutes) add([r.origin, r.destination].sort().join('-'), 'player');
-  for (const c of competitors) {
-    for (const key of Object.keys(c.routes ?? {})) add(key, c.id);
+  // The player is one carrier however many member airports it serves the lane from.
+  for (const r of playerRoutes ?? []) note(r.origin, r.destination, PLAYER_CARRIER);
+  for (const c of competitors ?? []) {
+    for (const key of Object.keys(c.routes ?? {})) {
+      const [o, d] = key.split('-');
+      note(o, d, c.id ?? c);          // object identity backs an id-less carrier
+    }
   }
+
   const counts = new Map();
-  for (const key of keysSeen) counts.set(key, laneCarriers.get(laneOf(key)).size);
+  for (const [lane, carriers] of laneCarriers) counts.set(lane, carriers.size);
+  for (const [pairKey, lane] of laneOfPair) counts.set(pairKey, laneCarriers.get(lane).size);
   return counts;
 }
 
@@ -2872,7 +2910,7 @@ export function buildPairIncumbents(competitors, playerRoutes = []) {
  * @param {Map<string,number>|null} [pairCounts]  from buildPairIncumbents (null = monopoly)
  * @returns {{ revenue, cost, profit, pax, flights, loadFactor }|null}
  */
-export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, pairCounts = null, absWeek = null) {
+export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, pairCounts = null) {
   const ac      = TIER_AIRCRAFT[competitor.tier]        ?? TIER_AIRCRAFT.legacy;
   const fixedPR = TIER_FIXED_PER_ROUTE[competitor.tier] ?? 200_000;
 
@@ -2895,26 +2933,24 @@ export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, 
 
   // Competition split: n carriers share a pool that expands mildly with entry
   // (competition stimulates some demand), so each incumbent's slice shrinks
-  // fast as a pair gets crowded: 1 → 100%, 2 → ~54%, 3 → ~37%, 4 → ~29%.
-  const nCarriers = Math.max(1, pairCounts?.get(routeKey) ?? 1);
+  // fast as a lane gets crowded: 1 → 100%, 2 → ~54%, 3 → ~37%, 4 → ~29%.
+  // Counted on the METRO LANE (buildPairIncumbents keys both), because baseD is
+  // the whole metro pair's market — a rival at the sibling airport is in this
+  // carrier's market whether or not it is on this carrier's pair.
+  const nCarriers = Math.max(1,
+    pairCounts?.get(metroPairKeyOf(a, b)) ?? pairCounts?.get(routeKey) ?? 1);
   const shareOfPool = Math.pow(nCarriers, 0.15) / nCarriers;
 
-  // baseD is the METRO total for a member pair of a multi-airport metro; the
-  // airport-pair appeal (data/metros.js) caps how much of it this carrier's
-  // actual airports can reach — the same cap the demand model applies to a
-  // monopolist. 1 for non-metro pairs.
-  const aAp = getAirport(a), bAp = getAirport(b);
-  const appeal = aAp && bAp
-    ? Math.min(1, pairAppeal(a, b, aAp.country === bAp.country, dist))
-    : 1;
+  // Airport appeal, exactly as the player's monopoly path applies it (see the
+  // appealPool term in computeDemandResult): baseD is the metro pair's total
+  // however you fly it, so an AI carrier operating out of a weak secondary
+  // field would otherwise book New York↔London out of Newburgh. It reaches only
+  // the travellers its fields can serve. Capped at 1 — appeal never adds demand
+  // — and a pair with no registry entry resolves to parity, so every non-metro
+  // lane in the world is arithmetically untouched.
+  const appeal = Math.min(1, Math.max(0, offerAirportAppeal({ origin: a, destination: b })));
 
-  // Same demand growth over game time the player's markets get (buildRouteMarket)
-  // — without it every AI carrier's network would fall behind the world it
-  // flies in as the years pass. Callers without a calendar pass null → 1.
-  const growth = pairDemandGrowth(a, b, absWeek);
-
-  const demandOneWay = Math.round(
-    baseD * Math.pow(priceRatio, 1.3) * seasonal * shareOfPool * appeal * growth);
+  const demandOneWay = Math.round(baseD * Math.pow(priceRatio, 1.3) * seasonal * shareOfPool * appeal);
   const paxOneWay    = Math.min(demandOneWay, Math.round(capOneWay * 0.88)); // max 88% LF
   const weeklyPax    = paxOneWay * 2;
 
@@ -2947,7 +2983,7 @@ export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, 
  *   when provided, demand splits across carriers sharing each pair.
  * @returns {{ weeklyFlights, weeklyPax, weeklyRevenue, weeklyCost, weeklyProfit }}
  */
-export function computeCompetitorWeeklyStats(competitor, month = 1, pairCounts = null, absWeek = null) {
+export function computeCompetitorWeeklyStats(competitor, month = 1, pairCounts = null) {
   let totalFlights = 0;
   let totalPax     = 0;
   let totalRevenue = 0;
@@ -2955,7 +2991,7 @@ export function computeCompetitorWeeklyStats(competitor, month = 1, pairCounts =
   let routeCount   = 0;
 
   for (const [routeKey, cfg] of Object.entries(competitor.routes)) {
-    const p = computeCompetitorRoutePnL(competitor, routeKey, cfg, month, pairCounts, absWeek);
+    const p = computeCompetitorRoutePnL(competitor, routeKey, cfg, month, pairCounts);
     if (!p) continue;
     routeCount   += 1;
     totalFlights += p.flights;
@@ -3001,20 +3037,8 @@ export function competitorBusinessFraction(tier, distanceKm = 0) {
     : 0.08 + 0.07 * longHaul;
 }
 
-/**
- * @param {object} competitor
- * @param {object} market
- * @param {{origin: string, destination: string}|null} [pairCodes]  the member
- *   airport pair this offer flies, when it differs from the market's own codes.
- *   Metro-pair pooling passes this for SIBLING pairs (a carrier on EWR–LHR
- *   joining the New York–London fight): the route lookup, the offer's
- *   origin/destination (which drive airportAppeal) and the connectivity check
- *   all use the real airports the carrier serves, not the lane representative.
- */
-export function buildCompetitorOffer(competitor, market, pairCodes = null) {
-  const o = pairCodes?.origin      ?? market.origin;
-  const d = pairCodes?.destination ?? market.destination;
-  const routeKey = [o, d].sort().join('-');
+export function buildCompetitorOffer(competitor, market) {
+  const routeKey = [market.origin, market.destination].sort().join('-');
   const config   = competitor.routes[routeKey];
   if (!config) return null;
 
@@ -3054,8 +3078,8 @@ export function buildCompetitorOffer(competitor, market, pairCodes = null) {
 
   return {
     airlineId:         competitor.id,
-    origin:            o,
-    destination:       d,
+    origin:            market.origin,
+    destination:       market.destination,
     economyPrice,
     businessPrice,
     weeklyFrequency:   config.frequency,
@@ -3067,9 +3091,9 @@ export function buildCompetitorOffer(competitor, market, pairCodes = null) {
     // reach, lounges, miles) — keep in sync with ALLIANCE_OFFER_QUALITY_BONUS
     // in competitorAI.js.
     qualityScore:      competitor.baseQualityScore + (competitor.allianceId ? 3 : 0),
-    connectivityBonus: computeConnectivityBonus(competitor.homeHub, o, d)
+    connectivityBonus: computeConnectivityBonus(competitor.homeHub, market.origin, market.destination)
                        + (competitor.secondaryHub
-                          ? computeConnectivityBonus(competitor.secondaryHub, o, d)
+                          ? computeConnectivityBonus(competitor.secondaryHub, market.origin, market.destination)
                           : 0),
   };
 }
