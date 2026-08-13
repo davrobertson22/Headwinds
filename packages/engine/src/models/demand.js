@@ -657,7 +657,9 @@ export function computeUtility(offer, market, segment) {
   const priceUtil   = -(price / refPrice) * w.price * sens;
   const qualityUtil = (offer.qualityScore / 100) * w.quality;
   const freqUtil    = Math.log1p(offer.weeklyFrequency) * w.frequency;
-  const connUtil    = offer.connectivityBonus;
+  // ?? 0, or an offer built without the field NaN-poisons BOTH softmaxes and
+  // every carrier on the pair books NaN passengers.
+  const connUtil    = offer.connectivityBonus ?? 0;
   // Targeted campaigns at either endpoint (net of rival ad pressure). Offers
   // that carry no marketingBoost are unaffected — this term is 0 for every
   // caller that hasn't opted in.
@@ -770,7 +772,17 @@ export function computeMarketShare(market, offers) {
     compressedBizRef / Math.max(avgBusinessPrice, 1),
     ELASTICITY.business
   );
-  const adjustedLeisureDemand  = Math.round(market.leisureDemand  * Math.min(1.5, leisureElasticityFactor));
+  // When NO carrier on the pair sells a business cabin, the business travellers
+  // do not stop existing — they buy economy tickets, exactly as the monopoly
+  // path has always folded them (_monopolyResult's `noBusiness` branch). This
+  // used to zero the shares AND drop the pool, so the moment a second
+  // all-economy carrier appeared on a pair the whole J segment vanished from
+  // the market: two identical LCCs together carried ~38% less than one of them
+  // alone, and the contested and monopoly paths described two different worlds.
+  const leisurePool = anyBiz
+    ? market.leisureDemand
+    : market.leisureDemand + market.businessDemand;
+  const adjustedLeisureDemand  = Math.round(leisurePool * Math.min(1.5, leisureElasticityFactor));
   // Business pool scales with the market's share-weighted quality: an
   // all-budget pair loses business travelers to other modes entirely, while a
   // premium-served market attracts extra (see businessQualityCapture).
@@ -799,6 +811,15 @@ export function computeMarketShare(market, offers) {
       * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore)
     );
 
+    // The demand the market GENERATED for this offer, before any seat count is
+    // consulted. The load models downstream (nwrDemandScale,
+    // directionalLoadMultiplier) apply min(demand, capacity) themselves, so
+    // feeding them the capped figure locked them permanently into the
+    // demand<=capacity regime — a route drowning in demand was docked the same
+    // haircuts as one scraping parity.
+    const leisurePaxUncapped  = leisurePax;
+    const businessPaxUncapped = businessPax;
+
     // Cap at capacity. Business is capped at its own cabin; leisure may then use
     // ALL remaining physical seats (premium + economy), not just the economy cabin,
     // so excess leisure demand fills spare seats instead of being discarded.
@@ -820,6 +841,8 @@ export function computeMarketShare(market, offers) {
       businessShare:   bShare,
       leisurePax,
       businessPax,
+      leisurePaxUncapped,
+      businessPaxUncapped,
       totalPax:        leisurePax + businessPax,
       economyRevenue:  Math.round(economyRevenue),
       businessRevenue: Math.round(businessRevenue),
@@ -923,6 +946,11 @@ function _monopolyResult(market, offer) {
     businessShare:   offer.businessPrice != null ? 1 : 0,
     leisurePax,
     businessPax,
+    // Pre-capacity demand — see the note in the contested path. leisureAdj /
+    // businessAdj are post-elasticity, post-choke, pre-cap: the same stage the
+    // contested path exposes.
+    leisurePaxUncapped:  leisureAdj,
+    businessPaxUncapped: businessAdj,
     totalPax:        leisurePax + businessPax,
     economyRevenue:  Math.round(economyRevenue),
     businessRevenue: Math.round(businessRevenue),

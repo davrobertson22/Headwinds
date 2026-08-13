@@ -20,6 +20,7 @@ import { renderToString } from 'react-dom/server';
 import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
 import { getAirport } from '../src/data/airports.js';
 import { referencePrice, routePairKey, formatMoney } from '../src/utils/simulation.js';
+import { memberPairKeysOf } from '../src/utils/market.js';
 
 // Minimal browser shims for SSR (effects don't run; init reads localStorage).
 const store = new Map();
@@ -58,6 +59,11 @@ const SPOKES = ['ORD', 'JFK', 'DEN'].filter(c => getAirport(c));
 assert.equal(SPOKES.length, 3, 'fixture airports exist in the engine data');
 assert.ok(getAirport(HUB), 'hub exists');
 
+// Contested pairs priced ABOVE reference so they stay demand-constrained: the
+// 2026-08 metro demand rework lifted SFO/Chicago/NYC pool sizes (metro lift in
+// data/metros.js), and at the reference fare the contested pools now out-size
+// BOTH carriers — every route filled and the "rival bites" assertion below had
+// nothing to see. The monopoly control keeps the reference fare and still fills.
 const routes = SPOKES.map((dest, i) => ({
   id: `r${i}`,
   origin: HUB,
@@ -66,7 +72,7 @@ const routes = SPOKES.map((dest, i) => ({
   weeklyFrequency: FREQ,
   weeksOpen: 40,
   hub: HUB,
-  ticketPrice: Math.round(referencePrice(HUB, dest)),
+  ticketPrice: Math.round(referencePrice(HUB, dest) * (i < 2 ? 2.2 : 1)),
   cateringLevel: 'full',
 }));
 
@@ -119,7 +125,11 @@ const save = {
   // here is isolation, not emptiness).
 };
 {
-  const fixturePairs = new Set(SPOKES.map(d => routePairKey(HUB, d)));
+  // EVERY member pair of each fixture lane, not just the exact pair: under the
+  // metro demand rework an AI carrier on OAK–JFK or SFO–EWR contests the
+  // SFO–JFK lane (one pooled San Francisco–New York market), so stripping the
+  // exact keys alone would let a random sampled carrier back into the fixture.
+  const fixturePairs = new Set(SPOKES.flatMap(d => memberPairKeysOf(HUB, d)));
   save.competitors = (save.competitors ?? []).map(c => ({
     ...c,
     routes: Object.fromEntries(

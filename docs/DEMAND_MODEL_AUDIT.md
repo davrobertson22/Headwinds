@@ -78,7 +78,7 @@ SYD–MEL and HND–FUK still run ~0.3–0.55 (small metros relative to traffic)
 
 ## Remaining design questions
 
-**1. Multi-airport metros.** Every NYC airport carries mass 20.1, every London airport 22 — each airport pair into a metro independently generates near-full-metro demand, multiplying the true city-to-city market by the number of airport pairs served (Tokyo↔Osaka worst: four inflated pairs). The NRT/GMP effectivePop trims soften it. A real fix (splitting metro mass across member airports via METRO_GROUPS) is a bigger refactor that would shrink player options — separate decision.
+**1. Multi-airport metros.** ~~Every NYC airport carries mass 20.1, every London airport 22 — each airport pair into a metro independently generates near-full-metro demand, multiplying the true city-to-city market by the number of airport pairs served (Tokyo↔Osaka worst: four inflated pairs).~~ **RESOLVED 2026-08-13** — full metro pooling: one market per metro pair, one share fight across all member airport pairs, haul-aware per-airport appeal. See `docs/METRO_DEMAND_REWORK.md` and `packages/engine/src/data/metros.js`.
 
 **2. Live-world migration.** This reshapes demand on routes players already fly: existing MP worlds will see demand jump ~1.5–2x on typical routes at the next tick after the server redeploys. Options: accept the one-time shock (with a devlog note), or gate by world-creation version.
 

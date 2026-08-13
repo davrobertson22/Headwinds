@@ -47,6 +47,7 @@ import {
   stateSensReduction,
   stateBrandReach,
   currentGameDate,
+  buildEventDemandModel,
   simulateRoute,
   fleetAvgUtilization,
   routeLandingFee,
@@ -56,6 +57,27 @@ import {
 
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
+
+/**
+ * The demand multiplier weeklyTick applies to one O&D — world events × the
+ * per-world multiplier — resolved from state alone.
+ *
+ * weeklyTick builds exactly this (`eventDemandMultFor0(a,b) * worldDemandMult`,
+ * utils/simulation.js) and hands it to BOTH buildRouteMarket and simulateRoute.
+ * Previews used to compose only half of it in each place: pairMarketShare passed
+ * `state.worldDemandMult` and no event multiplier, while projectRouteAddition
+ * defaulted the event multiplier to 1.0 and never saw the world one. A world
+ * event therefore never reached a launch forecast at all, and in a doubled world
+ * a solo route previewed at half the traffic the following week booked.
+ *
+ * `eventOnly` is the caller's event-only multiplier when it has one (RoutePlanner
+ * and Routes both pass `eventDemand.multFor(o, d)`); the world multiplier is
+ * composed on top here so no call site has to know about it.
+ */
+export function stateDemandMult(state, origin, destination, eventOnly) {
+  const ev = eventOnly ?? buildEventDemandModel(state.activeEvents).multFor(origin, destination);
+  return ev * (state.worldDemandMult ?? 1);
+}
 
 /**
  * Combine every player aircraft on one city pair into the single AirlineOffer
@@ -201,6 +223,10 @@ export function buildRivalPairOffers(state, market) {
  *                                     projectRouteAddition() to price a pair that
  *                                     includes a route the player has not opened yet
  * @param {number}   [opts.weeksOpen]  override lane maturity (0 = launch week)
+ * @param {number}   [opts.demandMult] the FULL demand multiplier for this O&D
+ *                                     (world events × state.worldDemandMult).
+ *                                     Defaults to stateDemandMult(); pass it only
+ *                                     to keep a caller's own figure authoritative.
  * @returns {{
  *   market: object,
  *   offers: object[],
@@ -229,9 +255,13 @@ export function pairMarketShare(state, origin, destination, opts = {}) {
   // OLDEST of them (the market has known the service that long).
   const weeksOpen = opts.weeksOpen ?? pairRoutes.reduce(
     (m, r) => Math.max(m, r.weeksOpen ?? 0), 0);
+  // The pool the tick will fight over: seasonality × maturity × world events ×
+  // the per-world multiplier. Passing only `state.worldDemandMult` here left the
+  // event shock out of the POOL while simulateRoute applied it to the route — two
+  // halves of one multiplier, applied in different places.
   const market = buildRouteMarket(origin, destination, gameDate,
     pairRoutes.length ? routeMaturityFactor(weeksOpen) : 1,
-    state.worldDemandMult ?? 1);
+    opts.demandMult ?? stateDemandMult(state, origin, destination));
 
   const playerOffer = buildPlayerPairOffer(state, pairRoutes);
   const rivalOffers = buildRivalPairOffers(state, market);
@@ -341,7 +371,10 @@ function sliceForRoute(pooled, route, aircraft, pairRoutes, fleet) {
  * @param {string} [spec.replacesRouteId] editing an existing route rather than adding
  * @param {object} [spec.gameDate]
  * @param {number} [spec.fuelMultiplier]
- * @param {number} [spec.eventDemandMult]
+ * @param {number} [spec.eventDemandMult]  EVENT-only demand multiplier for this
+ *                                         O&D. state.worldDemandMult is composed
+ *                                         on top internally — do not pre-multiply
+ *                                         it in, or it lands twice.
  * @returns {{
  *   mature: object|null,      // simulateRoute result at full maturity
  *   launch: object|null,      // simulateRoute result in week 0
@@ -368,7 +401,13 @@ export function projectRouteAddition(state, spec) {
     // The world's CURRENT fuel price, not a hardcoded 1.0 — the forms used to
     // forecast every route at par no matter what fuel was doing.
     fuelMultiplier = state.fuelMultiplier ?? 1.0,
-    eventDemandMult = 1.0,
+    // EVENT-ONLY multiplier for this O&D. The per-world multiplier
+    // (state.worldDemandMult) is composed on top below, so a caller that already
+    // has `eventDemand.multFor(o, d)` in hand — RoutePlanner and Routes both do —
+    // passes it unchanged and gets the full figure; a caller that passes nothing
+    // gets the event model resolved from state.activeEvents. Either way this
+    // projection now applies exactly what weeklyTick applies.
+    eventDemandMult = buildEventDemandModel(state.activeEvents).multFor(origin, destination),
   } = spec;
   if (!origin || !destination || !aircraft || origin === destination) return null;
 
@@ -377,6 +416,9 @@ export function projectRouteAddition(state, spec) {
   // The airframe may be synthetic (RoutePlanner previews a TYPE, not a tail), so
   // make sure the offer builder can find it.
   const fleetPlus = fleet.some((a) => a.id === aircraft.id) ? fleet : [...fleet, aircraft];
+  // The one figure the tick uses in both places, built once here so the pooled
+  // market and the route simulation cannot disagree about it.
+  const demandMult = stateDemandMult(state, origin, destination, eventDemandMult);
 
   const previewRoute = {
     id: PREVIEW_ROUTE_ID,
@@ -443,6 +485,7 @@ export function projectRouteAddition(state, spec) {
   const runAt = (weeksOpen) => {
     const share = pairMarketShare(stateForOffer, origin, destination, {
       gameDate,
+      demandMult,
       pairRoutes: pairRoutes.map((r) =>
         r.id === PREVIEW_ROUTE_ID ? { ...r, weeksOpen } : r),
       weeksOpen,
@@ -477,7 +520,7 @@ export function projectRouteAddition(state, spec) {
       rivalSpecsFor(state, key),
       fleetAvgUtilization(fleetPlus, [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
       state.satisfaction ?? null,
-      eventDemandMult,
+      demandMult,
       state.ancillaries ?? null,
       state.competitors ?? [],
     );

@@ -511,6 +511,215 @@ export function addRouteBlockReason(state, action) {
 }
 
 // ─────────────────────────────────────────────
+// NEW CARGO ROUTE GUARD (Freight planner: open a cargo lane)
+// ─────────────────────────────────────────────
+// Freight sibling of addRouteBlockReason. Returns null if the proposed lane
+// would be ACCEPTED by ADD_CARGO_ROUTE, else a short player-facing reason.
+//
+// ADD_CARGO_ROUTE refuses with twelve bare `return state`s and sets no error, so
+// in Headwinds a refused lane came back 201 { ok: true } with an unchanged blob
+// and the client's optimistic route silently vanished on the next poll — the
+// freight face of the "Open Route does nothing" / "new routes don't save" bug
+// ADD_ROUTE already fixed. routes/decisions.mjs pre-flights this and answers 400.
+//
+// The checks below mirror the ADD_CARGO_ROUTE case IN ORDER, including the fact
+// that a lane MERGING onto an identical existing one never pays a launch cost
+// (so it is never refused for want of cash). Keep the two in lockstep — the
+// invariant (reason ⇒ the reducer refuses; null ⇒ the reducer opens it) is
+// pinned per refusal class by tools/route-block-reason-test.mjs.
+//
+// `action` is the ADD_CARGO_ROUTE shape:
+//   { origin, destination, aircraftId, weeklyFrequency, yieldPrice? }
+export function addCargoRouteBlockReason(state, action) {
+  const aircraft = (state.fleet ?? []).find(a => a.id === action.aircraftId);
+  const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+  if (!aircraft || !type) return 'Aircraft not found in your fleet';
+  const tail = aircraft.tailNumber || aircraft.name || type.name;
+  // Cargo lanes require a dedicated freighter.
+  if (!type.freighter) return `${tail} is not a freighter — freight lanes need a dedicated cargo aircraft`;
+  if (action.origin === action.destination) return 'Origin and destination are the same airport';
+  // A stated yield that is not a number at all (see the ADD_CARGO_ROUTE case).
+  if (action.yieldPrice != null && !Number.isFinite(Number(action.yieldPrice))) {
+    return 'That freight rate is not a number — set a rate in $/tonne-km';
+  }
+
+  const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
+  const dist = routeDistanceKm(action.origin, action.destination);
+
+  // ── Range (incl. engine/wingtip rangeMod) ─────────────────────────────────
+  const range = effectiveRangeKm(aircraft, type);
+  if (dist > range) {
+    return `${tail} can't reach ${action.destination} — the lane is ${Math.round(dist).toLocaleString()} km, its range is ${Math.round(range).toLocaleString()} km`;
+  }
+
+  // ── Regulatory (perimeter rules, per-pair caps, runway, size) ──────────────
+  const pairKey = [action.origin, action.destination].sort().join('-');
+  const allOps  = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
+  const existingPairFreq = allOps
+    .filter(r => [r.origin, r.destination].sort().join('-') === pairKey)
+    .reduce((s, r) => s + r.weeklyFrequency, 0);
+  if (checkRouteRestrictions(action.origin, action.destination, dist, existingPairFreq + weeklyFrequency,
+        freighterBodyClass(type), { routes: allOps, excludeKey: pairKey, aircraftType: type })) {
+    return `Regulation blocks this lane at ${weeklyFrequency} flights/wk`;
+  }
+
+  // ── Block hours on this freighter, across everything committed to it ───────
+  const existingBlockHrs = routesCommittedTo(action.aircraftId, state.routes ?? [], state.cargoRoutes ?? [])
+    .reduce((sum, r) => sum + routeBlockHours(r, type, r.weeklyFrequency), 0);
+  const maxBlockHrs = maxWeeklyBlockHoursFor(state);
+  const wantBlockHrs = existingBlockHrs + weeklyBlockHours(dist, weeklyFrequency, type);
+  if (wantBlockHrs > maxBlockHrs) {
+    return `${tail} has no spare flying hours — this would need ${Math.round(wantBlockHrs)}h/wk against a ${maxBlockHrs}h limit`;
+  }
+
+  // ── Network connectivity: no teleporting ──────────────────────────────────
+  const acCargoRoutes = routesCommittedTo(action.aircraftId, state.routes ?? [], state.cargoRoutes ?? []);
+  if (acCargoRoutes.length > 0) {
+    const served = new Set(acCargoRoutes.flatMap(r => [r.origin, r.destination]));
+    if (!served.has(action.origin) && !served.has(action.destination)) {
+      return `${tail} doesn't serve ${action.origin} or ${action.destination} — a freighter can only add a lane that touches its existing network`;
+    }
+  }
+
+  // ── Gates at both endpoints ───────────────────────────────────────────────
+  const gates = state.gates ?? {};
+  for (const code of [action.origin, action.destination]) {
+    if (!(gates[code] > 0) && poolGrantAt(state, code) <= 0) {
+      return `You don't have a gate at ${code} — lease one, or borrow slots from an alliance partner there`;
+    }
+  }
+
+  // ── Slots, counted across passenger + cargo operations ────────────────────
+  const slotsAt = (code) => allOps
+    .filter(r => r.origin === code || r.destination === code)
+    .reduce((s, r) => s + r.weeklyFrequency, 0);
+  for (const code of [action.origin, action.destination]) {
+    const cap  = slotCapAt(state, code);
+    const used = slotsAt(code);
+    if (used + weeklyFrequency > cap) {
+      return `Not enough gate slots at ${code} — ${used}/${cap} in use and this lane needs ${weeklyFrequency} more`;
+    }
+  }
+
+  // ── Cash ──────────────────────────────────────────────────────────────────
+  // Only for a genuinely NEW lane: the handler consolidates onto an identical
+  // existing lane for the same freighter BEFORE it charges a launch cost.
+  const merges = (state.cargoRoutes ?? []).some(r =>
+    r.aircraftId === action.aircraftId &&
+    ((r.origin === action.origin      && r.destination === action.destination) ||
+     (r.origin === action.destination && r.destination === action.origin))
+  );
+  if (!merges && state.cash < routeLaunchCost(dist)) {
+    return `Not enough cash — opening this lane costs ${formatMoney(routeLaunchCost(dist))} up front`;
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
+// NEW TAG (MULTI-STOP) ROUTE GUARD
+// ─────────────────────────────────────────────
+// Multi-stop sibling of addRouteBlockReason, mirroring the ADD_TAG_ROUTE case in
+// order. Same motivation: thirteen bare `return state`s meant a refused A→B→C
+// route was answered 201 with an unchanged blob and no message anywhere.
+//
+// `action` is the ADD_TAG_ROUTE shape: { aircraftId, stops[], weeklyFrequency }
+export function addTagRouteBlockReason(state, action) {
+  const aircraft = (state.fleet ?? []).find(a => a.id === action.aircraftId);
+  const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
+  if (!aircraft || !type) return 'Aircraft not found in your fleet';
+  const tail = aircraft.tailNumber || aircraft.name || type.name;
+  if (type.freighter) return `${tail} is a freighter — it flies cargo lanes, not passenger routes`;
+
+  const stops = (Array.isArray(action.stops) ? action.stops : []).filter(Boolean);
+  if (stops.length < 3 || stops.length > MAX_ROUTE_STOPS) {
+    return `A multi-stop route needs between 3 and ${MAX_ROUTE_STOPS} airports — use a normal route for a single leg`;
+  }
+  if (new Set(stops).size !== stops.length) {
+    return 'A multi-stop route cannot visit the same airport twice';
+  }
+
+  const proto = { stops, origin: stops[0], destination: stops[stops.length - 1] };
+  const legs  = routeLegs(proto);
+  for (const l of legs) {
+    if (l.from === l.to) return 'Two consecutive stops are the same airport';
+    if (!getAirport(l.from)) return `Unknown airport: ${l.from}`;
+    if (!getAirport(l.to))   return `Unknown airport: ${l.to}`;
+  }
+
+  const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
+
+  // ── Range: the LONGEST leg must be reachable ──────────────────────────────
+  const maxLeg = routeMaxLegKm(proto);
+  const range  = effectiveRangeKm(aircraft, type);
+  if (maxLeg > range) {
+    return `${tail} can't fly the longest leg — it is ${Math.round(maxLeg).toLocaleString()} km, its range is ${Math.round(range).toLocaleString()} km`;
+  }
+
+  // ── Regulatory restrictions, per leg ──────────────────────────────────────
+  const legPairFreq = (pk) => (state.routes ?? []).reduce((s, r) =>
+    routeLegs(r).some(rl => routePairKey(rl.from, rl.to) === pk) ? s + (r.weeklyFrequency ?? 0) : s, 0);
+  for (const l of legs) {
+    const pk = routePairKey(l.from, l.to);
+    if (checkRouteRestrictions(l.from, l.to, routeDistanceKm(l.from, l.to),
+          legPairFreq(pk) + weeklyFrequency, freighterBodyClass(type),
+          { routes: state.routes ?? [], excludeKey: pk, aircraftType: type })) {
+      return `Regulation blocks the ${l.from}–${l.to} leg at ${weeklyFrequency} flights/wk`;
+    }
+  }
+
+  // ── Block hours across this airframe's committed routes ───────────────────
+  const existingBlockHrs = routesCommittedTo(action.aircraftId, state.routes ?? [], state.cargoRoutes ?? [])
+    .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+  const maxBlockHrs  = maxWeeklyBlockHoursFor(state);
+  const wantBlockHrs = existingBlockHrs + routeBlockHours(proto, type, weeklyFrequency);
+  if (wantBlockHrs > maxBlockHrs) {
+    return `${tail} has no spare flying hours — this would need ${Math.round(wantBlockHrs)}h/wk against a ${maxBlockHrs}h limit`;
+  }
+
+  // ── Connectivity: extend only from a stop the aircraft already serves ─────
+  const aircraftRoutes = routesCommittedTo(action.aircraftId, state.routes ?? [], state.cargoRoutes ?? []);
+  if (aircraftRoutes.length > 0) {
+    const served = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
+    if (!stops.some(c => served.has(c))) {
+      return `${tail} doesn't serve any of these stops — an aircraft can only add a route that touches its existing network`;
+    }
+  }
+
+  // ── Gates + slots at EVERY stop (interior stops see two movements/cycle) ──
+  const gates = state.gates ?? {};
+  const incidentCount = (r, code) =>
+    routeLegs(r).reduce((n, l) => n + (l.from === code ? 1 : 0) + (l.to === code ? 1 : 0), 0);
+  const slotsUsedAt = (code) =>
+    (state.routes ?? []).reduce((s, r) => s + incidentCount(r, code) * (r.weeklyFrequency ?? 0), 0);
+  const addIncident = {};
+  for (const l of legs) {
+    addIncident[l.from] = (addIncident[l.from] ?? 0) + 1;
+    addIncident[l.to]   = (addIncident[l.to]   ?? 0) + 1;
+  }
+  for (const code of stops) {
+    if (!(gates[code] > 0) && poolGrantAt(state, code) <= 0) {
+      return `You don't have a gate at ${code} — lease one, or borrow slots from an alliance partner there`;
+    }
+    const cap  = slotCapAt(state, code);
+    const used = slotsUsedAt(code);
+    const need = addIncident[code] * weeklyFrequency;
+    if (used + need > cap) {
+      return `Not enough gate slots at ${code} — ${used}/${cap} in use and this route needs ${need} more`;
+    }
+  }
+
+  // ── Cash (priced on total ground distance covered) ────────────────────────
+  const totalDist  = legs.reduce((s, l) => s + routeDistanceKm(l.from, l.to), 0);
+  const launchCost = routeLaunchCost(totalDist);
+  if (state.cash < launchCost) {
+    return `Not enough cash — opening this route costs ${formatMoney(launchCost)} up front`;
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
 // CARGO FREQUENCY CHANGE GUARD (freight routes)
 // ─────────────────────────────────────────────
 // Freight sibling of frequencyChangeBlockReason. Returns null if `newFreq` is
@@ -2159,6 +2368,17 @@ function reducer(state, action) {
       // Cargo routes require a dedicated freighter.
       if (!type.freighter) return state;
       if (action.origin === action.destination) return state;
+      // The freight RATE is stated by the client, and `Math.max(0.01, Number(x))`
+      // below lets NaN straight through: Math.max(0.01, NaN) is NaN, so a
+      // yieldPrice of 'abc' put NaN on the lane, and the first tick multiplied
+      // it into revenue and wiped the airline's cash to NaN. Refuse a
+      // non-numeric rate outright — same treatment BUY_HEDGE gives a coverage
+      // that is not a fraction. A rate that is merely out of range still CLAMPS
+      // (below), and an OMITTED rate still defaults to the lane's reference
+      // yield, so no legitimate request changes behaviour.
+      // addCargoRouteBlockReason() carries the matching sentence, so the
+      // multiplayer endpoint answers 400 rather than a silent no-op.
+      if (action.yieldPrice != null && !Number.isFinite(Number(action.yieldPrice))) return state;
 
       const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
       const dist = routeDistanceKm(action.origin, action.destination);
@@ -2220,6 +2440,8 @@ function reducer(state, action) {
       const launchCost = routeLaunchCost(dist);
       if (state.cash < launchCost) return state;
 
+      // Non-finite rates were refused at the top of this case, so this can only
+      // ever clamp a real number now.
       const refYield   = cargoReferenceYield(action.origin, action.destination);
       const yieldPrice = action.yieldPrice != null
         ? Math.max(0.01, Number(action.yieldPrice))
@@ -2728,7 +2950,13 @@ function reducer(state, action) {
       // at the same weekly rate, available at any time, free. Remaining time is
       // never lost (unlike a full reset). The nominal term grows to match so the
       // remaining bar never exceeds the term.
-      const addWeeks = Math.max(0, Math.round(Number(action.addWeeks) || 0));
+      //
+      // CEILING (belt and braces with lib/decisionGuard.mjs, which clamps the
+      // multiplayer payload to the same 520 weeks): this used to have a floor
+      // and no ceiling, so a forged `addWeeks: 10_000_000` was applied verbatim
+      // and handed the airline a ten-thousand-year lease at today's weekly rate.
+      // 520 weeks = 10 years, the longest term the lease market offers.
+      const addWeeks = Math.min(520, Math.max(0, Math.round(Number(action.addWeeks) || 0)));
       if (addWeeks === 0) return state;
       return {
         ...state,

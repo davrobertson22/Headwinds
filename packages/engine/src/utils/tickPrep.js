@@ -138,8 +138,12 @@ export function prepareWeek(state, {
   const fuelPriceHistory = [...(state.fuelPrice?.history ?? []), currentFuelIndex].slice(-52);
 
   // ── Calendar ───────────────────────────────────────────────────────────────
+  // absWeek (absolute world week — year 1 week 1 → 1) drives demand growth over
+  // game time (pairDemandGrowth in market.js). Fixtures that hand the tick a
+  // bare { week, month } gameDate simply get no growth, so it is additive.
   const gameMonth = weekToGameDate(state.week).monthIndex;
-  const gameDate  = { week: state.week, month: gameMonth };
+  const gameDate  = { week: state.week, month: gameMonth,
+                      absWeek: absoluteWeek(state.year ?? 1, state.week ?? 1) };
 
   // ── Fleet: age the grounding and heavy-check countdowns ────────────────────
   // Runs BEFORE the revenue sim so an airframe whose last week of downtime is

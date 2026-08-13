@@ -11,6 +11,24 @@
  */
 
 import { getAirport, getAirportScores, getAirportCargoScore } from '../data/airports.js';
+import {
+  METROS,
+  metroOf,
+  metroPrimary,
+  sameMetroCodes,
+} from '../data/metros.js';
+
+// Re-exported so every consumer of the metro model imports it through the same
+// market/demand surface they already use (the registry itself lives in data/).
+export {
+  metroOf,
+  metroPrimary,
+  metroPairKeyOf,
+  isMetroPair,
+  memberPairKeysOf,
+  airportAppeal,
+  pairAppeal,
+} from '../data/metros.js';
 
 // ─── Distance ─────────────────────────────────────────────────────────────────
 
@@ -149,6 +167,76 @@ export const COUNTRY_PROPENSITY = {
 };
 export const DEFAULT_PROPENSITY = 0.4;
 export const DOMESTIC_PROPENSITY_EXP = 0.35;
+
+// ─── Demand growth over game time (2026-08) ───────────────────────────────────
+// Air travel demand GROWS as a world ages, and it grows fastest where incomes
+// are climbing: India and Southeast Asia compound at 7–8% a year while the
+// mature US/EU/Japan markets crawl at 1–2%. Strategically this rewards planting
+// a flag early in an emerging market — the route that breaks even in year one
+// is printing money by year five, and the propensity gap between rich and poor
+// countries (COUNTRY_PROPENSITY) slowly narrows the way it does in reality.
+//
+// Annual rates, loosely IATA/Boeing 20-year CAGR forecasts. Missing country →
+// DEFAULT_DEMAND_GROWTH. Applied by buildRouteMarket() as a multiplier on the
+// pair's demand pool: sqrt of the two ends' compounded growth (each end
+// contributes half, like every other endpoint factor under the gravity sqrt),
+// capped at DEMAND_GROWTH_CAP so a decade-old world stays playable rather than
+// drowning every emerging-market route in demand.
+export const COUNTRY_DEMAND_GROWTH = {
+  // South & Central Asia — the fastest-growing air markets on Earth
+  IN: 0.080, BD: 0.070, PK: 0.060, LK: 0.050, NP: 0.055, KZ: 0.050, UZ: 0.055,
+  // Southeast Asia
+  VN: 0.075, ID: 0.070, PH: 0.070, KH: 0.065, LA: 0.060, MM: 0.055,
+  TH: 0.045, MY: 0.045, SG: 0.030, BN: 0.030,
+  // East Asia
+  CN: 0.050, TW: 0.020, HK: 0.020, KR: 0.015, JP: 0.010, MO: 0.020, MN: 0.050,
+  // Middle East
+  SA: 0.055, AE: 0.045, QA: 0.040, OM: 0.045, KW: 0.035, BH: 0.035,
+  IQ: 0.050, IR: 0.035, IL: 0.030, JO: 0.040, TR: 0.050,
+  // Africa
+  EG: 0.055, NG: 0.060, ET: 0.065, KE: 0.055, TZ: 0.055, UG: 0.055, GH: 0.050,
+  CI: 0.050, SN: 0.050, RW: 0.060, ZA: 0.035, MA: 0.040, DZ: 0.040, TN: 0.040,
+  AO: 0.045, MZ: 0.050, ZM: 0.045, CD: 0.050, CM: 0.045,
+  // Latin America
+  BR: 0.040, MX: 0.040, CO: 0.045, PE: 0.045, CL: 0.035, AR: 0.035,
+  EC: 0.040, BO: 0.045, PY: 0.045, UY: 0.030, GT: 0.045, DO: 0.040, PA: 0.040,
+  // Mature markets
+  US: 0.020, CA: 0.020, GB: 0.015, IE: 0.020, FR: 0.015, DE: 0.015, NL: 0.015,
+  BE: 0.015, CH: 0.015, AT: 0.015, IT: 0.015, ES: 0.020, PT: 0.020, GR: 0.025,
+  DK: 0.015, NO: 0.015, SE: 0.015, FI: 0.015, IS: 0.020,
+  PL: 0.030, CZ: 0.025, SK: 0.025, HU: 0.025, RO: 0.035, BG: 0.030, HR: 0.025,
+  RS: 0.030, UA: 0.030, RU: 0.020,
+  AU: 0.025, NZ: 0.020,
+};
+export const DEFAULT_DEMAND_GROWTH = 0.030;
+/** Hard ceiling on the compounded growth factor (≈ year 25+ for an 8% market). */
+export const DEMAND_GROWTH_CAP = 3.0;
+
+/**
+ * Compounded demand-growth factor for a pair, `absWeek` weeks into a world's
+ * life (absWeek 1 = the world's first week → factor 1). Callers without a
+ * calendar pass null/undefined and get exactly 1 — every historical fixture
+ * and preview built from a bare { week, month } gameDate is unchanged.
+ *
+ * Metro members grow at their metro primary's country rate (identical country
+ * in practice), so member pairs keep returning identical totals.
+ *
+ * @param {string} originCode
+ * @param {string} destCode
+ * @param {number|null} absWeek  absolute world week (year 1 week 1 → 1)
+ * @returns {number} 1 … DEMAND_GROWTH_CAP
+ */
+export function pairDemandGrowth(originCode, destCode, absWeek) {
+  if (absWeek == null || !(absWeek > 1)) return 1;
+  const o = getAirport(metroPrimary(originCode));
+  const d = getAirport(metroPrimary(destCode));
+  if (!o || !d) return 1;
+  const gO = COUNTRY_DEMAND_GROWTH[o.country] ?? DEFAULT_DEMAND_GROWTH;
+  const gD = COUNTRY_DEMAND_GROWTH[d.country] ?? DEFAULT_DEMAND_GROWTH;
+  const years = (absWeek - 1) / 52;
+  const factor = Math.pow(Math.sqrt((1 + gO) * (1 + gD)), years);
+  return Math.min(DEMAND_GROWTH_CAP, factor);
+}
 
 /** World regions for border-friction defaults. */
 export const COUNTRY_REGION = {
@@ -340,80 +428,131 @@ export function captivityFactor(o, d, dist) {
  * Airport populations are in millions (metro area).
  */
 /**
- * Same-metro airport groups whose member airports DON'T share a city label
- * (so the city-string check below misses them) — chiefly satellite fields.
- * Most multi-airport metros (London LHR/LGW/LCY/STN/LTN, Chicago ORD/MDW,
- * Tokyo HND/NRT, etc.) are already caught by the shared "city" field; this table
- * only needs the exceptions. Each inner array lists IATA codes in one metro.
+ * Same-metro airport groups, kept as a derived view of data/metros.js for any
+ * external consumer that still wants the raw code lists. The registry is the
+ * single source of truth — edit metros.js, not this.
  */
-export const METRO_GROUPS = [
-  ['JFK', 'EWR', 'LGA', 'HPN', 'SWF', 'ISP'],   // New York (incl. White Plains, Newburgh/Stewart, Islip)
-  ['LHR', 'LGW', 'LCY', 'STN', 'LTN', 'SEN'],   // London (incl. Southend)
-  ['MIA', 'FLL', 'PBI'],                         // South Florida (Miami / Fort Lauderdale / West Palm)
-  ['EZE', 'AEP'],                                // Buenos Aires (Ezeiza / Aeroparque)
-  ['SFO', 'OAK', 'SJC'],                         // San Francisco Bay Area
-  ['LAX', 'BUR', 'SNA', 'ONT', 'LGB'],           // Greater Los Angeles
-  ['WAS', 'IAD', 'DCA', 'BWI'],                  // Washington–Baltimore
-  ['CGK', 'HLP', 'BDO'],                         // Jakarta–Bandung (HSR corridor; air O&D is dead)
-];
-const METRO_OF = {};
-for (let i = 0; i < METRO_GROUPS.length; i++) {
-  for (const code of METRO_GROUPS[i]) METRO_OF[code] = i;
-}
+export const METRO_GROUPS = METROS.map((m) => Object.keys(m.members));
 
 /**
- * Two airports serve the same metro area when they belong to the same explicit metro
- * group, share a city (same country), or sit within a few km of each other. Same-metro
- * pairs carry no real origin–destination air demand — nobody flies across town — so
- * their demand is suppressed entirely. Examples: JFK–EWR–LGA, LHR–LGW–LCY, SYD–WSI.
- * The distance backstop is deliberately small so genuine short water/island hops
- * (which have no road alternative) keep their demand.
+ * Two airports serve the same metro area when the metro registry says so, or as
+ * a backstop when they sit within a few km of each other. Same-metro pairs
+ * carry no real origin–destination air demand — nobody flies across town — so
+ * their demand is suppressed entirely. Examples: JFK–EWR–LGA, LHR–LGW–LCY.
+ *
+ * The old city-string rule ("same country + same city field") is deliberately
+ * GONE: it zeroed demand between same-NAME different-CITY pairs — Columbus OH
+ * vs Columbus GA (CMH–CSG), the Norfolks (ORF–OFK), the Albanys (ALB–ABY), the
+ * Augustas (AGS–AUG), the Watertowns (ART–ATY) and the three Greenvilles
+ * (GSP/PGV/GLH). Every genuine shared-city metro is in the registry instead.
+ * The distance backstop is deliberately small so genuine short water/island
+ * hops (which have no road alternative) keep their demand.
  */
 export const SAME_METRO_MAX_KM = 35;
 export function isSameMetro(o, d, dist) {
   if (!o || !d) return false;
-  if (o.code && d.code && METRO_OF[o.code] != null && METRO_OF[o.code] === METRO_OF[d.code]) return true;
-  if (o.country === d.country && o.city && d.city &&
-      o.city.trim().toLowerCase() === d.city.trim().toLowerCase()) return true;
+  if (o.code && d.code && sameMetroCodes(o.code, d.code)) return true;
   const km = dist != null ? dist : distanceKm(o, d);
   return km < SAME_METRO_MAX_KM;
+}
+
+// ─── Metro-level demand endpoints ─────────────────────────────────────────────
+// A multi-airport metro is priced as ONE demand endpoint: the largest member
+// mass and the strongest member attractiveness stand in for the whole metro.
+// Priced at the members' shared data rather than any single field's, so
+// baseCityPairDemand(EWR, LGW) === baseCityPairDemand(JFK, LHR): one member
+// pair per metro pair, one market. The tick then runs ONE share fight over that
+// market for all member pairs (see the metro pre-pass in simulation.js) —
+// which is what kills the old N-airport-pairs × full-metro-demand duplication.
+
+/** Cached member airport records per metro id (data never changes at runtime). */
+const _metroMembersCache = new Map();
+function metroMemberRecords(metro) {
+  let recs = _metroMembersCache.get(metro.id);
+  if (!recs) {
+    recs = Object.keys(metro.members)
+      .map((code) => getAirport(code))
+      .filter(Boolean);
+    _metroMembersCache.set(metro.id, recs);
+  }
+  return recs;
+}
+
+/** Demand mass of a metro: its heaviest member (masses are metro-wide already). */
+function metroDemandMass(metro, domesticPair) {
+  let best = 0;
+  for (const ap of metroMemberRecords(metro)) {
+    const m = getDemandMass(ap, domesticPair);
+    if (m > best) best = m;
+  }
+  return best;
+}
+
+/** Attractiveness of a metro: its strongest member profile. */
+function metroDemandMultiplier(metro) {
+  let best = 0;
+  for (const ap of metroMemberRecords(metro)) {
+    const m = demandMultiplier(ap.code);
+    if (m > best) best = m;
+  }
+  return best;
 }
 
 export function baseCityPairDemand(originCode, destCode) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);
   if (!o || !d) return 0;
-  const dist = distanceKm(o, d);
   // No real O&D demand between two airports serving the same metro area.
-  if (isSameMetro(o, d, dist)) return 0;
+  // (Checked on the REAL airports — the primaries of two different metros are
+  // never same-metro, and same-metro members must short-circuit before pricing.)
+  if (isSameMetro(o, d, distanceKm(o, d))) return 0;
+
+  // Price the pair at the metro primaries: every member pair of the same metro
+  // pair must return the SAME total market. Distance, country, captivity and
+  // border all use the primaries so the total is exactly member-independent.
+  const mO = metroOf(originCode);
+  const mD = metroOf(destCode);
+  const po = mO ? getAirport(mO.primary) ?? o : o;
+  const pd = mD ? getAirport(mD.primary) ?? d : d;
+  const dist = distanceKm(po, pd);
 
   // Demand mass generalises population: it adds tourism + national-gateway pull for
   // airports that population alone under-rates. `effectivePop` overrides stay intact,
   // and any airport without the new fields keeps mass === population (no change).
-  const domesticPair = o.country === d.country;
-  const popO = getDemandMass(o, domesticPair);
-  const popD = getDemandMass(d, domesticPair);
+  // Metro endpoints take their heaviest member's mass (each member already
+  // carried the metro-wide figure) and their strongest member's attractiveness.
+  const domesticPair = po.country === pd.country;
+  const popO = mO ? metroDemandMass(mO, domesticPair) : getDemandMass(o, domesticPair);
+  const popD = mD ? metroDemandMass(mD, domesticPair) : getDemandMass(d, domesticPair);
 
   // Business/leisure attractiveness multiplier — cities that are strong corporate
   // or tourism destinations generate more demand than population alone implies.
-  const multO = demandMultiplier(originCode);
-  const multD = demandMultiplier(destCode);
+  const multO = mO ? metroDemandMultiplier(mO) : demandMultiplier(originCode);
+  const multD = mD ? metroDemandMultiplier(mD) : demandMultiplier(destCode);
+
+  // Metro demand lift. Benchmarked against metro-AGGREGATED real O&D (sum over
+  // member airport pairs — bench.mjs `metroX` column), pairs between big
+  // multi-airport metros systematically undershot at 0.44–0.60: a metro that
+  // needed five airports built generates more travel than even its largest
+  // member's mass implies. Each side contributes sqrt(lift), like every other
+  // endpoint factor under the gravity sqrt. Single-airport endpoints lift 1.
 
   // Country propensity-to-fly: full strength on international pairs, softened
   // on domestic ones (see COUNTRY_PROPENSITY). Enters under the sqrt so the
   // effective pair factor is sqrt(pO·pD).
   const domestic = domesticPair;
-  let pO = COUNTRY_PROPENSITY[o.country] ?? DEFAULT_PROPENSITY;
-  let pD = COUNTRY_PROPENSITY[d.country] ?? DEFAULT_PROPENSITY;
+  let pO = COUNTRY_PROPENSITY[po.country] ?? DEFAULT_PROPENSITY;
+  let pD = COUNTRY_PROPENSITY[pd.country] ?? DEFAULT_PROPENSITY;
   if (domestic) {
     pO = Math.pow(pO, DOMESTIC_PROPENSITY_EXP);
     pD = Math.pow(pD, DOMESTIC_PROPENSITY_EXP);
   }
 
-  // Border friction (1.0 domestic), air-captivity boost, short-hop ground ramp.
-  const border  = borderFactor(o, d);
-  const captive = captivityFactor(o, d, dist);
-  const ground  = groundRampFactor(o, d, dist);
+  // Border friction (1.0 domestic), air-captivity boost, short-hop ground ramp —
+  // all at the primaries, so member pairs cannot disagree about the total.
+  const border  = borderFactor(po, pd);
+  const captive = captivityFactor(po, pd, dist);
+  const ground  = groundRampFactor(po, pd, dist);
 
   // Gravity model with softened distance decay (exponent 1.1 vs. the classic 1.5).
   // The gentler exponent reflects that above ~5,000 km there are no alternatives to
@@ -433,8 +572,10 @@ export function baseCityPairDemand(originCode, destCode) {
   //   JFK-LHR  (5,540 km, US-GB affinity 0.85)           →  ~15,400  (real ~21,000)
   //   SIN-LHR  (10,880 km)                               →  ~11,300  (real ~9,700)
   //   DAC-DEL  (1,426 km, low propensity + IN-BD 0.45)   →   ~3,500  (real ~2,400)
+  const lift = Math.sqrt((mO?.lift ?? 1) * (mD?.lift ?? 1));
+
   return Math.round(
-    (Math.sqrt(popO * multO * pO * popD * multD * pD) * 1900 * border * captive * ground)
+    (Math.sqrt(popO * multO * pO * popD * multD * pD) * 1900 * border * captive * ground * lift)
       / Math.pow(1 + dist / 3000, 1.1)
   );
 }
