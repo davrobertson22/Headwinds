@@ -20,7 +20,7 @@
 // client already holds it — asking the server would mean loading a save blob per
 // request and would make the response un-cacheable. The server publishes a base
 // tier; the client promotes what touches its own network.
-import { PUBLIC_DECISIONS, publicPayload } from './publicDecisions.mjs';
+import { PUBLIC_DECISIONS, publicPayload, isPublicDecision } from './publicDecisions.mjs';
 import { isDevEmail } from './humanRivals.mjs';
 import { WEEKS_PER_YEAR } from './worldConfig.mjs';
 
@@ -138,6 +138,11 @@ function rollDecisions(decisions, nameOf, ogOf, devOf) {
   const singles = [];
 
   for (const d of decisions) {
+    // A decision the reducer refused changed nothing, so there is nothing to
+    // report. The DB query can only filter on `type` (the index is on
+    // worldId+createdAt), so the no-op mark is checked here. See
+    // journalledPayload() in publicDecisions.mjs.
+    if (!isPublicDecision(d)) continue;
     const p = publicPayload(d);
     const family = FAMILY_OF_DECISION[d.type];
     const common = {

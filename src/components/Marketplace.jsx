@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useConfirm } from './ConfirmModal.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import {
@@ -14,6 +14,7 @@ import {
   leaseOrderBookCap,
 } from '../data/aircraft.js';
 import { formatMoney, weekToGameDate } from '../utils/simulation.js';
+import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -644,10 +645,21 @@ export default function Marketplace() {
     return acc;
   }, {});
 
+  // The rate each tail SIGNED at, not the list rate in the type table: lease term
+  // multipliers (1.15 / 1.00 / 0.90 / 0.83) stamp `a.weeklyLease` at signing, so
+  // on almost every lease the two differ.
   const currentWeeklyLease = fleet.reduce((sum, a) => {
     const t = AIRCRAFT_TYPES.find(x => x.id === a.typeId);
-    return sum + (a.ownershipType === 'lease' ? (t?.weeklyLease ?? 0) : 0);
+    return sum + (a.ownershipType === 'lease' ? (a.weeklyLease ?? t?.weeklyLease ?? 0) : 0);
   }, 0);
+
+  // This week's whole cash burn, from the canonical projection the Dashboard and
+  // Finance both read — NOT lease rent alone. "Weeks of cash" below used to be
+  // cash ÷ (existing rent + this lease's rent), which ignores fuel, crew,
+  // maintenance, landing fees, overhead, loan payments and tax, i.e. most of what
+  // actually empties the account. On a fixture with 9 weeks of real runway the
+  // cards advertised 100,000 (the Infinity sentinel) and 3,000 weeks.
+  const weeklyNetBurn = useMemo(() => Math.max(0, -projectWeek(state).netCash), [state]);
 
   const categories = ['All', ...AIRCRAFT_CATEGORIES];
 
@@ -898,8 +910,12 @@ export default function Marketplace() {
         {filtered.map(type => {
           const currentAbsWeek = absoluteWeek(year, week);
           const lead           = DELIVERY_LEAD[type.category] ?? 2;
-          const newWeeklyTotal = currentWeeklyLease + type.weeklyLease;
-          const weeksOfCash    = type.weeklyLease > 0 ? Math.floor(cash / newWeeklyTotal) : Infinity;
+          // Runway AFTER signing this lease: the burn the projection already sees
+          // (which includes every lease currently on the books) plus this one's
+          // rent. A profitable airline has no runway problem — Infinity, same as
+          // the Dashboard's own "weeks of cash".
+          const newWeeklyTotal = weeklyNetBurn + type.weeklyLease;
+          const weeksOfCash    = newWeeklyTotal > 0 ? Math.floor(cash / newWeeklyTotal) : Infinity;
           const catColor       = CAT_COLORS[type.category] || '#93a4ba';
           const cashWarning    = isFinite(weeksOfCash) && weeksOfCash < 4;
 

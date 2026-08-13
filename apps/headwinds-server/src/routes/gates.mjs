@@ -1,8 +1,9 @@
 // /worlds/:id/gates — gate scarcity: availability, sealed auction bids, and the
 // player-to-player gate marketplace. Only meaningful in worlds created with
 // tickConfig.gateScarcity; every route 409s cleanly elsewhere.
-import { requireAuth } from '../auth.mjs';
+import { requireAuth, optionalAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
+import { assertWorldReadable } from '../lib/access.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { GATE_BID_MAX_QTY } from '@tailwinds/engine/data/airports.js';
 import { buildWorldRivalViews, withRivals, loadAllianceMap, loadRivalRows } from '../lib/humanRivals.mjs';
@@ -56,6 +57,9 @@ export default async function gateRoutes(fastify) {
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
+    // Unauthenticated by design for a PUBLIC world (the hub picker reads it
+    // before you join); members-only for a PRIVATE one.
+    await assertWorldReadable(prisma, world, await optionalAccount(request));
     if (!isGateScarcity(world)) return { gateScarcity: false, airports: [] };
     return { gateScarcity: true, airports: await gateWorldSummary(prisma, world.id) };
   });

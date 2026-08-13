@@ -73,8 +73,15 @@ export default function Dashboard({ onNavigate }) {
   });
 
   // ── Projections ──────────────────────────────────────────────────────────
+  // Weekly lease rent. Two things this used to get wrong, both in the same
+  // direction: it charged rent for OWNED airframes (which pay none — they were
+  // bought), and it charged the type table's list rate rather than the rate this
+  // tail signed at (term multipliers 1.15/1.00/0.90/0.83 stamp `a.weeklyLease`
+  // at signing). An all-owned fleet was billed a full lease book it does not
+  // have. Same rule as the engine's own weeklyLeaseCost.
   const weeklyLeaseCost = fleet.reduce((sum, a) => {
-    return sum + (getAircraftType(a.typeId)?.weeklyLease ?? 0);
+    if (a.ownershipType === 'owned') return sum;
+    return sum + (a.weeklyLease ?? getAircraftType(a.typeId)?.weeklyLease ?? 0);
   }, 0);
 
   const gd = currentGameDate(state);
@@ -119,9 +126,20 @@ export default function Dashboard({ onNavigate }) {
   // Network-wide load factor & yield (passenger network, canonical projection).
   // passengers/configuredSeatsOneWay are per direction; revenue covers both
   // directions, so RPK = pax × 2 × distance and boarded pax/wk = pax × 2.
+  //
+  // MULTI-STOP ROTATIONS ARE EXCLUDED, whole. simulateTagRoute measures a tag
+  // route in SEAT-LEGS (it already reports its own correct loadFactor from
+  // them) and pushes no `configuredSeatsOneWay` at all, so every tag passenger
+  // used to land in the numerator against a denominator that could not grow —
+  // one flat route beside one rotation printed 293.5% "Load Factor". Its
+  // `distance` is the rotation's TOTAL ground covered, not a stage length, so
+  // folding it into RPK understates yield by the same trick in reverse. Neither
+  // number is comparable to a flat route's, so both are left out rather than
+  // mixed in wrong: the tiles describe the point-to-point network and say so.
   const networkStats = useMemo(() => {
-    let pax = 0, seats = 0, rpk = 0, rev = 0;
+    let pax = 0, seats = 0, rpk = 0, rev = 0, tagRoutes = 0;
     for (const rr of proj.report?.routeResults ?? []) {
+      if (rr.tag || rr.configuredSeatsOneWay == null) { tagRoutes++; continue; }
       pax   += rr.passengers ?? 0;
       seats += rr.configuredSeatsOneWay ?? 0;
       rpk   += (rr.passengers ?? 0) * 2 * (rr.distance ?? 0);
@@ -132,6 +150,7 @@ export default function Dashboard({ onNavigate }) {
       boardedPax:  pax * 2,
       yieldPerPkm: rpk > 0 ? rev / rpk : null,   // $ per passenger-km
       revPerPax:   pax > 0 ? rev / (pax * 2) : null,
+      tagRoutes,                                 // excluded above; surfaced in the tile
     };
   }, [proj]);
 
@@ -607,7 +626,8 @@ export default function Dashboard({ onNavigate }) {
             label="Load Factor"
             value={formatPercent(networkStats.loadFactor)}
             color={networkStats.loadFactor >= 0.75 ? 'green' : networkStats.loadFactor >= 0.5 ? 'blue' : 'yellow'}
-            sub={`${Math.round(networkStats.boardedPax).toLocaleString()} pax/wk`}
+            sub={`${Math.round(networkStats.boardedPax).toLocaleString()} pax/wk${
+              networkStats.tagRoutes > 0 ? ' · point-to-point only' : ''}`}
             onClick={canNavigate ? () => go('routes') : undefined}
           />
         )}

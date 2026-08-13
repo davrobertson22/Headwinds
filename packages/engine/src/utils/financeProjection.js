@@ -161,11 +161,18 @@ function computeProjectWeek(state) {
   // Lease redelivery: a lease whose FINAL week is this projected week pays 4x rent
   // on return — mirrors the reducer's leaseRedeliveryCost (deductible, like the
   // seasonal reactivation fee) so the projection matches what advancing actually books.
+  //
+  // The rate is the one THIS TAIL SIGNED AT, not the one in the type table. Lease
+  // term multipliers (1.15 / 1.00 / 0.90 / 0.83) stamp `a.weeklyLease` at signing,
+  // so on almost every lease the two differ — and the reducer bills
+  // `a.weeklyLease ?? type?.weeklyLease`. Reading the list rate here made the
+  // projection of a lease's final week wrong in whichever direction the term
+  // discount ran (measured: $1,852,000 projected against $1,537,160 booked).
   let leaseRedelivery = 0;
   for (const a of fleet) {
     const rem = a.leaseRemainingWeeks ?? 0;
     if (a.ownershipType === 'lease' && rem > 0 && rem - 1 <= 0) {
-      leaseRedelivery += (getAircraftType(a.typeId)?.weeklyLease ?? 0) * 4;
+      leaseRedelivery += (a.weeklyLease ?? getAircraftType(a.typeId)?.weeklyLease ?? 0) * 4;
     }
   }
   const taxableIncome = ebit - interest - seasonalReactivation - leaseRedelivery;

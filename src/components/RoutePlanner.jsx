@@ -10,6 +10,7 @@ import {
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
   buildEventDemandModel, deployableFleetForRoute, maxWeeklyBlockHoursFor,
   maxFrequency, isRouteActive, routeActiveMonths,
+  stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import {
@@ -31,7 +32,7 @@ import { navPathFor } from '../navPath.js';
 import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
-import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
+import { projectRouteAddition, playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
 
 function weekToMonth(week) {
   return weekToGameDate(week).monthIndex;
@@ -741,6 +742,16 @@ export default function RoutePlanner() {
         + configSpaceQualityBonus(cfg, type)
         + cateringQualityBonus(cateringLevel, routeData.dist))),
       connectivityBonus: pairConnectivityBonus(hubSpokeCounts(state.routes ?? []), [state.hub], origin, dest),
+      // Brand reach, resolved through the same helper the tick uses — and the
+      // same one the projection this card is built on already applies. Now that
+      // brand is a demand term rather than a revenue multiplier, an offer that
+      // omits it is scored as an ESTABLISHED carrier at parity, so a week-one
+      // airline was quoted a household name's slice of the pair. The campaign
+      // lift and the loyalty/reputation elasticity blunting are attached for the
+      // same reason: omitting them is not "no opinion", it is "average carrier".
+      priceSensitivityReduction: stateSensReduction(state, 0),
+      marketingBoost: playerCampaignBoost(state, origin, dest),
+      brandReach: stateBrandReach(state, 0, false),
     };
     const competitorOffers = competitorsOnRoute.map(c => c.offer).filter(Boolean);
     const allOffers  = [playerOffer, ...competitorOffers];

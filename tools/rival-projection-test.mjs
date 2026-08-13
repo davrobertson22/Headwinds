@@ -164,14 +164,19 @@ await test('teeth: statsHistory below 26 changes the views', () => {
   mustDiffer('trimming statsHistory to 5', (s) => ({ ...s, statsHistory: (s.statsHistory ?? []).slice(-5) }));
 });
 
-await test('teeth: dropping lastReport.reputation changes the views', () => {
-  // qualityOf prefers lastReport.reputation.overall (with a state.reputation
-  // fallback); the fixture plants 71, well away from DEFAULT_QUALITY. If this
-  // ever stops differing, qualityOf stopped reading the planted shape and the
-  // lastReport projection needs re-checking against its new reads.
-  mustDiffer('removing lastReport.reputation', (s) => ({
+await test('teeth: dropping the lastReport reputation fields changes the views', () => {
+  // qualityOf now prefers lastReport.reputationScore — the only one of the three
+  // shapes the CURRENT engine writes — and falls back to the legacy
+  // lastReport.reputation.overall / state.reputation.overall. (It used to read
+  // only the two legacy shapes, which this engine never produces, so every human
+  // rival scored DEFAULT_QUALITY; see qualityOf in lib/humanRivals.mjs.) The
+  // fixture plants 68 and 71, both well away from the default, so all three must
+  // come out for the views to move. If this ever stops differing, qualityOf
+  // stopped reading the planted shapes and the lastReport projection needs
+  // re-checking against its new reads.
+  mustDiffer('removing the lastReport reputation fields', (s) => ({
     ...s,
-    lastReport: { ...s.lastReport, reputation: undefined },
+    lastReport: { ...s.lastReport, reputation: undefined, reputationScore: undefined },
     reputation: undefined,
   }));
 });

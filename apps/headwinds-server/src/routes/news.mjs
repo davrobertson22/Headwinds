@@ -4,6 +4,8 @@
 // composition, rollup and tiering all live in lib/newsService.mjs; this file is
 // transport, validation and caching only.
 import { prisma } from '../db.mjs';
+import { optionalAccount } from '../auth.mjs';
+import { assertWorldReadable } from '../lib/access.mjs';
 import { buildNews, NEWS_CATEGORIES } from '../lib/newsService.mjs';
 
 // The ticker polls this endpoint from every open client (every 60s idle, 15s
@@ -61,6 +63,10 @@ export default async function newsRoutes(fastify) {
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
+    // Public for a PUBLIC world (spectators read a world's news, same as its
+    // standings); members-only for a PRIVATE one. Checked BEFORE the cache
+    // lookup so a member's cached page can never be served to a stranger.
+    await assertWorldReadable(prisma, world, await optionalAccount(request));
 
     const categories = parseCategories(request.query.categories);
     const limit = request.query.limit ?? 40;

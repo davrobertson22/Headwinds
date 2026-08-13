@@ -163,11 +163,28 @@ function cargoRoutesOf(state) {
 
 // Best-effort quality score for a human airline (used for demand share and the
 // Rivals tab). Prefers the engine's own last-computed report figures.
+//
+// `lastReport.reputationScore` FIRST, because it is the only one of the three
+// the current engine actually writes: weeklyTick returns a number
+// `reputationScore` (utils/simulation.js) and ADVANCE_WEEK stores it on
+// lastReport. The other two shapes were the only ones read here, and neither
+// exists in any blob this engine produces — so every human rival in every world
+// was scored at DEFAULT_QUALITY, and the demand model could not tell a
+// well-run carrier from a shambles. (The rival projection has been carrying
+// reputationScore through for exactly this reason; see RIVAL_* below.)
+//
+// The legacy shapes stay as fallbacks: an old blob that has one is still worth
+// more than the default.
 function qualityOf(state) {
-  const rep = state.lastReport?.reputation?.overall
+  const rep = state.lastReport?.reputationScore
+    ?? state.lastReport?.reputation?.overall
     ?? state.reputation?.overall
     ?? null;
-  if (rep != null) return Math.max(30, Math.min(95, Math.round(rep)));
+  // `rep != null` FIRST: Number(null) is 0, so testing finiteness alone would
+  // turn "no report at all" into a score of 30 instead of the default.
+  if (rep != null && Number.isFinite(Number(rep))) {
+    return Math.max(30, Math.min(95, Math.round(Number(rep))));
+  }
   return DEFAULT_QUALITY;
 }
 

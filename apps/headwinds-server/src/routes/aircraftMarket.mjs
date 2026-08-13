@@ -6,8 +6,9 @@
 //
 // Selling is NOT here — it rides the normal SELL_AIRCRAFT decision, which the
 // decisions route lists into this market in the same transaction.
-import { requireAuth } from '../auth.mjs';
+import { requireAuth, optionalAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
+import { assertWorldReadable } from '../lib/access.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
 import { buildUsedMarketView, buyUsed } from '../lib/aircraftMarketService.mjs';
@@ -39,9 +40,11 @@ export default async function aircraftMarketRoutes(fastify) {
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({
       where: { id: request.params.id },
-      select: { id: true },
+      // `visibility` rides along for the private-world gate below.
+      select: { id: true, visibility: true },
     });
     if (!world) return reply.code(404).send({ error: 'No such world' });
+    await assertWorldReadable(prisma, world, await optionalAccount(request));
     return buildUsedMarketView(prisma, world.id);
   });
 

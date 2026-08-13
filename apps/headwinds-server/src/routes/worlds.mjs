@@ -1,12 +1,15 @@
 // /worlds — browse, view, create, join, and leave worlds.
-import { requireAuth, requireAdmin, resolveAccount } from '../auth.mjs';
+import { requireAuth, requireAdmin, optionalAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { restartAirline, MAX_RESTARTS } from '../lib/restartService.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
 // The public-move allowlist and payload scrubber are shared with the news feed
 // (lib/newsService.mjs) — one definition of "what a rival may see", not two.
-import { PUBLIC_DECISIONS, publicPayload } from '../lib/publicDecisions.mjs';
+import { publicPayload, isPublicDecision } from '../lib/publicDecisions.mjs';
+// Private worlds are members-only on every per-world READ, not just in the lobby.
+import { assertWorldReadable, mayReadWorld, isWorldMember } from '../lib/access.mjs';
+import { RIVAL_PROFILE_SELECT, loadRivalProfileState } from '../lib/rivalProfile.mjs';
 import { buildNews } from '../lib/newsService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 
@@ -61,6 +64,24 @@ export default async function worldRoutes(fastify) {
     });
     if (!world) return reply.code(404).send({ error: 'No such world' });
 
+    // ── Private worlds: the CARD is public, the STANDINGS are not ────────────
+    // This page is where the join form lives, so a 404 here would make a private
+    // world unjoinable from its own invite link (the join code, checked in
+    // worldService.joinWorld, is what actually protects entry). What a
+    // non-member no longer gets is the standings table — every player's name,
+    // hub, cash, market cap, fleet, network size and rank — which was readable
+    // by anyone who had ever seen the world id. Every other per-world read
+    // (rivals, news, feed, gates, used market) is gated outright.
+    const viewer = await optionalAccount(request);
+    const viewerIsMember = viewer ? await isWorldMember(prisma, world.id, viewer.id) : false;
+    if (!mayReadWorld(world, { account: viewer, isMember: viewerIsMember })) {
+      return {
+        world: serializeWorld(world, { playerCount: world._count.airlines, includeJoinCode: false }),
+        standings: [],
+        private: true,
+      };
+    }
+
     // Egress-aware: the lobby polls this endpoint, and the state blob is by far
     // the heaviest thing on an airline row — but standings only need two counts
     // from it. Compute those counts IN the database (jsonb_array_length) so the
@@ -93,12 +114,10 @@ export default async function worldRoutes(fastify) {
     }
 
     // Optional auth: members of a private world get its join code back (so the
-    // creator can re-find it to share); everyone else never sees it.
-    let isMember = false;
-    try {
-      const account = await resolveAccount(request);
-      isMember = airlines.some((a) => a.accountId === account.id);
-    } catch { /* anonymous viewer */ }
+    // creator can re-find it to share); everyone else never sees it. Reuses the
+    // account resolved for the visibility gate above rather than verifying the
+    // token a second time.
+    const isMember = viewer ? airlines.some((a) => a.accountId === viewer.id) : false;
 
     return {
       world: serializeWorld(world, {
@@ -144,14 +163,22 @@ export default async function worldRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
+    // Explicit column list — see lib/rivalProfile.mjs. This used to be an
+    // `include` with no `select`, which dragged the airline's whole ~523 kB
+    // state blob out of Postgres on every hit of an endpoint that needed a few
+    // kB of it, with no authentication at all.
     const airline = await prisma.airline.findUnique({
       where: { id: request.params.airlineId },
-      include: { account: { select: { isOG: true, email: true } } },
+      select: RIVAL_PROFILE_SELECT,
     });
     if (!airline || airline.worldId !== request.params.id) {
       return reply.code(404).send({ error: 'No such airline in this world' });
     }
-    const s = airline.state ?? {};
+    // A private world's rivals are visible to its members only.
+    await assertWorldReadable(prisma, airline.world, await optionalAccount(request));
+
+    // The public half of the blob, projected in Postgres.
+    const s = await loadRivalProfileState(prisma, airline.id);
 
     const routes = (s.routes ?? []).map((r) => {
       const key = [r.origin, r.destination].sort().join('-');
@@ -220,7 +247,9 @@ export default async function worldRoutes(fastify) {
       fleetByType,
       rankHistory: rankHistory.reverse(),
       recentMoves: recentDecisions
-        .filter((d) => PUBLIC_DECISIONS.has(d.type))
+        // isPublicDecision, not PUBLIC_DECISIONS.has: a journalled decision the
+        // reducer REFUSED is marked `noop` and is not a move.
+        .filter(isPublicDecision)
         .slice(0, 12)
         .map((d) => ({ week: d.week, type: d.type, payload: publicPayload(d) })),
     };
@@ -246,6 +275,8 @@ export default async function worldRoutes(fastify) {
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
+    // Same gate as /worlds/:id/news — this alias serves the same content.
+    await assertWorldReadable(prisma, world, await optionalAccount(request));
     const { items, nextBefore } = await buildNews(prisma, {
       world,
       before: request.query.before,

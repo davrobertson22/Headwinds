@@ -8,7 +8,9 @@
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
-import { gameReducer, gateLeaseDenial, leaseDenial, addRouteBlockReason } from '@tailwinds/engine/reducer';
+import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
+import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
+import { journalledPayload } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
@@ -346,14 +348,19 @@ export default async function decisionRoutes(fastify) {
     const { view } = await rivalViewFor(airline, await worldStampOf(airline.worldId));
     const injected = withRivals(airline.state, view);
 
-    // Opening a passenger route: every way the engine can refuse one now has a
-    // sentence attached, so send it back as a 400 rather than replying 201 with an
+    // Opening a route: every way the engine can refuse one now has a sentence
+    // attached, so send it back as a 400 rather than replying 201 with an
     // unchanged state. Without this the client's optimistic route simply vanishes
     // on adoption and the player is told nothing — the multiplayer face of the
     // reported "clicking Open Route does nothing" bug. A 400 also makes the client
     // roll the optimistic apply back and surface the text in the action notice.
-    if (type === 'ADD_ROUTE') {
-      const reason = addRouteBlockReason(injected, { type, ...guarded });
+    //
+    // This covered ADD_ROUTE only. ADD_CARGO_ROUTE (twelve bare `return state`s)
+    // and ADD_TAG_ROUTE (thirteen) went through the silent path — same dead
+    // click, same disappearing route, in the freight and multi-stop planners.
+    // lib/routeBlocks.mjs maps all three to their engine helper.
+    {
+      const reason = routeBlockReasonFor(type, injected, { type, ...guarded });
       if (reason) throw httpError(400, reason);
     }
 
@@ -400,6 +407,11 @@ export default async function decisionRoutes(fastify) {
     }
 
     const next = gameReducer(injected, { type, ...guarded });
+    // Did this decision actually DO anything? The engine's convention is that a
+    // refusal comes back as the SAME state object, so this identity check is the
+    // authoritative answer — used below to decide what gets settled against the
+    // world float pool and what gets published as a public move.
+    const changed = next !== injected;
 
     // A capital action the pool could not fund comes back unchanged. Explain it
     // rather than leaving the player with a button that appears to do nothing.
@@ -564,7 +576,14 @@ export default async function decisionRoutes(fastify) {
         // two simultaneous sells can never both spend the same pool cash. Keyed off
         // next.lastStockTrade (what actually executed) — never the request, which
         // the reducer may have filled short or rejected outright.
-        if (isStockTrade && market && next.lastStockTrade?.shares > 0) {
+        //
+        // `changed` is load-bearing, not belt-and-braces. A REFUSED trade comes
+        // back as the same state object, which still carries the LAST successful
+        // trade's `lastStockTrade` out of the saved blob — so a refusal that the
+        // 409 explanations above do not catch (an ownership-cap breach is the
+        // reachable one) re-settled a trade that had already been settled, taking
+        // the pool's cash/inventory a second time for shares that never moved.
+        if (changed && isStockTrade && market && next.lastStockTrade?.shares > 0) {
           await applyTradeToPoolTx(tx, {
             market, trade: next.lastStockTrade, targetState: tradeTarget,
           });
@@ -573,7 +592,7 @@ export default async function decisionRoutes(fastify) {
         // Same for an executed capital action. `selfBefore` is the share state as it
         // was BEFORE the reducer ran, because that is what the pool's inventory
         // fallback is derived from.
-        if (isCapitalAction && market && next.lastEquityAction?.shares > 0) {
+        if (changed && isCapitalAction && market && next.lastEquityAction?.shares > 0) {
           await applyCapitalActionToPoolTx(tx, {
             market,
             action: next.lastEquityAction,
@@ -581,13 +600,21 @@ export default async function decisionRoutes(fastify) {
             selfBefore: { id: airline.id, ...(airline.state?.equity ?? {}) },
           });
         }
+        // The journal row is written for EVERY accepted request, refused or not
+        // — it is the audit trail, and a burst of refusals is exactly what an
+        // abuse investigation wants to see. But a refusal is not a MOVE: the
+        // reducer signals one by handing back the same state object, and the
+        // payload of a refused decision describes an event that did not happen.
+        // Journalling it verbatim let any player broadcast arbitrary text into
+        // the world news feed via a decision they knew would be refused. See
+        // journalledPayload() in lib/publicDecisions.mjs.
         await tx.decision.create({
           data: {
             worldId: airline.worldId,
             airlineId: airline.id,
             week: weekIndex(airline.world),
             type,
-            payload: journalled,
+            payload: journalledPayload(journalled, { changed }),
           },
         });
         // Used-aircraft market: a completed SELL_AIRCRAFT lists that exact tail in

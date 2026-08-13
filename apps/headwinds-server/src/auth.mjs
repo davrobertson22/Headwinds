@@ -231,6 +231,23 @@ export async function requireAuth(request) {
   request.account = await resolveAccount(request);
 }
 
+// Optional auth: the resolved Account, or null when the caller is anonymous (or
+// their token cannot be verified right now). For endpoints that serve
+// spectators but need to know WHO is asking — the private-world gate in
+// lib/access.mjs is the reason this exists.
+//
+// Fails CLOSED by design: an auth-provider outage makes this return null, so a
+// private world stops answering rather than opening up. Public worlds do not
+// consult it at all, so an outage never affects ordinary spectating.
+export async function optionalAccount(request) {
+  if (request.account) return request.account;
+  try {
+    return await resolveAccount(request);
+  } catch {
+    return null;
+  }
+}
+
 // ── Admin gate ────────────────────────────────────────────────────────────────
 // Admins are the accounts listed in the ADMIN_EMAILS env var (comma-separated,
 // case-insensitive). For now ALL game worlds are operator-controlled: players

@@ -333,9 +333,67 @@ function guardBuyHedge(payload) {
   return { durationId: opt.id, coverage };
 }
 
+// ── Freight rates ────────────────────────────────────────────────────────────
+// The cargo yield is a $/tonne-km price the client states, and the reducer used
+// to store `Math.max(0.01, Number(action.yieldPrice))` — which NaN sails
+// straight through, because Math.max(0.01, NaN) is NaN. A yieldPrice of 'abc'
+// therefore put NaN on the lane, and the first weekly tick multiplied it through
+// revenue and left the airline's cash at NaN: a one-request bank wipe, and
+// (since NaN spreads) an unrecoverable blob. The reducer now refuses a
+// non-numeric rate outright; this is the boundary half, so a malformed request
+// gets a 400 with a sentence instead of a silent refusal.
+//
+// The frequency gets the same treatment where it is present: the reducer floors
+// it at 1, so a forged 1e9 would otherwise be accepted and then clamped by slot
+// and block-hour maths that were never meant to police a hostile input.
+const CARGO_YIELD_MAX = 1_000;      // $/tonne-km; reference yields are < $1
+const CARGO_FREQ_MAX  = 1_000;      // departures/wk; slot caps bite far below this
+
+function assertCargoYield(v) {
+  const y = Number(v);
+  if (!Number.isFinite(y) || y <= 0 || y > CARGO_YIELD_MAX) {
+    throw new GuardError('Freight rate must be a positive $/tonne-km figure.');
+  }
+  return y;
+}
+
+function guardAddCargoRoute(payload) {
+  const out = { ...payload };
+  // The rate is OPTIONAL — omitted, the reducer prices the lane at its reference
+  // yield, which is the documented contract for the field. Supplied, it must be
+  // a real price.
+  if (payload.yieldPrice !== undefined) out.yieldPrice = assertCargoYield(payload.yieldPrice);
+  if (payload.weeklyFrequency !== undefined) {
+    const f = Number(payload.weeklyFrequency);
+    if (!Number.isFinite(f) || f <= 0 || f > CARGO_FREQ_MAX) {
+      throw new GuardError('Invalid weekly frequency.');
+    }
+    out.weeklyFrequency = Math.floor(f);
+  }
+  return out;
+}
+
+function guardUpdateCargoYield(payload) {
+  return {
+    routeId: String(payload.routeId ?? ''),
+    yieldPrice: assertCargoYield(payload.yieldPrice),
+  };
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'BUY_HEDGE':          return guardBuyHedge(payload);
+    case 'ADD_CARGO_ROUTE':    return guardAddCargoRoute(payload);
+    case 'UPDATE_CARGO_YIELD': return guardUpdateCargoYield(payload);
+    // Single-aircraft lease extension. EXTEND_LEASES (the batch) has been
+    // clamped to 1..520 weeks since it was written; this — the one the Fleet
+    // page actually dispatches — had no case at all, so a forged
+    // `addWeeks: 10_000_000` reached a reducer that only floored it at 0. The
+    // reducer now carries the same 520-week ceiling; this is the boundary half.
+    case 'EXTEND_LEASE':       return {
+      aircraftId: payload.aircraftId,
+      addWeeks: Math.max(1, Math.min(520, Math.round(Number(payload.addWeeks) || 52))),
+    };
     case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
     case 'SELL_AIRCRAFT_BULK':
     case 'RETIRE_AIRCRAFT_BULK': return { aircraftIds: guardAircraftIds(payload, state) };
