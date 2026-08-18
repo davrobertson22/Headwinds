@@ -125,6 +125,32 @@ const STATS_HISTORY_CAP = 1820;
 const STATS_HISTORY_CAP_MP = 260;
 
 // ─────────────────────────────────────────────
+// AIRCRAFT STATUS AFTER A ROUTE EDIT
+// ─────────────────────────────────────────────
+// Adding, closing, transferring or reassigning a route re-derives the tail's
+// status from the route table — 'assigned' if it flies something, 'idle' if it
+// doesn't. That derivation is only valid for aircraft that are ABLE to fly.
+//
+// Discord (Marcasia, 2026-08-17): "Removing all flights from a grounded plane
+// seems that it may have removed the technical issue on it." It did. The
+// grounding countdown lives in tickPrep and only runs while
+// `status === 'grounded'`, so writing 'idle' over a broken tail did not park
+// it — it cancelled the AOG outright, and the aircraft could be re-crewed the
+// same week. Transferring a grounded jet's flights onto a spare (the obvious
+// response to a breakdown) cancelled the repair the same way.
+//
+// RETIRE_AIRCRAFT and SELL_AIRCRAFT already carried this guard — "a retirement
+// elsewhere in the fleet must not yank another tail out of its repair bay" —
+// so the invariant was understood; the route actions just never applied it.
+// `extra` still lands either way: a grounded tail that takes a route has still
+// stopped being a reserve, it just hasn't stopped being broken.
+function withRouteStatus(a, next, extra = {}) {
+  return (a.status === 'retired' || isOutOfService(a))
+    ? { ...a, ...extra }
+    : { ...a, ...extra, status: next };
+}
+
+// ─────────────────────────────────────────────
 // ROUTE TRANSFER (Fleet: move every route from one tail to another)
 // ─────────────────────────────────────────────
 // Returns { ok:true } or { ok:false, reason }. Shared by the TRANSFER_ROUTES
@@ -1835,8 +1861,8 @@ function reducer(state, action) {
         routes:      state.routes.map(move),
         cargoRoutes: (state.cargoRoutes ?? []).map(move),
         fleet: state.fleet.map(a =>
-          a.id === toAircraftId   ? { ...a, status: 'assigned', reserveBase: null } :
-          a.id === fromAircraftId ? { ...a, status: 'idle' }     : a),
+          a.id === toAircraftId   ? withRouteStatus(a, 'assigned', { reserveBase: null }) :
+          a.id === fromAircraftId ? withRouteStatus(a, 'idle')                            : a),
       };
     }
 
@@ -1861,11 +1887,9 @@ function reducer(state, action) {
         fleet: state.fleet.map(a => {
           // Taking a route puts a reserve back into normal service — it is no
           // longer standing by for anyone.
-          if (a.id === toAircraftId) return { ...a, status: 'assigned', reserveBase: null };
+          if (a.id === toAircraftId) return withRouteStatus(a, 'assigned', { reserveBase: null });
           // The donor only goes idle if it gave up its last route.
-          if (a.id === fromId && !isOutOfService(a) && a.status !== 'retired') {
-            return { ...a, status: stillFlying(a.id) ? 'assigned' : 'idle' };
-          }
+          if (a.id === fromId) return withRouteStatus(a, stillFlying(a.id) ? 'assigned' : 'idle');
           return a;
         }),
       };
@@ -2061,7 +2085,7 @@ function reducer(state, action) {
           : 'active',
       };
       const updatedFleet = state.fleet.map(a =>
-        a.id === action.aircraftId ? { ...a, status: 'assigned', reserveBase: null } : a
+        a.id === action.aircraftId ? withRouteStatus(a, 'assigned', { reserveBase: null }) : a
       );
       // Price and catering are per-route (O&D pair). The first aircraft on a pair sets
       // them; additional aircraft inherit whatever the route already uses.
@@ -2177,7 +2201,7 @@ function reducer(state, action) {
         cateringLevel:   normalizeCateringLevel(action.cateringLevel ?? state.defaultCateringLevel),
       };
       const updatedFleet = state.fleet.map(a =>
-        a.id === action.aircraftId ? { ...a, status: 'assigned', reserveBase: null } : a
+        a.id === action.aircraftId ? withRouteStatus(a, 'assigned', { reserveBase: null }) : a
       );
       return {
         ...state,
@@ -2344,7 +2368,7 @@ function reducer(state, action) {
         // Only idle the aircraft if it has no remaining routes (passenger or cargo)
         const stillActive = updatedRoutes.some(r => r.aircraftId === a.id)
           || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
-        return { ...a, status: stillActive ? 'assigned' : 'idle' };
+        return withRouteStatus(a, stillActive ? 'assigned' : 'idle');
       });
       return { ...state, routes: updatedRoutes, fleet: updatedFleet };
     }
@@ -2368,7 +2392,7 @@ function reducer(state, action) {
         if (!touched.has(a.id)) return a;
         const stillActive = updatedRoutes.some(r => r.aircraftId === a.id)
           || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
-        return { ...a, status: stillActive ? 'assigned' : 'idle' };
+        return withRouteStatus(a, stillActive ? 'assigned' : 'idle');
       });
       return { ...state, routes: updatedRoutes, fleet: updatedFleet };
     }
@@ -2476,7 +2500,7 @@ function reducer(state, action) {
         cargo:           true,
       };
       const updatedFleet = state.fleet.map(a =>
-        a.id === action.aircraftId ? { ...a, status: 'assigned', reserveBase: null } : a
+        a.id === action.aircraftId ? withRouteStatus(a, 'assigned', { reserveBase: null }) : a
       );
       return {
         ...state,
@@ -2493,7 +2517,7 @@ function reducer(state, action) {
         if (a.id !== route?.aircraftId) return a;
         const stillActive = updatedCargo.some(r => r.aircraftId === a.id)
           || state.routes.some(r => r.aircraftId === a.id);
-        return { ...a, status: stillActive ? 'assigned' : 'idle' };
+        return withRouteStatus(a, stillActive ? 'assigned' : 'idle');
       });
       return { ...state, cargoRoutes: updatedCargo, fleet: updatedFleet };
     }

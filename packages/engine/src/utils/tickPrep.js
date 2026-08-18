@@ -157,10 +157,18 @@ export function prepareWeek(state, {
   const tickedFleetPre = (state.fleet ?? []).map(a => {
     const hasRoute = (state.routes ?? []).some(r => r.aircraftId === a.id)
       || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
-    if (a.status === 'grounded') {
+    // Self-heal (saves broken before the reducer guard shipped): several route
+    // actions used to rewrite `status` from the route table alone, so closing —
+    // or transferring away — a broken tail's last flight left groundedWeeksLeft
+    // intact on an aircraft this countdown no longer watched. The AOG simply
+    // stopped existing. Any tail still carrying weeks of downtime is grounded,
+    // whatever its status was last set to.
+    const stuckGrounded = (a.groundedWeeksLeft ?? 0) > 0
+      && a.status !== 'grounded' && a.status !== 'maintenance' && a.status !== 'retired';
+    if (a.status === 'grounded' || stuckGrounded) {
       const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
       if (weeksLeft <= 0) return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 };
-      return { ...a, groundedWeeksLeft: weeksLeft };
+      return { ...a, status: 'grounded', groundedWeeksLeft: weeksLeft };
     }
     if (a.status === 'maintenance') {
       const left = (a.checkWeeksLeft ?? 1) - 1;

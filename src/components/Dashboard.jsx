@@ -15,7 +15,7 @@ import BoardObjectives from './BoardObjectives.jsx';
 import InfoTip from './InfoTip.jsx';
 import { requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
-import { leasesExpiringSoon, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
+import { leasesExpiringSoon, idleFleetAlertText, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
 import {
   allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
   PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
@@ -188,9 +188,12 @@ export default function Dashboard({ onNavigate }) {
   // True cash runway: only meaningful when you're burning cash. Profitable (or
   // break-even) => cash grows, so runway is Infinity. Matches the Finance page.
   const weeksOfCash      = projectedProfit < 0 && cash > 0 ? Math.floor(cash / -projectedProfit) : Infinity;
-  // Reserves are parked deliberately — they don't belong in the "idle aircraft
-  // burning lease" alert (they have their own chip on the Fleet tab).
-  const idleAircraft     = fleet.filter(a => a.status === 'idle' && !isReserve(a)).length;
+  // Reserves are parked deliberately — they don't belong in the idle-aircraft
+  // alert (they have their own chip on the Fleet tab). The tails themselves are
+  // kept, not just the count: the alert's wording depends on whether they are
+  // leased or owned.
+  const idleFleet        = fleet.filter(a => a.status === 'idle' && !isReserve(a));
+  const idleAircraft     = idleFleet.length;
 
   // ── Cost breakdown ─────────────────────────────────────────────────────────
   // Prefer lastReport (has all buckets). Fall back to per-route projections for new games.
@@ -406,7 +409,7 @@ export default function Dashboard({ onNavigate }) {
   // exactly what was wrong and then left to rebuild the query by hand.
   const alerts = [];
   if (idleAircraft > 0)
-    alerts.push({ color: 'var(--yellow)', icon: AlertIcon, text: `${idleAircraft} idle aircraft, paying lease with no revenue`, to: 'fleet', filter: { filterChip: 'idle' } });
+    alerts.push({ color: 'var(--yellow)', icon: AlertIcon, text: idleFleetAlertText(idleFleet), to: 'fleet', filter: { filterChip: 'idle' } });
   if (isFinite(weeksOfCash) && weeksOfCash < 4)
     alerts.push({ color: 'var(--red)', icon: DotIcon, text: `Only ${weeksOfCash} weeks of cash runway remaining`, to: 'finance' });
   // The silent killer: routes are in the black, but fixed costs, financing and

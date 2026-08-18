@@ -46,3 +46,28 @@ export function leasesExpiringSoon(fleet, within = LEASE_EXPIRY_WARN_WEEKS) {
     .filter(a => isLeaseExpiring(a, within))
     .sort((a, b) => leaseRemainingWeeks(a) - leaseRemainingWeeks(b));
 }
+
+/**
+ * The Dashboard's idle-fleet alert, or null when nothing is idle.
+ *
+ * Discord (ASAS, 2026-08-18): "i have to pay lease fee on idle aircraft i own?"
+ * — screenshot of an owned A330-900neo sitting under "1 idle aircraft, paying
+ * lease with no revenue". The alert counted idle tails and then asserted a
+ * reason it had never checked. An owned aircraft pays ownership and parking,
+ * not rent, so the line was simply false for a third of the fleet, and the one
+ * player who reads their fleet page closely is exactly the player who notices.
+ *
+ * "Lease" survives where it is true — it is the sharper warning, because rent
+ * on a parked jet is pure outflow the player can end by returning it — and
+ * anything with an owned tail in it falls back to fixed costs, which covers
+ * both cases without naming the wrong one.
+ */
+export function idleFleetAlertText(idleFleet) {
+  const idle = (idleFleet ?? []).length;
+  if (idle === 0) return null;
+  const noun = `${idle} idle aircraft`;
+  const allLeased = (idleFleet ?? []).every(a => a?.ownershipType && a.ownershipType !== 'owned');
+  return allLeased
+    ? `${noun}, paying lease with no revenue`
+    : `${noun}, paying fixed costs with no revenue`;
+}
