@@ -34,7 +34,6 @@ import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
 import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
-         leaseBuyoutPrice,
          lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF } from './data/aircraft.js';
 import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
@@ -86,6 +85,7 @@ import {
 import { tickCompetitorAI, retainedProfit, FIRE_SALE_PREMIUM, competitorMarketingSpend } from './models/competitorAI.js';
 import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
 import { tickEncroachment } from './models/encroachment.js';
+import { leaseBuyoutQuote } from './models/leaseBuyout.js';
 import {
   tickFuelPrice,
   clampFuelIndex,
@@ -105,7 +105,7 @@ import {
   getLoanProduct, loanProductForTerm, loanRate, borrowingCapacity,
   unencumberedOwnedFleet, isPledged, loanSecuredOn,
 } from './data/credit.js';
-import { routeLaunchCost, DEPRECIATION_YEARS, valueRemaining,
+import { routeLaunchCost, valueRemaining,
          marketingAwarenessGain, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
          campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
@@ -1908,11 +1908,13 @@ function reducer(state, action) {
     case 'SELL_AIRCRAFT_BULK':
     case 'RETIRE_AIRCRAFT_BULK':
     case 'SCHEDULE_CHECKS':
+    case 'BUY_OUT_LEASES':
     case 'EXTEND_LEASES': {
       const singleOf = {
         SELL_AIRCRAFT_BULK:   'SELL_AIRCRAFT',
         RETIRE_AIRCRAFT_BULK: 'RETIRE_AIRCRAFT',
         SCHEDULE_CHECKS:      'SCHEDULE_CHECK',
+        BUY_OUT_LEASES:       'BUY_OUT_LEASE',
         EXTEND_LEASES:        'EXTEND_LEASE',
       };
       const single = singleOf[action.type];
@@ -3016,8 +3018,10 @@ function reducer(state, action) {
       // weekly rent, and it can later be sold like any owned jet).
       const aircraft = state.fleet.find(a => a.id === action.aircraftId);
       if (!aircraft || aircraft.ownershipType !== 'lease') return state;
-      const type        = getAircraftType(aircraft.typeId);
-      const buyoutPrice = leaseBuyoutPrice(aircraft, type, DEPRECIATION_YEARS);
+      // Same quote the Fleet panel showed the player. models/leaseBuyout.js
+      // prices off airframeNAV — the exact valuation SELL_AIRCRAFT pays out on —
+      // so buying a jet out and selling it back can never turn a profit.
+      const buyoutPrice = leaseBuyoutQuote(state, aircraft).price;
       if (state.cash < buyoutPrice) return state;   // can't afford — no-op
       return {
         ...state,
@@ -3664,11 +3668,19 @@ function reducer(state, action) {
           const remaining = (a.leaseRemainingWeeks ?? 0) - 1;
           // Warn at 8 and 4 weeks remaining
           if (remaining === 8 || remaining === 4) {
-            const type = getAircraftType(a.typeId);
+            // Name all three ways out, in the order a player would want them.
+            // Discord (Lancelotbronner, 2026-08-18): "I had a stressful 2
+            // in-game years replacing end-of-lease with newly built planes as
+            // they were expiring" — on a build that already shipped a buyout
+            // button. This toast is where he would have found it and it only
+            // ever mentioned renewing and returning.
+            const buyout = leaseBuyoutQuote(state, a).price;
             leaseWarningToasts.push({
               type:     'warning',
               title:    `⏳ Lease expiring — ${a.name}`,
-              message:  `${remaining} weeks remaining on ${a.name}'s lease. Renew in Fleet or pay early-termination fees to return.`,
+              message:  `${remaining} weeks remaining on ${a.name}'s lease. In Fleet you can extend it, `
+                      + `buy the aircraft outright for ${buyout.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}, or let it go back `
+                      + `(4 weeks' rent redelivery, and its routes close).`,
               duration: 8000,
             });
           }

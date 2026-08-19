@@ -29,6 +29,7 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // its single-aircraft case in the reducer, so they inherit its guards; the
   // decision guard below only sanitizes the id list.
   'SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK', 'SCHEDULE_CHECKS', 'EXTEND_LEASES',
+  'BUY_OUT_LEASES',
   'RENEW_LEASE', 'EXTEND_LEASE', 'BUY_OUT_LEASE', 'ORDER_AIRCRAFT', 'CANCEL_ORDER', 'RENAME_ORDER',
   'SCHEDULE_CHECK', 'CANCEL_SCHEDULED_CHECK',
   'SET_RESERVE', 'CLEAR_RESERVE',

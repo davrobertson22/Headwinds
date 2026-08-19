@@ -448,7 +448,7 @@ export default function Dashboard({ onNavigate }) {
     const soonest = expiringLeases[0];
     alerts.push({
       color: 'var(--yellow)', icon: AlertIcon,
-      text: `${expiringLeases.length} lease${expiringLeases.length !== 1 ? 's' : ''} expiring within ${LEASE_EXPIRY_WARN_WEEKS} weeks (soonest ${soonest.name}, ${soonest.leaseRemainingWeeks}w) · renew or their routes close`,
+      text: `${expiringLeases.length} lease${expiringLeases.length !== 1 ? 's' : ''} expiring within ${LEASE_EXPIRY_WARN_WEEKS} weeks (soonest ${soonest.name}, ${soonest.leaseRemainingWeeks}w) · extend, buy out, or their routes close`,
       to: 'fleet', filter: { filterChip: 'expiring' },
     });
   }

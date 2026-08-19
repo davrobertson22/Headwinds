@@ -261,6 +261,9 @@ export default function WeeklyDebrief() {
                   +{expiringLeases.length - 5} more within {LEASE_EXPIRY_WARN_WEEKS} weeks — see Fleet
                 </div>
               )}
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+                In Fleet you can extend a lease free, or buy the aircraft outright and keep it.
+              </div>
             </div>
           </div>
         )}

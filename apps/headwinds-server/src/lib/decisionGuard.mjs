@@ -396,6 +396,7 @@ export function guardDecision(type, payload, state) {
     };
     case 'SCHEDULE_CHECK':     return guardScheduleCheck(payload, state);
     case 'SELL_AIRCRAFT_BULK':
+    case 'BUY_OUT_LEASES':
     case 'RETIRE_AIRCRAFT_BULK': return { aircraftIds: guardAircraftIds(payload, state) };
     case 'SCHEDULE_CHECKS':    return {
       aircraftIds: guardAircraftIds(payload, state),

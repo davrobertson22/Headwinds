@@ -3333,21 +3333,13 @@ export function leaseTermRateMultiplier(weeks) {
   return nearest.rateMult;
 }
 
-/**
- * Cost to purchase a leased aircraft out of its lease: current depreciated market
- * value (NAV) + early-buyout premium − the security deposit already on file.
- * Shared by the reducer (BUY_OUT_LEASE) and the Fleet UI so the quoted price and
- * the charged price can never diverge. `depreciationYears` defaults to 30 (the
- * engine's DEPRECIATION_YEARS); pass it explicitly to stay in lock-step.
- */
-export function leaseBuyoutPrice(aircraft, type, depreciationYears = 30) {
-  const ageYears  = (aircraft?.ageWeeks ?? 0) / 52;
-  const remaining = Math.max(0.1, 1 - ageYears / depreciationYears);
-  const nav       = Math.round((type?.purchasePrice ?? 0) * remaining);
-  const depositCredit = aircraft?.leaseDeposit
-    ?? ((aircraft?.weeklyLease ?? type?.weeklyLease ?? 0) * LEASE_DEPOSIT_WEEKS);
-  return Math.max(0, Math.round(nav * (1 + LEASE_BUYOUT_PREMIUM)) - depositCredit);
-}
+// The buyout PRICE lives in models/leaseBuyout.js, not here. It used to be a
+// function on this file that computed its own NAV off raw airframe age, which
+// double-discounted every type that arrives already used and made 108 of 164
+// types profitable to lease, buy out and immediately resell. Pricing an
+// airframe is a model concern that needs the maintenance modifier and the
+// current week, neither of which belongs in the data table — see
+// models/leaseBuyout.js and tools/lease-buyout-test.mjs.
 
 // ─── New World Restrictions: lessor stock + order book ────────────────────────
 //
