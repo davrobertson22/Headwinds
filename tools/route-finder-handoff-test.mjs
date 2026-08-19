@@ -180,7 +180,9 @@ test('the finder opens expanded on its own screen', () => {
   finderHtml = render(React.createElement(RouteFinderScreen));
   assert.ok(finderHtml.includes('Where is the demand?'), 'the screen intro is missing');
   assert.ok(finderHtml.includes('Sort by'), 'the finder rendered collapsed — its controls are absent');
-  assert.match(finderHtml, /unserved route/, 'no results table: the scan never ran');
+  // The finder counts MARKETS, not airport pairs: sibling airports in one metro
+  // share a single pool, so "N unserved routes" was double-counting them.
+  assert.match(finderHtml, /markets? from/, 'no results table: the scan never ran');
   assert.ok(!finderHtml.includes('▾ Show'),
     'the show/hide toggle is still there — on its own tab there is nothing to unfold');
 });

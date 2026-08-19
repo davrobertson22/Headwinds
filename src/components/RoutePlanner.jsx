@@ -443,6 +443,11 @@ export default function RoutePlanner() {
     consumeNavFilter('planner');
     if (nav.origin) setOrigin(nav.origin);
     if (nav.dest) setDest(nav.dest);
+    // The type the finder was searching with. The reachability guard below still
+    // has the last word — if this plane cannot reach the pair the planner falls
+    // back to its own default rather than rendering economics for an impossible
+    // route — so an out-of-date intent cannot strand the screen.
+    if (nav.typeId) setSelectedTypeId(nav.typeId);
     setFares({});
   }, []);
 
@@ -759,7 +764,11 @@ export default function RoutePlanner() {
     const playerShare  = shareResults.find(s => s.airlineId === 'player');
 
     return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare,
-             shared: projection.shared, pairRouteCount: projection.pairRouteCount };
+             shared: projection.shared, pairRouteCount: projection.pairRouteCount,
+             lanePooled: projection.lanePooled, siblingPairs: projection.siblingPairs ?? [],
+             rivalCount: projection.rivalCount ?? 0,
+             pairPassengers: projection.pairPassengers, lanePassengers: projection.lanePassengers,
+             laneDemand: projection.laneDemand };
   }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest]);
 
   // Gate + slot position at each endpoint for the planned frequency, measured the
@@ -1098,6 +1107,74 @@ export default function RoutePlanner() {
                 {/* Results */}
                 {simulation && (
                   <>
+                    {/* ── Why the numbers below are smaller than the market ──
+                        "how come net profit comes down if i add more aircraft to
+                        the same route" — ASAS, Discord. Because a market is a
+                        fixed number of travellers a week, and every aircraft you
+                        put on it competes for the SAME ones: the second tail
+                        splits the pool rather than doubling it, while paying a
+                        second lease. The tick has always worked this way; the
+                        planner just never said so, and showed a per-route profit
+                        falling with no visible cause.
+
+                        The metro half is the other question from the same thread:
+                        "multiple airports in the same city still show a large
+                        demand but none of the routes are profitable, are they
+                        linked?" (Lancelotbronner). They are — JFK–LHR and EWR–LHR
+                        are one New York↔London market. */}
+                    {(() => {
+                      // Two different facts wear the same badge, and saying the
+                      // wrong one is worse than saying nothing: a lane can be
+                      // pooled because YOU are already on it, or because a RIVAL
+                      // is on it from the other airport in town. Only the first is
+                      // "you are already in this market".
+                      const yours = simulation.shared || simulation.siblingPairs.length > 0;
+                      if (!yours && !simulation.lanePooled) return null;
+                      return (
+                        <div style={{
+                          background: yours ? 'rgba(210,153,34,0.10)' : 'rgba(56,139,253,0.10)',
+                          border: `1px solid ${yours ? 'rgba(210,153,34,0.35)' : 'rgba(56,139,253,0.35)'}`,
+                          borderRadius: 'var(--radius)',
+                          padding: '10px 14px', marginBottom: 12,
+                          display: 'flex', gap: 10, alignItems: 'flex-start',
+                        }}>
+                          <span style={{ fontSize: 16, flexShrink: 0 }}><Glyph e="🔗" /></span>
+                          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                            <div style={{ fontWeight: 700, color: yours ? 'var(--yellow)' : 'var(--accent)', marginBottom: 3 }}>
+                              {yours ? 'You are already in this market' : 'This city pair is flown from other airports too'}
+                            </div>
+                            {simulation.siblingPairs.length > 0 && (
+                              <>You fly <strong>{simulation.siblingPairs.join(', ')}</strong>, which serves the
+                              same city pair from a different airport — {originAirport.city} and {destAirport.city}
+                              {' '}each have one pool of travellers, however many airports they have. </>
+                            )}
+                            {simulation.shared && (
+                              <>{simulation.pairRouteCount - 1} of your aircraft already fl{simulation.pairRouteCount === 2 ? 'ies' : 'y'} {origin}–{dest}. </>
+                            )}
+                            {!yours && (
+                              <>{simulation.rivalCount} carrier{simulation.rivalCount === 1 ? '' : 's'} serve{simulation.rivalCount === 1 ? 's' : ''} it,
+                              some of them from a different airport in {originAirport.city} or {destAirport.city} — which is why the
+                              competitor table above can look emptier than the market feels. They are all in the forecast. </>
+                            )}
+                            {yours && (
+                              <>The forecast below is this aircraft's <em>slice</em> of that pool, not a fresh market:
+                              adding capacity splits the traffic and adds a lease, so per-route profit falls even
+                              when the airline's total rises. Check the pair total before adding metal. </>
+                            )}
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 6, fontSize: 12 }}>
+                              {yours && simulation.pairPassengers != null && (
+                                <span>Your {origin}–{dest} total: <strong>{simulation.pairPassengers.toLocaleString()}</strong> pax/wk
+                                  {' '}across {simulation.pairRouteCount} aircraft</span>
+                              )}
+                              {simulation.laneDemand > 0 && (
+                                <span>Market: <strong>{simulation.laneDemand.toLocaleString()}</strong> pax/wk,
+                                  {' '}<strong>{simulation.lanePassengers.toLocaleString()}</strong> already carried</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
 
                       {/* Economics grid */}

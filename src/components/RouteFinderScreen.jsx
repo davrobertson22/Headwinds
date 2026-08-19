@@ -33,8 +33,12 @@ export default function RouteFinderScreen() {
 
   // The planner is a destination, not a consequence: nothing is parked until the
   // player clicks Plan on a specific pair.
-  const planPair = (m) => (origin, dest) =>
-    requestNav('planner', { filter: { mode: m, origin, dest } });
+  // The aircraft rides along. The finder now searches WITH a plane — range,
+  // runway and the profit forecast all depend on which one — so handing the pair
+  // over without it made the planner re-guess, and land on a different type than
+  // the row the player clicked.
+  const planPair = (m) => (origin, dest, typeId) =>
+    requestNav('planner', { filter: { mode: m, origin, dest, typeId } });
 
   return (
     <div>

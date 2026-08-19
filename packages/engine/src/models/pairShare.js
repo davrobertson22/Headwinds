@@ -35,6 +35,7 @@ import {
   HUB_TIERS,
 } from './demand.js';
 import { buildEncroachmentOffer } from './encroachment.js';
+import { memberPairKeysOf } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
 import { getAircraftType } from '../data/aircraft.js';
 import {
@@ -211,6 +212,23 @@ export function buildRivalPairOffers(state, market) {
   return offers;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// METRO LANE — the preview's half of weeklyTick's one-fight-per-metro-pair rule
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The player's nonstop routes on one airport pair. */
+function routesOnPair(state, key) {
+  return (state.routes ?? []).filter(
+    (r) => pairKeyOf(r.origin, r.destination) === key && !isMultiStop(r));
+}
+
+/** Does anyone other than the player fly this exact airport pair? */
+function pairHasRival(state, key) {
+  if ((state.humanRivals?.[key] ?? []).length > 0) return true;
+  if (state.encroachments?.[key]) return true;
+  return (state.competitors ?? []).some((c) => c?.routes?.[key]);
+}
+
 /**
  * Demand-model market share for one city pair.
  *
@@ -265,17 +283,87 @@ export function pairMarketShare(state, origin, destination, opts = {}) {
 
   const playerOffer = buildPlayerPairOffer(state, pairRoutes);
   const rivalOffers = buildRivalPairOffers(state, market);
-  const offers = [...(playerOffer ? [playerOffer] : []), ...rivalOffers];
+
+  // ── Metro lane: ONE share fight per metro pair, exactly as weeklyTick runs it
+  //
+  // data/metros.js prices every member pair of a metro pair at the same metro
+  // total — New York↔London is one market however you fly it — and the tick's
+  // pre-pass fights over it once: one player offer PER MEMBER PAIR SERVED (your
+  // JFK and your EWR services are genuinely different products chasing the same
+  // travellers), with rivals scanned across EVERY member pair.
+  //
+  // This preview scanned the queried airport pair and nothing else. On a lane
+  // where the competition sits at the sibling field it therefore reported an
+  // empty market. Measured on a fixture with a rival flying JFK–LHR and the
+  // player pricing up EWR–LHR:
+  //
+  //     preview  6,160 pax  100.0% load  +$3,131,886/wk   "no competitors"
+  //     tick     4,633 pax   75.2% load  +$1,642,215/wk
+  //
+  // — a 33% passenger and $1.49M/wk overstatement, on a screen that also told
+  // the player the lane was uncontested. Reported in Discord by Lancelotbronner:
+  // "multiple airports in the same city still show a large demand but none of
+  // the routes are profitable, are they linked?". They are, and now the preview
+  // says so.
+  //
+  // The engagement guard mirrors the tick's exactly: a lane carrying fewer than
+  // two player presences and no rival at an UNSERVED sibling field keeps the
+  // historical exact-pair path, so nothing off a real metro lane moves.
+  const laneKeys = memberPairKeysOf(origin, destination).filter((k) => k !== key);
+  const siblingPlayerOffers = [];
+  const siblingRivalOffers  = [];
+  const siblingPairs = [];
+  let   siblingRouteCount = 0;
+  let   unservedSiblingRival = false;
+  for (const k of laneKeys) {
+    const rs    = routesOnPair(state, k);
+    const rival = pairHasRival(state, k);
+    if (rs.length === 0 && !rival) continue;
+    if (rs.length === 0) unservedSiblingRival = true;
+    if (rs.length > 0) {
+      const o = buildPlayerPairOffer(state, rs);
+      if (o) {
+        siblingPlayerOffers.push(o);
+        siblingPairs.push(k);
+        siblingRouteCount += rs.length;
+      }
+    }
+    if (rival) {
+      // Every member pair prices at the metro total by construction, and the
+      // tick gives the whole lane ONE maturity — the queried pair's. Rebuilding
+      // the sibling's market rather than reusing this one keeps its own event
+      // multiplier, which is what the tick's per-key buildRouteMarket does.
+      const [ka, kb] = k.split('-');
+      siblingRivalOffers.push(...buildRivalPairOffers(state,
+        buildRouteMarket(ka, kb, gameDate, market.maturityFactor ?? 1,
+          stateDemandMult(state, ka, kb))));
+    }
+  }
+  const lanePooled =
+    (pairRoutes.length + siblingRouteCount) >= 2 || unservedSiblingRival;
+
+  // The queried pair's offer goes FIRST and stays first: on a pooled lane your
+  // own sibling services are `airlineId: 'player'` too (the tick names them the
+  // same way), so POSITION, not id, is what identifies this pair's result.
+  const laneSiblings = lanePooled ? siblingPlayerOffers : [];
+  const laneRivals   = lanePooled
+    ? [...rivalOffers, ...siblingRivalOffers]
+    : rivalOffers;
+  const offers = [...(playerOffer ? [playerOffer] : []), ...laneSiblings, ...laneRivals];
   if (offers.length === 0) {
     return { market, offers, results: [], playerResult: null,
-             playerShare: null, totalPax: 0, contested: false };
+             playerShare: null, playerLaneShare: null, totalPax: 0, contested: false,
+             lanePooled: false, laneRivalCount: 0, siblingPairs: [] };
   }
 
   const results = computeMarketShare(market, offers);
-  const playerResult = playerOffer
-    ? results.find((r) => r.airlineId === 'player') ?? null
-    : null;
+  const playerResult = playerOffer ? (results[0] ?? null) : null;
   const totalPax = results.reduce((s, r) => s + (r.totalPax ?? 0), 0);
+  // Everything YOUR airline carries in the lane — this pair plus your sibling
+  // fields. Indexed off the same offer order the array was built in.
+  const siblingBase = playerOffer ? 1 : 0;
+  const playerLanePax = (playerResult?.totalPax ?? 0)
+    + laneSiblings.reduce((s, _o, i) => s + (results[siblingBase + i]?.totalPax ?? 0), 0);
 
   return {
     market,
@@ -287,8 +375,20 @@ export function pairMarketShare(state, origin, destination, opts = {}) {
     playerShare: playerResult && totalPax > 0
       ? playerResult.totalPax / totalPax
       : playerResult ? 1 : null,
+    // Your WHOLE airline's slice of the metro lane, sibling airports included.
+    playerLaneShare: totalPax > 0 ? playerLanePax / totalPax : null,
     totalPax,
-    contested: rivalOffers.length > 0,
+    contested: laneRivals.length > 0,
+    // True when the tick's metro pre-pass would engage on this lane. A caller
+    // building a route forecast must then take a pooled SLICE rather than let
+    // simulateRoute run its own whole-pool fight — that second fight is what
+    // handed a sibling-airport launch the entire metro market a second time.
+    lanePooled,
+    laneRivalCount: laneRivals.length,
+    // Member pairs of this lane you already serve, e.g. ['JFK-LHR'] when pricing
+    // up EWR–LHR. The planner names them so "why is my demand lower than the
+    // market figure?" has a visible answer.
+    siblingPairs,
   };
 }
 
@@ -324,6 +424,17 @@ function sliceForRoute(pooled, route, aircraft, pairRoutes, fleet) {
   return {
     leisurePax:      Math.round((pooled.leisurePax      ?? 0) * ecoFrac),
     businessPax:     Math.round((pooled.businessPax     ?? 0) * bizFrac),
+    // PRE-CAP demand rides along, exactly as weeklyTick's demandAllocations do.
+    // simulateRoute's load model spills against the demand the MARKET generated,
+    // not against the seat count: hand it only the capped figures and a
+    // capacity-capped lane looks like a lane with demand equal to its seats, so
+    // the spill model trims a route the tick does not. Measured on a two-airport
+    // New York↔London lane: preview 5,379 pax against the tick's 5,789 (-7.1%),
+    // purely from the missing uncapped fields. The tick has always passed them;
+    // this slice simply never did, which stayed invisible while the only pooled
+    // previews were same-pair ones sitting at 100% load.
+    leisurePaxUncapped:  Math.round((pooled.leisurePaxUncapped  ?? pooled.leisurePax  ?? 0) * ecoFrac),
+    businessPaxUncapped: Math.round((pooled.businessPaxUncapped ?? pooled.businessPax ?? 0) * bizFrac),
     economyRevenue:  Math.round((pooled.economyRevenue  ?? 0) * ecoFrac),
     businessRevenue: Math.round((pooled.businessRevenue ?? 0) * bizFrac),
     leisureShare:    pooled.leisureShare,
@@ -380,7 +491,12 @@ function sliceForRoute(pooled, route, aircraft, pairRoutes, fleet) {
  *   launch: object|null,      // simulateRoute result in week 0
  *   shared: boolean,          // pair already flown by another of your tails
  *   pairRouteCount: number,   // your routes on the pair INCLUDING this one
- *   rivalCount: number,
+ *   pairPassengers: number|null,  // what the whole pair carries, this tail included
+ *   lanePassengers: number,       // what the whole metro lane carries, everyone
+ *   laneDemand: number,           // the lane's pooled weekly demand
+ *   rivalCount: number,        // rivals in the whole METRO lane, not just the pair
+ *   lanePooled: boolean,       // the tick's metro pre-pass engages on this lane
+ *   siblingPairs: string[],    // member pairs of the lane you already serve
  *   ceilingApplies: boolean,  // NWR load model is scaling this route down
  * }|null}
  */
@@ -491,9 +607,16 @@ export function projectRouteAddition(state, spec) {
       weeksOpen,
     });
     if (!share.playerResult) return { result: null, share };
-    // Mirror the tick: a pair flown by a single tail runs simulateRoute's own
-    // demand path; only a genuinely shared pair needs the pooled split.
-    const override = pairRoutes.length >= 2
+    // Mirror the tick: a pair flown by a single tail with nothing else in its
+    // metro lane runs simulateRoute's own demand path; a shared pair — or ANY
+    // pooled lane — needs the pooled split instead.
+    //
+    // `share.lanePooled` is the half that was missing. The tick hands every
+    // member group of a pooled lane a demandOverride even when that member pair
+    // flies a single tail, because the metro pair has already been fought over.
+    // Without it, a launch at a sibling airport fell through to simulateRoute's
+    // own whole-pool fight and was quoted the entire metro market a second time.
+    const override = (pairRoutes.length >= 2 || share.lanePooled)
       ? sliceForRoute(share.playerResult, previewRoute, aircraft, pairRoutes, fleetPlus)
       : null;
     const hubQ = hubQualityFor(state, origin, destination);
@@ -553,7 +676,22 @@ export function projectRouteAddition(state, spec) {
     launch: launch.result,
     shared: others.length > 0,
     pairRouteCount: pairRoutes.length,
-    rivalCount: mature.share.offers.length - 1,
+    // What the WHOLE pair carries once this tail joins it, and what the whole
+    // metro lane carries between everyone on it. The per-route figures above are
+    // a slice of the first; without them on hand a planner can show a second
+    // aircraft's profit falling and have no way to say why. "how come net profit
+    // comes down if i add more aircraft to the same route" — ASAS, Discord.
+    pairPassengers: mature.share.playerResult?.totalPax ?? null,
+    pairRevenue: mature.share.playerResult
+      ? Math.round((mature.share.playerResult.economyRevenue ?? 0)
+                 + (mature.share.playerResult.businessRevenue ?? 0))
+      : null,
+    lanePassengers: mature.share.totalPax,
+    laneDemand: Math.round((mature.share.market?.leisureDemand ?? 0)
+                         + (mature.share.market?.businessDemand ?? 0)),
+    rivalCount: mature.share.laneRivalCount,
+    lanePooled: mature.share.lanePooled,
+    siblingPairs: mature.share.siblingPairs,
     ceilingApplies: !!state.newWorldRestrictions,
   };
 }
