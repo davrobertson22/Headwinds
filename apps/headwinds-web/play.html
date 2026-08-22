@@ -7,19 +7,144 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0b0e13" />
-    <title>Play Headwinds — Worlds &amp; Lobbies</title>
-    <meta name="description" content="Sign in, pick a persistent world, and found your airline. Every rival is a real player. The Headwinds multiplayer lobby." />
+    <title>Play Headwinds — Join a Persistent Multiplayer World</title>
+    <meta name="description" content="Sign in, pick a persistent world, and found your airline. Up to 50 real players per world, a server clock that runs 24/7, and no AI opponents. Free in your browser." />
     <link rel="canonical" href="https://www.headwindsairlinegame.com/play" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
     <meta name="google-adsense-account" content="ca-pub-5123198950074938" />
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5123198950074938" crossorigin="anonymous"></script>
+
+    <meta property="og:title" content="Play Headwinds — Join a Persistent Multiplayer World" />
+    <meta property="og:description" content="Up to 50 real players per world, a server clock that runs 24/7, and no AI opponents. Free in your browser." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.headwindsairlinegame.com/play" />
+    <meta property="og:image" content="https://www.headwindsairlinegame.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
 
     <!-- Vercel Web Analytics (route added by Vercel when Analytics is enabled) -->
     <script>
       window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
     </script>
     <script defer src="/_vercel/insights/script.js"></script>
+
+    <!-- #play-info below is a real, always-rendered part of this page: it exists
+         before any JavaScript runs and it is never removed. That is deliberate.
+         Until 2026-08-22 this file was 1,247 bytes of <div id="root"> and six
+         words of text, so to anything that does not execute the bundle — Google's
+         index, the AdSense reviewer, a link preview — the game's own URL was a
+         blank page, and the whole site read as a landing page with no product
+         behind it. Every rule here is scoped under #play-info so none of it can
+         reach the game UI in #root; the min-height on #root keeps this section
+         a full screen below the app, out of a player's way. -->
+    <style>
+      #root { min-height: 100vh; }
+      #play-info { border-top: 1px solid #263143; background: #0b0e13; color: #c3cddb; font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; line-height: 1.6; font-size: 15px; }
+      #play-info .wrap { max-width: 1080px; margin: 0 auto; padding: 0 22px; }
+      #play-info a { color: #5fe0cc; }
+      #play-info h2 { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 1.5rem; color: #e8edf4; margin: 0 0 10px; letter-spacing: -0.2px; }
+      #play-info h3 { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 1.02rem; color: #38c9b4; margin: 0 0 6px; }
+      #play-info p { margin: 0 0 14px; }
+      #play-info .lead { color: #c3cddb; max-width: 68ch; }
+      #play-info .eyebrow { color: #38c9b4; font-size: 0.76rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; margin: 0 0 12px; }
+      #play-info section { padding: 44px 0; border-bottom: 1px solid #1b2330; }
+      #play-info section:last-of-type { border-bottom: 0; }
+      #play-info .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 22px; }
+      #play-info .card { background: #141a23; border: 1px solid #263143; border-radius: 10px; padding: 18px 20px; }
+      #play-info .card p { margin: 0; font-size: 14.5px; color: #8b98ab; }
+      #play-info ol { margin: 18px 0 0; padding-left: 20px; max-width: 78ch; }
+      #play-info ol li { margin-bottom: 12px; }
+      #play-info ol li b { color: #e8edf4; }
+      #play-info .facts { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 0 0 6px; color: #8b98ab; font-size: 0.92rem; }
+      #play-info .facts span::before { content: "✓ "; color: #38c9b4; }
+      #play-info .links { display: flex; flex-wrap: wrap; gap: 10px 20px; padding: 26px 0; font-size: 0.93rem; }
+      #play-info .links a { color: #8b98ab; text-decoration: none; }
+      #play-info .links a:hover { color: #5fe0cc; }
+      #play-info .footnote { color: #66748a; font-size: 12.5px; line-height: 1.65; padding-bottom: 34px; margin: 0; max-width: 90ch; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="play-info">
+      <div class="wrap">
+        <section>
+          <p class="eyebrow">The lobby</p>
+          <h2>What you are joining</h2>
+          <p class="lead">Headwinds is a free multiplayer airline management game that runs entirely in your browser. Sign in above with Google or a one-time email link, pick one of the open worlds, and found an airline at any airport on Earth. There is nothing to download and nothing to pay for.</p>
+          <p class="lead">A world is a shared map with room for up to 50 airlines, and every one of them is another person. There are no AI carriers anywhere in the standings. If you and a rival both fly the same city pair, the passengers on it are split between you according to your fares, your frequency and the quality of what you are offering — so the person on the other end of that route can and will price back.</p>
+          <div class="facts">
+            <span>Free to play</span>
+            <span>No download</span>
+            <span>1,500+ real airports</span>
+            <span>100+ real aircraft</span>
+            <span>Up to 50 airlines per world</span>
+            <span>No AI opponents</span>
+          </div>
+        </section>
+
+        <section>
+          <h2>How a world runs</h2>
+          <p class="lead">Worlds advance on a server clock rather than a button you press. One game week passes every hour or few, around the clock, whether or not you are logged in — so a world you joined on Sunday has moved on by Monday, and the network you left behind has been earning or bleeding money the whole time without you.</p>
+          <div class="grid">
+            <div class="card">
+              <h3>Set it up to survive you</h3>
+              <p>You are not expected to sit and watch the clock. Fares, frequencies, fleet orders and cargo lanes all persist. The skill is leaving a network that holds up for the days you are away.</p>
+            </div>
+            <div class="card">
+              <h3>Alliances are player-run</h3>
+              <p>Nothing is scripted. Players found alliances, vote on who joins, and share partner feed on connecting traffic and a demand boost where their networks overlap — against a weekly fee that keeps it a real decision.</p>
+            </div>
+            <div class="card">
+              <h3>Diplomacy is part of it</h3>
+              <p>Message rivals directly or talk in alliance chat. Negotiate a truce over a contested route, split a region, coordinate hubs — or say one thing and do another.</p>
+            </div>
+            <div class="card">
+              <h3>Seasons end</h3>
+              <p>A world runs about 50 game years and then stops. The final standings are the record of it, and the next world starts everyone from nothing again.</p>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Your first hour</h2>
+          <ol>
+            <li><b>Sign in and pick a world.</b> Each open world shows its pace, how far along it already is, and how many airline slots are left. A world that has been running for years is harder to enter than a fresh one, so if this is your first airline, take the newest.</li>
+            <li><b>Choose a hub.</b> Any airport on the map. A mega-hub gives you enormous demand and established rivals from day one; a quieter secondary airport gives you routes nobody is contesting yet and time to build. Both work, and they are genuinely different games.</li>
+            <li><b>Lease before you buy.</b> Starting capital goes further on leases, and an aircraft you have committed to for years is a bet on a route still being worth flying in three game years' time.</li>
+            <li><b>Open a few short routes and watch a full week.</b> Load factors, yields and rival moves all land at the tick. Read one week properly before adding a second aircraft.</li>
+          </ol>
+        </section>
+
+        <section>
+          <h2>Before you take off</h2>
+          <p class="lead">The <a href="/how-to-play.html">how-to-play guide</a> walks through joining a world and opening your first routes. The <a href="/strategy.html">strategy guide</a>, <a href="/route-economics.html">route economics</a> and <a href="/hub-strategy.html">hub strategy</a> pages go deeper on pricing against real people and defending a hub. The <a href="/aircraft.html">aircraft guides</a> list every type in the game with its real in-game seats, range and operating economics. The <a href="/rules.html">fair play rules</a> cover conduct and multi-accounting, and the <a href="/faq.html">FAQ</a> answers most of what comes up in the first week. New changes land in the <a href="/devlog.html">devlog</a>.</p>
+        </section>
+
+        <div class="links">
+          <a href="/">Home</a>
+          <a href="/how-to-play.html">How to Play</a>
+          <a href="/strategy.html">Strategy</a>
+          <a href="/aircraft.html">Aircraft</a>
+          <a href="/glossary.html">Glossary</a>
+          <a href="/faq.html">FAQ</a>
+          <a href="/rules.html">Rules</a>
+          <a href="/devlog.html">Devlog</a>
+          <a href="/best-airline-management-games.html">Best Airline Games</a>
+          <a href="/about.html">About</a>
+          <a href="/contact.html">Contact</a>
+          <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a>
+          <a href="/privacy.html">Privacy</a>
+          <a href="/terms.html">Terms</a>
+        </div>
+        <p class="footnote">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>. Headwinds is the multiplayer companion to Tailwinds, built on the same simulation engine. AI was used in the development of this game: core mechanics were designed by humans, while much of the coding and scaling of designs was done with LLMs.</p>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

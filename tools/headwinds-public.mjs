@@ -302,6 +302,27 @@ function stripTailwindsOnly(html, f) {
   return out;
 }
 
+// Google AdSense on EVERY generated page. Two parts, and BOTH are required:
+// the google-adsense-account meta (site verification / ownership) and the
+// adsbygoogle.js loader (what actually serves an ad). Until 2026-08-22 this
+// domain carried the meta tag on exactly two pages and the loader on none, so
+// there was no ad code anywhere on the site for a reviewer to find — which is
+// part of why AdSense kept answering "Low value content". Tailwinds puts both
+// on every public page; this mirrors it. Idempotent: skips a page that already
+// has the loader, so a synced Tailwinds page arriving with its own tags is left
+// alone rather than double-tagged.
+const ADSENSE_CLIENT = 'ca-pub-5123198950074938';
+const ADSENSE_SNIPPET = `  <meta name="google-adsense-account" content="${ADSENSE_CLIENT}" />
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}" crossorigin="anonymous"></script>
+`;
+function injectAdSense(html) {
+  if (html.includes('adsbygoogle.js?client=')) return html;
+  if (!html.includes('</head>')) { console.warn('  \u26a0 no </head> found; AdSense snippet not injected'); return html; }
+  const meta = `  <meta name="google-adsense-account" content="${ADSENSE_CLIENT}" />\n`;
+  const snippet = html.includes('google-adsense-account') ? ADSENSE_SNIPPET.replace(meta, '') : ADSENSE_SNIPPET;
+  return html.replace('</head>', `${snippet}</head>`);
+}
+
 const ANALYTICS_SNIPPET = `  <!-- Vercel Web Analytics -->
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
@@ -410,7 +431,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectSocialMeta(injectAnalytics(injectBrandLogo(injectRulesLink(before))), f);
+  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectRulesLink(before)))), f);
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 
@@ -464,12 +485,18 @@ Headwinds is free to play at https://${DOMAIN}/ — sign in with Google or an em
 - [Devlog](https://${DOMAIN}/devlog.html): player-facing changelog
 `);
 const today = new Date().toISOString().slice(0, 10);
-// /play is the JS app shell (sign-in + lobby) — thin, low-value to index, so it
-// stays out of the sitemap. It remains reachable via the landing CTA + rewrite.
+// /play used to be excluded here as "the JS app shell — thin, low-value to
+// index". That was true of a 1,247-byte <div id="root"> and it is no longer:
+// apps/headwinds-web/play.html now carries the site nav, a real description of
+// what a world is and how a season runs, and the footer, all outside #root and
+// so present before any JavaScript runs. Leaving the game's own URL out of the
+// sitemap while it is the page every player uses is what made this site look
+// like a landing page with no product behind it.
+//
 // Cross-canonicaled pages stay out of the sitemap — a sitemap should only list
 // URLs whose canonical is on this domain.
-const pages = ['', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
-const prio = (p) => p === '' ? '1.0' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
+const pages = ['', 'play', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
+const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
   pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
