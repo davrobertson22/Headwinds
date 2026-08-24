@@ -13,6 +13,7 @@ import { prisma } from './db.mjs';
 import { isTransientTxError } from './lib/tx.mjs';
 import meRoutes from './routes/me.mjs';
 import playerRoutes from './routes/players.mjs';
+import accountMessageRoutes from './routes/accountMessages.mjs';
 import worldRoutes from './routes/worlds.mjs';
 import newsRoutes from './routes/news.mjs';
 import decisionRoutes from './routes/decisions.mjs';
@@ -91,6 +92,7 @@ export function buildServer() {
 
   app.register(meRoutes);
   app.register(playerRoutes);
+  app.register(accountMessageRoutes);
   app.register(worldRoutes);
   app.register(newsRoutes);
   app.register(decisionRoutes);

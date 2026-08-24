@@ -26,6 +26,87 @@ function httpError(statusCode, message) {
 }
 
 export default async function reportRoutes(fastify) {
+  // ── Report from ACCOUNT MESSAGES — no world context at all ────────────────
+  // Same categories, same rate limit, same open-report dedupe — backed by its
+  // own partial unique index (worldId IS NULL), since the world-scoped one
+  // treats NULL as always-distinct. The airline ids stay null: the account is
+  // what gets banned, and there is no airline in an account DM.
+  fastify.post('/reports/account', {
+    preHandler: requireAuth,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['accountId', 'category'],
+        properties: {
+          accountId: { type: 'string' },
+          category: { type: 'string', enum: REPORT_CATEGORIES },
+          details: { type: 'string', maxLength: REPORT_DETAILS_MAX_LENGTH },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { accountId, category } = request.body;
+    const details = (request.body.details ?? '').trim() || null;
+    if (accountId === request.account.id) {
+      throw httpError(400, 'You cannot report your own account');
+    }
+    const target = await prisma.account.findUnique({
+      where: { id: accountId },
+      select: { id: true },
+    });
+    if (!target) throw httpError(404, 'No such player');
+
+    // Rolling rate limit shared with world reports — one reporter, one budget.
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recent = await prisma.report.count({
+      where: { reporterAccountId: request.account.id, createdAt: { gte: oneHourAgo } },
+    });
+    if (recent >= REPORT_RATE_LIMIT_PER_HOUR) {
+      throw httpError(429, `Rate limit: max ${REPORT_RATE_LIMIT_PER_HOUR} reports per hour`);
+    }
+
+    const openWhere = {
+      worldId: null,
+      reporterAccountId: request.account.id,
+      reportedAccountId: target.id,
+      status: 'OPEN',
+    };
+    const existing = await prisma.report.findFirst({ where: openWhere });
+    if (existing) {
+      await prisma.report.update({
+        where: { id: existing.id },
+        data: { category, details: details ?? existing.details },
+      });
+      return reply.code(200).send({ ok: true, id: existing.id, alreadyReported: true });
+    }
+
+    try {
+      const report = await prisma.report.create({
+        data: {
+          worldId: null,
+          reporterAccountId: request.account.id,
+          reportedAccountId: target.id,
+          category,
+          details,
+        },
+      });
+      return reply.code(201).send({ ok: true, id: report.id });
+    } catch (e) {
+      // Lost the create race — fold into the row the other request created.
+      if (e?.code === 'P2002') {
+        const open = await prisma.report.findFirst({ where: openWhere });
+        if (open) {
+          await prisma.report.update({
+            where: { id: open.id },
+            data: { category, details: details ?? open.details },
+          });
+          return reply.code(200).send({ ok: true, id: open.id, alreadyReported: true });
+        }
+      }
+      throw e;
+    }
+  });
+
   fastify.post('/worlds/:id/report', {
     preHandler: requireAuth,
     schema: {

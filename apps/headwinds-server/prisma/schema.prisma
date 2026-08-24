@@ -34,6 +34,16 @@ enum AirlineStatus {
   ABANDONED
 }
 
+// Who may open an account-level DM conversation with this player.
+// SHARED_WORLD is the default: anyone you have ever shared a world with —
+// past seasons included — which keeps cold-contact spam off new players
+// without walling off the people they actually played against.
+enum DmPolicy {
+  EVERYONE
+  SHARED_WORLD
+  NOBODY
+}
+
 model Account {
   id          String    @id @default(cuid())
   authUserId  String    @unique // Supabase auth user id (token `sub`)
@@ -59,6 +69,8 @@ model Account {
   // on lower("username") in migration 20260824100000_player_usernames; the
   // @unique here is only the case-sensitive companion Prisma can express.
   username String? @unique
+  // Account-level DM privacy (player profiles, phase 3). See enum DmPolicy.
+  dmPolicy DmPolicy @default(SHARED_WORLD)
   airlines    Airline[]
   nameChanges NameChange[]
   reportsMade Report[]  @relation("ReportsMade")
@@ -298,6 +310,37 @@ model MessageCursor {
   allianceSeenAt DateTime?
 }
 
+// ── Account-level messaging (player profiles, phase 3) ───────────────────────
+// The world-less sibling of Message: account → account, reachable from any
+// profile, surviving every season. Deliberately a PARALLEL system rather than
+// a retrofit — world DMs stay airline-scoped and world-scoped. Bare ids, same
+// as MessageBlock: accounts are never deleted in practice, and the moderation
+// path works on account ids directly.
+model AccountMessage {
+  id            String    @id @default(cuid())
+  fromAccountId String
+  toAccountId   String
+  body          String
+  createdAt     DateTime  @default(now())
+  readAt        DateTime? // read marker (set when the recipient opens the thread)
+
+  @@index([toAccountId, readAt]) // inbox + unread counts (the /me piggyback)
+  @@index([fromAccountId, createdAt]) // rate limiting + sent side of threads
+  @@index([toAccountId, createdAt]) // received side of threads
+}
+
+// "accountId never wants to hear from blockedAccountId again" — the
+// account-level twin of MessageBlock. An account block outranks everything,
+// including a permissive dmPolicy.
+model AccountMessageBlock {
+  id               String   @id @default(cuid())
+  accountId        String
+  blockedAccountId String
+  createdAt        DateTime @default(now())
+
+  @@unique([accountId, blockedAccountId])
+}
+
 // ── Player reports: one player flags another for a rule violation. An admin ──
 // ── reviews these in the moderation panel and may ban the reported account. ──
 
@@ -309,7 +352,9 @@ enum ReportStatus {
 
 model Report {
   id                String       @id @default(cuid())
-  worldId           String
+  // Null for reports filed from ACCOUNT MESSAGES (phase 3) — those have no
+  // world context at all; the airline ids below are null there too.
+  worldId           String?
   // Who filed it (the account) and the airline they were flying as.
   reporterAccountId String
   reporterAirlineId String?
@@ -323,7 +368,7 @@ model Report {
   resolvedByEmail   String? // which admin resolved it
   resolutionNote    String? // e.g. "banned" / "dismissed — not actionable"
   createdAt         DateTime     @default(now())
-  world             World        @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  world             World?       @relation(fields: [worldId], references: [id], onDelete: Cascade)
   reporter          Account      @relation("ReportsMade", fields: [reporterAccountId], references: [id], onDelete: Cascade)
   reported          Account      @relation("ReportsAgainst", fields: [reportedAccountId], references: [id], onDelete: Cascade)
 

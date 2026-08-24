@@ -23,6 +23,29 @@ export default async function meRoutes(fastify) {
       },
       orderBy: { createdAt: 'desc' },
     });
+    // Account-inbox unread count, piggybacked so the shell badge costs no
+    // extra polling loop. Blocked senders don't count. Tolerant of a database
+    // that predates the account-messages migration — the badge is not worth
+    // failing the app's boot call over.
+    let unreadMessages = 0;
+    try {
+      const blocks = await prisma.accountMessageBlock.findMany({
+        where: { accountId: account.id },
+        select: { blockedAccountId: true },
+      });
+      unreadMessages = await prisma.accountMessage.count({
+        where: {
+          toAccountId: account.id,
+          readAt: null,
+          ...(blocks.length > 0
+            ? { fromAccountId: { notIn: blocks.map((b) => b.blockedAccountId) } }
+            : {}),
+        },
+      });
+    } catch (err) {
+      request.log?.warn?.({ err }, 'unread account-message count unavailable');
+    }
+
     return {
       account: {
         id: account.id,
@@ -37,6 +60,8 @@ export default async function meRoutes(fastify) {
         // lobby). Display everywhere is username ?? displayName.
         username: account.username ?? null,
       },
+      // Unread account-level DMs (the ✉ badge in the lobby header).
+      unreadMessages,
       // Seasons finished, and what they came to. Badges are DERIVED here rather
       // than stored (see lib/career.mjs) so the rule can change without a
       // migration and the client can never disagree about who has earned one.

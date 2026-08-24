@@ -10,6 +10,7 @@ import OgBadge, { DevBadge } from './OgBadge.jsx';
 import CareerPanel from './CareerPanel.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import UsernameCard from './UsernameCard.jsx';
+import AccountInboxWidget from './AccountInbox.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -1036,7 +1037,7 @@ function ModerationScreen({ token, me }) {
                   <span className="muted"> ({r.reported.email})</span>
                   {r.reported.bannedAt && <span className="chip chip-banned"> banned</span>}
                   {' '}reported by <strong>{r.reporter.airline?.name ?? r.reporter.displayName}</strong>
-                  <span className="muted"> in {r.world?.name ?? 'a world'}</span>
+                  <span className="muted">{r.world ? ` in ${r.world.name ?? 'a world'}` : ' via account messages'}</span>
                 </p>
 
                 {r.details && <p className="mod-details">“{r.details}”</p>}
@@ -1293,6 +1294,10 @@ export default function App() {
   }, [token]);
   useEffect(() => { refreshMe(); }, [refreshMe]);
 
+  // A profile's "✉ Message" button routes to the inbox widget through this
+  // one-shot request (consumed by the widget once it opens the thread).
+  const [messageTo, setMessageTo] = useState(null);
+
   const signOut = () => supabase?.auth.signOut();
 
   // The game owns the whole viewport — no lobby shell around it.
@@ -1320,6 +1325,11 @@ export default function App() {
         </a>
         {session ? (
           <div className="row">
+            <AccountInboxWidget
+              token={token}
+              requestThread={messageTo}
+              onConsumeRequest={() => setMessageTo(null)}
+            />
             {me?.account?.isAdmin && <a href="#/admin" className="btn small">🛡 Admin</a>}
             <span className="muted">
               {me?.account?.username ?? me?.account?.displayName ?? session.user.email}
@@ -1336,7 +1346,13 @@ export default function App() {
           {!session && <SignIn />}
           {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><UsernameCard me={me} token={token} refreshMe={refreshMe} /><CareerPanel career={me?.career} accountId={me?.account?.id} /></>}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
-          {route.screen === 'player' && <PlayerProfileScreen accountId={route.accountId} token={token} />}
+          {route.screen === 'player' && (
+            <PlayerProfileScreen
+              accountId={route.accountId} token={token}
+              onMessage={me?.account?.id && me.account.id !== route.accountId
+                ? (id) => setMessageTo(id) : null}
+            />
+          )}
           {route.screen === 'admin' && <ModerationScreen token={token} me={me} />}
           {route.screen === 'report' && <ReportScreen token={token} me={me} />}
         </>

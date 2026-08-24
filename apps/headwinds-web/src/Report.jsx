@@ -14,7 +14,9 @@ export const REPORT_CATEGORIES = [
   { value: 'OTHER', label: 'Something else' },
 ];
 
-export function ReportDialog({ worldId, token, airlineId, airlineName, onClose }) {
+// Two modes: world context (worldId + airlineId — the original path) or
+// account context (accountId — reports filed from account messages, no world).
+export function ReportDialog({ worldId = null, token, airlineId = null, airlineName, accountId = null, onClose }) {
   const [category, setCategory] = useState('HARASSMENT');
   const [details, setDetails] = useState('');
   const [busy, setBusy] = useState(false);
@@ -25,10 +27,17 @@ export function ReportDialog({ worldId, token, airlineId, airlineName, onClose }
     ev.preventDefault();
     setBusy(true); setError(null);
     try {
-      await api(`/worlds/${worldId}/report`, {
-        method: 'POST', token,
-        body: { airlineId, category, ...(details.trim() ? { details: details.trim() } : {}) },
-      });
+      if (accountId) {
+        await api('/reports/account', {
+          method: 'POST', token,
+          body: { accountId, category, ...(details.trim() ? { details: details.trim() } : {}) },
+        });
+      } else {
+        await api(`/worlds/${worldId}/report`, {
+          method: 'POST', token,
+          body: { airlineId, category, ...(details.trim() ? { details: details.trim() } : {}) },
+        });
+      }
       setDone(true);
     } catch (e) { setError(e); }
     setBusy(false);
@@ -38,7 +47,7 @@ export function ReportDialog({ worldId, token, airlineId, airlineName, onClose }
     <div className="hw-modal-overlay" onClick={onClose}>
       <div className="hw-modal" onClick={(e) => e.stopPropagation()}>
         <div className="hw-modal-head">
-          <h3>Report {airlineName || 'this airline'}</h3>
+          <h3>Report {airlineName || (accountId ? 'this player' : 'this airline')}</h3>
           <button className="hw-modal-close" onClick={onClose} title="Close">×</button>
         </div>
 

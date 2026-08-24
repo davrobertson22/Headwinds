@@ -47,8 +47,8 @@ export default async function adminRoutes(fastify) {
       take: 200,
       include: {
         world: { select: { id: true, name: true } },
-        reporter: { select: { id: true, email: true, displayName: true } },
-        reported: { select: { id: true, email: true, displayName: true, bannedAt: true, banReason: true } },
+        reporter: { select: { id: true, email: true, displayName: true, username: true } },
+        reported: { select: { id: true, email: true, displayName: true, username: true, bannedAt: true, banReason: true } },
       },
     });
 
@@ -85,13 +85,13 @@ export default async function adminRoutes(fastify) {
         world: r.world,
         reporter: {
           accountId: r.reporter.id,
-          displayName: r.reporter.displayName,
+          displayName: r.reporter.username ?? r.reporter.displayName,
           email: r.reporter.email,
           airline: airlineById.get(r.reporterAirlineId) ?? null,
         },
         reported: {
           accountId: r.reported.id,
-          displayName: r.reported.displayName,
+          displayName: r.reported.username ?? r.reported.displayName,
           email: r.reported.email,
           bannedAt: r.reported.bannedAt,
           banReason: r.reported.banReason,

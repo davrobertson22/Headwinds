@@ -50,7 +50,7 @@ function Figure({ label, value }) {
   );
 }
 
-export default function PlayerProfileScreen({ accountId, token, onClose = null }) {
+export default function PlayerProfileScreen({ accountId, token, onClose = null, onMessage = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -83,12 +83,12 @@ export default function PlayerProfileScreen({ accountId, token, onClose = null }
   }
   if (!data) return <p className="muted">Loading profile…</p>;
 
-  return <PlayerProfileView data={data} onClose={onClose} />;
+  return <PlayerProfileView data={data} onClose={onClose} onMessage={onMessage} />;
 }
 
 // The pure rendering half — exported so the test suite can SSR it with a
 // fixture payload (the screen's data arrives via fetch, which SSR never runs).
-export function PlayerProfileView({ data, onClose = null }) {
+export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
   const { player, badges = [], trophies = [], totals, seasons = [], current = [] } = data;
 
   return (
@@ -98,6 +98,14 @@ export function PlayerProfileView({ data, onClose = null }) {
           <h2 style={{ margin: 0 }}>{player.displayName}</h2>
           {player.dev ? <DevBadge /> : null}
           {player.isOG ? <OgBadge /> : null}
+          {/* Account-level DM — the shell provides onMessage only for OTHER
+              players' profiles, and only where the inbox lives (the lobby). */}
+          {onMessage && (
+            <button className="btn small" style={{ marginLeft: 'auto' }}
+              onClick={() => onMessage(player.id)} title="Send this player a message">
+              ✉ Message
+            </button>
+          )}
         </div>
         {fmtDate(player.memberSince) && (
           <p className="muted small" style={{ marginTop: 4 }}>
