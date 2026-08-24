@@ -6,6 +6,7 @@
 //   node --import ./tools/_register-loader.mjs tools/news-render-test.mjs
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 
@@ -18,7 +19,7 @@ globalThis.localStorage = {
   clear: () => store.clear(),
 };
 
-const { default: News } = await import('../src/components/News.jsx');
+const { default: News, compose } = await import('../src/components/News.jsx');
 const { RemoteGameProvider } = await import('../src/store/GameContext.jsx');
 
 let passed = 0, failed = 0;
@@ -31,7 +32,7 @@ const ITEMS = [
   {
     id: 'i1', at: new Date().toISOString(), year: 2, week: 14, category: 'fleet',
     kind: 'fleet_in', tier: 1, airlineId: 'a2', airline: 'Sky Blue',
-    data: { total: 12, byType: { b738: 12 }, ordered: true },
+    data: { total: 12, byType: { b737800: 12 }, ordered: true },
   },
   {
     id: 'i2', at: new Date().toISOString(), year: 2, week: 14, category: 'routes',
@@ -97,8 +98,7 @@ test('survives a failing API without crashing the tab', () => {
   assert.ok(html.includes('News'));
 });
 
-test('composes a real sentence for every item kind the server emits', async () => {
-  const { compose } = await import('../src/components/News.jsx');
+test('composes a real sentence for every item kind the server emits', () => {
   const say = (it) => {
     const c = compose(it);
     const subject = c.standalone ? (c.subject ?? '') : (it.airline ?? c.subject ?? '');
@@ -109,7 +109,7 @@ test('composes a real sentence for every item kind the server emits', async () =
   // aircraft must be named, not printed as its internal id.
   const order = say(ITEMS[0]);
   assert.match(order, /Sky Blue ordered 12× /);
-  assert.ok(!order.includes('b738'), `raw typeId leaked: ${order}`);
+  assert.ok(!order.includes('b737800'), `raw typeId leaked: ${order}`);
 
   assert.equal(say(ITEMS[1]), 'Condor Air opened 6 routes from DEN');
   assert.equal(say(ITEMS[2]), 'Fuel Price Spike');
@@ -149,7 +149,8 @@ test('composes a real sentence for every item kind the server emits', async () =
     'routes_opened', 'routes_closed', 'fleet_in', 'fleet_out',
     'gates_added', 'gates_removed', 'hub_designated', 'hub_upgraded', 'focus_city',
     'stock_tape', 'gate_auction_opened', 'gate_auction_won', 'gate_auction_unsold', 'gate_sold',
-    'used_aircraft_sold', 'joined', 'refounded', 'alliance_founded', 'alliance_joined', 'alliance_left',
+    'used_aircraft_sold', 'joined', 'refounded', 'world_ended', 'year_in_review',
+    'alliance_founded', 'alliance_joined', 'alliance_left',
   ];
   for (const kind of KINDS) {
     const c = compose({ kind, airline: 'Test Air', data: { direction: 'in', pairs: [], total: 1, byType: {} } });
@@ -163,10 +164,28 @@ test('composes a real sentence for every item kind the server emits', async () =
     say({ kind: 'refounded', airline: 'Phoenix Air', data: { hub: 'ORD' } }),
     'Phoenix Air is back — re-founded · hub ORD',
   );
+
+  // The season-end ceremony crowns the champion and lists the awards.
+  const ended = compose({
+    kind: 'world_ended',
+    data: { championName: 'Alpha Air', finishers: 12, awards: [{ icon: '👑', name: 'Bravo Jet' }] },
+  });
+  assert.equal(ended.subject, 'Alpha Air');
+  assert.match(ended.headline, /champion/);
+  assert.match(ended.sub, /Bravo Jet/);
+
+  // Year in review names the leader and the biggest climber.
+  const yir = compose({
+    kind: 'year_in_review',
+    data: { year: 3, leader: { name: 'Alpha Air' }, topMover: { name: 'Charlie Sky', climb: 4, to: 2 } },
+  });
+  assert.match(yir.subject, /Year 3/);
+  assert.match(yir.headline, /Alpha Air leads/);
+  assert.match(yir.sub, /Charlie Sky/);
 });
 
-test('the tab is registered in the app shell, multiplayer only', async () => {
-  const src = await import('node:fs').then((fs) => fs.readFileSync('src/App.jsx', 'utf8'));
+test('the tab is registered in the app shell, multiplayer only', () => {
+  const src = readFileSync('src/App.jsx', 'utf8');
   assert.ok(src.includes("id: 'news'"), 'news is a tab');
   assert.ok(src.includes("NAV_GROUPS.filter((g) => g.id !== 'news')"), 'hidden in solo');
   assert.ok(src.includes('news:        <News />'), 'the tab renders the component');

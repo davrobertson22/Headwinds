@@ -112,6 +112,7 @@ function baseTier(item) {
     case 'alliance_founded': case 'gate_auction_won':
     case 'gate_auction_unsold': case 'gate_forfeited':
     case 'hub_designated': case 'hub_upgraded':
+    case 'world_ended': case 'year_in_review':
       return 1;
     case 'joined':
       return 3;

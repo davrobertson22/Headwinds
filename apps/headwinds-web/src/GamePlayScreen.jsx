@@ -26,6 +26,7 @@ import PlayerProfileScreen from './PlayerProfile.jsx';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
+import SeasonResults from './SeasonResults.jsx';
 import '../../../src/index.css';
 
 // Live countdown to the server's next weekly tick. Derived from worldClock
@@ -279,6 +280,19 @@ export default function GamePlayScreen({ worldId, token }) {
   // own account). One `/me` read on mount — this is NOT polled.
   const [messageTo, setMessageTo] = useState(null);
   const [meAccountId, setMeAccountId] = useState(null);
+
+  // End-of-season ceremony: when the world has ENDED, open the honours-roll
+  // overlay once on arrival (the player can dismiss it to browse the frozen
+  // game, and reopen it from the topbar). `ceremonySeen` keeps a later poll from
+  // popping it back up after a manual dismiss.
+  const [showCeremony, setShowCeremony] = useState(false);
+  const [ceremonySeen, setCeremonySeen] = useState(false);
+  useEffect(() => {
+    if (meta?.worldStatus === 'ENDED' && !ceremonySeen) {
+      setShowCeremony(true);
+      setCeremonySeen(true);
+    }
+  }, [meta?.worldStatus, ceremonySeen]);
   useEffect(() => {
     if (!token) return;
     let live = true;
@@ -544,6 +558,13 @@ export default function GamePlayScreen({ worldId, token }) {
             {String(error.message || error)}
           </span>
         ) : null}
+        {meta?.worldStatus === 'ENDED' && (
+          <button
+            className="hw-lobby-link" onClick={() => setShowCeremony(true)}
+            title="See the final results and season awards"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', color: 'inherit' }}
+          >🏁 <span className="hw-btn-label">Results</span></button>
+        )}
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
         <MessagesWidget worldId={worldId} token={token} onViewPlayer={openProfile} />
@@ -602,6 +623,25 @@ export default function GamePlayScreen({ worldId, token }) {
               onMessage={meAccountId && meAccountId !== profileAccountId
                 ? (id) => { setProfileAccountId(null); setMessageTo(id); } : null}
             />
+          </div>
+        </div>,
+        document.body
+      )}
+      {/* End-of-season ceremony overlay — same portal treatment as the profile,
+          because the topbar's backdrop-filter makes the game a containing block
+          for position:fixed. */}
+      {showCeremony && createPortal(
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setShowCeremony(false); }}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000,
+                   background: 'rgba(0,0,0,.55)', overflowY: 'auto',
+                   padding: '32px 16px' }}
+        >
+          <div className="shell" style={{ maxWidth: 720, margin: '0 auto' }}>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn small" onClick={() => setShowCeremony(false)}>✕ Close</button>
+            </div>
+            <SeasonResults worldId={worldId} token={token} myAirlineId={meta?.airlineId ?? null} />
           </div>
         </div>,
         document.body

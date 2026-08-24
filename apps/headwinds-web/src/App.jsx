@@ -11,6 +11,7 @@ import CareerPanel from './CareerPanel.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import UsernameCard from './UsernameCard.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
+import SeasonResults from './SeasonResults.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -546,12 +547,18 @@ function AdminWorldsManager({ token }) {
 function WorldsScreen({ token, me }) {
   const [worlds, setWorlds] = useState(null);
   const [error, setError] = useState(null);
+  // Concluded seasons — the hall of fame. Fetched once (they don't change),
+  // each stamped with its champion by the server.
+  const [concluded, setConcluded] = useState(null);
 
   const load = useCallback(() => {
     api('/worlds').then((d) => setWorlds(d.worlds)).catch(setError);
   }, []);
   useEffect(() => { load(); }, [load]);
   useVisibleInterval(load, 15000);
+  useEffect(() => {
+    api('/worlds?status=ENDED').then((d) => setConcluded(d.worlds)).catch(() => {});
+  }, []);
 
   const myWorldIds = new Set((me?.airlines ?? []).map((a) => a.worldId));
 
@@ -623,6 +630,29 @@ function WorldsScreen({ token, me }) {
             ))}
           </tbody>
         </table>
+      )}
+      {concluded?.length > 0 && (
+        <>
+          <div className="list-head" style={{ marginTop: 24 }}>
+            <h2>Concluded seasons</h2>
+          </div>
+          <p className="muted small">Finished worlds and their champions — click through for the full honours roll.</p>
+          <table className="worlds">
+            <thead>
+              <tr><th>World</th><th>Champion</th><th>Length</th><th /></tr>
+            </thead>
+            <tbody>
+              {concluded.map((w) => (
+                <tr key={w.id}>
+                  <td><a href={`#/w/${w.id}`}>{w.name}</a><StageChip stage={w.stage ?? 'beta'} /></td>
+                  <td>{w.champion ? <><span aria-hidden="true">🏆 </span>{w.champion}</> : <span className="muted">—</span>}</td>
+                  <td className="muted">{w.progress?.totalYears ? `${w.progress.totalYears} yr` : '—'}</td>
+                  <td><button className="btn small" onClick={() => goTo(`/w/${w.id}`)}>Results</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
       {token && me?.account?.isAdmin && <AdminWorldsManager token={token} />}
     </>
@@ -914,7 +944,15 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       )}
       {!token && <div className="card"><p className="muted">Sign in above to join this world.</p></div>}
 
-      <h3>Standings</h3>
+      {world.status === 'ENDED' && (
+        <SeasonResults
+          worldId={world.id} token={token}
+          myAirlineId={mine?.id ?? dead?.id ?? null}
+          preloaded={data}
+        />
+      )}
+
+      <h3>{world.status === 'ENDED' ? 'Final standings' : 'Standings'}</h3>
       <p className="muted small">Every airline below is a real player. Click one to see their network, fleet and recent moves.</p>
       {standings.length === 0 ? <p className="muted">No airlines yet, be the first to join.</p> : (
         <table className="worlds">

@@ -215,6 +215,27 @@ export function compose(item) {
       return { icon: '🛬', headline: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}` };
     case 'refounded':
       return { icon: '🔁', headline: `is back — re-founded${d.hub ? ` · hub ${d.hub}` : ''}` };
+    case 'world_ended':
+      return {
+        icon: '🏁', subject: d.championName ?? 'The season',
+        headline: d.championName
+          ? `is champion — the season has ended`
+          : 'The season has ended',
+        sub: (d.awards?.length ?? 0) > 0
+          ? d.awards.map((a) => `${a.icon} ${a.name}`).join(' · ')
+          : (d.finishers != null ? `${d.finishers} airlines finished` : null),
+        standalone: true,
+      };
+    case 'year_in_review':
+      return {
+        icon: '📅', subject: `Year ${d.year ?? ''}`.trim(),
+        headline: 'in review'
+          + (d.leader?.name ? ` — ${d.leader.name} leads` : ''),
+        sub: d.topMover?.name
+          ? `Biggest climber: ${d.topMover.name} (up ${d.topMover.climb} to #${d.topMover.to})`
+          : null,
+        standalone: true,
+      };
     case 'alliance_founded':
       return { icon: '🤝', subject: d.alliance, headline: 'alliance founded', standalone: true };
     case 'alliance_joined':

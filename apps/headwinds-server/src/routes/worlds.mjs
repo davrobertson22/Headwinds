@@ -49,10 +49,27 @@ export default async function worldRoutes(fastify) {
     const worlds = await prisma.world.findMany({
       where,
       include: { _count: { select: { airlines: true } } },
-      orderBy: { startedAt: 'desc' },
+      // Concluded seasons read best newest-ended first; live worlds newest-started.
+      orderBy: status === 'ENDED' ? { endedAt: 'desc' } : { startedAt: 'desc' },
       take: 100,
     });
-    return { worlds: worlds.map((w) => serializeWorld(w, { playerCount: w._count.airlines })) };
+    // Concluded-seasons list (hall of fame): stamp each world with its champion,
+    // read from the durable world_ended news row in one batched query. Only for
+    // an explicit ENDED request, so the live lobby list pays nothing.
+    let championByWorld = new Map();
+    if (status === 'ENDED' && worlds.length > 0) {
+      const rows = await prisma.worldNews.findMany({
+        where: { worldId: { in: worlds.map((w) => w.id) }, kind: 'world_ended' },
+        select: { worldId: true, payload: true },
+      });
+      championByWorld = new Map(rows.map((r) => [r.worldId, r.payload?.championName ?? null]));
+    }
+    return {
+      worlds: worlds.map((w) => ({
+        ...serializeWorld(w, { playerCount: w._count.airlines }),
+        ...(status === 'ENDED' ? { champion: championByWorld.get(w.id) ?? null } : {}),
+      })),
+    };
   });
 
   // ── World detail + standings ──────────────────────────────────────────────
@@ -133,11 +150,27 @@ export default async function worldRoutes(fastify) {
     // token a second time.
     const isMember = viewer ? airlines.some((a) => a.accountId === viewer.id) : false;
 
+    // Season honours roll — served alongside the (now final) standings so the
+    // end-of-season screen renders from one fetch. Read from the durable
+    // world_ended news row the last tick wrote; null on a world that ended
+    // before this feature, in which case the screen falls back to the podium
+    // it can derive from standings.
+    let seasonAwards = null;
+    if (world.status === 'ENDED') {
+      const row = await prisma.worldNews.findFirst({
+        where: { worldId: world.id, kind: 'world_ended' },
+        orderBy: { createdAt: 'desc' },
+        select: { payload: true },
+      });
+      seasonAwards = row?.payload ?? null;
+    }
+
     return {
       world: serializeWorld(world, {
         playerCount: world._count.airlines,
         includeJoinCode: isMember,
       }),
+      seasonAwards,
       standings: airlines.map((a, i) => ({
         rank: i + 1,
         id: a.id,

@@ -22,6 +22,7 @@ import {
 } from './gateService.mjs';
 import { scrapStale } from './aircraftMarketService.mjs';
 import { snapshotWorldCareers, passengerTotalsFrom } from './careerService.mjs';
+import { computeSeasonAwards } from './seasonAwards.mjs';
 import { expireStaleOffers } from './codeshareService.mjs';
 import { fireSaleAirline } from './fireSaleService.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
@@ -547,6 +548,58 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       }
     }
 
+    // ── Year in review ───────────────────────────────────────────────────────
+    // At 8 weeks/day a game year is ~6.5 real days — a natural weekly beat the
+    // game never marked. `newWeek === 1 && toIndex > 1` is "a new game year just
+    // began"; it can never coincide with the final tick (that lands on week 52),
+    // so this never doubles up with the world-end ceremony. For EVERY world, not
+    // just scarcity ones. Post-commit and best-effort — a news failure never
+    // rolls back the week.
+    if (newWeek === 1 && toIndex > 1 && !ended) {
+      try {
+        const ranked = outcome.ranked ?? [];
+        // Rank a year ago, to name who climbed the most. One indexed read.
+        let priorRank = new Map();
+        try {
+          const prior = await prisma.standing.findMany({
+            where: { worldId: world.id, week: toIndex - WEEKS_PER_YEAR },
+            select: { airlineId: true, rank: true },
+          });
+          priorRank = new Map(prior.map((p) => [p.airlineId, p.rank]));
+        } catch (err) {
+          log.warn?.(`[tick] world ${world.id} year-review prior-rank read failed: ${err?.message ?? err}`);
+        }
+        let topMover = null;
+        ranked.forEach((r, i) => {
+          const was = priorRank.get(r.airlineId);
+          if (was == null) return;
+          const climb = was - (i + 1);
+          if (climb > 0 && (topMover == null || climb > topMover.climb)) {
+            topMover = { airlineId: r.airlineId, name: r.name, climb, from: was, to: i + 1 };
+          }
+        });
+        if (ranked.length > 0) {
+          const svpsScoreToDollars = (s) => (Number(s) || 0) / 10_000;
+          await prisma.worldNews.create({
+            data: {
+              worldId: world.id, week: toIndex, category: 'world',
+              kind: 'year_in_review', airlineId: ranked[0].airlineId,
+              payload: {
+                year: newYear - 1,
+                airlines: ranked.length,
+                leader: { airlineId: ranked[0].airlineId, name: ranked[0].name, svps: svpsScoreToDollars(ranked[0].svpsScore) },
+                podium: ranked.slice(0, 3).map((r, i) => ({ rank: i + 1, airlineId: r.airlineId, name: r.name })),
+                topMover,
+              },
+              tier: 1,
+            },
+          });
+        }
+      } catch (err) {
+        log.error(`[tick] world ${world.id} year-in-review write failed (week still committed):`, err?.message ?? err);
+      }
+    }
+
     // ── A season's result, banked ────────────────────────────────────────────
     // The final tick used to flip `status: 'ENDED'` and stop. Seven real months
     // of play left no trace on the account that played them, which is why the
@@ -570,6 +623,48 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         });
       } catch (err) {
         log.error(`[tick] world ${world.id} career snapshot failed (world still ENDED):`, err?.message ?? err);
+      }
+
+      // The season's honours roll — a durable tier-1 news row that is also the
+      // end-of-season screen's and the hall of fame's data source. Separate
+      // try/catch from the career snapshot: neither is worth rolling back a
+      // committed week, and one failing must not skip the other. category
+      // 'world' is mandatory — buildNews never reads any other WorldNews bucket
+      // (newsService.mjs). An ENDED world never ticks again, so this row is
+      // never swept by the retention pass.
+      try {
+        // Weeks-at-#1 per airline, one grouped scan over the world's whole rank
+        // history (Standing is indexed on [worldId, week, rank]). Once in a
+        // world's lifetime.
+        let tenureById = new Map();
+        try {
+          const held = await prisma.standing.groupBy({
+            by: ['airlineId'],
+            where: { worldId: world.id, rank: 1 },
+            _count: { _all: true },
+          });
+          tenureById = new Map(held.map((h) => [h.airlineId, h._count?._all ?? 0]));
+        } catch (err) {
+          log.warn?.(`[tick] world ${world.id} #1-tenure lookup failed: ${err?.message ?? err}`);
+        }
+        const awards = computeSeasonAwards({
+          ranked: outcome.ranked ?? [],
+          computed,
+          passengersById: passengerTotalsFrom(computed),
+          tenureById,
+          lengthYears: world.lengthYears ?? null,
+        });
+        if (awards) {
+          await prisma.worldNews.create({
+            data: {
+              worldId: world.id, week: toIndex, category: 'world',
+              kind: 'world_ended', airlineId: awards.championId ?? null,
+              payload: awards, tier: 1,
+            },
+          });
+        }
+      } catch (err) {
+        log.error(`[tick] world ${world.id} season-awards write failed (world still ENDED):`, err?.message ?? err);
       }
     }
 
