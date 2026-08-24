@@ -259,8 +259,11 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     let override = null, overrideLaunch = null;
     if (laneRoutes.length > 0) {
       const fleetPlus = [...state.fleet, ac];
-      override       = cargoLaneAllocations([...laneRoutes, route], fleetPlus, 1.0, { gameDate: gd }).get('p') ?? null;
-      overrideLaunch = cargoLaneAllocations([...laneRoutes, { ...route, weeksOpen: 0 }], fleetPlus, 1.0, { gameDate: gd }).get('p') ?? null;
+      // Include rival freighters so the projected slice matches the contested
+      // tick — a lane a rival already flies is not yours alone.
+      const cargoOpts = { gameDate: gd, competitors: state.competitors };
+      override       = cargoLaneAllocations([...laneRoutes, route], fleetPlus, 1.0, cargoOpts).get('p') ?? null;
+      overrideLaunch = cargoLaneAllocations([...laneRoutes, { ...route, weeksOpen: 0 }], fleetPlus, 1.0, cargoOpts).get('p') ?? null;
     }
     const result       = simulateCargoRoute(route, ac, gd, null, 1.0, 1.0, override);
     const resultLaunch = simulateCargoRoute({ ...route, weeksOpen: 0 }, ac, gd, null, 1.0, 1.0, overrideLaunch);

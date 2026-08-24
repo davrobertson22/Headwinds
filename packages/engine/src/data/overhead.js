@@ -393,7 +393,10 @@ export const LAYOVER_COST_PER_CREW_NIGHT   = 200;   // hotel + per diem, USD
  */
 export function weeklyLayoverCost(blockTimeHrs, seats, category, weeklyFreq) {
   if (blockTimeHrs <= LAYOVER_BLOCK_HOURS_THRESHOLD) return 0;
-  const flightDeckCrew = category === 'Wide Body' ? 3 : 2;
+  // The biggest and longest-range airframes fly with an augmented flight deck
+  // (3-4 pilots), not fewer than a widebody: a Double Deck or a Supersonic is
+  // never a 2-pilot operation. Widebody and up get 3; everything smaller, 2.
+  const flightDeckCrew = (category === 'Wide Body' || category === 'Double Deck' || category === 'Supersonic') ? 3 : 2;
   const cabinCrew      = Math.max(1, Math.ceil(seats / 50));
   const totalCrew      = flightDeckCrew + cabinCrew;
   return Math.round(totalCrew * LAYOVER_COST_PER_CREW_NIGHT * weeklyFreq * 2);

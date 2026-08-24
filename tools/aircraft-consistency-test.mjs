@@ -481,6 +481,28 @@ test('no freighter is strictly dominated by another', () => {
   assert.deepEqual(dominated, []);
 });
 
+test('no modern widebody is Pareto-dominated by another (2026-08-24 rebalance)', () => {
+  // Three new-build widebodies used to lose on EVERY axis to a cheaper rival —
+  // the 787-10 and C929 to the A330neo, the 777X-8 to the A350-900ULR — so they
+  // were traps, never a real choice. Each must now win at least one axis. This
+  // is a TARGETED guard (a whole-table sweep lights up on the many intentional
+  // cheap-but-thirsty used frames); it locks only the pairs the rebalance fixed.
+  const pairs = [['b787x10', 'a330neo'], ['c929', 'a330neo'], ['b7778x', 'a350900ulr']];
+  const dominated = [];
+  for (const [loserId, winnerId] of pairs) {
+    const b = BY_ID[loserId], a = BY_ID[winnerId];
+    // `a` WEAKLY dominates `b` (a trap) when it is at-least-as-good on every axis.
+    const weaklyDom = a.seats >= b.seats && a.range >= b.range
+      && a.purchasePrice <= b.purchasePrice && a.weeklyLease <= b.weeklyLease
+      && a.baseMaintenancePerWk <= b.baseMaintenancePerWk
+      && (a.runwayFt || 0) <= (b.runwayFt || 0)
+      && a.fuelBurnPer100km <= b.fuelBurnPer100km
+      && a.crewCostPerKm <= b.crewCostPerKm;
+    if (weaklyDom) dominated.push(`${b.name} <= ${a.name} (wins no axis)`);
+  }
+  assert.deepEqual(dominated, []);
+});
+
 // ── 6. Freighter capital cost (2026-07-29) ───────────────────────────────────
 // The failure these lock out: prices set from real transaction values in two
 // independently-calibrated populations. Each price was individually defensible;

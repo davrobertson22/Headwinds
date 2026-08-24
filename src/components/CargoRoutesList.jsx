@@ -56,14 +56,14 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
   const allRows = useMemo(() => {
     // Same-lane pooling: mirror the weekly tick so the list shows each route's
     // SHARE of a shared lane, not N copies of the full market.
-    const alloc = cargoLaneAllocations(cargoRoutes, fleet, 1.0, { gameDate: gd });
+    const alloc = cargoLaneAllocations(cargoRoutes, fleet, 1.0, { gameDate: gd, competitors: state.competitors });
     return cargoRoutes.map(route => {
       const aircraft = fleet.find(a => a.id === route.aircraftId);
       const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
       const sim      = aircraft ? simulateCargoRoute(route, aircraft, gd, null, 1.0, 1.0, alloc.get(route.id) ?? null) : null;
       return { route, aircraft, type, sim, pooled: alloc.has(route.id) };
     });
-  }, [cargoRoutes, fleet, gd]);
+  }, [cargoRoutes, fleet, gd, state.competitors]);
 
   // Scope to the airport filter, then sort by profit descending (the old card order).
   const rows = useMemo(() => {

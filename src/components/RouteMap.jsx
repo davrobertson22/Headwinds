@@ -193,7 +193,7 @@ export default function RouteMap() {
   const cargoRouteData = useMemo(() => {
     const needsFallback = cargoRoutes.some(r => !cargoRrById[r.id]);
     const alloc = needsFallback
-      ? cargoLaneAllocations(cargoRoutes, fleet, 1.0, { gameDate: gd }) : null;
+      ? cargoLaneAllocations(cargoRoutes, fleet, 1.0, { gameDate: gd, competitors }) : null;
     return cargoRoutes.map(r => {
       const origin   = getAirport(r.origin);
       const dest     = getAirport(r.destination);

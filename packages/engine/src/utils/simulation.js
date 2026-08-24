@@ -2466,9 +2466,36 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
  *          keyed by route.id; ONLY routes on shared lanes appear.
  */
 export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultiplier = 1.0, opts = {}) {
-  const { gameDate = null, demandMultFor = null } = opts;
+  const { gameDate = null, demandMultFor = null, competitors = [] } = opts;
   const alloc  = new Map();
   const groups = new Map();
+
+  // ── Cross-airline contest ─────────────────────────────────────────────────
+  // Freight used to be a monopoly: every airline on a lane drew the whole gravity
+  // pool independently, so two carriers on FRA–JFK each banked the full tonnage.
+  // Passengers have been contested since the pair-share work; cargo never was.
+  // Rival freighter capacity+yield already reach the tick on
+  // `state.competitors[].cargoRoutes` (airport-keyed {tonnesPerWeek, yieldPrice}
+  // from humanRivals.cargoRoutesOf); fold it into each METRO lane so a rival's
+  // capacity dilutes the player's share, weighted by how aggressively it prices —
+  // the only lever cargo has. When no rival flies the lane this adds nothing, so
+  // a solo (or purely own-fleet) operator's allocation is byte-identical to before.
+  const rivalByLane = new Map(); // metroKey → { cap, yieldCapSum }
+  for (const c of competitors ?? []) {
+    for (const [pairKey, cr] of Object.entries(c?.cargoRoutes ?? {})) {
+      const cap = cr?.tonnesPerWeek ?? 0;
+      if (!(cap > 0)) continue;
+      // cargoRoutesOf keys by the SORTED airport pair; recover the endpoints to
+      // roll the rival up to the same metro lane the player's routes group on.
+      const [a, b] = String(pairKey).split('-');
+      if (!a || !b) continue;
+      const mk = metroPairKeyOf(a, b);
+      const e = rivalByLane.get(mk) ?? { cap: 0, yieldCapSum: 0 };
+      e.cap += cap;
+      e.yieldCapSum += (cr.yieldPrice ?? 0) * cap; // capacity-weighted blended yield
+      rivalByLane.set(mk, e);
+    }
+  }
   for (const route of cargoRoutes ?? []) {
     const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
@@ -2488,8 +2515,13 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
     if (!groups.has(rk)) groups.set(rk, []);
     groups.get(rk).push({ route, type });
   }
-  for (const [, group] of groups) {
-    if (group.length < 2) continue;   // solo lane — simulateCargoRoute handles it
+  for (const [rk, group] of groups) {
+    const rivalLane    = rivalByLane.get(rk) ?? null;
+    const rivalLaneCap = rivalLane?.cap ?? 0;
+    // A lane is contested when the PLAYER flies ≥2 routes on it (own pooling) OR
+    // a rival also flies it. A single own route with no rival stays "solo" and
+    // simulateCargoRoute's full-pool path handles it exactly as before.
+    if (group.length < 2 && !(rivalLaneCap > 0)) continue;
     // Anchor the lane on the strongest SERVED member pair. Freight is NOT like
     // passengers here: cargoCityPairDemand is genuinely airport-specific (cargo
     // scores differ per field — JFK–LHR 1,483 t/wk, EWR–LHR 1,194, EWR–LGW 632),
@@ -2521,6 +2553,22 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
                    * maturity * FREIGHTER_CAPTURE_RATE * laneMult;
     const laneCapacity = group.reduce((s, g) => s + g.type.payloadTonnes * g.route.weeklyFrequency, 0);
     if (laneCapacity <= 0) continue;
+    // Rival freighter capacity on this metro lane, weighted by how it prices:
+    // a rival at reference dilutes with its full capacity; one charging a premium
+    // wins less freight and dilutes less; a cut-rate rival dilutes more (elasticity
+    // capped at 1.6, exactly as own routes). Judged against the lane anchor's
+    // reference yield so own and rival are compared on the same scale. Zero when
+    // no rival flies the lane — the own-only denominator, unchanged.
+    let rivalWeightedCap = 0;
+    if (rivalLaneCap > 0) {
+      const rivalYield = rivalLane.yieldCapSum > 0 ? rivalLane.yieldCapSum / rivalLaneCap : 0;
+      const anchorRef  = cargoReferenceYield(r0.origin, r0.destination);
+      const rivalElast = rivalYield > 0
+        ? Math.min(1.6, Math.pow(anchorRef / rivalYield, CARGO_YIELD_ELASTICITY))
+        : 1;
+      rivalWeightedCap = rivalLaneCap * rivalElast;
+    }
+    const laneDenominator = laneCapacity + rivalWeightedCap;
     for (const { route, type } of group) {
       const cap        = type.payloadTonnes * route.weeklyFrequency;
       // Elasticity is judged against the route's OWN pair reference — the rate
@@ -2533,9 +2581,15 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
       const yieldPrice = Math.max(0.01, route.yieldPrice ?? refYield);
       const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
       alloc.set(route.id, {
-        demandTonnes:       pool * elasticity * (cap / laneCapacity),
+        // Own share of the lane pool: the player's own capacity as a fraction of
+        // ALL freighter capacity on the lane (own + yield-weighted rival), then
+        // scaled by this route's own price elasticity. With no rival on the lane
+        // `laneDenominator === laneCapacity`, so this is the historical value.
+        demandTonnes:       pool * elasticity * (cap / laneDenominator),
         laneCapacityTonnes: laneCapacity,
+        rivalCapacityTonnes: rivalLaneCap,
         laneRoutes:         group.length,
+        contested:          rivalLaneCap > 0,
       });
     }
   }
@@ -4041,7 +4095,7 @@ export function weeklyTick(state) {
   // Same-lane pooling: several freighters on one city pair share ONE demand
   // pool (see cargoLaneAllocations) instead of each claiming the full market.
   const cargoAllocations = cargoLaneAllocations(cargoRoutes, fleet, awarenessMultiplier,
-    { gameDate, demandMultFor: eventDemandMultFor });
+    { gameDate, demandMultFor: eventDemandMultFor, competitors });
 
   for (const route of cargoRoutes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
