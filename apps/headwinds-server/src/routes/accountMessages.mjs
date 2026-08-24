@@ -30,7 +30,7 @@ function httpError(statusCode, message) {
 }
 
 /** Have these two accounts ever flown in the same world? */
-async function sharesWorld(accountA, accountB) {
+export async function sharesWorld(accountA, accountB) {
   const mine = await prisma.airline.findMany({
     where: { accountId: accountA },
     select: { worldId: true },

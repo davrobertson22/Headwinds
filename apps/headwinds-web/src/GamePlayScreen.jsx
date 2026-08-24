@@ -25,6 +25,7 @@ import { createPortal } from 'react-dom';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
+import AccountInboxWidget from './AccountInbox.jsx';
 import '../../../src/index.css';
 
 // Live countdown to the server's next weekly tick. Derived from worldClock
@@ -270,6 +271,22 @@ export default function GamePlayScreen({ worldId, token }) {
   const openProfile = useCallback((accountId) => {
     if (accountId) setProfileAccountId(accountId);
   }, []);
+
+  // Account-level DM plumbing, mirrored from the lobby (App.jsx): the topbar
+  // inbox opens straight onto a thread when `messageTo` is set, and a rival's
+  // in-game profile can start one. `meAccountId` gates the profile's Message
+  // button so it never offers to DM yourself (a feed/roster item can link your
+  // own account). One `/me` read on mount — this is NOT polled.
+  const [messageTo, setMessageTo] = useState(null);
+  const [meAccountId, setMeAccountId] = useState(null);
+  useEffect(() => {
+    if (!token) return;
+    let live = true;
+    authedApi('/me', { token })
+      .then((d) => { if (live) setMeAccountId(d?.account?.id ?? null); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [token]);
 
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
@@ -530,9 +547,17 @@ export default function GamePlayScreen({ worldId, token }) {
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
         <MessagesWidget worldId={worldId} token={token} onViewPlayer={openProfile} />
+        {/* Account-level DMs (cross-world). The widget was lobby-only, so a DM to
+            an actively-playing player was unreachable until they left the game.
+            It self-polls /me/messages for its own unread badge. */}
+        <AccountInboxWidget
+          token={token}
+          requestThread={messageTo}
+          onConsumeRequest={() => setMessageTo(null)}
+        />
       </>
     ),
-  }), [meta, error, connLost, actionNotice, worldId, token, openProfile]);
+  }), [meta, error, connLost, actionNotice, worldId, token, openProfile, messageTo]);
 
   if (sessionExpired) {
     return (
@@ -574,6 +599,8 @@ export default function GamePlayScreen({ worldId, token }) {
             <PlayerProfileScreen
               accountId={profileAccountId} token={token}
               onClose={() => setProfileAccountId(null)}
+              onMessage={meAccountId && meAccountId !== profileAccountId
+                ? (id) => { setProfileAccountId(null); setMessageTo(id); } : null}
             />
           </div>
         </div>,

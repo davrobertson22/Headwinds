@@ -77,6 +77,34 @@ const fmtStartTime = (iso) => {
   return `${abs} (in ${Math.round(hrs / 24)} days)`;
 };
 
+// Compact "time since" for a last-active timestamp. Real wall-clock, not game
+// weeks — a persistent world runs for months, so "idle 6d" tells you a rival
+// has likely wandered off. Returns { label, idle } — idle is true past ~3 days
+// so the UI can flag a probably-abandoned airline without cluttering the rest.
+const SVPS_IDLE_MS = 3 * 24 * 3600 * 1000;
+const fmtAgo = (iso) => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  const ms = Date.now() - t;
+  const idle = ms >= SVPS_IDLE_MS;
+  const mins = Math.round(ms / 60000);
+  let label;
+  if (mins < 2) label = 'just now';
+  else if (mins < 60) label = `${mins}m ago`;
+  else if (mins < 60 * 48) label = `${Math.round(mins / 60)}h ago`;
+  else if (mins < 60 * 24 * 14) label = `${Math.round(mins / (60 * 24))}d ago`;
+  else label = `${Math.round(mins / (60 * 24 * 7))}w ago`;
+  return { label, idle };
+};
+
+// Per-share shareholder value in dollars — the metric standings rank by, but
+// never actually shown until now. Cents matter at the low end, so don't fold
+// it into fmtMoney's k/M/B buckets.
+const fmtSvps = (n) => n == null ? '—'
+  : Math.abs(n) >= 100 ? `$${Math.round(n).toLocaleString('en-US')}`
+  : `$${n.toFixed(2)}`;
+
 function StatusChip({ status }) {
   return <span className={`chip chip-${status.toLowerCase()}`}>{status}</span>;
 }
@@ -186,7 +214,7 @@ function SignIn() {
 
 // ── Join form (shared by list + world screen) ─────────────────────────────────
 
-function JoinForm({ world, token, needsCode, onJoined, mode = 'join' }) {
+function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts = {} }) {
   const [airlineName, setAirlineName] = useState('');
   const [hub, setHub] = useState('');
   const [joinCode, setJoinCode] = useState('');
@@ -194,10 +222,16 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join' }) {
   const [error, setError] = useState(null);
 
   const hubOptions = useMemo(
-    () => AIRPORTS.map((a) => ({ code: a.code, label: `${a.code} · ${a.city}` })),
-    []
+    () => AIRPORTS.map((a) => {
+      const n = hubCounts[a.code] ?? 0;
+      return { code: a.code, label: `${a.code} · ${a.city}${n ? ` · ${n} airline${n === 1 ? '' : 's'} here` : ''}` };
+    }),
+    [hubCounts]
   );
   const hubValid = AIRPORTS.some((a) => a.code === hub.toUpperCase());
+  // How contested the entered hub already is — your first and most consequential
+  // choice, otherwise made blind against the standings sitting right below it.
+  const hubTaken = hubValid ? (hubCounts[hub.toUpperCase()] ?? 0) : 0;
 
   // Restart posts to a DIFFERENT endpoint on purpose. /join creates a row;
   // /restart demolishes an airline's whole world-level footprint (gates, bids,
@@ -259,6 +293,11 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join' }) {
         </button>
       </div>
       {hub && !hubValid && <p className="muted small">Pick a real airport code from the list.</p>}
+      {hubTaken > 0 && (
+        <p className="muted small">
+          {hubTaken} airline{hubTaken === 1 ? ' is' : 's are'} already based at {hub.toUpperCase()} — you'll be competing head-to-head there. A quieter hub is often an easier start.
+        </p>
+      )}
       <ErrorNote error={error} />
     </form>
   );
@@ -637,11 +676,27 @@ function RivalDetail({ worldId, airlineId, airlineName, token, canReport }) {
   const ranks = data.rankHistory ?? [];
   const trend = ranks.length >= 2 ? ranks[0].rank - ranks[ranks.length - 1].rank : 0;
 
+  const lastMove = fmtAgo(data.lastMoveAt);
+
   return (
     <div className="rival-detail">
+      {(data.badges?.length > 0) && (
+        <div className="row wrap" style={{ gap: 6, marginBottom: 6 }}>
+          {data.badges.map((b) => (
+            <span key={b.id} className="alliance-tag" title={b.description}>
+              <span aria-hidden="true">{b.icon}</span> {b.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="row wrap">
         {data.hubs.length > 0 && <span className="small">Hubs: <strong>{data.hubs.join(', ')}</strong></span>}
         {data.alliance && <span className="small">Alliance: <strong>{data.alliance}</strong></span>}
+        {lastMove && (
+          <span className="small">
+            Last active: <strong className={lastMove.idle ? 'neg' : ''}>{lastMove.label}</strong>
+          </span>
+        )}
         {ranks.length >= 2 && (
           <span className="small">
             Rank trend: <strong className={trend > 0 ? 'pos' : trend < 0 ? 'neg' : ''}>
@@ -721,6 +776,14 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   if (!data) return <p className="muted">Loading world…</p>;
 
   const { world, standings } = data;
+  // How many airlines are already based at each hub — so the join form can warn
+  // a newcomer they're about to set up head-to-head at an occupied hub. Built
+  // from the standings the screen already fetched; no extra request.
+  const hubCounts = useMemo(() => {
+    const m = {};
+    for (const a of standings) if (a.hub) m[a.hub] = (m[a.hub] ?? 0) + 1;
+    return m;
+  }, [standings]);
   // Three distinct states, and conflating any two of them was the old bug: an
   // ABANDONED airline was filtered out of `mine`, which flipped `canJoin` true
   // and showed a join form that could only ever 409 — Airline is unique on
@@ -822,7 +885,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       {canJoin && (
         <div className="card">
           <JoinForm
-            world={world} token={token}
+            world={world} token={token} hubCounts={hubCounts}
             needsCode={world.visibility === 'PRIVATE' && !world.joinCode}
             onJoined={() => { refreshMe(); load(); }}
           />
@@ -839,7 +902,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           </p>
           {canRestart ? (
             <JoinForm
-              world={world} token={token} mode="restart"
+              world={world} token={token} mode="restart" hubCounts={hubCounts}
               onJoined={() => { refreshMe(); load(); }}
             />
           ) : (
@@ -856,7 +919,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       {standings.length === 0 ? <p className="muted">No airlines yet, be the first to join.</p> : (
         <table className="worlds">
           <thead>
-            <tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Fleet</th><th>Cash</th><th>Market cap</th><th>Status</th></tr>
+            <tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Fleet</th><th>Cash</th><th title="Per-share shareholder value — what standings rank by">SVPS</th><th>Status</th></tr>
           </thead>
           <tbody>
             {standings.map((a) => (
@@ -875,10 +938,20 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                            onClick={(e) => e.stopPropagation()}>{a.name}</a>
                       : a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
                     {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
+                    {(() => {
+                      // Flag a probably-abandoned rival at a glance. Only shown when
+                      // idle past ~3 real days, and never on your own row or a
+                      // bankrupt one (its status already tells that story).
+                      const ago = a.status === 'ACTIVE' && mine?.id !== a.id ? fmtAgo(a.lastMoveAt) : null;
+                      return ago?.idle
+                        ? <span className="muted small" title={`Last move ${ago.label}`} style={{ marginLeft: 6 }}>· idle {ago.label}</span>
+                        : null;
+                    })()}
                   </td>
                   <td>{a.hub}</td>
                   <td>{a.routes}</td><td>{a.fleet}</td>
-                  <td>{fmtMoney(a.cash)}</td><td>{fmtMoney(a.marketCap)}</td>
+                  <td>{fmtMoney(a.cash)}</td>
+                  <td title={`Market cap ${fmtMoney(a.marketCap)}`}>{fmtSvps(a.svps)}</td>
                   <td><StatusChip status={a.status} /></td>
                 </tr>
                 {openRival === a.id && (

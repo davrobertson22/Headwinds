@@ -213,6 +213,8 @@ export function compose(item) {
 
     case 'joined':
       return { icon: '🛬', headline: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}` };
+    case 'refounded':
+      return { icon: '🔁', headline: `is back — re-founded${d.hub ? ` · hub ${d.hub}` : ''}` };
     case 'alliance_founded':
       return { icon: '🤝', subject: d.alliance, headline: 'alliance founded', standalone: true };
     case 'alliance_joined':

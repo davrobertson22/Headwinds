@@ -98,14 +98,22 @@ export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
           <h2 style={{ margin: 0 }}>{player.displayName}</h2>
           {player.dev ? <DevBadge /> : null}
           {player.isOG ? <OgBadge /> : null}
-          {/* Account-level DM — the shell provides onMessage only for OTHER
-              players' profiles, and only where the inbox lives (the lobby). */}
-          {onMessage && (
+          {/* Account-level DM. The shell provides onMessage for OTHER players;
+              `canMessage` (server-computed, same rule as the send path) says
+              whether the DM would actually be accepted — so the button no
+              longer dead-ends in a 403 after the message is written. Older
+              servers omit the field: default to showing the button, as before. */}
+          {onMessage && (player.canMessage !== false ? (
             <button className="btn small" style={{ marginLeft: 'auto' }}
               onClick={() => onMessage(player.id)} title="Send this player a message">
               ✉ Message
             </button>
-          )}
+          ) : (
+            <span className="muted small" style={{ marginLeft: 'auto' }}
+              title="This player only accepts messages from people they share a world with, or has messaging off.">
+              Not accepting messages
+            </span>
+          ))}
         </div>
         {fmtDate(player.memberSince) && (
           <p className="muted small" style={{ marginTop: 4 }}>

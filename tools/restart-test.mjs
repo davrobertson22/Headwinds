@@ -40,6 +40,7 @@ function fakePrisma({ world, airlines, gates = [], bids = [], auctions = [], lis
     market: market ? { ...market } : null,
     credits: credits.map((c) => ({ ...c })),
     cursors: cursors.map((c) => ({ ...c })),
+    news: [],
   };
   const applyData = (row, data) => {
     for (const [k, v] of Object.entries(data)) {
@@ -49,6 +50,9 @@ function fakePrisma({ world, airlines, gates = [], bids = [], auctions = [], lis
   };
   return {
     _db: db,
+    worldNews: {
+      create: async ({ data }) => { const row = { id: `wn-${db.news.length}`, ...data }; db.news.push(row); return { ...row }; },
+    },
     airline: {
       findUnique: async ({ where }) => {
         const a = where.id
@@ -206,6 +210,24 @@ await test('an ABANDONED airline can be re-founded too', async () => {
   });
   assert.equal(out.status, 'ACTIVE');
   assert.equal(RESTARTABLE.has('ABANDONED'), true);
+});
+
+await test('a re-founding writes a tier-1 refounded news row (comebacks are visible)', async () => {
+  const prisma = fakePrisma({ world: WORLD, airlines: [deadAirline()] });
+  await restartAirline(prisma, {
+    account: ACCOUNT, world: WORLD, airline: deadAirline(),
+    airlineName: 'Phoenix Air', hub: 'ORD', log: silent,
+  });
+  const news = prisma._db.news;
+  assert.equal(news.length, 1, 'exactly one news row written on a re-founding');
+  const row = news[0];
+  assert.equal(row.kind, 'refounded');
+  assert.equal(row.category, 'world');
+  assert.equal(row.tier, 1, 'a comeback is a headline');
+  assert.equal(row.worldId, WORLD.id);
+  assert.equal(row.airlineId, deadAirline().id);
+  assert.equal(row.payload?.name, 'Phoenix Air');
+  assert.equal(row.payload?.hub, 'ORD');
 });
 
 await test('an ACTIVE airline is refused — restart must never be reachable while flying', async () => {

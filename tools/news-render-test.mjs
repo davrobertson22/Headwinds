@@ -149,7 +149,7 @@ test('composes a real sentence for every item kind the server emits', async () =
     'routes_opened', 'routes_closed', 'fleet_in', 'fleet_out',
     'gates_added', 'gates_removed', 'hub_designated', 'hub_upgraded', 'focus_city',
     'stock_tape', 'gate_auction_opened', 'gate_auction_won', 'gate_auction_unsold', 'gate_sold',
-    'used_aircraft_sold', 'joined', 'alliance_founded', 'alliance_joined', 'alliance_left',
+    'used_aircraft_sold', 'joined', 'refounded', 'alliance_founded', 'alliance_joined', 'alliance_left',
   ];
   for (const kind of KINDS) {
     const c = compose({ kind, airline: 'Test Air', data: { direction: 'in', pairs: [], total: 1, byType: {} } });
@@ -157,6 +157,12 @@ test('composes a real sentence for every item kind the server emits', async () =
     assert.ok(typeof c.headline === 'string', `${kind} composes a headline`);
     assert.notEqual(c.headline, kind, `${kind} fell through to the raw kind name`);
   }
+
+  // A comeback names the hub and reads like a return, not the raw kind.
+  assert.equal(
+    say({ kind: 'refounded', airline: 'Phoenix Air', data: { hub: 'ORD' } }),
+    'Phoenix Air is back — re-founded · hub ORD',
+  );
 });
 
 test('the tab is registered in the app shell, multiplayer only', async () => {

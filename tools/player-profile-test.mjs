@@ -256,5 +256,55 @@ test('an empty profile degrades to honest empty states', () => {
   assert.ok(html.includes('No finished seasons yet'));
 });
 
+console.log('\n── The Message button reflects the DM policy (canMessage) ─');
+
+// The button used to appear for any other player, so a DM to someone whose
+// policy would refuse it dead-ended in a 403 only AFTER it was written.
+const renderWithMessage = (canMessage) => renderToString(
+  React.createElement(PlayerProfileView, {
+    data: { ...payload, player: { ...payload.player, canMessage } },
+    onMessage: () => {},
+  }),
+).replace(/<!-- -->/g, '');
+
+test('the Message button shows when the viewer may DM', () => {
+  const html = renderWithMessage(true);
+  assert.ok(html.includes('✉ Message'), 'button missing when messaging is allowed');
+  assert.ok(!html.includes('Not accepting messages'));
+});
+
+test('the button becomes a hint when the DM would be refused', () => {
+  const html = renderWithMessage(false);
+  assert.ok(!html.includes('✉ Message'), 'offered a DM the send path will 403');
+  assert.ok(html.includes('Not accepting messages'), 'no hint that the DM is blocked');
+});
+
+console.log('\n── The season is legible in-world (badges, last-active) ──');
+
+test('the rival-profile select fetches careerStats (drives dossier badges)', () => {
+  assert.equal(RIVAL_PROFILE_SELECT.account.select.careerStats, true);
+});
+
+test('the world-standings serializer emits lastMoveAt', () => {
+  const src = readFileSync(new URL('../apps/headwinds-server/src/routes/worlds.mjs', import.meta.url), 'utf8');
+  const at = src.indexOf('standings: airlines.map');
+  assert.ok(at >= 0, 'standings serializer not found');
+  assert.ok(/lastMoveAt:/.test(src.slice(at, at + 1400)),
+    'standings serializer no longer emits the last-active signal');
+});
+
+test('the rival dossier emits career badges and last-active', () => {
+  const src = readFileSync(new URL('../apps/headwinds-server/src/routes/worlds.mjs', import.meta.url), 'utf8');
+  assert.ok(/badges: careerBadgeList/.test(src), 'dossier dropped career badges');
+  assert.ok(/lastMoveAt: recentDecisions\[0\]/.test(src), 'dossier dropped the last-active signal');
+});
+
+test('the profile route computes canMessage from dmRefusal + sharesWorld', () => {
+  const src = readFileSync(new URL('../apps/headwinds-server/src/routes/players.mjs', import.meta.url), 'utf8');
+  assert.ok(/const canMessage\b/.test(src), 'canMessage no longer computed');
+  assert.ok(/dmRefusal\(/.test(src) && /sharesWorld\(/.test(src),
+    'canMessage no longer reuses the send-path logic');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

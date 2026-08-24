@@ -283,6 +283,27 @@ export async function restartAirline(prisma, { account, world, airline, airlineN
     }
   }
 
+  // A comeback is the best story a persistent world produces, and until now it
+  // left no trace: `joined` news keys on the row's original createdAt, which a
+  // reused airline row predates, so a re-founding was silent. This durable
+  // tier-1 row is the record — and it feeds the Phoenix career badge's story.
+  // Best-effort: a news failure must never fail the restart itself.
+  try {
+    await prisma.worldNews.create({
+      data: {
+        worldId: world.id,
+        week,
+        category: 'world',
+        kind: 'refounded',
+        airlineId: airline.id,
+        payload: { name: state.airlineName, hub: state.hub ?? hub, restarts: updated.restarts },
+        tier: 1,
+      },
+    });
+  } catch (err) {
+    log.error?.(`[restart] ${world.id}/${airline.id} refounded news write failed: ${err?.message ?? err}`);
+  }
+
   log.info?.(`[restart] ${world.id}/${airline.id} re-founded as "${state.airlineName}" at ${state.hub} `
     + `(restart ${updated.restarts}/${MAX_RESTARTS}, week ${week})`
     + (purge.ok ? '' : ` — PARTIAL PURGE: ${purge.problems.join(', ')}`));

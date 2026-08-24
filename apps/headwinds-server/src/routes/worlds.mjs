@@ -10,6 +10,7 @@ import { publicPayload, isPublicDecision } from '../lib/publicDecisions.mjs';
 // Private worlds are members-only on every per-world READ, not just in the lobby.
 import { assertWorldReadable, mayReadWorld, isWorldMember } from '../lib/access.mjs';
 import { RIVAL_PROFILE_SELECT, loadRivalProfileState } from '../lib/rivalProfile.mjs';
+import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { buildNews } from '../lib/newsService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 
@@ -113,6 +114,19 @@ export default async function worldRoutes(fastify) {
       for (const m of al.members) allianceNameByAirline.set(m.airlineId, al.name);
     }
 
+    // Last-active per airline: the most recent player decision, one grouped
+    // query for the whole world (never per-row). Lets the lobby distinguish a
+    // live rival from one that has been coasting on autopilot for weeks. The
+    // state blobs stay in Postgres — this touches only the small Decision table.
+    const lastMoves = await prisma.decision.groupBy({
+      by: ['airlineId'],
+      where: { worldId: world.id },
+      _max: { createdAt: true },
+    });
+    const lastMoveByAirline = new Map(
+      lastMoves.map((m) => [m.airlineId, m._max.createdAt]),
+    );
+
     // Optional auth: members of a private world get its join code back (so the
     // creator can re-find it to share); everyone else never sees it. Reuses the
     // account resolved for the visibility gate above rather than verifying the
@@ -147,6 +161,8 @@ export default async function worldRoutes(fastify) {
         alliance: allianceNameByAirline.get(a.id) ?? null,
         og: a.og === true,
         dev: isDevEmail(a.email),
+        // Most recent player move (null if none yet this generation).
+        lastMoveAt: lastMoveByAirline.get(a.id) ?? null,
       })),
     };
   });
@@ -208,6 +224,26 @@ export default async function worldRoutes(fastify) {
       fleetByType[a.typeId] = (fleetByType[a.typeId] ?? 0) + 1;
     }
 
+    // Cross-world career badges (Champion / Podium / Veteran / Million flyer /
+    // Phoenix). publicCareer recomputes totals + badges from the PUBLIC subset
+    // and fails closed on any world it can't resolve, so a championship won in
+    // a private world never shows here. Worlds whose visibility the stored blob
+    // doesn't carry are resolved by primary key in one query (same pattern as
+    // /players/:accountId).
+    const storedCareer = normalizeCareer(airline.account?.careerStats);
+    const unresolvedWorldIds = Object.values(storedCareer.worlds)
+      .filter((w) => w?.visibility == null)
+      .map((w) => w.worldId);
+    let careerVisibility = new Map();
+    if (unresolvedWorldIds.length) {
+      const rows = await prisma.world.findMany({
+        where: { id: { in: unresolvedWorldIds } },
+        select: { id: true, visibility: true },
+      });
+      careerVisibility = new Map(rows.map((r) => [r.id, r.visibility]));
+    }
+    const careerBadgeList = publicCareer(airline.account?.careerStats, careerVisibility).badges;
+
     // A re-founded airline reuses its database row, so its Standing and Decision
     // rows still carry everything the company it replaced ever did. Unfiltered,
     // the rank chart would splice the dead carrier's curve onto the new one
@@ -246,6 +282,13 @@ export default async function worldRoutes(fastify) {
       },
       hubs: Object.keys(s.hubs ?? {}),
       alliance: membership?.status === 'ACTIVE' ? membership.alliance.name : null,
+      // Cross-world career badges — who you are actually up against.
+      badges: careerBadgeList,
+      // Last time a human touched this airline: the most recent player decision
+      // in this generation (the list is already ordered createdAt desc). Null
+      // for an airline that has made no moves since (re)joining. Lets the client
+      // tell a live rival from one coasting on autopilot.
+      lastMoveAt: recentDecisions[0]?.createdAt ?? null,
       routeNetwork: routes,
       cargoNetwork,
       fleetByType,

@@ -42,8 +42,10 @@ export const RIVAL_PROFILE_SELECT = {
   // the 2026-08-24 player-profiles feature.
   accountId: true,
   // OG + DEV badges. The email never leaves the server — it is only compared
-  // against ADMIN_EMAILS.
-  account: { select: { isOG: true, email: true } },
+  // against ADMIN_EMAILS. `careerStats` drives the cross-world career badges
+  // (Champion / Veteran / Phoenix …) shown on the dossier — computed through
+  // publicCareer so a private-world championship never leaks.
+  account: { select: { isOG: true, email: true, careerStats: true } },
   // The visibility gate (lib/access.mjs) needs the world on this same read
   // rather than a second round trip.
   world: { select: { id: true, visibility: true } },

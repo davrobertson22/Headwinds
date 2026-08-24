@@ -23,6 +23,8 @@ import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
+import { dmRefusal } from '../lib/accountMessaging.mjs';
+import { sharesWorld } from './accountMessages.mjs';
 
 const toNum = (v) => (typeof v === 'bigint' ? Number(v) : Number(v) || 0);
 
@@ -41,12 +43,27 @@ export default async function playerRoutes(fastify) {
       where: { id: request.params.accountId },
       select: {
         id: true, displayName: true, username: true, isOG: true, email: true,
-        createdAt: true, bannedAt: true, careerStats: true,
+        createdAt: true, bannedAt: true, careerStats: true, dmPolicy: true,
       },
     });
     if (!account || account.bannedAt) {
       return reply.code(404).send({ error: 'No such player' });
     }
+
+    // Whether the viewer can actually DM this player, resolved the SAME way the
+    // send path does (dmRefusal + sharesWorld) so the profile's Message button
+    // reflects reality instead of dead-ending in a 403 after the user has
+    // written the message. NOBODY → button hidden; SHARED_WORLD without a
+    // shared world → hidden; yourself → hidden. Per-click endpoint, so the
+    // extra shared-world lookup is cheap.
+    const isSelf = request.account.id === account.id;
+    // Only SHARED_WORLD (the default) needs the shared-world lookup; EVERYONE
+    // and NOBODY are decided by the policy alone, so skip the two queries then.
+    const needsShared = account.dmPolicy == null || account.dmPolicy === 'SHARED_WORLD';
+    const shares = !isSelf && needsShared
+      ? await sharesWorld(request.account.id, account.id) : false;
+    const canMessage = !isSelf
+      && dmRefusal(account.dmPolicy, { sharesWorld: shares }) === null;
 
     // Currently flying: every airline in a PUBLIC world that is still going.
     // ENDED worlds live in the finished-seasons list instead; PRIVATE worlds
@@ -107,6 +124,9 @@ export default async function playerRoutes(fastify) {
         // The email itself never leaves the server — only this comparison.
         dev: isDevEmail(account.email),
         memberSince: account.createdAt,
+        // Does the VIEWER's DM to this player currently pass the policy? Drives
+        // whether the profile shows an active Message button (see PlayerProfile).
+        canMessage,
       },
       // totals, badges, trophies, seasons — the public subset only.
       ...career,
