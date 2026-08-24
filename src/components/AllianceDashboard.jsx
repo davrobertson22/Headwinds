@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useGame } from '../store/GameContext.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { buildAllianceStats } from '../utils/allianceStats.js';
 import AirlineLogo from './AirlineLogo.jsx';
@@ -26,6 +27,12 @@ function Metric({ label, value, sub, color }) {
  * team you could look at.
  */
 export default function AllianceDashboard({ alliance, members, state, roster }) {
+  // Account profiles (multiplayer only): the server roster carries each
+  // member's accountId, and the shell injects onViewPlayer. In solo neither
+  // exists and member names render as plain text.
+  const { remoteApi } = useGame();
+  const accountIdOf = (airlineId) =>
+    roster?.find((r) => r.airlineId === airlineId)?.accountId ?? null;
   const [tab, setTab] = useState('reach');
 
   const stats = useMemo(() => buildAllianceStats(members, {
@@ -107,7 +114,18 @@ export default function AllianceDashboard({ alliance, members, state, roster }) 
                   <td>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {m.logoId && <AirlineLogo id={m.logoId} size={16} />}
-                      <span style={{ fontWeight: 600 }}>{m.name}</span>
+                      {remoteApi?.onViewPlayer && accountIdOf(m.id) ? (
+                        <span
+                          role="link" tabIndex={0} title="View player profile"
+                          style={{ fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }}
+                          onClick={() => remoteApi.onViewPlayer(accountIdOf(m.id))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); remoteApi.onViewPlayer(accountIdOf(m.id)); }
+                          }}
+                        >{m.name}</span>
+                      ) : (
+                        <span style={{ fontWeight: 600 }}>{m.name}</span>
+                      )}
                       {roleOf(m.id) === 'FOUNDER' && <span title="Founder">★</span>}
                       <span style={{ fontSize: 10, color: TIER_COLOR[m.tier] ?? 'var(--text-muted)' }}>
                         {m.tier}

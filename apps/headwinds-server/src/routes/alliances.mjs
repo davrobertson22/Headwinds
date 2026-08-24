@@ -77,11 +77,12 @@ export default async function allianceRoutes(fastify) {
 
     const [alliances, airlines] = await Promise.all([
       prisma.alliance.findMany({ where: { worldId }, include: { members: true }, orderBy: { createdAt: 'asc' } }),
-      prisma.airline.findMany({ where: { worldId }, select: { id: true, name: true, hub: true, marketCap: true, status: true } }),
+      prisma.airline.findMany({ where: { worldId }, select: { id: true, name: true, hub: true, marketCap: true, status: true, accountId: true } }),
     ]);
     const airlineById = new Map(airlines.map((a) => [a.id, a]));
     const describe = (m) => ({
       airlineId: m.airlineId,
+      accountId: airlineById.get(m.airlineId)?.accountId ?? null,
       name: airlineById.get(m.airlineId)?.name ?? 'Unknown',
       hub: airlineById.get(m.airlineId)?.hub ?? null,
       marketCap: Number(airlineById.get(m.airlineId)?.marketCap ?? 0),

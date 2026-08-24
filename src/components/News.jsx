@@ -423,7 +423,23 @@ export default function News() {
             >
               <span style={{ flexShrink: 0, fontSize: 15 }}>{c.icon}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <strong>{c.standalone ? (c.subject ?? '') : (it.airline ?? c.subject ?? '')}</strong>
+                {/* In multiplayer the mover's name opens their account profile
+                    (remoteApi.onViewPlayer + accountId both exist); in solo
+                    neither does and this renders exactly as before. */}
+                {!c.standalone && it.accountId && remoteApi?.onViewPlayer ? (
+                  <strong
+                    role="link" tabIndex={0} title="View player profile"
+                    style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }}
+                    onClick={(e) => { e.stopPropagation(); remoteApi.onViewPlayer(it.accountId); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault(); e.stopPropagation(); remoteApi.onViewPlayer(it.accountId);
+                      }
+                    }}
+                  >{it.airline ?? c.subject ?? ''}</strong>
+                ) : (
+                  <strong>{c.standalone ? (c.subject ?? '') : (it.airline ?? c.subject ?? '')}</strong>
+                )}
                 {mine ? <strong> (you)</strong> : null}
                 {c.headline ? ` ${c.headline}` : ''}
                 {c.sub && (

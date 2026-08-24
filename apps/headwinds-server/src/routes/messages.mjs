@@ -88,12 +88,13 @@ export default async function messageRoutes(fastify) {
       prisma.airline.findMany({
         where: { worldId: me.worldId },
         select: {
-          id: true, name: true, hub: true, status: true,
+          id: true, name: true, hub: true, status: true, accountId: true,
           account: { select: { isOG: true, email: true } }, // OG + DEV badges (email stays server-side)
         },
       }),
     ]);
     const nameById = new Map(airlines.map((a) => [a.id, a.name]));
+    const acctById = new Map(airlines.map((a) => [a.id, a.accountId]));
     const ogById = new Map(airlines.map((a) => [a.id, a.account?.isOG === true]));
     const devById = new Map(airlines.map((a) => [a.id, isDevEmail(a.account?.email)]));
     const blockedIds = new Set(blocks.map((b) => b.blockedAirlineId));
@@ -105,7 +106,7 @@ export default async function messageRoutes(fastify) {
       if (blockedIds.has(other)) continue; // blocked senders vanish from the inbox
       let c = conversations.get(other);
       if (!c) {
-        c = { airlineId: other, name: nameById.get(other) ?? 'Unknown', og: ogById.get(other) ?? false, dev: devById.get(other) ?? false, unread: 0, lastMessage: null };
+        c = { airlineId: other, accountId: acctById.get(other) ?? null, name: nameById.get(other) ?? 'Unknown', og: ogById.get(other) ?? false, dev: devById.get(other) ?? false, unread: 0, lastMessage: null };
         conversations.set(other, c);
       }
       if (!c.lastMessage) {
@@ -141,7 +142,7 @@ export default async function messageRoutes(fastify) {
       // Directory for composing a new message (active airlines, minus self/blocked).
       airlines: airlines
         .filter((a) => a.id !== me.id && a.status === 'ACTIVE' && !blockedIds.has(a.id))
-        .map((a) => ({ id: a.id, name: a.name, hub: a.hub, og: a.account?.isOG === true, dev: isDevEmail(a.account?.email) })),
+        .map((a) => ({ id: a.id, accountId: a.accountId, name: a.name, hub: a.hub, og: a.account?.isOG === true, dev: isDevEmail(a.account?.email) })),
     };
   });
 
@@ -237,10 +238,11 @@ export default async function messageRoutes(fastify) {
       }),
       prisma.airline.findMany({
         where: { worldId: me.worldId },
-        select: { id: true, name: true, account: { select: { isOG: true, email: true } } },
+        select: { id: true, name: true, accountId: true, account: { select: { isOG: true, email: true } } },
       }),
     ]);
     const nameById = new Map(airlines.map((a) => [a.id, a.name]));
+    const acctById = new Map(airlines.map((a) => [a.id, a.accountId]));
     const ogById = new Map(airlines.map((a) => [a.id, a.account?.isOG === true]));
     const devById = new Map(airlines.map((a) => [a.id, isDevEmail(a.account?.email)]));
 
@@ -256,6 +258,7 @@ export default async function messageRoutes(fastify) {
         id: m.id,
         fromMe: m.fromAirlineId === me.id,
         from: nameById.get(m.fromAirlineId) ?? 'Unknown',
+        fromAccountId: acctById.get(m.fromAirlineId) ?? null,
         fromOG: ogById.get(m.fromAirlineId) ?? false,
         fromDev: devById.get(m.fromAirlineId) ?? false,
         body: m.body,

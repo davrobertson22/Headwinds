@@ -9,6 +9,7 @@ import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
 import CareerPanel from './CareerPanel.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
+import UsernameCard from './UsernameCard.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -1115,7 +1116,11 @@ function ModerationScreen({ token, me }) {
                   <tbody>
                     {ogResults.map((a) => (
                       <tr key={a.id}>
-                        <td>{a.displayName}{a.isOG ? <OgBadge /> : null}{a.bannedAt ? <span className="chip chip-banned"> banned</span> : null}</td>
+                        <td>
+                          {a.displayName}{a.isOG ? <OgBadge /> : null}{a.bannedAt ? <span className="chip chip-banned"> banned</span> : null}
+                          {/* Rename trail — a new name must not outrun the old one's reputation. */}
+                          {a.pastNames?.length ? <div className="muted small">formerly {a.pastNames.join(', ')}</div> : null}
+                        </td>
                         <td className="muted">{a.email}</td>
                         <td className="muted small">{a.airlines?.length ? a.airlines.join(', ') : '—'}</td>
                         <td>
@@ -1317,7 +1322,7 @@ export default function App() {
           <div className="row">
             {me?.account?.isAdmin && <a href="#/admin" className="btn small">🛡 Admin</a>}
             <span className="muted">
-              {me?.account?.displayName ?? session.user.email}
+              {me?.account?.username ?? me?.account?.displayName ?? session.user.email}
               {me?.account?.isAdmin ? <DevBadge /> : null}
               {me?.account?.isOG ? <OgBadge /> : null}
             </span>
@@ -1329,7 +1334,7 @@ export default function App() {
       {!ready ? <p className="muted">Loading…</p> : (
         <>
           {!session && <SignIn />}
-          {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><CareerPanel career={me?.career} accountId={me?.account?.id} /></>}
+          {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><UsernameCard me={me} token={token} refreshMe={refreshMe} /><CareerPanel career={me?.career} accountId={me?.account?.id} /></>}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
           {route.screen === 'player' && <PlayerProfileScreen accountId={route.accountId} token={token} />}
           {route.screen === 'admin' && <ModerationScreen token={token} me={me} />}

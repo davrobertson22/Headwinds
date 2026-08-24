@@ -52,9 +52,32 @@ model Account {
   // panel). Account-wide: surfaces as a gold "✈ OG" chip beside every airline
   // this account flies, in every world — standings, Rivals tab, feed, messages.
   isOG Boolean @default(false)
+  // ── Player-chosen unique username (player profiles, phase 2) ─────────────
+  // Nullable: accounts claim one from the lobby; `displayName` stays the
+  // sign-up name and the fallback everywhere (display = username ?? displayName).
+  // Uniqueness is CASE-INSENSITIVE — the authority is the raw-SQL unique index
+  // on lower("username") in migration 20260824100000_player_usernames; the
+  // @unique here is only the case-sensitive companion Prisma can express.
+  username String? @unique
   airlines    Airline[]
+  nameChanges NameChange[]
   reportsMade Report[]  @relation("ReportsMade")
   reportsAgainst Report[] @relation("ReportsAgainst")
+}
+
+// Username audit trail — the moderation panel shows an account's past names so
+// a rename cannot outrun a reputation. Written on EVERY username set,
+// including the first claim (oldName null), and never pruned: the whole point
+// is that it is still there months later.
+model NameChange {
+  id        String   @id @default(cuid())
+  accountId String
+  oldName   String? // null on the first claim
+  newName   String
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
 }
 
 model World {

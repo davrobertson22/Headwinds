@@ -133,7 +133,7 @@ function crossedStakeThreshold(before, after) {
 }
 
 // ── Rollup ───────────────────────────────────────────────────────────────────
-function rollDecisions(decisions, nameOf, ogOf, devOf) {
+function rollDecisions(decisions, nameOf, ogOf, devOf, acctOf = new Map()) {
   const groups = new Map();
   const singles = [];
 
@@ -150,6 +150,7 @@ function rollDecisions(decisions, nameOf, ogOf, devOf) {
       ...yearWeek(d.week),
       linearWeek: d.week,
       airlineId: d.airlineId,
+      accountId: acctOf.get(d.airlineId) ?? null,
       airline: nameOf.get(d.airlineId) ?? 'An airline',
       og: ogOf.get(d.airlineId) ?? false,
       dev: devOf.get(d.airlineId) ?? false,
@@ -372,7 +373,7 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
       // the two is what used to flood the feed with stale joins.
       prisma.airline.findMany({
         where: { worldId: world.id },
-        select: { id: true, name: true, account: { select: { isOG: true, email: true } } },
+        select: { id: true, name: true, accountId: true, account: { select: { isOG: true, email: true } } },
       }),
       want.has('players') ? prisma.airline.findMany({
         where: { worldId: world.id, ...at() },
@@ -426,15 +427,17 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
   const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
   const ogOf = new Map(airlines.map((a) => [a.id, a.account?.isOG === true]));
   const devOf = new Map(airlines.map((a) => [a.id, isDevEmail(a.account?.email)]));
+  const acctOf = new Map(airlines.map((a) => [a.id, a.accountId ?? null]));
   const who = (id) => ({
     airlineId: id,
+    accountId: acctOf.get(id) ?? null,
     airline: nameOf.get(id) ?? 'An airline',
     og: ogOf.get(id) ?? false,
     dev: devOf.get(id) ?? false,
   });
 
   const items = [
-    ...rollDecisions(decisions, nameOf, ogOf, devOf),
+    ...rollDecisions(decisions, nameOf, ogOf, devOf, acctOf),
 
     ...joins.map((a) => ({
       id: `join:${a.id}`,

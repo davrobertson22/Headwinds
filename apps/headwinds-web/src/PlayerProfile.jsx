@@ -50,7 +50,7 @@ function Figure({ label, value }) {
   );
 }
 
-export default function PlayerProfileScreen({ accountId, token }) {
+export default function PlayerProfileScreen({ accountId, token, onClose = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -75,18 +75,20 @@ export default function PlayerProfileScreen({ accountId, token }) {
             ? 'No such player.'
             : 'Could not load this profile — try again in a moment.'}
         </p>
-        <a href="#/">← Back to worlds</a>
+        {onClose
+          ? <button className="btn small" onClick={onClose}>Close</button>
+          : <a href="#/">← Back to worlds</a>}
       </div>
     );
   }
   if (!data) return <p className="muted">Loading profile…</p>;
 
-  return <PlayerProfileView data={data} />;
+  return <PlayerProfileView data={data} onClose={onClose} />;
 }
 
 // The pure rendering half — exported so the test suite can SSR it with a
 // fixture payload (the screen's data arrives via fetch, which SSR never runs).
-export function PlayerProfileView({ data }) {
+export function PlayerProfileView({ data, onClose = null }) {
   const { player, badges = [], trophies = [], totals, seasons = [], current = [] } = data;
 
   return (
@@ -215,7 +217,13 @@ export function PlayerProfileView({ data }) {
         </p>
       )}
 
-      <p style={{ marginTop: 16 }}><a href="#/">← Back to worlds</a></p>
+      <p style={{ marginTop: 16 }}>
+        {/* In the lobby this is a normal route; in the in-game overlay the
+            page must close, not navigate the shell away from the game. */}
+        {onClose
+          ? <button className="btn small" onClick={onClose}>Close</button>
+          : <a href="#/">← Back to worlds</a>}
+      </p>
     </>
   );
 }

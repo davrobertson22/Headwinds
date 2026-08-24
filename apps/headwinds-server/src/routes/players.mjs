@@ -40,7 +40,7 @@ export default async function playerRoutes(fastify) {
     const account = await prisma.account.findUnique({
       where: { id: request.params.accountId },
       select: {
-        id: true, displayName: true, isOG: true, email: true,
+        id: true, displayName: true, username: true, isOG: true, email: true,
         createdAt: true, bannedAt: true, careerStats: true,
       },
     });
@@ -99,7 +99,10 @@ export default async function playerRoutes(fastify) {
     return {
       player: {
         id: account.id,
-        displayName: account.displayName,
+        // Display = username ?? displayName, resolved here so every client
+        // renders the claimed name without knowing the rule.
+        displayName: account.username ?? account.displayName,
+        username: account.username ?? null,
         isOG: account.isOG === true,
         // The email itself never leaves the server — only this comparison.
         dev: isDevEmail(account.email),

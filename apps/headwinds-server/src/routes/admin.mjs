@@ -16,7 +16,8 @@ function httpError(statusCode, message) {
 const accountSummary = (a) => ({
   id: a.id,
   email: a.email,
-  displayName: a.displayName,
+  displayName: a.username ?? a.displayName,
+  username: a.username ?? null,
   isOG: a.isOG,
   bannedAt: a.bannedAt,
   banReason: a.banReason,
@@ -235,11 +236,17 @@ export default async function adminRoutes(fastify) {
       where: {
         OR: [
           { displayName: { contains: q, mode: 'insensitive' } },
+          { username: { contains: q, mode: 'insensitive' } },
           { email: { contains: q, mode: 'insensitive' } },
           { airlines: { some: { name: { contains: q, mode: 'insensitive' } } } },
         ],
       },
-      include: { airlines: { select: { name: true }, take: 5, orderBy: { createdAt: 'desc' } } },
+      include: {
+        airlines: { select: { name: true }, take: 5, orderBy: { createdAt: 'desc' } },
+        // The rename trail — a rename must never outrun a reputation, so the
+        // panel shows what an account used to be called.
+        nameChanges: { select: { oldName: true }, take: 8, orderBy: { createdAt: 'desc' } },
+      },
       orderBy: { createdAt: 'asc' },
       take: 20,
     });
@@ -247,6 +254,7 @@ export default async function adminRoutes(fastify) {
       accounts: accounts.map((a) => ({
         ...accountSummary(a),
         airlines: a.airlines.map((x) => x.name),
+        pastNames: [...new Set(a.nameChanges.map((nc) => nc.oldName).filter(Boolean))],
       })),
     };
   });

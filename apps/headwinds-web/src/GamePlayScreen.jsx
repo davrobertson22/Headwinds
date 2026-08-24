@@ -21,6 +21,8 @@ import { authedApi, SessionExpiredError } from './authedApi.js';
 import { isHidden } from './usePoll.js';
 import { runDecisionWrite, shouldRollback, isRetryableRollback } from './decisionPolicy.js';
 import { supabase } from './supabase.js';
+import { createPortal } from 'react-dom';
+import PlayerProfileScreen from './PlayerProfile.jsx';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
 import '../../../src/index.css';
@@ -261,6 +263,14 @@ export default function GamePlayScreen({ worldId, token }) {
     });
   }, []);
 
+  // Player-profile overlay (phase 2): profiles open OVER the game rather than
+  // hash-navigating the shell away from it — a navigation would unmount the
+  // play screen and throw away open tabs, scroll and drawer state.
+  const [profileAccountId, setProfileAccountId] = useState(null);
+  const openProfile = useCallback((accountId) => {
+    if (accountId) setProfileAccountId(accountId);
+  }, []);
+
   const remoteApi = useMemo(() => ({
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => authedApi(`/worlds/${worldId}/feed${params}`, { token }),
@@ -269,13 +279,11 @@ export default function GamePlayScreen({ worldId, token }) {
     // network without the server needing to know who is asking.
     fetchNews: (params = '') => authedApi(`/worlds/${worldId}/news${params}`, { token }),
     airlineId: meta?.airlineId ?? null,
-    // Player profiles: the rival dossier's "View player profile" link
-    // navigates the SHELL to the account-level profile screen. Injected as a
-    // callback so the shared Competition.jsx stays inert in solo Tailwinds,
-    // where neither this callback nor accountId exists.
-    onViewPlayer: (accountId) => {
-      if (accountId) window.location.hash = `#/players/${accountId}`;
-    },
+    // Player profiles: opens the account-level profile as an overlay over the
+    // game (see above). Injected as a callback so the shared Competition.jsx
+    // stays inert in solo Tailwinds, where neither this callback nor
+    // accountId exists.
+    onViewPlayer: openProfile,
     // ── Second chances ───────────────────────────────────────────────────────
     // A bankrupt airline's every write is refused, so the shared bankruptcy
     // overlay needs a way out that is not a decision. `restartsLeft` is null on
@@ -521,10 +529,10 @@ export default function GamePlayScreen({ worldId, token }) {
         ) : null}
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
-        <MessagesWidget worldId={worldId} token={token} />
+        <MessagesWidget worldId={worldId} token={token} onViewPlayer={openProfile} />
       </>
     ),
-  }), [meta, error, connLost, actionNotice, worldId, token]);
+  }), [meta, error, connLost, actionNotice, worldId, token, openProfile]);
 
   if (sessionExpired) {
     return (
@@ -552,6 +560,25 @@ export default function GamePlayScreen({ worldId, token }) {
       <RemoteGameProvider state={state} dispatch={dispatch} remoteApi={remoteApi} remoteChrome={remoteChrome}>
         <SoloApp />
       </RemoteGameProvider>
+      {/* Player-profile overlay. Portal to <body> for the same reason the
+          messages drawer does: the topbar's backdrop-filter makes the game a
+          containing block for position:fixed. */}
+      {profileAccountId && createPortal(
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setProfileAccountId(null); }}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000,
+                   background: 'rgba(0,0,0,.55)', overflowY: 'auto',
+                   padding: '32px 16px' }}
+        >
+          <div className="shell" style={{ maxWidth: 720, margin: '0 auto' }}>
+            <PlayerProfileScreen
+              accountId={profileAccountId} token={token}
+              onClose={() => setProfileAccountId(null)}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

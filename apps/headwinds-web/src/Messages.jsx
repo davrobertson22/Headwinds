@@ -20,7 +20,7 @@ const fmtTime = (t) => {
       + ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
-export default function MessagesWidget({ worldId, token }) {
+export default function MessagesWidget({ worldId, token, onViewPlayer = null }) {
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState(null);
@@ -47,13 +47,14 @@ export default function MessagesWidget({ worldId, token }) {
           worldId={worldId} token={token} summary={summary}
           refresh={loadSummary} error={error}
           onClose={() => setOpen(false)}
+          onViewPlayer={onViewPlayer}
         />
       )}
     </>
   );
 }
 
-function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
+function MessagesDrawer({ worldId, token, summary, refresh, error, onClose, onViewPlayer = null }) {
   const [tab, setTab] = useState('direct'); // 'direct' | 'alliance'
   const [thread, setThread] = useState(null); // airlineId of open DM thread
   const [composeTo, setComposeTo] = useState('');
@@ -138,6 +139,9 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose }) {
             ?? summary.airlines.find((a) => a.id === thread)?.og) === true}
           dev={(summary.conversations.find((c) => c.airlineId === thread)?.dev
             ?? summary.airlines.find((a) => a.id === thread)?.dev) === true}
+          accountId={summary.conversations.find((c) => c.airlineId === thread)?.accountId
+            ?? summary.airlines.find((a) => a.id === thread)?.accountId ?? null}
+          onViewPlayer={onViewPlayer}
           onBack={() => { setThread(null); refresh(); }}
           onBlocked={() => { setThread(null); refresh(); }}
         />
@@ -180,7 +184,7 @@ function Composer({ placeholder, disabled, onSend }) {
   );
 }
 
-function DmThread({ worldId, token, airlineId, name, og = false, dev = false, onBack, onBlocked }) {
+function DmThread({ worldId, token, airlineId, name, og = false, dev = false, accountId = null, onViewPlayer = null, onBack, onBlocked }) {
   const confirm = useConfirm();
   const [messages, setMessages] = useState(null);
   const [error, setError] = useState(null);
@@ -210,6 +214,13 @@ function DmThread({ worldId, token, airlineId, name, og = false, dev = false, on
         <button className="btn small" onClick={onBack}>← Inbox</button>
         <strong>{name}{dev ? <DevBadge /> : null}{og ? <OgBadge /> : null}</strong>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+          {/* Account-level profile — present only when the shell injected the
+              overlay opener AND the server sent an accountId. */}
+          {onViewPlayer && accountId && (
+            <button className="btn small" onClick={() => onViewPlayer(accountId)} title="View this player's profile">
+              👤 Profile
+            </button>
+          )}
           <button className="btn small" onClick={() => setReporting(true)} title="Report this player to the admins">⚠ Report</button>
           <button className="btn danger small" onClick={block}>Block</button>
         </span>
