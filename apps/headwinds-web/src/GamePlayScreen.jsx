@@ -269,6 +269,13 @@ export default function GamePlayScreen({ worldId, token }) {
     // network without the server needing to know who is asking.
     fetchNews: (params = '') => authedApi(`/worlds/${worldId}/news${params}`, { token }),
     airlineId: meta?.airlineId ?? null,
+    // Player profiles: the rival dossier's "View player profile" link
+    // navigates the SHELL to the account-level profile screen. Injected as a
+    // callback so the shared Competition.jsx stays inert in solo Tailwinds,
+    // where neither this callback nor accountId exists.
+    onViewPlayer: (accountId) => {
+      if (accountId) window.location.hash = `#/players/${accountId}`;
+    },
     // ── Second chances ───────────────────────────────────────────────────────
     // A bankrupt airline's every write is refused, so the shared bankruptcy
     // overlay needs a way out that is not a decision. `restartsLeft` is null on

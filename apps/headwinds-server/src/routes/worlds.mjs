@@ -128,6 +128,9 @@ export default async function worldRoutes(fastify) {
         rank: i + 1,
         id: a.id,
         worldId: a.worldId,
+        // Profile link target (#/players/:accountId) — the raw SQL above has
+        // always fetched it; emitting it is what makes names clickable.
+        accountId: a.accountId,
         name: a.name,
         hub: a.hub,
         cash: Number(a.cash),
@@ -237,6 +240,7 @@ export default async function worldRoutes(fastify) {
         ...serializeAirline(airline),
         routes: routes.length,
         fleet: (s.fleet ?? []).length,
+        accountId: airline.accountId,
         og: airline.account?.isOG === true,
         dev: isDevEmail(airline.account?.email),
       },

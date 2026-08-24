@@ -57,6 +57,10 @@ export function worldRecord(row) {
     svps:        num(row.svps),
     marketCap:   num(row.marketCap),
     status:      row.status ?? null,
+    // World visibility at snapshot time. Absent on records banked before the
+    // profile feature (2026-08-24) — publicCareer resolves those by a
+    // read-time World lookup and FAILS CLOSED (unresolvable = private).
+    visibility:  row.visibility ?? null,
     restarts:    num(row.restarts),
     passengers:  num(row.passengers),
     weeksPlayed: num(row.weeksPlayed),
@@ -199,6 +203,71 @@ export function serializeCareer(raw) {
     return tb - ta;
   });
   return { totals: career.totals, badges: careerBadges(career.totals), worlds };
+}
+
+// ── The public view ──────────────────────────────────────────────────────────
+// What OTHER players see (GET /players/:accountId). Two rules, both Dave's
+// (2026-08-24, PLAYER_PROFILES_PLAN.md):
+//
+// 1. PRIVATE worlds are invisible — not the season, not the trophy, and not
+//    the totals or badges either, which are recomputed from the public subset
+//    so a championship won in a private world cannot leak through the Champion
+//    badge. A world whose visibility cannot be determined (a legacy record
+//    with no stored `visibility` AND no entry in `visibilityByWorldId`) counts
+//    as PRIVATE: fail closed, never open.
+// 2. Podium or nothing. A public season carries `place` (1 | 2 | 3 | null) and
+//    NOT rank/of/svps/marketCap/status — a 14th-place finish, or a
+//    bankruptcy, reads simply as "Played". The numbers are stripped HERE,
+//    server-side, so they never reach the network tab. `/me` keeps serving
+//    the account's own full record via serializeCareer.
+
+/**
+ * @param {object} raw  Account.careerStats
+ * @param {Map<string,string>} [visibilityByWorldId]  worldId → World.visibility,
+ *        for legacy records that predate the stored `visibility` field.
+ */
+export function publicCareer(raw, visibilityByWorldId = new Map()) {
+  const career = normalizeCareer(raw);
+  const publicWorlds = {};
+  for (const [id, w] of Object.entries(career.worlds)) {
+    const visibility = w?.visibility ?? visibilityByWorldId.get(id) ?? null;
+    if (visibility === 'PUBLIC') publicWorlds[id] = w;
+  }
+
+  const totals = careerTotals(publicWorlds);
+  const seasons = Object.values(publicWorlds)
+    .sort((a, b) => {
+      const ta = a.endedAt ? Date.parse(a.endedAt) : 0;
+      const tb = b.endedAt ? Date.parse(b.endedAt) : 0;
+      return tb - ta;
+    })
+    .map((w) => ({
+      worldId:     w.worldId,
+      worldName:   w.worldName ?? null,
+      lengthYears: w.lengthYears ?? null,
+      endedAt:     w.endedAt ?? null,
+      airlineName: w.airlineName ?? null,
+      hub:         w.hub ?? null,
+      place:       w.rank != null && w.rank <= PODIUM_RANK ? w.rank : null,
+    }));
+
+  return {
+    // bestFinish and bankruptcies are deliberately absent from the public
+    // totals: championships and podiums already tell the podium story, and
+    // everything below third place is nobody else's business.
+    totals: {
+      worldsFinished:     totals.worldsFinished,
+      championships:      totals.championships,
+      podiums:            totals.podiums,
+      lifetimePassengers: totals.lifetimePassengers,
+      weeksPlayed:        totals.weeksPlayed,
+    },
+    // Badges from the PUBLIC subset's full totals (Phoenix needs refoundings),
+    // so a badge earned in a private world cannot out itself here.
+    badges:   careerBadges(totals),
+    trophies: seasons.filter((s) => s.place != null),
+    seasons,
+  };
 }
 
 /**

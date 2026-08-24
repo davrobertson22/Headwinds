@@ -8,6 +8,7 @@ import { api } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
 import CareerPanel from './CareerPanel.jsx';
+import PlayerProfileScreen from './PlayerProfile.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -44,6 +45,8 @@ function useRoute() {
   }, []);
   if (hash.startsWith('#/admin')) return { screen: 'admin' };
   if (hash.startsWith('#/report')) return { screen: 'report' };
+  const p = hash.match(/^#\/players\/([\w-]+)/);
+  if (p) return { screen: 'player', accountId: p[1] };
   const m = hash.match(/^#\/w\/([\w-]+)(\/play)?/);
   if (m && m[2]) return { screen: 'play', worldId: m[1] };
   return m ? { screen: 'world', worldId: m[1] } : { screen: 'worlds' };
@@ -862,7 +865,13 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                 >
                   <td>{a.rank}</td>
                   <td>
-                    {a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
+                    {/* The name links to the account-level profile; stopPropagation so
+                        the click doesn't also toggle the in-row rival panel. Older server
+                        payloads carry no accountId — then the name stays plain text. */}
+                    {a.accountId
+                      ? <a href={`#/players/${a.accountId}`} title="View player profile"
+                           onClick={(e) => e.stopPropagation()}>{a.name}</a>
+                      : a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
                     {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
                   </td>
                   <td>{a.hub}</td>
@@ -1320,8 +1329,9 @@ export default function App() {
       {!ready ? <p className="muted">Loading…</p> : (
         <>
           {!session && <SignIn />}
-          {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><CareerPanel career={me?.career} /></>}
+          {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><CareerPanel career={me?.career} accountId={me?.account?.id} /></>}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
+          {route.screen === 'player' && <PlayerProfileScreen accountId={route.accountId} token={token} />}
           {route.screen === 'admin' && <ModerationScreen token={token} me={me} />}
           {route.screen === 'report' && <ReportScreen token={token} me={me} />}
         </>

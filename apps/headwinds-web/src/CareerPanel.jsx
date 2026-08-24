@@ -32,7 +32,7 @@ function Figure({ label, value, hint }) {
   );
 }
 
-export default function CareerPanel({ career }) {
+export default function CareerPanel({ career, accountId = null }) {
   const totals = career?.totals;
   const worlds = career?.worlds ?? [];
   const badges = career?.badges ?? [];
@@ -43,7 +43,15 @@ export default function CareerPanel({ career }) {
 
   return (
     <section className="card" style={{ marginTop: 24 }}>
-      <h3 style={{ marginTop: 0 }}>Career</h3>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <h3 style={{ marginTop: 0 }}>Career</h3>
+        {accountId && (
+          <a className="muted small" href={`#/players/${accountId}`}
+             title="Your profile as other players see it — private worlds hidden">
+            View my public profile →
+          </a>
+        )}
+      </div>
       <p className="muted small" style={{ marginTop: -6 }}>
         {totals.worldsFinished === 1
           ? 'One season finished.'

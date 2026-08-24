@@ -922,7 +922,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCas
           {/* Multiplayer: the rival's public profile — fleet, rank history,
               recent moves — fetched from the server on expand. */}
           {isHuman && remoteApi?.fetchRivalProfile && (
-            <RivalProfile carrier={carrier} fetchRivalProfile={remoteApi.fetchRivalProfile} />
+            <RivalProfile carrier={carrier} fetchRivalProfile={remoteApi.fetchRivalProfile} onViewPlayer={remoteApi.onViewPlayer ?? null} />
           )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
@@ -1024,7 +1024,7 @@ function rivalAirlineId(id) {
   return String(id ?? '').replace(/^human:/, '').replace(/~g\d+$/, '');
 }
 
-function RivalProfile({ carrier, fetchRivalProfile }) {
+function RivalProfile({ carrier, fetchRivalProfile, onViewPlayer = null }) {
   const [profile, setProfile] = useState(null);
   const [failed, setFailed] = useState(false);
   const airlineId = rivalAirlineId(carrier.id);
@@ -1054,6 +1054,21 @@ function RivalProfile({ carrier, fetchRivalProfile }) {
   return (
     <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)',
                   display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+      {/* Account-level profile link — multiplayer only. Renders when the shell
+          injected onViewPlayer (Headwinds) AND the server sent accountId; in
+          solo Tailwinds neither exists and this block is inert. */}
+      {onViewPlayer && profile?.airline?.accountId && (
+        <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={() => onViewPlayer(profile.airline.accountId)}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                     fontSize: 12, color: 'var(--text)', textDecoration: 'underline' }}
+          >
+            View player profile →
+          </button>
+        </div>
+      )}
       {/* Fleet + hubs */}
       <div>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>

@@ -38,6 +38,9 @@ export const RIVAL_PROFILE_SELECT = {
   joinedWeek: true,
   restarts: true,
   restartedWeek: true,
+  // The profile link target (#/players/:accountId) — public by design since
+  // the 2026-08-24 player-profiles feature.
+  accountId: true,
   // OG + DEV badges. The email never leaves the server — it is only compared
   // against ADMIN_EMAILS.
   account: { select: { isOG: true, email: true } },

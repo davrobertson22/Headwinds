@@ -72,6 +72,7 @@ export async function snapshotWorldCareers(prisma, world, {
       worldId:     world.id,
       worldName:   world.name ?? null,
       lengthYears: world.lengthYears ?? null,
+      visibility:  world.visibility ?? null,
       endedAt:     (world.endedAt ?? new Date()).toISOString?.() ?? null,
       airlineId:   a.id,
       airlineName: a.name,
