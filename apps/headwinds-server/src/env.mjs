@@ -40,4 +40,5 @@ export const env = {
   // Tick scheduler (worker)
   tickCheckSeconds: Number(optional('TICK_CHECK_SECONDS', '60')),
   tickMaxCatchUp: Number(optional('TICK_MAX_CATCHUP', '12')),
+  tickWedgeMinutes: Number(optional('TICK_WEDGE_MINUTES', '15')),
 };
