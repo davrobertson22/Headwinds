@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, maxWeeklyBlockHoursFor, currentGameDate } from '../utils/simulation.js';
+import { isOutOfService } from '../data/maintenance.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
@@ -176,11 +177,42 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
     return s + (t?.payloadTonnes ?? 0) * (r.weeklyFrequency ?? 0);
   }, 0), [laneRoutes, state.fleet]);
 
+  // Range belongs to the AIRFRAME, not the catalogue entry: engine and wingtip
+  // options raise `rangeMod` on the tail you bought, and ADD_CARGO_ROUTE's own
+  // guard measures the lane with effectiveRangeKm. Comparing against the stock
+  // `type.range` here hid modded freighters the engine would have accepted — the
+  // passenger planner had the identical bug (ASAS, 8/19/26). Per type we credit
+  // the longest-legged freighter owned; unowned types have no mods, so they keep
+  // the book figure.
+  const reachByType = useMemo(() => {
+    const map = new Map();
+    for (const a of state.fleet ?? []) {
+      // The same fleet filter deployableFleetForRoute applies. A tail in a heavy
+      // check cannot fly this lane, so letting its mods advertise the type would
+      // list an aircraft with nothing behind it: the picker offers the type, counts
+      // "0 ready", and the Open Route button has no airframe to reach for.
+      if (a.status === 'retired' || isOutOfService(a)) continue;
+      const t = getAircraftType(a.typeId);
+      if (!t) continue;
+      // The tail's FULL reach: engine/wingtip rangeMod AND the cabin-payload bonus
+      // its own stored layout earns. Both are real on an airframe you own —
+      // effectiveRangeKm is exactly what ADD_ROUTE measures the lane against — and
+      // the payload bonus is the larger of the two (up to +15% against +4%), so
+      // crediting only the mod still hid premium-cabin jets the engine accepts.
+      const reach = effectiveRangeKm(a, t);
+      if (reach > (map.get(a.typeId) ?? 0)) map.set(a.typeId, reach);
+    }
+    return map;
+  }, [state.fleet]);
+
+  const reachKmFor = (t) =>
+    t ? (reachByType.get(t.id) ?? effectiveRangeKm({ typeId: t.id }, t)) : 0;
+
   // Freighter types that can reach this route
   const reachableTypes = useMemo(() => {
     if (!routeData) return [];
-    return AIRCRAFT_TYPES.filter(t => t.freighter && t.range >= routeData.dist);
-  }, [routeData]);
+    return AIRCRAFT_TYPES.filter(t => t.freighter && reachKmFor(t) >= routeData.dist);
+  }, [routeData, reachByType]);
 
   useMemo(() => {
     if (reachableTypes.length && !reachableTypes.find(t => t.id === selectedTypeId)) {
@@ -212,9 +244,16 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
   const simulation = useMemo(() => {
     if (!routeData || !selectedTypeId) return null;
     const type = getAircraftType(selectedTypeId);
-    if (!type || routeData.dist > type.range) return null;
+    if (!type) return null;
     const route = { id: 'p', origin, destination: dest, aircraftId: 'p', weeklyFrequency: frequency, yieldPrice: effectiveYield, weeksOpen: 20 };
-    const ac    = { id: 'p', typeId: selectedTypeId, ageWeeks: 0 };
+    // Scale the forecast freighter's rangeMod so effectiveRangeKm reproduces the
+    // reach the picker quoted (which includes the tail's payload bonus). rangeMod
+    // feeds effectiveRangeKm only — fuel burn rides on fuelMod — so this moves the
+    // range guard and no part of the economics.
+    const quotedReach = reachKmFor(type);
+    const ac    = { id: 'p', typeId: selectedTypeId, ageWeeks: 0,
+      rangeMod: type.range > 0 ? quotedReach / type.range : 1.0 };
+    if (routeData.dist > quotedReach) return null;
     // Joining a lane you already fly: project THIS aircraft's slice of the
     // shared pool, not the full market (the same math the weekly tick runs).
     let override = null, overrideLaunch = null;
@@ -426,6 +465,11 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                   const reserveTail = target?.reserve ? target.aircraft : null;
                   const anySpare  = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
                   const owned     = pool.length;
+                  // Backstop — see the note in RoutePlanner. The picker's reach and the
+                  // pool's rangeOk are the same measure taken in two files; if they ever
+                  // drift, say "out of range" rather than "flying other networks", which
+                  // is plainly false about a parked freighter.
+                  const outOfRange = owned > 0 && pool.every(d => d.rangeOk === false);
                   const lCost     = routeLaunchCost(routeData.dist);
                   const canAfford = state.cash >= lCost;
                   const blocked   = !canAfford || !slotsOk;
@@ -446,6 +490,8 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                             {owned === 0
                               ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
+                              : outOfRange
+                                ? <>Your {simulation.type.name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {routeData.dist.toLocaleString()} km. Lease a longer-legged freighter.</>
                               : anySpare
                                 ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — a freighter can only add a lane that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
                                 : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another lane. Lease another {simulation.type.name} to open this route.</>}

@@ -1183,8 +1183,13 @@ export function scheduleTrimMessage(notice) {
  * upper bound vs. the reducer's per-month peak, so anything this returns as
  * eligible the reducer will also accept).
  *
+ * Range is checked per airframe (effectiveRangeKm, so engine/wingtip mods and the
+ * cabin-payload bonus count) rather than against the catalogue figure — the same
+ * measure addRouteBlockReason uses, so nothing this returns as eligible is then
+ * refused by the reducer.
+ *
  * @returns array of { aircraft, idle, usedBlockHrs, spareBlockHrs, newBlockHrs,
- *   connectivityOk, hoursOk, eligible }, idle airframes first then most-spare.
+ *   connectivityOk, hoursOk, rangeOk, eligible }, idle airframes first then most-spare.
  */
 export function deployableFleetForRoute({
   fleet = [], existingRoutes = [], typeId, origin, dest, distKm, weeklyFrequency,
@@ -1201,6 +1206,12 @@ export function deployableFleetForRoute({
       const served   = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
       const connectivityOk = acRoutes.length === 0 || served.has(origin) || served.has(dest);
       const hoursOk  = usedBH + newBH <= capHours + 1e-6;
+      // Range is per AIRFRAME: two tails of the same type differ once one has
+      // sharklets or an uprated engine. Own one modded jet and one stock, and the
+      // stock one must not be counted as "ready" for a lane only the modded one
+      // reaches — ADD_ROUTE would reject it. Measured exactly as the reducer's
+      // guard measures it, so the pickers and the reducer never disagree.
+      const rangeOk  = !(distKm > 0) || distKm <= effectiveRangeKm(a, type);
       return {
         aircraft:      a,
         idle:          a.status === 'idle',
@@ -1213,11 +1224,12 @@ export function deployableFleetForRoute({
         newBlockHrs:   newBH,
         connectivityOk,
         hoursOk,
+        rangeOk,
         // Usable spare: 1-2 free hours is not real availability (see
         // MIN_SPARE_BLOCK_HOURS). Drives the "with spare hours" counters and
         // the free-hours labels in the route pickers.
         hasUsableSpare: (capHours - usedBH) > MIN_SPARE_BLOCK_HOURS,
-        eligible:      connectivityOk && hoursOk,
+        eligible:      connectivityOk && hoursOk && rangeOk,
       };
     })
     // Free idle tails first, then planes with spare hours, then reserves last —

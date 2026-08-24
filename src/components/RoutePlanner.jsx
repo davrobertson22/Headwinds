@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useGame, addRouteBlockReason, slotCapAt } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
+import { isOutOfService } from '../data/maintenance.js';
 import {
   baseCityPairDemand, referencePrice, distanceKm,
   simulateRoute, formatMoney, formatPercent, weekToGameDate,
@@ -9,7 +10,7 @@ import {
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
   buildEventDemandModel, deployableFleetForRoute, maxWeeklyBlockHoursFor,
-  maxFrequency, isRouteActive, routeActiveMonths,
+  maxFrequency, isRouteActive, routeActiveMonths, effectiveRangeKm,
   stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
@@ -521,11 +522,51 @@ export default function RoutePlanner() {
       });
   }, [ready, routeData, origin, dest, state.competitors]);
 
+  // Range is a property of the AIRFRAME, not of the catalogue entry. Engine and
+  // wingtip options (sharklets, scimitars, blended winglets) raise `rangeMod` on
+  // the tail you actually bought, and `effectiveRangeKm` is what every other
+  // surface — the Route Finder, the Routes tab, the tag planner, and the reducer's
+  // own ADD_ROUTE guard — measures a lane against. This screen was the last one
+  // still comparing against the stock `type.range`, so a modded jet that the
+  // engine would happily let you deploy was hidden from the picker entirely
+  // ("route planner does not allow me to use routes that my aircraft can handle
+  // if their max range is below the route range BUT the aircraft have
+  // modifications such as engine and sharklet that allow them to have more than
+  // enough range" — ASAS, 8/19/26).
+  //
+  // Per type we quote the LONGEST-LEGGED tail owned, since that is the plane the
+  // route would open on. Types not in the fleet have no mods and no cabin yet, so
+  // they quote the catalogue figure.
+  const reachByType = useMemo(() => {
+    const map = new Map();
+    for (const a of state.fleet ?? []) {
+      // The same fleet filter deployableFleetForRoute applies. A tail in a heavy
+      // check cannot fly this lane, so letting its mods advertise the type would
+      // list an aircraft with nothing behind it: the picker offers the type, counts
+      // "0 ready", and the Open Route button has no airframe to reach for.
+      if (a.status === 'retired' || isOutOfService(a)) continue;
+      const t = getAircraftType(a.typeId);
+      if (!t) continue;
+      // The tail's FULL reach: engine/wingtip rangeMod AND the cabin-payload bonus
+      // its own stored layout earns. Both are real on an airframe you own —
+      // effectiveRangeKm is exactly what ADD_ROUTE measures the lane against — and
+      // the payload bonus is the larger of the two (up to +15% against +4%), so
+      // crediting only the mod still hid premium-cabin jets the engine accepts.
+      const reach = effectiveRangeKm(a, t);
+      if (reach > (map.get(a.typeId) ?? 0)) map.set(a.typeId, reach);
+    }
+    return map;
+  }, [state.fleet]);
+
+  // Reach (km) the picker credits a type with on this route.
+  const reachKmFor = (t) =>
+    t ? (reachByType.get(t.id) ?? effectiveRangeKm({ typeId: t.id }, t)) : 0;
+
   // Aircraft types that can reach this route
   const reachableTypes = useMemo(() => {
     if (!routeData) return [];
-    return AIRCRAFT_TYPES.filter(t => t.range >= routeData.dist);
-  }, [routeData]);
+    return AIRCRAFT_TYPES.filter(t => reachKmFor(t) >= routeData.dist);
+  }, [routeData, reachByType]);
 
   // Hard ceiling on flights/week for this aircraft on this route: one airframe
   // has MAX_WEEKLY_BLOCK_HOURS flying hours a week, so longer sectors fit fewer
@@ -679,9 +720,19 @@ export default function RoutePlanner() {
   const simulation = useMemo(() => {
     if (!routeData || !selectedTypeId) return null;
     const type = getAircraftType(selectedTypeId);
-    if (!type || routeData.dist > type.range) return null;
+    if (!type) return null;
 
-    const simAircraft = { id:'p', typeId: selectedTypeId, ageWeeks: 0, config: effectiveConfig ?? undefined };
+    // Scale the forecast plane's rangeMod so effectiveRangeKm reproduces the reach
+    // the picker quoted. It cannot simply copy the tail's rangeMod: the quoted
+    // figure includes that tail's cabin-payload bonus, while the forecast runs on
+    // whatever layout the player has dialled in here, which may be denser. rangeMod
+    // feeds effectiveRangeKm and nothing else — fuel burn rides on the separate
+    // fuelMod — so this moves the range guard and no part of the economics.
+    const quotedReach = reachKmFor(type);
+    const simAircraft = { id:'p', typeId: selectedTypeId, ageWeeks: 0,
+      rangeMod: type.range > 0 ? quotedReach / type.range : 1.0,
+      config: effectiveConfig ?? undefined };
+    if (routeData.dist > quotedReach) return null;
     // Every cabin is priced in the fare editor — the forecast charges exactly the
     // fares the player has set (reference fares until overridden), matching what
     // ADD_ROUTE will assign when the route is opened.
@@ -769,7 +820,7 @@ export default function RoutePlanner() {
              rivalCount: projection.rivalCount ?? 0,
              pairPassengers: projection.pairPassengers, lanePassengers: projection.lanePassengers,
              laneDemand: projection.laneDemand };
-  }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest]);
+  }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest, reachByType]);
 
   // Gate + slot position at each endpoint for the planned frequency, measured the
   // way the engine measures it — slotCapAt() counts an alliance partner's granted
@@ -989,8 +1040,9 @@ export default function RoutePlanner() {
 
             {reachableTypes.length === 0 ? (
               <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                None of your aircraft can reach {origin} → {dest} ({routeData.dist.toLocaleString()} km).
-                Lease a longer-range aircraft from the Market first.
+                Nothing that can reach {origin} → {dest} ({routeData.dist.toLocaleString()} km) is
+                available — not in your fleet, and not in the catalogue. Range modifications on
+                your own airframes are already counted here.
               </div>
             ) : (
               <>
@@ -1001,7 +1053,7 @@ export default function RoutePlanner() {
                   <div style={{ flex: '1 1 200px', maxWidth: 320 }}>
                     <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Aircraft type
-                      <InfoTip text="Only aircraft that can reach this route are listed, and the ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open." />
+                      <InfoTip text="Only aircraft that can reach this route are listed, measured on the range your airframes actually have — engine and wingtip modifications count, so a jet whose book range falls short of the lane still appears if a tail you own is modded past it. The ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open." />
                     </div>
                     <select
                       className="form-select"
@@ -1019,9 +1071,14 @@ export default function RoutePlanner() {
                               const ready   = pool.filter(d => !d.reserve).length;
                               const onRes   = pool.filter(d => d.reserve).length;
                               const owned   = ownedTypeIds.has(t.id);
+                              // A type whose CATALOGUE range falls short of the lane is only
+                              // here because a tail you own is modded past it. Say so on the
+                              // row, or the entry reads like a bug to anyone who knows the
+                              // book figure.
+                              const modded  = t.range < routeData.dist;
                               return (
                                 <option key={t.id} value={t.id}>
-                                  {t.name} ({t.seats} seats){ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : ' · lease required'}
+                                  {t.name} ({t.seats} seats){modded ? ` · ${Math.round(reachKmFor(t)).toLocaleString()} km with your mods` : ''}{ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : ' · lease required'}
                                 </option>
                               );
                             })}
@@ -1282,6 +1339,14 @@ export default function RoutePlanner() {
                   const preferred  = preferredD?.aircraft;
                   const anySpare   = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
                   const owned      = pool.length;
+                  // Backstop. The picker's reach (reachByType, here) and the pool's
+                  // rangeOk (deployableFleetForRoute, in simulation.js) are the same
+                  // measure taken in two files, so today a listed type always has at
+                  // least one tail that can reach. If they ever drift, the player gets
+                  // a true sentence about range instead of the "flying other networks"
+                  // one below — which is plainly false about a parked plane and points
+                  // at a fix that would not help.
+                  const outOfRange = owned > 0 && pool.every(d => d.rangeOk === false);
                   const lCost      = routeLaunchCost(routeData.dist);
                   const canAfford  = state.cash >= lCost;
                   const blocked    = !!routeRestriction;
@@ -1315,6 +1380,8 @@ export default function RoutePlanner() {
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                             {owned === 0
                               ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
+                              : outOfRange
+                                ? <>Your {simulation.type.name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {routeData.dist.toLocaleString()} km. Fit range-extending wingtips, lighten the cabin, or lease a longer-legged aircraft.</>
                               : anySpare
                                 ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — an aircraft can only add a route that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
                                 : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another route. Lease another {simulation.type.name} to open this route.</>}
