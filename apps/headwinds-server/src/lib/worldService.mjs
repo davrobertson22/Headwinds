@@ -8,6 +8,7 @@ import {
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE,
 } from './worldConfig.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
+import { splitLogo } from './logoColumn.mjs';
 import { seedWorldMarket } from './marketService.mjs';
 import { worldEconomyAt } from './worldEconomy.mjs';
 
@@ -233,7 +234,10 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
         accountId: account.id,
         name: worldDatedState.airlineName,
         hub: worldDatedState.hub ?? hub,
-        state: worldDatedState,
+        // splitLogo: the engine's fresh-state template carries customLogo: null —
+        // the key never persists inside the blob (lib/logoColumn.mjs); the
+        // column's default null is the same "no upload yet".
+        state: splitLogo(worldDatedState).state,
         cash: BigInt(Math.round(worldDatedState.cash ?? 0)),
         marketCap: BigInt(Math.round(worldDatedState.marketCap ?? 0)),
         // Linear week index, matching what the tick writes (see tickService's

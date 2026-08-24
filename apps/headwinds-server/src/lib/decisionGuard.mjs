@@ -380,6 +380,41 @@ function guardUpdateCargoYield(payload) {
   };
 }
 
+// ── Branding ────────────────────────────────────────────────────────────────
+// The solo client downscales every uploaded logo to a 128×128 PNG data URL
+// (src/utils/logoImage.js) — a few tens of kB. The multiplayer client is
+// untrusted, and until this guard existed anything up to Fastify's 1 MB body
+// limit could be smuggled in as `customLogo`. Since 2026-08-24 the logo lands
+// in its own Airline column (lib/logoColumn.mjs) rather than being re-written
+// with the blob every tick, but a megabyte of forged "logo" is still a
+// megabyte on every full state read — bound it here at the API boundary.
+// 192 kB of data-URL is ~144 kB of image: several times the largest legitimate
+// 128×128 PNG, so a real upload is never rejected.
+const LOGO_DATAURL_MAX_CHARS = 196_608;
+function guardBranding(payload) {
+  const out = {};
+  if (typeof payload.airlineName === 'string') out.airlineName = payload.airlineName;
+  if (typeof payload.logoId === 'string')      out.logoId = payload.logoId.slice(0, 40);
+  if (typeof payload.logoColor === 'string')   out.logoColor = payload.logoColor.slice(0, 32);
+  // `'customLogo' in action` is the reducer's contract: only forward the key
+  // when the client sent one, so a name-only rebrand never touches the logo.
+  if ('customLogo' in payload) {
+    const logo = payload.customLogo;
+    if (logo == null) {
+      out.customLogo = null;
+    } else {
+      if (typeof logo !== 'string' || !logo.startsWith('data:image/')) {
+        throw new GuardError('The uploaded logo could not be used — please re-upload it.');
+      }
+      if (logo.length > LOGO_DATAURL_MAX_CHARS) {
+        throw new GuardError('That logo image is too large — please re-upload it.');
+      }
+      out.customLogo = logo;
+    }
+  }
+  return out;
+}
+
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'BUY_HEDGE':          return guardBuyHedge(payload);
@@ -435,6 +470,7 @@ export function guardDecision(type, payload, state) {
     case 'SET_DIVIDEND_POLICY': return guardDividendPolicy(payload);
     case 'ADD_GATE':
     case 'REMOVE_GATE':        return guardGate(payload);
+    case 'SET_BRANDING':       return guardBranding(payload);
     default:                   return payload;
   }
 }

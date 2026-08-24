@@ -15,6 +15,7 @@ import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
+import { splitLogo } from './logoColumn.mjs';
 import {
   isGateScarcity, reconcileForfeitures,
   openDueAuctions, resolveDueAuctions,
@@ -275,7 +276,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           data: {
             // Persist without the injected rival views (rebuilt every read/tick) —
             // stops each airline's blob from storing a copy of all its rivals.
-            state: stripRivals(c.next),
+            // splitLogo: the tick can never legitimately change a logo, so any
+            // customLogo key that reaches here (a pre-migration blob) is simply
+            // dropped — the column already holds the value (backfilled by
+            // migration 20260824000000) and the tick never writes that column.
+            state: splitLogo(stripRivals(c.next)).state,
             cash: BigInt(c.cash),
             marketCap: BigInt(c.marketCap),
             shares: BigInt(c.shares > 0 ? c.shares : 100_000_000),

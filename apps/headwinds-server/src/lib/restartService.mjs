@@ -44,6 +44,7 @@
 import { releaseAllFor, seedHubGate } from './gateService.mjs';
 import { poolKeyOf } from './marketService.mjs';
 import { seedAirlineState, OG_NAME_PATTERN } from './worldService.mjs';
+import { splitLogo } from './logoColumn.mjs';
 import { svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 // The cap lives in worldConfig (bottom of the import graph) so serializeAirline
 // can publish restartsLeft without importing this module and creating a cycle.
@@ -246,7 +247,13 @@ export async function restartAirline(prisma, { account, world, airline, airlineN
       name: state.airlineName,
       hub: state.hub ?? hub,
       homeCountry: state.homeCountry ?? null,
-      state,
+      // The re-founded company is a fresh airline: strip the template's
+      // customLogo key from the blob (lib/logoColumn.mjs — the key never
+      // persists) and null the column so the dead company's upload does not
+      // survive onto the new one. Same net behaviour as before the column
+      // existed, when the fresh blob's customLogo: null did the clearing.
+      state: splitLogo(state).state,
+      customLogo: null,
       cash: BigInt(Math.round(state.cash ?? 0)),
       marketCap: BigInt(Math.round(state.marketCap ?? 0)),
       // Both denormalised columns must be rewritten here. The tick is what

@@ -101,7 +101,14 @@ model Airline {
   name        String
   hub         String
   homeCountry String?
-  state       Json // ← the existing solo save blob (JSONB)
+  state       Json // ← the existing solo save blob (JSONB) — customLogo is NOT in here, see below
+  // The player's uploaded logo (a small data-URL PNG), pulled OUT of `state`
+  // on 2026-08-24: the tick rewrites the whole blob every world-week, and a
+  // static image riding inside it was re-TOASTed + re-WALed on every tick
+  // (Supabase disk-IO warnings). As its own column it is written once, on
+  // SET_BRANDING, and unchanged-column TOAST chunks are never rewritten.
+  // lib/logoColumn.mjs is the single read/write contract.
+  customLogo  String?
   cash        BigInt        @default(0)
   marketCap   BigInt        @default(0)
   // Shares outstanding. Per-airline since the capital-markets rework: issuance

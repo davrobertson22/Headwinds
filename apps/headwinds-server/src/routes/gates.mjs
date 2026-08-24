@@ -7,6 +7,7 @@ import { assertWorldReadable } from '../lib/access.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { GATE_BID_MAX_QTY } from '@tailwinds/engine/data/airports.js';
 import { buildWorldRivalViews, withRivals, loadAllianceMap, loadRivalRows } from '../lib/humanRivals.mjs';
+import { injectLogo } from '../lib/logoColumn.mjs';
 import {
   isGateScarcity, buildGateMarketViews, gateWorldSummary,
   placeBid, withdrawBid, createListing, withdrawListing, buyListing,
@@ -235,7 +236,10 @@ export default async function gateRoutes(fastify) {
     const view = views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
     return {
       ok: true,
-      state: withRivals(buyerState, view),
+      // injectLogo: buyerState came off the (key-free) DB blob — without the
+      // column value the client would adopt a state missing customLogo and the
+      // player's logo would vanish until the next full GET.
+      state: withRivals(injectLogo(buyerState, airline.customLogo), view),
       gateMarket: await gateMarketFor(world, airline.id),
     };
   });

@@ -21,6 +21,7 @@ import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { withTx } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
+import { splitLogo, injectLogo } from '../lib/logoColumn.mjs';
 import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
 import {
   ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
@@ -245,7 +246,7 @@ export default async function decisionRoutes(fastify) {
       return {
         ...base,
         stamp: `${slim.version}:${served}`,
-        state: withRivals(airline.state, null),
+        state: withRivals(injectLogo(airline.state, airline.customLogo), null),
         rivals: rivalOverlay(view),
       };
     }
@@ -257,7 +258,7 @@ export default async function decisionRoutes(fastify) {
     const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
     const { view, worldStamp: served } = await rivalViewFor(airline, worldStamp,
       { maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS });
-    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(airline.state, view) };
+    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(injectLogo(airline.state, airline.customLogo), view) };
   });
 
   // ── Submit a decision (validated intent → authoritative reducer) ───────────
@@ -553,12 +554,19 @@ export default async function decisionRoutes(fastify) {
         // Optimistic concurrency: only write if the airline is still at the version
         // we read. If the worker tick (or another decision) got there first, bail
         // with a 409 instead of silently clobbering it — the client re-GETs + retries.
+        // customLogo never persists inside the blob (lib/logoColumn.mjs): the
+        // key only exists on `next` when THIS decision was a SET_BRANDING that
+        // carried one (the DB state it was computed from is key-free), so
+        // `logo` is undefined on every other decision and the column is left
+        // alone. null (branding cleared the upload) nulls the column.
+        const { state: persistedState, logo } = splitLogo(stripRivals(next));
         const updated = await tx.airline.updateMany({
           where: { id: airline.id, version: airline.version },
           data: {
             // Persist WITHOUT the injected rival views (rebuilt on every read/tick).
             // The client still gets the full `next` (with rivals) in the response.
-            state: stripRivals(next),
+            state: persistedState,
+            ...(logo !== undefined ? { customLogo: logo } : {}),
             cash: toBig(next.cash),
             marketCap: toBig(next.marketCap),
             // Issuance and buybacks move the share count, and the share count is the
@@ -688,7 +696,11 @@ export default async function decisionRoutes(fastify) {
     return reply.code(201).send({
       ok: true,
       // The client re-renders from the authoritative result — no local guessing.
-      state: next,
+      // injectLogo: `next` was computed from the key-free DB blob, so without
+      // this any ordinary decision's response would adopt a state missing
+      // `customLogo` and the player's logo would blink out until the next full
+      // GET. A SET_BRANDING `next` carries its own (newer) key and wins.
+      state: injectLogo(next, airline.customLogo),
       // Engine convention: rejected/no-op intents leave state unchanged and often
       // set state.error / a toast. Surface a hint so the UI can show it.
       //

@@ -10,6 +10,7 @@ import {
   CodeshareError, offerCodeshare, resolveOffer, acceptOffer, cancelCodeshare,
   buildOfferView,
 } from '../lib/codeshareService.mjs';
+import { injectLogo } from '../lib/logoColumn.mjs';
 
 /** Linear week index — same arithmetic gateService uses. */
 const worldWeekIndex = (world) => (world.currentYear - 1) * 52 + world.currentWeek;
@@ -84,7 +85,9 @@ export default async function codeshareRoutes(fastify) {
         mutual: !!res.mutual,
         // A mutual offer signs immediately, so hand back the new state rather
         // than making the client wait a poll to see a deal it just made.
-        state: res.myState ?? null,
+        // injectLogo: myState came off the (key-free) DB blob — without the
+        // column value the client would adopt a state missing customLogo.
+        state: injectLogo(res.myState ?? null, from.customLogo),
         partnerName: res.partnerName ?? res.toName ?? null,
       });
     } catch (err) { return rethrow(err); }
@@ -113,7 +116,7 @@ export default async function codeshareRoutes(fastify) {
         const res = await acceptOffer(prisma, {
           world, offer, acceptor: airline, weekIndex: worldWeekIndex(world),
         });
-        return { ok: true, status: 'ACCEPTED', state: res.myState, partnerName: res.partnerName };
+        return { ok: true, status: 'ACCEPTED', state: injectLogo(res.myState, airline.customLogo), partnerName: res.partnerName };
       }
       // Declining and withdrawing are the same write: the row goes. Keeping a
       // REJECTED tombstone would only get in the way of offering again later.
@@ -138,7 +141,7 @@ export default async function codeshareRoutes(fastify) {
     const airline = await loadMyAirline(request);
     try {
       const res = await cancelCodeshare(prisma, { world, airline, partnerId: request.body.partnerId });
-      return { ok: true, state: res.myState, partnerName: res.partnerName };
+      return { ok: true, state: injectLogo(res.myState, airline.customLogo), partnerName: res.partnerName };
     } catch (err) { return rethrow(err); }
   });
 }

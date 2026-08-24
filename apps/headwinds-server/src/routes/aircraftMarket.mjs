@@ -11,6 +11,7 @@ import { prisma } from '../db.mjs';
 import { assertWorldReadable } from '../lib/access.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
+import { injectLogo } from '../lib/logoColumn.mjs';
 import { buildUsedMarketView, buyUsed } from '../lib/aircraftMarketService.mjs';
 
 const UM_LIMIT = 30;
@@ -71,7 +72,8 @@ export default async function aircraftMarketRoutes(fastify) {
     const view = views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
     return {
       ok: true,
-      state: withRivals(buyerState, view),
+      // injectLogo: buyerState came off the (key-free) DB blob — see gates.mjs.
+      state: withRivals(injectLogo(buyerState, airline.customLogo), view),
       usedMarket: await buildUsedMarketView(prisma, world.id),
     };
   });
