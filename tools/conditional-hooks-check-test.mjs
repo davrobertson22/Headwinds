@@ -35,7 +35,7 @@ function check(source) {
   fs.writeFileSync(path.join(dir, 'src', 'Fixture.jsx'), source);
   fs.copyFileSync(CHECKER, path.join(dir, 'check.mjs'));
   try {
-    const out = execFileSync(process.execPath, ['check.mjs'], { cwd: dir, encoding: 'utf8' });
+    const out = execFileSync(process.execPath, ['check.mjs'], { cwd: dir, encoding: 'utf8', env: { ...process.env, HOOKCHECK_REPO_ROOT: path.resolve('.') } });
     return { flagged: false, out };
   } catch (e) {
     return { flagged: true, out: (e.stdout || '') + (e.stderr || '') };
@@ -103,6 +103,28 @@ export const Panel = ({ open }) => {
 };
 `);
   assert.equal(r.flagged, true);
+});
+
+test('REGRESSION 2026-08-24: an apostrophe in JSX text must not hide later components', () => {
+  // The line-stripper version read the apostrophe in "isn't" (SignIn's setup
+  // notice) as a string-literal opener and blanked ~1,100 lines of App.jsx --
+  // WorldScreen's real conditional hook, the one that black-screened
+  // production, was never scanned.
+  const r = check(`
+import { useMemo, useState } from 'react';
+function SignIn() {
+  return <p>Auth isn't configured. Ask an admin.</p>;
+}
+export function WorldScreen() {
+  const [data, setData] = useState(null);
+  if (!data) return <p>Loading world…</p>;
+  const hubCounts = useMemo(() => ({}), [data]);
+  return <div>{Object.keys(hubCounts).length}</div>;
+}
+`);
+  assert.equal(r.flagged, true, r.out);
+  assert.match(r.out, /WorldScreen/);
+  assert.match(r.out, /useMemo/);
 });
 
 // ── Must NOT be flagged ──────────────────────────────────────────────────────

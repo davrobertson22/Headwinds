@@ -1,41 +1,58 @@
 // No React hook may sit below a component's early return.
 //
-// The bug this exists to catch, and which it is verified to catch: App.jsx's
-// AppInner had
+// The bug this exists to catch: a hook placed after a conditional return means
+// the component calls a different number of hooks depending on state. The
+// moment the early return stops firing, React throws "Rendered more hooks than
+// during the previous render", unmounts the entire tree, and the player gets a
+// black screen.
 //
-//     if (state.phase === 'setup') return <SetupScreen />;      // line 267
-//     ...
-//     useEffect(() => { /* hw:navigate deep links */ }, []);    // line 298
+// It has now happened twice:
+//   - AppInner's setup→playing flip (the original incident this check was
+//     written for): every brand-new game was dead on arrival.
+//   - 2026-08-24: WorldScreen gained a `hubCounts` useMemo BELOW the
+//     "Loading world…" return. Every world screen in production crashed for
+//     every player the moment the world data arrived — a multi-hour outage.
 //
-// During setup AppInner ran 18 hooks. The instant the player finished setup and
-// phase flipped to 'playing', it ran 19. React requires a component to call the
-// same hooks in the same order on every render, so it threw "Rendered more
-// hooks than during the previous render", unmounted the entire tree, and left a
-// black screen. Every brand-new game was dead on arrival.
+// The first version of this check missed the 2026-08-24 bug entirely: it
+// stripped strings line-by-line, so the apostrophe in JSX text ("Auth isn't
+// configured", inside SignIn) opened a phantom string literal that swallowed
+// ~1,100 lines — every component between SignIn and ReportScreen, WorldScreen
+// included, was never scanned. Regex-stripping JSX is a losing game, so this
+// version parses each file with @babel/parser and walks the real AST.
 //
-// Nothing caught it because only a NEW game crosses the setup→playing boundary.
-// Loading a save enters at 'playing' and stays there, so the hook count never
-// changes and every existing player — and every test fixture — was fine.
-//
-// The check: inside each component (a function whose name starts with a capital
-// letter) or custom hook (use*), track brace depth. A `return` in the function's
-// own body — depth 1, or depth 2 inside an if/else that is itself at depth 1 —
-// is an early return. Any hook called at depth 1 after that point is a hook
-// React will sometimes skip. Returns inside callbacks, .map()s and nested
-// blocks are correctly ignored, because those are not early returns from the
-// component.
+// The rule, per component (capitalized function or use* custom hook):
+//   - an "early return" is a ReturnStatement that is a direct statement of the
+//     component body, or sits inside an if/else that is itself a direct
+//     statement (however deeply the if/else chain nests);
+//   - after the first early return, any hook call (use[A-Z]…) reachable at the
+//     component's own level — not inside a nested function — is an error.
 //
 //   node tools/conditional-hooks-check.mjs
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+
+// Resolve @babel/parser from wherever this script actually runs. The checker's
+// own test copies it into a throwaway fixture tree with no node_modules, so
+// resolution falls back from the script's location to the cwd to an explicit
+// HOOKCHECK_REPO_ROOT the test provides.
+const requireBabel = (base) => { try { return createRequire(base)('@babel/parser'); } catch { return null; } };
+const babel = requireBabel(import.meta.url)
+  ?? requireBabel(pathToFileURL(path.join(process.cwd(), 'package.json')))
+  ?? (process.env.HOOKCHECK_REPO_ROOT
+    ? requireBabel(pathToFileURL(path.join(process.env.HOOKCHECK_REPO_ROOT, 'package.json')))
+    : null);
+if (!babel) {
+  console.error('conditional-hooks-check: cannot resolve @babel/parser (set HOOKCHECK_REPO_ROOT)');
+  process.exit(1);
+}
+const { parse } = babel;
 
 // Headwinds has two React trees: the shared game UI, and the multiplayer
 // client shell.
 const ROOTS = ['src', 'apps/headwinds-web/src'];
-const HOOK_CALL = /\b(use[A-Z][A-Za-z0-9]*)\s*\(/;
-const FN_DECL = /^(?:export\s+)?(?:default\s+)?function\s+([A-Z][A-Za-z0-9]*|use[A-Z][A-Za-z0-9]*)\s*\(/;
-const ARROW_DECL = /^(?:export\s+)?(?:default\s+)?const\s+([A-Z][A-Za-z0-9]*|use[A-Z][A-Za-z0-9]*)\s*=\s*(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/;
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -46,171 +63,125 @@ function walk(dir, out = []) {
   return out;
 }
 
-// Strip line comments, block comments and string/template literals so their
-// braces and the word "return" inside them cannot skew the depth count.
-function strip(src) {
-  let out = '', i = 0, n = src.length;
-  let mode = null;   // 'line' | 'block' | '"' | "'" | '`'
-  while (i < n) {
-    const c = src[i], d = src[i + 1];
-    if (mode === null) {
-      if (c === '/' && d === '/') { mode = 'line'; out += '  '; i += 2; continue; }
-      if (c === '/' && d === '*') { mode = 'block'; out += '  '; i += 2; continue; }
-      if (c === '"' || c === "'" || c === '`') { mode = c; out += ' '; i++; continue; }
-      out += c; i++; continue;
-    }
-    if (mode === 'line') { if (c === '\n') { mode = null; out += '\n'; } else out += ' '; i++; continue; }
-    if (mode === 'block') {
-      if (c === '*' && d === '/') { mode = null; out += '  '; i += 2; continue; }
-      out += (c === '\n' ? '\n' : ' '); i++; continue;
-    }
-    // inside a string
-    if (c === '\\') { out += '  '; i += 2; continue; }
-    if (c === mode) { mode = null; out += ' '; i++; continue; }
-    out += (c === '\n' ? '\n' : ' '); i++;
+const isFn = (n) => n && (n.type === 'FunctionDeclaration'
+  || n.type === 'FunctionExpression' || n.type === 'ArrowFunctionExpression'
+  || n.type === 'ObjectMethod' || n.type === 'ClassMethod');
+
+// Generic child visitor over parser AST nodes.
+function children(node) {
+  const out = [];
+  for (const k of Object.keys(node)) {
+    if (k === 'loc' || k === 'range' || k === 'leadingComments'
+      || k === 'trailingComments' || k === 'innerComments' || k === 'extra') continue;
+    const v = node[k];
+    if (Array.isArray(v)) { for (const c of v) if (c && typeof c.type === 'string') out.push(c); }
+    else if (v && typeof v.type === 'string') out.push(v);
   }
   return out;
 }
 
-// The kind of block a `{` opens, judged from the text before it on its line.
-// 'topif' means an if/else block sitting directly in the component body — a
-// return inside one still exits the component. Everything else is 'other'.
-function classify(code, braceCol, depthBefore) {
-  if (depthBefore !== 1) return 'other';
-  const before = code.slice(0, braceCol);
-  return /(^|[\s;}])(if|else)\b/.test(before) && !/=>\s*$/.test(before) ? 'topif' : 'other';
+// First hook call inside `node` WITHOUT descending into nested functions.
+// The hook call's own arguments still count as this component's level only for
+// the call itself — a useEffect's callback body belongs to that callback.
+function findHookCall(node) {
+  if (isFn(node)) return null;
+  if (node.type === 'CallExpression' && node.callee.type === 'Identifier'
+    && /^use[A-Z]/.test(node.callee.name)) return node;
+  for (const c of children(node)) {
+    if (isFn(c)) continue;
+    const hit = findHookCall(c);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// Does this direct statement of the component body constitute an early return?
+// A bare return, or an if/else chain any branch of which returns at ITS top
+// level (a return inside a nested callback does not exit the component).
+function isEarlyReturn(stmt) {
+  if (stmt.type === 'ReturnStatement') return stmt;
+  if (stmt.type !== 'IfStatement') return null;
+  const branchReturns = (b) => {
+    if (!b) return null;
+    if (b.type === 'ReturnStatement') return b;
+    if (b.type === 'BlockStatement') {
+      for (const s of b.body) { const r = isEarlyReturn(s); if (r) return r; }
+      return null;
+    }
+    if (b.type === 'IfStatement') return isEarlyReturn(b);
+    return null;
+  };
+  return branchReturns(stmt.consequent) || branchReturns(stmt.alternate);
+}
+
+function checkComponent(name, fnNode, file, findings) {
+  const body = fnNode.body;
+  if (!body || body.type !== 'BlockStatement') return; // expression-bodied arrow: no statements
+  let returned = null;
+  for (const stmt of body.body) {
+    if (returned) {
+      const hook = findHookCall(stmt);
+      if (hook) {
+        findings.push({
+          file, fn: name, hook: hook.callee.name,
+          hookLine: hook.loc.start.line, returnLine: returned.loc.start.line,
+        });
+        return; // one report per component is enough
+      }
+    } else {
+      const r = isEarlyReturn(stmt);
+      // The component's FINAL statement being a return is not "early".
+      if (r && stmt !== body.body[body.body.length - 1]) returned = r;
+    }
+  }
+}
+
+// Find every named component/custom hook in the file, wherever it nests.
+function collect(node, findings, file) {
+  if (node.type === 'FunctionDeclaration' && node.id
+    && /^(?:[A-Z]|use[A-Z])/.test(node.id.name)) {
+    checkComponent(node.id.name, node, file, findings);
+  }
+  if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier'
+    && /^(?:[A-Z]|use[A-Z])/.test(node.id.name) && isFn(node.init)) {
+    checkComponent(node.id.name, node.init, file, findings);
+  }
+  for (const c of children(node)) collect(c, findings, file);
 }
 
 const findings = [];
+let parsed = 0;
 
 for (const root of ROOTS) {
   if (!fs.existsSync(root)) continue;
   for (const file of walk(root)) {
-    const raw = fs.readFileSync(file, 'utf8');
-    const lines = raw.split('\n');
-    const clean = strip(raw).split('\n');
-
-    let fn = null;            // { name, startLine }
-    let started = false;      // seen the function's opening brace
-    let returnedAt = null;    // line of the first early return
-    let returnedCol = 0;      // column of it, so `return useMemo(...)` is not self-flagged
-    // One frame per open brace inside the component. `kind` is 'topif' for a
-    // block opened by an if/else sitting directly in the component body, and
-    // 'other' for everything else — a callback, a nested function, an object
-    // literal. A `return` only exits the COMPONENT when it is at depth 1, or at
-    // depth 2 inside a 'topif'. An earlier attempt tracked this with a sticky
-    // "an if-block exists at depth 2" flag that was never cleared, so once any
-    // top-level `if (...) {` appeared, every later return inside every callback
-    // and nested function read as an early return. That produced four false
-    // positives in RoutePlanner alone — enough noise to get the check deleted.
-    let stack = [];
-    // >0 while a parameter list is still open across lines, so braces in
-    // multi-line destructured params are not mistaken for the body.
-    let paramsPending = 0;
-
-    for (let i = 0; i < clean.length; i++) {
-      const code = clean[i];
-
-      let scanFrom = 0;
-      if (!fn) {
-        const m = code.match(FN_DECL) || code.match(ARROW_DECL);
-        if (m) {
-          fn = { name: m[1], startLine: i + 1 }; started = false; returnedAt = null; stack = [];
-          // The function BODY starts at the first `{` that is not inside the
-          // parameter list. Braces in destructured params are not the body:
-          // `function Checkout({ typeId, mode }) {` opens and closes one before
-          // the body brace, and counting it made the scope start and end on the
-          // declaration line — the component was skipped whole and its real
-          // conditional hook went unreported. Same for `({ open }) =>`.
-          let pd = 0, found = -1;
-          for (let k = code.indexOf(m[1]) + m[1].length; k < code.length; k++) {
-            const ch = code[k];
-            if (ch === '(') pd++;
-            else if (ch === ')') pd--;
-            else if (ch === '{' && pd === 0) { found = k; break; }
-          }
-          if (found >= 0) scanFrom = found;
-          else { paramsPending = pd; scanFrom = code.length; }  // params span lines
-        }
-        if (!fn) continue;
-      }
-
-      if (fn && !started && paramsPending > 0) {
-        let pd = paramsPending, found = -1;
-        for (let k = 0; k < code.length; k++) {
-          const ch = code[k];
-          if (ch === '(') pd++;
-          else if (ch === ')') pd--;
-          else if (ch === '{' && pd === 0) { found = k; break; }
-        }
-        if (found >= 0) { scanFrom = found; paramsPending = 0; }
-        else { paramsPending = pd; continue; }
-      }
-
-      const depthAt = (col) => {
-        let d = stack.length;
-        for (let k = scanFrom; k < col && k < code.length; k++) {
-          if (code[k] === '{') d++;
-          else if (code[k] === '}') d--;
-        }
-        return d;
-      };
-      const kindAt = (col) => {
-        // The kind of the innermost block open at `col`.
-        let frames = stack.slice();
-        for (let k = scanFrom; k < col && k < code.length; k++) {
-          if (code[k] === '{') frames.push(classify(code, k, frames.length));
-          else if (code[k] === '}') frames.pop();
-        }
-        return frames.length ? frames[frames.length - 1] : null;
-      };
-
-      if (started && returnedAt === null) {
-        const rm = /(?:^|[\s;{}()])return\b/.exec(code);
-        if (rm) {
-          const col = rm.index + rm[0].length - 'return'.length;
-          const d = depthAt(col);
-          if (d === 1 || (d === 2 && kindAt(col) === 'topif')) {
-            returnedAt = i + 1;
-            returnedCol = col;
-          }
-        }
-      }
-
-      if (started && returnedAt !== null) {
-        const hm = HOOK_CALL.exec(code);
-        if (hm && !(returnedAt === i + 1 && hm.index >= returnedCol) && depthAt(hm.index) === 1) {
-          findings.push({ file, fn: fn.name, hook: hm[1], hookLine: i + 1, returnLine: returnedAt, src: lines[i].trim() });
-          returnedAt = null;   // one report per function is enough
-        }
-      }
-
-      // Advance the stack across this line.
-      for (let k = scanFrom; k < code.length; k++) {
-        if (code[k] === '{') { stack.push(classify(code, k, stack.length)); if (!started) started = true; }
-        else if (code[k] === '}') {
-          stack.pop();
-          if (started && stack.length === 0) { fn = null; started = false; returnedAt = null; stack = []; break; }
-        }
-      }
+    const src = fs.readFileSync(file, 'utf8');
+    let ast;
+    try {
+      ast = parse(src, { sourceType: 'module', plugins: ['jsx'], errorRecovery: true });
+    } catch (e) {
+      console.log(`  ✗ ${file} failed to parse: ${e.message}`);
+      process.exitCode = 1;
+      continue;
     }
+    parsed++;
+    collect(ast.program, findings, file);
   }
 }
 
 console.log('\nConditional-hook check\n');
 
-if (findings.length === 0) {
-  console.log('  ✓ no React hook is called below an early return\n');
+if (findings.length === 0 && !process.exitCode) {
+  console.log(`  ✓ no React hook is called below an early return (${parsed} files)\n`);
   process.exit(0);
 }
 
 for (const f of findings) {
   console.log(`  ✗ ${f.file}`);
-  console.log(`      ${f.fn}() returns early at line ${f.returnLine}, then calls ${f.hook}() at line ${f.hookLine}:`);
-  console.log(`          ${f.src.slice(0, 90)}`);
+  console.log(`      ${f.fn}() returns early at line ${f.returnLine}, then calls ${f.hook}() at line ${f.hookLine}.`);
   console.log(`      On the render where that early return stops firing, the hook count changes,`);
   console.log(`      React unmounts the tree, and the player gets a black screen.`);
   console.log(`      Move the hook above the return.\n`);
 }
-console.log(`❌  ${findings.length} conditional hook${findings.length === 1 ? '' : 's'}\n`);
+if (findings.length) console.log(`❌  ${findings.length} conditional hook${findings.length === 1 ? '' : 's'}\n`);
 process.exit(1);
