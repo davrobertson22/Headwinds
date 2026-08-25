@@ -456,6 +456,75 @@ export function isSameMetro(o, d, dist) {
   return km < SAME_METRO_MAX_KM;
 }
 
+// ─── Surface-connected city pairs (H18) ───────────────────────────────────────
+// Two DIFFERENT cities close enough that road or rail is the real way between
+// them carry no meaningful air O&D — nobody books a 45 km flight when a train or
+// a 40-minute drive exists. These are NOT "same metro": they price and pool as
+// distinct cities for every OTHER route they fly (HKG keeps all its long-haul,
+// SZX keeps all of its) — only the DIRECT hop between the two is suppressed.
+//
+// The 35 km same-metro backstop above is deliberately too tight to catch them
+// (HKG–SZX 38 km, SIN–JHB 47 km, BWI–DCA 48 km, AMS–RTM 45 km, EDI–GLA 67 km…),
+// and simply widening that backstop would wrongly kill genuine short WATER and
+// ISLAND hops in the same band (Nantucket–Hyannis, Saba–St Maarten, Vancouver–
+// Nanaimo) which have no road alternative and ARE real flights. So the rule is:
+// suppress a sub-60 km different-city pair UNLESS it is an explicit water-hop
+// exception below.
+export const SURFACE_CONNECTED_MAX_KM = 65;
+
+function pairKey2(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+
+// Sub-65 km different-city pairs that ARE real flights because water or terrain
+// leaves no road/rail link between them. Keyed by the two IATA codes sorted and
+// joined '|'. Add a pair here to spare it from surface suppression.
+// data-integrity-test.mjs re-derives the in-band different-city set and fails if
+// a NEW unclassified pair appears, so this list cannot silently fall out of date.
+export const WATER_HOP_PAIRS = new Set([
+  pairKey2('ACK', 'HYA'), pairKey2('ACK', 'MVY'), pairKey2('HYA', 'MVY'), // Nantucket / Martha's Vineyard / Cape Cod
+  pairKey2('AXA', 'SBH'), pairKey2('SAB', 'SBH'), pairKey2('SAB', 'SXM'), // NE Caribbean islands: Anguilla / St Barth /
+  pairKey2('SAB', 'SKB'), pairKey2('SAB', 'AXA'),                         //   Saba / St Maarten / St Kitts
+  pairKey2('MCD', 'PLN'), pairKey2('CIU', 'MCD'),                         // Mackinac Island, MI
+  pairKey2('PSG', 'WRG'),                                                 // Petersburg / Wrangell, AK inside passage
+  pairKey2('YCD', 'YVR'), pairKey2('YVR', 'YYJ'),                         // Georgia Strait: Vancouver / Nanaimo / Victoria
+  pairKey2('EFL', 'ZTH'),                                                 // Kefalonia / Zakynthos (Ionian)
+  pairKey2('KOI', 'WIC'),                                                 // Orkney / Wick
+  pairKey2('BCD', 'ILO'),                                                 // Bacolod (Negros) / Iloilo (Panay)
+  pairKey2('IAO', 'SUG'),                                                 // Siargao / Surigao
+  pairKey2('BTH', 'TNJ'),                                                 // Batam / Tanjung Pinang (Riau islands)
+  pairKey2('KOS', 'PQC'),                                                 // Sihanoukville / Phu Quoc island
+  pairKey2('CUN', 'CZM'),                                                 // Cancún / Cozumel island
+  pairKey2('SJU', 'VQS'),                                                 // San Juan / Vieques island
+  pairKey2('HKG', 'MFM'), pairKey2('MFM', 'SZX'), pairKey2('HKG', 'ZUH'), // Pearl River estuary crossings
+  pairKey2('TJS', 'TRK'),                                                 // Tarakan island / Tanjung Selor, Borneo
+  pairKey2('ACE', 'FUE'),                                                 // Lanzarote / Fuerteventura (Canaries)
+  pairKey2('GIB', 'TTU'),                                                 // Gibraltar / Tetouan across the Strait
+  pairKey2('CAB', 'SZA'),                                                 // Cabinda exclave / Soyo (Congo river mouth)
+]);
+
+// True when o and d are different-city airports whose real link is surface
+// transport (see the note above). Same-airport-complex and same-metro-registry
+// pairs are handled by isSameMetro; this covers only the 35–65 km band.
+export function isSurfaceConnected(o, d, dist) {
+  if (!o || !d || !o.code || !d.code || o.code === d.code) return false;
+  const km = dist != null ? dist : distanceKm(o, d);
+  if (km < SAME_METRO_MAX_KM || km >= SURFACE_CONNECTED_MAX_KM) return false;
+  if (WATER_HOP_PAIRS.has(pairKey2(o.code, d.code))) return false;
+  return true;
+}
+
+// ─── Duplicate-location airports (DKR/DSS) ────────────────────────────────────
+// Two DISTINCT codes at (near-)identical coordinates — a data duplicate such as
+// DKR/DSS (both "Blaise Diagne Intl", Dakar, 14.67,-17.07). No route can be
+// flown between them: the route guards reject it and their demand is already
+// zero via the same-metro backstop. Kept as a tested helper so the guards and
+// data-integrity-test.mjs agree on the threshold.
+export const SAME_LOCATION_MAX_KM = 2;
+export function isSameLocation(o, d, dist) {
+  if (!o || !d || !o.code || !d.code || o.code === d.code) return false;
+  const km = dist != null ? dist : distanceKm(o, d);
+  return km < SAME_LOCATION_MAX_KM;
+}
+
 // ─── Metro-level demand endpoints ─────────────────────────────────────────────
 // A multi-airport metro is priced as ONE demand endpoint: the largest member
 // mass and the strongest member attractiveness stand in for the whole metro.
@@ -502,10 +571,12 @@ export function baseCityPairDemand(originCode, destCode) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);
   if (!o || !d) return 0;
-  // No real O&D demand between two airports serving the same metro area.
+  // No real O&D demand between two airports serving the same metro area, or
+  // between two different cities linked by road/rail (a sub-65 km surface hop).
   // (Checked on the REAL airports — the primaries of two different metros are
   // never same-metro, and same-metro members must short-circuit before pricing.)
-  if (isSameMetro(o, d, distanceKm(o, d))) return 0;
+  const odDist = distanceKm(o, d);
+  if (isSameMetro(o, d, odDist) || isSurfaceConnected(o, d, odDist)) return 0;
 
   // Price the pair at the metro primaries: every member pair of the same metro
   // pair must return the SAME total market. Distance, country, captivity and
@@ -1739,8 +1810,9 @@ export function cargoCityPairDemand(originCode, destCode, month = null) {
   if (!o || !d) return 0;
 
   const dist = distanceKm(o, d);
-  // No air-cargo demand within a single metro area (trucked, not flown).
-  if (isSameMetro(o, d, dist)) return 0;
+  // No air-cargo demand within a single metro area, or between two cities a
+  // truck run apart (trucked, not flown).
+  if (isSameMetro(o, d, dist) || isSurfaceConnected(o, d, dist)) return 0;
   const massO = getCargoMass(originCode);
   const massD = getCargoMass(destCode);
 

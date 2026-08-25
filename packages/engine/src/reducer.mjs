@@ -29,7 +29,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          freeFloatOf, executionPrice, capitalGainsTax, repriceForShareChange,
          priceImpact, poolLiquidityDiscount,
          CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
-         founderSaleProceeds } from './utils/market.js';
+         founderSaleProceeds, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
 import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
@@ -449,6 +449,8 @@ export function addRouteBlockReason(state, action) {
   // Freighters carry no passengers — they fly cargo routes (ADD_CARGO_ROUTE) only.
   if (type.freighter) return `${tail} is a freighter — it flies cargo routes, not passenger routes`;
   if (action.origin === action.destination) return 'Origin and destination are the same airport';
+  if (isSameLocation(getAirport(action.origin), getAirport(action.destination)))
+    return 'Origin and destination are the same location';
 
   const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
   const dist = routeDistanceKm(action.origin, action.destination);
@@ -564,6 +566,8 @@ export function addCargoRouteBlockReason(state, action) {
   // Cargo lanes require a dedicated freighter.
   if (!type.freighter) return `${tail} is not a freighter — freight lanes need a dedicated cargo aircraft`;
   if (action.origin === action.destination) return 'Origin and destination are the same airport';
+  if (isSameLocation(getAirport(action.origin), getAirport(action.destination)))
+    return 'Origin and destination are the same location';
   // A stated yield that is not a number at all (see the ADD_CARGO_ROUTE case).
   if (action.yieldPrice != null && !Number.isFinite(Number(action.yieldPrice))) {
     return 'That freight rate is not a number — set a rate in $/tonne-km';
@@ -671,6 +675,7 @@ export function addTagRouteBlockReason(state, action) {
     if (l.from === l.to) return 'Two consecutive stops are the same airport';
     if (!getAirport(l.from)) return `Unknown airport: ${l.from}`;
     if (!getAirport(l.to))   return `Unknown airport: ${l.to}`;
+    if (isSameLocation(getAirport(l.from), getAirport(l.to))) return 'Two consecutive stops are the same location';
   }
 
   const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
