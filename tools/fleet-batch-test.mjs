@@ -359,5 +359,35 @@ test('the used-market hook lists every tail a batch sold', () => {
 
 
 
+// ── C-new-2: atomic bulk cabin reconfigure ──────────────────────────────────
+test('CONFIGURE_AIRCRAFT_BULK applies one layout to N tails and charges the summed cost once', () => {
+  const cfg = { economy: 100 };
+  const s0  = baseState({ fleet: [tail('o1', big), tail('o2', big), tail('o3', big)] });
+  const bulk = reducer(s0, { type: 'CONFIGURE_AIRCRAFT_BULK', aircraftIds: ['o1', 'o2', 'o3'], config: cfg, reconfCost: 900 });
+  assert.equal(s0.cash - bulk.cash, 900, 'charged the summed cost exactly once');
+  assert.ok(bulk.fleet.every(a => JSON.stringify(a.config) === JSON.stringify(cfg)), 'every tail got the new layout');
+  assert.equal(bulk.bulkResult.applied, 3);
+  assert.equal(bulk.bulkResult.skipped, 0);
+  // Same final layouts as the old per-tail loop it replaces.
+  let seq = s0;
+  for (const id of ['o1', 'o2', 'o3']) seq = reducer(seq, { type: 'CONFIGURE_AIRCRAFT', aircraftId: id, config: cfg, reconfCost: 300 });
+  assert.deepEqual(bulk.fleet.map(a => a.config), seq.fleet.map(a => a.config), 'same layouts as three single configures');
+});
+
+test('CONFIGURE_AIRCRAFT_BULK ignores unknown ids and an empty batch is a no-op', () => {
+  const s0 = baseState({ fleet: [tail('o1', big)] });
+  assert.equal(reducer(s0, { type: 'CONFIGURE_AIRCRAFT_BULK', aircraftIds: [], config: { economy: 50 }, reconfCost: 100 }), s0);
+  const partial = reducer(s0, { type: 'CONFIGURE_AIRCRAFT_BULK', aircraftIds: ['o1', 'ghost'], config: { economy: 50 }, reconfCost: 100 });
+  assert.equal(partial.fleet.length, 1);
+  assert.deepEqual(partial.fleet[0].config, { economy: 50 });
+});
+
+test('the Fleet config modal dispatches one batched reconfigure, not a loop', () => {
+  const src = read('../src/components/FleetConfig.jsx');
+  assert.ok(/CONFIGURE_AIRCRAFT_BULK/.test(src), 'no bulk reconfigure action');
+  assert.ok(!/type:\s*[\x27"]CONFIGURE_AIRCRAFT[\x27"]/.test(src), 'still dispatches the per-aircraft action (loop not removed)');
+});
+
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

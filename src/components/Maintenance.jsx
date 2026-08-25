@@ -4,7 +4,7 @@
 // what is in the shop right now, what is coming due, and the outsourced
 // contracts a base offsets. Moved out of Operations so maintenance is a place
 // you go rather than a slider you forget.
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET } from '../data/labor.js';
 import {
@@ -45,7 +45,14 @@ function SectionHeader({ label, right = null }) {
 
 // ─── Maintenance budget card ──────────────────────────────────────────────────
 
-function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch }) {
+function MaintenanceCard({ budget: committedBudget, fleetMaintTotal, maintBudgetUsed, dispatch }) {
+  // Local draft so a drag updates the thumb + live projection without dispatching
+  // on every intermediate value; the actual SET_MAINTENANCE_BUDGET fires once, on
+  // release (mouse/touch/keyboard). Re-syncs if the committed value changes (tick).
+  const [draftBudget, setDraftBudget] = useState(committedBudget);
+  useEffect(() => setDraftBudget(committedBudget), [committedBudget]);
+  const commitBudget = (v) => dispatch({ type: 'SET_MAINTENANCE_BUDGET', multiplier: v });
+  const budget = draftBudget;
   // Aging rate: 0.5→1.25 faster, 1.0→1.0 normal, 2.0→0.5 slower
   const agingRate = Math.max(0.5, 1 + (1 - budget) * 0.5);
   const agingColor = agingRate > 1.1 ? 'var(--red)' : agingRate < 0.9 ? 'var(--green)' : 'var(--text-muted)';
@@ -116,7 +123,10 @@ function MaintenanceCard({ budget, fleetMaintTotal, maintBudgetUsed, dispatch })
             style={sliderStyle}
             draggable={false}
             onDragStart={e => e.preventDefault()}
-            onChange={e => dispatch({ type: 'SET_MAINTENANCE_BUDGET', multiplier: parseFloat(e.target.value) })}
+            onChange={e => setDraftBudget(parseFloat(e.target.value))}
+            onMouseUp={e => commitBudget(parseFloat(e.target.value))}
+            onTouchEnd={e => commitBudget(parseFloat(e.target.value))}
+            onKeyUp={e => commitBudget(parseFloat(e.target.value))}
           />
           <div style={{
             position: 'absolute', top: -4,
@@ -183,6 +193,11 @@ function levelChip(level) {
 }
 
 function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = [], cash = 0, dispatch, onUpgrade }) {
+  // Parts-pool slider draft: track the drag locally and commit SET_BASE_PARTS_POOL
+  // once, on release, instead of firing a write on every intermediate drag value.
+  const [draftPool, setDraftPool] = useState(clampPartsPool(base.partsPool));
+  useEffect(() => setDraftPool(clampPartsPool(base.partsPool)), [base.partsPool]);
+  const commitPool = (v) => dispatch({ type: 'SET_BASE_PARTS_POOL', code, pool: v });
   const def   = mroLevelDef(base.level);
   const open  = isBaseOpen(base);
   const eff   = baseEfficiency(base, absWeek);
@@ -320,17 +335,20 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
               <span style={{ color: 'var(--text-muted)' }}>Parts pool</span>
               <span style={{ fontWeight: 600 }}>
-                {clampPartsPool(base.partsPool).toFixed(2)}× · −{formatMoney(partsPoolCost(base))}/wk
+                {draftPool.toFixed(2)}× · −{formatMoney(partsPoolCost(base))}/wk
               </span>
             </div>
             <input
               type="range" className="hw-range"
               min={PARTS_POOL_MIN} max={PARTS_POOL_MAX} step="0.25"
-              value={clampPartsPool(base.partsPool)}
+              value={draftPool}
               style={{ width: '100%' }}
               draggable={false}
               onDragStart={e => e.preventDefault()}
-              onChange={e => dispatch({ type: 'SET_BASE_PARTS_POOL', code, pool: parseFloat(e.target.value) })}
+              onChange={e => setDraftPool(parseFloat(e.target.value))}
+              onMouseUp={e => commitPool(parseFloat(e.target.value))}
+              onTouchEnd={e => commitPool(parseFloat(e.target.value))}
+              onKeyUp={e => commitPool(parseFloat(e.target.value))}
             />
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
               Deeper spares inventory ties up cash but gets grounded aircraft flying sooner

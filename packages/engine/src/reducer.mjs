@@ -1963,6 +1963,24 @@ function reducer(state, action) {
       };
     }
 
+    case 'CONFIGURE_AIRCRAFT_BULK': {
+      // action: { aircraftIds, config, reconfCost } — apply ONE target layout to
+      // N tails and charge the summed cost ONCE, atomically. The Fleet page used
+      // to loop CONFIGURE_AIRCRAFT, which in multiplayer fired N serialized server
+      // writes and could leave a partially-reconfigured fleet if a mid-loop write
+      // was refused after the modal had already closed.
+      const ids = [...new Set(action.aircraftIds ?? [])].filter(Boolean);
+      if (ids.length === 0 || !action.config || typeof action.config !== 'object') return state;
+      const idset = new Set(ids);
+      const cost  = Math.max(0, Math.round(Number(action.reconfCost) || 0));
+      return {
+        ...state,
+        cash:  state.cash - cost,
+        fleet: state.fleet.map(a => (idset.has(a.id) ? { ...a, config: action.config } : a)),
+        bulkResult: { action: 'CONFIGURE_AIRCRAFT_BULK', requested: ids.length, applied: ids.length, skipped: 0 },
+      };
+    }
+
     case 'SAVE_CABIN_TEMPLATE': {
       // action: { name, typeId, config }
       const name = (action.name ?? '').trim();

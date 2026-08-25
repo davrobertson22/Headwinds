@@ -505,6 +505,23 @@ await test('SET_BRANDING blocks reserved-tag impersonation on the in-game rename
   assert.equal(guardDecision('SET_BRANDING', { airlineName: 'x'.repeat(60) }, state).airlineName.length, 40);
 });
 
+await test('CONFIGURE_AIRCRAFT_BULK guard re-derives the total cost and validates every tail (C-new-2)', () => {
+  const nb = AIRCRAFT_TYPES.find(t => !t.freighter && t.seats >= 120 && t.seats <= 220);
+  const state = { fleet: [
+    { id: 'a1', typeId: nb.id, config: { economy: nb.seats } },
+    { id: 'a2', typeId: nb.id, config: { economy: nb.seats } },
+  ] };
+  const cfg = { economy: Math.max(1, nb.seats - 20) };
+  const out = guardDecision('CONFIGURE_AIRCRAFT_BULK', { aircraftIds: ['a1', 'a2'], config: cfg, reconfCost: 9_999_999 }, state);
+  assert.deepEqual([...out.aircraftIds].sort(), ['a1', 'a2']);
+  assert.deepEqual(out.config, cfg);
+  assert.notEqual(out.reconfCost, 9_999_999, 'server must re-derive the cost, not trust the client');
+  assert.ok(Number.isFinite(out.reconfCost) && out.reconfCost >= 0);
+  // An empty batch and an over-capacity layout are both refused.
+  assert.throws(() => guardDecision('CONFIGURE_AIRCRAFT_BULK', { aircraftIds: [], config: cfg }, state), GuardError);
+  assert.throws(() => guardDecision('CONFIGURE_AIRCRAFT_BULK', { aircraftIds: ['a1'], config: { economy: nb.seats * 10 } }, state), GuardError);
+});
+
 Math.random = realRandom;
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

@@ -117,6 +117,26 @@ function guardConfigureAircraft(payload, state) {
   return payload;
 }
 
+function guardConfigureAircraftBulk(payload, state) {
+  // One layout applied to N owned tails. Validate the ids (own fleet, ≤200,
+  // deduped), fit the shared layout to EACH airframe, and re-derive the TOTAL
+  // cost server-side by summing each tail's own refit — never trust the client's
+  // number (the reducer charges it once, atomically).
+  const ids = guardAircraftIds(payload, state);
+  const nextConfig = payload.config;
+  if (!nextConfig || typeof nextConfig !== 'object') throw new GuardError('Invalid cabin configuration.');
+  const own = state.fleet ?? [];
+  let reconfCost = 0;
+  for (const id of ids) {
+    const target = own.find((a) => a.id === id);
+    if (!target) continue;
+    const type = getAircraftType(target.typeId);
+    assertConfigFitsAirframe(nextConfig, type);
+    reconfCost += calcReconfCost(target.config ?? defaultConfig(type?.seats ?? 100), nextConfig);
+  }
+  return { aircraftIds: ids, config: nextConfig, reconfCost };
+}
+
 function guardOrderAircraft(payload) {
   // Bound the order size (the reducer also clamps to 100) — reject absurd values early.
   if (payload.quantity != null) {
@@ -474,6 +494,7 @@ export function guardDecision(type, payload, state) {
     case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
+    case 'CONFIGURE_AIRCRAFT_BULK': return guardConfigureAircraftBulk(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
     case 'BUY_STOCK':
     case 'SELL_STOCK':         return guardStockTrade(payload);

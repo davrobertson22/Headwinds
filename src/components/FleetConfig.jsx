@@ -119,13 +119,16 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
 
   function handleSave() {
     if (over || !canAfford) return;
-    targets.forEach((a, i) => {
-      dispatch({
-        type:       'CONFIGURE_AIRCRAFT',
-        aircraftId: a.id,
-        config:     nextConfig,
-        reconfCost: perAircraftCosts[i],
-      });
+    // One atomic action instead of N serialized CONFIGURE_AIRCRAFT dispatches:
+    // the whole batch reconfigures (and is charged once, for the summed cost) or
+    // not at all — no partially-refit fleet if a mid-loop server write is refused
+    // after this modal has already closed. Per-tail costs still sum client-side
+    // for the affordability check; the server re-derives the total.
+    dispatch({
+      type:        'CONFIGURE_AIRCRAFT_BULK',
+      aircraftIds: targets.map(a => a.id),
+      config:      nextConfig,
+      reconfCost,
     });
     onClose();
   }

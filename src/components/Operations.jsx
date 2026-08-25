@@ -297,7 +297,13 @@ function NegotiationOutcomeNote({ outcome }) {
 // ─── Labor group card ─────────────────────────────────────────────────────────
 
 function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexityMult = 1.0, familyCount = 1, unrest = 0, onStrike = false }) {
-  const { payMultiplier, morale } = groupState;
+  const { payMultiplier: committedPay, morale } = groupState;
+  // Local draft so a pay-slider drag updates the label/cost preview live but only
+  // dispatches SET_LABOR_PAY once, on release, instead of on every drag value.
+  const [draftPay, setDraftPay] = useState(committedPay);
+  useEffect(() => setDraftPay(committedPay), [committedPay]);
+  const commitPay = (v) => dispatch({ type: 'SET_LABOR_PAY', group: group.id, payMultiplier: v });
+  const payMultiplier = draftPay;
   const affectedByComplexity  = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) && complexityMult > 1.0;
   const famMult               = affectedByComplexity ? complexityMult : 1.0;
   const weeklyCostPerAircraft = Math.round(group.baseWeeklyPerAircraft * payMultiplier * famMult);
@@ -375,11 +381,10 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
             style={sliderStyle}
             draggable={false}
             onDragStart={e => e.preventDefault()}
-            onChange={e => dispatch({
-              type: 'SET_LABOR_PAY',
-              group: group.id,
-              payMultiplier: parseFloat(e.target.value),
-            })}
+            onChange={e => setDraftPay(parseFloat(e.target.value))}
+            onMouseUp={e => commitPay(parseFloat(e.target.value))}
+            onTouchEnd={e => commitPay(parseFloat(e.target.value))}
+            onKeyUp={e => commitPay(parseFloat(e.target.value))}
           />
           {/* Market rate marker */}
           <div style={{
