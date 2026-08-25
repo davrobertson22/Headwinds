@@ -802,18 +802,22 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   // entirely while the tab is hidden.
   useVisibleInterval(load, 15000);
 
+  // How many airlines are already based at each hub — so the join form can warn
+  // a newcomer they're about to set up head-to-head at an occupied hub. Built
+  // from the standings the screen already fetched; no extra request. MUST stay
+  // above the early returns below: a hook after a conditional return renders a
+  // different hook count once data arrives, and React tears the whole app down
+  // (the 2026-08-24 black-screen outage — every world screen crashed).
+  const hubCounts = useMemo(() => {
+    const m = {};
+    for (const a of data?.standings ?? []) if (a.hub) m[a.hub] = (m[a.hub] ?? 0) + 1;
+    return m;
+  }, [data]);
+
   if (error) return <div className="card"><ErrorNote error={error} /><a href="#/">← All worlds</a></div>;
   if (!data) return <p className="muted">Loading world…</p>;
 
   const { world, standings } = data;
-  // How many airlines are already based at each hub — so the join form can warn
-  // a newcomer they're about to set up head-to-head at an occupied hub. Built
-  // from the standings the screen already fetched; no extra request.
-  const hubCounts = useMemo(() => {
-    const m = {};
-    for (const a of standings) if (a.hub) m[a.hub] = (m[a.hub] ?? 0) + 1;
-    return m;
-  }, [standings]);
   // Three distinct states, and conflating any two of them was the old bug: an
   // ABANDONED airline was filtered out of `mine`, which flipped `canJoin` true
   // and showed a join form that could only ever 409 — Airline is unique on
