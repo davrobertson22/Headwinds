@@ -493,6 +493,18 @@ await test('the projection tolerates a missing / malformed blob', () => {
   }
 });
 
+await test('SET_BRANDING blocks reserved-tag impersonation on the in-game rename path (D-new-1)', () => {
+  const state = { fleet: [] };
+  // The anti-impersonation filter is enforced at join; it must also fire here,
+  // or a clean join can rename itself into a fake operator/veteran badge.
+  assert.throws(() => guardDecision('SET_BRANDING', { airlineName: '[DEV] Official Support' }, state), GuardError);
+  assert.throws(() => guardDecision('SET_BRANDING', { airlineName: '(OG) Founder' }, state), GuardError);
+  assert.throws(() => guardDecision('SET_BRANDING', { airlineName: '{ D E V } Team' }, state), GuardError);
+  // A clean name is accepted, trimmed, and capped at the 40-char DB column.
+  assert.equal(guardDecision('SET_BRANDING', { airlineName: '  Skyline Air  ' }, state).airlineName, 'Skyline Air');
+  assert.equal(guardDecision('SET_BRANDING', { airlineName: 'x'.repeat(60) }, state).airlineName.length, 40);
+});
+
 Math.random = realRandom;
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

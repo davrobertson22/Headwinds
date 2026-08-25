@@ -168,18 +168,30 @@ function computeProjectWeek(state) {
   // `a.weeklyLease ?? type?.weeklyLease`. Reading the list rate here made the
   // projection of a lease's final week wrong in whichever direction the term
   // discount ran (measured: $1,852,000 projected against $1,537,160 booked).
-  let leaseRedelivery = 0;
+  //
+  // The SAME final week also RETURNS the security deposit the tail put down at
+  // signing (`a.leaseDeposit` = signing rent × LEASE_DEPOSIT_WEEKS). The reducer
+  // books it as a non-taxed cash inflow (`leaseDepositRefund`), so the real
+  // final-week cash movement is `+deposit − 4×rent`, not the `−4×rent` this
+  // projection used to show. Omitting it understated the final week by ~8×rent
+  // (an A380 lease by ~$4.4M), always in the same direction — the exact
+  // "week always comes in higher than forecast" pattern this module rails against.
+  let leaseRedelivery    = 0;
+  let leaseDepositRefund = 0;
   for (const a of fleet) {
     const rem = a.leaseRemainingWeeks ?? 0;
     if (a.ownershipType === 'lease' && rem > 0 && rem - 1 <= 0) {
-      leaseRedelivery += (a.weeklyLease ?? getAircraftType(a.typeId)?.weeklyLease ?? 0) * 4;
+      leaseRedelivery    += (a.weeklyLease ?? getAircraftType(a.typeId)?.weeklyLease ?? 0) * 4;
+      leaseDepositRefund += a.leaseDeposit ?? 0;
     }
   }
+  // Deposit refund is a return of capital, not income — excluded from taxable
+  // income (the reducer taxes it the same way: not at all).
   const taxableIncome = ebit - interest - seasonalReactivation - leaseRedelivery;
   const corporateTax  = Math.round(Math.max(0, taxableIncome) * CORPORATE_TAX_RATE);
   // Cash bottom line: operating cash − loan payments − reactivation − tax (matches
   // the `profit` stored in history). Depreciation is non-cash so it doesn't affect cash.
-  const preTaxProfit  = ebitda - loanPayments - seasonalReactivation - leaseRedelivery;   // pre-tax CASH
+  const preTaxProfit  = ebitda - loanPayments - seasonalReactivation - leaseRedelivery + leaseDepositRefund;   // pre-tax CASH
   const netCash       = preTaxProfit - corporateTax;
   // Accrual view (proper P&L): EBIT − interest − tax. Principal excluded.
   const netIncomeAccrual = ebit - interest - corporateTax;
@@ -200,6 +212,7 @@ function computeProjectWeek(state) {
     loanPayments,
     seasonalReactivation,
     leaseRedelivery,
+    leaseDepositRefund,
     preTaxProfit,
     corporateTax,
     netCash,

@@ -282,11 +282,14 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
         endsAt: deriveEndsAt(startedAt, world.lengthYears, world.weeksPerDay),
       },
     });
-    // Seed the world's float pool — the finite counterparty for share trading.
-    // Sized off the players who actually joined, so net exogenous cash entering
-    // this world is bounded from the moment it starts.
-    const players = await prisma.airline.count({ where: { worldId: world.id, status: 'ACTIVE' } });
-    await seedWorldMarket(prisma, world.id, players);
+    // Seed the world's float pool — the finite counterparty for share trading —
+    // for the world's FULL capacity. This runs on the first join that starts the
+    // clock, AFTER the joiner's row exists but before anyone else has joined, so
+    // count(ACTIVE) here is 1: a 50-player world was seeding ~1/50th of the
+    // intended liquidity and `poolCash`-short refusals then dominated stock and
+    // capital actions all season. maxPlayers is the intended counterparty size
+    // (scheduled-start worlds already seed lazily at real count in ensureWorldMarket).
+    await seedWorldMarket(prisma, world.id, world.maxPlayers);
   }
 
   return airline;

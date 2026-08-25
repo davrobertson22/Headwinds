@@ -21,6 +21,7 @@ import {
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
+import { OG_NAME_PATTERN } from './worldService.mjs';
 
 export class GuardError extends Error {
   constructor(message) {
@@ -393,7 +394,19 @@ function guardUpdateCargoYield(payload) {
 const LOGO_DATAURL_MAX_CHARS = 196_608;
 function guardBranding(payload) {
   const out = {};
-  if (typeof payload.airlineName === 'string') out.airlineName = payload.airlineName;
+  if (typeof payload.airlineName === 'string') {
+    const name = payload.airlineName.trim();
+    // The reserved ✈ OG / 🛠 DEV badges are filtered at join (worldService's
+    // OG_NAME_PATTERN). Enforce the SAME filter on the in-game rename path — a
+    // clean join could otherwise SET_BRANDING itself to "[DEV] Official Support"
+    // and that name reaches every rival view, the news feed and the DM directory.
+    // Also cap the length: the DB column is 40 chars, but the state blob would
+    // otherwise persist any length up to the body limit and echo it back.
+    if (OG_NAME_PATTERN.test(name)) {
+      throw new GuardError('That airline name imitates a reserved ✈ OG / 🛠 DEV badge — please choose another.');
+    }
+    out.airlineName = name.slice(0, 40);
+  }
   if (typeof payload.logoId === 'string')      out.logoId = payload.logoId.slice(0, 40);
   if (typeof payload.logoColor === 'string')   out.logoColor = payload.logoColor.slice(0, 32);
   // `'customLogo' in action` is the reducer's contract: only forward the key

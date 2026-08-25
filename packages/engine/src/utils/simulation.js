@@ -3137,12 +3137,13 @@ export function weeklyTick(state) {
   // ── Load-factor realism (New World Restrictions worlds only) ────────────────
   // Attaches a per-route, per-week deterministic jitter to every route copy
   // handed to the simulators; its presence switches on the spill-against-ceiling
-  // model inside them (see market.js for the full rationale). Keyed on the
-  // route's id and the absolute week, so the same tick replays to the same
-  // bytes everywhere. Returns an empty object in classic worlds, keeping every
-  // route copy — and the golden master — untouched.
+  // model inside them (see market.js for the full rationale). Keyed on the O&D
+  // pair and the absolute week, so every tail on a pooled lane draws the SAME
+  // jitter (a per-tail key spread the pool above poolingAnomalies' tolerance and
+  // tripped its self-check on every multi-aircraft pair). Returns an empty object
+  // in classic worlds, keeping every route copy — and the golden master — untouched.
   const nwrLoadFieldsFor = state.newWorldRestrictions
-    ? (r) => ({ nwrLoadJitter: weeklyLoadJitter(r.id ?? `${r.origin}-${r.destination}`, absWeek ?? 0) })
+    ? (r) => ({ nwrLoadJitter: weeklyLoadJitter(`${r.origin}-${r.destination}`, absWeek ?? 0) })
     : () => ({});
   // The yield choke is module-scoped (like the fare index) and normally set by
   // the reducer / providers — but tools and server paths call weeklyTick
@@ -3833,7 +3834,7 @@ export function weeklyTick(state) {
       totalPassengers     += result.passengers ?? 0;
 
       // Hub line-maintenance: routes touching a T2+ hub get discounted maintenance.
-      aircraftMaintFactor[aircraft.id] = tagHcf?.maint ?? 1.0;
+      aircraftMaintFactor[aircraft.id] = Math.min(aircraftMaintFactor[aircraft.id] ?? 1.0, tagHcf?.maint ?? 1.0);
       const { maintenanceCostMultiplier } = laborEffects(labor);
       const weeklyLeaseCost = aircraft.ownershipType === 'owned' ? 0
         : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
@@ -4044,7 +4045,7 @@ export function weeklyTick(state) {
     // handles lease/maint for the overall P&L to avoid double-counting).
     const acType           = getAircraftType(aircraft.typeId);
     // Hub line-maintenance: routes touching a T2+ hub get discounted maintenance.
-    aircraftMaintFactor[aircraft.id] = hcfRoute?.maint ?? 1.0;
+    aircraftMaintFactor[aircraft.id] = Math.min(aircraftMaintFactor[aircraft.id] ?? 1.0, hcfRoute?.maint ?? 1.0);
     totalHubCostSavings += result.hubCostSavings ?? 0;
     const { maintenanceCostMultiplier } = laborEffects(labor);
     const weeklyLeaseCost  = aircraft.ownershipType === 'owned' ? 0
