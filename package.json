@@ -87,6 +87,7 @@
     "test:metro-lanes": "node tools/metro-lane-ai-cargo-test.mjs",
     "test:data-integrity": "node tools/data-integrity-test.mjs",
     "test:p5-correctness": "node tools/p5-correctness-test.mjs",
+    "drift": "node tools/engine-drift-check.mjs",
     "test:adsense": "node tools/adsense-readiness-test.mjs"
   },
   "dependencies": {
