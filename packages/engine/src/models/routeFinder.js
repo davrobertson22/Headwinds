@@ -46,6 +46,7 @@ import {
 } from '../utils/simulation.js';
 import { metroPairKeyOf, memberPairKeysOf, airportAppeal } from '../utils/market.js';
 import { projectRouteAddition } from './pairShare.js';
+import { computeConnectingDemand } from './demand.js';
 
 /** How many leads get a full engine forecast before the finder stops paying for it. */
 export const DEFAULT_SCORE_LIMIT = 150;
@@ -272,6 +273,22 @@ export function scoreCandidates(state, rows, {
     config: defaultConfig(type.seats),
   };
 
+  // Routes the player already flies through each airport — the connecting model
+  // reads this as "slots", and the planner passes the same count (+1 for the
+  // route being considered). Built once; the finder scores up to 150 rows.
+  const routesAt = new Map();
+  for (const rt of [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]) {
+    for (const code of [rt.origin, rt.destination]) {
+      if (code) routesAt.set(code, (routesAt.get(code) ?? 0) + 1);
+    }
+  }
+  // What the aircraft flying it actually costs per week. An OWNED tail has no
+  // lease (the tick charges 0), and a leased one pays the rate IT signed at, not
+  // the catalogue rate. Only a type the player doesn't own yet is priced at list.
+  const frameLease = aircraft
+    ? (aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type.weeklyLease ?? 0))
+    : (type.weeklyLease ?? 0);
+
   const indexed = rows.map((r, i) => ({ r, i }));
   const ranked = order === 'asGiven'
     ? indexed.slice(0, limit)
@@ -293,6 +310,16 @@ export function scoreCandidates(state, rows, {
       gameDate,
     });
     if (!p?.mature) continue;
+    // Connecting feed. weeklyTick credits a route with its connecting revenue
+    // (`routeRevenue = result.revenue + connecting.totalRevenue`), and the Route
+    // Planner shows it — the finder omitting it ranked every hub spoke BELOW the
+    // profit the planner then quoted for the very same row.
+    const connecting = computeConnectingDemand(
+      r.origin, r.code, state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {}),
+      (routesAt.get(r.origin) ?? 0) + 1,
+      (routesAt.get(r.code)   ?? 0) + 1,
+      r.refPrice,
+    );
     out[i] = {
       ...out[i],
       scored: true,
@@ -304,7 +331,8 @@ export function scoreCandidates(state, rows, {
         // The planner's headline number: what the route clears after operating
         // cost, landing fees and the lease on the aircraft flying it. A finder
         // that quoted revenue would rank the most expensive markets top.
-        netProfit:   Math.round(p.mature.profit - (type.weeklyLease ?? 0)),
+        netProfit:   Math.round(p.mature.profit + (connecting.totalRevenue ?? 0) - frameLease),
+        connectingRevenue: Math.round(connecting.totalRevenue ?? 0),
         lanePooled:  !!p.lanePooled,
         siblingPairs: p.siblingPairs ?? [],
         rivalCount:  p.rivalCount ?? 0,

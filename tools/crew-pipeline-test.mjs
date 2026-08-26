@@ -15,6 +15,10 @@ import {
   unstaffedAircraftIds,
 } from '../packages/engine/src/data/labor.js';
 
+// Pin RNG: weeklyTick rolls world events, and an unpinned draw made the
+// classic-world comparison below flake (different events → different revenue).
+Math.random = () => 0.5;
+
 let passed = 0, failed = 0;
 const t = (name, fn) => { try { fn(); console.log(`  ✓ ${name}`); passed++; } catch (e) { console.log(`  ✗ ${name}\n      ${(e.stack || e.message).split('\n').slice(0, 3).join('\n      ')}`); failed++; } };
 

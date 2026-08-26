@@ -37,8 +37,10 @@ import { AIRCRAFT_TYPES, getAircraftType } from '../src/data/aircraft.js';
 import { AIRPORTS, getAirport } from '../src/data/airports.js';
 import {
   referencePrice, distanceKm, weeklyTick, baseCityPairDemand,
+  defaultClassPrices,
 } from '../src/utils/simulation.js';
 import { projectRouteAddition } from '../src/models/pairShare.js';
+import { computeConnectingDemand } from '../src/models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, laneBlockFor, SORTS, DEFAULT_SCORE_LIMIT,
 } from '../src/models/routeFinder.js';
@@ -408,6 +410,65 @@ test('an untouched market gets no "you are already in this market"', () => {
   )).replace(/<!-- -->/g, '');
   assert.ok(!html.includes('You are already in this market'),
     'the pooling callout fired on a lane the player has never flown');
+});
+
+// ── C-new-3: the finder must quote the same economics as the planner ────────
+console.log('\n── C-new-3: finder vs planner vs the tick ────────────────');
+
+test('the finder credits connecting revenue, as weeklyTick and the planner do', () => {
+  // A HUB with traffic through it: exactly where connecting feed exists and where
+  // the finder used to under-rank the row the planner then quoted higher.
+  const st = world({
+    routes: [mkRoute('r1', HUB, AIRPORTS[2].code, 'spare', 7), mkRoute('r2', HUB, AIRPORTS[3].code, 'spare', 7)],
+  });
+  st.hubs = { [HUB]: { tier: 2, tierSince: 0 } };
+  const rows = findCandidates(st, { origin: HUB, aircraftTypeId: laneJet.id, aircraft: st.fleet[0] });
+  const scored = scoreCandidates(st, rows, {
+    aircraftTypeId: laneJet.id, aircraft: st.fleet[0], weeklyFrequency: 7,
+    gameDate: st.gameDate, capHours: 140,
+  }).filter(r => r.scored && r.projection);
+  assert.ok(scored.length > 0, 'fixture produced no scored rows');
+  const withFeed = scored.filter(r => (r.projection.connectingRevenue ?? 0) > 0);
+  assert.ok(withFeed.length > 0, 'a tier-2 hub must generate connecting feed on some lane');
+
+  for (const row of withFeed) {
+    // Rebuild the planner's arithmetic for the same row and require agreement.
+    const p = projectRouteAddition(st, {
+      origin: row.origin, destination: row.code, aircraft: st.fleet[0],
+      weeklyFrequency: row.projection.weeklyFrequency, ticketPrice: row.refPrice,
+      classPrices: defaultClassPrices(row.refPrice), gameDate: st.gameDate,
+    });
+    const conn = computeConnectingDemand(
+      row.origin, row.code, st.hubs,
+      1 + [...st.routes].filter(r => r.origin === row.origin || r.destination === row.origin).length,
+      1 + [...st.routes].filter(r => r.origin === row.code || r.destination === row.code).length,
+      row.refPrice,
+    );
+    // The tail is OWNED in this fixture, so no lease is deducted (the tick charges none).
+    const plannerNet = Math.round(p.mature.profit + conn.totalRevenue);
+    assert.equal(row.projection.netProfit, plannerNet,
+      `finder and planner disagree on ${row.origin}-${row.code}`);
+  }
+});
+
+test('an OWNED tail is not charged a phantom catalogue lease', () => {
+  const st = world();
+  st.fleet = [{ ...st.fleet[0], ownershipType: 'owned' }];
+  const rows = findCandidates(st, { origin: HUB, aircraftTypeId: laneJet.id, aircraft: st.fleet[0] });
+  const scored = scoreCandidates(st, rows, {
+    aircraftTypeId: laneJet.id, aircraft: st.fleet[0], weeklyFrequency: 7,
+    gameDate: st.gameDate, capHours: 140,
+  }).filter(r => r.scored && r.projection);
+  const leased = { ...st.fleet[0], ownershipType: 'lease', weeklyLease: 123_456 };
+  const scoredLeased = scoreCandidates({ ...st, fleet: [leased] }, rows, {
+    aircraftTypeId: laneJet.id, aircraft: leased, weeklyFrequency: 7,
+    gameDate: st.gameDate, capHours: 140,
+  }).filter(r => r.scored && r.projection);
+  const a = scored.find(r => r.projection);
+  const b = scoredLeased.find(r => r.code === a.code);
+  assert.ok(b, 'same row missing from the leased run');
+  assert.equal(a.projection.netProfit - b.projection.netProfit, 123_456,
+    'the gap between owned and leased must be exactly the rate that tail signed at');
 });
 
 console.log('\n────────────────────────────────────────────────────────');
