@@ -25,6 +25,7 @@ import { snapshotWorldCareers, passengerTotalsFrom } from './careerService.mjs';
 import { computeSeasonAwards } from './seasonAwards.mjs';
 import { expireStaleOffers } from './codeshareService.mjs';
 import { fireSaleAirline } from './fireSaleService.mjs';
+import { tombstoneAirline } from './tombstone.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
@@ -684,6 +685,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           weekIndex: toIndex,
           log,
         });
+        // Estate settled — now shed the corpse's weight. The dead blob keeps
+        // the shape of a freshly joined airline (see lib/tombstone.mjs); the
+        // heavy report/history keys stop haunting the standings query and the
+        // page cache. Same best-effort contract as the fire sale above.
+        try {
+          await tombstoneAirline(prisma, { airlineId: c.airline.id, weekIndex: toIndex, log });
+        } catch (err) {
+          log.error(`[tick] world ${world.id} tombstone of ${c.airline.id} failed (week still committed):`, err?.message ?? err);
+        }
       }
     } catch (err) {
       log.error(`[tick] world ${world.id} fire sale failed (week still committed):`, err?.message ?? err);

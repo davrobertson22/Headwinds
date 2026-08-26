@@ -48,7 +48,10 @@ export default async function worldRoutes(fastify) {
     };
     const worlds = await prisma.world.findMany({
       where,
-      include: { _count: { select: { airlines: true } } },
+      // Seats are held by the living: bankrupt and abandoned airlines are out of
+      // the game (and out of the standings), so they neither pad the lobby's
+      // player count nor block a newcomer from joining.
+      include: { _count: { select: { airlines: { where: { status: 'ACTIVE' } } } } },
       // Concluded seasons read best newest-ended first; live worlds newest-started.
       orderBy: status === 'ENDED' ? { endedAt: 'desc' } : { startedAt: 'desc' },
       take: 100,
@@ -78,7 +81,10 @@ export default async function worldRoutes(fastify) {
   }, async (request, reply) => {
     const world = await prisma.world.findUnique({
       where: { id: request.params.id },
-      include: { _count: { select: { airlines: true } } },
+      // Seats are held by the living: bankrupt and abandoned airlines are out of
+      // the game (and out of the standings), so they neither pad the lobby's
+      // player count nor block a newcomer from joining.
+      include: { _count: { select: { airlines: { where: { status: 'ACTIVE' } } } } },
     });
     if (!world) return reply.code(404).send({ error: 'No such world' });
 
@@ -118,8 +124,17 @@ export default async function worldRoutes(fastify) {
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
+        AND a.status = 'ACTIVE'
       ORDER BY a."svps" DESC
       LIMIT 100`;
+
+    // The fallen are a count, not a list. Nineteen bankrupt rows drowning nine
+    // live airlines made a mature world read as a graveyard, and every one of
+    // those rows cost a blob detoast on every lobby poll. Your OWN dead airline
+    // still reaches you through /me — that is what the restart card reads.
+    const fallen = await prisma.airline.count({
+      where: { worldId: world.id, NOT: { status: 'ACTIVE' } },
+    });
 
     // Alliance tags for the standings (ACTIVE memberships only).
     const worldAlliances = await prisma.alliance.findMany({
@@ -171,6 +186,9 @@ export default async function worldRoutes(fastify) {
         includeJoinCode: isMember,
       }),
       seasonAwards,
+      // How many airlines went bankrupt or walked away here — flavour and fair
+      // warning, without parading the corpses.
+      fallen,
       standings: airlines.map((a, i) => ({
         rank: i + 1,
         id: a.id,
@@ -504,6 +522,15 @@ export default async function worldRoutes(fastify) {
       where: { id: airline.id },
       data: { status: 'ABANDONED' },
     });
+    // An abandoned airline is as dead as a bankrupt one: shed its blob's
+    // weight now rather than carrying half a megabyte of final reports for a
+    // player who walked away. Best-effort — leaving must never fail over it.
+    try {
+      const { tombstoneAirline } = await import('../lib/tombstone.mjs');
+      await tombstoneAirline(prisma, { airlineId: airline.id, log: request.log ?? console });
+    } catch (err) {
+      request.log?.warn?.({ err }, 'tombstone on leave failed');
+    }
     // Gate scarcity: an abandoned airline's gates return to every airport's
     // pool (and its open listings are withdrawn).
     if (airline.world?.tickConfig?.gateScarcity === true) {
