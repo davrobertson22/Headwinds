@@ -40,6 +40,24 @@ export class NetworkError extends Error {
 // deliberately NOT in this set — that is our own bug, and it should surface.
 const TRANSIENT_STATUSES = new Set([502, 503, 504]);
 
+// A one-line error a player can actually read. Upstream edges sometimes hand
+// us an ENTIRE HTML error page as the "message": on 2026-08-25 Supabase's
+// Cloudflare edge answered the sign-in call with a 522 page, supabase-js put
+// the whole body in error.message, and the login card printed ~200 lines of
+// raw HTML source (Donovan's Discord screenshot). Anything that looks like
+// markup, or runs longer than a couple of sentences, is not a message a human
+// can act on -- collapse it to a friendly line. Render errors through this
+// everywhere instead of String(error.message || error).
+export const readableError = (error) => {
+  let raw = String(error?.message || error || 'Something went wrong.');
+  if (raw === '[object Object]') raw = 'Something went wrong.';
+  const looksLikeMarkup = /^\s*</.test(raw) || /<\/?(html|head|body|div|span|!doctype)\b/i.test(raw);
+  if (looksLikeMarkup || raw.length > 300) {
+    return "The server sent back an unexpected response -- it may be briefly overloaded or down. Try again in a minute.";
+  }
+  return raw;
+};
+
 export const isTransientError = (e) =>
   Boolean(e && (
     e.offline ||

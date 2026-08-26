@@ -15,7 +15,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SoloApp from '../../../src/App.jsx';
 import { RemoteGameProvider, gameReducer } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
-import { api, isTransientError } from './api.js';
+import { api, isTransientError, readableError } from './api.js';
 import { shouldFastPoll, isStaleContact } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
 import { isHidden } from './usePoll.js';
@@ -555,7 +555,7 @@ export default function GamePlayScreen({ worldId, token }) {
           </span>
         ) : error ? (
           <span className="error hw-topbar-err" style={{ fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {String(error.message || error)}
+            {readableError(error)}
           </span>
         ) : null}
         {meta?.worldStatus === 'ENDED' && (
@@ -594,7 +594,7 @@ export default function GamePlayScreen({ worldId, token }) {
   if (error && !state) {
     return (
       <div style={{ padding: 24 }}>
-        <p className="error">{String(error.message || error)}</p>
+        <p className="error">{readableError(error)}</p>
         <a href={`#/w/${worldId}`}>← Back to world</a>
       </div>
     );

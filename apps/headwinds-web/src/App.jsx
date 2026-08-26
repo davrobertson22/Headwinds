@@ -4,7 +4,7 @@ import { useConfirm } from '../../../src/components/ConfirmModal.jsx';
 // full Tailwinds game UI running on server-authoritative state.
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } from 'react';
 import { supabase } from './supabase.js';
-import { api } from './api.js';
+import { api, readableError } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge } from './OgBadge.jsx';
 import CareerPanel from './CareerPanel.jsx';
@@ -148,7 +148,7 @@ export function StageChip({ stage = 'beta', size = 'sm' }) {
 }
 
 function ErrorNote({ error }) {
-  return error ? <p className="error">{String(error.message || error)}</p> : null;
+  return error ? <p className="error">{readableError(error)}</p> : null;
 }
 
 // ── Sign in ───────────────────────────────────────────────────────────────────
