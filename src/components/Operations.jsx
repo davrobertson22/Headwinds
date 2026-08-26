@@ -2,6 +2,8 @@ import { useGame } from '../store/GameContext.jsx';
 import {
   LABOR_GROUPS, LABOR_GROUP_MAP, DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET,
   moraleTarget, moraleColor,
+  CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, crewRequired, crewAvailable,
+  crewInTraining, crewShortfall, crewHireCost,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -296,7 +298,7 @@ function NegotiationOutcomeNote({ outcome }) {
 
 // ─── Labor group card ─────────────────────────────────────────────────────────
 
-function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexityMult = 1.0, familyCount = 1, unrest = 0, onStrike = false }) {
+function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexityMult = 1.0, familyCount = 1, unrest = 0, onStrike = false, crew = null, cash = 0 }) {
   const { payMultiplier: committedPay, morale } = groupState;
   // Local draft so a pay-slider drag updates the label/cost preview live but only
   // dispatches SET_LABOR_PAY once, on release, instead of on every drag value.
@@ -361,6 +363,58 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
           Split pilot pools and extra type ratings raise this overhead.
         </div>
       )}
+
+      {/* ── Crew pipeline: staffing, training, hiring ── */}
+      {crew && (() => {
+        const short = crew.short;
+        const severe = short >= CREW_SEVERE_SHORTFALL;
+        const tone = short <= 0 ? 'var(--green)' : severe ? 'var(--red)' : 'var(--yellow)';
+        const shortUnits = Math.max(0, Math.ceil(crew.required - crew.available));
+        const hire = (n) => dispatch({ type: 'HIRE_CREW', group: group.id, count: n });
+        const opts = [...new Set([Math.max(1, shortUnits), 1, 5])].slice(0, 3).sort((a, b) => a - b);
+        return (
+          <div style={{
+            marginBottom: 10, padding: '8px 10px', borderRadius: 4,
+            background: 'var(--surface2)', border: `1px solid ${short > 0 ? tone : 'var(--border)'}`,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Staffing</span>
+              <span style={{ fontWeight: 600, color: tone }}>
+                {crew.available.toFixed(1)} / {crew.required.toFixed(1)} crewed
+                {short > 0 ? ` · ${Math.round(short * 100)}% short` : ' · fully staffed'}
+              </span>
+            </div>
+            {crew.training > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
+                🎓 {crew.training} in training
+                {crew.nextReady != null && crew.nextReady > 0 ? ` · next ready in ${crew.nextReady} wk${crew.nextReady === 1 ? '' : 's'}` : ' · ready next week'}
+              </div>
+            )}
+            {short > 0 && (
+              <div style={{ fontSize: 11, color: tone, marginBottom: 6 }}>
+                {severe
+                  ? '⚠ Severely short — on-time performance and satisfaction are taking the maximum hit.'
+                  : '⚠ Short-handed — on-time performance is suffering. Hire before it gets worse.'}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              {opts.map(n => {
+                const cost = crewHireCost(group.id, n);
+                return (
+                  <button key={n} className="btn-small" disabled={cost > cash}
+                    onClick={() => hire(n)}
+                    title={cost > cash ? 'Not enough cash to train this many' : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
+                    Hire {n} · {formatMoney(cost)}
+                  </button>
+                );
+              })}
+              <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                {CREW_LEAD_WEEKS[group.id]}-week training
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Pay slider */}
       <div style={{ marginBottom: 10 }}>
@@ -718,6 +772,24 @@ export default function Operations() {
   const laborRelations = state.laborRelations ?? DEFAULT_LABOR_RELATIONS;
   const currentAbsWeek = ((state.year ?? 1) - 1) * 52 + (state.week ?? 1);
 
+  // ── Crew pipeline (A7) ──────────────────────────────────────────────────
+  // Only in worlds/saves running the pipeline. `required` and `available` are
+  // in narrowbody-equivalents — the same unit the wage bill uses — so they are
+  // directly comparable and need no translation.
+  const crewOn = state.crewPipeline === true;
+  const typeOfAircraft = (a) => getAircraftType(a.typeId);
+  const crew = crewOn ? Object.fromEntries(LABOR_GROUPS.map(g => {
+    const required  = crewRequired(g.id, fleet, typeOfAircraft);
+    const available = crewAvailable(labor, g.id);
+    const training  = crewInTraining(labor, g.id);
+    const batches   = labor?.[g.id]?.pipeline ?? [];
+    const nextReady = batches.length
+      ? Math.min(...batches.map(b => (b?.readyAbsWeek ?? 0))) - currentAbsWeek
+      : null;
+    return [g.id, { required, available, training, nextReady, short: required > 0 ? Math.max(0, (required - available) / required) : 0 }];
+  })) : null;
+  const crewGap = crewOn ? crewShortfall(labor, fleet, typeOfAircraft) : null;
+
   // Pre-compute headcount estimates for all groups
   const headcounts = Object.fromEntries(
     LABOR_GROUPS.map(g => [g.id, estimateHeadcount(g.id, fleet, routes)])
@@ -803,6 +875,23 @@ export default function Operations() {
         Labor Groups
       </div>
 
+      {crewGap && crewGap.worst > 0 && (
+        <div style={{
+          marginBottom: 10, padding: '9px 12px', borderRadius: 4, fontSize: 12,
+          background: 'var(--surface2)',
+          border: `1px solid ${crewGap.severe ? 'var(--red)' : 'var(--yellow)'}`,
+          color: crewGap.severe ? 'var(--red)' : 'var(--yellow)',
+        }}>
+          <strong>{crewGap.severe ? 'Severely understaffed' : 'Short-handed'}</strong>
+          {' — '}
+          {LABOR_GROUPS.filter(g => (crew?.[g.id]?.short ?? 0) > 0)
+            .map(g => `${g.name} ${Math.round((crew[g.id].short) * 100)}% short`)
+            .join(' · ')}
+          . Flying short-handed costs on-time performance and passenger satisfaction; crew take
+          {' '}{Math.min(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))}–{Math.max(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))} weeks to train, so hire ahead of your deliveries.
+        </div>
+      )}
+
       {LABOR_GROUPS.map(group => (
         <LaborCard
           key={group.id}
@@ -815,6 +904,8 @@ export default function Operations() {
           familyCount={familySet.size}
           unrest={laborRelations.unrest?.[group.id] ?? 0}
           onStrike={laborRelations.strike?.group === group.id}
+          crew={crew?.[group.id] ?? null}
+          cash={state.cash ?? 0}
         />
       ))}
 

@@ -11,6 +11,7 @@ import {
   CREW_LEAD_WEEKS, CREW_TRAINING_COST, CREW_SEVERE_SHORTFALL, CREW_MAX_OTP_PENALTY,
   CREW_ATTRITION_BASE, crewRequired, crewAvailable, crewInTraining, crewShortfall,
   crewOtpPenalty, crewAttritionRate, crewHireCost, seedCrewFor, unstaffedCrewScale,
+  ensureCrewSeeded,
 } from '../packages/engine/src/data/labor.js';
 
 let passed = 0, failed = 0;
@@ -201,6 +202,60 @@ t('a classic save never grows a headcount field', () => {
   s = gameReducer(s, { type: 'ADVANCE_WEEK' });
   for (const g of LABOR_GROUPS) {
     assert.equal(s.labor[g.id].headcount, undefined, `${g.id} gained a headcount in a classic save`);
+  }
+});
+
+// ── Migration: an established airline must not wake up with no staff ────────
+const bigFleet = Array.from({ length: 20 }, (_, i) => ({
+  id: `big${i}`, typeId: NB, status: 'assigned', ownershipType: 'owned', ageWeeks: 200,
+}));
+
+t('ensureCrewSeeded staffs an untracked airline to its CURRENT fleet', () => {
+  const seeded = ensureCrewSeeded(DEFAULT_LABOR_STATE, bigFleet, (a) => getAircraftType(a.typeId));
+  for (const g of LABOR_GROUPS) {
+    assert.ok(seeded[g.id].headcount >= crewRequired(g.id, bigFleet, (a) => getAircraftType(a.typeId)),
+      `${g.id} came onto the pipeline understaffed`);
+  }
+  assert.equal(crewShortfall(seeded, bigFleet, (a) => getAircraftType(a.typeId)).worst, 0,
+    'a migrated airline must start fully staffed, not short');
+});
+
+t('ensureCrewSeeded is idempotent and never overwrites a tracked group', () => {
+  const typeOf = (a) => getAircraftType(a.typeId);
+  const once = ensureCrewSeeded(DEFAULT_LABOR_STATE, bigFleet, typeOf);
+  const twice = ensureCrewSeeded(once, bigFleet, typeOf);
+  assert.equal(twice, once, 'a second pass must be a no-op (same object)');
+  const deliberatelyShort = { ...once, pilots: { ...once.pilots, headcount: 1 } };
+  const after = ensureCrewSeeded(deliberatelyShort, bigFleet, typeOf);
+  assert.equal(after.pilots.headcount, 1, 'an existing headcount must be left alone');
+});
+
+t('a 20-aircraft airline adopting the pipeline is staffed by the tick, not fired', () => {
+  // The save/world has the flag but predates any headcount tracking.
+  const s0 = baseState({ crewPipeline: true, fleet: bigFleet, labor: { ...DEFAULT_LABOR_STATE } });
+  for (const g of LABOR_GROUPS) assert.equal(s0.labor[g.id].headcount, undefined, 'fixture must start untracked');
+  const s1 = gameReducer(s0, { type: 'ADVANCE_WEEK' });
+  for (const g of LABOR_GROUPS) {
+    assert.ok((s1.labor[g.id].headcount ?? 0) > 0, `${g.id} was left with no staff after migration`);
+  }
+  assert.ok(crewShortfall(s1.labor, bigFleet, (a) => getAircraftType(a.typeId)).worst < CREW_SEVERE_SHORTFALL,
+    'a migrated airline must not land in the severe band');
+});
+
+t('hiring onto an untracked airline does NOT book it down to zero staff', () => {
+  const s0 = baseState({ crewPipeline: true, fleet: bigFleet, labor: { ...DEFAULT_LABOR_STATE } });
+  const s1 = gameReducer(s0, { type: 'HIRE_CREW', group: 'pilots', count: 2 });
+  const need = crewRequired('pilots', bigFleet, (a) => getAircraftType(a.typeId));
+  assert.ok(crewAvailable(s1.labor, 'pilots') >= need,
+    `hiring must seed first, not zero the workforce (got ${crewAvailable(s1.labor, 'pilots')}, need ${need})`);
+  assert.equal(crewInTraining(s1.labor, 'pilots'), 2, 'the new batch is on top of the seeded workforce');
+});
+
+t('a classic save is never seeded, even with a big fleet', () => {
+  const s0 = baseState({ crewPipeline: false, fleet: bigFleet, labor: { ...DEFAULT_LABOR_STATE } });
+  const s1 = gameReducer(s0, { type: 'ADVANCE_WEEK' });
+  for (const g of LABOR_GROUPS) {
+    assert.equal(s1.labor[g.id].headcount, undefined, `${g.id} gained a headcount in a classic save`);
   }
 });
 

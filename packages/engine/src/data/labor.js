@@ -351,6 +351,36 @@ export function crewHireCost(groupId, count) {
   return n * (CREW_TRAINING_COST[groupId] ?? 0);
 }
 
+/**
+ * MIGRATION: bring an airline that predates the pipeline onto it, fully staffed
+ * for the fleet it already operates.
+ *
+ * A live airline must never wake up understaffed for aircraft it has been flying
+ * for months — switching the rule on cannot retroactively fire its whole
+ * workforce. So any group with no headcount recorded is seeded to exactly what
+ * its current fleet needs; groups already tracked are left completely alone,
+ * which makes this safe to run on every load and every tick.
+ *
+ * Returns the SAME object when there is nothing to do, so callers can cheaply
+ * detect whether a migration actually happened.
+ */
+export function ensureCrewSeeded(labor, fleet, typeOf) {
+  const base = labor ?? {};
+  let changed = false;
+  const next = { ...base };
+  for (const g of LABOR_GROUPS) {
+    const cur = base[g.id];
+    if (cur && cur.headcount != null) continue;
+    next[g.id] = {
+      ...(cur ?? { payMultiplier: 1.0, morale: 80 }),
+      headcount: Math.ceil(crewRequired(g.id, fleet, typeOf)),
+      pipeline: cur?.pipeline ?? [],
+    };
+    changed = true;
+  }
+  return changed ? next : labor;
+}
+
 /** Fully-staffed labor state for a fleet — used when seeding a new save/world. */
 export function seedCrewFor(labor, fleet, typeOf) {
   const next = { ...labor };
