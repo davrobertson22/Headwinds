@@ -331,6 +331,30 @@ test('a shrink never out-burns the stretch it shrinks, within a generation', () 
   assert.deepEqual(bad, [], 'a longer fuselage on the same wing and engine cannot burn less');
 });
 
+test('a bigger freighter of the same generation burns more, and carries it cheaper', () => {
+  // The freighters sit outside the shrink/stretch GENERATIONS map above, so nothing
+  // was checking them. The 737-300F was entered at 410 L/100km — 15% above published
+  // block fuel, while its own pax sibling sat within 1% — which left the 18-tonne
+  // -300F burning MORE per trip than the larger 20-tonne -400F. A shorter tube on
+  // the same wing and engine cannot do that, and the payload ladder has to reward
+  // size the way the seat ladder does.
+  const GENERATIONS = { 'Classic F': ['b737300f', 'b737400f'] };
+  const bad = [];
+  for (const [fam, ids] of Object.entries(GENERATIONS)) {
+    const list = ids.map(get);
+    for (let i = 0; i < list.length - 1; i++) {
+      const small = list[i], large = list[i + 1];
+      if (large.fuelBurnPer100km <= small.fuelBurnPer100km) {
+        bad.push(`${fam}: ${large.name} burns ${large.fuelBurnPer100km} <= ${small.name} ${small.fuelBurnPer100km}`);
+      }
+      const ls = small.fuelBurnPer100km / small.payloadTonnes;
+      const ll = large.fuelBurnPer100km / large.payloadTonnes;
+      if (ll >= ls) bad.push(`${fam}: ${large.name} ${ll.toFixed(2)} L/tonne >= ${small.name} ${ls.toFixed(2)}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
 test('the MAX 8-200 burns at least as much as the MAX 8 it is built from', () => {
   // Same fuselage, same LEAP-1B, same MTOW, one extra exit pair, ~450 kg more
   // OEW. It was entered at 320 against the MAX 8's 382 — 16% less, which made it
@@ -338,8 +362,53 @@ test('the MAX 8-200 burns at least as much as the MAX 8 it is built from', () =>
   const a = get('b737max8'), b = get('b737max8200');
   assert.ok(b.fuelBurnPer100km >= a.fuelBurnPer100km,
     `MAX 8-200 burns ${b.fuelBurnPer100km} vs MAX 8 ${a.fuelBurnPer100km} — identical airframe, and the -200 is heavier`);
-  assert.ok(b.purchasePrice < a.purchasePrice,
-    'the 8-200 carries FEWER seats than the MAX 8 exit limit, so it has to be cheaper or nobody would buy it');
+  // 2026-08-26: the seat counts were the wrong way round. 210 is the -200's
+  // certified maximum, not the MAX 8's — the MAX 8 is the same fuselage as the
+  // 737-800, which this table already lists at its true 189-seat exit limit, and
+  // EASA certifies the -200 at 202 on the strength of its extra mid-cabin exit
+  // pair (ten doors against eight). The old assertion tried to compensate for the
+  // inversion with a discount, which could never work: $2M off against $72/seat/wk
+  // of worse economics never pays back, so the -200 was dead catalogue weight.
+  assert.ok(b.seats > a.seats,
+    'the -200 exists to carry MORE than a MAX 8 — that is what the extra exit pair buys');
+  assert.ok(b.purchasePrice > a.purchasePrice,
+    'the higher-density variant is the one that costs more');
+  assert.equal(a.seats, get('b737800').seats,
+    'the MAX 8 is the 737-800 fuselage — same exits, same certified maximum');
+});
+
+test('the MAX 8-200 actually beats the MAX 8 on the metric it exists for', () => {
+  // A denser variant that costs more per seat to run has no reason to exist. Held
+  // at a realistic 40,000 km/wk (~70 block-hours, the 9-11h/day the NWR cap note
+  // cites), leased, so lease + maintenance + fuel + crew all count.
+  const KM = 40_000, FUEL = 1.45, INSURANCE = 12_000;
+  const perSeatWk = (t) => (
+    (t.fuelBurnPer100km / 100) * KM * FUEL
+    + t.crewCostPerKm * KM
+    + t.baseMaintenancePerWk
+    + t.weeklyLease
+    + INSURANCE
+  ) / t.seats;
+  const a = get('b737max8'), b = get('b737max8200');
+  assert.ok(perSeatWk(b) < perSeatWk(a),
+    `MAX 8-200 costs $${perSeatWk(b).toFixed(0)}/seat/wk against the MAX 8's `
+    + `$${perSeatWk(a).toFixed(0)} — it carries more seats and costs more to buy, so if it `
+    + 'also costs more per seat to fly, nobody has a reason to order one');
+});
+
+test('per-seat fuel improves as the MAX gets longer', () => {
+  // The failure this locks out: with the MAX 8 inflated to the -200's 210 seats,
+  // correcting it to 189 left the SHORTER MAX 7 looking more efficient per seat,
+  // because 296 was the -700's burn x the per-aircraft re-engine factor and the
+  // MAX 7 is a stretch of the -700, not a same-length re-engine.
+  const ids = ['b737max7', 'b737max8', 'b737max9'];
+  const bad = [];
+  for (let i = 0; i < ids.length - 1; i++) {
+    const small = get(ids[i]), large = get(ids[i + 1]);
+    const ls = small.fuelBurnPer100km / small.seats, ll = large.fuelBurnPer100km / large.seats;
+    if (ll >= ls) bad.push(`${large.name} ${ll.toFixed(3)} L/seat >= ${small.name} ${ls.toFixed(3)}`);
+  }
+  assert.deepEqual(bad, [], 'a longer tube on the same wing carries its seats more cheaply');
 });
 
 test('the MAX range ladder shortens as the fuselage lengthens', () => {
@@ -692,8 +761,20 @@ const PAX = AIRCRAFT_TYPES.filter(t => !t.freighter && !t.supersonic);
 const hasEis = PAX.some(t => t.eis != null);   // Tailwinds' copy carries no eis
 const ppsK = (t) => t.purchasePrice / t.seats / 1000;   // $K per seat
 
-/** The published delivered-age band. Keep in sync with the file header. */
-function expectedAgeBand(eis) {
+/**
+ * The published delivered-age band. Keep in sync with the file header.
+ *
+ * Banded off the GENERATION's service entry, not the individual variant's. A
+ * type can enter service years after the line it is built on and still leave
+ * production alongside its siblings, so it reaches the second-hand market at
+ * their vintage, not its own. The 737-900ER (eis 2007) came off the 737NG line
+ * and stopped when the -700 and -800 did; banding it off 2007 dropped it past
+ * the end of the table and made it the only NG delivered factory-fresh, which
+ * let a 2007 airframe out-earn the MAX 9 that replaced it. `bandEis` names the
+ * cohort to band with.
+ */
+function expectedAgeBand(t) {
+  const eis = t?.bandEis ?? t?.eis;
   if (eis == null) return null;
   if (eis <= 1974) return 832;
   if (eis <= 1984) return 624;
@@ -716,9 +797,22 @@ if (hasEis) {
 
   test('delivered age matches the published band for its vintage', () => {
     const off = PAX
-      .filter(t => (t.deliveredAgeWeeks ?? 0) !== expectedAgeBand(t.eis))
-      .map(t => `${t.name} (eis ${t.eis}) has ${t.deliveredAgeWeeks ?? 0}w, band says ${expectedAgeBand(t.eis)}w`);
+      .filter(t => (t.deliveredAgeWeeks ?? 0) !== expectedAgeBand(t))
+      .map(t => `${t.name} (eis ${t.bandEis ?? t.eis}) has ${t.deliveredAgeWeeks ?? 0}w, band says ${expectedAgeBand(t)}w`);
     assert.deepEqual(off, []);
+  });
+
+  test('the whole 737NG cohort arrives used, including the -900ER', () => {
+    // The -900ER entered service in 2007 but was built on the same line as the
+    // -700 and -800 and left production with them. Banded off its own EIS it fell
+    // past the end of the age table and arrived factory-fresh — the only NG that
+    // did — which handed a 2007 airframe a lower maintenance clock and a full
+    // depreciation life, and let it out-earn the MAX 9 built to replace it.
+    const NG = ['b737700', 'b737800', 'b737900er'].map(get);
+    const fresh = NG.filter(t => !(t.deliveredAgeWeeks > 0)).map(t => t.name);
+    assert.deepEqual(fresh, [], 'every 737NG comes off a line that closed in 2019');
+    assert.equal(new Set(NG.map(t => t.deliveredAgeWeeks)).size, 1,
+      'they stopped being built at the same time, so they reach the market equally old');
   });
 
   test('no passenger type is priced below the floor for its vintage', () => {
@@ -762,8 +856,20 @@ test('each current-generation narrowbody beats the type it replaces on fuel', ()
   ];
   const weak = [];
   for (const [oldId, newId] of PAIRS) {
-    const gain = 1 - get(newId).fuelBurnPer100km / get(oldId).fuelBurnPer100km;
-    if (gain < 0.10) weak.push(`${get(newId).name} is only ${(gain * 100).toFixed(1)}% better per hour than the ${get(oldId).name}`);
+    const o = get(oldId), n = get(newId);
+    // Per-aircraft is the right basis for a same-length re-engine. Where the
+    // newer type is also a STRETCH — the MAX 7 adds 23 seats over the -700, every
+    // neo adds seats over its ceo — the aircraft got bigger as well as newer, so
+    // holding it to a per-aircraft gain forces its burn below what the longer
+    // tube can physically achieve. Measure those per seat.
+    const stretch = n.seats !== o.seats;
+    const gain = stretch
+      ? 1 - (n.fuelBurnPer100km / n.seats) / (o.fuelBurnPer100km / o.seats)
+      : 1 - n.fuelBurnPer100km / o.fuelBurnPer100km;
+    if (gain < 0.10) {
+      weak.push(`${n.name} is only ${(gain * 100).toFixed(1)}% better `
+        + `${stretch ? 'per seat' : 'per hour'} than the ${o.name}`);
+    }
   }
   assert.deepEqual(weak, []);
 });

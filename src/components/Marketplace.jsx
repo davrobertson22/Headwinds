@@ -13,12 +13,33 @@ import {
   lessorSupplies,
   leaseOrderBookCap,
 } from '../data/aircraft.js';
-import { formatMoney, weekToGameDate } from '../utils/simulation.js';
+import { formatMoney, weekToGameDate, maintenanceMultiplier } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import InfoTip from './InfoTip.jsx';
 import { Glyph } from './Icons.jsx';
+
+// ── Delivered-age economics ───────────────────────────────────────────────────
+//
+// An out-of-production type is not a new build: it arrives already `deliveredAgeWeeks`
+// old, so from its very first week it pays a higher maintenanceMultiplier(). Quoting
+// the factory-fresh `baseMaintenancePerWk` on the store card hides the single largest
+// cost difference between two candidates — a 10y-old Classic bills 1.5x base on
+// delivery while a 6y-old NG bills 1.18x, which can invert the running-cost ranking
+// the card appears to show. Always quote the bill the player will actually pay.
+
+/** Weekly maintenance a fresh delivery of this type will actually bill, in $. */
+function deliveredMaint(type) {
+  return Math.round(
+    (type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(type?.deliveredAgeWeeks ?? 0)
+  );
+}
+
+/** Whole years old this type arrives at, or 0 for anything still in production. */
+function deliveredAgeYears(type) {
+  return Math.round((type?.deliveredAgeWeeks ?? 0) / 52);
+}
 
 // Category accent colors
 const CAT_COLORS = {
@@ -466,7 +487,8 @@ const TABLE_COLS = [
   { key: 'runway',   label: 'Runway',       align: 'right', title: 'Minimum runway length required (ft)' },
   { key: 'fuel',     label: 'Fuel/seat',    align: 'right', title: 'Litres per seat per 100 km (per tonne for freighters)' },
   { key: 'eff',      label: 'Eff.',         align: 'right', title: 'Seat efficiency score, 0-100' },
-  { key: 'maint',    label: 'Maint/wk',     align: 'right' },
+  { key: 'age',      label: 'Age',          align: 'right', title: 'How old the airframe is on delivery. Out-of-production types arrive used.' },
+  { key: 'maint',    label: 'Maint/wk',     align: 'right', title: 'Weekly maintenance as delivered — base rate already scaled for delivered age.' },
   { key: 'lease',    label: 'Lease/wk',     align: 'right' },
   { key: 'buy',      label: 'Buy',          align: 'right' },
   { key: 'delivery', label: 'Delivery',     align: 'right' },
@@ -528,7 +550,10 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                 <td style={{ textAlign: 'right' }}>{t.runwayFt ? `${t.runwayFt.toLocaleString()} ft` : '–'}</td>
                 <td style={{ textAlign: 'right' }}>{r.fuel.toFixed(2)}</td>
                 <td style={{ textAlign: 'right', color: r.effColor, fontWeight: 600 }}>{t.freighter ? '–' : r.eff}</td>
-                <td style={{ textAlign: 'right' }}>{formatMoney(t.baseMaintenancePerWk)}</td>
+                <td style={{ textAlign: 'right', color: r.age > 0 ? 'var(--yellow)' : 'var(--text-muted)' }}>
+                  {r.age > 0 ? `${r.age}y used` : 'new'}
+                </td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(r.maint)}</td>
                 <td style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{formatMoney(t.weeklyLease)}</td>
                 <td style={{ textAlign: 'right' }}>
                   <span style={{ color: r.canAffordBuy ? 'var(--green)' : 'var(--text-dim)', fontWeight: 600 }}>
@@ -892,7 +917,8 @@ export default function Marketplace() {
               : type.fuelBurnPer100km / (type.seats || 1),
             eff:      effScore,
             effColor: effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)',
-            maint:    type.baseMaintenancePerWk,
+            age:      deliveredAgeYears(type),
+            maint:    deliveredMaint(type),
             lease:    type.weeklyLease,
             buy:      buyPrice,
             discPct:  0,
@@ -1011,7 +1037,7 @@ export default function Marketplace() {
                   </div>
                   <div className="aircraft-stat-pill">
                     <span className="aircraft-stat-pill-label">Maint/wk</span>
-                    <span className="aircraft-stat-pill-value">{formatMoney(type.baseMaintenancePerWk)}</span>
+                    <span className="aircraft-stat-pill-value">{formatMoney(deliveredMaint(type))}</span>
                   </div>
                 </div>
 
@@ -1048,6 +1074,15 @@ export default function Marketplace() {
                   <Glyph e="📅" /> Delivery in <strong>{nextDeliveryWeeks} week{nextDeliveryWeeks !== 1 ? 's' : ''}</strong>
                   {onOrder > 0 && ` (${onOrder} already queued)`}
                 </div>
+                {deliveredAgeYears(type) > 0 && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: 'var(--yellow)' }}>
+                    <Glyph e="🕐" /> Out of production — arrives{' '}
+                    <strong>{`${deliveredAgeYears(type)} years old`}</strong>
+                    {`, so maintenance already bills at `}
+                    {`${(deliveredMaint(type) / (type.baseMaintenancePerWk || 1)).toFixed(2)}x base `}
+                    {`and climbs faster from here.`}
+                  </div>
+                )}
 
                 {/* Acquisition footer */}
                 <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
