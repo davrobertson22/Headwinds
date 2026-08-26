@@ -11,7 +11,7 @@ import {
   CREW_LEAD_WEEKS, CREW_TRAINING_COST, CREW_SEVERE_SHORTFALL, CREW_MAX_OTP_PENALTY,
   CREW_ATTRITION_BASE, crewRequired, crewAvailable, crewInTraining, crewShortfall,
   crewOtpPenalty, crewAttritionRate, crewHireCost, seedCrewFor, unstaffedCrewScale,
-  ensureCrewSeeded,
+  ensureCrewSeeded, starterCrewFloor, splitStarterHire, CREW_INSTANT_AIRCRAFT,
 } from '../packages/engine/src/data/labor.js';
 
 let passed = 0, failed = 0;
@@ -20,6 +20,8 @@ const t = (name, fn) => { try { fn(); console.log(`  ✓ ${name}`); passed++; } 
 const TYPES = { nb: { category: 'Narrow Body' }, wb: { category: 'Wide Body' }, tp: { category: 'Turboprop' } };
 const typeOf = (a) => TYPES[a.t];
 const FLEET = [{ t: 'nb' }, { t: 'nb' }, { t: 'wb' }];
+// Past the founding-crew grace, so shortfall maths is actually exercised.
+const BIG = Array.from({ length: 10 }, () => ({ t: 'nb' }));
 
 // ── Requirement reuses the wage-bill sizing, so it needs no new calibration ──
 t('crew requirement is the same narrowbody-equivalent scale the wage bill uses', () => {
@@ -56,26 +58,58 @@ t('a fully staffed airline has no shortfall and no penalty', () => {
 });
 
 t('a small shortfall degrades the operation without grounding anything', () => {
-  const full = seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf);
-  const need = crewRequired('pilots', FLEET, typeOf);
+  const full = seedCrewFor(DEFAULT_LABOR_STATE, BIG, typeOf);
+  const need = crewRequired('pilots', BIG, typeOf);
   const mild = { ...full, pilots: { ...full.pilots, headcount: need * 0.95 } }; // 5% short
-  const sf = crewShortfall(mild, FLEET, typeOf);
+  const sf = crewShortfall(mild, BIG, typeOf);
   assert.ok(sf.worst > 0 && sf.worst < CREW_SEVERE_SHORTFALL, 'should sit inside the soft band');
   assert.equal(sf.severe, false);
   assert.ok(crewOtpPenalty(sf) > 0, 'a soft shortfall still costs on-time performance');
-  assert.equal(unstaffedCrewScale(mild, FLEET, typeOf), 0, 'the soft band must not ground aircraft');
+  assert.equal(unstaffedCrewScale(mild, BIG, typeOf), 0, 'the soft band must not ground aircraft');
 });
 
 t('past the severe line aircraft go unstaffed, and the OTP penalty is capped', () => {
-  const full = seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf);
-  const need = crewRequired('pilots', FLEET, typeOf);
-  const bad = { ...full, pilots: { ...full.pilots, headcount: need * 0.5 } };  // 50% short
-  const sf = crewShortfall(bad, FLEET, typeOf);
+  const full = seedCrewFor(DEFAULT_LABOR_STATE, BIG, typeOf);
+  const bad = { ...full, pilots: { ...full.pilots, headcount: 0 } };
+  const sf = crewShortfall(bad, BIG, typeOf);
   assert.equal(sf.severe, true);
-  assert.ok(unstaffedCrewScale(bad, FLEET, typeOf) > 0, 'severe understaffing must ground capacity');
+  assert.ok(unstaffedCrewScale(bad, BIG, typeOf) > 0, 'severe understaffing must ground capacity');
   assert.ok(crewOtpPenalty(sf) <= CREW_MAX_OTP_PENALTY + 1e-9, 'penalty must not exceed its cap');
-  const worse = { ...full, pilots: { ...full.pilots, headcount: 0 } };
-  assert.ok(crewOtpPenalty(crewShortfall(worse, FLEET, typeOf)) <= CREW_MAX_OTP_PENALTY + 1e-9);
+});
+
+// ── Starter crew: the counterpart of the instant-delivery Starter Fleet perk ─
+t('the starter allowance covers two aircraft, whatever they are', () => {
+  const f2nb = [{ t: 'nb' }, { t: 'nb' }], f2wb = [{ t: 'wb' }, { t: 'wb' }];
+  for (const fleet of [f2nb, f2wb]) {
+    assert.ok(Math.abs(starterCrewFloor('pilots', fleet, typeOf) - crewRequired('pilots', fleet, typeOf)) < 1e-9,
+      'two aircraft must sit entirely inside the starter allowance');
+  }
+  const f10 = starterCrewFloor('pilots', BIG, typeOf);
+  assert.ok(Math.abs(f10 - crewRequired('pilots', BIG, typeOf) * 0.2) < 1e-9,
+    'ten aircraft get two aircraft worth of allowance, not more');
+});
+
+t('hiring inside the allowance is instant; beyond it, it trains', () => {
+  const two = [{ t: 'nb' }, { t: 'nb' }];
+  const floor = starterCrewFloor('pilots', two, typeOf);
+  // Crewing up the first two aircraft from nothing: all instant.
+  const a = splitStarterHire('pilots', Math.floor(floor), 0, two, typeOf);
+  assert.equal(a.trained, 0, 'the opening hire must not sit in training');
+  assert.ok(a.instant > 0);
+  // Already at the floor: everything trains.
+  const b = splitStarterHire('pilots', 5, floor, two, typeOf);
+  assert.equal(b.instant, 0, 'past the allowance nothing is instant');
+  assert.equal(b.trained, 5);
+  // Straddling the line: split, never double-counted.
+  const c = splitStarterHire('pilots', 10, Math.max(0, floor - 1), two, typeOf);
+  assert.equal(c.instant + c.trained, 10, 'a straddling hire must not lose or invent crew');
+});
+
+t('crew are genuinely required for every aircraft — the allowance is about WAITING', () => {
+  const bare = Object.fromEntries(LABOR_GROUPS.map(g => [g.id, { payMultiplier: 1, morale: 80, headcount: 0 }]));
+  const two = [{ t: 'nb' }, { t: 'nb' }];
+  assert.ok(crewShortfall(bare, two, typeOf).worst > 0,
+    'an airline that has hired nobody is short even inside the allowance');
 });
 
 t('a short RAMP does not ground a jet; short PILOTS do', () => {
@@ -203,6 +237,37 @@ t('a classic save never grows a headcount field', () => {
   for (const g of LABOR_GROUPS) {
     assert.equal(s.labor[g.id].headcount, undefined, `${g.id} gained a headcount in a classic save`);
   }
+});
+
+t('a brand-new airline can crew its starter fleet and fly the SAME week', () => {
+  // The Starter Fleet perk hands over the first two aircraft instantly; crewing
+  // them must not re-introduce the ten-week wait that perk exists to remove.
+  const twoJets = [
+    { id: 's1', typeId: NB, status: 'idle', ownershipType: 'owned', ageWeeks: 0 },
+    { id: 's2', typeId: NB, status: 'idle', ownershipType: 'owned', ageWeeks: 0 },
+  ];
+  let s = baseState({ crewPipeline: true, fleet: twoJets,
+    labor: Object.fromEntries(LABOR_GROUPS.map(g => [g.id, { payMultiplier: 1.0, morale: 80, headcount: 0, pipeline: [] }])) });
+  for (const g of LABOR_GROUPS) {
+    const need = Math.ceil(crewRequired(g.id, twoJets, (a) => getAircraftType(a.typeId)));
+    s = gameReducer(s, { type: 'HIRE_CREW', group: g.id, count: need });
+  }
+  for (const g of LABOR_GROUPS) {
+    assert.equal(crewInTraining(s.labor, g.id), 0, `${g.id} should not be waiting in training`);
+  }
+  assert.equal(crewShortfall(s.labor, twoJets, (a) => getAircraftType(a.typeId)).worst, 0,
+    'the starter fleet must be fully crewed the moment it is hired');
+});
+
+t('the THIRD aircraft has to be trained for — the allowance is spent', () => {
+  const three = Array.from({ length: 3 }, (_, i) => ({ id: `t${i}`, typeId: NB, status: 'idle', ownershipType: 'owned', ageWeeks: 0 }));
+  const typeOfA = (a) => getAircraftType(a.typeId);
+  const floor = starterCrewFloor('pilots', three, typeOfA);
+  let s = baseState({ crewPipeline: true, fleet: three,
+    labor: { ...DEFAULT_LABOR_STATE, pilots: { payMultiplier: 1.0, morale: 80, headcount: Math.ceil(floor), pipeline: [] } } });
+  const need = Math.ceil(crewRequired('pilots', three, typeOfA) - floor);
+  s = gameReducer(s, { type: 'HIRE_CREW', group: 'pilots', count: need });
+  assert.ok(crewInTraining(s.labor, 'pilots') > 0, 'growth beyond the starter fleet must go through training');
 });
 
 // ── Migration: an established airline must not wake up with no staff ────────

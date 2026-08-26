@@ -10,6 +10,7 @@ import { getAircraftType } from '../src/data/aircraft.js';
 import { formatMoney } from '../src/utils/simulation.js';
 import {
   DEFAULT_LABOR_STATE, seedCrewFor, crewRequired, crewHireCost, CREW_LEAD_WEEKS,
+  splitStarterHire, CREW_INSTANT_AIRCRAFT,
 } from '../src/data/labor.js';
 
 const store = new Map();
@@ -54,6 +55,23 @@ function seed(extra = {}) {
 
 console.log('\n── Operations: crew pipeline panel ─────────────────────');
 
+test('a new airline is told its starter crew hires instantly', () => {
+  // Nobody hired yet: the whole starter allowance is still available.
+  const bare = Object.fromEntries(['pilots', 'cabinCrew', 'groundStaff', 'maintenanceTeam']
+    .map(id => [id, { payMultiplier: 1.0, morale: 80, headcount: 0, pipeline: [] }]));
+  seed({ crewPipeline: true, labor: bare });
+  const html = render(React.createElement(Operations));
+  assert.ok(html.includes(`first ${CREW_INSTANT_AIRCRAFT} aircraft crew up instantly`),
+    'the starter-crew allowance must be spelled out on the page');
+  assert.ok(/· instant/.test(html), 'a qualifying hire button must be marked instant');
+});
+
+test('an airline past the starter allowance is not promised instant hiring', () => {
+  seed({ crewPipeline: true, labor: seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf) });
+  const html = render(React.createElement(Operations));
+  assert.ok(!html.includes('crew up instantly'), 'a crewed-up airline must not be offered starter crew');
+});
+
 test('a classic save shows no crew panel at all', () => {
   seed({ crewPipeline: false });
   const html = render(React.createElement(Operations));
@@ -77,8 +95,9 @@ test('an understaffed airline warns, and quotes the real hire cost + lead time',
   const html = render(React.createElement(Operations));
   assert.ok(/Short-handed|Severely understaffed/.test(html), 'no shortfall warning rendered');
   assert.ok(/% short/.test(html), 'no shortfall percentage rendered');
-  // The button must quote the SAME cost the reducer will charge.
-  const gap = Math.ceil(crewRequired('pilots', FLEET, typeOf) - 1);
+  // The button must quote the SAME cost the reducer will charge — for the gap
+  // that remains AFTER founding crew, which is what the panel offers to close.
+  const gap = Math.max(1, Math.ceil(crewRequired('pilots', FLEET, typeOf) - 1));
   assert.ok(html.includes(`${CREW_LEAD_WEEKS.pilots}-week training`), 'lead time not shown');
   // Quote the SAME number the reducer charges, formatted the way the app does.
   const cost = crewHireCost('pilots', gap);

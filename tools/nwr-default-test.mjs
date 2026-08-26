@@ -70,5 +70,38 @@ await test('worlds created before the flip are not retro-changed', () => {
   assert.equal(serializeWorld(oldNwr).newWorldRestrictions, true);
 });
 
+// ── Crew pipeline: OPT-IN, and only ever on worlds created with it ──────────
+await test('the crew pipeline is off unless a world is created with it', async () => {
+  assert.notEqual((await tcOf({ ...BASE })).crewPipeline, true, 'must not be on by default');
+  assert.notEqual((await tcOf({ ...BASE, crewPipeline: false })).crewPipeline, true);
+  assert.equal((await tcOf({ ...BASE, crewPipeline: true })).crewPipeline, true, 'opting in must work');
+});
+
+await test('an existing world never gains the crew pipeline', () => {
+  // A world created before the pipeline existed carries no key at all, and the
+  // serializer must keep reporting it as off for the rest of its life.
+  const oldRow = {
+    id: 'w0', name: 'Long Running', status: 'RUNNING', visibility: 'PUBLIC',
+    lengthYears: 50, weeksPerDay: 24, currentYear: 4, currentWeek: 11,
+    maxPlayers: 40, joinCode: null,
+    tickConfig: { startingCapital: 15e6, demandMultiplier: 1, newWorldRestrictions: true },
+  };
+  assert.equal(serializeWorld(oldRow).crewPipeline, false, 'a running world must stay classic');
+  // ...and it is independent of newWorldRestrictions, which IS on for that world.
+  assert.equal(serializeWorld(oldRow).newWorldRestrictions, true, 'the two flags must not be coupled');
+});
+
+await test('no route can switch the crew pipeline on for a live world', () => {
+  // The only writers of tickConfig on an EXISTING world are the stage endpoint
+  // and archive/restore. If a future edit lets either carry arbitrary config,
+  // this test is the thing that notices.
+  const src = readFileSync(new URL('../apps/headwinds-server/src/routes/worlds.mjs', import.meta.url), 'utf8');
+  const writes = src.split('\n').filter(l => /data:\s*\{[^}]*tickConfig/.test(l) || /tickConfig:\s*\{/.test(l));
+  assert.ok(writes.length > 0, 'expected to find the tickConfig writers');
+  for (const line of writes) {
+    assert.ok(!/crewPipeline/.test(line), `a route writes crewPipeline onto an existing world: ${line.trim()}`);
+  }
+});
+
 console.log(`\nnwr-default: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

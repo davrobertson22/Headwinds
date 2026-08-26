@@ -260,6 +260,44 @@ export const CREW_MAX_OTP_PENALTY = 0.15;
 /** Baseline weekly attrition at market pay (1.0×), as a fraction of headcount. */
 export const CREW_ATTRITION_BASE = 0.004;
 
+/**
+ * Starter crew, the exact counterpart of the Starter Fleet delivery perk.
+ *
+ * Multiplayer already hands a new airline its first two aircraft INSTANTLY —
+ * "so a new competitor can start flying immediately instead of idling for real
+ * hours waiting on their first plane" (see ORDER_AIRCRAFT). A ten-week pilot
+ * course would have re-introduced exactly the wait that perk exists to remove,
+ * so crew for those first aircraft is instant too.
+ *
+ * It waives the WAIT, not the cost — same as the delivery perk, which still
+ * charges the full purchase price. You hire and you pay; the training queue is
+ * skipped until you are crewed for CREW_INSTANT_AIRCRAFT aircraft, after which
+ * every hire trains normally.
+ *
+ * Expressed pro-rata against the group's own requirement rather than as a flat
+ * number of crew units, so it means "your first two aircraft" whatever they are —
+ * two widebodies count exactly as two turboprops would.
+ */
+export const CREW_INSTANT_AIRCRAFT = 2;
+
+/** Headcount, per group, below which hiring completes instantly. */
+export function starterCrewFloor(groupId, fleet, typeOf) {
+  const n = (fleet ?? []).length;
+  if (n <= 0) return 0;
+  return crewRequired(groupId, fleet, typeOf) * Math.min(1, CREW_INSTANT_AIRCRAFT / n);
+}
+
+/**
+ * Split a hire into the part that starts work immediately (still inside the
+ * starter allowance) and the part that has to be trained.
+ */
+export function splitStarterHire(groupId, count, headcount, fleet, typeOf) {
+  const floor = starterCrewFloor(groupId, fleet, typeOf);
+  const room  = Math.max(0, floor - (Number(headcount) || 0));
+  const instant = Math.min(count, Math.floor(room + 1e-9));
+  return { instant, trained: Math.max(0, count - instant) };
+}
+
 /** Crew REQUIRED for a group, in narrowbody-equivalents. */
 export function crewRequired(groupId, fleet, typeOf) {
   return fleetCrewScale(groupId, fleet, typeOf);

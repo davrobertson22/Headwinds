@@ -44,7 +44,7 @@ import {
 import { sovereignCountry } from './data/territories.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects,
          CREW_LEAD_WEEKS, crewHireCost, crewAttritionRate, crewRequired,
-         seedCrewFor, ensureCrewSeeded } from './data/labor.js';
+         seedCrewFor, ensureCrewSeeded, splitStarterHire } from './data/labor.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
@@ -2861,6 +2861,12 @@ function reducer(state, action) {
       // and hiring must not be the thing that books it down to zero staff.
       const current = ensureCrewSeeded(state.labor ?? DEFAULT_LABOR_STATE, state.fleet ?? [], (a) => getAircraftType(a.typeId));
       const g = current[group] ?? { payMultiplier: 1.0, morale: 80 };
+      const have = Math.max(0, Number(g.headcount) || 0);
+      // Starter crew: while the airline is still crewing up its first couple of
+      // aircraft, hires start work immediately — the counterpart of the Starter
+      // Fleet perk that delivers those aircraft instantly. The training cost is
+      // charged either way; only the wait is waived.
+      const { instant, trained } = splitStarterHire(group, count, have, state.fleet ?? [], (a) => getAircraftType(a.typeId));
       const readyAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + (CREW_LEAD_WEEKS[group] ?? 1);
       return {
         ...state,
@@ -2869,8 +2875,10 @@ function reducer(state, action) {
           ...current,
           [group]: {
             ...g,
-            headcount: Math.max(0, Number(g.headcount) || 0),
-            pipeline: [...(g.pipeline ?? []), { count, readyAbsWeek }],
+            headcount: have + instant,
+            pipeline: trained > 0
+              ? [...(g.pipeline ?? []), { count: trained, readyAbsWeek }]
+              : (g.pipeline ?? []),
           },
         },
       };

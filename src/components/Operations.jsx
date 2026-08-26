@@ -2,8 +2,8 @@ import { useGame } from '../store/GameContext.jsx';
 import {
   LABOR_GROUPS, LABOR_GROUP_MAP, DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET,
   moraleTarget, moraleColor,
-  CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, crewRequired, crewAvailable,
-  crewInTraining, crewShortfall, crewHireCost,
+  CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, CREW_INSTANT_AIRCRAFT, crewRequired,
+  crewAvailable, crewInTraining, crewShortfall, crewHireCost, splitStarterHire,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -384,6 +384,11 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 {short > 0 ? ` · ${Math.round(short * 100)}% short` : ' · fully staffed'}
               </span>
             </div>
+            {crew.instantRoom > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>
+                ⚡ Starter crew — your first {CREW_INSTANT_AIRCRAFT} aircraft crew up instantly, no training wait
+              </div>
+            )}
             {crew.training > 0 && (
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
                 🎓 {crew.training} in training
@@ -403,8 +408,10 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 return (
                   <button key={n} className="btn-small" disabled={cost > cash}
                     onClick={() => hire(n)}
-                    title={cost > cash ? 'Not enough cash to train this many' : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
-                    Hire {n} · {formatMoney(cost)}
+                    title={cost > cash ? 'Not enough cash to train this many'
+                      : n <= crew.instantRoom ? 'Starter crew — starts work immediately'
+                      : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
+                    Hire {n} · {formatMoney(cost)}{n <= crew.instantRoom ? ' · instant' : ''}
                   </button>
                 );
               })}
@@ -786,7 +793,10 @@ export default function Operations() {
     const nextReady = batches.length
       ? Math.min(...batches.map(b => (b?.readyAbsWeek ?? 0))) - currentAbsWeek
       : null;
-    return [g.id, { required, available, training, nextReady, short: required > 0 ? Math.max(0, (required - available) / required) : 0 }];
+    // How much of the NEXT hire would start work immediately (starter crew).
+    const instantRoom = splitStarterHire(g.id, Number.MAX_SAFE_INTEGER, available, fleet, typeOfAircraft).instant;
+    return [g.id, { required, available, training, nextReady, instantRoom,
+                    short: required > 0 ? Math.max(0, (required - available) / required) : 0 }];
   })) : null;
   const crewGap = crewOn ? crewShortfall(labor, fleet, typeOfAircraft) : null;
 
