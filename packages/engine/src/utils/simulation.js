@@ -3053,6 +3053,100 @@ export function applyReserveCovers({ fleet = [], routes = [], cargoRoutes = [], 
   };
 }
 
+/**
+ * One week of the downtime countdown, exactly as tickPrep runs it at the top of
+ * ADVANCE_WEEK. Split out so a PREVIEW can ask "what will be flying next week?"
+ * with the tick's own arithmetic instead of a second opinion.
+ *
+ * The maintenance branch deliberately does NOT run completeCheck() — the
+ * outlook only needs to know whether the tail is back in service, not to reset
+ * its check ledger.
+ */
+export function advanceDowntimeOneWeek(a, hasRoute = false) {
+  if (!a || a.status === 'retired') return a;
+  const stuckGrounded = (a.groundedWeeksLeft ?? 0) > 0
+    && a.status !== 'grounded' && a.status !== 'maintenance';
+  if (a.status === 'grounded' || stuckGrounded) {
+    const left = (a.groundedWeeksLeft ?? 1) - 1;
+    return left <= 0
+      ? { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 }
+      : { ...a, status: 'grounded', groundedWeeksLeft: left };
+  }
+  if (a.status === 'maintenance') {
+    const left = (a.checkWeeksLeft ?? 1) - 1;
+    return left <= 0
+      ? { ...a, status: hasRoute ? 'assigned' : 'idle', checkWeeksLeft: 0 }
+      : { ...a, checkWeeksLeft: left };
+  }
+  return a;
+}
+
+/**
+ * What the reserve system will DO for each out-of-service tail at the next tick.
+ *
+ * The Fleet page used to answer this from the route table alone: no route
+ * carrying `coverForAircraftId` meant "no cover — N routes idle", flagged the
+ * moment any same-type reserve existed anywhere in the fleet. That reading is
+ * wrong twice over, and a player caught both in one screenshot (Discord,
+ * Knightmare 2026-08-25 — a stationed same-type reserve at the route's own
+ * origin, still labelled "no cover"):
+ *
+ *   1. Covers are DISPATCHED BY THE TICK, and a breakdown is rolled at the END
+ *      of the tick. So a tail that broke this week has necessarily not been
+ *      covered yet; the cover it is going to get starts next week.
+ *   2. A tail on its LAST week of downtime is never covered at all — the
+ *      countdown returns it to service before the reserve pass runs, and it
+ *      flies its own routes. Nothing is idle, so warning about it is noise.
+ *
+ * This runs the real pass — countdowns, then applyReserveCovers — against the
+ * projected fleet and reports what actually happens, per aircraft id:
+ *
+ *   coveredNow   routes a reserve is flying for it right now
+ *   coversNext   routes a reserve will be flying for it after the next tick
+ *   ownRoutes    routes still sitting with the broken tail right now
+ *   returning    true when the countdown puts it back in service next tick
+ *   reserves     names/ids of the reserves that will cover it
+ *   reason       null | 'no-reserve' | 'hours-full' — why any gap is a gap
+ *
+ * @returns {Object<string, object>} keyed by aircraft id (out-of-service tails only)
+ */
+export function coverOutlookByAircraft({
+  fleet = [], routes = [], cargoRoutes = [], hubs = {}, absWeek = 0, routeRevenues = {},
+}) {
+  const ops = [...routes, ...cargoRoutes];
+  const hasRoute = (id) => ops.some(r => r.aircraftId === id);
+  const nextFleet = fleet.map(a => advanceDowntimeOneWeek(a, hasRoute(a.id)));
+  const pass = applyReserveCovers({
+    fleet: nextFleet, routes, cargoRoutes, hubs, absWeek, routeRevenues,
+  });
+
+  const nextById = new Map(nextFleet.map(a => [a.id, a]));
+  const nameOf   = (id) => {
+    const a = fleet.find(x => x.id === id);
+    return a ? (a.name ?? a.tailNumber ?? id) : id;
+  };
+  const out = {};
+  for (const a of fleet) {
+    if (!isOutOfService(a)) continue;
+    const coveredNow = ops.filter(r => r.coverForAircraftId === a.id).length;
+    const ownRoutes  = ops.filter(r => r.aircraftId === a.id).length;
+    if (coveredNow === 0 && ownRoutes === 0) continue;   // nothing to say
+    const nextOps    = [...pass.routes, ...pass.cargoRoutes];
+    const coversNext = nextOps.filter(r => r.coverForAircraftId === a.id);
+    const gap        = pass.coverGaps.find(g => g.original?.id === a.id) ?? null;
+    out[a.id] = {
+      coveredNow,
+      ownRoutes,
+      coversNext:  coversNext.length,
+      returning:   !isOutOfService(nextById.get(a.id) ?? a),
+      reserves:    [...new Set(coversNext.map(r => nameOf(r.aircraftId)))],
+      reason:      gap?.reason ?? null,
+      revenueAtRisk: gap?.revenueAtRisk ?? 0,
+    };
+  }
+  return out;
+}
+
 /** Recompute assigned/idle for every in-service tail from the (possibly rewritten) routes. */
 function syncStatuses(fl, rts, crts) {
   const assigned = new Set([...rts, ...crts].map(r => r.aircraftId));

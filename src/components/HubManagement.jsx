@@ -3,6 +3,7 @@ import { useConfirm } from './ConfirmModal.jsx';
 import { useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
+import { sameSovereign, sovereignCountry } from '../data/territories.js';
 import AirportLink from './AirportLink.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
@@ -137,7 +138,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
   const hubMarkets   = (lastReport?.ownMetalOD?.entries ?? []).filter(e => e.hub === code).slice(0, 5);
   const ownMetalHub  = lastReport?.ownMetalOD?.byHub?.[code];
 
-  const isForeign = snap.homeCountry && airport?.country !== snap.homeCountry;
+  const isForeign = !!snap.homeCountry && !sameSovereign(airport?.country, snap.homeCountry);
   const canUpgrade = tier < HUB_TIER_COUNT && !construction && !(tier === 0 && isForeign);
   const nextTier   = HUB_TIERS[tier + 1];
   const checklist  = canUpgrade ? hubUpgradeChecklist(snap, code, tier + 1) : null;
@@ -281,7 +282,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
         </div>
       ) : tier === 0 && isForeign ? (
         <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-          <Glyph e="🔒" /> Full hubs are restricted to {snap.homeCountry} — this focus city cannot be upgraded.
+          <Glyph e="🔒" /> Full hubs are restricted to {sovereignCountry(snap.homeCountry)} — this focus city cannot be upgraded.
         </div>
       ) : (
         <div>
@@ -314,7 +315,7 @@ function DesignatableCard({ code, gateCount, snap }) {
   const { dispatch } = useGame();
   const airport = getAirport(code);
   const gwScore = AIRPORT_GATEWAY_SCORES[code] ?? 0.20;
-  const isForeign = snap.homeCountry && airport?.country !== snap.homeCountry;
+  const isForeign = !!snap.homeCountry && !sameSovereign(airport?.country, snap.homeCountry);
 
   const focusCheck = hubUpgradeChecklist(snap, code, 0);
   const hubCheck   = hubUpgradeChecklist(snap, code, 1);
@@ -435,7 +436,7 @@ export default function HubManagement() {
           <strong style={{ color: 'var(--text)' }}> Hubs</strong> ({HUB_MIN_GATES}+ gates) capture far more feed but cost real capex, take weeks to build, and demand a network to match — 20 routes for a Major Hub, 50 for an International Gateway.
           Watch congestion: each gate handles a set number of weekly departures before connections suffer.
           {homeCountry && (
-            <span> <Glyph e="🔒" /> Full hubs may only be built in your home country (<strong style={{ color: 'var(--text)' }}>{homeCountry}</strong>).</span>
+            <span> <Glyph e="🔒" /> Full hubs may only be built in your home country (<strong style={{ color: 'var(--text)' }}>{sovereignCountry(homeCountry)}</strong>), territories included.</span>
           )}
         </div>
       </div>

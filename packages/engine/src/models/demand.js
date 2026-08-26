@@ -32,6 +32,7 @@
 import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth } from '../utils/market.js';
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
+import { sameSovereign, sovereignCountry } from '../data/territories.js';
 import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -1308,7 +1309,11 @@ export function playerSlotsAtAirport(routes, code) {
   return slots;
 }
 
-/** Distinct international destinations served nonstop-or-tag from an airport. */
+/**
+ * Distinct international destinations served nonstop-or-tag from an airport.
+ * "International" is read against the SOVEREIGN state (data/territories.js), so
+ * SJU→MIA is domestic for a US network exactly as it is in real life.
+ */
 export function intlDestinationsFrom(routes, code) {
   const homeCountry = getAirport(code)?.country;
   const dests = new Set();
@@ -1318,7 +1323,7 @@ export function intlDestinationsFrom(routes, code) {
     for (const s of stops) {
       if (s === code) continue;
       const c = getAirport(s)?.country;
-      if (c && c !== homeCountry) dests.add(s);
+      if (c && !sameSovereign(c, homeCountry)) dests.add(s);
     }
   }
   return dests.size;
@@ -1379,16 +1384,26 @@ export function hubUpgradeChecklist(snap, code, targetTier) {
 
   // Country rules: full hubs (tier ≥ 1) are home-country only; focus cities are
   // allowed anywhere but max ONE per country outside the home country.
+  //
+  // "Home country" means the same SOVEREIGN state, not the same ISO code on the
+  // airport row (data/territories.js). A US airline may hub at San Juan — it is
+  // US soil, N-registered, and the flight from Miami is domestic — but the
+  // airport table quite correctly files SJU under 'PR', and this check used to
+  // read that as a foreign country and refuse (Discord, Knightmare 2026-08-25).
   const apCountry = getAirport(code)?.country ?? null;
+  const homeState = sovereignCountry(homeCountry);
+  const apState   = sovereignCountry(apCountry);
   if (targetTier >= 1 && homeCountry) {
-    const ok = apCountry === homeCountry;
-    add('country', `Hub must be in ${homeCountry}`, apCountry ?? '—', homeCountry, ok);
+    const ok = sameSovereign(apCountry, homeCountry);
+    add('country', `Hub must be in ${homeState}`, apState ?? '—', homeState, ok);
   }
-  if (targetTier === 0 && homeCountry && apCountry && apCountry !== homeCountry) {
+  if (targetTier === 0 && homeCountry && apCountry && !sameSovereign(apCountry, homeCountry)) {
+    // The cap is per foreign STATE too: Guadeloupe and Martinique are one
+    // country's worth of focus city, not two.
     const taken = Object.entries(hubs).some(([c, h]) =>
-      c !== code && h?.tier === 0 && getAirport(c)?.country === apCountry
+      c !== code && h?.tier === 0 && sameSovereign(getAirport(c)?.country, apCountry)
     );
-    add('foreignCap', `Max 1 focus city per foreign country (${apCountry})`, taken ? 1 : 0, 1, !taken);
+    add('foreignCap', `Max 1 focus city per foreign country (${apState})`, taken ? 1 : 0, 1, !taken);
   }
 
   return { ok: checks.every(c => c.met), checks };
