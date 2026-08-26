@@ -42,7 +42,9 @@ import {
   SLOT_SQUEEZE_GRACE_WEEKS,
 } from './data/airports.js';
 import { sovereignCountry } from './data/territories.js';
-import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects } from './data/labor.js';
+import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects,
+         CREW_LEAD_WEEKS, crewHireCost, crewAttritionRate, crewRequired,
+         seedCrewFor } from './data/labor.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
@@ -2841,6 +2843,37 @@ function reducer(state, action) {
       return { ...state, ancillaries: action.active ? defaultAncillaries() : null };
     }
 
+    case 'HIRE_CREW': {
+      // action: { group, count } — crew pipeline (A7). Inert unless the world
+      // /save has `crewPipeline: true`.
+      //
+      // Hiring does NOT add headcount: it pays the training bill up front and
+      // queues a batch that becomes usable after the group's lead time. A pilot
+      // needs a type rating and line training; a ramp agent needs a fortnight.
+      if (!state.crewPipeline) return state;
+      const group = action.group;
+      if (!LABOR_GROUP_MAP[group]) return state;
+      const count = Math.max(0, Math.round(Number(action.count) || 0));
+      if (count === 0) return state;
+      const cost = crewHireCost(group, count);
+      if (cost > state.cash) return state;               // can't train what you can't fund
+      const current = state.labor ?? DEFAULT_LABOR_STATE;
+      const g = current[group] ?? { payMultiplier: 1.0, morale: 80 };
+      const readyAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + (CREW_LEAD_WEEKS[group] ?? 1);
+      return {
+        ...state,
+        cash: state.cash - cost,
+        labor: {
+          ...current,
+          [group]: {
+            ...g,
+            headcount: Math.max(0, Number(g.headcount) || 0),
+            pipeline: [...(g.pipeline ?? []), { count, readyAbsWeek }],
+          },
+        },
+      };
+    }
+
     case 'SET_LABOR_PAY': {
       // action: { group: 'pilots' | 'cabinCrew' | 'groundStaff' | 'maintenanceTeam', payMultiplier: number }
       const current = state.labor ?? DEFAULT_LABOR_STATE;
@@ -3922,10 +3955,36 @@ function reducer(state, action) {
       const currentLabor = state.labor ?? DEFAULT_LABOR_STATE;
       const grievancePrev = relationsPrev.grievance ?? DEFAULT_LABOR_RELATIONS.grievance;
       const updatedLabor = {};
+      // Crew pipeline (A7): the week we are advancing INTO — batches whose
+      // training finishes by then join the line.
+      const crewAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + 1;
       for (const [id, g] of Object.entries(currentLabor)) {
         const target   = grievedMoraleTarget(moraleTarget(g.payMultiplier), grievancePrev?.[id]);
         const newMorale = g.morale + (target - g.morale) * 0.12;
-        updatedLabor[id] = { ...g, morale: Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10)) };
+        const morale = Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10));
+        if (!state.crewPipeline || g.headcount == null) {
+          updatedLabor[id] = { ...g, morale };
+          continue;
+        }
+        // Graduating classes join; the rest keep training.
+        const pipeline = g.pipeline ?? [];
+        let joined = 0;
+        const stillTraining = [];
+        for (const batch of pipeline) {
+          if ((batch?.readyAbsWeek ?? 0) <= crewAbsWeek) joined += Number(batch?.count) || 0;
+          else stillTraining.push(batch);
+        }
+        // Attrition is applied to the people already on the line, at a rate set
+        // by pay and morale — this is what makes payMultiplier a retention
+        // decision and not just a cost dial.
+        const onLine = (Number(g.headcount) || 0) + joined;
+        const left = onLine * crewAttritionRate(g.payMultiplier, morale);
+        updatedLabor[id] = {
+          ...g,
+          morale,
+          headcount: Math.max(0, Math.round((onLine - left) * 100) / 100),
+          pipeline: stillTraining,
+        };
       }
 
       // ── Labor relations: unrest, strikes, contract negotiations ──────────

@@ -70,6 +70,7 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'SET_MARKETING_BUDGET', 'SET_TARGETED_MARKETING', 'SET_LOYALTY_INVESTMENT', 'SET_BRANDING',
   // Labor
   'SET_LABOR_PAY', 'SET_MAINTENANCE_BUDGET', 'RESOLVE_NEGOTIATION', 'SETTLE_STRIKE',
+  'HIRE_CREW',
   // Alliances & codeshares. Both stay listed and are refused with a specific
   // message in routes/decisions.mjs — the allow-list check runs FIRST, so
   // dropping them here would replace "codeshares are agreed with the other

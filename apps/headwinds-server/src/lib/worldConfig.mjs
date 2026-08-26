@@ -98,7 +98,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, stage,
+  newWorldRestrictions, crewPipeline, stage,
 }) {
   if (stage != null && !WORLD_STAGES.includes(stage)) {
     throw badRequest(`stage must be one of: ${WORLD_STAGES.join(', ')}`);
@@ -108,6 +108,9 @@ export function validateWorldConfig({
   }
   if (newWorldRestrictions != null && typeof newWorldRestrictions !== 'boolean') {
     throw badRequest('newWorldRestrictions must be true or false');
+  }
+  if (crewPipeline != null && typeof crewPipeline !== 'boolean') {
+    throw badRequest('crewPipeline must be true or false');
   }
   if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
     throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
@@ -201,6 +204,9 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional New World Restrictions (old-gen single-deck leasing only +
     // a lease order book capped against the operating fleet).
     newWorldRestrictions: world.tickConfig?.newWorldRestrictions === true,
+    // Optional crew pipeline (A7): hiring has a lead time and understaffing
+    // degrades the operation. Opt-in, independent of newWorldRestrictions.
+    crewPipeline: world.tickConfig?.crewPipeline === true,
     // Maturity label — see WORLD_STAGES. Changes no rules, so the admin panel
     // can move it on a live world.
     stage: worldStageOf(world.tickConfig),

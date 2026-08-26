@@ -131,5 +131,78 @@ t('seeding staffs a fleet exactly, with an empty pipeline', () => {
   assert.equal(crewShortfall(seeded, FLEET, typeOf).worst, 0);
 });
 
+// ── Reducer integration: hiring, training, maturation, attrition ────────────
+const { gameReducer, freshState } = await import('../packages/engine/src/reducer.mjs');
+const { getAircraftType } = await import('../packages/engine/src/data/aircraft.js');
+const NB = 'b737800';
+const acType = getAircraftType(NB);
+const baseState = (over = {}) => ({
+  ...freshState(), phase: 'playing', week: 10, year: 1, hub: 'JFK', cash: 500_000_000,
+  fleet: [], routes: [], cargoRoutes: [], labor: { ...DEFAULT_LABOR_STATE }, ...over,
+});
+const withCrew = (over = {}) => {
+  const fleet = [{ id: 'a1', typeId: NB, status: 'idle', ownershipType: 'owned', ageWeeks: 20 }];
+  return baseState({
+    crewPipeline: true, fleet,
+    labor: seedCrewFor(DEFAULT_LABOR_STATE, fleet, (a) => getAircraftType(a.typeId)),
+    ...over,
+  });
+};
+
+t('HIRE_CREW is inert without the world/save flag', () => {
+  const s0 = baseState({ crewPipeline: false });
+  assert.equal(gameReducer(s0, { type: 'HIRE_CREW', group: 'pilots', count: 5 }), s0);
+});
+
+t('HIRE_CREW charges training up front and adds to the pipeline, NOT to headcount', () => {
+  const s0 = withCrew();
+  const before = s0.labor.pilots.headcount;
+  const s1 = gameReducer(s0, { type: 'HIRE_CREW', group: 'pilots', count: 4 });
+  assert.equal(s0.cash - s1.cash, crewHireCost('pilots', 4), 'training must be paid at hire');
+  assert.equal(s1.labor.pilots.headcount, before, 'headcount must NOT jump on hire');
+  assert.equal(crewInTraining(s1.labor, 'pilots'), 4, 'the batch must be in training');
+  assert.equal(s1.labor.pilots.pipeline[0].readyAbsWeek, 10 + CREW_LEAD_WEEKS.pilots);
+});
+
+t('an unknown group, a zero hire, or an unaffordable one are refused', () => {
+  const s0 = withCrew();
+  assert.equal(gameReducer(s0, { type: 'HIRE_CREW', group: 'wizards', count: 5 }), s0);
+  assert.equal(gameReducer(s0, { type: 'HIRE_CREW', group: 'pilots', count: 0 }), s0);
+  const broke = withCrew({ cash: 10 });
+  assert.equal(gameReducer(broke, { type: 'HIRE_CREW', group: 'pilots', count: 50 }), broke);
+});
+
+t('a batch joins the line only after its lead time, then counts as available', () => {
+  let s = withCrew();
+  const start = s.labor.pilots.headcount;
+  s = gameReducer(s, { type: 'HIRE_CREW', group: 'pilots', count: 4 });
+  for (let i = 0; i < CREW_LEAD_WEEKS.pilots - 1; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  assert.equal(crewInTraining(s.labor, 'pilots'), 4, 'still training just before the lead time');
+  assert.ok(crewAvailable(s.labor, 'pilots') < start + 4, 'must not have joined early');
+  s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  assert.equal(crewInTraining(s.labor, 'pilots'), 0, 'batch should have graduated');
+  assert.ok(crewAvailable(s.labor, 'pilots') > start, 'graduates must reach the line');
+});
+
+t('crew leave over time, and underpaying bleeds them faster', () => {
+  const run = (payMultiplier) => {
+    let s = withCrew();
+    s = { ...s, labor: { ...s.labor, pilots: { ...s.labor.pilots, headcount: 100, payMultiplier } } };
+    for (let i = 0; i < 12; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+    return crewAvailable(s.labor, 'pilots');
+  };
+  const paidWell = run(1.3), paidBadly = run(0.7);
+  assert.ok(paidBadly < 100, 'underpaid crew must leave');
+  assert.ok(paidWell > paidBadly, `paying up must retain (${paidWell} !> ${paidBadly})`);
+});
+
+t('a classic save never grows a headcount field', () => {
+  let s = baseState({ crewPipeline: false });
+  s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  for (const g of LABOR_GROUPS) {
+    assert.equal(s.labor[g.id].headcount, undefined, `${g.id} gained a headcount in a classic save`);
+  }
+});
+
 console.log(`\ncrew-pipeline: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

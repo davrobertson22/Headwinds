@@ -4577,6 +4577,10 @@ export function weeklyTick(state) {
   }
 
   return {
+    // Crew pipeline (A7): what the week was flown short of, so the UI can warn
+    // before it costs anything more. Spread ONLY when the pipeline is active, so
+    // a classic world's report keeps byte-identical shape (golden master).
+    ...(labor?.crewShortfall ? { crewShortfall: labor.crewShortfall } : {}),
     poolingAnomalies,
     cashDelta:              Math.round(cashDelta),
     totalRevenue:           Math.round(totalRevenue + totalPartnerRevenue),

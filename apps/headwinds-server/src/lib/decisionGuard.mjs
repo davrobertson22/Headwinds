@@ -20,6 +20,7 @@ import {
   borrowingCapacity, unencumberedOwnedFleet,
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
+import { LABOR_GROUP_MAP } from '@tailwinds/engine/data/labor.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
@@ -412,6 +413,18 @@ function guardUpdateCargoYield(payload) {
 // 192 kB of data-URL is ~144 kB of image: several times the largest legitimate
 // 128×128 PNG, so a real upload is never rejected.
 const LOGO_DATAURL_MAX_CHARS = 196_608;
+function guardHireCrew(payload) {
+  // Crew pipeline (A7). The reducer re-derives the training cost itself and
+  // refuses an unaffordable or unknown-group hire, so this is a boundary bound:
+  // a real group id and a sane batch size. 500 narrowbody-equivalents is far
+  // past any legitimate one-click hire and keeps a forged number out of the blob.
+  const group = String(payload.group ?? '');
+  if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  const count = Math.floor(Number(payload.count));
+  if (!Number.isFinite(count) || count < 1) throw new GuardError('Invalid number of crew to hire.');
+  return { group, count: Math.min(500, count) };
+}
+
 function guardBranding(payload) {
   const out = {};
   if (typeof payload.airlineName === 'string') {
@@ -504,6 +517,7 @@ export function guardDecision(type, payload, state) {
     case 'SET_DIVIDEND_POLICY': return guardDividendPolicy(payload);
     case 'ADD_GATE':
     case 'REMOVE_GATE':        return guardGate(payload);
+    case 'HIRE_CREW':         return guardHireCrew(payload);
     case 'SET_BRANDING':       return guardBranding(payload);
     default:                   return payload;
   }

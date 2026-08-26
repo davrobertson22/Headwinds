@@ -3,6 +3,8 @@
 // state is produced by the SHARED engine — never reinvented here.
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
+import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.js';
+import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE,
@@ -34,9 +36,10 @@ export async function createWorld(prisma, {
   scheduledStartAt,
   gateScarcity,
   newWorldRestrictions,
+  crewPipeline,
   stage,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, stage });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -60,6 +63,11 @@ export async function createWorld(prisma, {
     // Worlds created before this flip keep whatever their stored tickConfig
     // says (the join path reads the persisted row), so nothing retro-changes.
     ...(newWorldRestrictions !== false ? { newWorldRestrictions: true } : {}),
+    // Optional crew pipeline (A7): crew become a resource with a hiring lead
+    // time, and understaffing degrades the operation. Opt-IN and independent of
+    // newWorldRestrictions — omitting it leaves the world on the classic model
+    // where crew is instantaneous. Fixed at creation like the other rule flags.
+    ...(crewPipeline === true ? { crewPipeline: true } : {}),
     // Cosmetic maturity label (alpha | beta | live) — see WORLD_STAGES. Only
     // written when it differs from the default, and affects no rules, so
     // POST /worlds/:id/stage can move it on a world that's already running.
@@ -163,6 +171,13 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
       // lower prices — the fare-to-cost ratio is where the margin gap lives.
       // SEEDED AT JOIN: retuning a live world needs tools/rebase-world-fare-index.mjs.
       fareIndex: tc.fareIndex ?? NWR_FARE_INDEX,
+    } : {}),
+    // Crew pipeline flag, baked in at join. Crew are SEEDED to the starting
+    // fleet, so a joining airline is never born understaffed — it only goes
+    // short once it grows faster than it hires.
+    ...(tc.crewPipeline === true ? {
+      crewPipeline: true,
+      labor: seedCrewFor(seeded.labor ?? DEFAULT_LABOR_STATE, seeded.fleet ?? [], (a) => getAircraftType(a.typeId)),
     } : {}),
   };
 

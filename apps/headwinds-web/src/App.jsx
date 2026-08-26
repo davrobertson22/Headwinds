@@ -332,6 +332,8 @@ function CreateWorld({ token, onCreated }) {
   // New World Restrictions default ON — the server defaults it on too, and the
   // form always sends an explicit boolean (see the payload below).
   const [newWorldRestrictions, setNewWorldRestrictions] = useState(true);
+  // Crew pipeline (A7) — opt-in, independent of New World Restrictions.
+  const [crewPipeline, setCrewPipeline] = useState(false);
   const [stage, setStage] = useState('beta');
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
@@ -358,6 +360,7 @@ function CreateWorld({ token, onCreated }) {
           // Always explicit: the server now treats an ABSENT field as ON, so the
           // old omit-when-false shorthand would have silently forced restrictions.
           newWorldRestrictions,
+          ...(crewPipeline ? { crewPipeline: true } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
@@ -434,6 +437,20 @@ function CreateWorld({ token, onCreated }) {
             age, passenger or freighter. Anything bigger or newer must be bought new or used.
             Your lease order book is capped at 25% of the fleet you operate, minimum 5 —
             so growth happens in waves, not in one click.
+          </span>
+        </label>
+        <label style={{ alignItems: 'flex-start' }}>Crew pipeline
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={crewPipeline}
+              onChange={(e) => setCrewPipeline(e.target.checked)} />
+            <span className="muted">{crewPipeline ? 'ON — crew must be hired and trained' : 'Off — crew are instant (classic)'}</span>
+          </span>
+          <span className="muted small">
+            Crew stop being instant. Every aircraft needs pilots, cabin crew, ground staff and
+            engineers, and hiring takes time to train — ten weeks for pilots, two for ramp agents.
+            Fly short-handed and your on-time rate and passenger satisfaction suffer. Pay below
+            market and crew leave faster than you can replace them, so the pay dial becomes a
+            retention decision, not just a cost. Growth has to be planned, not clicked.
           </span>
         </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity

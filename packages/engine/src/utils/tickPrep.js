@@ -49,6 +49,8 @@ import {
   weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm,
 } from './simulation.js';
 import { completeCheck } from '../data/maintenance.js';
+import { crewShortfall, unstaffedCrewScale } from '../data/labor.js';
+import { getAircraftType } from '../data/aircraft.js';
 import { rollEvents, tickEvents } from '../data/events.js';
 import { tickBaseConstruction } from '../data/mroBase.js';
 import { tickLoungeConstruction } from '../data/lounges.js';
@@ -217,15 +219,31 @@ export function prepareWeek(state, {
   const loungeBuild  = tickLoungeConstruction(state.lounges ?? {}, curAbsWeek);
   const tickedLounges = loungeBuild.lounges;
 
+  // Crew pipeline (A7): how far short of the crew this fleet needs the airline
+  // is, this week. Travels down the SAME transient channel as eventOtpDelta —
+  // state.labor is untouched — and reaches the on-time rate via laborEffects.
+  // Inert unless the world/save opted in, so classic worlds compute nothing.
+  const crewShort = state.crewPipeline
+    ? crewShortfall(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
+    : null;
+  const crewUnstaffed = state.crewPipeline
+    ? unstaffedCrewScale(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
+    : 0;
+
   // Disruption reaches the schedule through a transient field on the labor
   // object the tick hands down (see laborEffects). state.labor is untouched.
-  const laborThisWeek = eventOtpDelta > 0
-    ? { ...(state.labor ?? {}), eventOtpDelta }
+  const laborThisWeek = (eventOtpDelta > 0 || crewShort)
+    ? {
+        ...(state.labor ?? {}),
+        ...(eventOtpDelta > 0 ? { eventOtpDelta } : {}),
+        ...(crewShort ? { crewShortfall: crewShort } : {}),
+      }
     : state.labor;
 
   return {
     gameMonth, gameDate, curAbsWeek,
     survivingEvents, expiredEvents, newEvents, allEvents, eventOtpDelta,
+    crewShortfall: crewShort, crewUnstaffed,
     baseFuelIndex, currentFuelIndex, fuelMultiplier, fuelPriceHistory, injectedFuel,
     activeHedges, liveHedges,
     completedChecks, tickedFleetPre, coverPass,

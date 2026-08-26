@@ -283,6 +283,11 @@ export function crewShortfall(labor, fleet, typeOf) {
   const byGroup = {};
   let worst = 0;
   for (const g of LABOR_GROUPS) {
+    // A group with NO headcount recorded has not been seeded yet (an existing
+    // save or world that predates the pipeline, or one where the flag was just
+    // switched on). Read that as fully staffed, never as "zero crew" — the
+    // alternative would strand a live airline the instant the flag appears.
+    if (labor?.[g.id]?.headcount == null) { byGroup[g.id] = 0; continue; }
     const need = crewRequired(g.id, fleet, typeOf);
     const have = crewAvailable(labor, g.id);
     const short = need > 0 ? Math.max(0, (need - have) / need) : 0;
@@ -317,6 +322,7 @@ export function crewOtpPenalty(shortfall) {
 export function unstaffedCrewScale(labor, fleet, typeOf) {
   let worstGap = 0;
   for (const id of ['pilots', 'cabinCrew']) {
+    if (labor?.[id]?.headcount == null) continue;   // unseeded → not grounded
     const need = crewRequired(id, fleet, typeOf);
     if (need <= 0) continue;
     const have = crewAvailable(labor, id);
