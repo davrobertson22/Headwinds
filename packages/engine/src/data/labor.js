@@ -372,6 +372,43 @@ export function unstaffedCrewScale(labor, fleet, typeOf) {
 }
 
 /**
+ * WHICH aircraft cannot be crewed at all this week.
+ *
+ * Only bites past the severe line — inside the soft band the operation degrades
+ * instead (see crewOtpPenalty), which is the whole point of the graduated model.
+ *
+ * Parks the crew-HUNGRIEST aircraft first: standing down one widebody frees more
+ * crew than standing down one turboprop, so the airline keeps the largest number
+ * of aircraft flying. Ties break on id so the choice is deterministic — every
+ * client and the server must park exactly the same tails.
+ *
+ * Returns aircraft IDS. The caller applies them transiently for the week; nothing
+ * here writes to the fleet, because a parked tail must fly again the moment its
+ * crew arrive.
+ */
+export function unstaffedAircraftIds(labor, fleet, typeOf) {
+  if (unstaffedCrewScale(labor, fleet, typeOf) <= 0) return [];
+  const CRITICAL = ['pilots', 'cabinCrew'];
+  const sorted = [...(fleet ?? [])].sort((a, b) => {
+    const d = crewScaleFor('pilots', typeOf(b)) - crewScaleFor('pilots', typeOf(a));
+    return d !== 0 ? d : String(a.id ?? '').localeCompare(String(b.id ?? ''));
+  });
+  const flying = new Set(sorted.map((a) => a.id));
+  const crewable = () => CRITICAL.every((id) => {
+    const have = crewAvailable(labor, id);
+    const need = sorted.reduce((sum, a) => flying.has(a.id) ? sum + crewScaleFor(id, typeOf(a)) : sum, 0);
+    return need <= have + 1e-9;
+  });
+  const parked = [];
+  for (const a of sorted) {
+    if (crewable()) break;
+    flying.delete(a.id);
+    parked.push(a.id);
+  }
+  return parked;
+}
+
+/**
  * Weekly attrition rate for a group. Underpaying bleeds people: at 1.0× pay it
  * is the base rate, rising sharply below market and easing above it. Morale
  * (which lags pay) modulates it, so a recent pay cut hurts for several weeks.

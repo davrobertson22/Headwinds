@@ -49,7 +49,7 @@ import {
   weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm,
 } from './simulation.js';
 import { completeCheck } from '../data/maintenance.js';
-import { crewShortfall, unstaffedCrewScale } from '../data/labor.js';
+import { crewShortfall, unstaffedCrewScale, unstaffedAircraftIds } from '../data/labor.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { rollEvents, tickEvents } from '../data/events.js';
 import { tickBaseConstruction } from '../data/mroBase.js';
@@ -229,6 +229,12 @@ export function prepareWeek(state, {
   const crewUnstaffed = state.crewPipeline
     ? unstaffedCrewScale(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
     : 0;
+  // Severe band only: the tails there is simply nobody to fly. Applied for THIS
+  // week only — never written to the fleet, so a parked aircraft flies again the
+  // moment its crew arrive, with no status to unwind.
+  const crewGroundedIds = state.crewPipeline
+    ? unstaffedAircraftIds(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
+    : [];
 
   // Disruption reaches the schedule through a transient field on the labor
   // object the tick hands down (see laborEffects). state.labor is untouched.
@@ -243,7 +249,7 @@ export function prepareWeek(state, {
   return {
     gameMonth, gameDate, curAbsWeek,
     survivingEvents, expiredEvents, newEvents, allEvents, eventOtpDelta,
-    crewShortfall: crewShort, crewUnstaffed,
+    crewShortfall: crewShort, crewUnstaffed, crewGroundedIds,
     baseFuelIndex, currentFuelIndex, fuelMultiplier, fuelPriceHistory, injectedFuel,
     activeHedges, liveHedges,
     completedChecks, tickedFleetPre, coverPass,
@@ -256,6 +262,7 @@ export function prepareWeek(state, {
     tickInput: {
       ...state,
       labor:        laborThisWeek,
+      crewGroundedIds,
       fleet:        coverPass.fleet,
       routes:       seasonAdjustedRoutes,
       cargoRoutes:  coverPass.cargoRoutes,

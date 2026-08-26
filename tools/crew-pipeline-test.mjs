@@ -12,6 +12,7 @@ import {
   CREW_ATTRITION_BASE, crewRequired, crewAvailable, crewInTraining, crewShortfall,
   crewOtpPenalty, crewAttritionRate, crewHireCost, seedCrewFor, unstaffedCrewScale,
   ensureCrewSeeded, starterCrewFloor, splitStarterHire, CREW_INSTANT_AIRCRAFT,
+  unstaffedAircraftIds,
 } from '../packages/engine/src/data/labor.js';
 
 let passed = 0, failed = 0;
@@ -268,6 +269,87 @@ t('the THIRD aircraft has to be trained for — the allowance is spent', () => {
   const need = Math.ceil(crewRequired('pilots', three, typeOfA) - floor);
   s = gameReducer(s, { type: 'HIRE_CREW', group: 'pilots', count: need });
   assert.ok(crewInTraining(s.labor, 'pilots') > 0, 'growth beyond the starter fleet must go through training');
+});
+
+// ── Severe band: tails nobody can fly are parked, and it costs real money ───
+const { prepareWeek } = await import('../packages/engine/src/utils/tickPrep.js');
+const { weeklyTick, defaultConfig, defaultClassPrices } = await import('../packages/engine/src/utils/simulation.js');
+const { referencePrice } = await import('../packages/engine/src/utils/market.js');
+const NBT = getAircraftType(NB);
+const pairKey = (a, b) => [a, b].sort().join('-');
+
+function flyingState({ crewPipeline = true, pilots = null, count = 6 } = {}) {
+  const fleet = Array.from({ length: count }, (_, i) => ({
+    id: `f${i}`, typeId: NB, status: 'assigned', ageWeeks: 100,
+    config: defaultConfig(NBT.seats), ownershipType: 'owned',
+  }));
+  const typeOfA = (a) => getAircraftType(a.typeId);
+  let labor = seedCrewFor(DEFAULT_LABOR_STATE, fleet, typeOfA);
+  if (pilots != null) labor = { ...labor, pilots: { ...labor.pilots, headcount: pilots } };
+  return {
+    crewPipeline, fleet,
+    routes: fleet.map((a, i) => ({ id: `r${i}`, origin: 'SFO', destination: 'LAX',
+      aircraftId: a.id, weeklyFrequency: 10, weeksOpen: 40 })),
+    cargoRoutes: [], week: 20, year: 1, cash: 5e7,
+    gates: { SFO: 40, LAX: 40 }, hubs: {},
+    routePricing: { [pairKey('SFO', 'LAX')]: defaultClassPrices(Math.round(referencePrice('SFO', 'LAX'))) },
+    routeCatering: {}, competitors: [], labor, awareness: 52, activeEvents: [],
+  };
+}
+const runTick = (st) => weeklyTick({ ...prepareWeek(st, {}).tickInput, encroachments: {} });
+
+t('the soft band grounds nothing — every aircraft still flies', () => {
+  const need = crewRequired('pilots', flyingState().fleet, (a) => getAircraftType(a.typeId));
+  const rep = runTick(flyingState({ pilots: need * 0.92 }));   // 8% short: soft
+  assert.equal(rep.crewGrounded, undefined, 'the soft band must not park anything');
+});
+
+t('severe understaffing parks tails and costs the revenue they would have flown', () => {
+  const full = runTick(flyingState());
+  const half = runTick(flyingState({ pilots: crewRequired('pilots', flyingState().fleet, (a) => getAircraftType(a.typeId)) * 0.5 }));
+  assert.ok(Array.isArray(half.crewGrounded) && half.crewGrounded.length > 0, 'severe must park tails');
+  assert.ok(half.totalRevenue < full.totalRevenue,
+    `parked aircraft must not earn (${half.totalRevenue} !< ${full.totalRevenue})`);
+  // ...but they are still on the books: the lease bill does not shrink.
+  assert.equal(half.totalLeases, full.totalLeases, 'a parked aircraft still costs its lease');
+});
+
+t('a classic world never parks anything, however short it looks', () => {
+  const need = crewRequired('pilots', flyingState().fleet, (a) => getAircraftType(a.typeId));
+  const rep = runTick(flyingState({ crewPipeline: false, pilots: 0 }));
+  assert.equal(rep.crewGrounded, undefined, 'the flag must gate grounding entirely');
+  assert.equal(rep.totalRevenue, runTick(flyingState({ crewPipeline: false })).totalRevenue,
+    'a classic world must be unaffected by headcount');
+});
+
+t('parking is deterministic and hits the crew-hungriest tail first', () => {
+  const T = { nb: { category: 'Narrow Body' }, wb: { category: 'Wide Body' } };
+  const tf = (a) => T[a.t];
+  const mixed = [{ id: 'nb1', t: 'nb' }, { id: 'wb1', t: 'wb' }, { id: 'nb2', t: 'nb' }];
+  const need = crewRequired('pilots', mixed, tf);
+  const labor = { pilots: { headcount: need * 0.4 }, cabinCrew: { headcount: need * 4 },
+                  groundStaff: { headcount: 99 }, maintenanceTeam: { headcount: 99 } };
+  const a = unstaffedAircraftIds(labor, mixed, tf);
+  const b = unstaffedAircraftIds(labor, [...mixed].reverse(), tf);
+  assert.deepEqual(a, b, 'parking must not depend on fleet array order');
+  assert.equal(a[0], 'wb1', 'the widebody frees the most crew, so it parks first');
+});
+
+t('parking is TRANSIENT — no status is written, and tails fly again once crewed', () => {
+  const typeOfA = (a) => getAircraftType(a.typeId);
+  const st = flyingState({ pilots: 0 });
+  const before = st.fleet.map(a => a.status);
+  // Advance a real week through the reducer, which is what persists the fleet.
+  const after = gameReducer({ ...baseState(), ...st, phase: 'playing' }, { type: 'ADVANCE_WEEK' });
+  assert.deepEqual(after.fleet.map(a => a.status), before,
+    'a crew-parked aircraft must not have its status rewritten');
+  for (const a of after.fleet) {
+    assert.equal(a.unstaffed, undefined, 'no unstaffed marker may leak onto the fleet');
+  }
+  // With crew, the same fleet flies: nothing to unwind.
+  const crewed = { ...st, labor: seedCrewFor(DEFAULT_LABOR_STATE, st.fleet, typeOfA) };
+  assert.equal(runTick(crewed).crewGrounded, undefined, 'hiring must immediately un-park the fleet');
+  assert.ok(runTick(crewed).totalRevenue > runTick(st).totalRevenue, 'and revenue must return');
 });
 
 // ── Migration: an established airline must not wake up with no staff ────────
