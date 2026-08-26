@@ -48,11 +48,18 @@ export async function createWorld(prisma, {
     // yearly auctions, use-it-or-lose-it, and the player gate market. Fixed at
     // creation — flipping it mid-world would strand everyone's holdings.
     ...(gateScarcity === true ? { gateScarcity: true } : {}),
-    // Optional New World Restrictions: lessors carry single-deck,
-    // previous-generation aircraft only, and the lease order book is capped
-    // at max(5, 25%) of the fleet in service. Fixed at creation — turning it
-    // on mid-world would strand order books already placed.
-    ...(newWorldRestrictions === true ? { newWorldRestrictions: true } : {}),
+    // New World Restrictions: lessors carry single-deck, previous-generation
+    // aircraft only, and the lease order book is capped at max(5, 25%) of the
+    // fleet in service. Fixed at creation — turning it on mid-world would
+    // strand order books already placed.
+    //
+    // ON BY DEFAULT for every new world (A12). The classic model is what let a
+    // mid-table airline lease 196 A380s in two clicks; NWR is the balanced rule
+    // set and is now the baseline. Pass `newWorldRestrictions: false` explicitly
+    // to create a classic world — omitting the field no longer means "off".
+    // Worlds created before this flip keep whatever their stored tickConfig
+    // says (the join path reads the persisted row), so nothing retro-changes.
+    ...(newWorldRestrictions !== false ? { newWorldRestrictions: true } : {}),
     // Cosmetic maturity label (alpha | beta | live) — see WORLD_STAGES. Only
     // written when it differs from the default, and affects no rules, so
     // POST /worlds/:id/stage can move it on a world that's already running.
@@ -218,7 +225,12 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   });
   if (existing) throw httpError(409, 'You already have an airline in this world');
 
-  const count = await prisma.airline.count({ where: { worldId: world.id } });
+  // Only living airlines hold a seat: a world with 25 active carriers and 25
+  // bankruptcies is half empty, not full. Re-foundings stay exempt from this
+  // check (they resurrect a row that was admitted when it was created), so a
+  // full world can briefly exceed maxPlayers if the dead rise — accepted:
+  // maxPlayers exists to bound how many airlines FLY, and it still does.
+  const count = await prisma.airline.count({ where: { worldId: world.id, status: 'ACTIVE' } });
   if (count >= world.maxPlayers) throw httpError(409, 'This world is full');
 
   // Seed the opening position — see seedAirlineState. Shared verbatim with the

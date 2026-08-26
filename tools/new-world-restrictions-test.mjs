@@ -58,7 +58,12 @@ function baseState(overrides = {}) {
   });
   return {
     ...s,
-    cash: 5_000_000_000,          // never the binding constraint in these tests
+    // Never the binding constraint in these tests — they are about the LEASE
+    // ORDER BOOK, not affordability. Sized well clear of 20 × the priciest
+    // airframe so a catalogue reprice can't silently turn these into cash tests
+    // (the A380 going $150M → $305M did exactly that, and this fixture started
+    // clamping a 20-frame purchase to 17).
+    cash: 50_000_000_000,
     newWorldRestrictions: true,
     fleet: [],
     pendingOrders: [],

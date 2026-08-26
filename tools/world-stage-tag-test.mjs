@@ -90,11 +90,16 @@ await test('the default leaves the key absent entirely', async () => {
 });
 
 await test('stage is independent of the two rule flags', async () => {
-  const p = fakePrisma();
-  await createWorld(p, { ...BASE, stage: 'alpha' });
-  const tc = p.calls[0].tickConfig;
-  assert.ok(!('gateScarcity' in tc), 'stage must not imply gate scarcity');
-  assert.ok(!('newWorldRestrictions' in tc), 'stage must not imply new-world restrictions');
+  // Stage is cosmetic: it must not MOVE either rule flag off its default.
+  // (New World Restrictions default to ON since A12; gate scarcity to off.)
+  const withStage = fakePrisma();
+  await createWorld(withStage, { ...BASE, stage: 'alpha' });
+  const plain = fakePrisma();
+  await createWorld(plain, { ...BASE });
+  const a = withStage.calls[0].tickConfig, b = plain.calls[0].tickConfig;
+  assert.ok(!('gateScarcity' in a), 'stage must not imply gate scarcity');
+  assert.equal(a.newWorldRestrictions, b.newWorldRestrictions,
+    'stage must not change the new-world-restrictions flag');
 });
 
 console.log('\n── 3. worldStageOf / serializeWorld ─────────────────────');

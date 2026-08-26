@@ -329,7 +329,9 @@ function CreateWorld({ token, onCreated }) {
   const [startingCapital, setStartingCapital] = useState(15000000);
   const [demandMultiplier, setDemandMultiplier] = useState(1);
   const [gateScarcity, setGateScarcity] = useState(false);
-  const [newWorldRestrictions, setNewWorldRestrictions] = useState(false);
+  // New World Restrictions default ON — the server defaults it on too, and the
+  // form always sends an explicit boolean (see the payload below).
+  const [newWorldRestrictions, setNewWorldRestrictions] = useState(true);
   const [stage, setStage] = useState('beta');
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
@@ -353,7 +355,9 @@ function CreateWorld({ token, onCreated }) {
           startingCapital: Math.round(Number(startingCapital)),
           demandMultiplier: Number(demandMultiplier),
           ...(gateScarcity ? { gateScarcity: true } : {}),
-          ...(newWorldRestrictions ? { newWorldRestrictions: true } : {}),
+          // Always explicit: the server now treats an ABSENT field as ON, so the
+          // old omit-when-false shorthand would have silently forced restrictions.
+          newWorldRestrictions,
           ...(stage !== 'beta' ? { stage } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
@@ -422,7 +426,7 @@ function CreateWorld({ token, onCreated }) {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={newWorldRestrictions}
               onChange={(e) => setNewWorldRestrictions(e.target.checked)} />
-            <span className="muted">{newWorldRestrictions ? 'ON — restricted leasing' : 'Off — lease anything, any quantity (classic)'}</span>
+            <span className="muted">{newWorldRestrictions ? 'ON (default) — restricted leasing' : 'Off — lease anything, any quantity (classic)'}</span>
           </span>
           <span className="muted small">
             Lessors carry single-deck, previous-generation aircraft only (in service by 2000,
@@ -957,8 +961,22 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       )}
 
       <h3>{world.status === 'ENDED' ? 'Final standings' : 'Standings'}</h3>
-      <p className="muted small">Every airline below is a real player. Click one to see their network, fleet and recent moves.</p>
-      {standings.length === 0 ? <p className="muted">No airlines yet, be the first to join.</p> : (
+      <p className="muted small">
+        Every airline below is a real player. Click one to see their network, fleet and recent moves.
+        {/* The fallen are a number, not a table: dead airlines no longer clutter
+            the standings (server filters to ACTIVE), but the count keeps the
+            world's history — and its danger — visible. */}
+        {(data.fallen ?? 0) > 0 && (
+          <> {data.fallen} airline{data.fallen === 1 ? ' has' : 's have'} gone bankrupt or bowed out here.</>
+        )}
+      </p>
+      {standings.length === 0 ? (
+        <p className="muted">
+          {(data.fallen ?? 0) > 0
+            ? 'No airlines left flying — the skies are wide open.'
+            : 'No airlines yet, be the first to join.'}
+        </p>
+      ) : (
         <table className="worlds">
           <thead>
             <tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Fleet</th><th>Cash</th><th title="Per-share shareholder value — what standings rank by">SVPS</th><th>Status</th></tr>
