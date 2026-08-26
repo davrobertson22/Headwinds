@@ -514,79 +514,19 @@ export const EVENT_TEMPLATES = [
     },
   },
 
-  // ── Quality / satisfaction shocks ─────────────────────────────────────────
-  // One-time hits to the earned passenger-satisfaction stat, applied when the
-  // event triggers (see ADVANCE_WEEK). The EWMA then recovers naturally, so a
-  // shock lingers for weeks — like a real service scandal or viral moment.
+  // NOTE: the four per-airline SERVICE events (catering scandal, baggage
+  // meltdown, viral service moment, industry service award) were removed.
+  // Events are rolled ONCE PER WORLD and applied to every airline, so a
+  // "your catering contractor failed" story fired for all 40 carriers at once
+  // and moved nobody's ranking — second-person copy that was false for 39 of
+  // them. The design call: events model the WORLD (fuel, economy, weather,
+  // strikes); anything that singles out one airline should be EARNED by that
+  // airline's own management, not rolled on dice.
+  //
+  // The `satisfactionShock` effect channel they used is deliberately KEPT
+  // (reducer + Dashboard still handle it) so a future consequence-of-management
+  // mechanic can produce one.
 
-  {
-    id: 'catering_scandal',
-    type: 'disruption',
-    name: 'Catering Contractor Meltdown',
-    icon: '🍽️',
-    description: 'Your catering contractor fails health inspections. Meals pulled fleet-wide, passengers furious.',
-    color: '#ff5d6c',
-    probability: 0.015,
-    duration: [1, 2],
-    generate() {
-      const shock = -(5 + Math.floor(Math.random() * 3));   // −5…−7
-      return {
-        effects: { satisfactionShock: shock },
-        resolvedDesc: `Catering fiasco makes headlines, passenger satisfaction takes a ${Math.abs(shock)}-point hit.`,
-      };
-    },
-  },
-  {
-    id: 'baggage_meltdown',
-    type: 'disruption',
-    name: 'Baggage System Meltdown',
-    icon: '🧳',
-    description: 'A baggage-handling IT failure strands thousands of bags across your network.',
-    color: '#ff5d6c',
-    probability: 0.015,
-    duration: [1, 2],
-    generate() {
-      const shock = -(4 + Math.floor(Math.random() * 3));   // −4…−6
-      return {
-        effects: { satisfactionShock: shock },
-        resolvedDesc: `Mountains of lost luggage go viral, passenger satisfaction drops ${Math.abs(shock)} points.`,
-      };
-    },
-  },
-  {
-    id: 'viral_praise',
-    type: 'demand',
-    name: 'Viral Service Moment',
-    icon: '🌟',
-    description: 'A passenger video praising your crew’s service goes viral worldwide.',
-    color: '#38d39f',
-    probability: 0.015,
-    duration: [1, 2],
-    generate() {
-      const shock = 4 + Math.floor(Math.random() * 3);      // +4…+6
-      return {
-        effects: { satisfactionShock: shock },
-        resolvedDesc: `Feel-good crew story goes viral, passenger satisfaction jumps +${shock} points.`,
-      };
-    },
-  },
-  {
-    id: 'service_award',
-    type: 'demand',
-    name: 'Industry Service Award',
-    icon: '🏆',
-    description: 'Your airline wins a coveted industry award for passenger experience.',
-    color: '#38d39f',
-    probability: 0.01,
-    duration: [1, 2],
-    generate() {
-      const shock = 5 + Math.floor(Math.random() * 3);      // +5…+7
-      return {
-        effects: { satisfactionShock: shock },
-        resolvedDesc: `Award-winning service makes the trade press, passenger satisfaction up +${shock} points.`,
-      };
-    },
-  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

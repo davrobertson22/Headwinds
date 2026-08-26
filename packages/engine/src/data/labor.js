@@ -208,6 +208,155 @@ export const DEFAULT_LABOR_STATE = {
 
 export const DEFAULT_MAINTENANCE_BUDGET = 1.0;
 
+// ─── Crew pipeline (A7) ───────────────────────────────────────────────────────
+// Everything below is INERT unless a world/save sets `crewPipeline: true`.
+//
+// WHY THIS EXISTS
+// ---------------
+// Without it, crew is infinitely elastic and instantaneous: the weekly bill is
+// `baseWeeklyPerAircraft × fleetCrewScale(...)`, so an airline that takes
+// delivery of ten aircraft on Monday pays for ten crews and flies all ten at
+// full capability the same week. Headcount was never state — `estimateHeadcount`
+// existed only as a display number on the Operations page and had zero engine
+// references. Hiring was the one input to an airline that had no lead time.
+//
+// The pipeline makes crew a resource you plan for:
+//   1. Every group has a REQUIREMENT derived from the fleet, in the same
+//      narrowbody-equivalents the wage bill already uses (fleetCrewScale) —
+//      so the sizing needs no new calibration.
+//   2. Hiring enters a PIPELINE with a lead time, not the headcount directly.
+//      A pilot needs a type rating and line training; a ramp agent does not.
+//   3. Being short degrades the operation before it stops it (see the
+//      graduated band below).
+//   4. Crew LEAVE, faster when underpaid — so payMultiplier stops being purely
+//      "cost vs morale" and becomes your retention rate too.
+
+/** Weeks between hiring a group and them being usable on the line. */
+export const CREW_LEAD_WEEKS = {
+  pilots: 10,          // type rating + line training
+  cabinCrew: 5,        // safety + service training
+  groundStaff: 2,      // ramp/check-in induction
+  maintenanceTeam: 6,  // type-specific certification
+};
+
+/** One-off training/recruitment cost per narrowbody-equivalent crew unit ($). */
+export const CREW_TRAINING_COST = {
+  pilots: 45_000,
+  cabinCrew: 12_000,
+  groundStaff: 4_000,
+  maintenanceTeam: 18_000,
+};
+
+/**
+ * Graduated shortfall. Below CREW_SEVERE_SHORTFALL the operation just degrades
+ * (on-time rate, and satisfaction through it); at or beyond it, aircraft start
+ * going unstaffed and cannot be flown. The soft band is deliberately wide so a
+ * player gets a visible warning long before anything is grounded.
+ */
+export const CREW_SEVERE_SHORTFALL = 0.15;
+/** Max on-time penalty from understaffing alone, reached at the severe line. */
+export const CREW_MAX_OTP_PENALTY = 0.15;
+
+/** Baseline weekly attrition at market pay (1.0×), as a fraction of headcount. */
+export const CREW_ATTRITION_BASE = 0.004;
+
+/** Crew REQUIRED for a group, in narrowbody-equivalents. */
+export function crewRequired(groupId, fleet, typeOf) {
+  return fleetCrewScale(groupId, fleet, typeOf);
+}
+
+/** Crew AVAILABLE now (excludes anyone still in training). */
+export function crewAvailable(labor, groupId) {
+  return Math.max(0, Number(labor?.[groupId]?.headcount) || 0);
+}
+
+/** Crew still in training for a group. */
+export function crewInTraining(labor, groupId) {
+  return (labor?.[groupId]?.pipeline ?? []).reduce((s, b) => s + (Number(b?.count) || 0), 0);
+}
+
+/**
+ * Shortfall per group and overall, as a FRACTION of the requirement (0 = fully
+ * staffed, 1 = nobody). A group needing nobody is never short.
+ */
+export function crewShortfall(labor, fleet, typeOf) {
+  const byGroup = {};
+  let worst = 0;
+  for (const g of LABOR_GROUPS) {
+    const need = crewRequired(g.id, fleet, typeOf);
+    const have = crewAvailable(labor, g.id);
+    const short = need > 0 ? Math.max(0, (need - have) / need) : 0;
+    byGroup[g.id] = short;
+    if (short > worst) worst = short;
+  }
+  return { byGroup, worst, severe: worst >= CREW_SEVERE_SHORTFALL };
+}
+
+/**
+ * On-time penalty from understaffing, weighted by which groups actually fly the
+ * schedule (the same OTP_MORALE_WEIGHTS the morale model uses), ramping to
+ * CREW_MAX_OTP_PENALTY at the severe line and holding there.
+ */
+export function crewOtpPenalty(shortfall) {
+  if (!shortfall) return 0;
+  const w = OTP_MORALE_WEIGHTS;
+  const byGroup = shortfall.byGroup ?? {};
+  const weighted =
+      (byGroup.pilots      ?? 0) * w.pilots
+    + (byGroup.groundStaff ?? 0) * w.groundStaff
+    + (byGroup.cabinCrew   ?? 0) * w.cabinCrew;
+  const ramp = Math.min(1, weighted / CREW_SEVERE_SHORTFALL);
+  return ramp * CREW_MAX_OTP_PENALTY;
+}
+
+/**
+ * How many narrowbody-equivalents of the fleet cannot be staffed at all. Only
+ * bites past the severe line; below it the operation degrades instead.
+ * Driven by the flight-critical groups — a short ramp does not ground a jet.
+ */
+export function unstaffedCrewScale(labor, fleet, typeOf) {
+  let worstGap = 0;
+  for (const id of ['pilots', 'cabinCrew']) {
+    const need = crewRequired(id, fleet, typeOf);
+    if (need <= 0) continue;
+    const have = crewAvailable(labor, id);
+    if ((need - have) / need < CREW_SEVERE_SHORTFALL) continue;
+    const gapScale = (need - have) / need;
+    if (gapScale > worstGap) worstGap = gapScale;
+  }
+  return worstGap;
+}
+
+/**
+ * Weekly attrition rate for a group. Underpaying bleeds people: at 1.0× pay it
+ * is the base rate, rising sharply below market and easing above it. Morale
+ * (which lags pay) modulates it, so a recent pay cut hurts for several weeks.
+ */
+export function crewAttritionRate(payMultiplier = 1.0, morale = 80) {
+  const pay = Math.max(0.1, Number(payMultiplier) || 1.0);
+  const payFactor = Math.max(0.25, Math.min(4, Math.pow(1 / pay, 2.2)));
+  const moraleFactor = Math.max(0.5, Math.min(2.5, 1 + (80 - (Number(morale) || 80)) / 60));
+  return CREW_ATTRITION_BASE * payFactor * moraleFactor;
+}
+
+/** Training cost for hiring `count` narrowbody-equivalents into a group. */
+export function crewHireCost(groupId, count) {
+  const n = Math.max(0, Math.round(Number(count) || 0));
+  return n * (CREW_TRAINING_COST[groupId] ?? 0);
+}
+
+/** Fully-staffed labor state for a fleet — used when seeding a new save/world. */
+export function seedCrewFor(labor, fleet, typeOf) {
+  const next = { ...labor };
+  for (const g of LABOR_GROUPS) {
+    const need = Math.ceil(crewRequired(g.id, fleet, typeOf));
+    next[g.id] = { ...(labor?.[g.id] ?? {}), headcount: need, pipeline: [] };
+  }
+  return next;
+}
+
+
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -267,6 +416,11 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   // irregular-operations texture of the industry — the part passengers
   // actually experience — was a demand scalar.
   const otpDelta = Math.max(0, Number(labor?.eventOtpDelta) || 0);
+  // `crewShortfall` is the same kind of TRANSIENT field: the weekly tick attaches
+  // the shortfall report to its own copy of the labor object when the crew
+  // pipeline is active. Never persisted, never set by the player. Absent (every
+  // classic world, every preview caller) → zero, so nothing moves.
+  const crewDelta = crewOtpPenalty(labor?.crewShortfall);
   const pilots  = labor?.pilots?.morale          ?? 80;
   const cabin   = labor?.cabinCrew?.morale        ?? 80;
   const ground  = labor?.groundStaff?.morale      ?? 80;
@@ -276,7 +430,7 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   return {
     // 0.55 at zero blended morale → 1.00 at full, minus schedule pressure
     onTimeRate: Math.max(0.35, Math.min(1,
-      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta)),
+      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta)),
     // 0–5 stars: earned from the satisfaction track record when available,
     // otherwise (legacy) directly from cabin crew morale
     customerRating:           satisfaction != null
