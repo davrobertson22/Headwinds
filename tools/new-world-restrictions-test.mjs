@@ -33,7 +33,7 @@ import {
 import { HQ_DEPARTURE_FEE, HQ_BASE_WEEKLY, calcHQCost, HQ_SCALE_BY_CATEGORY } from '../packages/engine/src/data/overhead.js';
 import { seniorityMultiplier, SENIORITY_CAP, SENIORITY_ANNUAL_RISE } from '../packages/engine/src/data/labor.js';
 import {
-  weeklyTick, simulateRoute, weeklyBlockHours, routeDistanceKm, maxFrequency,
+  weeklyTick, simulateRoute, simulateCargoRoute, weeklyBlockHours, routeDistanceKm, maxFrequency,
   MAX_WEEKLY_BLOCK_HOURS, NWR_MAX_WEEKLY_BLOCK_HOURS, maxWeeklyBlockHoursFor,
 } from '../packages/engine/src/utils/simulation.js';
 import {
@@ -43,7 +43,8 @@ import {
   setNwrYieldChoke, nwrYieldChokeFactor,
   NWR_CHOKE_THRESHOLD_BASE, NWR_CHOKE_THRESHOLD_MAX, NWR_CHOKE_STEEPNESS,
 } from '../packages/engine/src/utils/market.js';
-import { priceChokeFactor, PRICE_CAP_MULTIPLE } from '../packages/engine/src/models/demand.js';
+import { priceChokeFactor, PRICE_CAP_MULTIPLE,
+         cargoPriceChokeFactor, CARGO_PRICE_CAP_MULTIPLE } from '../packages/engine/src/models/demand.js';
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -915,6 +916,64 @@ test('end to end: the 1.5x-ref monopoly play stops filling aircraft', () => {
   setNwrYieldChoke(false);
   const fairOff = simulateRoute(fair, LF_AIRCRAFT, { month: 6 }, null, 1.0);
   assert.equal(fairOn.passengers, fairOff.passengers, 'reference pricing feels nothing');
+});
+
+// ── The yield choke reaches FREIGHT too ─────────────────────────────────────
+//
+// It did not, for as long as both existed. simulateCargoRoute disciplined
+// pricing with a bare power law that never reaches zero, so on a lane whose
+// gravity pool ran 3-7x the freighter's payload, 2.5x the going rate was free
+// money — the aeroplane stayed full and the inflated rate was banked on every
+// tonne. A restricted world advertising a fare ceiling quietly had none on
+// cargo. See docs/cargo-yield-choke-audit-2026-08-27.md.
+
+test('cargo gets the same restricted-world choke passengers do', () => {
+  const ref = cargoReferenceYield('SIN', 'DXB');
+  setNwrYieldChoke(true);
+  const on  = cargoPriceChokeFactor(ref * 1.5, ref);
+  setNwrYieldChoke(false);
+  const off = cargoPriceChokeFactor(ref * 1.5, ref);
+  assert.ok(on < off, `restricted (${on}) must bite harder than classic (${off})`);
+  assert.ok(on < 0.01, `1.5x reference freight keeps ${(on * 100).toFixed(2)}% of the pool — gouging must not pay`);
+});
+
+test('freight priced at reference feels the choke exactly as much as fares do: not at all', () => {
+  const ref = cargoReferenceYield('SIN', 'DXB');
+  setNwrYieldChoke(true);
+  assert.equal(cargoPriceChokeFactor(ref, ref), 1, 'at reference');
+  assert.equal(cargoPriceChokeFactor(ref * 0.7, ref), 1, 'below reference');
+  setNwrYieldChoke(false);
+});
+
+test('cargo and passengers reach zero demand at the same multiple of reference', () => {
+  // One story for both markets: nobody buys at three times the going rate.
+  assert.equal(CARGO_PRICE_CAP_MULTIPLE, PRICE_CAP_MULTIPLE);
+  const ref = cargoReferenceYield('SIN', 'DXB');
+  assert.equal(cargoPriceChokeFactor(ref * CARGO_PRICE_CAP_MULTIPLE, ref), 0);
+});
+
+test('end to end: the 2.5x-ref freight play stops filling freighters', () => {
+  const ref   = cargoReferenceYield('SIN', 'DXB');
+  const tail  = { id: 'nwrf', typeId: 'md11f', status: 'assigned', ageWeeks: 52, ownershipType: 'owned' };
+  const route = { id: 'nwrf', origin: 'SIN', destination: 'DXB', aircraftId: 'nwrf',
+                  weeklyFrequency: 6, yieldPrice: ref * 2.5, weeksOpen: null };
+  const sim = (on) => {
+    setNwrYieldChoke(on);
+    const r = simulateCargoRoute(route, tail, { month: 6 });
+    setNwrYieldChoke(false);
+    return r;
+  };
+  const off = sim(false), on = sim(true);
+  assert.ok(on.tonnes < off.tonnes * 0.1,
+    `2.5x ref: ${off.tonnes}t classic -> ${on.tonnes}t choked — must collapse`);
+  // ...and the same freighter at the going rate is untouched.
+  const fair = { ...route, yieldPrice: ref };
+  setNwrYieldChoke(true);
+  const fairOn = simulateCargoRoute(fair, tail, { month: 6 });
+  setNwrYieldChoke(false);
+  const fairOff = simulateCargoRoute(fair, tail, { month: 6 });
+  assert.equal(fairOn.tonnes, fairOff.tonnes, 'reference freight rates feel nothing');
+  assert.equal(fairOn.revenue, fairOff.revenue, 'and earn exactly the same');
 });
 
 console.log(`\n${failed === 0 ? '✓' : '✗'} ${passed} passed, ${failed} failed\n`);

@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "test:bep": "node tools/bep-consistency-test.mjs && node --import ./tools/_register-loader.mjs tools/bep-render-test.mjs",
     "test:cargo": "node tools/cargo-test.mjs",
+    "clamp:cargo-yields": "cd apps/headwinds-server && node tools/clamp-cargo-yields.mjs",
     "test:multistop": "node tools/multistop-test.mjs",
     "test:multistop-edge": "node tools/multistop-edge-test.mjs",
     "test:multistop-reducer": "node tools/reducer-tag-test.mjs",

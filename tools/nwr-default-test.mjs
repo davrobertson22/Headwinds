@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createWorld } from '../apps/headwinds-server/src/lib/worldService.mjs';
 import { serializeWorld } from '../apps/headwinds-server/src/lib/worldConfig.mjs';
+import { setNwrYieldChoke, cargoReferenceYield } from '../packages/engine/src/utils/market.js';
+import { simulateCargoRoute } from '../packages/engine/src/utils/simulation.js';
 
 let passed = 0, failed = 0;
 const test = async (name, fn) => {
@@ -101,6 +103,51 @@ await test('no route can switch the crew pipeline on for a live world', () => {
   for (const line of writes) {
     assert.ok(!/crewPipeline/.test(line), `a route writes crewPipeline onto an existing world: ${line.trim()}`);
   }
+});
+
+// ── A new world's freight ceiling ───────────────────────────────────────────
+//
+// The cargo yield choke is gated on the SAME flag as the fare choke, so "NWR is
+// the default" has to mean freight is disciplined out of the box too. That
+// coupling runs through four hops — createWorld sets tickConfig, joinWorld
+// copies it onto the airline blob, the tick calls setNwrYieldChoke from the
+// blob, and cargoPriceChokeFactor reads the module flag. This asserts the whole
+// chain from the default rather than trusting any one link.
+await test('a world created with NO flag gives freight the price ceiling too', async () => {
+  const tc = await tcOf({ ...BASE });
+  assert.equal(tc.newWorldRestrictions, true, 'precondition: the default is ON');
+
+  // Exactly what the tick does with a freshly-joined airline's blob.
+  const seededState = { newWorldRestrictions: tc.newWorldRestrictions };
+  setNwrYieldChoke(seededState.newWorldRestrictions === true);
+
+  const ref  = cargoReferenceYield('SIN', 'DXB');
+  const tail = { id: 'd', typeId: 'md11f', status: 'assigned', ageWeeks: 52, ownershipType: 'owned' };
+  const at   = (mult) => simulateCargoRoute(
+    { id: 'd', origin: 'SIN', destination: 'DXB', aircraftId: 'd',
+      weeklyFrequency: 6, yieldPrice: ref * mult, weeksOpen: null }, tail, { month: 6 });
+
+  const fair = at(1), gouged = at(2.5);
+  setNwrYieldChoke(false);
+
+  assert.ok(fair.tonnes > 0, 'a freighter priced at the going rate still carries freight');
+  assert.ok(gouged.tonnes < fair.tonnes * 0.1,
+    `2.5x reference must not fill a freighter in a default world (${gouged.tonnes}t vs ${fair.tonnes}t)`);
+});
+
+await test('a world created with restrictions OFF keeps classic freight economics', async () => {
+  const tc = await tcOf({ ...BASE, newWorldRestrictions: false });
+  assert.notEqual(tc.newWorldRestrictions, true, 'precondition: explicitly classic');
+  setNwrYieldChoke(tc.newWorldRestrictions === true);
+  const ref  = cargoReferenceYield('SIN', 'DXB');
+  const tail = { id: 'c', typeId: 'md11f', status: 'assigned', ageWeeks: 52, ownershipType: 'owned' };
+  const r = simulateCargoRoute(
+    { id: 'c', origin: 'SIN', destination: 'DXB', aircraftId: 'c',
+      weeklyFrequency: 6, yieldPrice: ref * 1.5, weeksOpen: null }, tail, { month: 6 });
+  setNwrYieldChoke(false);
+  // Classic keeps its arcade headroom on purpose: the convex cap still applies,
+  // but the exponential penalty is a restricted-world rule.
+  assert.ok(r.loadFactor > 0.9, `classic freight at 1.5x ref should still fill (LF ${r.loadFactor.toFixed(2)})`);
 });
 
 console.log(`\nnwr-default: ${passed} passed, ${failed} failed`);

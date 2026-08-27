@@ -66,7 +66,7 @@ const fmtWhen = (iso) => {
 // Exported so tools/news-render-test.mjs can assert the actual sentences: SSR
 // never runs effects, so testing through the component alone would only ever
 // exercise the loading state.
-export function compose(item) {
+export function compose(item, startYear = null) {
   const d = item.data ?? {};
   switch (item.kind) {
     case 'event_started':
@@ -211,6 +211,21 @@ export function compose(item) {
       };
     }
 
+    // One-off migration: cargo yields priced above the freight ceiling were
+    // pulled back to it when the choke shipped. Same principle as
+    // schedule_trim — this changed a number the player set, so say exactly
+    // which lanes and by how much.
+    case 'freight_rate_correction': {
+      const rows = (d.routes ?? []).map(r =>
+        `${r.origin}–${r.destination} $${Number(r.from).toFixed(3)} → $${Number(r.to).toFixed(3)}`);
+      return {
+        icon: '📦',
+        headline: `had freight rates corrected to the market ceiling`,
+        sub: `Rates above ${d.ceilingMultiple}× the going rate no longer win freight — forwarders book elsewhere. `
+           + `${rows.join(' · ')}${rows.length ? '.' : ''} Earnings already banked are unaffected.`,
+      };
+    }
+
     case 'joined':
       return { icon: '🛬', headline: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}` };
     case 'refounded':
@@ -228,7 +243,7 @@ export function compose(item) {
       };
     case 'year_in_review':
       return {
-        icon: '📅', subject: `Year ${d.year ?? ''}`.trim(),
+        icon: '📅', subject: (Number.isInteger(startYear) && d.year != null ? String(startYear + d.year - 1) : `Year ${d.year ?? ''}`).trim(),
         headline: 'in review'
           + (d.leader?.name ? ` — ${d.leader.name} leads` : ''),
         sub: d.topMover?.name
@@ -284,7 +299,7 @@ function touchesMe(item, net, myAirlineId) {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function News() {
-  const { remoteApi } = useGame();
+  const { remoteApi, state } = useGame();
   const net = useMyNetwork();
   const myAirlineId = remoteApi?.airlineId ?? null;
 
@@ -402,7 +417,7 @@ export default function News() {
       )}
 
       {shown && shown.map((it) => {
-        const c = compose(it);
+        const c = compose(it, state?.startYear ?? null);
         const weekKey = it.year != null ? `Y${it.year} W${it.week}` : null;
         const divider = weekKey && weekKey !== lastWeekKey ? weekKey : null;
         if (weekKey) lastWeekKey = weekKey;
@@ -422,7 +437,7 @@ export default function News() {
                 borderBottom: '1px solid var(--border, rgba(255,255,255,0.10))',
                 background: 'var(--panel, #141922)',
               }}>
-                Year {it.year} · Week {it.week}
+                {Number.isInteger(state?.startYear) ? String(state.startYear + it.year - 1) : `Year ${it.year}`} · Week {it.week}
               </div>
             )}
             <div

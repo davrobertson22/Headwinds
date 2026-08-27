@@ -18,6 +18,8 @@ import {
   simulateCargoRoute, cargoLaneAllocations, weeklyTick, referencePrice,
   CARGO_BACKHAUL_FACTOR, FREIGHTER_CAPTURE_RATE,
 } from '../src/utils/simulation.js';
+import { cargoPriceChokeFactor, CARGO_PRICE_CAP_MULTIPLE } from '../src/models/demand.js';
+import { setNwrYieldChoke, NWR_CHOKE_THRESHOLD_BASE, weeklyLoadJitter } from '../src/utils/market.js';
 import { cargoReferenceYield as cy } from '../src/utils/market.js';
 import { projectWeek } from '../src/utils/financeProjection.js';
 
@@ -299,6 +301,134 @@ test('planner parity: a hypothetical addition projects a share, not the full mar
   const full   = simulateCargoRoute(hyp, hypAc, { month: 6 });
   assert.ok(alloc.has('p') && alloc.has('r1'), 'both lane members allocated');
   assert.ok(shared.tonnes < full.tonnes, `shared ${shared.tonnes} should be < full-market ${full.tonnes}`);
+});
+
+console.log('\n── 9. Freight price ceiling (cargoPriceChokeFactor) ─────');
+
+// Regression cover for docs/cargo-yield-choke-audit-2026-08-27.md: the cargo
+// path used to apply no choke at all, so profit rose monotonically with yield
+// out past 4x reference and a freighter priced at 2.5x the going rate still
+// flew full. The choke is what gives elasticity a floor.
+
+// Every assertion below restores the module-scoped flag it touches. It defaults
+// to false, and a leaked `true` would silently re-scope every later test in the
+// file to a restricted world.
+const withChoke = (on, fn) => { setNwrYieldChoke(on); try { return fn(); } finally { setNwrYieldChoke(false); } };
+
+test('at or below reference the choke is exactly 1 (sane pricing is untouched)', () => {
+  for (const m of [0.25, 0.5, 0.9, 1.0]) {
+    assert.equal(cargoPriceChokeFactor(0.8 * m, 0.8), 1, `${m}x reference must not be penalised`);
+  }
+});
+
+test('demand reaches exactly zero at the cap, and stays there', () => {
+  assert.equal(cargoPriceChokeFactor(0.8 * CARGO_PRICE_CAP_MULTIPLE, 0.8), 0);
+  assert.equal(cargoPriceChokeFactor(0.8 * (CARGO_PRICE_CAP_MULTIPLE + 5), 0.8), 0);
+});
+
+test('the choke is strictly decreasing between reference and the cap', () => {
+  let prev = 1;
+  for (let m = 1.05; m < CARGO_PRICE_CAP_MULTIPLE; m += 0.05) {
+    const f = cargoPriceChokeFactor(0.8 * m, 0.8);
+    assert.ok(f < prev, `factor must fall as yield rises (${m}x: ${f} !< ${prev})`);
+    prev = f;
+  }
+});
+
+test('a garbage reference yield cannot divide by zero or return NaN', () => {
+  for (const ref of [0, -1, null, undefined, NaN]) {
+    const f = cargoPriceChokeFactor(1.5, ref);
+    assert.ok(Number.isFinite(f) && f >= 0 && f <= 1, `ref=${ref} gave ${f}`);
+  }
+});
+
+test('restricted worlds choke far harder than classic above the threshold', () => {
+  const classic    = withChoke(false, () => cargoPriceChokeFactor(0.8 * 1.6, 0.8));
+  const restricted = withChoke(true,  () => cargoPriceChokeFactor(0.8 * 1.6, 0.8));
+  assert.ok(restricted < classic, `restricted ${restricted} should bite harder than classic ${classic}`);
+  assert.ok(restricted < 0.05, `at 1.6x reference a restricted world should be near-dead, got ${restricted}`);
+});
+
+// The load-bearing assertion: the profit curve must have an interior maximum.
+// Before the fix this swept monotonically upward and the "optimum" was whatever
+// the sweep's top end happened to be.
+function bestYieldMultiple(o, d, freq, typeId, nwr) {
+  const ref = cy(o, d);
+  const ac  = freighter(typeId, { id: 'sweep' });
+  const jit = nwr ? weeklyLoadJitter(`${o}-${d}`, 26) : undefined;
+  let best = { m: 0, profit: -Infinity };
+  for (let m = 0.5; m <= 4.0001; m += 0.05) {
+    const r = simulateCargoRoute(
+      { id: 'sweep', origin: o, destination: d, aircraftId: 'sweep', weeklyFrequency: freq,
+        yieldPrice: ref * m, weeksOpen: null, nwrLoadJitter: jit },
+      ac, { month: 6 });
+    if (r && r.profit > best.profit) best = { m: +m.toFixed(2), profit: r.profit };
+  }
+  return best;
+}
+
+test('restricted worlds: the profit-maximising yield sits at or below the choke threshold', () => {
+  withChoke(true, () => {
+    for (const [o, d, freq, type] of [['SIN','DXB',6,'md11f'], ['JFK','LHR',6,'b747400f'], ['CDG','DXB',5,'b777f']]) {
+      const best = bestYieldMultiple(o, d, freq, type, true);
+      assert.ok(best.m <= 1.25, `${o}-${d}: optimum ${best.m}x reference — gouging still pays`);
+    }
+  });
+});
+
+test('gouging premium collapses: the optimum is worth <1.25x the profit of pricing at reference', () => {
+  withChoke(true, () => {
+    const ref  = cy('SIN', 'DXB');
+    const ac   = freighter('md11f', { id: 'prem' });
+    const jit  = weeklyLoadJitter('SIN-DXB', 26);
+    const at   = (m) => simulateCargoRoute(
+      { id: 'prem', origin: 'SIN', destination: 'DXB', aircraftId: 'prem', weeklyFrequency: 6,
+        yieldPrice: ref * m, weeksOpen: null, nwrLoadJitter: jit }, ac, { month: 6 }).profit;
+    const best = bestYieldMultiple('SIN', 'DXB', 6, 'md11f', true);
+    assert.ok(best.profit / at(1) < 1.25, `premium over reference is ${(best.profit / at(1)).toFixed(2)}x`);
+  });
+});
+
+test('classic worlds: a route priced at reference is bit-identical to the pre-choke value', () => {
+  // The choke returns exactly 1 at and below reference, so this is not an
+  // approximation — the arithmetic is unchanged. Guards against anyone "simplifying"
+  // the early return away.
+  const ref = cy('SIN', 'DXB');
+  const ac  = freighter('md11f', { id: 'bit' });
+  const r   = simulateCargoRoute(
+    { id: 'bit', origin: 'SIN', destination: 'DXB', aircraftId: 'bit', weeklyFrequency: 6,
+      yieldPrice: ref, weeksOpen: null }, ac, { month: 6 });
+  assert.equal(r.tonnes, 546, 'full payload at reference on a 3x-oversubscribed lane');
+  assert.equal(r.profit, 3040737, 'pre-choke profit at reference, to the dollar');
+});
+
+test('lane-pool conservation survives the choke: routes at reference still sum to one pool', () => {
+  // The invariant cargoLaneAllocations was built on — N freighters priced at
+  // reference must split ONE pool, not draw N of them. The choke multiplies the
+  // per-route elasticity, so at reference (factor 1) the sum must be untouched.
+  const f1 = freighter('b7478f', { id: 'f1' });
+  const f2 = freighter('b7478f', { id: 'f2' });
+  // gameDate matters: cargoCityPairDemand is seasonal, and the solo path below is
+  // scored at month 6. Omitting it here compares two different months and the
+  // invariant looks 4% broken when it is not.
+  const alloc = cargoLaneAllocations(
+    [cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' }), cRoute('NBO', 'AMS', 'f2', 7, { id: 'r2' })], [f1, f2],
+    1.0, { gameDate: { month: 6 } });
+  const summed = alloc.get('r1').demandTonnes + alloc.get('r2').demandTonnes;
+  const solo   = simulateCargoRoute(cRoute('NBO', 'AMS', 'f1', 7), f1, { month: 6 }).demandTonnes;
+  assert.ok(approx(summed, solo, 0.1), `lane pool ${summed} should equal solo pool ${solo}`);
+});
+
+test('a gouging rival dilutes a contested lane far less than one at the going rate', () => {
+  const f1  = freighter('b7478f', { id: 'f1' });
+  const own = cRoute('NBO', 'AMS', 'f1', 7, { id: 'r1' });
+  const key = ['NBO', 'AMS'].sort().join('-');
+  const share = (rivalMultiple) => cargoLaneAllocations([own], [f1], 1.0, {
+    gameDate: { month: 6 },
+    competitors: [{ cargoRoutes: { [key]: { tonnesPerWeek: 800, yieldPrice: cy('NBO', 'AMS') * rivalMultiple } } }],
+  }).get('r1').demandTonnes;
+  const atRef = share(1.0), gouging = share(2.8);
+  assert.ok(gouging > atRef, `a rival at 2.8x reference should take less of the lane (${gouging} vs ${atRef})`);
 });
 
 console.log(`\n──────────────────────────────────────────────\n${passed} passed, ${failed} failed\n`);
