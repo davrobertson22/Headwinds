@@ -18,10 +18,11 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
-import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwrYieldChoke } from '@tailwinds/engine/utils/market.js';
+import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwrYieldChoke, setEraStartYear } from '@tailwinds/engine/utils/market.js';
+import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, calendarYear } from '@tailwinds/engine/utils/simulation.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
@@ -782,8 +783,14 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
   // world shares the index, and on the cache-miss path the rows do not exist until
   // after the findMany below.
   const priced = (rows, allianceMap) => {
-    setFareIndex(rows?.[0]?.state?.fareIndex ?? 1);
-    setNwrYieldChoke(rows?.[0]?.state?.newWorldRestrictions === true);
+    // Era worlds: the fare ladder is derived from the calendar, exactly as the
+    // reducer entry derives it — a stored fareIndex alone would go stale as the
+    // era yield curve declines (ERA_MODE_PLAN.md §3.3).
+    const _st = rows?.[0]?.state;
+    const _eraFi = eraFareIndex(calendarYear(_st));
+    setFareIndex(_eraFi != null ? _eraFi * (_st?.fareIndex ?? 1) : (_st?.fareIndex ?? 1));
+    setEraStartYear(_st?.startYear ?? null);
+    setNwrYieldChoke(_st?.newWorldRestrictions === true);
     return buildRivalViews(rows, allianceMap);
   };
 

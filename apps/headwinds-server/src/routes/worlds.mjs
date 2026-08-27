@@ -22,7 +22,7 @@ import {
   serializeWorld, serializeAirline,
   MIN_LENGTH_YEARS, MAX_LENGTH_YEARS, MIN_WEEKS_PER_DAY, MAX_WEEKS_PER_DAY,
   MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
-  WORLD_STAGES, DEFAULT_WORLD_STAGE,
+  WORLD_STAGES, DEFAULT_WORLD_STAGE, MIN_START_YEAR, MAX_START_YEAR,
 } from '../lib/worldConfig.mjs';
 
 export default async function worldRoutes(fastify) {
@@ -408,6 +408,8 @@ export default async function worldRoutes(fastify) {
           newWorldRestrictions: { type: 'boolean' },
           // Cosmetic maturity label: alpha | beta | live (default beta).
           stage: { type: 'string', enum: WORLD_STAGES },
+          // Era world: real calendar year of week 1 (omit for a classic world).
+          startYear: { type: 'integer', minimum: MIN_START_YEAR, maximum: MAX_START_YEAR },
         },
       },
     },

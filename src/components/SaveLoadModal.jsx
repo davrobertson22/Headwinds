@@ -68,7 +68,9 @@ function SlotCard({ index, slot, mode, onSave, onLoad, onDelete }) {
   const gameDateStr = slot
     ? (() => {
         const { monthName, weekInMonth } = weekToGameDate(slot.week);
-        return `${monthName} wk ${weekInMonth}, Yr ${slot.year}`;
+        const sy = slot.gameState?.startYear;
+        const yr = Number.isInteger(sy) ? String(sy + slot.year - 1) : `Yr ${slot.year}`;
+        return `${monthName} wk ${weekInMonth}, ${yr}`;
       })()
     : null;
   const dateStr = slot

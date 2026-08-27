@@ -39,10 +39,11 @@ export const yearWeekOf = (absWeek) => {
   };
 };
 
-/** The history-row label the reducer writes, e.g. "Dec W4 Y3". */
-export const historyLabel = (year, week) => {
+/** The history-row label the reducer writes, e.g. "Dec W4 Y3" — or "Dec W4 1952" in an era world. */
+export const historyLabel = (year, week, startYear = null) => {
   const d = weekToGameDate(week);
-  return `${d.monthName} W${d.weekInMonth} Y${year}`;
+  const y = Number.isInteger(startYear) ? String(startYear + year - 1) : `Y${year}`;
+  return `${d.monthName} W${d.weekInMonth} ${y}`;
 };
 
 // Shift a number by `delta`, leaving null/undefined/non-finite values untouched.
@@ -60,7 +61,7 @@ const shiftMap = (obj, delta) => {
 
 // Re-stamp a history row (financialHistory / statsHistory) onto the new calendar
 // so charts stay monotonic across the rebase instead of jumping backwards.
-const shiftHistoryRow = (row, delta) => {
+const shiftHistoryRow = (row, delta, startYear = null) => {
   if (!row || typeof row !== 'object') return row;
   const abs = absWeekOf(row.year, row.week) + delta;
   const { year, week } = yearWeekOf(abs);
@@ -68,7 +69,7 @@ const shiftHistoryRow = (row, delta) => {
     ...row,
     week,
     year,
-    ...(row.label != null ? { label: historyLabel(year, week) } : {}),
+    ...(row.label != null ? { label: historyLabel(year, week, startYear) } : {}),
     ...(row.absWeek != null ? { absWeek: abs } : {}),
   };
 };
@@ -144,10 +145,10 @@ export function rebaseStateCalendar(state, { year, week }) {
 
   // ── History series: re-stamp so the charts read on the new calendar ─────────
   if (Array.isArray(state.financialHistory)) {
-    next.financialHistory = state.financialHistory.map((r) => shiftHistoryRow(r, delta));
+    next.financialHistory = state.financialHistory.map((r) => shiftHistoryRow(r, delta, state.startYear ?? null));
   }
   if (Array.isArray(state.statsHistory)) {
-    next.statsHistory = state.statsHistory.map((r) => shiftHistoryRow(r, delta));
+    next.statsHistory = state.statsHistory.map((r) => shiftHistoryRow(r, delta, state.startYear ?? null));
   }
 
   return { state: next, delta };

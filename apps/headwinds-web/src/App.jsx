@@ -308,6 +308,8 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
 
 const LENGTH_PRESETS = [10, 25, 50, 100, 200];
 const PACE_PRESETS = [1, 2, 4, 6, 12, 24, 48, 96];
+// Era-world start-year quick-picks (any 1930-2100 year is accepted via custom).
+const ERA_PRESETS = [1950, 1958, 1970, 1978, 2000];
 const createPaceLabel = (w) => {
   const hrs = 24 / w;
   if (!(w > 0)) return '';
@@ -335,11 +337,15 @@ function CreateWorld({ token, onCreated }) {
   // Crew pipeline (A7) — opt-in, independent of New World Restrictions.
   const [crewPipeline, setCrewPipeline] = useState(false);
   const [stage, setStage] = useState('beta');
+  // Era world: real calendar year of week 1 ('' = classic ordinal world).
+  const [eraSel, setEraSel] = useState('');           // '' | preset year | 'custom'
+  const [eraCustom, setEraCustom] = useState('1978');
   const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   const lengthYears = lengthSel === 'custom' ? Math.round(Number(lengthCustom)) : Number(lengthSel);
+  const startYear = eraSel === '' ? null : Math.round(Number(eraSel === 'custom' ? eraCustom : eraSel));
   const weeksPerDay = paceSel === 'custom' ? Math.round(Number(paceCustom)) : Number(paceSel);
 
   const create = async (ev) => {
@@ -362,6 +368,7 @@ function CreateWorld({ token, onCreated }) {
           newWorldRestrictions,
           ...(crewPipeline ? { crewPipeline: true } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
+          ...(Number.isInteger(startYear) ? { startYear } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
         },
       });
@@ -391,6 +398,26 @@ function CreateWorld({ token, onCreated }) {
             <input type="number" min={5} max={300} value={lengthCustom}
               onChange={(e) => setLengthCustom(e.target.value)} />
           </label>
+        )}
+        <label>Era
+          <select value={eraSel} onChange={(e) => setEraSel(e.target.value)}>
+            <option value="">Classic (Year 1, 2, 3…)</option>
+            {ERA_PRESETS.map((y) => <option key={y} value={String(y)}>Historical — starts {y}</option>)}
+            <option value="custom">Historical — custom year…</option>
+          </select>
+        </label>
+        {eraSel === 'custom' && (
+          <label>Start year
+            <input type="number" min={1930} max={2100} value={eraCustom}
+              onChange={(e) => setEraCustom(e.target.value)} />
+          </label>
+        )}
+        {eraSel !== '' && (
+          <span className="muted small">
+            The world's calendar starts in January {eraSel === 'custom' ? (eraCustom || '—') : eraSel} and each
+            game-year advances it one real year. Aircraft appear when they entered service and
+            leave the order books when production ended. Fixed at creation.
+          </span>
         )}
         <label>Pace
           <select value={paceSel} onChange={(e) => setPaceSel(e.target.value)}>
@@ -638,8 +665,8 @@ function WorldsScreen({ token, me }) {
                 </td>
                 <td>{w.paceLabel}</td>
                 <td>{w.status === 'LOBBY'
-                  ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : 'Y1 · starts on first join'}</span>
-                  : <>Y{w.progress.year}/{w.progress.totalYears} <span className="muted">({w.progress.percent}%)</span></>}</td>
+                  ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : `${w.startYear ?? 'Y1'} · starts on first join`}</span>
+                  : <>{w.startYear != null ? `${w.startYear + w.progress.year - 1}` : `Y${w.progress.year}/${w.progress.totalYears}`} <span className="muted">({w.progress.percent}%)</span></>}</td>
                 <td>{w.playerCount}/{w.maxPlayers}</td>
                 <td><StatusChip status={w.status} /></td>
                 <td>
@@ -905,9 +932,11 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
             {world.paceLabel} ·{' '}
             {world.status === 'LOBBY'
               ? (world.scheduledStartAt
-                  ? `Year 1, starts ${fmtStartTime(world.scheduledStartAt)}`
-                  : 'Year 1, the clock starts when the first player joins')
-              : `Year ${world.progress.year} of ${world.progress.totalYears}`} ·
+                  ? `${world.startYear != null ? world.startYear : 'Year 1'}, starts ${fmtStartTime(world.scheduledStartAt)}`
+                  : `${world.startYear != null ? world.startYear : 'Year 1'}, the clock starts when the first player joins`)
+              : (world.startYear != null
+                  ? `${world.startYear + world.progress.year - 1} · year ${world.progress.year} of ${world.progress.totalYears}`
+                  : `Year ${world.progress.year} of ${world.progress.totalYears}`)} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
           </p>

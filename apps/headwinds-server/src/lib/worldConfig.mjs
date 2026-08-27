@@ -34,6 +34,17 @@ export const MAX_WEEKS_PER_DAY = 96;
 // per world to make a world easier (more runway) or harder.
 export const DEFAULT_STARTING_CAPITAL = 15_000_000;
 export const MIN_STARTING_CAPITAL = 1_000_000;
+
+// Era worlds: the world's week 1 of year 1 is January of this real calendar
+// year. Null/absent = classic ordinal "Year N" world — EVERY era code path in
+// the engine short-circuits when startYear is null, which is the parity
+// invariant (see ERA_MODE_PLAN.md). Fixed at creation like the rule flags:
+// the whole design keys demand, fuel and aircraft availability off
+// "week 1 = startYear", so flipping it on a running world would teleport the
+// economy. Presets are quick-picks; any year in bounds is accepted.
+export const ERA_START_YEARS = [1950, 1958, 1970, 1978, 2000];
+export const MIN_START_YEAR = 1930;
+export const MAX_START_YEAR = 2100;
 export const MAX_STARTING_CAPITAL = 500_000_000;
 
 // A world's maturity label. Cosmetic ONLY — no rule reads it, which is why
@@ -98,8 +109,12 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, stage,
+  newWorldRestrictions, crewPipeline, stage, startYear,
 }) {
+  if (startYear != null
+    && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
+    throw badRequest(`startYear must be a whole year between ${MIN_START_YEAR} and ${MAX_START_YEAR}`);
+  }
   if (stage != null && !WORLD_STAGES.includes(stage)) {
     throw badRequest(`stage must be one of: ${WORLD_STAGES.join(', ')}`);
   }
@@ -207,6 +222,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional crew pipeline (A7): hiring has a lead time and understaffing
     // degrades the operation. Opt-in, independent of newWorldRestrictions.
     crewPipeline: world.tickConfig?.crewPipeline === true,
+    // Era world: real calendar year of week 1 (null = classic ordinal world).
+    startYear: Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null,
     // Maturity label — see WORLD_STAGES. Changes no rules, so the admin panel
     // can move it on a live world.
     stage: worldStageOf(world.tickConfig),

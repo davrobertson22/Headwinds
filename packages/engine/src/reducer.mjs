@@ -8,10 +8,11 @@
 // the five checkRouteRestrictions() call sites had lost the `aircraftType`
 // context that Tailwinds passes, which silently disabled every runway-length
 // check in Headwinds. Restored. Worth diffing the two on any shared change.
+import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX } from './data/era.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
-  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate,
+  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate, shortYearLabel, calendarYear,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey, isMultiStop,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
@@ -24,7 +25,7 @@ import {
   calcReconfCost, refitWeeks,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
-         setFareIndex, setNwrYieldChoke,
+         setFareIndex, setNwrYieldChoke, setEraStartYear,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
          emptyEquity, migratedEquity, sharesOf, svpsOf,
@@ -34,7 +35,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          founderSaleProceeds, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
-import { getAircraftType, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
+import { getAircraftType, eraDeliveredAgeWeeks, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF } from './data/aircraft.js';
 import {
@@ -93,7 +94,7 @@ import { tickEncroachment } from './models/encroachment.js';
 import { leaseBuyoutQuote } from './models/leaseBuyout.js';
 import {
   tickFuelPrice,
-  clampFuelIndex,
+  clampFuelIndex, FUEL_BASE_INDEX,
   effectiveFuelMultiplier,
   hedgeLockedPrice,
   absoluteWeek,
@@ -953,13 +954,30 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
 // `free` on a cap_partial result is how many frames WOULD be accepted, so the
 // caller can clamp rather than reject — matching how the affordability loop in
 // ORDER_AIRCRAFT already trims an order it cannot fully fund.
+// Era worlds (ERA_MODE_PLAN.md §3.2): a type that hasn't entered service yet
+// cannot be ordered at all — bought or leased. Null in classic worlds and for
+// anything already flying; the UI renders the message on the locked row.
+export function orderDenial(state, typeId) {
+  const cy = calendarYear(state);
+  if (cy == null) return null;
+  const type = getAircraftType(typeId);
+  if (!type) return null;
+  if ((type.eis ?? 0) > cy) {
+    return {
+      code: 'not_yet_flying', typeId: type.id, eis: type.eis,
+      message: `The ${type.name} hasn't flown yet — it enters service in ${type.eis}.`,
+    };
+  }
+  return null;
+}
+
 export function leaseDenial(state, typeId, quantity = 1) {
   if (!state?.newWorldRestrictions) return null;
 
   const type = getAircraftType(typeId);
   if (!type) return { code: 'unknown_type', message: 'Unknown aircraft type.' };
 
-  if (!lessorSupplies(type)) {
+  if (!lessorSupplies(type, calendarYear(state))) {
     const why = type.doubleDeck
       ? `Lessors don't carry double-deck aircraft — the ${type.name} must be bought outright.`
       : `Lessors don't carry the ${type.name} (${type.eis}). Their books stop at ${LESSOR_EIS_CUTOFF}; newer aircraft must be bought new or used.`;
@@ -1226,7 +1244,13 @@ function reducer(state, action) {
   // every referencePrice()/cargoReferenceYield() call downstream — demand model,
   // competitor AI, encroachment, positioning, connecting fares — sees the same
   // ladder. The reducer is synchronous, so no two airlines can interleave here.
-  setFareIndex(state?.fareIndex ?? 1);
+  // Era worlds (ERA_MODE_PLAN.md §3.3): the fare ladder is DERIVED from the
+  // calendar, not stored — the era yield curve declines across the century, so
+  // a seeded-once fareIndex would go stale within a decade. Composes
+  // multiplicatively with any stored index (an era world that is also NWR).
+  const _eraFi = eraFareIndex(calendarYear(state));
+  setFareIndex(_eraFi != null ? _eraFi * (state?.fareIndex ?? 1) : (state?.fareIndex ?? 1));
+  setEraStartYear(state?.startYear ?? null);
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   switch (action.type) {
 
@@ -1276,7 +1300,7 @@ function reducer(state, action) {
         name,
         tailNumber,
         status:             'idle',
-        ageWeeks:           type?.deliveredAgeWeeks ?? 0,
+        ageWeeks:           eraDeliveredAgeWeeks(type, calendarYear(state)),
         config:             defaultConfig(type?.seats ?? 100),
         ownershipType:      'lease',
         // Lock the rate at signing. Without this the tail carried no weeklyLease
@@ -1314,7 +1338,7 @@ function reducer(state, action) {
         name,
         tailNumber,
         status:        'idle',
-        ageWeeks:      type?.deliveredAgeWeeks ?? 0,
+        ageWeeks:      eraDeliveredAgeWeeks(type, calendarYear(state)),
         config:        defaultConfig(type.seats),
         ownershipType: 'owned',
       };
@@ -1335,6 +1359,9 @@ function reducer(state, action) {
     case 'ORDER_AIRCRAFT': {
       const type = getAircraftType(action.typeId);
       if (!type) return state;
+      // Era gate: not yet in service = not orderable, buy or lease. The UI
+      // shows the same denial; this is the authoritative check.
+      if (orderDenial(state, action.typeId)) return state;
 
       const DELIVERY_LEAD = { 'Wide Body': 4, 'Narrow Body': 3, 'Regional Jet': 2, 'Turboprop': 1 };
       const lead     = DELIVERY_LEAD[type.category] ?? 2;
@@ -1545,7 +1572,7 @@ function reducer(state, action) {
             name:          order.name,
             tailNumber,
             status:        'idle',
-            ageWeeks:      type?.deliveredAgeWeeks ?? 0,
+            ageWeeks:      eraDeliveredAgeWeeks(type, calendarYear(state)),
             config:        order.config ?? defaultConfig(type.seats ?? 100),
             ownershipType: order.ownershipType,
             weeklyLease:         order.weeklyLease ?? 0,
@@ -3624,7 +3651,11 @@ function reducer(state, action) {
       // the shared value; in solo, tick the per-save market price forward. Stays
       // here rather than in prepareWeek: it is a random draw, and a projection
       // must neither predict it nor burn it.
-      const nextFuelIndex    = injectedFuel != null ? injectedFuel : tickFuelPrice(baseFuelIndex);
+      const _fuelCy          = calendarYear(state);
+      const nextFuelIndex    = injectedFuel != null ? injectedFuel
+        : _fuelCy == null ? tickFuelPrice(baseFuelIndex)
+        : tickFuelPrice(baseFuelIndex, undefined,
+            eraFuelMean(_fuelCy) ?? FUEL_BASE_INDEX, ERA_FUEL_MIN_INDEX);
 
       // Age + mechanical tick must run BEFORE weeklyTick so that aircraft recovering
       // from grounding this week can actually fly and earn revenue.
@@ -4567,7 +4598,7 @@ function reducer(state, action) {
       }
 
       const historyEntry = {
-        label:       (() => { const d = weekToGameDate(state.week); return `${d.monthName} W${d.weekInMonth} Y${state.year}`; })(),
+        label:       (() => { const d = weekToGameDate(state.week); return `${d.monthName} W${d.weekInMonth} ${shortYearLabel(state)}`; })(),
         week:        state.week,
         year:        state.year,
         cash:        newCash,
@@ -4969,7 +5000,7 @@ function reducer(state, action) {
           name:          order.name,
           tailNumber,
           status:        'idle',
-          ageWeeks:      ordType?.deliveredAgeWeeks ?? 0,
+          ageWeeks:      eraDeliveredAgeWeeks(ordType, calendarYear(state)),
           config:        order.config ?? defaultConfig(ordType?.seats ?? 100),
           ownershipType: order.ownershipType,
           weeklyLease:        order.weeklyLease ?? 0,

@@ -38,8 +38,9 @@ export async function createWorld(prisma, {
   newWorldRestrictions,
   crewPipeline,
   stage,
+  startYear,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage, startYear });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -68,6 +69,11 @@ export async function createWorld(prisma, {
     // newWorldRestrictions — omitting it leaves the world on the classic model
     // where crew is instantaneous. Fixed at creation like the other rule flags.
     ...(crewPipeline === true ? { crewPipeline: true } : {}),
+    // Era world (ERA_MODE_PLAN.md): week 1 of year 1 is January of this real
+    // calendar year. Drives aircraft availability, the era demand/fare curves
+    // and the historical fuel walk. Fixed at creation — the whole design keys
+    // off "week 1 = startYear". Absent = classic world, all era code inert.
+    ...(Number.isInteger(startYear) ? { startYear } : {}),
     // Cosmetic maturity label (alpha | beta | live) — see WORLD_STAGES. Only
     // written when it differs from the default, and affects no rules, so
     // POST /worlds/:id/stage can move it on a world that's already running.
@@ -165,6 +171,9 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     // at join. Drives the labour seniority scale — a player joining a year-17
     // world founded their airline today and must start on starting wages.
     foundedAbsWeek: (world.currentYear - 1) * 52 + world.currentWeek,
+    // Era world: bake the epoch into the blob like every other rule flag, so
+    // the engine (display, aircraft gate, era curves) reads it from state.
+    ...(Number.isInteger(tc.startYear) ? { startYear: tc.startYear } : {}),
     ...(tc.newWorldRestrictions === true ? {
       newWorldRestrictions: true,
       // Trims the whole reference-fare ladder (passenger + cargo). Same demand,
@@ -208,7 +217,7 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
   // world's current week so the joiner starts on exactly the economy their
   // rivals' blobs carry: same index, same 52-week history, same sentiment.
   const joinLinearWeek = (world.currentYear - 1) * 52 + world.currentWeek;
-  const economy = worldEconomyAt(world.worldSeed ?? world.id, joinLinearWeek);
+  const economy = worldEconomyAt(world.worldSeed ?? world.id, joinLinearWeek, { startYear: Number.isInteger(tc.startYear) ? tc.startYear : null });
   const worldDatedState = {
     ...rebasedState,
     fuelPrice:   economy.fuelPrice,

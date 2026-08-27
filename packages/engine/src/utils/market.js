@@ -11,6 +11,7 @@
  */
 
 import { getAirport, getAirportScores, getAirportCargoScore } from '../data/airports.js';
+import { eraDemandGrowthFactor } from '../data/era.js';
 import {
   METROS,
   metroOf,
@@ -227,6 +228,10 @@ export const DEMAND_GROWTH_CAP = 3.0;
  * @returns {number} 1 … DEMAND_GROWTH_CAP
  */
 export function pairDemandGrowth(originCode, destCode, absWeek) {
+  // Era world: growth IS the era curve — the historical traffic index relative
+  // to the world's own start year. It REPLACES the classic compounding (never
+  // stacks — that would count growth twice).
+  if (_eraStartYear != null) return eraDemandGrowthFactor(_eraStartYear, absWeek);
   if (absWeek == null || !(absWeek > 1)) return 1;
   const o = getAirport(metroPrimary(originCode));
   const d = getAirport(metroPrimary(destCode));
@@ -744,6 +749,21 @@ export function routeDistance(originCode, destCode) {
 export const NWR_FARE_INDEX = 0.95;
 
 let _fareIndex = 1;
+
+// ── Era world epoch (ERA_MODE_PLAN.md §3.3) ──────────────────────────────────
+// Module-scoped for the same reason as _fareIndex: pairDemandGrowth's ~12 call
+// sites carry no world context. gameReducer sets it from state on EVERY action
+// (and humanRivals re-derives it before building rival views), so the value in
+// effect always belongs to the world being computed.
+let _eraStartYear = null;
+
+/** Set (or clear, with null) the active world's era start year. */
+export function setEraStartYear(v) {
+  _eraStartYear = Number.isInteger(v) ? v : null;
+}
+
+/** The era start year currently in effect (null = classic world). */
+export function getEraStartYear() { return _eraStartYear; }
 
 /** Set the active world's fare index (1 = classic). Clamped to a sane band. */
 export function setFareIndex(v) {

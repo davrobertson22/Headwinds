@@ -1469,11 +1469,46 @@ export function weekToGameDate(week) {
 }
 
 /**
- * Format game state as "Week N Mon Year Y".
+ * Era worlds (state.startYear set): the real calendar year this ordinal game
+ * year maps to. Classic worlds (startYear absent/null): null. startYear is a
+ * world-creation option carried in the airline blob — state.year itself stays
+ * a 1-based ordinal everywhere (absoluteWeek and every scheduled-week field
+ * depend on that), so this is the ONLY translation point.
+ */
+export function calendarYear(state) {
+  const s = state?.startYear;
+  if (!Number.isInteger(s)) return null;
+  return s + ((state?.year ?? 1) - 1);
+}
+
+/**
+ * Long year label for a given ordinal year: "1952" in an era world,
+ * "Year 3" in a classic one. Defaults to the state's current year.
+ */
+export function yearLabel(state, year = state?.year ?? 1) {
+  const s = state?.startYear;
+  return Number.isInteger(s) ? String(s + (year - 1)) : `Year ${year}`;
+}
+
+/**
+ * Compact year label: "1952" in an era world, "Y3" in a classic one.
+ * Matches the history-row and chart-axis shorthand.
+ */
+export function shortYearLabel(state, year = state?.year ?? 1) {
+  const s = state?.startYear;
+  return Number.isInteger(s) ? String(s + (year - 1)) : `Y${year}`;
+}
+
+/**
+ * Format game state as "Week N Mon Year Y" — or "Week N Mon 1952" in an era
+ * world, where the calendar is a real year rather than an ordinal.
  */
 export function formatGameDate(state) {
   const { monthName, weekInMonth } = weekToGameDate(state.week);
-  return `Week ${weekInMonth} ${monthName} Year ${state.year}`;
+  const cy = calendarYear(state);
+  return cy == null
+    ? `Week ${weekInMonth} ${monthName} Year ${state.year}`
+    : `Week ${weekInMonth} ${monthName} ${cy}`;
 }
 
 /**

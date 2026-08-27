@@ -13,7 +13,7 @@ import {
   lessorSupplies,
   leaseOrderBookCap,
 } from '../data/aircraft.js';
-import { formatMoney, weekToGameDate, maintenanceMultiplier } from '../utils/simulation.js';
+import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
@@ -588,9 +588,10 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                       cursor: r.canAffordBuy ? 'pointer' : 'not-allowed',
                     }}
                     disabled={!r.canAffordBuy}
+                    title={r.eraBlock || undefined}
                     onClick={() => r.canAffordBuy && onCheckout({ typeId: t.id, mode: 'buy' })}
                   >
-                    Buy
+                    {r.eraBlock ? `In service ${AIRCRAFT_TYPES.find(x => x.id === t.id)?.eis ?? ''}` : 'Buy'}
                   </button>
                 </td>
               </tr>
@@ -627,6 +628,12 @@ export default function Marketplace() {
   // ── New World Restrictions ────────────────────────────────────────────────
   // Restricted worlds only; every value below is inert when the flag is off.
   const restricted    = !!state.newWorldRestrictions;
+  // Era world (ERA_MODE_PLAN.md): types are locked until their entry into
+  // service. Mirrors the engine's orderDenial() so the disabled button and the
+  // rejected action always agree. Null in classic worlds.
+  const calYear = calendarYear(state);
+  const eraLockReason = (type) =>
+    calYear != null && (type?.eis ?? 0) > calYear ? `Enters service ${type.eis}` : null;
   const activeFleet   = fleet.filter(a => a.status !== 'retired').length;
   const leaseOnOrder  = pendingOrders
     .filter(o => o.ownershipType === 'lease')
@@ -636,8 +643,10 @@ export default function Marketplace() {
   // Why this type can't be leased right now, or null. Mirrors the engine's
   // leaseDenial() so a disabled button and a rejected request always agree.
   function leaseBlockReason(type) {
+    const eraLock = eraLockReason(type);
+    if (eraLock) return eraLock;
     if (!restricted) return null;
-    if (!lessorSupplies(type)) {
+    if (!lessorSupplies(type, calYear)) {
       return type.doubleDeck
         ? 'Lessors don\u2019t carry double-deck aircraft \u2014 buy it outright'
         : `Not on lessor books (in service ${type.eis}) \u2014 buy new or used`;
@@ -702,6 +711,7 @@ export default function Marketplace() {
 
   const q = query.trim().toLowerCase();
   const filtered = AIRCRAFT_TYPES.filter(t =>
+    (calYear == null || (t.eis ?? 0) <= calYear + 3) &&
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
     (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q))
@@ -928,7 +938,8 @@ export default function Marketplace() {
             delivery: Math.max(nowAbs + lead, maxExisting + lead) - nowAbs,
             owned:    alreadyOwned,
             onOrder,
-            canAffordBuy: cash >= buyPrice,
+            canAffordBuy: cash >= buyPrice && !eraLockReason(type),
+            eraBlock: eraLockReason(type),
             leaseBlock: leaseBlockReason(type),
             catColor: CAT_COLORS[type.category] || '#93a4ba',
           };
@@ -958,7 +969,8 @@ export default function Marketplace() {
           const discPct       = Math.round(discount * 100);
           const effScore      = efficiencyScore(type) ?? 0;
           const effRaw        = (seatEfficiency(type) ?? 0).toFixed(2);
-          const canAffordBuy  = cash >= buyPrice;
+          const eraLock       = eraLockReason(type);
+          const canAffordBuy  = cash >= buyPrice && !eraLock;
           const effColor      = effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)';
 
           // Delivery note
@@ -1172,9 +1184,10 @@ export default function Marketplace() {
                         cursor: canAffordBuy ? 'pointer' : 'not-allowed',
                       }}
                       disabled={!canAffordBuy}
+                      title={eraLock || undefined}
                       onClick={() => canAffordBuy && setCheckout({ typeId: type.id, mode: 'buy' })}
                     >
-                      {canAffordBuy ? 'Buy →' : 'Can\'t afford'}
+                      {eraLock ? `In service ${type.eis}` : canAffordBuy ? 'Buy →' : 'Can\'t afford'}
                     </button>
                   </div>
 

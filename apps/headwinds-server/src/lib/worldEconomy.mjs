@@ -7,6 +7,7 @@
 // exact same walk. This module is the single home for those walks so the tick
 // (tickService) and the join-time backfill (worldService) can never disagree.
 import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
+import { eraFuelMean, ERA_FUEL_MIN_INDEX } from '@tailwinds/engine/data/era.js';
 import { tickMarketIndex, MARKET_BASE_INDEX } from '@tailwinds/engine/utils/market.js';
 
 // The reducer keeps at most 52 weeks of fuel history (see ADVANCE_WEEK); the
@@ -29,9 +30,32 @@ export function seededRand(seedStr, salt) {
 // The world-shared fuel index at a given 1-based week — replayed from the base
 // index through the SAME OU walk the solo game uses, but with a per-world-week
 // seeded shock, so it's identical for every airline and reproducible.
-export function worldFuelIndex(seed, weekIndex) {
-  let idx = FUEL_BASE_INDEX;
-  for (let w = 1; w <= weekIndex; w++) idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`));
+// Era worlds pass startYear so each week's OU step reverts to the HISTORICAL
+// mean for that calendar year (data/era.js) with the wider era floor — the
+// same pure seeded replay, just a moving target. Null = classic, byte-identical.
+//
+// Memoised per (seed, startYear): the walk is O(weekIndex) from scratch, which
+// at a century world's week 5,200 was 5,200 iterations per world per tick.
+// Successive calls only walk the delta; an earlier week than the memo (a
+// join-time backfill) recomputes from scratch.
+const _fuelWalkMemo = new Map();
+
+function eraWeekParams(startYear, w) {
+  if (!Number.isInteger(startYear)) return [FUEL_BASE_INDEX, undefined];
+  const mean = eraFuelMean(startYear + Math.floor((w - 1) / 52)) ?? FUEL_BASE_INDEX;
+  return [mean, ERA_FUEL_MIN_INDEX];
+}
+
+export function worldFuelIndex(seed, weekIndex, startYear = null) {
+  const key = `${seed}|${Number.isInteger(startYear) ? startYear : ''}`;
+  let m = _fuelWalkMemo.get(key);
+  if (!m || m.week > weekIndex) m = { week: 0, idx: FUEL_BASE_INDEX };
+  let { week, idx } = m;
+  for (let w = week + 1; w <= weekIndex; w++) {
+    const [mean, minIdx] = eraWeekParams(startYear, w);
+    idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`), mean, minIdx);
+  }
+  _fuelWalkMemo.set(key, { week: Math.max(week, weekIndex), idx });
   return idx;
 }
 
@@ -63,12 +87,13 @@ export function worldMarketIndex(seed, weekIndex) {
 // Used by joinWorld so a late joiner starts on the same economy their rivals
 // have been living in — not a fresh 1.000× with an empty chart (which also let
 // them lock hedges at 1.0× regardless of where world fuel actually was).
-export function worldEconomyAt(seed, worldLinearWeek, { historyCap = FUEL_HISTORY_CAP } = {}) {
+export function worldEconomyAt(seed, worldLinearWeek, { historyCap = FUEL_HISTORY_CAP, startYear = null } = {}) {
   const upto = Math.max(0, Math.floor(worldLinearWeek) - 1);
   const history = [];
   let idx = FUEL_BASE_INDEX;
   for (let w = 1; w <= upto; w++) {
-    idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`));
+    const [mean, minIdx] = eraWeekParams(startYear, w);
+    idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`), mean, minIdx);
     history.push(idx);
   }
   let mkt = MARKET_BASE_INDEX;

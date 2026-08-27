@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
-import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
-import { weekToGameDate, effectiveRangeKm, formatMoney } from '../utils/simulation.js';
+import { AIRCRAFT_TYPES, getAircraftType, aircraftAvailability } from '../data/aircraft.js';
+import { weekToGameDate, effectiveRangeKm, formatMoney, calendarYear } from '../utils/simulation.js';
 import { buildRouteMarket } from '../models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
@@ -87,7 +87,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
     : 0;
 
   const catalogueTypes = useMemo(
-    () => AIRCRAFT_TYPES.filter(t => !t.freighter && !fleetTypes.some(f => f.type.id === t.id)),
+    () => AIRCRAFT_TYPES.filter(t => !t.freighter && aircraftAvailability(t, calendarYear(state)) !== 'future' && !fleetTypes.some(f => f.type.id === t.id)),
     [fleetTypes]
   );
 

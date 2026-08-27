@@ -128,7 +128,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // one event set (aged from the world's own running list, stored in tickConfig).
   // Every airline ticks against the same fuel + events, so the leaderboard reflects
   // skill, not private RNG. Events roll ONCE here (not per airline).
-  const worldFuel = worldFuelIndex(world.worldSeed ?? world.id, fromIndex);
+  const eraStartYear = Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null;
+  const worldFuel = worldFuelIndex(world.worldSeed ?? world.id, fromIndex, eraStartYear);
   const worldMarket = worldMarketIndex(world.worldSeed ?? world.id, fromIndex);
   const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
     ? world.tickConfig.runtimeEvents : [];

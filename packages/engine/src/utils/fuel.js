@@ -86,16 +86,20 @@ export const HEDGE_COVERAGES = [0.25, 0.50, 0.75];
  * @param {number} [rand]         - optional random value in [0,1] (for seeding/testing)
  * @returns {number}              - next week's index, clamped to [MIN, MAX]
  */
-export function tickFuelPrice(currentIndex, rand = Math.random()) {
-  const drift = FUEL_MEAN_REVERSION * (FUEL_BASE_INDEX - currentIndex);
+export function tickFuelPrice(currentIndex, rand = Math.random(), meanIndex = FUEL_BASE_INDEX, minIndex = FUEL_MIN_INDEX) {
+  // Era worlds pass a historical meanIndex (data/era.js eraFuelMean) so the
+  // walk reverts to the period's price level — the 1973 shock is a moving
+  // target, not a scripted value — and a wider minIndex floor so the cheap
+  // decades are actually cheap. Defaults keep classic worlds byte-identical.
+  const drift = FUEL_MEAN_REVERSION * (meanIndex - currentIndex);
   // Map uniform [0,1] → approximately Normal via Box-Muller lite (single draw)
   const shock = (rand * 2 - 1) * FUEL_VOLATILITY * 2.5;
-  return clampFuelIndex(currentIndex + drift + shock);
+  return clampFuelIndex(currentIndex + drift + shock, minIndex);
 }
 
 /** Hold an index inside the model's realistic band. */
-export function clampFuelIndex(index) {
-  return parseFloat(Math.max(FUEL_MIN_INDEX, Math.min(FUEL_MAX_INDEX, index)).toFixed(3));
+export function clampFuelIndex(index, minIndex = FUEL_MIN_INDEX) {
+  return parseFloat(Math.max(minIndex, Math.min(FUEL_MAX_INDEX, index)).toFixed(3));
 }
 
 /**

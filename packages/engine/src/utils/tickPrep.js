@@ -45,6 +45,7 @@
 // prep in one place is what stops them disagreeing again.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { ERA_FUEL_MIN_INDEX } from '../data/era.js';
 import {
   weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm,
 } from './simulation.js';
@@ -126,7 +127,7 @@ export function prepareWeek(state, {
     && typeof worldFuelIndex === 'number' && Number.isFinite(worldFuelIndex))
     ? worldFuelIndex : null;
   const baseFuelIndex    = injectedFuel ?? state.fuelPrice?.index ?? 1.0;
-  const currentFuelIndex = fuelMult === 1 ? baseFuelIndex : clampFuelIndex(baseFuelIndex * fuelMult);
+  const currentFuelIndex = fuelMult === 1 ? baseFuelIndex : clampFuelIndex(baseFuelIndex * fuelMult, state.startYear != null ? ERA_FUEL_MIN_INDEX : undefined);
 
   const curAbsWeek   = absoluteWeek(state.year, state.week);
   const allHedges    = state.hedgeContracts ?? [];
