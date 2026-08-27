@@ -13,6 +13,7 @@
 //     (resolveDueAuctions) with seeded random tie-breaks.
 //   • The marketplace (listings) transfers gates between airlines atomically.
 import { gameReducer } from '@tailwinds/engine/reducer';
+import { featureLive } from '@tailwinds/engine/data/eraFeatures.js';
 import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
   GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP,
@@ -587,6 +588,13 @@ export async function reconcileForfeitures(prisma, worldId, releases, { log = co
 // Week-40 scan: open an auction for every airport ≥95% full with growth
 // headroom. Idempotent (unique [worldId, airportCode, year]).
 export async function openDueAuctions(prisma, world, { log = console } = {}) {
+  // Era worlds (phase 5): formal gate auctions don't exist before 1990 —
+  // congested airports simply stay congested, which is the period. Gates can
+  // still be bought at the posted fee; only the auction mechanism is gated.
+  const eraStart = Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null;
+  if (eraStart != null && !featureLive('gateAuctions', eraStart + (world.currentYear ?? 1) - 1)) {
+    return { opened: 0 };
+  }
   const weekIdx = worldWeekIndex(world);
   const year = world.currentYear + 1; // resolves into the NEW year
   const rows = await prisma.worldGate.findMany({ where: { worldId: world.id } });

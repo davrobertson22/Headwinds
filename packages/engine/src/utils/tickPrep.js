@@ -102,7 +102,10 @@ export function prepareWeek(state, {
     allEvents       = injectedEvents;
   } else {
     ({ updated: survivingEvents, expired: expiredEvents } = tickEvents(state.activeEvents ?? []));
-    newEvents = rollNewEvents ? rollEvents(survivingEvents, { multiplayer: isMultiplayer }) : [];
+    newEvents = rollNewEvents ? rollEvents(survivingEvents, {
+      multiplayer: isMultiplayer,
+      calendarYear: state.startYear != null ? state.startYear + (state.year ?? 1) - 1 : null,
+    }) : [];
     allEvents = [...survivingEvents, ...newEvents];
   }
 

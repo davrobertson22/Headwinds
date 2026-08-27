@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
+import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
 import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType, LEASE_TERM_OPTIONS, LEASE_BUYOUT_PREMIUM } from '../data/aircraft.js';
 import { leaseBuyoutQuote } from '../models/leaseBuyout.js';
@@ -457,6 +459,9 @@ function WifiBadge({ aircraft }) {
     );
   }
   if (aircraft.status === 'retired') return null;
+  // Era worlds: onboard Wi-Fi doesn't exist before 2004 (phase 5) — no badge,
+  // no button, no quality penalty story to tell.
+  if (!featureLive('wifi', eraCalendarYear(state))) return null;
 
   return (
     <button
@@ -1873,6 +1878,7 @@ export default function Fleet() {
       + `charged whether it flies or sits.\n\n`
       + (already > 0 ? `${already} of the aircraft you selected already have it and won't be charged again.\n\n` : '')
       + `What you charge passengers for Wi-Fi is set airline-wide on the Ancillaries tab.`;
+    if (!featureLive('wifi', eraCalendarYear(state))) return;
     if (await confirm({
       title: `Fit Wi-Fi to ${checkedNoWifi.length} aircraft?`,
       body,

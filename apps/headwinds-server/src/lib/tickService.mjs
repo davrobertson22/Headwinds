@@ -134,7 +134,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
     ? world.tickConfig.runtimeEvents : [];
   const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
-  const worldEvents = [...survivingWorldEvents, ...rollEvents(survivingWorldEvents, { multiplayer: true })];
+  const worldEvents = [...survivingWorldEvents, ...rollEvents(survivingWorldEvents, {
+    multiplayer: true,
+    calendarYear: eraStartYear != null ? eraStartYear + Math.floor((fromIndex - 1) / 52) : null,
+  })];
 
   // One airline's week. Factored out because it has to be runnable a SECOND time,
   // inside the commit, against a state that changed under us — see the recompute

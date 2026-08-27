@@ -3476,6 +3476,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Narrow Body',
     eis: 1952,
     oop: 1954,   // year the production line closed (era worlds: second-hand only after this)
+    withdrawnYear: 1955,   // certificate pulled after the 1954 groundings - no used market ever
     seats: 44,
     deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
     range: 2_410,
@@ -4016,6 +4017,9 @@ export const AIRFRAME_MARKET_LIFETIME_YEARS = 30;
 export function aircraftAvailability(type, calYear = null) {
   if (calYear == null) return 'available';
   if ((type?.eis ?? 0) > calYear) return 'future';
+  // withdrawnYear: the type's certificate of airworthiness was pulled — no
+  // market at any price from that year on (the Comet 1's 1954 grounding).
+  if (type?.withdrawnYear != null && calYear >= type.withdrawnYear) return 'expired';
   if (type?.oop != null && calYear > type.oop) {
     return calYear > type.oop + AIRFRAME_MARKET_LIFETIME_YEARS ? 'expired' : 'used';
   }

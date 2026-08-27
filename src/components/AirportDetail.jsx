@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
+import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { useGame, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport, gateCapacityOf } from '../data/airports.js';
 import {
@@ -82,15 +84,19 @@ function LoungeCard({ code }) {
             <Stat label="Fit-out"     value={`${LOUNGE_BUILD_WEEKS} weeks`} sub="before it opens" />
             <Stat label="Running"     value={`${formatMoney(LOUNGE_WEEKLY_OPEX)}/wk`} sub="staff, F&B, rent" color="var(--red)" />
           </div>
-          {!check.ok && (
-            <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 10 }}>
-              {check.reasons[0]}
-            </div>
-          )}
+          {(() => {
+            const eraLock = !featureLive('lounges', eraCalendarYear(state));
+            const reason = eraLock ? ERA_FEATURE_MESSAGE.lounges : (!check.ok ? check.reasons[0] : null);
+            return reason && (
+              <div style={{ fontSize: 12, color: 'var(--yellow)', marginBottom: 10 }}>
+                {eraLock ? '🕰 ' : ''}{reason}
+              </div>
+            );
+          })()}
           <button
-            className={check.ok ? 'btn btn-primary' : 'btn'}
-            style={{ fontSize: 13, cursor: check.ok ? 'pointer' : 'not-allowed' }}
-            disabled={!check.ok}
+            className={check.ok && featureLive('lounges', eraCalendarYear(state)) ? 'btn btn-primary' : 'btn'}
+            style={{ fontSize: 13, cursor: check.ok && featureLive('lounges', eraCalendarYear(state)) ? 'pointer' : 'not-allowed' }}
+            disabled={!check.ok || !featureLive('lounges', eraCalendarYear(state))}
             onClick={async () => {
               if (!check.ok) return;
               if (await confirm({

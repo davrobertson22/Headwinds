@@ -247,6 +247,7 @@ export const EVENT_TEMPLATES = [
   },
   {
     id: 'tech_outage',
+    fromYear: 1995,   // era worlds: industry-wide IT outages need an industry-wide IT
     type: 'disruption',
     name: 'Industry-Wide IT Outage',
     icon: '💻',
@@ -291,6 +292,7 @@ export const EVENT_TEMPLATES = [
   },
   {
     id: 'pandemic_scare',
+    fromYear: 1990,   // era worlds: framed as a modern public-health scare (SARS-like)
     type: 'disruption',
     name: 'Pandemic Scare',
     icon: '😷',
@@ -403,6 +405,7 @@ export const EVENT_TEMPLATES = [
   },
   {
     id: 'mega_conference',
+    fromYear: 1980,   // era worlds: the giant convention circuit is a modern phenomenon
     type: 'demand',
     name: 'Major Trade Conference',
     icon: '🤝',
@@ -609,12 +612,16 @@ export const SOLO_ONLY_EVENTS = new Set(['competitor_crisis', 'fare_war', 'new_r
 export function rollEvents(activeEvents = [], opts = {}) {
   const MAX_ACTIVE_EVENTS = 2;
   const multiplayer = opts.multiplayer === true;
+  // Era worlds (phase 5): templates carrying fromYear stay off the dice until
+  // their concept exists. Classic callers pass no calendarYear — parity.
+  const calYear = Number.isInteger(opts.calendarYear) ? opts.calendarYear : null;
   const activeTypes = new Set(activeEvents.map(e => e.templateId));
   const newEvents = [];
 
   for (const tmpl of EVENT_TEMPLATES) {
     if (activeEvents.length + newEvents.length >= MAX_ACTIVE_EVENTS) break; // cap reached
     if (multiplayer && SOLO_ONLY_EVENTS.has(tmpl.id)) continue; // MP: no AI rival to justify it
+    if (calYear != null && tmpl.fromYear != null && calYear < tmpl.fromYear) continue; // not in this era yet
     if (activeTypes.has(tmpl.id)) continue;          // already active
     if (Math.random() > tmpl.probability * EVENT_FREQUENCY) continue;  // didn't trigger
 

@@ -9,6 +9,7 @@
 // context that Tailwinds passes, which silently disabled every runway-length
 // check in Headwinds. Restored. Worth diffing the two on any shared change.
 import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX, eraRevenueScale, eraPaxScale, eraCapitalScale } from './data/era.js';
+import { featureLive, ERA_FEATURE_MESSAGE } from './data/eraFeatures.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
@@ -978,6 +979,75 @@ export function orderDenial(state, typeId) {
   return null;
 }
 
+// Era worlds (phase 5): actions on features that don't exist yet are refused
+// with the same message the UI shows. Null in classic worlds.
+export function eraFeatureDenial(state, feature) {
+  if (featureLive(feature, calendarYear(state))) return null;
+  return { code: 'not_yet_invented', feature, message: ERA_FEATURE_MESSAGE[feature] };
+}
+
+function refuseEraFeature(state, feature) {
+  const denial = eraFeatureDenial(state, feature);
+  if (!denial) return null;
+  return {
+    ...state,
+    error: denial.message,
+    pendingToasts: [...(state.pendingToasts ?? []), {
+      type: 'warning', title: '🕰 Not in this era yet', message: denial.message, duration: 8000,
+    }],
+  };
+}
+
+// ── The Comet 1 grounding (era worlds phase 5) ───────────────────────────────
+// April 1954: after the second unexplained crash, the Comet 1's certificate of
+// airworthiness is withdrawn worldwide. In an era world that reaches calendar
+// week 15 of 1954 holding Comet 1s, the fleet is grounded permanently — frames
+// removed (RETIRE_AIRCRAFT's mechanics), routes released, and the hull insurer
+// pays out 80% of purchase value on owned frames (leased frames return to the
+// lessor at no penalty). A scripted, once-per-timeline beat: it reads as
+// history, not punishment. aircraft.js's withdrawnYear: 1955 keeps any used
+// market from ever reappearing.
+export const COMET_GROUNDING = { calendarYear: 1954, week: 15, typeId: 'comet1', hullPayoutFrac: 0.8 };
+
+function applyCometGrounding(state) {
+  const comets = (state.fleet ?? []).filter(a => a.typeId === COMET_GROUNDING.typeId);
+  if (comets.length === 0) return { ...state, cometGrounded: true };
+  let working = state;
+  for (const a of comets) {
+    const settled = settleCoversForRemoval(working, a.id);
+    working = { ...working, ...settled };
+  }
+  const cometIds = new Set(comets.map(a => a.id));
+  const type     = getAircraftType(COMET_GROUNDING.typeId);
+  const payout   = comets
+    .filter(a => a.ownershipType !== 'lease')
+    .length * Math.round((type?.purchasePrice ?? 0) * COMET_GROUNDING.hullPayoutFrac);
+  const routes      = (working.routes ?? []).filter(r => !cometIds.has(r.aircraftId));
+  const cargoRoutes = (working.cargoRoutes ?? []).filter(r => !cometIds.has(r.aircraftId));
+  const keptIds     = new Set([...routes, ...cargoRoutes].map(r => r.aircraftId));
+  const fleet       = (working.fleet ?? [])
+    .filter(a => !cometIds.has(a.id))
+    .map(a => (a.status === 'retired' || keptIds.has(a.id)) ? a
+      : { ...a, status: a.status === 'assigned' ? 'idle' : a.status });
+  const msg = comets.length === 1
+    ? 'Your Comet 1 has been grounded permanently.'
+    : `Your ${comets.length} Comet 1s have been grounded permanently.`;
+  return {
+    ...working,
+    fleet, routes, cargoRoutes,
+    cash: (working.cash ?? 0) + payout,
+    cometGrounded: true,
+    pendingToasts: [...(working.pendingToasts ?? []), {
+      type: 'warning',
+      title: '🛑 The Comet is grounded',
+      message: `${msg} After the second unexplained crash, the type's certificate of airworthiness `
+        + `has been withdrawn worldwide.${payout > 0 ? ` Hull insurance pays out ${payout.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.` : ''} `
+        + 'The jet age will have to wait for the Comet 4 — or the 707.',
+      duration: 15000,
+    }],
+  };
+}
+
 export function leaseDenial(state, typeId, quantity = 1) {
   if (!state?.newWorldRestrictions) return null;
 
@@ -1854,6 +1924,7 @@ function reducer(state, action) {
     // canRetrofitWifi() — the same function the UI shows the player, so the
     // number on the button is the number the reducer takes.
     case 'INSTALL_WIFI': {
+      { const refused = refuseEraFeature(state, 'wifi'); if (refused) return refused; }
       const ids = [...new Set((action.aircraftIds ?? (action.aircraftId ? [action.aircraftId] : [])).filter(Boolean))];
       if (ids.length === 0) return state;
       const targets = (state.fleet ?? []).filter(a => ids.includes(a.id));
@@ -1900,6 +1971,7 @@ function reducer(state, action) {
 
     // ─── Airport lounges ─────────────────────────────────────────────────────
     case 'BUILD_LOUNGE': {
+      { const refused = refuseEraFeature(state, 'lounges'); if (refused) return refused; }
       const code    = action.code;
       const lounges = state.lounges ?? {};
       const check   = canBuildLounge(code, { lounges, gates: state.gates ?? {}, cash: state.cash });
@@ -3072,6 +3144,7 @@ function reducer(state, action) {
     // Activate (seed the recommended baseline), reset, or deactivate the whole
     // ancillary policy. action: { active: boolean } or { ancillaries: {...} }
     case 'SET_ANCILLARIES': {
+      { const refused = refuseEraFeature(state, 'ancillaries'); if (refused) return refused; }
       if (action.ancillaries !== undefined) {
         return { ...state, ancillaries: normalizeAncillaries(action.ancillaries) };
       }
@@ -3362,6 +3435,7 @@ function reducer(state, action) {
     // ─── Alliance & codeshare actions ───────────────────────────────────────
 
     case 'JOIN_ALLIANCE': {
+      { const refused = refuseEraFeature(state, 'globalAlliances'); if (refused) return refused; }
       // action: { allianceId }
       const alliance = getAlliance(action.allianceId);
       if (!alliance) return state;
@@ -3383,6 +3457,7 @@ function reducer(state, action) {
     }
 
     case 'SIGN_CODESHARE': {
+      { const refused = refuseEraFeature(state, 'codeshares'); if (refused) return refused; }
       // action: { competitorId, partner? }
       const activeAgreements = state.codeshareAgreements ?? [];
       if (activeAgreements.length >= MAX_CODESHARE_AGREEMENTS) return state;
@@ -3607,7 +3682,14 @@ function reducer(state, action) {
     case 'ACKNOWLEDGE_VICTORY':
       return { ...state, victoryAcknowledged: true };
 
-    case 'ADVANCE_WEEK': { try {
+    case 'ADVANCE_WEEK': {
+      // Era worlds: the Comet 1 grounding fires once, entering calendar week 15
+      // of 1954, BEFORE the week is prepared — the fleet does not fly that week.
+      if (state.startYear != null && !state.cometGrounded
+          && calendarYear(state) === COMET_GROUNDING.calendarYear
+          && state.week === COMET_GROUNDING.week) {
+        return reducer(applyCometGrounding(state), action);
+      } try {
       // ── Deterministic pre-tick prep (utils/tickPrep.js) ────────────────────
       // Events aged and expired, the fuel shock folded into the index so hedges
       // cover it, grounding and heavy-check countdowns run down, reserve covers
@@ -3903,6 +3985,11 @@ function reducer(state, action) {
       // NOTE: leaseWarningToasts is populated inside the agedFleet.map() below,
       // so it must be pushed in AFTER that loop (not spread here at construction time).
       const newToasts = [
+        // Era worlds: a toast queued immediately before this tick (the Comet
+        // grounding fires pre-tick and recurses into ADVANCE_WEEK) must
+        // survive it — this array REPLACES pendingToasts in the return.
+        // Classic worlds keep the replace semantics byte-identical.
+        ...(state.startYear != null ? (state.pendingToasts ?? []) : []),
         ...newEvents.map(ev => ({
           type: ev.type === 'fuel' || ev.type === 'disruption' || ev.type === 'economy'
             ? (ev.effects?.fuelMult > 1 || ev.effects?.globalDemandMult < 1 || ev.effects?.regionDemandMult < 1

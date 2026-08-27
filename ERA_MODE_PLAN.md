@@ -1,6 +1,6 @@
 # Era Worlds — a calendar that starts in 1950
 
-**Status:** PHASES 0–4 BUILT — 0–3 pushed, phase 4 on disk 2026-08-27. See BUILD STATE below. Phases 5–6 not started.
+**Status:** PHASES 0–5 BUILT — 0–4 pushed, phase 5 on disk 2026-08-27. See BUILD STATE below. Phase 6 (Tailwinds port) not started.
 
 ## BUILD STATE (2026-08-27)
 
@@ -20,7 +20,11 @@ Built and green in this repo (all uncommitted, Dave to commit/push):
 - Balance test decades now fly the propliners (1950 DC-4, 1955 DC-6B, 1958 Viscount 800) — profitability and the 8× RoC ceiling hold. Suite 148/149 (sandbox-only adsense failure), era tests 32/32.
 - NOTE for deploy: the generated aircraft guide pages (`headwinds-public.mjs`) need regenerating on a real machine — the sandbox can't (EPERM unlink).
 
-Still open: phase 5 (anachronism gates), phase 6 (Tailwinds port + AI competitor era-gating for TW's own seeded rivals). The RoC ceiling in era-balance-test is 8× — the era new-build pricing question (classic prices are used-frame prices) remains the lever to ratchet it down.
+- **Phase 5 — anachronism gates + the Comet grounding (on disk, uncommitted).** NEW `data/eraFeatures.js`: wifi 2004, ancillaries 2008, codeshares 1990, globalAlliances 1997, lounges 1985, gateAuctions 1990 — enforced by `eraFeatureDenial`/`refuseEraFeature` in the reducer (JOIN_ALLIANCE, SIGN_CODESHARE, SET_ANCILLARIES, INSTALL_WIFI, BUILD_LOUNGE all refuse with a "🕰 Not in this era yet" toast), mirrored in the UI (Alliances join, codeshare sign, Ancillaries CTA, Fleet Wi-Fi badge hidden pre-2004, AirportDetail lounge button), and server-side (`gateService.openDueAuctions` returns early pre-1990 — congested airports simply stay congested). Events: `fromYear` on tech_outage (1995), pandemic_scare (1990), mega_conference (1980), filtered in `rollEvents` via opts.calendarYear from both tickPrep (solo) and tickService (MP).
+- **The Comet 1 grounding is real.** Entering calendar week 15 of 1954 holding Comet 1s: the fleet is withdrawn permanently (RETIRE mechanics — covers settled, routes released), hull insurance pays 80% of purchase on owned frames, a 15-second toast tells the story, `state.cometGrounded` one-shots it, and `withdrawnYear: 1955` on the type means the used market never reappears (new `withdrawnYear` clause in `aircraftAvailability`). Implemented as a pre-tick transform that recurses into ADVANCE_WEEK — which required letting era worlds CARRY pre-tick pendingToasts through the tick (the return replaces the array; classic keeps replace-semantics byte-identical).
+- Phase-5 tests: `tools/era-features-test.mjs` (6). Era suite 38 tests; full suite 149/150 (sandbox-only adsense failure); `PARITY OK` — no golden change this phase.
+
+Still open: phase 6 (Tailwinds port + AI competitor era-gating for TW's own seeded rivals). The RoC ceiling in era-balance-test is 8× — the era new-build pricing question (classic prices are used-frame prices) remains the lever to ratchet it down.
 
 ---
 

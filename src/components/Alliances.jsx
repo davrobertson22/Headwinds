@@ -1,4 +1,6 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import { calendarYear } from '../utils/simulation.js';
+import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, routeQualityBreakdown } from '../utils/simulation.js';
@@ -562,7 +564,10 @@ function AllianceCard({
   });
 
   const canAfford    = state.cash >= alliance.initiationFee;
-  const canJoin      = eligible && canAfford && !hasAnyMembership;
+  // Era worlds: global alliances don't exist before 1997 (phase 5). The
+  // reducer refuses too; this keeps the button honest.
+  const eraLocked    = !featureLive('globalAlliances', calendarYear(state));
+  const canJoin      = eligible && canAfford && !hasAnyMembership && !eraLocked;
 
   function handleJoin() {
     if (!canJoin) return;
@@ -790,6 +795,10 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
   // button took a fee off you and paid you interline revenue computed from
   // their network without them ever being told the deal existed.
   async function sign(comp) {
+    if (!featureLive('codeshares', calendarYear(state))) {
+      setNote(ERA_FEATURE_MESSAGE.codeshares);
+      return;
+    }
     if (!remote) { dispatch({ type: 'SIGN_CODESHARE', competitorId: comp.id }); return; }
     setBusyId(comp.id); setNote(null);
     try {

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { calendarYear } from '../utils/simulation.js';
+import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import {
@@ -363,9 +365,15 @@ export default function Ancillaries() {
               </button>
             </>
           ) : (
-            <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => dispatch({ type: 'SET_ANCILLARIES', active: true })}>
-              Activate recommended pricing
-            </button>
+            featureLive('ancillaries', calendarYear(state)) ? (
+              <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => dispatch({ type: 'SET_ANCILLARIES', active: true })}>
+                Activate recommended pricing
+              </button>
+            ) : (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                🕰 {ERA_FEATURE_MESSAGE.ancillaries}
+              </span>
+            )
           )}
         </div>
       </div>
