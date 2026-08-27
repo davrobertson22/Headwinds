@@ -54,6 +54,8 @@ Node 22 is pinned by `engines` in package.json (supabase-js needs native WebSock
    - `VITE_SUPABASE_URL` — same as server
    - `VITE_SUPABASE_ANON_KEY` — same as server
    - `VITE_API_URL` — `https://<your-railway-api-domain>` (no trailing slash)
+   - `VITE_CARTO_KEY` — free CARTO basemap key (carto.com/basemaps/apikey).
+     Without it the route map's tiles arrive stamped "API KEY REQUIRED".
 4. Deploy → note the URL, e.g. `headwinds.vercel.app`.
 
 ---
