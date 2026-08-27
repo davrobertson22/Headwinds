@@ -2,7 +2,8 @@
  * valuation-v3-check.mjs — compare the LIVE valuation against the proposed
  * valuation v3 constants from STOCK_MARKET_PLAN_V2.md (Part A).
  *
- * Not a test — a calibration harness. Run it, read the table, tune V3 below.
+ * @not-a-test — a calibration harness. Run it, read the table, tune V3 below.
+ *   (the marker keeps tools/run-tests.mjs from treating this as a suite)
  *   node tools/valuation-v3-check.mjs
  */
 

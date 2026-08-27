@@ -21,7 +21,7 @@ Any screen that forecasts a route or a market share must route through the share
 
 ## Testing
 
-`npm test` runs the full chain. Individual suites have `test:*` aliases in `package.json`.
+`npm test` runs every suite in `tools/`, discovered from disk by `tools/run-tests.mjs` — there is no hand-maintained chain to append to, so a new `tools/*-test.mjs` is in the suite the moment it exists. It runs them in parallel, reports EVERY failure rather than stopping at the first, and exits non-zero if any failed. `npm run test:list` shows what would run; `npm run test:serial` runs one at a time; `node tools/run-tests.mjs <substring>` runs a subset. A file that prints a report and asserts nothing carries an `@not-a-test` marker in its header and is skipped (listed, never dropped in silence). Individual suites still have `test:*` aliases in `package.json`.
 
 - New engine behaviour ships with a test that is **verified failing on HEAD** before the fix lands. If the new API doesn't exist on HEAD, prove the failure by reproducing the old call path in a throwaway probe rather than claiming the import error as evidence.
 - `node tools/golden-master/run.mjs` must print `PARITY OK` for any change meant to be behaviour-preserving. Re-baseline with `--update` only when a balance change is intended and stated.

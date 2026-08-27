@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// engine-drift-check.mjs — READ-ONLY report of divergence between the Headwinds
+// engine-drift-check.mjs — @not-a-test: a READ-ONLY report, not a pass/fail suite.
+// Without --strict it always exits 0, so it carries no signal inside `npm test`;
+// tools/run-tests.mjs skips it and `npm run drift` still prints the report.
+//
+// READ-ONLY report of divergence between the Headwinds
 // and Tailwinds copies of the shared-by-convention engine (data/, models/,
 // utils/). It NEVER writes anything.
 //
