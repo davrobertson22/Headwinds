@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType, AIRCRAFT_TYPES } from '../data/aircraft.js';
 import { routeLaunchCost } from '../data/overhead.js';
@@ -8,7 +8,7 @@ import {
   simulateTagRoute, referencePrice, distanceKm, formatMoney, formatPercent,
   currentGameDate, effectiveRangeKm, defaultClassPrices,
   routeLegs, routeSegments, routeSegmentKey, routeMaxLegKm, routeBlockHours,
-  routeLandingFee, routeStops, SLOTS_PER_GATE, MAX_ROUTE_STOPS,
+  routeLandingFee, routeStops, MAX_ROUTE_STOPS,
   cargoSlotsUsedAt, fleetAvgUtilization, maxWeeklyBlockHoursFor,
   routesCommittedTo, committedPeakBlockHours, blockHourFit,
   stateLoungeFields, buildEventDemandModel,
@@ -40,18 +40,43 @@ function StopSelect({ value, onChange, gates, hubs, placeholder }) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export default function TagRoutePlanner({ mode, setMode }) {
+/**
+ * @param {object}   props
+ * @param {string}   [props.mode]         planner mode, for the shared ModeToggle
+ * @param {function} [props.setMode]
+ * @param {boolean}  [props.embedded]     rendered inside another screen: no mode
+ *                                        toggle, and opening hands control back
+ * @param {string[]} [props.initialStops] pre-loaded, LOCKED stop chain — the
+ *                                        "add an aircraft to this rotation" flow
+ *                                        from the Routes page. Same contract as
+ *                                        AddRouteForm's initialOrigin/initialDest:
+ *                                        the airports are the one thing the
+ *                                        player is NOT choosing here.
+ * @param {object}   [props.initialFares] { [segKey]: economy$ } to start from —
+ *                                        the fares the rotation already sells, so
+ *                                        a second aircraft doesn't silently
+ *                                        undercut the first at reference price.
+ * @param {function} [props.onOpened]     called after ADD_TAG_ROUTE dispatches
+ */
+export default function TagRoutePlanner({ mode, setMode, embedded = false, initialStops = null, initialFares = null, onOpened }) {
   const { state, dispatch } = useGame();
   const { fleet, routes, gates = {}, hub, cash, cargoRoutes = [], hubs = EMPTY_HUBS } = state;
   const gd = currentGameDate(state);
   const bhCap = maxWeeklyBlockHoursFor(state);
 
+  // A locked chain is the "add aircraft to THIS rotation" flow; free-form is the
+  // normal planner. Captured once at mount — the caller keys the element on the
+  // chain, so a different rotation mounts a fresh planner rather than mutating
+  // this one under the player.
+  const lockedStops = Array.isArray(initialStops) && initialStops.length >= 3
+    ? initialStops.filter(Boolean) : null;
+
   // Ordered stops: a tag flight needs ≥3 (origin + ≥1 stop + destination).
-  const [stops, setStops] = useState([hub || '', '', '']);
+  const [stops, setStops] = useState(lockedStops ?? [hub || '', '', '']);
   const [aircraftId, setAircraftId] = useState('');
   const [frequency, setFrequency]   = useState(5);
   const [cateringLevel, setCateringLevel] = useState(normalizeCateringLevel(state.defaultCateringLevel));
-  const [fareOverrides, setFareOverrides] = useState({}); // { [segKey]: economy$ }
+  const [fareOverrides, setFareOverrides] = useState(initialFares ?? {}); // { [segKey]: economy$ }
 
   const setStop = (i, code) => setStops(s => s.map((c, j) => (j === i ? code : c)));
   const addStop = () => setStops(s => (s.length >= MAX_ROUTE_STOPS ? s : [...s.slice(0, -1), '', s[s.length - 1]])); // insert before destination
@@ -149,11 +174,19 @@ export default function TagRoutePlanner({ mode, setMode }) {
 
   const incident = {};
   for (const l of legs) { incident[l.from] = (incident[l.from] ?? 0) + 1; incident[l.to] = (incident[l.to] ?? 0) + 1; }
-  const incidentCount = (r, code) => routeLegs(r).reduce((n, l) => n + (l.from === code ? 1 : 0) + (l.to === code ? 1 : 0), 0);
-  const slotsUsedAt = (code) => routes.reduce((s, r) => s + incidentCount(r, code) * (r.weeklyFrequency ?? 0), 0)
-    + cargoSlotsUsedAt(code, cargoRoutes);
-  const gateProblem = ready ? validStops.find(c => !(gates[c] > 0)) : null;
-  const slotProblem = ready ? validStops.find(c => slotsUsedAt(c) + (incident[c] ?? 0) * frequency > (gates[c] ?? 0) * SLOTS_PER_GATE) : null;
+  // The guard's own reading: a 12-month PEAK across passenger and freight, not
+  // a sum. Summing charged two counter-seasonal routes that never coexist twice
+  // over, and this screen refused rotations the engine would have opened.
+  const slotsUsedAt = (code) => slotsUsedAtEngine([...routes, ...cargoRoutes], code);
+  // Presence, the guard's reading: "any capacity here at all". A pooled grant
+  // opens an airport you hold no gates at, and addTagRouteBlockReason accepts
+  // it — telling the player "no gate" here made the slot half of that
+  // unreachable for exactly the case it was written for.
+  const gateProblem = ready ? validStops.find(c => slotCapAt(state, c) <= 0) : null;
+  // Capacity measured the way the engine measures it — slotCapAt() counts an
+  // alliance partner's granted slots, so a member adding a rotation on borrowed
+  // capacity is not told the airport is full when the reducer would allow it.
+  const slotProblem = ready ? validStops.find(c => slotsUsedAt(c) + (incident[c] ?? 0) * frequency > slotCapAt(state, c)) : null;
 
   const aircraftRoutes = aircraft ? routesCommittedTo(aircraft.id, routes, cargoRoutes) : [];
   const served = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
@@ -174,6 +207,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
       cateringLevel,
       segmentPrices: route.segmentPrices,
     });
+    if (onOpened) { onOpened(); return; }
     // Reset the intermediate stops but keep the hub as a convenient origin.
     setStops([hub || '', '', '']);
     setFareOverrides({});
@@ -184,16 +218,30 @@ export default function TagRoutePlanner({ mode, setMode }) {
 
   return (
     <div>
-      <ModeToggle mode={mode} setMode={setMode} />
+      {!embedded && <ModeToggle mode={mode} setMode={setMode} />}
 
       {/* ── Stops builder ── */}
       <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Multi-stop route</div>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>
+          {lockedStops ? 'Add an aircraft to this rotation' : 'Multi-stop route'}
+        </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-          One aircraft flies every stop in order (and back). It sells each local leg <em>and</em> the through markets — a passenger
-          can fly the whole way or hop on/off at any stop. Each leg must be within range; the total trip can exceed it.
+          {lockedStops
+            ? <>The stops are fixed — pick the aircraft and how often it flies. It joins the rotation as a second tail, sharing the same markets as the aircraft already on it.</>
+            : <>One aircraft flies every stop in order (and back). It sells each local leg <em>and</em> the through markets — a passenger
+              can fly the whole way or hop on/off at any stop. Each leg must be within range; the total trip can exceed it.</>}
         </div>
 
+        {lockedStops ? (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 17, fontWeight: 700 }}>
+            {lockedStops.map((c, i) => (
+              <span key={i}>
+                {c}
+                {i < lockedStops.length - 1 && <span style={{ color: 'var(--text-muted)', margin: '0 8px', fontWeight: 400 }}>→</span>}
+              </span>
+            ))}
+          </div>
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {stops.map((code, i) => {
             const role = i === 0 ? 'Origin' : i === stops.length - 1 ? 'Destination' : `Stop ${i}`;
@@ -214,7 +262,9 @@ export default function TagRoutePlanner({ mode, setMode }) {
             );
           })}
         </div>
+        )}
 
+        {!lockedStops && (
         <div style={{ marginTop: 10 }}>
           <button className="btn btn-ghost" style={{ fontSize: 13, opacity: atStopLimit ? 0.4 : 1, cursor: atStopLimit ? 'not-allowed' : 'pointer' }}
             onClick={addStop} disabled={atStopLimit}>+ Add stop</button>
@@ -225,6 +275,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
             <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--red)' }}><Glyph e="⚠" /> Each airport can appear only once.</span>
           )}
         </div>
+        )}
       </div>
 
       {!ready && (

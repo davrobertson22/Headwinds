@@ -54,6 +54,40 @@ export function segmentsForRoute(lat1, lon1, lat2, lon2, n = 80) {
   return [norm];
 }
 
+// ── Great-circle path through a CHAIN of airports ────────────────────────────
+// A multi-stop rotation is not one arc — MCI–JFK–ORY bends at JFK, and drawing
+// MCI→ORY instead puts the line hundreds of km from the airport the aeroplane
+// actually lands at. Legs are concatenated into ONE polyline, with longitudes
+// unwrapped ACROSS the joins as well as within each leg, so a chain that crosses
+// the antimeridian stays a single continuous line instead of snapping back
+// across the whole world at a stop.
+//
+// `points` is [[lat, lon], ...] in visiting order (2 or more).
+export function segmentsForChain(points, n = 80) {
+  const pts = (points ?? []).filter(p => Array.isArray(p) && p.length >= 2);
+  if (pts.length < 2) return [pts];
+
+  const chain = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [lat1, lon1] = pts[i];
+    const [lat2, lon2] = pts[i + 1];
+    // Unwrap this leg's start against where the previous leg ended, so the
+    // whole chain lives in one continuous longitude space.
+    let startLon = lon1;
+    if (chain.length) {
+      const prev = chain[chain.length - 1][1];
+      while (startLon - prev >  180) startLon -= 360;
+      while (prev - startLon >  180) startLon += 360;
+    }
+    const shift = startLon - lon1;
+    const [leg] = segmentsForRoute(lat1, lon1, lat2, lon2, n);
+    for (let j = chain.length ? 1 : 0; j < leg.length; j++) {
+      chain.push([leg[j][0], leg[j][1] + shift]);
+    }
+  }
+  return [chain];
+}
+
 // ── Leaflet CDN loader ────────────────────────────────────────────────────────
 export const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 export const LEAFLET_JS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
@@ -141,6 +175,11 @@ export const SPOKE_COLOR     = '#4da6ff';  // sky blue
 export const ALLIANCE_COLOR  = '#b794ff';  // purple for alliance members
 export const CODESHARE_COLOR = '#38e1ff';  // cyan for codeshare partners
 export const CARGO_COLOR     = '#e8833a';  // amber for cargo / freight routes
+// Multi-stop rotations. Purple is already how the Routes page marks them (the
+// tag card's left border, the THROUGH fare chips), so the map borrows it rather
+// than inventing a third convention: profit still reads from the tooltip, but
+// "this line bends" has to be visible at a glance.
+export const TAG_COLOR       = '#a371f7';  // purple for multi-stop (tag) routes
 
 // Rivals tab. A rival's own network is deliberately NOT green/red — profit is
 // private, so colouring their lines by profitability would be inventing data.

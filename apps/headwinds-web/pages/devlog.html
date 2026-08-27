@@ -54,6 +54,44 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">August 27, 2026</p>
+      <h2>Multi-stop routes bend on the map &mdash; and can finally take more flights and more aircraft</h2>
+      <p>Reported on the Discord: &ldquo;I fly a multi-leg route, MCI-JFK-ORY. On the map, it shows a line from MCI to ORY&rdquo; &mdash; and &ldquo;I have several other multi leg routes, and they are all full &hellip; you can add more weekly round trips and more aircraft to that route from the routes page, but not for multi leg routes.&rdquo;</p>
+      <ul>
+        <li><strong>The map draws every stop.</strong> A rotation like MCI&ndash;JFK&ndash;ORY used to appear as a single arc from Kansas City to Paris, passing hundreds of kilometres from the airport it actually lands at. The line now bends through each stop in order and is drawn in the same purple the routes page uses for multi-stop. Hovering names the whole chain and its leg count; focusing one frames the entire rotation instead of just its ends.</li>
+        <li><strong>A rotation is its own route on the map.</strong> If you fly both MCI&ndash;JFK&ndash;ORY and a plain MCI&ndash;ORY, they used to be merged into one line and one row with their numbers added together. They are two products and now read as two.</li>
+        <li><strong>Filtering the map by an airport finds rotations that stop there</strong>, not just the ones that begin or end there.</li>
+        <li><strong>Multi-stop routes have a flights-per-week stepper</strong>, the same one single-leg routes have. When it refuses, it names the airport that ran out of slots &mdash; including the one in the middle, which is usually the one that&rsquo;s full.</li>
+        <li><strong>&ldquo;+ Add Aircraft&rdquo; puts a second aircraft on a rotation</strong> without closing and rebuilding it. The stops are locked, and the fares it starts from are the ones that rotation already sells, so your two tails don&rsquo;t undercut each other.</li>
+        <li><strong>Freight lanes get the same treatment.</strong> Flights and yield were already editable on the routes page; &ldquo;+ Add Freighter&rdquo; now opens the freight planner on that lane, so a freighter that has run out of block hours isn&rsquo;t the end of the lane.</li>
+        <li><strong>Slot arithmetic counts the stops in the middle.</strong> A rotation calling at an airport uses two movements there per cycle &mdash; an arrival and a departure. The gate-slot checks now count them everywhere, so a busy connecting airport can no longer be quietly oversold by a frequency bump or a new route. Passenger and freight also count against each other now: a freighter occupies a gate exactly like a jet, and the two halves of your airline were previously able to book the same slot twice.</li>
+        <li><strong>Regulations follow the aeroplane.</strong> A one-stop used to be a way around a rule: the legs of a rotation were checked, the market it actually sells was not, so a service into a restricted airport could be flown at any frequency by adding a stop. Each leg is now judged on the departures it operates, and the route is judged on the market it sells &mdash; and where an airport&rsquo;s rules give a limited number of exemptions, a nonstop and a one-stop on the same city pair share one, rather than each taking a full allowance.</li>
+        <li><strong>A refused route now tells you which rule refused it</strong>, in the regulator&rsquo;s own words, and on a rotation it names the leg. &ldquo;Regulatory frequency cap&rdquo; on a route that is banned outright at any frequency sent people hunting for a cap that was never the problem.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">August 27, 2026</p>
+      <h2>Find any airport in the world from the Airports tab</h2>
+      <ul>
+        <li><strong>A search box at the top of Airports now reaches every airport in the game.</strong> The old one only searched the region you had opened, so looking up Honolulu meant knowing it was filed under Oceania first &mdash; or going to the route finder or the gate list to see its numbers. Type a code, a city, an airport name or a country and click straight through to the airport page: gates and slots, who else flies there, your presence and its connectivity.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">August 27, 2026</p>
+      <h2>Cabin refits work &mdash; and now take the aircraft into the shop</h2>
+      <p>Reported on the Discord: &ldquo;cabin reconfigs dont appear to work &hellip; it goes through but the plane isnt taken out of service the next week, nor does it actually change configurations&rdquo;. Two separate faults met in that one report.</p>
+      <ul>
+        <li><strong>Refits weren&rsquo;t reaching the world at all.</strong> Confirming a new cabin closed the screen and did nothing &mdash; no change, no charge, no error. The request was being dropped in your browser before it ever left for the server, so a refit you thought you&rsquo;d booked simply never happened. Fixed: cabin changes now save like every other decision.</li>
+        <li><strong>A refit is real work now.</strong> The cost banner has always said the aircraft comes out of service for refitting. It never did. Reconfiguring a cabin now sends the aircraft to the shop: one week for most narrowbodies and regionals, two for widebodies and up, plus a week when you&rsquo;re moving a quarter of the seats or more. The screen quotes the exact number of weeks before you commit, and any routes the aircraft flies stop earning until it&rsquo;s back &mdash; so re-cabining a fleet mid-season is a decision with a price attached.</li>
+        <li><strong>An aircraft already in the shop can&rsquo;t take a cabin job.</strong> Select a tail that&rsquo;s in a C or D check, or grounded by a failure, and the refit screen says so and leaves it out of the batch. A batch charges you only for the aircraft it actually refits.</li>
+        <li><strong>Refitting aircraft say &ldquo;Refitting&rdquo;</strong> on the fleet list and the route tables, not &ldquo;Grounded &mdash; in repair&rdquo;. Nothing is broken; it&rsquo;s in the hangar because you sent it there.</li>
+        <li><strong>Maintenance checks now show time until due, not time flown.</strong> The check panel used to print hours accrued &mdash; the same number under both C and D on a young airframe, which is why it read as total time. It now reads <em>due in ~6w (766h left)</em>, estimated from how hard that particular aircraft is actually flying, so a hard-worked jet shows a nearer date than a spare. Thresholds and check costs are unchanged.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
       <p class="date">August 13, 2026</p>
       <h2>Deposits come back, hubs connect properly, and a failed save says so</h2>
       <p>A fixes release, mostly shared-engine work &mdash; the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a> has the same list in more detail.</p>

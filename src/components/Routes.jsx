@@ -1,11 +1,12 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import { useState, useMemo, useEffect } from 'react';
-import { useGame, frequencyChangeBlockReason } from '../store/GameContext.jsx';
+import { useGame, frequencyChangeBlockReason, peakSlotsUsedAt, slotCapAt } from '../store/GameContext.jsx';
 import RouteDetail from './RouteDetail.jsx';
 import AirportLink from './AirportLink.jsx';
 import CargoRoutesList, { FreightBadge, PassengerBadge } from './CargoRoutesList.jsx';
 import CargoRoutePlanner from './CargoRoutePlanner.jsx';
+import TagRoutePlanner from './TagRoutePlanner.jsx';
 import { AIRPORTS, getAirport, getRegion, REGIONS } from '../data/airports.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
 import { groundedTitle } from '../data/maintenance.js';
@@ -32,7 +33,7 @@ import { projectRouteAddition, rivalSpecsFor } from '../../packages/engine/src/m
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
-  weeklyBlockHours, blockTimeHours, maxFrequency, maxWeeklyBlockHoursFor, MIN_SPARE_BLOCK_HOURS, SLOTS_PER_GATE, cargoSlotsUsedAt,
+  weeklyBlockHours, blockTimeHours, maxFrequency, maxWeeklyBlockHoursFor, MIN_SPARE_BLOCK_HOURS,
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
@@ -194,6 +195,14 @@ export default function Routes() {
 
   // Freight planner toggle (inline "Open Freight Route" form in the Freight view)
   const [showCargoForm, setShowCargoForm] = useState(false);
+  // The lane the freight planner opens on when it was launched from a route's
+  // "+ Add Freighter" rather than from the header button (null = blank planner).
+  const [cargoAddLane, setCargoAddLane] = useState(null);
+
+  // "Add an aircraft to this rotation": the stop chain of the multi-stop route
+  // being reinforced, or null. Single-leg pairs get the same affordance through
+  // formMode; a rotation is a chain, not a pair, so it needs its own.
+  const [tagAddStops, setTagAddStops] = useState(null);
 
   // View mode: 'table' (default — scales to hundreds of routes) | 'cards'
   const [viewMode, setViewMode] = useState(() => {
@@ -654,7 +663,7 @@ export default function Routes() {
             <button
               className="btn btn-primary"
               style={{ background: '#e8833a', borderColor: '#e8833a' }}
-              onClick={() => setShowCargoForm(v => !v)}
+              onClick={() => { setCargoAddLane(null); setShowCargoForm(v => !v); }}
             >
               <GlyphLabel size={12} text={showCargoForm ? '✕ Cancel' : '📦 Open Freight Route'} />
             </button>
@@ -662,10 +671,22 @@ export default function Routes() {
         </div>
         {showCargoForm && (
           <div style={{ marginBottom: 16 }}>
-            <CargoRoutePlanner embedded onOpened={() => setShowCargoForm(false)} />
+            <CargoRoutePlanner
+              key={cargoAddLane ? `${cargoAddLane.origin}→${cargoAddLane.destination}` : 'new'}
+              embedded
+              initialOrigin={cargoAddLane?.origin ?? ''}
+              initialDest={cargoAddLane?.destination ?? ''}
+              onOpened={() => { setShowCargoForm(false); setCargoAddLane(null); }}
+            />
           </div>
         )}
-        <CargoRoutesList airportFilter={airportFilter} />
+        <CargoRoutesList
+          airportFilter={airportFilter}
+          onAddFreighter={(origin, destination) => {
+            setCargoAddLane({ origin, destination });
+            setShowCargoForm(true);
+          }}
+        />
       </div>
     );
   }
@@ -1012,8 +1033,37 @@ export default function Routes() {
               </span>
             )}
           </div>
+          {tagAddStops && (
+            <div style={{ marginBottom: 16 }}>
+              <TagRoutePlanner
+                key={tagAddStops.chain.join('-')}
+                embedded
+                initialStops={tagAddStops.chain}
+                initialFares={tagAddStops.fares}
+                onOpened={() => setTagAddStops(null)}
+              />
+              <div style={{ textAlign: 'right', marginTop: 6 }}>
+                <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setTagAddStops(null)}>
+                  ✕ Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {visibleTagRoutes.map(route => (
-            <TagRouteCard key={route.id} route={route} onClose={handleClose} />
+            <TagRouteCard
+              key={route.id}
+              route={route}
+              siblingCount={tagRoutes.filter(r => routeStops(r).join('-') === routeStops(route).join('-')).length}
+              onClose={handleClose}
+              onAddAircraft={() => setTagAddStops({
+                chain: routeStops(route),
+                // Start from the fares this rotation already sells rather than
+                // reference price — two of your own tails on one rotation
+                // undercutting each other is nobody's intent.
+                fares: Object.fromEntries(Object.entries(route.segmentPrices ?? {})
+                  .map(([k, v]) => [k, v?.economy]).filter(([, v]) => v > 0)),
+              })}
+            />
           ))}
         </div>
       )}
@@ -1029,7 +1079,17 @@ export default function Routes() {
               </span>
             )}
           </div>
-          <CargoRoutesList airportFilter={airportFilter} />
+          <CargoRoutesList
+            airportFilter={airportFilter}
+            onAddFreighter={(origin, destination) => {
+              // The freight planner lives on the Freight tab — take the player
+              // there with the lane loaded rather than opening a form they
+              // cannot see from here.
+              setCargoAddLane({ origin, destination });
+              setShowCargoForm(true);
+              setTypeFilter('freight');
+            }}
+          />
         </div>
       )}
 
@@ -1047,7 +1107,7 @@ export default function Routes() {
 
 // ─── Multi-stop (tag) route card ──────────────────────────────────────────────
 
-function TagRouteCard({ route, onClose }) {
+function TagRouteCard({ route, onClose, onAddAircraft, siblingCount = 1 }) {
   const { state } = useGame();
   const { fleet } = state;
   const gd = currentGameDate(state);
@@ -1090,9 +1150,19 @@ function TagRouteCard({ route, onClose }) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: 'rgba(163,113,247,0.14)', color: 'var(--purple)', border: '1px solid rgba(163,113,247,0.35)' }}>
-            {route.weeklyFrequency}× / wk
-          </span>
+          {siblingCount > 1 && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="Aircraft flying this same rotation">
+              {siblingCount} aircraft on this rotation
+            </span>
+          )}
+          {/* Weekly frequency, editable in place. A rotation is guarded on every
+              stop it touches — see frequencyChangeBlockReason — so the + explains
+              itself when the airport in the MIDDLE is what has run out. */}
+          <FrequencyStepper route={route} />
+          <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: 11 }}
+            onClick={onAddAircraft} title="Put another aircraft on this rotation">
+            + Add Aircraft
+          </button>
           <button className="btn" style={{ padding: '3px 10px', fontSize: 11, background: 'rgba(248,81,73,0.1)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)' }}
             onClick={() => onClose(route.id)}>Remove</button>
         </div>
@@ -2424,17 +2494,20 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const blockColor = blockPct >= 1 ? 'var(--red)' : blockPct >= 0.8 ? 'var(--yellow)' : 'var(--green)';
 
   // Gate / slot checks
-  const gateAtOrigin   = (gates[origin] ?? 0) > 0;
-  const gateAtDest     = validDest && (gates[dest] ?? 0) > 0;
+  // Presence is "any capacity here at all", the reducer's test: a pooled
+  // alliance grant opens an airport you hold no gates at.
+  const gateAtOrigin   = slotCapAt(state, origin) > 0;
+  const gateAtDest     = validDest && slotCapAt(state, dest) > 0;
   // Per-month peak so a dormant route frees its slots for a counter-seasonal route.
-  const slotsUsedAt    = (code) => Math.max(0, ...newMonths.map(m =>
-    routes.filter(r => (r.origin === code || r.destination === code) && isRouteActive(r, m))
-      .reduce((s, r) => s + r.weeklyFrequency, 0)))
-    + cargoSlotsUsedAt(code, cargoRoutes);
-  const originSlotCap  = (gates[origin] ?? 0) * SLOTS_PER_GATE;
+  // peakSlotsUsedAt, so this quote is the guard's own arithmetic: a rotation
+  // stopping here is charged the two movements it makes, and the cap counts an
+  // alliance partner's granted slots. Endpoint-only counting quoted free slots
+  // at a connecting hub that addRouteBlockReason would then refuse.
+  const slotsUsedAt    = (code) => peakSlotsUsedAt([...routes, ...cargoRoutes], code, newMonths);
+  const originSlotCap  = slotCapAt(state, origin);
   const originSlotsUsed = slotsUsedAt(origin);
   const originSlotsOk  = gateAtOrigin && (originSlotsUsed + Number(frequency) <= originSlotCap);
-  const destSlotCap    = validDest ? (gates[dest] ?? 0) * SLOTS_PER_GATE : 0;
+  const destSlotCap    = validDest ? slotCapAt(state, dest) : 0;
   const destSlotsUsed  = validDest ? slotsUsedAt(dest) : 0;
   const destSlotsOk    = gateAtDest && (destSlotsUsed + Number(frequency) <= destSlotCap);
 

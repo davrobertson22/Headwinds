@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
-import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, SLOTS_PER_GATE, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm } from '../utils/simulation.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
+import { cargoPriceChokeFactor, CARGO_PRICE_CAP_MULTIPLE } from '../models/demand.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
 import { Glyph } from './Icons.jsx';
@@ -120,12 +121,21 @@ const ACCENT = '#e8833a';
 
 // ─── Main cargo planner ─────────────────────────────────────────────────────────
 
-export default function CargoRoutePlanner({ mode, setMode, embedded = false, onOpened }) {
+/**
+ * @param {boolean}  [props.embedded]      rendered inside the Routes screen
+ * @param {string}   [props.initialOrigin] pre-loaded lane — "add a freighter to
+ * @param {string}   [props.initialDest]   this lane" from the freight routes list
+ * @param {function} [props.onOpened]      called once the lane is opened
+ */
+export default function CargoRoutePlanner({ mode, setMode, embedded = false, initialOrigin = '', initialDest = '', onOpened }) {
   const { state, dispatch } = useGame();
   const bhCap = maxWeeklyBlockHoursFor(state);
 
-  const [origin, setOrigin]   = useState('');
-  const [dest,   setDest]     = useState('');
+  // Prefill is read at mount only; the caller keys the element on the lane, so
+  // picking a different route mounts a fresh planner rather than yanking the
+  // airports out from under a half-finished one.
+  const [origin, setOrigin]   = useState(initialOrigin);
+  const [dest,   setDest]     = useState(initialDest);
   const [selectedTypeId, setSelectedTypeId] = useState('');
   const [frequency, setFrequency] = useState(7);
   const [yieldPrice, setYieldPrice] = useState(null); // null = auto reference yield
@@ -296,22 +306,28 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
   function handleSwap() { const o = origin; setOrigin(dest); setDest(o); setYieldPrice(null); }
 
   const yieldPct  = routeData ? Math.round((effectiveYield / routeData.refYield - 1) * 100) : 0;
+  // The freight you forfeit for pricing above the lane's going rate, straight
+  // from the engine's own choke — so the planner quotes the same ceiling the
+  // tick enforces rather than leaving players to find it by trial and error.
+  const yieldChokePct = routeData
+    ? Math.round((1 - cargoPriceChokeFactor(effectiveYield, routeData.refYield)) * 100)
+    : 0;
   const perKg     = routeData ? (effectiveYield * routeData.dist / 1000) : 0;
 
   // ── Gates & slots ───────────────────────────────────────────────────────────
   // Freighters use gates and slots exactly like passenger flights: a gate is
   // required at both ends, and each weekly departure consumes a slot.
   const gates = state.gates ?? {};
+  // Through the engine's own helper so a passenger rotation calling here is
+  // charged the two movements it makes, and the cap counts an alliance
+  // partner's granted slots — the same reading addCargoRouteBlockReason uses.
   const slotsUsedAt = (code) =>
-    (state.routes ?? [])
-      .filter(r => r.origin === code || r.destination === code)
-      .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0)
+    slotsUsedAtEngine(state.routes ?? [], code)
     + cargoSlotsUsedAt(code, state.cargoRoutes);
   const gateInfo = (code) => {
-    const count = gates[code] ?? 0;
-    const cap   = count * SLOTS_PER_GATE;
+    const cap   = slotCapAt(state, code);
     const used  = slotsUsedAt(code);
-    return { hasGate: count > 0, cap, used, free: cap - used, fits: count > 0 && used + frequency <= cap };
+    return { hasGate: cap > 0, cap, used, free: cap - used, fits: cap > 0 && used + frequency <= cap };
   };
   const originGate = gateInfo(origin);
   const destGate   = gateInfo(dest);
@@ -424,6 +440,13 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, onO
                       </span>
                       {yieldPrice !== null && <button className="btn btn-ghost" style={{ padding: '2px 7px', fontSize: 11 }} onClick={() => setYieldPrice(null)}>Reset</button>}
                     </div>
+                    {yieldChokePct > 0 && (
+                      <div style={{ fontSize: 11, color: yieldChokePct >= 25 ? 'var(--red)' : 'var(--yellow)', marginTop: 5, maxWidth: 220, lineHeight: 1.4 }}>
+                        Above the going rate: forwarders book elsewhere and you lose{' '}
+                        <strong>{yieldChokePct}%</strong> of the freight you would win at
+                        ${routeData.refYield.toFixed(3)}. Demand hits zero at {CARGO_PRICE_CAP_MULTIPLE}× reference.
+                      </div>
+                    )}
                   </div>
                 </div>
 

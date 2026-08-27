@@ -96,10 +96,19 @@ const DCA_PERIMETER = {
              `Drop an existing beyond-perimeter DCA route to free a slot.`;
     }
     // Slot available — but exemption routes are capped at 1 daily (7/week).
+    //
+    // Counted on the MARKET, not on one route's departures: an exemption slot is
+    // held by the city pair, so a nonstop and a one-stop selling the same
+    // beyond-perimeter market share the one slot and its one daily frequency.
+    // ctx.marketFreq carries that total; weeklyFreq (leg departures) is what the
+    // per-route departure caps elsewhere want, and using it here let two
+    // services stack 7/wk each on a 7/wk market.
     const fcap = this.exemptionMaxWeeklyFrequency ?? Infinity;
-    if (weeklyFreq != null && weeklyFreq > fcap) {
+    const marketFreq = ctx.marketFreq ?? weeklyFreq;
+    if (marketFreq != null && marketFreq > fcap) {
       return `DCA Perimeter Rule: beyond-perimeter exemption routes are limited to ` +
-             `${fcap} departures/week (1 daily). Reduce frequency to ${fcap} or fewer.`;
+             `${fcap} departures/week (1 daily) per market — ${marketFreq} are proposed. ` +
+             `Reduce frequency to ${fcap} or fewer across everything you fly on this pair.`;
     }
     return null; // permitted under an exemption slot
   },
@@ -286,9 +295,13 @@ export const AIRPORT_RESTRICTIONS = {
  * @param {number} distKm            great-circle distance in km
  * @param {number} weeklyFreq        proposed TOTAL weekly departures on this city-pair
  * @param {string} [aircraftCategory] e.g. 'Wide Body', 'Narrow Body', 'Regional Jet', 'Turboprop'
- * @param {object} [context]         { routes, excludeKey } — the player's current routes and the
- *                                   unordered "A-B" key of the route being edited (so slot/freq
- *                                   caps that depend on existing routes can be evaluated)
+ * @param {object} [context]         { routes, excludeKey, marketFreq } — the player's current
+ *                                   routes, the unordered "A-B" key of the route being edited (so
+ *                                   slot/freq caps that depend on existing routes can be
+ *                                   evaluated), and the total weekly frequency on this O&D MARKET.
+ *                                   `weeklyFreq` is departures on the pair as a leg; `marketFreq`
+ *                                   is everything selling it as an origin–destination service.
+ *                                   Rules take whichever they actually govern.
  * @returns {{ restriction, reason } | null}
  */
 // ─── Universal runway-length check ───────────────────────────────────────────

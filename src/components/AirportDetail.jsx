@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport, gateCapacityOf } from '../data/airports.js';
 import {
   baseCityPairDemand, referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE,
-  cargoSlotsUsedAt,
+  cargoSlotsUsedAt, routeLegs, routeSegments,
 } from '../utils/simulation.js';
 import {
   AIRPORT_GATEWAY_SCORES, HUB_TIERS,
@@ -162,9 +162,10 @@ export default function AirportDetail({ code, onBack }) {
   const restrictions = getAirportRestrictions(code); // array, may be empty
 
   const slotCap  = myGates * SLOTS_PER_GATE;
-  const slotsUsed = state.routes
-    .filter(r => r.origin === code || r.destination === code)
-    .reduce((s, r) => s + r.weeklyFrequency, 0)
+  // Counted the way the engine's slot guards count it: a rotation calling here
+  // uses two movements a cycle, an endpoint one. The old endpoint-only reading
+  // showed this page fewer slots in use than the guard that refuses flights.
+  const slotsUsed = slotsUsedAtEngine(state.routes, code)
     + cargoSlotsUsedAt(code, state.cargoRoutes);
 
   const gwScore = AIRPORT_GATEWAY_SCORES[code] ?? 0.20;
@@ -207,21 +208,33 @@ export default function AirportDetail({ code, onBack }) {
     ? gateMkt.holders
     : (myGates > 0 ? [{ name: state.airlineName, count: myGates, yours: true }] : []);
 
-  // My routes at this airport
-  const myRoutes = state.routes.filter(r => r.origin === code || r.destination === code);
-  const myTotalFreq = myRoutes.reduce((s, r) => s + r.weeklyFrequency, 0);
+  // My routes at this airport — anything that TOUCHES it, so a rotation stopping
+  // here is listed at the airport it stops at rather than only at its endpoints.
+  const myRoutes = state.routes.filter(r => routeLegs(r).some(l => l.from === code || l.to === code));
+  // NOT the peak `slotsUsed` above: that answers "will another flight fit in the
+  // busiest month", which is the guard's question. This is the flights-per-week
+  // headline over a list of pairs, and it has to add up to that list.
   // Group deployments into distinct city pairs (multiple aircraft on the same
-  // pair = one route), matching how the competitor rows below are counted.
-  // Every route here touches `code`, so the other endpoint identifies the pair.
+  // pair = one route), matching how the competitor rows below are counted. A
+  // rotation contributes the legs it flies out of THIS airport — MCI–JFK–ORY
+  // seen from JFK is two pairs, JFK–MCI and JFK–ORY, which is what it sells.
   const myPairs = Object.values(
     myRoutes.reduce((m, r) => {
-      const other = r.origin === code ? r.destination : r.origin;
-      if (!m[other]) m[other] = { other, frequency: 0 };
-      m[other].frequency += r.weeklyFrequency;
+      for (const l of routeLegs(r)) {
+        if (l.from !== code && l.to !== code) continue;
+        const other = l.from === code ? l.to : l.from;
+        if (!m[other]) m[other] = { other, frequency: 0 };
+        m[other].frequency += (r.weeklyFrequency ?? 0);
+      }
       return m;
     }, {})
   );
   const myRouteCount = myPairs.length;
+  // The flights-per-week headline over that list, so it adds up to what is
+  // underneath it. NOT the peak `slotsUsed` above — that answers the guard's
+  // question ("will another flight fit in the busiest month"), and the two
+  // differ whenever the network is seasonal.
+  const myTotalFreq = myPairs.reduce((s, p) => s + p.frequency, 0);
 
   // Top 15 city pairs involving this airport, by O&D demand
   const topPairs = useMemo(() => {
@@ -258,10 +271,16 @@ export default function AirportDetail({ code, onBack }) {
   }, [code, state.competitors]);
 
   // Do I serve each pair?
+  // Every market I sell out of this airport — routeSegments, not routeLegs, so
+  // a rotation's THROUGH markets count: MCI–JFK–ORY genuinely sells MCI–ORY and
+  // the tick prices it, so from MCI that pair reads as served.
   const myRouteSet = useMemo(() => {
     const s = new Set();
     for (const r of myRoutes) {
-      s.add(r.origin === code ? r.destination : r.origin);
+      for (const seg of routeSegments(r)) {
+        if (seg.from === code) s.add(seg.to);
+        else if (seg.to === code) s.add(seg.from);
+      }
     }
     return s;
   }, [myRoutes, code]);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useGame, gateLeaseDenial } from '../store/GameContext.jsx';
+import { useGame, gateLeaseDenial, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
 import AirportDetail from './AirportDetail.jsx';
 import {
   AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName,
@@ -25,6 +25,51 @@ function capacityInfo(state, code) {
   const capacity = m?.capacity ?? gateCapacityOf(getAirport(code));
   const taken = m?.taken ?? 0;
   return { capacity, taken, m, full: taken >= capacity, surcharge: m?.surcharge === true };
+}
+
+const TIER_RANK = { mega: 0, major: 1, regional: 2 };
+
+// ── Global airport lookup ─────────────────────────────────────────────────────
+//
+// Every airport in the world, ranked for a jump-to box: an exact IATA code wins,
+// then a code prefix, then city/name, then country. Ties break towards airports
+// you already hold and then towards the bigger airport, so "LON" lands on
+// Heathrow rather than an alphabetical accident.
+//
+// Exported (and pure) so the ranking can be tested without a renderer.
+//
+// @param {string} query
+// @param {object} [opts]
+// @param {object} [opts.gates] your gate holdings, { [code]: count }
+// @param {number} [opts.limit] max results (default 10)
+// @param {Array}  [opts.airports] airport list to search (default: all of them)
+export function searchAirports(query, { gates = {}, limit = 10, airports = AIRPORTS } = {}) {
+  const q = String(query ?? '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const scored = [];
+  for (const a of airports) {
+    const code    = a.code.toLowerCase();
+    const city    = a.city.toLowerCase();
+    const name    = (a.name ?? '').toLowerCase();
+    const country = getCountryName(a.country).toLowerCase();
+    let rank = null;
+    if (code === q)                          rank = 0;
+    else if (code.startsWith(q))             rank = 1;
+    else if (city.startsWith(q))             rank = 2;
+    else if (city.includes(q) || name.includes(q)) rank = 3;
+    else if (country.includes(q))            rank = 4;
+    if (rank === null) continue;
+    scored.push({ a, rank });
+  }
+  scored.sort((x, y) => {
+    if (x.rank !== y.rank) return x.rank - y.rank;
+    const xHeld = (gates[x.a.code] ?? 0) > 0, yHeld = (gates[y.a.code] ?? 0) > 0;
+    if (xHeld !== yHeld) return xHeld ? -1 : 1;
+    const tx = TIER_RANK[x.a.tier] ?? 99, ty = TIER_RANK[y.a.tier] ?? 99;
+    if (tx !== ty) return tx - ty;
+    return (y.a.population ?? 0) - (x.a.population ?? 0);
+  });
+  return scored.slice(0, limit).map(({ a }) => a);
 }
 
 // Small colored chip used across the scarcity UI.
@@ -292,11 +337,12 @@ function SlotPoolSection({ state, remoteApi }) {
 
   // Slots my own schedule uses at an airport (pax + cargo) — same arithmetic
   // the engine's slot checks use, so "spare" here matches what can be shared.
+  // That means slotsUsedAtEngine: a rotation stopping here occupies two
+  // movements a cycle, and offering them to the pool would be offering slots
+  // this airline is itself using.
   const usedAt = (code) =>
-    (state.routes ?? []).filter((r) => r.origin === code || r.destination === code)
-      .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0)
-    + (state.cargoRoutes ?? []).filter((r) => r.origin === code || r.destination === code)
-      .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0);
+    slotsUsedAtEngine(state.routes ?? [], code)
+    + slotsUsedAtEngine(state.cargoRoutes ?? [], code);
 
   const run = (fn) => {
     setBusy(true); setErr(null);
@@ -659,6 +705,12 @@ export default function Airports({ initialRegion = null }) {
     && Object.values(state.gateMarket?.airports ?? {}).some((m) => m?.auction);
   const addDenialFor = (code) => (scarcity ? gateLeaseDenial(state, code) : null);
   const [search, setSearch]                       = useState('');
+  // Global lookup: any airport in the world, from the top of this tab. The
+  // browse search below it is scoped to whichever region you picked, so looking
+  // up an airport you don't hold a gate at meant knowing its region first — or
+  // going to the Route Finder / gate list to see its numbers (Knightmare,
+  // Discord 2026-08-26).
+  const [lookup, setLookup]                       = useState('');
   const [regionFilter, setRegionFilter]           = useState(initialRegion); // null = show picker
   const [myGatesRegion, setMyGatesRegion]         = useState(null); // null = All
   const [selectedAirport, setSelectedAirport]     = useState(null);
@@ -673,12 +725,12 @@ export default function Airports({ initialRegion = null }) {
     return <AirportDetail code={selectedAirport} onBack={() => setSelectedAirport(null)} />;
   }
 
-  // Total departures / arrivals consuming slots at an airport
+  // Total departures / arrivals consuming slots at an airport. Counted through
+  // the engine's own helper, so a multi-stop rotation calling here shows the two
+  // movements it actually makes — the endpoint-only reading under-reported this
+  // page against the guards that refuse flights on the strength of it.
   function slotsUsedAt(code) {
-    return routes
-      .filter(r => r.origin === code || r.destination === code)
-      .reduce((s, r) => s + r.weeklyFrequency, 0)
-      + cargoSlotsUsedAt(code, cargoRoutes);
+    return slotsUsedAtEngine(routes, code) + cargoSlotsUsedAt(code, cargoRoutes);
   }
 
   const myGateEntries = Object.entries(gates)
@@ -708,7 +760,10 @@ export default function Airports({ initialRegion = null }) {
   const totalWeeklyFees  = myGateEntries.reduce((s, { airport, count }) =>
     s + Math.round(totalGateMonthlyFee(airport, count) / 4), 0);
 
-  const TIER_ORDER = { mega: 0, major: 1, regional: 2 };
+  const TIER_ORDER = TIER_RANK;
+
+  const lookupResults = searchAirports(lookup, { gates });
+  const lookupTooShort = lookup.trim().length === 1;
 
   // Build sorted, filtered list then group by country name
   const filteredAirports = AIRPORTS.filter(a => {
@@ -782,6 +837,61 @@ export default function Airports({ initialRegion = null }) {
           )}
         </div>
       </div>
+
+      {/* ── Find any airport ──────────────────────────────────────── */}
+      <section style={{ marginBottom: 24 }}>
+        <input
+          className="form-input"
+          placeholder="Find any airport — code, city, name or country…"
+          value={lookup}
+          onChange={e => setLookup(e.target.value)}
+          style={{ width: '100%', maxWidth: 420 }}
+        />
+        {lookupTooShort && (
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 6 }}>Keep typing — two characters or more.</div>
+        )}
+        {lookup.trim().length >= 2 && (
+          <div style={{
+            marginTop: 8, border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+            background: 'var(--surface2)', maxWidth: 560, overflow: 'hidden',
+          }}>
+            {lookupResults.length === 0 ? (
+              <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text-muted)' }}>
+                No airport matches “{lookup.trim()}”.
+              </div>
+            ) : lookupResults.map(a => {
+              const held = gates[a.code] ?? 0;
+              return (
+                <button
+                  key={a.code}
+                  onClick={() => setSelectedAirport(a.code)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+                    padding: '9px 14px', background: 'transparent', border: 'none',
+                    borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', color: 'var(--text)',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface3)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span style={{ fontWeight: 700, width: 42, flexShrink: 0 }}>{a.code}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {a.city}, {getCountryName(a.country)}
+                    <span style={{ color: 'var(--text-dim)' }}> · {a.name}</span>
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', flexShrink: 0 }}>{a.tier}</span>
+                  {hubs[a.code] && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold, #ffcf4d)', flexShrink: 0 }}>HUB</span>
+                  )}
+                  {held > 0 && (
+                    <span style={{ fontSize: 11, color: 'var(--accent)', flexShrink: 0 }}>{held} gate{held !== 1 ? 's' : ''}</span>
+                  )}
+                  <span style={{ fontSize: 12, color: 'var(--text-dim)', flexShrink: 0 }}>→</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* ── Gate market, floated up while an auction is live ───────── */}
       {liveAuction && <GateMarketSection state={state} remoteApi={remoteApi} />}

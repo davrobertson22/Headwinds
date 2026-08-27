@@ -5,7 +5,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import {
   simulateRoute, simulateCargoRoute, cargoLaneAllocations, formatMoney, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
-  stateLoungeFields,
+  stateLoungeFields, routeStops, isMultiStop,
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAlliance } from '../data/alliances.js';
@@ -14,9 +14,9 @@ import useIsMobile from '../hooks/useIsMobile.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
-  segmentsForRoute, loadLeaflet, createDarkMap,
+  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap,
   PROFIT_COLOR, LOSS_COLOR, HUB_COLOR, SPOKE_COLOR,
-  ALLIANCE_COLOR, CODESHARE_COLOR, CARGO_COLOR,
+  ALLIANCE_COLOR, CODESHARE_COLOR, CARGO_COLOR, TAG_COLOR,
 } from './mapCore.js';
 
 // ── Viewport ownership ────────────────────────────────────────────────────────
@@ -32,6 +32,16 @@ import {
 //
 // Both helpers take the ref they guard and are exported so a test can drive the
 // SAME decision the map makes, with no DOM and no Leaflet.
+
+/** A rotation's identity: its stop chain, direction-normalised so A→B→C and the
+ *  same rotation entered as C→B→A are one line on the map rather than two
+ *  overlapping ones. Exported for the map's tests. */
+export function chainKey(chain = []) {
+  const codes = chain.map(a => (typeof a === 'string' ? a : a?.code)).filter(Boolean);
+  const fwd = codes.join('>');
+  const rev = [...codes].reverse().join('>');
+  return fwd <= rev ? fwd : rev;
+}
 
 /** The airport set the viewport is framed on, as a stable string. Sorted, so the
  *  same set re-derived in a different order reads as unchanged. */
@@ -176,6 +186,12 @@ export default function RouteMap() {
       const origin   = getAirport(r.origin);
       const dest     = getAirport(r.destination);
       if (!origin || !dest) return null;
+      // The airports this route actually touches, in visiting order. For a
+      // single-leg route that is [origin, dest]; for a rotation it is every
+      // stop, which is what the line has to bend through and what the airport
+      // filter has to match on.
+      const chain = routeStops(r).map(getAirport).filter(Boolean);
+      const multi = isMultiStop(r) && chain.length > 2;
       const aircraft = fleet.find(a => a.id === r.aircraftId);
       const result = !aircraft ? null
         : (rrById[r.id] ?? simulateRoute(
@@ -183,7 +199,7 @@ export default function RouteMap() {
             aircraft, gd, state.labor ?? null, proj.fuelMultiplier,
             null, [], avgUtil, state.satisfaction ?? null,
             evDemand.multFor(r.origin, r.destination)));
-      return { r, origin, dest, result };
+      return { r, origin, dest, result, chain, multi };
     }).filter(Boolean);
   }, [routes, cargoRoutes, fleet, rrById, proj, gd, state.labor, state.satisfaction, state.activeEvents]);
 
@@ -202,7 +218,7 @@ export default function RouteMap() {
       const result = !aircraft ? null
         : (cargoRrById[r.id] ?? simulateCargoRoute(r, aircraft, gd, state.labor ?? null,
             proj.fuelMultiplier, 1.0, alloc?.get(r.id) ?? null));
-      return { r, origin, dest, result };
+      return { r, origin, dest, result, chain: [origin, dest], multi: false };
     }).filter(Boolean);
   }, [cargoRoutes, fleet, cargoRrById, proj, gd, state.labor]);
 
@@ -221,7 +237,7 @@ export default function RouteMap() {
 
   const airportOptions = useMemo(() => {
     const codes = new Set([
-      ...routeData.flatMap(d => [d.origin.code, d.dest.code]),
+      ...routeData.flatMap(d => d.chain.map(a => a.code)),
       ...cargoRouteData.flatMap(d => [d.origin.code, d.dest.code]),
     ]);
     return [...codes].map(getAirport).filter(Boolean)
@@ -233,7 +249,9 @@ export default function RouteMap() {
       const a = fleet.find(x => x.id === d.r.aircraftId);
       if (!a || a.typeId !== acTypeFilter) return false;
     }
-    if (airportFilter !== 'all' && d.origin.code !== airportFilter && d.dest.code !== airportFilter) return false;
+    // A rotation touching the filtered airport in the MIDDLE is still touching
+    // it — filtering on the endpoints alone hid MCI–JFK–ORY from "Airport: JFK".
+    if (airportFilter !== 'all' && !(d.chain ?? [d.origin, d.dest]).some(a => a.code === airportFilter)) return false;
     return true;
   }, [acTypeFilter, airportFilter, fleet]);
 
@@ -244,7 +262,7 @@ export default function RouteMap() {
   const airportSet = useMemo(() => {
     const codes = new Set([
       hub,
-      ...filteredRouteData.flatMap(d => [d.origin.code, d.dest.code]),
+      ...filteredRouteData.flatMap(d => d.chain.map(a => a.code)),
       ...filteredCargoRouteData.flatMap(d => [d.origin.code, d.dest.code]),
     ]);
     return [...codes].map(getAirport).filter(Boolean);
@@ -255,11 +273,16 @@ export default function RouteMap() {
   const routeGroups = useMemo(() => {
     const map = new Map();
     for (const d of filteredRouteData) {
-      const key = [d.origin.code, d.dest.code].sort().join('~');
+      // A rotation is keyed on its whole chain, not its endpoints. Sharing the
+      // pair key with a plain MCI–ORY service merged two different products
+      // into one line and one row — and drew the rotation as a direct flight it
+      // does not operate.
+      const key = d.multi ? `tag:${chainKey(d.chain)}` : [d.origin.code, d.dest.code].sort().join('~');
       let g = map.get(key);
       if (!g) {
         g = {
           key, origin: d.origin, dest: d.dest, members: [],
+          chain: d.chain, multi: d.multi,
           profit: 0, revenue: 0, passengers: 0, seats: 0, distance: 0,
         };
         map.set(key, g);
@@ -289,7 +312,7 @@ export default function RouteMap() {
       const key = [d.origin.code, d.dest.code].sort().join('~');
       let g = map.get(key);
       if (!g) {
-        g = { key, origin: d.origin, dest: d.dest, members: [], profit: 0, revenue: 0, tonnes: 0, capacity: 0, distance: 0 };
+        g = { key, origin: d.origin, dest: d.dest, chain: [d.origin, d.dest], multi: false, members: [], profit: 0, revenue: 0, tonnes: 0, capacity: 0, distance: 0 };
         map.set(key, g);
       }
       g.members.push(d);
@@ -493,19 +516,30 @@ export default function RouteMap() {
     // One line per city pair — all aircraft on the pair are aggregated into the group.
     for (const g of routeGroups) {
       const { origin, dest } = g;
+      const chain    = g.chain?.length >= 2 ? g.chain : [origin, dest];
       const profit   = g.hasResult ? g.profit : 0;
-      const color    = profit >= 0 ? PROFIT_COLOR : LOSS_COLOR;
-      const segments = segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
+      // Profit colour still carries the money; a rotation is purple because the
+      // shape of the line is the thing you cannot read any other way (and purple
+      // is what the Routes page already calls multi-stop).
+      const profitColor = profit >= 0 ? PROFIT_COLOR : LOSS_COLOR;
+      const color    = g.multi ? TAG_COLOR : profitColor;
+      const segments = g.multi
+        ? segmentsForChain(chain.map(a => [a.lat, a.lon]))
+        : segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
 
       const lf      = g.hasResult ? `${(g.loadFactor * 100).toFixed(0)}%` : '—';
       const pax     = g.hasResult ? Math.round(g.passengers).toLocaleString() : '—';
-      const profStr = g.hasResult ? `<span style="color:${color}">${profit >= 0 ? '+' : ''}${formatMoney(profit)}/wk</span>` : '—';
+      const profStr = g.hasResult ? `<span style="color:${profitColor}">${profit >= 0 ? '+' : ''}${formatMoney(profit)}/wk</span>` : '—';
       const rev     = g.hasResult ? `+${formatMoney(g.revenue)}` : '—';
       const acText  = `${g.aircraftCount} aircraft`;
+      const titleHtml = chain.map(a => a.code).join(' <span class="map-tip-arrow">→</span> ');
+      const subHtml = g.multi
+        ? `${chain.length - 1} legs · ${origin.city} → ${dest.city} · ${acText}`
+        : `${origin.city} → ${dest.city} · ${acText}`;
       const tipHtml = `
         <div class="map-tip">
-          <div class="map-tip-title">${origin.code} <span class="map-tip-arrow">→</span> ${dest.code}</div>
-          <div class="map-tip-sub">${origin.city} → ${dest.city} · ${acText}</div>
+          <div class="map-tip-title">${titleHtml}</div>
+          <div class="map-tip-sub">${subHtml}</div>
           <div class="map-tip-stats">
             <div><span class="map-tip-lbl">Load</span><span class="map-tip-val">${lf}</span></div>
             <div><span class="map-tip-lbl">Pax/wk</span><span class="map-tip-val">${pax}</span></div>
@@ -669,10 +703,10 @@ export default function RouteMap() {
     if (!focusChanged || !map || !window.L) return;
     const g = routeGroups.find(x => x.key === selectedId);
     if (!g) { flownToRef.current = null; return; }
-    const bounds = window.L.latLngBounds([
-      [g.origin.lat, g.origin.lon],
-      [g.dest.lat, g.dest.lon],
-    ]);
+    // Frame the WHOLE rotation — flying to the endpoints of MCI–JFK–ORY can
+    // leave the stop in the middle off-screen.
+    const bounds = window.L.latLngBounds(
+      (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]).map(a => [a.lat, a.lon]));
     map.flyToBounds(bounds, { padding: [90, 90], maxZoom: 6, duration: 0.8 });
   }, [selectedId, routeGroups, applyStyles]);
 
@@ -702,7 +736,7 @@ export default function RouteMap() {
             <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-muted)' }}>
               {routeGroups.length} route{routeGroups.length !== 1 ? 's' : ''} · {airportSet.length} airports{filtersActive && <span style={{ color: 'var(--accent)' }}> · filtered</span>}
               {selectedData && (
-                <span style={{ color: 'var(--accent)' }}> · focused {selectedData.origin.code}→{selectedData.dest.code}</span>
+                <span style={{ color: 'var(--accent)' }}> · focused {(selectedData.chain ?? [selectedData.origin, selectedData.dest]).map(a => a.code).join('→')}</span>
               )}
             </span>
           </div>
@@ -758,6 +792,12 @@ export default function RouteMap() {
               <span style={{ width: 18, height: 2, background: LOSS_COLOR, display: 'inline-block', borderRadius: 1 }} />
               Loss
             </span>
+            {routeGroups.some(g => g.multi) && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} title="A multi-stop rotation, drawn through every stop it serves">
+                <span style={{ width: 18, height: 2, background: TAG_COLOR, display: 'inline-block', borderRadius: 1 }} />
+                Multi-stop
+              </span>
+            )}
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUB_COLOR, display: 'inline-block' }} />
               Hub
@@ -885,12 +925,18 @@ export default function RouteMap() {
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: profit >= 0 ? 'var(--green)' : 'var(--red)' }} />
                   </td>
                   <td>
-                    <strong>{g.origin.code} → {g.dest.code}</strong>
+                    <strong style={g.multi ? { color: TAG_COLOR } : undefined}>
+                      {(g.chain ?? [g.origin, g.dest]).map(a => a.code).join(' → ')}
+                    </strong>
                     {g.aircraftCount > 1 && (
                       <span className="ac-badge">{g.aircraftCount}×</span>
                     )}
                   </td>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{g.origin.city} → {g.dest.city}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                    {g.multi
+                      ? `${g.origin.city} → ${g.dest.city} · ${(g.chain?.length ?? 2) - 1} legs`
+                      : `${g.origin.city} → ${g.dest.city}`}
+                  </td>
                   <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                     {g.hasResult ? `${g.distance.toLocaleString()} km` : '—'}
                   </td>
