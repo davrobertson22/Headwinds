@@ -3535,7 +3535,10 @@ export function lessorSupplies(type, calYear = null) {
     // "previous generation" to stop at, and the ALLOW/BLOCK sets encode the
     // 2026 lease market specifically. NWR's real protection (the order-book
     // cap and the double-deck exclusion) is era-independent and still applies.
-    return (type.eis ?? 9999) <= calYear;
+    // Expired lines (30y+ out of production) are off the books like everything
+    // else — see AIRFRAME_MARKET_LIFETIME_YEARS.
+    const a = aircraftAvailability(type, calYear);
+    return a === 'new' || a === 'used';
   }
   if (LESSOR_BLOCK.has(type.id)) return false;
   if (LESSOR_ALLOW.has(type.id)) return true;
@@ -3550,11 +3553,27 @@ export function lessorSupplies(type, calYear = null) {
 //   'used'   — line closed: still orderable, but frames arrive already old
 //              (see eraDeliveredAgeWeeks) at the same discount the classic
 //              catalogue prices in.
+//   'expired'— the line closed more than AIRFRAME_MARKET_LIFETIME_YEARS ago:
+//              no airworthy frames remain on the market. Not orderable, not
+//              leasable. Owned frames keep flying (and keep aging into the
+//              quadratic maintenance curve) — the limit is the MARKET's, not a
+//              forced retirement. This is the phase-3 guard that stops a 2040
+//              era world buying DC-3s forever (ERA_MODE_PLAN.md §6).
+export const AIRFRAME_MARKET_LIFETIME_YEARS = 30;
+
 export function aircraftAvailability(type, calYear = null) {
   if (calYear == null) return 'available';
   if ((type?.eis ?? 0) > calYear) return 'future';
-  if (type?.oop != null && calYear > type.oop) return 'used';
+  if (type?.oop != null && calYear > type.oop) {
+    return calYear > type.oop + AIRFRAME_MARKET_LIFETIME_YEARS ? 'expired' : 'used';
+  }
   return 'new';
+}
+
+/** Can this type be acquired at all (bought or leased) at this calendar year? */
+export function aircraftOrderable(type, calYear = null) {
+  const a = aircraftAvailability(type, calYear);
+  return a === 'available' || a === 'new' || a === 'used';
 }
 
 /**

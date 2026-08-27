@@ -31,6 +31,43 @@
 
 import { getAirport } from './airports.js';
 
+// ── Era scaling (ERA_MODE_PLAN.md §4) ────────────────────────────────────────
+// Era worlds pass money/pax scalers in the check snapshot (snap.M / snap.P,
+// built at the reducer's objective pass from data/era.js). Classic snapshots
+// carry neither, so M()/P() are identity there — the parity invariant. The
+// scaled objectives carry their threshold as data (money:/pax:) purely so
+// objectiveDesc() can render the era-adjusted target; the check remains the
+// source of truth.
+const M = (snap, x) => (typeof snap?.M === 'function' ? snap.M(x) : x);
+const P = (snap, x) => (typeof snap?.P === 'function' ? snap.P(x) : x);
+
+const fmtCompactMoney = (x) =>
+  x >= 1e9 ? `$${(x / 1e9).toFixed(x % 1e9 ? 1 : 0)}B`
+  : x >= 1e6 ? `$${(x / 1e6).toFixed(x % 1e6 ? 1 : 0)}M`
+  : `$${Math.round(x / 1e3)}K`;
+const fmtCompactPax = (x) =>
+  x >= 1e6 ? `${(x / 1e6).toFixed(x % 1e6 ? 1 : 0)}M`
+  : x >= 1e3 ? `${Math.round(x / 1e3)}K`
+  : String(Math.round(x));
+
+/**
+ * The objective's one-line description, era-adjusted when the template carries
+ * a scalable threshold and the caller passes the snapshot scalers. Classic
+ * callers (or templates without a descTemplate) get tmpl.desc verbatim.
+ */
+export function objectiveDesc(tmpl, Mfn = null, Pfn = null) {
+  if (!tmpl) return '';
+  if (!tmpl.descTemplate) return tmpl.desc;
+  if (tmpl.money != null) {
+    return tmpl.descTemplate.replace('{X}', fmtCompactMoney(Mfn ? Mfn(tmpl.money) : tmpl.money));
+  }
+  if (tmpl.pax != null) {
+    return tmpl.descTemplate.replace('{X}', fmtCompactPax(Pfn ? Pfn(tmpl.pax) : tmpl.pax));
+  }
+  return tmpl.desc;
+}
+
+
 export const OBJECTIVE_TEMPLATES = [
 
   // ── Phase 1: Strategic milestones ─────────────────────────────────────────
@@ -113,9 +150,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'financial',
     title:  'Revenue Milestone',
     desc:   'Generate $500K in a single week',
+    descTemplate: 'Generate {X} in a single week',
+    money:  500_000,
     icon:   '💰',
     reward: 200_000,
-    check: ({ lastReport }) => (lastReport?.totalRevenue ?? 0) >= 500_000,
+    check: (snap) => (snap.lastReport?.totalRevenue ?? 0) >= M(snap, 500_000),
   },
 
   {
@@ -123,9 +162,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'financial',
     title:  'Million Dollar Week',
     desc:   'Generate $1M in a single week',
+    descTemplate: 'Generate {X} in a single week',
+    money:  1_000_000,
     icon:   '🤑',
     reward: 300_000,
-    check: ({ lastReport }) => (lastReport?.totalRevenue ?? 0) >= 1_000_000,
+    check: (snap) => (snap.lastReport?.totalRevenue ?? 0) >= M(snap, 1_000_000),
   },
 
   {
@@ -175,9 +216,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'financial',
     title:  'Industry Leader',
     desc:   'Generate $2M in a single week',
+    descTemplate: 'Generate {X} in a single week',
+    money:  2_000_000,
     icon:   '🏆',
     reward: 750_000,
-    check: ({ lastReport }) => (lastReport?.totalRevenue ?? 0) >= 2_000_000,
+    check: (snap) => (snap.lastReport?.totalRevenue ?? 0) >= M(snap, 2_000_000),
   },
 
   // ── Phase 3: Empire ────────────────────────────────────────────────────────
@@ -188,9 +231,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'Heavyweight',
     desc:   'Generate $5M in a single week',
+    descTemplate: 'Generate {X} in a single week',
+    money:  5_000_000,
     icon:   '💎',
     reward: 1_500_000,
-    check: ({ lastReport }) => (lastReport?.totalRevenue ?? 0) >= 5_000_000,
+    check: (snap) => (snap.lastReport?.totalRevenue ?? 0) >= M(snap, 5_000_000),
   },
 
   {
@@ -198,9 +243,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'Mega Carrier',
     desc:   'Generate $10M in a single week',
+    descTemplate: 'Generate {X} in a single week',
+    money:  10_000_000,
     icon:   '👑',
     reward: 3_000_000,
-    check: ({ lastReport }) => (lastReport?.totalRevenue ?? 0) >= 10_000_000,
+    check: (snap) => (snap.lastReport?.totalRevenue ?? 0) >= M(snap, 10_000_000),
   },
 
   {
@@ -208,9 +255,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'Cash Machine',
     desc:   'Bank $2M after-tax profit in a single week',
+    descTemplate: 'Bank {X} after-tax profit in a single week',
+    money:  2_000_000,
     icon:   '💵',
     reward: 2_000_000,
-    check: ({ weekProfit }) => (weekProfit ?? 0) >= 2_000_000,
+    check: (snap) => (snap.weekProfit ?? 0) >= M(snap, 2_000_000),
   },
 
   {
@@ -218,9 +267,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'People Mover',
     desc:   'Fly 250K passengers in a single week',
+    descTemplate: 'Fly {X} passengers in a single week',
+    pax:    250_000,
     icon:   '👥',
     reward: 1_500_000,
-    check: ({ lastReport }) => (lastReport?.totalPassengers ?? 0) >= 250_000,
+    check: (snap) => (snap.lastReport?.totalPassengers ?? 0) >= P(snap, 250_000),
   },
 
   {
@@ -266,10 +317,12 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'Banner Year',
     desc:   'Earn $25M total profit over a rolling 52 weeks',
+    descTemplate: 'Earn {X} total profit over a rolling 52 weeks',
+    money:  25_000_000,
     icon:   '📅',
     reward: 3_000_000,
-    check: ({ financialHistory }) =>
-      financialHistory.reduce((s, h) => s + (h.profit ?? 0), 0) >= 25_000_000,
+    check: (snap) =>
+      snap.financialHistory.reduce((s, h) => s + (h.profit ?? 0), 0) >= M(snap, 25_000_000),
   },
 
   {
@@ -277,9 +330,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'War Chest',
     desc:   'Hold $100M in cash on hand',
+    descTemplate: 'Hold {X} in cash on hand',
+    money:  100_000_000,
     icon:   '🏦',
     reward: 3_000_000,
-    check: ({ cash }) => (cash ?? 0) >= 100_000_000,
+    check: (snap) => (snap.cash ?? 0) >= M(snap, 100_000_000),
   },
 
   {
@@ -287,9 +342,11 @@ export const OBJECTIVE_TEMPLATES = [
     phase:  'empire',
     title:  'Unicorn',
     desc:   'Reach a $1B market capitalisation',
+    descTemplate: 'Reach a {X} market capitalisation',
+    money:  1_000_000_000,
     icon:   '🦄',
     reward: 5_000_000,
-    check: ({ marketCap }) => (marketCap ?? 0) >= 1_000_000_000,
+    check: (snap) => (snap.marketCap ?? 0) >= M(snap, 1_000_000_000),
   },
 ];
 
@@ -392,9 +449,11 @@ export const MULTIPLAYER_OBJECTIVE_TEMPLATES = [
     phase:  'starter',
     title:  '10,000 Passengers',
     desc:   'Fly 10,000 passengers in total',
+    descTemplate: 'Fly {X} passengers in total',
+    pax:    10_000,
     icon:   '👥',
     reward: 300_000,
-    check: ({ paxAllTime }) => (paxAllTime ?? 0) >= 10_000,
+    check: (snap) => (snap.paxAllTime ?? 0) >= P(snap, 10_000),
   },
 
   {
@@ -402,9 +461,11 @@ export const MULTIPLAYER_OBJECTIVE_TEMPLATES = [
     phase:  'starter',
     title:  '100,000 Passengers',
     desc:   'Fly 100,000 passengers in total',
+    descTemplate: 'Fly {X} passengers in total',
+    pax:    100_000,
     icon:   '🧳',
     reward: 750_000,
-    check: ({ paxAllTime }) => (paxAllTime ?? 0) >= 100_000,
+    check: (snap) => (snap.paxAllTime ?? 0) >= P(snap, 100_000),
   },
 
   {
@@ -412,9 +473,11 @@ export const MULTIPLAYER_OBJECTIVE_TEMPLATES = [
     phase:  'starter',
     title:  'Millionth Passenger',
     desc:   'Fly 1,000,000 passengers in total',
+    descTemplate: 'Fly {X} passengers in total',
+    pax:    1_000_000,
     icon:   '🏆',
     reward: 2_000_000,
-    check: ({ paxAllTime }) => (paxAllTime ?? 0) >= 1_000_000,
+    check: (snap) => (snap.paxAllTime ?? 0) >= P(snap, 1_000_000),
   },
 ];
 

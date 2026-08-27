@@ -116,3 +116,34 @@ export function eraDemandGrowthFactor(startYear, absWeek) {
   const idx = eraDemandIndex(startYear + Math.floor((w - 1) / 52));
   return Math.min(ERA_DEMAND_GROWTH_CAP, Math.max(0.02, idx));
 }
+
+// ── Era money and pax scales (phase 3, ERA_MODE_PLAN.md §4) ──────────────────
+// The constant-dollar decision covers aircraft prices and per-flight economics;
+// it deliberately does NOT cover the game's fixed-dollar progression furniture,
+// which is calibrated against a 2026-scale airline. These three scales are the
+// NARROW, NAMED set that moves with the era — nothing else does.
+//
+//   eraRevenueScale — demand x fare: what a week of flying is worth vs 2026.
+//                     Scales revenue/profit/cash/market-cap objective targets.
+//   eraPaxScale     — demand alone. Scales passenger-count targets.
+//   eraCapitalScale — sqrt(revenue scale), floored at 0.25 and capped at 1.
+//                     Scales starting capital, objective rewards and the fixed
+//                     cost floors. Sqrt, not linear: capital buys AIRCRAFT and
+//                     aircraft prices stay in constant dollars, so a linear cut
+//                     would hand a 1950 founder cash that cannot buy one DC-3.
+// All three return null for a classic world — the parity invariant.
+
+export function eraRevenueScale(calYear) {
+  if (calYear == null) return null;
+  return Math.max(0.05, eraDemandIndex(calYear) * eraFareIndex(calYear));
+}
+
+export function eraPaxScale(calYear) {
+  if (calYear == null) return null;
+  return Math.max(0.02, eraDemandIndex(calYear));
+}
+
+export function eraCapitalScale(calYear) {
+  if (calYear == null) return null;
+  return Math.max(0.25, Math.min(1, Math.sqrt(eraRevenueScale(calYear))));
+}

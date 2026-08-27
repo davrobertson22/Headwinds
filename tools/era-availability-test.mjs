@@ -8,7 +8,7 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import {
-  AIRCRAFT_TYPES, getAircraftType, aircraftAvailability, eraDeliveredAgeWeeks, lessorSupplies,
+  AIRCRAFT_TYPES, getAircraftType, aircraftAvailability, aircraftOrderable, eraDeliveredAgeWeeks, lessorSupplies,
 } from '../packages/engine/src/data/aircraft.js';
 import { gameReducer, freshState, orderDenial, leaseDenial } from '../packages/engine/src/reducer.mjs';
 
@@ -90,6 +90,23 @@ test('aircraftAvailability walks future → new → used; classic short-circuits
   assert.equal(aircraftAvailability(t, null), 'available');
   const open = getAircraftType('a320neo');            // no oop: line open
   assert.equal(aircraftAvailability(open, 2050), 'new');
+  // 30 years past the line's closure the market runs dry (phase 3):
+  assert.equal(aircraftAvailability(t, 2002), 'used');
+  assert.equal(aircraftAvailability(t, 2003), 'expired');
+});
+
+test('expired lines are refused everywhere: order, lease, planners', () => {
+  // A 2040-era world must not be able to buy DC-3s forever — the exact exploit
+  // the sub-80-seat price floors and this market lifetime exist to close.
+  const st = { ...freshState(), phase: 'playing', cash: 500_000_000, startYear: 1950, year: 91, week: 1 }; // calendar 2040
+  const denied = orderDenial(st, 'dc3');            // oop 1946 — expired 1977
+  assert.equal(denied?.code, 'no_airworthy_frames');
+  const after = gameReducer(st, { type: 'ORDER_AIRCRAFT', typeId: 'dc3', quantity: 1, ownershipType: 'owned' });
+  assert.equal((after.pendingOrders ?? []).length, 0, 'the order must be rejected');
+  assert.equal(lessorSupplies(getAircraftType('dc3'), 2040), false, 'lessors have none either');
+  assert.equal(aircraftOrderable(getAircraftType('dc3'), 2040), false);
+  assert.equal(aircraftOrderable(getAircraftType('dc3'), 1960), true, 'fine while frames exist');
+  assert.equal(aircraftOrderable(getAircraftType('dc3'), null), true, 'classic worlds untouched');
 });
 
 test('the 1978 era opens with a real fleet and 1950 with only the DC-3', () => {

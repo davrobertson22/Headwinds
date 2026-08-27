@@ -3,6 +3,7 @@ import { useConfirm } from './ConfirmModal.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import {
   AIRCRAFT_TYPES,
+  aircraftAvailability,
   AIRCRAFT_CATEGORIES,
   getAircraftType,
   buyDiscount,
@@ -632,8 +633,12 @@ export default function Marketplace() {
   // service. Mirrors the engine's orderDenial() so the disabled button and the
   // rejected action always agree. Null in classic worlds.
   const calYear = calendarYear(state);
-  const eraLockReason = (type) =>
-    calYear != null && (type?.eis ?? 0) > calYear ? `Enters service ${type.eis}` : null;
+  const eraLockReason = (type) => {
+    if (calYear == null) return null;
+    if ((type?.eis ?? 0) > calYear) return `Enters service ${type.eis}`;
+    if (aircraftAvailability(type, calYear) === 'expired') return `No airworthy frames left — line closed ${type.oop}`;
+    return null;
+  };
   const activeFleet   = fleet.filter(a => a.status !== 'retired').length;
   const leaseOnOrder  = pendingOrders
     .filter(o => o.ownershipType === 'lease')
@@ -711,7 +716,7 @@ export default function Marketplace() {
 
   const q = query.trim().toLowerCase();
   const filtered = AIRCRAFT_TYPES.filter(t =>
-    (calYear == null || (t.eis ?? 0) <= calYear + 3) &&
+    (calYear == null || ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired')) &&
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
     (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q))

@@ -834,6 +834,24 @@ if (hasEis) {
   });
 }
 
+test('no SMALL passenger type is priced below the floor for its vintage', () => {
+  // Era-mode phase 3 (ERA_MODE_PLAN.md §6): the 80-seat floors above left every
+  // propliner and feeder type unguarded, which is exactly the fleet a late era
+  // world would exploit — sub-80-seat frames at giveaway $/seat. Floors sit
+  // just under the cheapest surviving small frame in each band (DC-3 $47K,
+  // Dash 7 $93K, CRJ700 $154K...), to catch a future edit, not pin values.
+  const FLOOR_SMALL = [
+    { maxEis: 1969, floorK: 40 }, { maxEis: 1979, floorK: 85 },
+    { maxEis: 1989, floorK: 90 }, { maxEis: 1999, floorK: 90 },
+    { maxEis: 2009, floorK: 140 }, { maxEis: 9999, floorK: 190 },
+  ];
+  const under = PAX
+    .filter(t => t.seats > 0 && t.seats < 80)
+    .filter(t => ppsK(t) < FLOOR_SMALL.find(b => t.eis <= b.maxEis).floorK)
+    .map(t => `${t.name} (${t.eis}) $${ppsK(t).toFixed(0)}K/seat`);
+  assert.deepEqual(under, []);
+});
+
 test('no passenger type delivers older than 20y — the maintenance curve is quadratic', () => {
   // Same reasoning as the freighter guard: 1 + (age/20)^2 * 2 means 30y = 5.5x
   // base, which would make the type loss-making on every route rather than

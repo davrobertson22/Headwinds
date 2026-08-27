@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_IDS } from '../data/objectives.js';
+import { OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_IDS, objectiveDesc } from '../data/objectives.js';
+import { calendarYear } from '../utils/simulation.js';
+import { eraRevenueScale, eraPaxScale, eraCapitalScale } from '../data/era.js';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
 
@@ -31,9 +33,24 @@ export default function BoardObjectives() {
   const templates = isStarterBoard ? MULTIPLAYER_OBJECTIVE_TEMPLATES : OBJECTIVE_TEMPLATES;
 
   // Merge template data with completion state
+  // Era worlds: thresholds, descriptions and rewards scale with the era
+  // (ERA_MODE_PLAN.md §4) — mirror the reducer's objective pass exactly so
+  // the card shows the number the engine actually checks and pays.
+  const cy = calendarYear(state);
+  const revScale = eraRevenueScale(cy);
+  const paxScale = eraPaxScale(cy);
+  const capScale = eraCapitalScale(cy) ?? 1;
+  const Mfn = revScale != null ? (x) => Math.max(1_000, Math.round(x * revScale / 1_000) * 1_000) : null;
+  const Pfn = revScale != null ? (x) => Math.max(100,   Math.round(x * paxScale / 100)   * 100) : null;
+
   const merged = templates.map(tmpl => {
     const stateObj = objectives.find(o => o.id === tmpl.id) ?? { completed: false };
-    return { ...tmpl, ...stateObj };
+    return {
+      ...tmpl,
+      desc:   objectiveDesc(tmpl, Mfn, Pfn),
+      reward: Math.round((tmpl.reward ?? 0) * capScale),
+      ...stateObj,
+    };
   });
 
   const strategic = merged.filter(o => o.phase === 'strategic');

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
-import { AIRCRAFT_TYPES, getAircraftType, aircraftAvailability } from '../data/aircraft.js';
+import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { distanceKm, formatMoney, currentGameDate, calendarYear } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, cargoBackhaulFactor } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
@@ -232,7 +232,7 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                 style={{ width: 210 }}
               >
                 <option value="">Any distance</option>
-                {AIRCRAFT_TYPES.filter(t => t.freighter && aircraftAvailability(t, calendarYear(state)) !== 'future').map(t => (
+                {AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state))).map(t => (
                   <option key={t.id} value={t.id}>{t.name} — {t.range.toLocaleString()} km</option>
                 ))}
               </select>

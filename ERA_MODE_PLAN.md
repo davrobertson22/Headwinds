@@ -1,6 +1,6 @@
 # Era Worlds — a calendar that starts in 1950
 
-**Status:** PHASES 0–2 BUILT, on disk, 2026-08-27 — see BUILD STATE below. Phases 3–6 not started.
+**Status:** PHASES 0–3 BUILT — 0–2 pushed, phase 3 on disk 2026-08-27. See BUILD STATE below. Phases 4–6 not started.
 
 ## BUILD STATE (2026-08-27)
 
@@ -12,7 +12,10 @@ Built and green in this repo (all uncommitted, Dave to commit/push):
 - **Tests:** `tools/era-calendar-test.mjs` (7), `tools/era-availability-test.mjs` (12), `tools/era-balance-test.mjs` (6 — pool plausibility bands, flagship profitability, RoC premium ceiling 8×, fare-clamp fit, fuel century). Suite: 147/148 pass (the 1 failure is `adsense-readiness-test` hitting the desktop bridge's no-delete sandbox — passes in a real terminal). `PARITY OK` throughout.
 - **Verified end-to-end:** `seedAirlineState` on a 1950 world → blob carries `startYear`, join-time fuel 0.43. All 10 edited JSX files parse (@babel/parser).
 
-Still open: phase 3 (objective/floor era scaling, airframe life limit, sub-80-seat price floors, yearly stats rollup), phase 4 (the ~22 propliners), phase 5 (anachronism gates), phase 6 (Tailwinds port + AI competitor era-gating). The RoC ceiling in era-balance-test is 8× — phase 3's capital-pricing work ratchets it down.
+- **Phase 3 — anti-degeneration (on disk, uncommitted).** Era money scales in `era.js` (`eraRevenueScale` = demand×fare, `eraPaxScale`, `eraCapitalScale` = √revenue floored 0.25 — sqrt because capital buys constant-dollar aircraft). Objectives: thresholds via `snap.M`/`snap.P` scalers built at the reducer's objective pass, era-adjusted descriptions via `objectiveDesc` + `descTemplate`/`money`/`pax` template metadata, rewards × capitalScale at payout, BoardObjectives mirrors all three. Starting capital × capitalScale at seed (`worldService`; the tickConfig knob stays modern-equivalent, mid-era joiners scale to the CURRENT year: 1950 → $4.34M, 1978 → $9.28M). Cost floors via module-scoped `setEraCostScale` in `overhead.js` (same pattern as `_fareIndex`), set at the reducer entry: HQ base both paths, marketing-effectiveness floor, campaign cost/metro-M, route launch cost, liability insurance. **Airframe market lifetime**: `AIRFRAME_MARKET_LIFETIME_YEARS = 30` — a line 30y+ closed is `'expired'`: not orderable (`orderDenial` `no_airworthy_frames`), not leasable, hidden in Marketplace/planners (`aircraftOrderable`); owned frames keep flying. Sub-80-seat $/seat vintage floors added to the consistency test. **Yearly rollup**: `state.statsHistoryYearly` (era-gated, cap 150, one row per completed year with calendar label) + "Era history · full years" card on Finance ▸ Statistics.
+- Phase-3 tests: `tools/era-progression-test.mjs` (6) + expired-line coverage in era-availability (now 13) + small-type floors in aircraft-consistency. Suite 148/149 (the 1 failure is the sandbox-only adsense generator), `PARITY OK` throughout.
+
+Still open: phase 4 (the ~22 propliners), phase 5 (anachronism gates), phase 6 (Tailwinds port + AI competitor era-gating). The RoC ceiling in era-balance-test is 8× — the era new-build pricing question (classic prices are used-frame prices) remains the lever to ratchet it down.
 
 ---
 

@@ -3124,6 +3124,20 @@ function Statistics() {
         ))}
       </div>
 
+      {/* ── Era history: one point per completed year ── */}
+      {(state.statsHistoryYearly?.length ?? 0) > 1 && (
+        <div className="card">
+          <div className="card-title">Era history · full years</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+            One point per completed year — the whole era, beyond the weekly series&#39; retention window.
+          </div>
+          <StatChart points={state.statsHistoryYearly} height={130} yFrom0={false} format={(v) => money(v)} series={[
+            { key: 'revenue', label: 'Revenue / yr', color: STAT_COLORS.organic },
+            { key: 'profit',  label: 'Profit / yr',  color: STAT_COLORS.connecting },
+          ]} />
+        </div>
+      )}
+
       {/* ── Passengers (stacked) ── */}
       <div className="card">
         <div className="card-title">Passengers per week · by source</div>

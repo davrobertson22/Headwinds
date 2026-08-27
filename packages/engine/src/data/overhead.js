@@ -39,7 +39,7 @@
  */
 export function calcHQCost(fleetScale) {
   if (fleetScale <= 0) return 0;
-  return Math.round(38_000 * Math.pow(fleetScale, 0.85));
+  return Math.round(38_000 * Math.pow(fleetScale, 0.85) * _eraCostScale);
 }
 
 // ─── 1a. Corporate overhead scales with the aeroplane ────────────────────────
@@ -244,6 +244,21 @@ export const HQ_DEPARTURE_FEE = {
 // rates completely inert).
 export const HQ_BASE_WEEKLY = 40_000;
 
+// ── Era cost scale (ERA_MODE_PLAN.md §4) ─────────────────────────────────────
+// Module-scoped for the same reason as market.js's _fareIndex: these helpers
+// are called from ~a dozen sites (tick, reducer guards, UI previews) that
+// carry no world context. gameReducer sets it from state on EVERY action;
+// 1 (classic) leaves every number below byte-identical — the parity invariant.
+// Scales the FIXED-dollar floors a small-revenue era airline cannot outgrow:
+// HQ base, the marketing-effectiveness floor, campaign cost per metro-million,
+// route launch cost and liability insurance. Nothing revenue-proportional or
+// aircraft-value-derived is touched — those self-scale.
+let _eraCostScale = 1;
+export function setEraCostScale(v) {
+  _eraCostScale = Number.isFinite(v) && v > 0 && v <= 1 ? v : 1;
+}
+export function getEraCostScale() { return _eraCostScale; }
+
 /**
  * The floor the gauge scale below decays towards, so a turboprop operator still
  * carries a real corporate structure rather than none. NOT the fleetless rate:
@@ -269,9 +284,9 @@ export const HQ_BASE_MIN = 8_000;
  * airline in an abnormal state, and it pays the full base — see HQ_BASE_MIN.
  */
 export function hqBaseWeekly(fleet, typeOf) {
-  if (!fleet?.length) return HQ_BASE_WEEKLY;   // see HQ_BASE_MIN — not the floor
+  if (!fleet?.length) return Math.round(HQ_BASE_WEEKLY * _eraCostScale);   // see HQ_BASE_MIN — not the floor
   const avg = fleetHQScale(fleet, typeOf) / fleet.length;
-  return Math.round(HQ_BASE_MIN + (HQ_BASE_WEEKLY - HQ_BASE_MIN) * Math.min(avg, 1));
+  return Math.round((HQ_BASE_MIN + (HQ_BASE_WEEKLY - HQ_BASE_MIN) * Math.min(avg, 1)) * _eraCostScale);
 }
 
 /** Per-departure HQ fee for a body class, falling back to the narrowbody rate. */
@@ -377,10 +392,10 @@ export const LIABILITY_INSURANCE_WEEKLY_FREIGHTER = [
 export function liabilityInsuranceWeekly(aircraftType) {
   if (aircraftType?.freighter) {
     const t = aircraftType.payloadTonnes ?? 0;
-    return LIABILITY_INSURANCE_WEEKLY_FREIGHTER.find(s => t <= s.maxTonnes).weekly;
+    return Math.round(LIABILITY_INSURANCE_WEEKLY_FREIGHTER.find(s => t <= s.maxTonnes).weekly * _eraCostScale);
   }
-  return LIABILITY_INSURANCE_WEEKLY_BY_CATEGORY[aircraftType?.category]
-    ?? LIABILITY_INSURANCE_WEEKLY_PER_AIRCRAFT;
+  return Math.round((LIABILITY_INSURANCE_WEEKLY_BY_CATEGORY[aircraftType?.category]
+    ?? LIABILITY_INSURANCE_WEEKLY_PER_AIRCRAFT) * _eraCostScale);
 }
 
 /**
@@ -668,7 +683,7 @@ export function awarenessDemandMultiplier(awareness) {
  */
 export function marketingAwarenessGain(weeklySpend, weeklyRevenue) {
   if (weeklySpend <= 0) return 0;
-  const scale = Math.max((weeklyRevenue || 0) * MARKETING_GAIN_SCALE, 40_000);
+  const scale = Math.max((weeklyRevenue || 0) * MARKETING_GAIN_SCALE, 40_000 * _eraCostScale);
   return MARKETING_MAX_GAIN * (1 - Math.exp(-weeklySpend / scale));
 }
 
@@ -694,7 +709,7 @@ export const CAMPAIGN_COST_PER_M  = 30_000;  // $/wk per million metro pop for ~
  */
 export function campaignStrengthGain(weeklySpend, airportPopM) {
   if (weeklySpend <= 0) return 0;
-  const scale = Math.max(airportPopM ?? 1, 0.2) * CAMPAIGN_COST_PER_M;
+  const scale = Math.max(airportPopM ?? 1, 0.2) * CAMPAIGN_COST_PER_M * _eraCostScale;
   return CAMPAIGN_MAX_GAIN * (1 - Math.exp(-weeklySpend / scale));
 }
 
@@ -781,5 +796,5 @@ export function competitorPressureDrag(competitorSpend, playerSpend, airportPopM
  * @param {number} distKm  – great-circle distance of the route
  */
 export function routeLaunchCost(distKm) {
-  return Math.round(40_000 + distKm * 22);
+  return Math.round((40_000 + distKm * 22) * _eraCostScale);
 }

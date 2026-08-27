@@ -8,7 +8,7 @@
 // the five checkRouteRestrictions() call sites had lost the `aircraftType`
 // context that Tailwinds passes, which silently disabled every runway-length
 // check in Headwinds. Restored. Worth diffing the two on any shared change.
-import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX } from './data/era.js';
+import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX, eraRevenueScale, eraPaxScale, eraCapitalScale } from './data/era.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
@@ -35,7 +35,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          founderSaleProceeds, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
-import { getAircraftType, eraDeliveredAgeWeeks, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
+import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF } from './data/aircraft.js';
 import {
@@ -113,10 +113,10 @@ import {
 } from './data/credit.js';
 import { routeLaunchCost, valueRemaining,
          marketingAwarenessGain, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
-         campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor } from './data/overhead.js';
+         campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor, setEraCostScale } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
 import { normalizeAncillaries, defaultAncillaries, ANCILLARY_MAP } from './data/ancillaries.js';
-import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective } from './data/objectives.js';
+import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective, objectiveDesc } from './data/objectives.js';
 
 // How many weeks of the compact long-term KPI series (state.statsHistory) to
 // retain. 1820 weeks = 35 game years — comfortably covers the Statistics page's
@@ -962,10 +962,17 @@ export function orderDenial(state, typeId) {
   if (cy == null) return null;
   const type = getAircraftType(typeId);
   if (!type) return null;
-  if ((type.eis ?? 0) > cy) {
+  const avail = aircraftAvailability(type, cy);
+  if (avail === 'future') {
     return {
       code: 'not_yet_flying', typeId: type.id, eis: type.eis,
       message: `The ${type.name} hasn't flown yet — it enters service in ${type.eis}.`,
+    };
+  }
+  if (avail === 'expired') {
+    return {
+      code: 'no_airworthy_frames', typeId: type.id, oop: type.oop,
+      message: `No airworthy ${type.name} frames remain on the market — the line closed in ${type.oop}.`,
     };
   }
   return null;
@@ -1251,6 +1258,7 @@ function reducer(state, action) {
   const _eraFi = eraFareIndex(calendarYear(state));
   setFareIndex(_eraFi != null ? _eraFi * (state?.fareIndex ?? 1) : (state?.fareIndex ?? 1));
   setEraStartYear(state?.startYear ?? null);
+  setEraCostScale(eraCapitalScale(calendarYear(state)) ?? 1);
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   switch (action.type) {
 
@@ -4899,6 +4907,33 @@ function reducer(state, action) {
       const statsCap = state.multiplayer ? STATS_HISTORY_CAP_MP : STATS_HISTORY_CAP;
       const newStats = [...(state.statsHistory ?? []), statsEntry].slice(-statsCap);
 
+      // ── Era worlds: yearly stats rollup (ERA_MODE_PLAN.md §8) ────────────────
+      // The MP weekly series is capped at 260 weeks for egress reasons, which
+      // permanently discards all but 5 years — fatal for a mode whose selling
+      // point is the sweep of a century. One compact row per COMPLETED game
+      // year (~100 rows for the full 1950→2050 run — a rounding error against
+      // the blob) keeps the long arc. Era-gated so classic blobs, and the
+      // golden master, are byte-identical.
+      let newStatsYearly = state.statsHistoryYearly;
+      if (state.startYear != null && newWeek === 1 && newYear === state.year + 1) {
+        const yrRows = newHistory.filter(h => h.year === state.year);
+        const ysum = (k) => Math.round(yrRows.reduce((s, h) => s + (h[k] ?? 0), 0));
+        newStatsYearly = [...(state.statsHistoryYearly ?? []), {
+          year:         state.year,                              // ordinal, like every stored week
+          calendarYear: state.startYear + state.year - 1,
+          label:        String(state.startYear + state.year - 1),
+          revenue:      ysum('revenue'),
+          profit:       ysum('profit'),
+          passengers:   ysum('passengers'),
+          cargoRevenue: ysum('cargoRevenue'),
+          cash:         newCash,
+          marketCap:    newMarketCap,
+          fleet:        agedFleet.filter(a => a.status !== 'retired').length,
+          routes:       state.routes.length,
+          fuelIndex:    currentFuelIndex,
+        }].slice(-150);
+      }
+
       // ── Board objectives check ───────────────────────────────────────────────
       // Multiplayer worlds always run the compact starter board (10 objectives).
       // Worlds created before objectives shipped have objectivesEnabled: false —
@@ -4912,7 +4947,18 @@ function reducer(state, action) {
       // milestones (10K/100K/1M). Existing saves start counting from 0 here.
       const paxAllTime = (state.paxAllTime ?? 0) + (report.totalPassengers ?? 0);
 
+      // Era worlds: objective thresholds and rewards scale with the era
+      // (ERA_MODE_PLAN.md §4). Classic worlds pass no scalers — identity.
+      const _objCy  = calendarYear(state);
+      const _objRev = eraRevenueScale(_objCy);
+      const _objPax = eraPaxScale(_objCy);
+      const _objCap = eraCapitalScale(_objCy) ?? 1;
+
       const objectiveSnap = {
+        ...(_objRev != null ? {
+          M: (x) => Math.max(1_000, Math.round(x * _objRev / 1_000) * 1_000),
+          P: (x) => Math.max(100,   Math.round(x * _objPax / 100)   * 100),
+        } : {}),
         routes:           state.routes,   // current routes (weeksOpen not yet incremented — fine for checks)
         fleet:            agedFleet,      // fleet after aging tick, before deliveries
         gates:            state.gates ?? {},
@@ -4944,11 +4990,12 @@ function reducer(state, action) {
         updatedObjectives = currentObjectives.map(obj => {
           if (!newlyCompleted.includes(obj.id)) return obj;
           const tmpl = getObjective(obj.id);
-          objectiveCashBonus += tmpl?.reward ?? 0;
+          const scaledReward = Math.round((tmpl?.reward ?? 0) * _objCap);
+          objectiveCashBonus += scaledReward;
           newToasts.push({
             type:     'success',
             title:    `🏅 Objective Complete — ${tmpl?.title ?? obj.id}`,
-            message:  `${tmpl?.desc ?? ''} · Board reward: +${(tmpl?.reward ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`,
+            message:  `${objectiveDesc(tmpl, objectiveSnap.M, objectiveSnap.P)} · Board reward: +${scaledReward.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`,
             icon:     tmpl?.icon ?? '🏅',
             duration: 9000,
           });
@@ -5227,6 +5274,7 @@ function reducer(state, action) {
         pendingOrders:     remainingOrders,
         financialHistory:  newHistory,
         statsHistory:      newStats,
+        ...(newStatsYearly !== state.statsHistoryYearly ? { statsHistoryYearly: newStatsYearly } : {}),
         lastReport:        { ...report, cashDelta: preTaxProfit - corporateTax,
           // Effective revenue includes the world-event demand adjustment that the
           // headline net already reflects; "all-in" cost folds loan payments,
