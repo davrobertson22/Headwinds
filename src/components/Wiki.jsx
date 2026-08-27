@@ -184,7 +184,7 @@ const WIKI = [
     title: 'Market',
     blurb: 'Lease or buy aircraft',
     blocks: [
-      { p: 'The Market is where you grow your fleet. Browse by manufacturer and category, compare fuel burn and seat efficiency, then either **lease** (lower commitment, weekly payments) or **order** aircraft outright.' },
+      { p: 'The Market is where you grow your fleet. Browse by manufacturer and category, compare fuel burn per seat and weekly maintenance per seat, then either **lease** (lower commitment, weekly payments) or **order** aircraft outright.' },
       { h: 'Delivery times' },
       { p: 'New deliveries are staggered by type: widebodies take 4 weeks, narrowbodies 3, regional jets 2, and turboprops 1. Plan ahead, an order placed today won\'t fly this week.' },
       { h: 'Customising an order' },

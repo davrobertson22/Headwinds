@@ -486,9 +486,10 @@ const TABLE_COLS = [
   { key: 'range',    label: 'Range',        align: 'right' },
   { key: 'runway',   label: 'Runway',       align: 'right', title: 'Minimum runway length required (ft)' },
   { key: 'fuel',     label: 'Fuel/seat',    align: 'right', title: 'Litres per seat per 100 km (per tonne for freighters)' },
-  { key: 'eff',      label: 'Eff.',         align: 'right', title: 'Seat efficiency score, 0-100' },
+  { key: 'eff',      label: 'Fuel eff.',    align: 'right', title: 'Fuel cost per seat, scored 0-100 across the passenger fleet. FUEL ONLY — maintenance, crew and ownership are not in this number.' },
   { key: 'age',      label: 'Age',          align: 'right', title: 'How old the airframe is on delivery. Out-of-production types arrive used.' },
   { key: 'maint',    label: 'Maint/wk',     align: 'right', title: 'Weekly maintenance as delivered — base rate already scaled for delivered age.' },
+  { key: 'maintPer', label: 'Maint/seat',   align: 'right', title: 'Weekly maintenance as delivered, per seat (per tonne for freighters). The fuel efficiency score does not include this.' },
   { key: 'lease',    label: 'Lease/wk',     align: 'right' },
   { key: 'buy',      label: 'Buy',          align: 'right' },
   { key: 'delivery', label: 'Delivery',     align: 'right' },
@@ -554,6 +555,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                   {r.age > 0 ? `${r.age}y used` : 'new'}
                 </td>
                 <td style={{ textAlign: 'right' }}>{formatMoney(r.maint)}</td>
+                <td style={{ textAlign: 'right' }}>{formatMoney(r.maintPer)}</td>
                 <td style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{formatMoney(t.weeklyLease)}</td>
                 <td style={{ textAlign: 'right' }}>
                   <span style={{ color: r.canAffordBuy ? 'var(--green)' : 'var(--text-dim)', fontWeight: 600 }}>
@@ -919,6 +921,7 @@ export default function Marketplace() {
             effColor: effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)',
             age:      deliveredAgeYears(type),
             maint:    deliveredMaint(type),
+            maintPer: deliveredMaint(type) / (type.freighter ? (type.payloadTonnes || 1) : (type.seats || 1)),
             lease:    type.weeklyLease,
             buy:      buyPrice,
             discPct:  0,
@@ -1039,15 +1042,26 @@ export default function Marketplace() {
                     <span className="aircraft-stat-pill-label">Maint/wk</span>
                     <span className="aircraft-stat-pill-value">{formatMoney(deliveredMaint(type))}</span>
                   </div>
+                  <div className="aircraft-stat-pill" title="Weekly maintenance as delivered, spread across capacity. The fuel bar below does not include it.">
+                    <span className="aircraft-stat-pill-label">{type.freighter ? 'Maint/tonne' : 'Maint/seat'}</span>
+                    <span className="aircraft-stat-pill-value">
+                      {formatMoney(deliveredMaint(type) / (type.freighter ? (type.payloadTonnes || 1) : (type.seats || 1)))}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Fuel efficiency bar — passenger aircraft only (freighters have no seat metric) */}
+                {/* Fuel-per-seat bar — passenger aircraft only (freighters have no seat metric).
+                    FUEL ONLY: seatEfficiency() is fuelCostPerKm/seats and nothing else. Maintenance,
+                    crew and ownership are excluded, so this is NOT a total-cost ranking — a 10-year-old
+                    widebody can top the bar and still bill 1.7x the maintenance per seat of the
+                    narrowbody under it (767-300ER $598/seat/wk vs 737-800 $360, at 95 and 94 on this
+                    scale). Label it for what it measures; the Maint/seat pill above carries the rest. */}
                 {!type.freighter && (
-                  <div style={{ marginTop: 10, marginBottom: 4 }}>
+                  <div style={{ marginTop: 10, marginBottom: 4 }} title="Fuel cost per seat only — maintenance, crew and ownership are not included.">
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Seat efficiency</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Fuel per seat</span>
                       <span style={{ fontSize: 11, color: effColor, fontWeight: 600 }}>
-                        {effScore}/100 · ${effRaw}/seat/100km
+                        {effScore}/100 · ${effRaw} fuel/seat/100km
                       </span>
                     </div>
                     <div style={{ height: 4, borderRadius: 2, background: 'var(--surface3)', overflow: 'hidden' }}>

@@ -18,8 +18,10 @@ import {
   MAX_ROUTE_STOPS,
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
   isRouteActive, routeActiveMonths, aircraftHubMaintFactor, routesCommittedTo,
+  blockHourFit, blockTimeHours,
   applyScheduleTrimMigration,
   applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
+  calcReconfCost, refitWeeks,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          setFareIndex, setNwrYieldChoke,
@@ -482,15 +484,20 @@ export function addRouteBlockReason(state, action) {
   }
 
   // ── Block-hours on this airframe, per-month peak across its routes ─────────
+  // blockHourFit is the shared reading: the Add Flights form and the Routes
+  // planner call it too, so a bar that says "fits" cannot meet a refusal here.
   const acRoutes = routesCommittedTo(action.aircraftId, state.routes, state.cargoRoutes ?? []);
-  const newBlockHrs = weeklyBlockHours(dist, weeklyFrequency, type);
   const maxBlockHrs = maxWeeklyBlockHoursFor(state);
-  const peakBlockHrs = Math.max(0, ...newMonths.map(m =>
-    newBlockHrs + acRoutes
-      .filter(r => isRouteActive(r, m))
-      .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0)));
-  if (peakBlockHrs > maxBlockHrs) {
-    return `${tail} has no spare flying hours — this would need ${Math.round(peakBlockHrs)}h/wk against a ${maxBlockHrs}h limit`;
+  const fit = blockHourFit({
+    aircraftId: action.aircraftId, type,
+    routes: state.routes, cargoRoutes: state.cargoRoutes ?? [],
+    months: newMonths,
+    hoursPerFlight: blockTimeHours(dist, type) * 2,
+    weeklyFrequency,
+    capHours: maxBlockHrs,
+  });
+  if (!fit.fits) {
+    return `${tail} has no spare flying hours — this would need ${Math.round(fit.totalHours)}h/wk against a ${maxBlockHrs}h limit`;
   }
 
   // ── Network connectivity: a plane that already flies can only extend its ───
@@ -703,12 +710,20 @@ export function addTagRouteBlockReason(state, action) {
   }
 
   // ── Block hours across this airframe's committed routes ───────────────────
-  const existingBlockHrs = routesCommittedTo(action.aircraftId, state.routes ?? [], state.cargoRoutes ?? [])
-    .reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
-  const maxBlockHrs  = maxWeeklyBlockHoursFor(state);
-  const wantBlockHrs = existingBlockHrs + routeBlockHours(proto, type, weeklyFrequency);
-  if (wantBlockHrs > maxBlockHrs) {
-    return `${tail} has no spare flying hours — this would need ${Math.round(wantBlockHrs)}h/wk against a ${maxBlockHrs}h limit`;
+  // Same reading the tag planner previews (blockHourFit, ignoreSeason) so the
+  // two cannot disagree. NOTE: unlike ADD_ROUTE this charges dormant routes
+  // too — deliberately unchanged here, but see blockHourFit's comment.
+  const maxBlockHrs = maxWeeklyBlockHoursFor(state);
+  const tagFit = blockHourFit({
+    aircraftId: action.aircraftId, type,
+    routes: state.routes ?? [], cargoRoutes: state.cargoRoutes ?? [],
+    hoursPerFlight: routeBlockHours(proto, type, 1),
+    weeklyFrequency,
+    capHours: maxBlockHrs,
+    ignoreSeason: true,
+  });
+  if (!tagFit.fits) {
+    return `${tail} has no spare flying hours — this would need ${Math.round(tagFit.totalHours)}h/wk against a ${maxBlockHrs}h limit`;
   }
 
   // ── Connectivity: extend only from a stop the aircraft already serves ─────
@@ -1960,13 +1975,40 @@ function reducer(state, action) {
 
     case 'CONFIGURE_AIRCRAFT': {
       // action: { aircraftId, config, reconfCost }
-      const cost = Math.max(0, Math.round(Number(action.reconfCost) || 0));
+      // A refit is shop work: the cabin is stripped and refitted with the tail
+      // out of service, which is what the modal has always promised and what
+      // nothing here used to do. Downtime is priced by refitWeeks() from the
+      // size of the change and the airframe; the cost is re-derived here rather
+      // than trusted from the payload, so a partial batch charges honestly.
+      const target = state.fleet.find(a => a.id === action.aircraftId);
+      if (!target || !action.config || typeof action.config !== 'object') return state;
+      // Already in a heavy check or grounded by a failure: taking the hangar
+      // slot for a cabin job would cancel the check (or wipe the AOG clock) and
+      // hand the player back an airframe that never had the work done.
+      if (isOutOfService(target)) {
+        return { ...state, error: `${target.name ?? 'That aircraft'} is out of service — it cannot start a cabin refit until it is back.` };
+      }
+      const type    = getAircraftType(target.typeId);
+      const current = target.config ?? defaultConfig(type?.seats ?? 100);
+      const cost    = calcReconfCost(current, action.config);
+      if (cost > state.cash) {
+        return { ...state, error: `Not enough cash for that refit (${formatMoney(cost)}).` };
+      }
+      const weeks = refitWeeks(type, current, action.config);
       return {
         ...state,
         cash:  state.cash - cost,
-        fleet: state.fleet.map(a =>
-          a.id === action.aircraftId ? { ...a, config: action.config } : a
-        ),
+        fleet: state.fleet.map(a => (
+          a.id === action.aircraftId
+            ? {
+                ...a,
+                config: action.config,
+                ...(weeks > 0
+                  ? { status: 'grounded', groundedWeeksLeft: weeks, groundedReason: 'refit' }
+                  : {}),
+              }
+            : a
+        )),
       };
     }
 
@@ -1978,13 +2020,40 @@ function reducer(state, action) {
       // was refused after the modal had already closed.
       const ids = [...new Set(action.aircraftIds ?? [])].filter(Boolean);
       if (ids.length === 0 || !action.config || typeof action.config !== 'object') return state;
-      const idset = new Set(ids);
-      const cost  = Math.max(0, Math.round(Number(action.reconfCost) || 0));
+      // Price and time EACH tail: they may start from different layouts, and a
+      // tail already in the shop is skipped rather than charged for work it
+      // cannot have done. Charging the client's summed total would bill the
+      // player for the ones that were skipped.
+      let cost = 0;
+      const refits = new Map();
+      for (const id of ids) {
+        const a = state.fleet.find(x => x.id === id);
+        if (!a || isOutOfService(a)) continue;
+        const type    = getAircraftType(a.typeId);
+        const current = a.config ?? defaultConfig(type?.seats ?? 100);
+        const c = calcReconfCost(current, action.config);
+        cost += c;
+        refits.set(id, refitWeeks(type, current, action.config));
+      }
+      if (refits.size === 0) return state;
+      if (cost > state.cash) {
+        return { ...state, error: `Not enough cash to refit ${refits.size} aircraft (${formatMoney(cost)}).` };
+      }
       return {
         ...state,
         cash:  state.cash - cost,
-        fleet: state.fleet.map(a => (idset.has(a.id) ? { ...a, config: action.config } : a)),
-        bulkResult: { action: 'CONFIGURE_AIRCRAFT_BULK', requested: ids.length, applied: ids.length, skipped: 0 },
+        fleet: state.fleet.map(a => {
+          if (!refits.has(a.id)) return a;
+          const weeks = refits.get(a.id);
+          return {
+            ...a,
+            config: action.config,
+            ...(weeks > 0
+              ? { status: 'grounded', groundedWeeksLeft: weeks, groundedReason: 'refit' }
+              : {}),
+          };
+        }),
+        bulkResult: { action: 'CONFIGURE_AIRCRAFT_BULK', requested: ids.length, applied: refits.size, skipped: ids.length - refits.size },
       };
     }
 
@@ -3732,7 +3801,7 @@ function reducer(state, action) {
         aged = accrueMaintenance(aged, isOutOfService(a) ? 0 : (maintHoursById.get(a.id) ?? 0), curAbsWeek);
         if (failedIds.has(a.id)) {
           const failure = newFailures.find(f => f.aircraftId === a.id);
-          return { ...aged, status: 'grounded', groundedWeeksLeft: failure.weeksGrounded };
+          return { ...aged, status: 'grounded', groundedWeeksLeft: failure.weeksGrounded, groundedReason: 'failure' };
         }
         // Tick lease countdown for leased aircraft
         if (a.ownershipType === 'lease' && (a.leaseRemainingWeeks ?? 0) > 0) {

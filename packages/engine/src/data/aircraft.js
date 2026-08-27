@@ -3263,8 +3263,13 @@ export function effectivePurchasePrice(type, orderQuantity) {
 // ─── Efficiency metric ────────────────────────────────────────────────────────
 
 /**
- * Fuel cost per seat per 100 km (¢/seat/100km).
- * Lower = more efficient. Use for comparison across aircraft sizes.
+ * FUEL cost per seat per 100 km, in DOLLARS ($/seat/100km).
+ * Lower = cheaper to fly on fuel alone. Use for comparison across aircraft sizes.
+ *
+ * This is fuel and NOTHING else - no maintenance, no crew, no ownership cost. It is
+ * not a total-cost-per-seat figure and must never be labelled as one in the UI: an
+ * old widebody scores well here while billing far more maintenance per seat than a
+ * newer narrowbody below it. Anywhere this is shown, say "fuel" on the label.
  */
 export function seatEfficiency(type) {
   // Freighters have no seats — seat efficiency is undefined for them. Return null so
@@ -3281,7 +3286,8 @@ export const EFFICIENCY_BEST  = Math.min(..._effValues); // lowest $/seat/100km
 export const EFFICIENCY_WORST = Math.max(..._effValues); // highest $/seat/100km
 
 /**
- * Normalised efficiency score 0–100 (100 = most efficient in the fleet).
+ * Normalised FUEL efficiency score 0-100 (100 = cheapest fuel per seat in the fleet).
+ * Same caveat as seatEfficiency(): fuel only, so this ranks burn, not total operating cost.
  */
 export function efficiencyScore(type) {
   const e = seatEfficiency(type);

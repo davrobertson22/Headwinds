@@ -990,9 +990,19 @@ export function committedPeakBlockHoursIn(aircraftId, type, routes = [], cargoRo
 export function blockHourFit({
   aircraftId, type, routes = [], cargoRoutes = [], months = null,
   hoursPerFlight = 0, weeklyFrequency = 0, capHours = MAX_WEEKLY_BLOCK_HOURS,
+  ignoreSeason = false,
 } = {}) {
   const cap = capHours > 0 ? capHours : MAX_WEEKLY_BLOCK_HOURS;
-  const existingHours = committedPeakBlockHoursIn(aircraftId, type, routes, cargoRoutes, months);
+  // ignoreSeason: charge EVERY committed route whether or not it operates in the
+  // month in question — the conservative reading the multi-stop and freight
+  // guards have always used, kept here so their previews can ask this function
+  // and get back exactly what those guards will decide. The passenger route
+  // guard uses the per-month peak instead (pass `months`), which is what lets a
+  // summer route and a winter route share one airframe.
+  const existingHours = ignoreSeason
+    ? routesCommittedTo(aircraftId, routes, cargoRoutes)
+        .reduce((s, r) => s + (type ? routeBlockHours(r, type, r.weeklyFrequency) : 0), 0)
+    : committedPeakBlockHoursIn(aircraftId, type, routes, cargoRoutes, months);
   const addedHours = Math.max(0, hoursPerFlight) * Math.max(0, weeklyFrequency);
   const totalHours = existingHours + addedHours;
   const spareHours = Math.max(0, cap - existingHours);

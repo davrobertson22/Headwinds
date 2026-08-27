@@ -25,7 +25,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { AIRCRAFT_TYPES, seatEfficiency } from '../src/data/aircraft.js';
+import { AIRCRAFT_TYPES, seatEfficiency, efficiencyScore } from '../src/data/aircraft.js';
 import { formatMoney, maintenanceMultiplier } from '../src/utils/simulation.js';
 
 const store = new Map();
@@ -173,6 +173,79 @@ test('the table quotes the same delivered maintenance the card does', () => {
   const t = get('b737400');
   assert.ok(table.includes(formatMoney(deliveredMaint(t))),
     'the table and the card disagree about what this aircraft costs to maintain');
+});
+
+section('5. The efficiency bar says what it actually measures');
+
+// Reported in Discord 2026-08-27 (Kat the Fox again): "hey wait a minute" — the
+// 767-300ER shows 95/100 on the store card's efficiency bar against the 737-800's
+// 94, and bills $210.0K/wk maintenance against $68.0K. Both numbers were right.
+// The bar was mislabelled: seatEfficiency() is fuelCostPerKm/seats and NOTHING
+// else, printed under the heading "Seat efficiency" as "$2.90/seat/100km", which
+// reads as a total cost per seat. Fuel is roughly half the picture and the half
+// that flatters old widebodies, so the bar and the maintenance pill appeared to
+// contradict each other. The fix is honest labelling plus the missing half:
+// "Fuel per seat", and a Maint/seat (Maint/tonne for freighters) pill beside it.
+
+const maintPer = (t) =>
+  deliveredMaint(t) / (t.freighter ? (t.payloadTonnes || 1) : (t.seats || 1));
+
+test('seatEfficiency() is fuel-only — maintenance does not move it', () => {
+  const t = get('b767300');
+  const gouged = { ...t, baseMaintenancePerWk: t.baseMaintenancePerWk * 10 };
+  assert.equal(seatEfficiency(gouged), seatEfficiency(t),
+    'seatEfficiency now responds to maintenance — if that is deliberate, the label '
+    + 'this suite enforces below is out of date and should be widened, not deleted');
+});
+
+test('a fuel-only score is labelled as fuel, never as plain "efficiency"', () => {
+  const card = cardFor(cards, 'Boeing 767-300ER');
+  assert.ok(!/Seat efficiency/.test(card),
+    'the bar is back to calling itself "Seat efficiency" while measuring fuel alone');
+  assert.ok(/Fuel per seat/.test(card), 'the bar does not say it is a fuel figure');
+  assert.ok(/fuel\/seat\/100km/.test(card),
+    'the raw number still reads as a total $/seat/100km rather than a fuel one');
+});
+
+test('the card carries the maintenance half of the comparison, per seat', () => {
+  const card = cardFor(cards, 'Boeing 767-300ER');
+  assert.ok(/Maint\/seat/.test(card), 'no per-seat maintenance pill');
+  assert.ok(card.includes(formatMoney(maintPer(get('b767300')))),
+    `the 767-300ER card must quote ${formatMoney(maintPer(get('b767300')))}/seat/wk`);
+});
+
+test('freighters get the same figure per tonne, since they have no seats', () => {
+  assert.ok(cards.includes('Maint/tonne'), 'freighter cards have no per-tonne maintenance pill');
+  const card = cardFor(cards, 'Boeing 777F');
+  assert.ok(card.includes(formatMoney(maintPer(get('b777f')))),
+    'the 777F card does not quote maintenance per tonne of payload');
+});
+
+test('the pair from the report still disagrees — which is why the label matters', () => {
+  const wide = get('b767300'), narrow = get('b737800');
+  assert.ok(efficiencyScore(wide) >= efficiencyScore(narrow),
+    'premise of the report: the widebody wins the fuel bar');
+  assert.ok(maintPer(wide) > maintPer(narrow),
+    'premise of the report: the widebody loses badly on maintenance per seat');
+  // If a rebalance ever removes this disagreement, do not just delete the test —
+  // the label is still correct, and the next generation gap will recreate it.
+});
+
+section('6. The comparison table carries the same two labels');
+
+test('the table names the fuel column as fuel and adds maintenance per seat', () => {
+  assert.ok(/Fuel eff\./.test(table), 'the table still calls the fuel score plain "Eff."');
+  assert.ok(/Maint\/seat/.test(table), 'the table has no per-seat maintenance column');
+  assert.ok(table.includes(formatMoney(maintPer(get('b767300')))),
+    'the table and the card disagree about maintenance per seat');
+});
+
+test('every table row still fills every column', () => {
+  const headers = (table.match(/<th[\s>]/g) || []).length;
+  const firstRow = table.slice(table.indexOf('<tbody>'), table.indexOf('</tr>', table.indexOf('<tbody>')));
+  const cells = (firstRow.match(/<td[\s>]/g) || []).length;
+  assert.equal(cells, headers,
+    `${cells} cells against ${headers} headers — a column was added on one side only`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

@@ -8,8 +8,9 @@ import {
   simulateTagRoute, referencePrice, distanceKm, formatMoney, formatPercent,
   currentGameDate, effectiveRangeKm, defaultClassPrices,
   routeLegs, routeSegments, routeSegmentKey, routeMaxLegKm, routeBlockHours,
-  routeLandingFee, routeStops, MAX_WEEKLY_BLOCK_HOURS, SLOTS_PER_GATE, MAX_ROUTE_STOPS,
-  cargoSlotsUsedAt, fleetAvgUtilization,
+  routeLandingFee, routeStops, SLOTS_PER_GATE, MAX_ROUTE_STOPS,
+  cargoSlotsUsedAt, fleetAvgUtilization, maxWeeklyBlockHoursFor,
+  routesCommittedTo, committedPeakBlockHours, blockHourFit,
   stateLoungeFields, buildEventDemandModel,
 } from '../utils/simulation.js';
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
@@ -43,6 +44,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
   const { state, dispatch } = useGame();
   const { fleet, routes, gates = {}, hub, cash, cargoRoutes = [], hubs = EMPTY_HUBS } = state;
   const gd = currentGameDate(state);
+  const bhCap = maxWeeklyBlockHoursFor(state);
 
   // Ordered stops: a tag flight needs ≥3 (origin + ≥1 stop + destination).
   const [stops, setStops] = useState([hub || '', '', '']);
@@ -92,16 +94,18 @@ export default function TagRoutePlanner({ mode, setMode }) {
     return fleet.filter(a => {
       const t = getAircraftType(a.typeId);
       if (!t || t.freighter || effectiveRangeKm(a, t) < maxLeg) return false;
-      const acRoutes = routes.filter(r => r.aircraftId === a.id);
-      const usedBH = acRoutes.reduce((s, r) => s + routeBlockHours(r, t, r.weeklyFrequency), 0);
-      if (usedBH >= MAX_WEEKLY_BLOCK_HOURS) return false;
+      // Everything this tail is on the hook for — its cargo network too, and any
+      // rotation a reserve is covering for it (those come home). Filtering on
+      // aircraftId alone showed a covered tail as free metal.
+      const acRoutes = routesCommittedTo(a.id, routes, cargoRoutes);
+      if (committedPeakBlockHours(a.id, t, routes, cargoRoutes) >= bhCap) return false;
       if (acRoutes.length === 0) return true;
-      return acRoutes.some(r => stopSet.has(r.origin) || stopSet.has(r.destination));
+      return acRoutes.some(r => routeStops(r).some(c => stopSet.has(c)));
     })
       // Reserves sort last: still offered (deploying one just ends its standby)
       // but never the plane the picker lands on by default.
       .sort((a, b) => (a.reserveBase ? 1 : 0) - (b.reserveBase ? 1 : 0));
-  }, [fleet, routes, route, maxLeg]);
+  }, [fleet, routes, cargoRoutes, route, maxLeg, bhCap]);
 
   // Auto-pick a reachable aircraft when needed.
   useMemo(() => {
@@ -124,12 +128,24 @@ export default function TagRoutePlanner({ mode, setMode }) {
       state.competitors ?? [], (key) => rivalSpecsFor(state, key));
   }, [route, aircraft, inRange, gd.month, state.labor]); // eslint-disable-line
 
-  // ── Validation (mirrors the reducer; advisory only) ──
-  const blockHrsExisting = aircraft && type
-    ? routes.filter(r => r.aircraftId === aircraft.id).reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0)
-    : 0;
-  const blockHrsNew  = route && type ? routeBlockHours(route, type, frequency) : 0;
-  const blockOk      = !type || blockHrsExisting + blockHrsNew <= MAX_WEEKLY_BLOCK_HOURS;
+  // ── Validation: the ENGINE's reading, not a second one computed here ──
+  // addTagRouteBlockReason asks blockHourFit; so does this, so a planner that
+  // says "fits" cannot be met by "no spare flying hours" on submit. It also
+  // uses the world's cap (100h under New World Restrictions), which the bare
+  // MAX_WEEKLY_BLOCK_HOURS constant here did not.
+  const tagFit = blockHourFit({
+    aircraftId: aircraft?.id, type,
+    routes, cargoRoutes,
+    hoursPerFlight: route && type ? routeBlockHours(route, type, 1) : 0,
+    weeklyFrequency: frequency,
+    // The multi-stop guard charges every committed route whether or not it
+    // operates this month — match it exactly rather than being kinder here.
+    ignoreSeason: true,
+    capHours: bhCap,
+  });
+  const blockHrsExisting = tagFit.existingHours;
+  const blockHrsNew      = tagFit.addedHours;
+  const blockOk          = !type || tagFit.fits;
 
   const incident = {};
   for (const l of legs) { incident[l.from] = (incident[l.from] ?? 0) + 1; incident[l.to] = (incident[l.to] ?? 0) + 1; }
@@ -139,7 +155,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
   const gateProblem = ready ? validStops.find(c => !(gates[c] > 0)) : null;
   const slotProblem = ready ? validStops.find(c => slotsUsedAt(c) + (incident[c] ?? 0) * frequency > (gates[c] ?? 0) * SLOTS_PER_GATE) : null;
 
-  const aircraftRoutes = aircraft ? routes.filter(r => r.aircraftId === aircraft.id) : [];
+  const aircraftRoutes = aircraft ? routesCommittedTo(aircraft.id, routes, cargoRoutes) : [];
   const served = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
   const connectivityOk = !aircraft || aircraftRoutes.length === 0 || validStops.some(c => served.has(c));
 
@@ -253,7 +269,7 @@ export default function TagRoutePlanner({ mode, setMode }) {
               {!inRange && type && (
                 <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> {type.name} range {effRange.toLocaleString()} km &lt; longest leg {Math.round(maxLeg).toLocaleString()} km.</span>
               )}
-              {!blockOk && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> Exceeds the {MAX_WEEKLY_BLOCK_HOURS}h/wk block-hour cap for this aircraft.</span>}
+              {!blockOk && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> Exceeds the {bhCap}h/wk block-hour cap for this aircraft.</span>}
               {gateProblem && <span style={{ color: 'var(--red)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}><Glyph e="⚠" /> No gate at {gateProblem}<AddGateButton code={gateProblem} /></span>}
               {slotProblem && <span style={{ color: 'var(--yellow)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}><Glyph e="⚠" /> Not enough slots at {slotProblem}<AddGateButton code={slotProblem} /></span>}
               {!connectivityOk && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> {aircraft?.name} can only extend from an airport it already serves.</span>}

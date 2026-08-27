@@ -8,6 +8,7 @@ import CargoRoutesList, { FreightBadge, PassengerBadge } from './CargoRoutesList
 import CargoRoutePlanner from './CargoRoutePlanner.jsx';
 import { AIRPORTS, getAirport, getRegion, REGIONS } from '../data/airports.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
+import { groundedTitle } from '../data/maintenance.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
 import AirportSelect from './AirportSelect.jsx';
@@ -35,7 +36,7 @@ import {
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
-  buildEventDemandModel, committedPeakBlockHours, routesCommittedTo,
+  buildEventDemandModel, committedPeakBlockHours, routesCommittedTo, blockHourFit,
   stateLoungeFields,
 } from '../utils/simulation.js';
 
@@ -2204,7 +2205,7 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
                 background: 'rgba(248,81,73,0.15)', color: 'var(--red)',
                 border: '1px solid rgba(248,81,73,0.3)',
                 textTransform: 'uppercase', letterSpacing: '.04em',
-              }}>
+              }} title={groundedTitle(aircraft)}>
                 <Glyph e="🔧" /> {aircraft.groundedWeeksLeft}w
               </span>
             )}
@@ -2313,9 +2314,9 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
       ).map(r => r.aircraftId))
     : new Set();
   const connectsToPair = (a) => {
-    const acRoutes = routes.filter(r => r.aircraftId === a.id);
+    const acRoutes = routesCommittedTo(a.id, routes, state.cargoRoutes ?? []);
     return acRoutes.length === 0 ||
-      acRoutes.some(r => [r.origin, r.destination].some(c => c === initialOrigin || c === initialDest));
+      acRoutes.some(r => routeStops(r).some(c => c === initialOrigin || c === initialDest));
   };
   const defaultAircraft = isAddingFlights
     ? (paxFleet.find(a => pairAircraftIds.has(a.id) && hasHours(a))
@@ -2395,21 +2396,29 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   const effRange = type && aircraft ? effectiveRangeKm(aircraft, type) : (type?.range ?? 0);
   const inRange  = type && dist ? dist <= effRange : true;
 
-  // Block hours — checked PER MONTH so a dormant route's hours don't count against
-  // a counter-seasonal route on the same aircraft (mirrors the reducer's logic).
+  // Block hours — the ENGINE's reading, not a second one computed here. This bar
+  // used to sum `routes.filter(r => r.aircraftId === …)` at the direct O&D
+  // distance, which charges a tag rotation only its end-to-end hop and cannot
+  // see a rotation a reserve is covering. A player hit the result head-on: the
+  // picker offered "11h free", this bar read 136.3 / 140h in green, and the
+  // submit answered "no spare flying hours — this would need 151h/wk".
+  // blockHourFit is what addRouteBlockReason asks, so the two cannot disagree.
   const newMonths   = routeActiveMonths({ season });
-  const acRoutes    = aircraft ? routes.filter(r => r.aircraftId === aircraft.id) : [];
-  const existingBlockHrs = type ? Math.max(0, ...newMonths.map(m =>
-    acRoutes.filter(r => isRouteActive(r, m))
-      .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0))) : 0;
-  const newBlockHrs      = type && dist ? weeklyBlockHours(dist, Number(frequency), type) : 0;
-  const totalBlockHrs    = existingBlockHrs + newBlockHrs;
-  const blockOk          = newBlockHrs === 0 || totalBlockHrs <= bhCap;
+  const hrsPerFlight = type && dist ? blockTimeHours(dist, type) * 2 : 0;
+  const fit = blockHourFit({
+    aircraftId: aircraft?.id, type,
+    routes, cargoRoutes: state.cargoRoutes ?? [],
+    months: newMonths,
+    hoursPerFlight: hrsPerFlight,
+    weeklyFrequency: Number(frequency) || 0,
+    capHours: bhCap,
+  });
+  const existingBlockHrs = fit.existingHours;
+  const newBlockHrs      = fit.addedHours;
+  const totalBlockHrs    = fit.totalHours;
+  const blockOk          = newBlockHrs === 0 || fit.fits;
   const routeMaxFreq     = type && dist ? maxFrequency(dist, type, bhCap) : 21;
-  const remainingHrs     = bhCap - existingBlockHrs;
-  const capacityMaxFreq  = type && dist
-    ? Math.floor(remainingHrs / (blockTimeHours(dist, type) * 2))
-    : 21;
+  const capacityMaxFreq  = type && dist ? fit.maxFrequency : 21;
   const freqLimit  = Math.min(routeMaxFreq, Math.max(0, capacityMaxFreq));
   const blockPct   = totalBlockHrs / bhCap;
   const blockColor = blockPct >= 1 ? 'var(--red)' : blockPct >= 0.8 ? 'var(--yellow)' : 'var(--green)';
@@ -2431,8 +2440,12 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
 
   // Network-connectivity check: aircraft with existing routes can only extend
   // from airports they already serve — no teleporting between unconnected cities.
-  const aircraftRoutes   = aircraft ? routes.filter(r => r.aircraftId === aircraft.id) : [];
-  const servedAirports   = new Set(aircraftRoutes.flatMap(r => [r.origin, r.destination]));
+  // routesCommittedTo + routeStops, exactly as the reducer asks it: a tag
+  // rotation's intermediate stops are served airports, and a rotation out on
+  // cover still belongs to this tail. The old reading (aircraftId, endpoints
+  // only) warned "aircraft can't teleport" about routes the reducer accepts.
+  const aircraftRoutes   = aircraft ? routesCommittedTo(aircraft.id, routes, state.cargoRoutes ?? []) : [];
+  const servedAirports   = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
   const connectivityOk   = aircraftRoutes.length === 0 ||
     servedAirports.has(origin) || (validDest && servedAirports.has(dest));
 
