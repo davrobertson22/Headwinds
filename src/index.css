@@ -1143,11 +1143,13 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   background: none !important;
   border: none !important;
 }
+/* Pin size comes from the marker's hub tier (RouteMap sets --hub-core /
+   --hub-ring inline); the defaults are the tier-1 hub size. */
 .hub-marker .hub-pulse-core {
   position: absolute;
   top: 50%; left: 50%;
-  width: 11px; height: 11px;
-  margin: -5.5px 0 0 -5.5px;
+  width: var(--hub-core, 11px); height: var(--hub-core, 11px);
+  margin: calc(var(--hub-core, 11px) / -2) 0 0 calc(var(--hub-core, 11px) / -2);
   border-radius: 50%;
   background: #ffcf4d;
   border: 2px solid #fff6d8;
@@ -1156,8 +1158,8 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 .hub-marker .hub-pulse-ring {
   position: absolute;
   top: 50%; left: 50%;
-  width: 14px; height: 14px;
-  margin: -7px 0 0 -7px;
+  width: var(--hub-ring, 14px); height: var(--hub-ring, 14px);
+  margin: calc(var(--hub-ring, 14px) / -2) 0 0 calc(var(--hub-ring, 14px) / -2);
   border-radius: 50%;
   border: 2px solid rgba(255,207,77,.8);
   animation: hub-pulse 2.2s ease-out infinite;

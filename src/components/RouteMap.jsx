@@ -9,6 +9,7 @@ import {
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAlliance } from '../data/alliances.js';
+import { HUB_TIERS } from '../models/demand.js';
 import { Glyph } from './Icons.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
@@ -69,9 +70,56 @@ export function claimRouteFly(ref, selectedId) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
+// ── Designated stations ───────────────────────────────────────────────────────
+// `state.hub` is the airline's FOUNDING hub and nothing more — it is stamped on
+// every route at creation and never changes. The stations the player actually
+// runs live in `state.hubs` ({ code: { tier, tierSince } }, tier 0 = focus city).
+// The map pinned the founding hub alone, so a carrier hubbing at MCI, SLC, HNL
+// and SJU saw four plain blue spokes and one gold pin (Discord, Knightmare,
+// 27 Aug 2026). Same fallback HubManagement uses: an ABSENT hubs map is a legacy
+// save and means "the founding hub, tier 1"; an EMPTY one means the player has
+// abandoned every designation, and nothing should pin.
+
+/** Every station the player has designated, as { [code]: { tier, name } }. */
+export function mapHubs(state = {}) {
+  const raw = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
+  const out = {};
+  for (const [code, h] of Object.entries(raw)) {
+    const tier = h?.tier ?? 1;
+    if (!HUB_TIERS[tier]) continue;   // hubConstruction entries aren't live yet
+    out[code] = { tier, name: HUB_TIERS[tier].name };
+  }
+  return out;
+}
+
+/** Marker geometry for a hub tier — bigger pin the higher the tier. */
+export function hubMarkerSize(tier) {
+  const core = 9 + 2 * Math.max(0, Math.min(3, tier ?? 1));
+  return { core, ring: core + 3 };
+}
+
+/** Airports the map pins: every station you've designated (even one you have no
+ *  routes at yet) plus every stop of every route drawn — a rotation's
+ *  intermediate stops are airports it lands at, so they get a pin too. */
+export function mapAirportCodes(hubCodes = [], ...routeDataSets) {
+  const codes = new Set(hubCodes.filter(Boolean));
+  for (const set of routeDataSets) {
+    for (const d of set ?? []) {
+      if (Array.isArray(d?.chain)) for (const a of d.chain) { if (a?.code) codes.add(a.code); }
+      else { if (d?.origin?.code) codes.add(d.origin.code); if (d?.dest?.code) codes.add(d.dest.code); }
+    }
+  }
+  return [...codes];
+}
+
 export default function RouteMap() {
   const { state } = useGame();
-  const { fleet, routes, cargoRoutes = [], hub, competitors = [], allianceMembership, codeshareAgreements = [] } = state;
+  const { fleet, routes, cargoRoutes = [], hub, hubs: hubsState,
+          competitors = [], allianceMembership, codeshareAgreements = [] } = state;
+
+  // Every designated station, gold-pinned — not just the founding hub.
+  const hubs = useMemo(() => mapHubs({ hub, hubs: hubsState }), [hub, hubsState]);
+  const hubCodes = useMemo(() => Object.keys(hubs), [hubs]);
 
   // The map has a fixed inline height that a CSS media query can't reach, so we
   // size it here. Shorter on phones so the route list below is reachable without
@@ -259,14 +307,10 @@ export default function RouteMap() {
   const filteredCargoRouteData = useMemo(() => cargoRouteData.filter(matchesFilters), [cargoRouteData, matchesFilters]);
   const filtersActive = acTypeFilter !== 'all' || airportFilter !== 'all';
 
-  const airportSet = useMemo(() => {
-    const codes = new Set([
-      hub,
-      ...filteredRouteData.flatMap(d => d.chain.map(a => a.code)),
-      ...filteredCargoRouteData.flatMap(d => [d.origin.code, d.dest.code]),
-    ]);
-    return [...codes].map(getAirport).filter(Boolean);
-  }, [filteredRouteData, filteredCargoRouteData, hub]);
+  const airportSet = useMemo(() => (
+    mapAirportCodes(hubCodes, filteredRouteData, filteredCargoRouteData)
+      .map(getAirport).filter(Boolean)
+  ), [filteredRouteData, filteredCargoRouteData, hubCodes]);
 
   // Group route entries by city pair (direction-agnostic) so multiple aircraft
   // on the same JFK↔ORD pair show as ONE line + ONE row with aggregated stats.
@@ -615,21 +659,23 @@ export default function RouteMap() {
 
     // Airport markers
     for (const airport of airportSet) {
-      const isHub = airport.code === hub;
+      const hubInfo = hubs[airport.code];
 
-      if (isHub) {
-        // Pulsing hub marker (animated CSS divIcon)
+      if (hubInfo) {
+        // Pulsing hub marker (animated CSS divIcon), sized by tier so a focus
+        // city reads as smaller than an International Gateway.
+        const { core, ring } = hubMarkerSize(hubInfo.tier);
         const hubMarker = L.marker([airport.lat, airport.lon], {
           icon: L.divIcon({
             className: 'hub-marker',
-            html: '<span class="hub-pulse-ring"></span><span class="hub-pulse-core"></span>',
+            html: `<span class="hub-pulse-ring" style="--hub-ring:${ring}px"></span><span class="hub-pulse-core" style="--hub-core:${core}px"></span>`,
             iconSize: [22, 22],
             iconAnchor: [11, 11],
           }),
           zIndexOffset: 1000,
         });
         hubMarker.bindTooltip(
-          `<div class="map-tip"><div class="map-tip-title">${airport.code}</div><div class="map-tip-sub">${airport.city}, ${airport.country} <span style="color:${HUB_COLOR}">● HUB</span></div></div>`,
+          `<div class="map-tip"><div class="map-tip-title">${airport.code}</div><div class="map-tip-sub">${airport.city}, ${airport.country} <span style="color:${HUB_COLOR}">● ${hubInfo.name.toUpperCase()}</span></div></div>`,
           { className: 'game-tooltip', offset: [12, 0] },
         );
         hubMarker.addTo(map);
@@ -683,7 +729,7 @@ export default function RouteMap() {
     }
 
     applyStyles();
-  }, [routeGroups, airportSet, hub, mapReady, applyStyles]); // mapReady ensures this re-runs after L.map() finishes
+  }, [routeGroups, airportSet, hubs, mapReady, applyStyles]); // mapReady ensures this re-runs after L.map() finishes
 
   // Re-style when hover changes
   useEffect(() => {
@@ -798,9 +844,12 @@ export default function RouteMap() {
                 Multi-stop
               </span>
             )}
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span
+              style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+              title="Gold pins mark every station you've designated — focus cities, hubs and gateways alike"
+            >
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUB_COLOR, display: 'inline-block' }} />
-              Hub
+              {hubCodes.length > 1 ? 'Hubs' : 'Hub'}
             </span>
 
             {/* Cargo toggle — only when cargo routes exist */}
