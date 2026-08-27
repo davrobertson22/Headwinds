@@ -5,15 +5,16 @@
 // multiplayer the client is untrusted, so we re-derive / bound those values here
 // before the reducer runs. This module is multiplayer-only (imported by
 // routes/decisions.mjs); the solo game never touches it, so single-player
-// behaviour is unchanged. Values mirror src/components/Finance.jsx and
-// src/components/FleetConfig.jsx so a legitimate decision is never rejected.
+// behaviour is unchanged. Values mirror src/components/Finance.jsx so a
+// legitimate decision is never rejected. The cabin-refit price is no longer
+// mirrored at all: calcReconfCost lives in the engine and the modal, this guard
+// and the reducer all call the SAME function, so they cannot drift apart.
 
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import {
   CLASS_SPACE_MULTIPLIERS,
-  SEAT_QUALITY_FITTING_FEE,
-  CABIN_INSTALL_FEE_PER_SEAT,
   defaultConfig,
+  calcReconfCost,
 } from '@tailwinds/engine/utils/simulation.js';
 import {
   LOAN_MIN_PRINCIPAL, getLoanProduct, loanProductForTerm,
@@ -83,24 +84,6 @@ function assertConfigFitsAirframe(config, type) {
   if (floorUnits(config) > maxSeats + 0.001) {
     throw new GuardError('Cabin layout exceeds the aircraft capacity.');
   }
-}
-
-function calcReconfCost(current, next) {
-  const seatChanges =
-    Math.abs((next.firstClass     ?? 0) - (current.firstClass     ?? 0)) +
-    Math.abs((next.businessClass  ?? 0) - (current.businessClass  ?? 0)) +
-    Math.abs((next.premiumEconomy ?? 0) - (current.premiumEconomy ?? 0));
-  const fitUpgrade = Math.max(
-    0,
-    (SEAT_QUALITY_FITTING_FEE[next.seatQuality    ?? 'basic'] ?? 0) -
-    (SEAT_QUALITY_FITTING_FEE[current.seatQuality ?? 'basic'] ?? 0),
-  );
-  const premInstall =
-    Math.max(0, (next.firstClass     ?? 0) - (current.firstClass     ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.firstClass +
-    Math.max(0, (next.businessClass  ?? 0) - (current.businessClass  ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.businessClass +
-    Math.max(0, (next.premiumEconomy ?? 0) - (current.premiumEconomy ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
-  if (seatChanges === 0 && fitUpgrade === 0 && premInstall === 0) return 0;
-  return Math.max(10_000, seatChanges * 2_500 + premInstall + fitUpgrade);
 }
 
 function guardConfigureAircraft(payload, state) {

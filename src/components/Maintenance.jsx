@@ -12,7 +12,7 @@ import {
   activeFamilies as getActiveFamilies, weeklyFamilyBaseCost,
 } from '../data/families.js';
 import {
-  dueInfo, checkCost, checkDurationWeeks,
+  dueInfo, checkCost, checkDurationWeeks, groundedKind,
   autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN,
 } from '../data/maintenance.js';
 import {
@@ -571,7 +571,7 @@ function ShopBoard({ state }) {
       const job = jobFor.get(a.id) ?? null;
       return {
         a,
-        kind:  a.status === 'maintenance' ? `${a.checkType ?? 'C'} check` : 'AOG repair',
+        kind:  a.status === 'maintenance' ? `${a.checkType ?? 'C'} check` : groundedKind(a),
         weeks: a.status === 'maintenance' ? (a.checkWeeksLeft ?? 0) : (a.groundedWeeksLeft ?? 0),
         forced: !!a.checkForced,
         job,

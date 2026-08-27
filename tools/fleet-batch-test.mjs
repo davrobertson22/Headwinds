@@ -20,6 +20,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
+import { calcReconfCost } from '../src/utils/simulation.js';
 
 const store = new Map();
 globalThis.window = globalThis.window ?? {};
@@ -360,11 +361,17 @@ test('the used-market hook lists every tail a batch sold', () => {
 
 
 // ── C-new-2: atomic bulk cabin reconfigure ──────────────────────────────────
+// The charge is no longer the client's number. reconfCost used to be taken from
+// the payload; since 2026-08-27 the reducer re-derives it with the engine's own
+// calcReconfCost — the same function the modal quotes and the multiplayer guard
+// enforces — so a forged or stale total cannot bill the player.
 test('CONFIGURE_AIRCRAFT_BULK applies one layout to N tails and charges the summed cost once', () => {
-  const cfg = { economy: 100 };
+  const cfg = { firstClass: 0, businessClass: 12, premiumEconomy: 0, economy: 100, seatQuality: 'standard' };
   const s0  = baseState({ fleet: [tail('o1', big), tail('o2', big), tail('o3', big)] });
+  const per = calcReconfCost({ economy: big.seats }, cfg);
+  assert.ok(per > 0, 'fixture change should cost something');
   const bulk = reducer(s0, { type: 'CONFIGURE_AIRCRAFT_BULK', aircraftIds: ['o1', 'o2', 'o3'], config: cfg, reconfCost: 900 });
-  assert.equal(s0.cash - bulk.cash, 900, 'charged the summed cost exactly once');
+  assert.equal(s0.cash - bulk.cash, per * 3, 'charged each tail its own refit, exactly once');
   assert.ok(bulk.fleet.every(a => JSON.stringify(a.config) === JSON.stringify(cfg)), 'every tail got the new layout');
   assert.equal(bulk.bulkResult.applied, 3);
   assert.equal(bulk.bulkResult.skipped, 0);
@@ -372,6 +379,7 @@ test('CONFIGURE_AIRCRAFT_BULK applies one layout to N tails and charges the summ
   let seq = s0;
   for (const id of ['o1', 'o2', 'o3']) seq = reducer(seq, { type: 'CONFIGURE_AIRCRAFT', aircraftId: id, config: cfg, reconfCost: 300 });
   assert.deepEqual(bulk.fleet.map(a => a.config), seq.fleet.map(a => a.config), 'same layouts as three single configures');
+  assert.equal(s0.cash - seq.cash, per * 3, 'the single-tail path prices the same work identically');
 });
 
 test('CONFIGURE_AIRCRAFT_BULK ignores unknown ids and an empty batch is a no-op', () => {
@@ -380,6 +388,12 @@ test('CONFIGURE_AIRCRAFT_BULK ignores unknown ids and an empty batch is a no-op'
   const partial = reducer(s0, { type: 'CONFIGURE_AIRCRAFT_BULK', aircraftIds: ['o1', 'ghost'], config: { economy: 50 }, reconfCost: 100 });
   assert.equal(partial.fleet.length, 1);
   assert.deepEqual(partial.fleet[0].config, { economy: 50 });
+});
+
+test('a batched refit reaches the server (it was dropped before the fetch for 6 weeks)', () => {
+  const world = read('../apps/headwinds-server/src/world.mjs');
+  assert.ok(world.includes("'CONFIGURE_AIRCRAFT_BULK'"),
+    'CONFIGURE_AIRCRAFT_BULK is not on the multiplayer allow-list — the client drops it silently');
 });
 
 test('the Fleet config modal dispatches one batched reconfigure, not a loop', () => {

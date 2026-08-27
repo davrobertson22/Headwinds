@@ -37,7 +37,8 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // all re-validated by the reducer; the guard below only sanitizes payloads.
   'BUILD_MRO_BASE', 'UPGRADE_MRO_BASE', 'ADD_BASE_CERTIFICATION',
   'SET_BASE_PARTS_POOL', 'CLOSE_MRO_BASE',
-  'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
+  'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'CONFIGURE_AIRCRAFT_BULK',
+  'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',
   // Onboard connectivity retrofit. Like every other fleet action the capex is
   // priced by the reducer from data/wifi.js, never from the request — the guard
   // below only sanitizes the id list.

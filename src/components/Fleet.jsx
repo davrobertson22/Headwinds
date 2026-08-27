@@ -17,7 +17,7 @@ import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/re
 import { ReserveBadge } from './ReserveNotice.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
-import { airframeNAV, dueInfo, checkCost, checkDurationWeeks, isOutOfService, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
+import { airframeNAV, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
 import { consumeNavFilter } from '../utils/navIntent.js';
@@ -67,6 +67,28 @@ const utilBarWidth = (pct) => `${Math.max(0, Math.min(100, pct * 100))}%`;
 
 /** Colour ramp. Over-cap gets its own colour so it cannot read as "healthy busy". */
 const OVER_CAP_COLOR = 'var(--red)';
+
+/**
+ * "due in ~6w (766h left)" — how long until this check comes due, from the
+ * tail's own utilization. The panel used to print hours ACCRUED, which is one
+ * number shared by both checks on a young airframe and answers the wrong
+ * question: a player planning downtime needs the time REMAINING (Discord,
+ * 2026-08-27). A parked tail burns no hours, so its estimate falls back to the
+ * calendar clock, which never stops.
+ */
+export function checkDueLabel(due, which) {
+  const isC       = which === 'c';
+  const overdue   = isC ? due.cPastGrace : due.dPastGrace;
+  const isDue     = isC ? due.cDue       : due.dDue;
+  const weeksOver = isC ? due.cOver      : due.dOver;
+  if (overdue) return `overdue by ${weeksOver}w`;
+  if (isDue)   return 'due now';
+  const inWeeks   = isC ? due.cDueInWeeks : due.dDueInWeeks;
+  const hoursLeft = isC ? due.cHoursLeft  : due.dHoursLeft;
+  const when = Number.isFinite(inWeeks) ? `due in ~${inWeeks}w` : 'not flying — no hours accruing';
+  return `${when} (${Math.round(hoursLeft).toLocaleString()}h left)`;
+}
+
 function utilColorFor(pct, overCap) {
   if (overCap) return OVER_CAP_COLOR;
   return pct >= 0.95 ? 'var(--red)' : pct >= 0.75 ? 'var(--yellow)' : 'var(--accent)';
@@ -701,7 +723,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
                   border: '1px solid rgba(248,81,73,.4)',
                   animation: 'pulse 1.5s ease-in-out infinite',
                 }}>
-                  <Glyph e="🔧" /> Grounded {aircraft.groundedWeeksLeft > 0 ? `(${aircraft.groundedWeeksLeft}w)` : ''}
+                  <Glyph e="🔧" /> {groundedLabel(aircraft)} {aircraft.groundedWeeksLeft > 0 ? `(${aircraft.groundedWeeksLeft}w)` : ''}
                 </span>
               )}
               {aircraft.status === 'maintenance' && (
@@ -1009,8 +1031,8 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
         ) : (
           <>
             <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-              <span>C check: <span style={{ color: (mDue.cSoon || mDue.cDue) ? 'var(--yellow)' : 'var(--text)' }}>{Math.round(mDue.cProgress * 100)}%</span> ({Math.round(mDue.hoursSinceC)}h · {mDue.weeksSinceC}w)</span>
-              <span>D check: <span style={{ color: (mDue.dSoon || mDue.dDue) ? 'var(--yellow)' : 'var(--text)' }}>{Math.round(mDue.dProgress * 100)}%</span> ({Math.round(mDue.hoursSinceD)}h · {mDue.weeksSinceD}w)</span>
+              <span>C check: <span style={{ color: (mDue.cSoon || mDue.cDue) ? 'var(--yellow)' : 'var(--text)' }}>{Math.round(mDue.cProgress * 100)}%</span> · {checkDueLabel(mDue, 'c')}</span>
+              <span>D check: <span style={{ color: (mDue.dSoon || mDue.dDue) ? 'var(--yellow)' : 'var(--text)' }}>{Math.round(mDue.dProgress * 100)}%</span> · {checkDueLabel(mDue, 'd')}</span>
             </div>
             {aircraft.scheduledCheck ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
@@ -2577,7 +2599,7 @@ export default function Fleet() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                       {aircraft.status === 'grounded' ? (
                         <span className="badge" style={{ background: 'rgba(248,81,73,.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.4)' }}>
-                          <Glyph e="🔧" /> Grounded {aircraft.groundedWeeksLeft > 0 ? `(${aircraft.groundedWeeksLeft}w)` : ''}
+                          <Glyph e="🔧" /> {groundedLabel(aircraft)} {aircraft.groundedWeeksLeft > 0 ? `(${aircraft.groundedWeeksLeft}w)` : ''}
                         </span>
                       ) : assignedRoutes.length > 0 ? (
                         assignedRoutes.length === 1 ? (
