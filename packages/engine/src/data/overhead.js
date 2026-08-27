@@ -30,10 +30,161 @@
 //
 // Industry reference: G&A runs $1–3M per aircraft/year for mid-size carriers.
 
-/** Weekly HQ & corporate overhead for a given fleet size. */
-export function calcHQCost(fleetSize) {
-  if (fleetSize <= 0) return 0;
-  return Math.round(38_000 * Math.pow(fleetSize, 0.85));
+/**
+ * Weekly HQ & corporate overhead for a fleet, in NARROWBODY-EQUIVALENTS.
+ *
+ * The argument is deliberately NOT `fleet.length` any more — see fleetHQScale()
+ * below. An all-narrowbody fleet returns exactly its aircraft count, so every
+ * calibration figure in the table above still reads true for it.
+ */
+export function calcHQCost(fleetScale) {
+  if (fleetScale <= 0) return 0;
+  return Math.round(38_000 * Math.pow(fleetScale, 0.85));
+}
+
+// ─── 1a. Corporate overhead scales with the aeroplane ────────────────────────
+//
+// The curve above counted AIRFRAMES, so a Dash 8 carried an A380's head office.
+// That is the same defect crew pay had before CREW_SCALE_BY_CATEGORY (labor.js)
+// and liability insurance had before LIABILITY_INSURANCE_WEEKLY_BY_CATEGORY
+// (below): it is not a rounding error at the bottom of the range. A turboprop's
+// whole weekly revenue is about $49k on the calibration table in this file, and
+// at two airframes the fleet-size curve alone billed $68.5k — more than gross,
+// before fuel, crew or leases. Measured over six live worlds, sub-80-seat starts
+// died at 70% against a narrowbody's 38%, and 11 of 13 never recorded a single
+// profitable week. See docs/startup-survival-audit-2026-08-26.md.
+//
+// Corporate overhead is not seat-proportional the way cabin crew is — a CEO, a
+// finance team and an AOC exist whatever is parked outside — but it is not flat
+// either: reservations, revenue management, station admin and dispatch all track
+// the size of what is being sold. So this sits between the two, nearer the
+// pilots scale (0.55 for a turboprop) than the cabin-crew one (0.30).
+//
+// Narrow Body is 1.00 BY CONSTRUCTION, so the game's most common category sees
+// no change at all. This is a re-shape, not a rise: measured against the live
+// worlds it moves small-gauge airlines by -3 to -5% of revenue and the largest
+// widebody operators by +0.1 to +0.2%, and pushes no profitable airline into
+// loss. It is also the same principle the per-departure table below was built
+// on — upgauging must not dodge overhead, and neither must downgauging pay an
+// upgauged airline's bill.
+export const HQ_SCALE_BY_CATEGORY = {
+  'Air Taxi':     0.11,   // anchor only — an AOC, a desk and a phone
+  'Commuter':     0.20,   // anchor only — see CATEGORY_MEDIAN_SEATS
+  'Turboprop':    0.35,
+  'Regional Jet': 0.55,
+  'Narrow Body':  1.00,
+  'Wide Body':    1.70,
+  'Double Deck':  2.10,
+  'Supersonic':   1.60,
+};
+
+/**
+ * Freighters all share one category, so — exactly as with insurance and crew —
+ * they step by payload instead. Rates sit below the passenger equivalents: no
+ * cabin means no distribution, no revenue management across four fare classes
+ * and no loyalty programme to administer.
+ */
+export const HQ_SCALE_FREIGHTER = [
+  { maxTonnes:  20, scale: 0.40 },
+  { maxTonnes:  45, scale: 0.60 },
+  { maxTonnes:  80, scale: 0.90 },
+  { maxTonnes: 130, scale: 1.30 },
+  { maxTonnes: Infinity, scale: 1.70 },
+];
+
+// ─── Category tables are ANCHORS on a seat curve, not step functions ─────────
+//
+// Keying a scale off `category` puts a cliff at every boundary, and the game's
+// categories are not evenly spaced in seats. The worst case measured:
+//
+//   757-300   Narrow Body  295 seats   labour $58,000  + HQ $38,000  = $96,000
+//   767-200ER Wide Body    290 seats   labour $105,300 + HQ $59,658  = $164,958
+//
+// Five fewer seats, 72% more fixed cost — which handed the 757-300 the lowest
+// break-even load factor of any aircraft in the game. Across the catalogue that
+// produced four places where MORE seats cost LESS, and 107 pairs sitting within
+// ten seats of each other yet differing by over 15%.
+//
+// A category is a shorthand for size. Where the two disagree, size wins. So the
+// category tables are read as ANCHOR POINTS on a curve through seat count, at
+// the same median seats the per-departure fee table above was calibrated
+// against — every calibrated number still holds exactly at its own anchor, and
+// only aircraft BETWEEN anchors move. The ends CLAMP rather than extrapolate,
+// so an 853-seat A380 keeps paying the double-deck rate it pays today rather
+// than silently repricing the largest airlines in the game.
+// Two of these are not aircraft categories at all. 'Air Taxi' and 'Commuter' are
+// ANCHOR POINTS ONLY — no type in the catalogue carries either as its category,
+// and nothing looks them up directly. They exist because the curve used to stop
+// at 39 seats and CLAMP, so a 9-seat Islander was charged a 39-seater's head
+// office and crew. Measured consequence: every type under about 21 seats was
+// loss-making with every seat sold at maximum legal frequency — not
+// uncompetitive, incapable. That stranded ten aircraft AND the 25 airports under
+// 4,000ft they exist to serve, St Barths (2,119ft) among them.
+export const CATEGORY_MEDIAN_SEATS = {
+  'Air Taxi':       9,
+  'Commuter':      19,
+  'Turboprop':     39,
+  'Regional Jet':  92,
+  'Narrow Body':  186,
+  'Wide Body':    420,
+  'Double Deck':  605,
+};
+
+/**
+ * Read a by-category scale table as a piecewise-linear curve through seats.
+ * Shared by HQ overhead here and by crew pay in labor.js, so the two can never
+ * disagree about where a 200-seat aircraft sits.
+ */
+export function scaleBySeats(byCategory, seats) {
+  const n = Number(seats);
+  // No usable seat count means the curve has nothing to read. Return null so the
+  // caller falls back to its category — NOT the smallest anchor, which would
+  // administer and crew an unknown widebody as though it were a 39-seat commuter.
+  // This is how a synthetic type with no `seats` field got turboprop pilots.
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pts = Object.entries(CATEGORY_MEDIAN_SEATS)
+    .map(([cat, s]) => [s, byCategory?.[cat]])
+    .filter(([, v]) => typeof v === 'number')
+    .sort((a, b) => a[0] - b[0]);
+  if (!pts.length) return null;
+  if (n <= pts[0][0]) return pts[0][1];
+  if (n >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+  for (let i = 1; i < pts.length; i++) {
+    const [s0, v0] = pts[i - 1], [s1, v1] = pts[i];
+    if (n <= s1) return v0 + (v1 - v0) * ((n - s0) / (s1 - s0));
+  }
+  return pts[pts.length - 1][1];
+}
+
+/**
+ * How many narrowbody-equivalents of head office one airframe costs.
+ *
+ * Freighters step by payload — they have no cabin to count. Supersonic keeps a
+ * category override: Concorde is 128 seats of extraordinary complexity, and
+ * interpolating it against a regional jet would under-price it badly. Everything
+ * else reads the table as a seat curve. A missing type falls back to 1.00 — a
+ * new aircraft is charged the common rate rather than administering itself free.
+ */
+export function hqScaleFor(aircraftType) {
+  if (!aircraftType) return 1;
+  if (aircraftType.freighter) {
+    const t = aircraftType.payloadTonnes ?? 0;
+    return HQ_SCALE_FREIGHTER.find(s => t <= s.maxTonnes).scale;
+  }
+  if (aircraftType.category === 'Supersonic') return HQ_SCALE_BY_CATEGORY['Supersonic'];
+  if (aircraftType.doubleDeck) return HQ_SCALE_BY_CATEGORY['Double Deck'];
+  return scaleBySeats(HQ_SCALE_BY_CATEGORY, aircraftType.seats)
+      ?? HQ_SCALE_BY_CATEGORY[aircraftType.category]
+      ?? 1;
+}
+
+/**
+ * The fleet's total head-office scale, in narrowbody-equivalents. This is what
+ * replaces `fleet.length` in calcHQCost — an all-narrowbody fleet returns
+ * exactly its aircraft count, so nothing moves for it.
+ */
+export function fleetHQScale(fleet, typeOf) {
+  return (fleet ?? []).reduce((s, a) => s + hqScaleFor(typeOf(a)), 0);
 }
 
 // ─── 1b. HQ overhead by DEPARTURE (New World Restrictions worlds only) ───────
@@ -92,6 +243,36 @@ export const HQ_DEPARTURE_FEE = {
 // is 5x what ten turboprops generate in departure fees, leaving the small-class
 // rates completely inert).
 export const HQ_BASE_WEEKLY = 40_000;
+
+/**
+ * The floor the gauge scale below decays towards, so a turboprop operator still
+ * carries a real corporate structure rather than none. NOT the fleetless rate:
+ * an airline with no aircraft keeps paying HQ_BASE_WEEKLY in full, because that
+ * state is either momentary (the starter fleet arrives the same week) or
+ * terminal, and an airline whose metal has all gone is supposed to bleed out
+ * and free the player to re-found rather than linger cheaply.
+ */
+export const HQ_BASE_MIN = 8_000;
+
+/**
+ * The restricted-world base, scaled by what the fleet actually flies.
+ *
+ * HQ_BASE_WEEKLY was flat, which re-introduced at the base exactly the defect
+ * the per-departure table removed at the margin: $40k a week is a rounding
+ * error to a widebody operator and most of a turboprop pair's gross revenue.
+ * The scale is the fleet AVERAGE, not the sum — this is a base, charged once,
+ * not a per-airframe fee — and it is capped at 1.00, so no airline flying
+ * narrowbodies or larger pays a cent more than it does today. Relief at the
+ * bottom, unchanged at the top; the departure fees remain the driver.
+ *
+ * A fleetless airline is not "smaller" than a turboprop operator, it is an
+ * airline in an abnormal state, and it pays the full base — see HQ_BASE_MIN.
+ */
+export function hqBaseWeekly(fleet, typeOf) {
+  if (!fleet?.length) return HQ_BASE_WEEKLY;   // see HQ_BASE_MIN — not the floor
+  const avg = fleetHQScale(fleet, typeOf) / fleet.length;
+  return Math.round(HQ_BASE_MIN + (HQ_BASE_WEEKLY - HQ_BASE_MIN) * Math.min(avg, 1));
+}
 
 /** Per-departure HQ fee for a body class, falling back to the narrowbody rate. */
 export function hqDepartureFee(bodyClass) {

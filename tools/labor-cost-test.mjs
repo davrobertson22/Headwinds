@@ -19,6 +19,7 @@
 //   node tools/labor-cost-test.mjs
 
 import assert from 'node:assert/strict';
+import { CATEGORY_MEDIAN_SEATS } from '../packages/engine/src/data/overhead.js';
 import { AIRCRAFT_TYPES, getAircraftType } from '../src/data/aircraft.js';
 import {
   LABOR_GROUPS, crewScaleFor, fleetCrewScale, moraleTarget,
@@ -64,11 +65,18 @@ const FLAT = LABOR_GROUPS.reduce((s, g) => s + g.baseWeeklyPerAircraft, 0);   //
 
 // ── A1: crew cost tracks the aeroplane ──────────────────────────────────────
 
-test('a narrowbody fleet pays exactly what it always did', () => {
-  // The calibration promise: this is a re-shape, not a rise. An airline flying
-  // the game's most common category sees no change at all.
-  assert.equal(weeklyLabour(NB), FLAT);
-  assert.equal(weeklyLabour(NB, 12), FLAT * 12);
+test('a narrowbody at the calibration anchor pays exactly what it always did', () => {
+  // The calibration promise: this is a re-shape, not a rise. It is pinned at the
+  // ANCHOR — 186 seats, the median narrowbody the whole table was calibrated
+  // against — because the scale became a seat curve rather than a category step
+  // (see scaleBySeats in overhead.js). A 136-seat 737-200 now pays less than a
+  // 220-seat 737-900ER, which is the entire point; what must not move is the
+  // aircraft the calibration was built on.
+  const anchor = AIRCRAFT_TYPES.find(t =>
+    t.category === 'Narrow Body' && !t.freighter && t.seats === CATEGORY_MEDIAN_SEATS['Narrow Body']);
+  assert.ok(anchor, 'the catalogue must still contain a narrowbody at the anchor seat count');
+  assert.equal(weeklyLabour(anchor), FLAT);
+  assert.equal(weeklyLabour(anchor, 12), FLAT * 12);
 });
 
 test('a turboprop no longer costs an A380 to crew', () => {
@@ -113,7 +121,7 @@ test('freighters step by payload, not by their one shared category', () => {
     'an An-124 and an ATR-72F cannot crew identically');
 });
 
-test('an unknown category is charged the common rate, not zero', () => {
+test('an unknown category with no seat count is charged the common rate, not zero', () => {
   // A new aircraft type must never fly its crews for free.
   assert.equal(crewScaleFor('pilots', { category: 'Blimp' }), 1);
   assert.equal(crewScaleFor('pilots', null), 1);

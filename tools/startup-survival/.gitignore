@@ -1,0 +1,5 @@
+node_modules/
+data.json
+states.json
+package.json
+package-lock.json

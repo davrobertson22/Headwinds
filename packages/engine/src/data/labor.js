@@ -19,6 +19,11 @@
  *   → aircraft aging rate (low budget → faster aging → higher future maint costs)
  */
 
+// scaleBySeats lives in overhead.js next to the median-seat calibration that
+// justifies its anchor points. Both modules are dependency-free leaves and
+// overhead.js does not import this file, so this direction adds no cycle.
+import { scaleBySeats } from './overhead.js';
+
 export const LABOR_GROUPS = [
   {
     id:   'pilots',
@@ -149,18 +154,28 @@ export const LABOR_GROUP_MAP = Object.fromEntries(LABOR_GROUPS.map(g => [g.id, g
 // payload instead.
 export const CREW_SCALE_BY_CATEGORY = {
   pilots: {
+    // Single-pilot certified at 9 seats, and a 19-seater carries none of the
+    // type-rating, sim and standby infrastructure a jet fleet needs.
+    'Air Taxi': 0.25, 'Commuter': 0.38,
     'Turboprop': 0.55, 'Regional Jet': 0.70, 'Narrow Body': 1.00,
     'Wide Body':  1.55, 'Double Deck':  1.85, 'Supersonic': 1.60,
   },
   cabinCrew: {
+    // No cabin crew is required below 20 seats, so this all but vanishes — but
+    // not to zero: somebody still boards and briefs the passengers.
+    'Air Taxi': 0.02, 'Commuter': 0.10,
     'Turboprop': 0.30, 'Regional Jet': 0.45, 'Narrow Body': 1.00,
     'Wide Body':  2.60, 'Double Deck':  3.60, 'Supersonic': 1.20,
   },
   groundStaff: {
+    // Turn size: nine bags and a hand-loaded hold is not a ramp operation.
+    'Air Taxi': 0.08, 'Commuter': 0.20,
     'Turboprop': 0.45, 'Regional Jet': 0.60, 'Narrow Body': 1.00,
     'Wide Body':  2.10, 'Double Deck':  2.80, 'Supersonic': 1.10,
   },
   maintenanceTeam: {
+    // Line and base labour, roughly with airframe size.
+    'Air Taxi': 0.12, 'Commuter': 0.24,
     'Turboprop': 0.50, 'Regional Jet': 0.65, 'Narrow Body': 1.00,
     'Wide Body':  2.00, 'Double Deck':  2.70, 'Supersonic': 2.00,
   },
@@ -187,7 +202,16 @@ export function crewScaleFor(groupId, aircraftType) {
     const band = CREW_SCALE_FREIGHTER.find(s => t <= s.maxTonnes);
     return band?.[groupId] ?? 1;
   }
-  return CREW_SCALE_BY_CATEGORY[groupId]?.[aircraftType.category] ?? 1;
+  // The table above is a set of ANCHORS on a seat curve, not a step function —
+  // see scaleBySeats in overhead.js for why (a 290-seat widebody was paying 72%
+  // more fixed cost than a 295-seat narrowbody). Supersonic keeps its override:
+  // Concorde's 128 seats say nothing about what it takes to crew.
+  const byCat = CREW_SCALE_BY_CATEGORY[groupId];
+  if (!byCat) return 1;
+  if (aircraftType.category === 'Supersonic') return byCat['Supersonic'] ?? 1;
+  if (aircraftType.doubleDeck) return byCat['Double Deck'] ?? 1;
+  // No seat count => fall back to the category, never to the smallest anchor.
+  return scaleBySeats(byCat, aircraftType.seats) ?? byCat[aircraftType.category] ?? 1;
 }
 
 /**
@@ -294,7 +318,15 @@ export function starterCrewFloor(groupId, fleet, typeOf) {
 export function splitStarterHire(groupId, count, headcount, fleet, typeOf) {
   const floor = starterCrewFloor(groupId, fleet, typeOf);
   const room  = Math.max(0, floor - (Number(headcount) || 0));
-  const instant = Math.min(count, Math.floor(room + 1e-9));
+  // Round the allowance UP, not down. Since crew scale became a seat curve the
+  // requirement is rarely a whole number — two 160-seat narrowbodies need 1.89
+  // pilot-equivalents, and flooring that left one pilot in training on week one,
+  // which is exactly the wait this perk exists to waive. Ceiling costs at most a
+  // fraction of one crew unit and keeps the promise the doc comment makes:
+  // your first two aircraft fly the same week, whatever they are.
+  // Math.max pins negative zero to 0: Math.ceil(-1e-9) is -0, and assert.strict
+  // treats Object.is(-0, 0) as unequal.
+  const instant = Math.min(count, Math.max(0, Math.ceil(room - 1e-9)));
   return { instant, trained: Math.max(0, count - instant) };
 }
 

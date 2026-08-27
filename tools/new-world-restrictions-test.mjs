@@ -30,7 +30,7 @@ import {
   leaseOrderBookCap, LESSOR_ALLOW, LESSOR_BLOCK, LESSOR_EIS_CUTOFF,
   LEASE_ORDER_BOOK_MIN, LEASE_ORDER_BOOK_PCT,
 } from '../packages/engine/src/data/aircraft.js';
-import { HQ_DEPARTURE_FEE, HQ_BASE_WEEKLY, calcHQCost } from '../packages/engine/src/data/overhead.js';
+import { HQ_DEPARTURE_FEE, HQ_BASE_WEEKLY, calcHQCost, HQ_SCALE_BY_CATEGORY } from '../packages/engine/src/data/overhead.js';
 import { seniorityMultiplier, SENIORITY_CAP, SENIORITY_ANNUAL_RISE } from '../packages/engine/src/data/labor.js';
 import {
   weeklyTick, simulateRoute, weeklyBlockHours, routeDistanceKm, maxFrequency,
@@ -395,9 +395,18 @@ test('the fee table is ordered by aircraft size', () => {
   }
 });
 
-test('classic worlds keep the fleet-size curve untouched', () => {
+test('classic worlds keep the size curve and charge no departure fees', () => {
+  // The curve is measured in narrowbody-equivalents since the HQ gauge scale
+  // landed (tools/hq-gauge-scale-test.mjs) — ten A380s are 21 of them. What this
+  // pins is that a classic world never reaches the per-departure table at all:
+  // changing the frequency must not change the bill by a cent.
   const r = tickWith('a380', 3, 10, false);
-  assert.equal(r.totalHQCost, calcHQCost(10));
+  assert.equal(r.totalHQCost, calcHQCost(10 * HQ_SCALE_BY_CATEGORY['Double Deck']));
+  assert.equal(tickWith('a380', 9, 10, false).totalHQCost, r.totalHQCost);
+  // …and a fleet at the narrowbody ANCHOR is still the literal old fleet-count
+  // curve. The 737-800 is 189 seats, three above the 186-seat anchor, and the
+  // scale is a seat curve now — so this pins the A320ceo, which sits on it.
+  assert.equal(tickWith('a320ceo', 3, 10, false).totalHQCost, calcHQCost(10));
 });
 
 test('restricted worlds charge base + per-departure fees', () => {
@@ -432,6 +441,9 @@ test('bigger aircraft cost proportionally more to administer', () => {
 });
 
 test('an airline with no flying still carries a corporate base', () => {
+  // Unchanged by the HQ gauge scale on purpose: the scaled base only applies to
+  // a fleet it can read a gauge from, and a fleetless airline pays in full so a
+  // dying one keeps dying. See HQ_BASE_MIN in overhead.js.
   const r = weeklyTick({ fleet: [], routes: [], cargoRoutes: [], gates: {}, hubs: {}, newWorldRestrictions: true });
   assert.equal(r.totalHQCost, HQ_BASE_WEEKLY);
 });

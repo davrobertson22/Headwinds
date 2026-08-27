@@ -16,8 +16,9 @@ import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
   calcHQCost,
+  fleetHQScale,
   hqDepartureFee,
-  HQ_BASE_WEEKLY,
+  hqBaseWeekly,
   weeklyInsuranceCost,
   weeklyLandingFee,
   awarenessDemandMultiplier,
@@ -475,6 +476,75 @@ export function cabinInstallFee(config) {
        + (config?.businessClass  ?? 0) * CABIN_INSTALL_FEE_PER_SEAT.businessClass
        + (config?.premiumEconomy ?? 0) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
 }
+
+// ─── Cabin refit: cost + downtime ────────────────────────────────────────────
+// ONE definition of what a reconfigure costs and how long it grounds the tail.
+// This used to live in src/components/FleetConfig.jsx with a hand-kept copy in
+// the multiplayer decision guard; the reducer had neither and so could not
+// charge for a partial batch or ground anything. Every caller — the modal, the
+// guard, the reducer — reads these two functions now.
+export const REFIT_SEAT_COST      = 2_500;   // per seat moved between classes
+export const REFIT_MIN_COST       = 10_000;  // any refit at all costs at least this
+// A refit is real shop work: the tail comes out of service while the cabin is
+// stripped and refitted. Wide-bodies and up take a second week; a change that
+// moves a quarter of the airframe's seats takes one more on top.
+export const REFIT_BASE_WEEKS     = { 'Turboprop': 1, 'Regional Jet': 1, 'Narrow Body': 1, 'Wide Body': 2, 'Double Deck': 2, 'Supersonic': 2 };
+export const REFIT_MAJOR_FRACTION = 0.25;    // seats moved / airframe seats
+export const REFIT_MAX_WEEKS      = 4;
+
+/**
+ * Seats moved between classes by a reconfigure. Economy is the residual — it
+ * absorbs whatever the premium cabins give up — so counting the three premium
+ * classes counts every seat that physically moves, without double-counting.
+ */
+export function refitSeatsMoved(current, next) {
+  return Math.abs((next?.firstClass     ?? 0) - (current?.firstClass     ?? 0))
+       + Math.abs((next?.businessClass  ?? 0) - (current?.businessClass  ?? 0))
+       + Math.abs((next?.premiumEconomy ?? 0) - (current?.premiumEconomy ?? 0));
+}
+
+/**
+ * One-time cost to reconfigure a cabin: per seat moved, plus a one-off install
+ * fee for premium seats ADDED (removals are free), plus the incremental fitting
+ * fee for a seat-quality UPGRADE (downgrades are free). Returns 0 for a no-op.
+ */
+export function calcReconfCost(current, next) {
+  const seatChanges = refitSeatsMoved(current, next);
+
+  const fitUpgrade = Math.max(
+    0,
+    (SEAT_QUALITY_FITTING_FEE[next?.seatQuality    ?? 'basic'] ?? 0) -
+    (SEAT_QUALITY_FITTING_FEE[current?.seatQuality ?? 'basic'] ?? 0)
+  );
+
+  const premInstall =
+    Math.max(0, (next?.firstClass     ?? 0) - (current?.firstClass     ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.firstClass +
+    Math.max(0, (next?.businessClass  ?? 0) - (current?.businessClass  ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.businessClass +
+    Math.max(0, (next?.premiumEconomy ?? 0) - (current?.premiumEconomy ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
+
+  if (seatChanges === 0 && fitUpgrade === 0 && premInstall === 0) return 0;
+
+  return Math.max(REFIT_MIN_COST, seatChanges * REFIT_SEAT_COST + premInstall + fitUpgrade);
+}
+
+/**
+ * Weeks out of service for a reconfigure. 0 when nothing chargeable changes —
+ * a no-op refit must not ground a flying aircraft. `typeOrCategory` accepts an
+ * aircraft TYPE object (preferred) or a bare category string.
+ *
+ * Freighters have no passenger cabin to refit, so they never ground here: their
+ * config carries no premium seats and no quality tier, leaving cost at 0.
+ */
+export function refitWeeks(typeOrCategory, current, next) {
+  if (calcReconfCost(current, next) === 0) return 0;
+  const type     = typeof typeOrCategory === 'object' ? typeOrCategory : null;
+  const category = type ? type.category : typeOrCategory;
+  let weeks = REFIT_BASE_WEEKS[category] ?? 1;
+  const seats = type?.seats ?? 0;
+  if (seats > 0 && refitSeatsMoved(current, next) >= seats * REFIT_MAJOR_FRACTION) weeks += 1;
+  return Math.min(REFIT_MAX_WEEKS, weeks);
+}
+
 export const SERVICE_QUALITY_COST_PER_ROUTE = {
   basic:    -800,
   standard: 0,
@@ -867,7 +937,70 @@ export function committedBlockHoursByMonth(aircraftId, type, routes = [], cargoR
  * any check of the form "would this fit?".
  */
 export function committedPeakBlockHours(aircraftId, type, routes = [], cargoRoutes = []) {
-  return Math.max(0, ...committedBlockHoursByMonth(aircraftId, type, routes, cargoRoutes));
+  return committedPeakBlockHoursIn(aircraftId, type, routes, cargoRoutes, null);
+}
+
+/**
+ * Peak weekly block-hours a tail is committed to across a GIVEN set of months.
+ * Pass the months a proposed route would operate in; omit them (or pass an
+ * empty list) for the year-round peak. Legs-aware, season-aware, cargo-aware,
+ * and it sees routes a reserve is covering — the same reading the guards use.
+ */
+export function committedPeakBlockHoursIn(aircraftId, type, routes = [], cargoRoutes = [], months = null) {
+  const byMonth = committedBlockHoursByMonth(aircraftId, type, routes, cargoRoutes);
+  const ms = (Array.isArray(months) && months.length > 0) ? months : ALL_MONTHS;
+  return Math.max(0, ...ms.map(m => byMonth[m - 1] ?? 0));
+}
+
+/**
+ * "Would these extra flights fit on this tail?" — THE answer, for the guard and
+ * for every screen that previews one.
+ *
+ * A preview that computes this itself is a bug waiting to be reported, and has
+ * been three times now. The Add Flights form's utilisation bar summed
+ * `routes.filter(r => r.aircraftId === id)` at the DIRECT O&D distance, so a
+ * tag rotation cost it only its end-to-end hop and a rotation out on cover cost
+ * it nothing at all: the bar read 136 / 140h and green, the picker on the same
+ * screen read 11h free, and the submit came back "no spare flying hours — this
+ * would need 151h/wk". Call this instead.
+ *
+ * @param {string}  aircraftId
+ * @param {object}  type            its aircraft type
+ * @param {array}   routes          state.routes
+ * @param {array}   cargoRoutes     state.cargoRoutes
+ * @param {array?}  months          1-indexed months the addition would operate
+ *                                  in; omit for the year-round peak
+ * @param {number}  hoursPerFlight  block hours ONE weekly flight costs, both
+ *                                  directions and every leg — i.e.
+ *                                  routeBlockHours(proto, type, 1), or
+ *                                  blockTimeHours(dist, type) * 2 for one leg
+ * @param {number}  weeklyFrequency the proposed frequency
+ * @param {number}  capHours        maxWeeklyBlockHoursFor(state)
+ *
+ * @returns {{
+ *   existingHours: number,   // committed in the busiest of `months`
+ *   addedHours:    number,
+ *   totalHours:    number,
+ *   spareHours:    number,   // cap - existing, never negative
+ *   capHours:      number,
+ *   fits:          boolean,
+ *   maxFrequency:  number    // most flights/wk that still fit (0 = none)
+ * }}
+ */
+export function blockHourFit({
+  aircraftId, type, routes = [], cargoRoutes = [], months = null,
+  hoursPerFlight = 0, weeklyFrequency = 0, capHours = MAX_WEEKLY_BLOCK_HOURS,
+} = {}) {
+  const cap = capHours > 0 ? capHours : MAX_WEEKLY_BLOCK_HOURS;
+  const existingHours = committedPeakBlockHoursIn(aircraftId, type, routes, cargoRoutes, months);
+  const addedHours = Math.max(0, hoursPerFlight) * Math.max(0, weeklyFrequency);
+  const totalHours = existingHours + addedHours;
+  const spareHours = Math.max(0, cap - existingHours);
+  return {
+    existingHours, addedHours, totalHours, spareHours, capHours: cap,
+    fits: totalHours <= cap + 1e-9,
+    maxFrequency: hoursPerFlight > 0 ? Math.floor((spareHours + 1e-9) / hoursPerFlight) : 0,
+  };
 }
 
 /**
@@ -3075,7 +3208,7 @@ export function advanceDowntimeOneWeek(a, hasRoute = false) {
   if (a.status === 'grounded' || stuckGrounded) {
     const left = (a.groundedWeeksLeft ?? 1) - 1;
     return left <= 0
-      ? { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 }
+      ? { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0, groundedReason: null }
       : { ...a, status: 'grounded', groundedWeeksLeft: left };
   }
   if (a.status === 'maintenance') {
@@ -4445,15 +4578,23 @@ export function weeklyTick(state) {
 
   // 7. HQ & corporate overhead.
   //
-  // Classic worlds: the fleet-size curve (calcHQCost).
+  // Classic worlds: the size curve (calcHQCost), measured in NARROWBODY-
+  // EQUIVALENTS rather than airframes. Counting airframes billed a Dash 8 an
+  // A380's head office — the same defect crew pay and liability insurance both
+  // already fixed by stepping per category — and at the bottom of the range it
+  // was fatal rather than merely wrong: a turboprop pair's whole gross revenue
+  // is under the bill the old curve printed for it. An all-narrowbody fleet
+  // returns exactly its aircraft count, so nothing moves for the common case.
   //
   // New World Restrictions: a per-departure fee scaled by aircraft class, because
   // overhead really tracks DEPARTURES and the size of what is departing, not the
-  // number of airframes parked. The fleet-size curve is kept as a FLOOR so an
-  // airline with no flying still carries a small corporate structure (HQ_BASE_WEEKLY).
+  // number of airframes parked. The base is charged so an airline with no flying
+  // still carries a small corporate structure; it is scaled by the fleet AVERAGE
+  // and capped at narrowbody, so it can only ever fall (hqBaseWeekly).
   // Freighters are priced on their airframe's body class, so a 747-400F pays the
   // wide-body rate rather than the double-deck one (no cabin, no cabin overhead).
-  let totalHQCost = calcHQCost(fleet.length);
+  const typeOfAircraft = a => getAircraftType(a.typeId);
+  let totalHQCost = calcHQCost(fleetHQScale(fleet, typeOfAircraft));
   if (state.newWorldRestrictions) {
     let departureFees = 0;
     // Only flights that ACTUALLY OPERATE this week are charged. The passenger and
@@ -4474,7 +4615,7 @@ export function weeklyTick(state) {
       // weeklyFrequency is departures from ONE endpoint; a rotation departs twice.
       departureFees += hqDepartureFee(bodyClass) * (route.weeklyFrequency ?? 0) * 2;
     }
-    totalHQCost = HQ_BASE_WEEKLY + Math.round(departureFees);
+    totalHQCost = hqBaseWeekly(fleet, typeOfAircraft) + Math.round(departureFees);
   }
 
   // 8. Insurance — hull (owned aircraft) + liability (all aircraft)
