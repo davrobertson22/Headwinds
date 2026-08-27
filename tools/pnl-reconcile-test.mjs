@@ -336,11 +336,35 @@ test('the tax row explains the base it is charged on', () => {
 // ── The other unplanned-maintenance path: a booked heavy check ───────────────
 console.log('\n── A week a booked C check was paid for ──────────────────────────────────');
 
+// Which airframe gets booked is decided by ASKING THE REDUCER, not by taking
+// fleet[0] and hoping. SCHEDULE_CHECK silently returns the state unchanged for
+// an out-of-service aircraft, so a grounded fleet[0] books nothing, spends
+// nothing, and the failure surfaces four lines later as "no check spend" with
+// no hint that the booking never happened.
+//
+// That is exactly how this broke: the crew-pipeline commit (A7.2-4) added its
+// own draws to the tick, every later draw in the seeded stream shifted, and an
+// AOG event landed on fleet[0] at week 8 of seed 4242. Nothing was wrong with
+// maintenance or with the P&L card — an unrelated feature moved the dice. Any
+// fixture that pins itself to one index is a tripwire for the next feature that
+// touches the RNG, so this one asks which aircraft is actually bookable.
+function bookableAircraft(s, checkType) {
+  return s.fleet.find(a =>
+    gameReducer(s, { type: 'SCHEDULE_CHECK', aircraftId: a.id, checkType })
+      .fleet.find(x => x.id === a.id)?.scheduledCheck);
+}
+
 const checkState = (() => {
   let s = advanceUntil(startedAirline({ seed: 4242 }), () => false, 8).state;
+  const target = bookableAircraft(s, 'C');
+  assert.ok(target,
+    'no serviceable aircraft to book a C check on — the fixture cannot test the '
+    + `maintenanceChecks path at all (fleet: ${s.fleet.map(a => a.status).join(', ')})`);
   // Book a C check for the coming week: the tick pays for it, and the payment
   // lands in maintenanceChecks.spend — the other half of "unplanned".
-  s = gameReducer(s, { type: 'SCHEDULE_CHECK', aircraftId: s.fleet[0].id, checkType: 'C' });
+  s = gameReducer(s, { type: 'SCHEDULE_CHECK', aircraftId: target.id, checkType: 'C' });
+  assert.ok(s.fleet.find(x => x.id === target.id)?.scheduledCheck,
+    'SCHEDULE_CHECK no-opped on an aircraft the reducer said it would accept');
   return gameReducer(s, { type: 'ADVANCE_WEEK' });
 })();
 const checkPnl = readWeeklyPnl(render(checkState));
