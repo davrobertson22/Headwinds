@@ -52,7 +52,7 @@ function fitFly(y, typeId, o, d) {
 }
 
 const DECADES = [
-  { y: 1950, type: 'dc3' }, { y: 1958, type: 'f27' }, { y: 1962, type: 'b707320' },
+  { y: 1950, type: 'dc4' }, { y: 1955, type: 'dc6b' }, { y: 1958, type: 'viscount800' }, { y: 1962, type: 'b707320' },
   { y: 1972, type: 'b727200' }, { y: 1980, type: 'b737200' }, { y: 1990, type: 'b737400' },
   { y: 2000, type: 'b737800' }, { y: 2010, type: 'b737800' }, { y: 2020, type: 'a320neo' },
 ];
@@ -109,7 +109,7 @@ test('the early-era return-on-capital premium stays inside the ceiling', () => {
   eraOn(2020);
   const modern = fitFly(2020, 'a320neo', 'JFK', 'ORD');
   const rocs = [];
-  for (const { y, type } of DECADES.slice(0, 6)) {
+  for (const { y, type } of DECADES.slice(0, 7)) {
     eraOn(y);
     const r = fitFly(y, type, 'JFK', 'ORD');
     rocs.push({ y, roc: r.roc });

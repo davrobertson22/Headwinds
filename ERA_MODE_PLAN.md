@@ -1,6 +1,6 @@
 # Era Worlds — a calendar that starts in 1950
 
-**Status:** PHASES 0–3 BUILT — 0–2 pushed, phase 3 on disk 2026-08-27. See BUILD STATE below. Phases 4–6 not started.
+**Status:** PHASES 0–4 BUILT — 0–3 pushed, phase 4 on disk 2026-08-27. See BUILD STATE below. Phases 5–6 not started.
 
 ## BUILD STATE (2026-08-27)
 
@@ -15,7 +15,12 @@ Built and green in this repo (all uncommitted, Dave to commit/push):
 - **Phase 3 — anti-degeneration (on disk, uncommitted).** Era money scales in `era.js` (`eraRevenueScale` = demand×fare, `eraPaxScale`, `eraCapitalScale` = √revenue floored 0.25 — sqrt because capital buys constant-dollar aircraft). Objectives: thresholds via `snap.M`/`snap.P` scalers built at the reducer's objective pass, era-adjusted descriptions via `objectiveDesc` + `descTemplate`/`money`/`pax` template metadata, rewards × capitalScale at payout, BoardObjectives mirrors all three. Starting capital × capitalScale at seed (`worldService`; the tickConfig knob stays modern-equivalent, mid-era joiners scale to the CURRENT year: 1950 → $4.34M, 1978 → $9.28M). Cost floors via module-scoped `setEraCostScale` in `overhead.js` (same pattern as `_fareIndex`), set at the reducer entry: HQ base both paths, marketing-effectiveness floor, campaign cost/metro-M, route launch cost, liability insurance. **Airframe market lifetime**: `AIRFRAME_MARKET_LIFETIME_YEARS = 30` — a line 30y+ closed is `'expired'`: not orderable (`orderDenial` `no_airworthy_frames`), not leasable, hidden in Marketplace/planners (`aircraftOrderable`); owned frames keep flying. Sub-80-seat $/seat vintage floors added to the consistency test. **Yearly rollup**: `state.statsHistoryYearly` (era-gated, cap 150, one row per completed year with calendar label) + "Era history · full years" card on Finance ▸ Statistics.
 - Phase-3 tests: `tools/era-progression-test.mjs` (6) + expired-line coverage in era-availability (now 13) + small-type floors in aircraft-consistency. Suite 148/149 (the 1 failure is the sandbox-only adsense generator), `PARITY OK` throughout.
 
-Still open: phase 4 (the ~22 propliners), phase 5 (anachronism gates), phase 6 (Tailwinds port + AI competitor era-gating). The RoC ceiling in era-balance-test is 8× — the era new-build pricing question (classic prices are used-frame prices) remains the lever to ratchet it down.
+- **Phase 4 — the propliner catalogue (on disk, uncommitted).** 22 pre-1960 types appended to `aircraft.js` (§7's table, Viscount 700 at its corrected 1959 oop): pistons and first turboprops as category 'Turboprop' with per-type `cruiseKmh` overrides (350–640 km/h — the DC-3's precedent; the engine honours the override for any category), first jets (Comet 1/4, Tu-104, 707-120, DC-8-30) as 'Narrow Body'. The era lives in the cost data: radial maintenance at 0.4–0.6% of hull/week vs ~0.2% modern, flight-engineer crew costs, honest per-seat fuel (pistons ~2.1–3.0 L/seat/100km, early jets ~5–9.5 — the Comet 1's 9.5 is the point). All banded 832w, all clearing the $/seat floors, Stratocruiser `doubleDeck: true` (NWR test set updated). 13 new FAMILY_INFO entries derived by the table's own interpolation rules; `b707120`→`boeing_707`, `dc830`→`mcd_dc8`. Images via Commons `Special:FilePath` redirects (sourced from Commons' search index — worth an eyeball in the market UI). **Era progression: 1950 fields 5 types, 1955 11, 1958 20, 1962 32, 1978 52.**
+- **AI competitors now shop the 2026 market** (`demand.js` picker filters `aircraftAvailability(t, 2026) !== 'expired'`) — without it, classic solo worlds seeded AI airlines on DC-6Bs. Deliberate behaviour change; **golden master re-baselined** (competitor sampling shifts: count 20→18 in the fixture).
+- Balance test decades now fly the propliners (1950 DC-4, 1955 DC-6B, 1958 Viscount 800) — profitability and the 8× RoC ceiling hold. Suite 148/149 (sandbox-only adsense failure), era tests 32/32.
+- NOTE for deploy: the generated aircraft guide pages (`headwinds-public.mjs`) need regenerating on a real machine — the sandbox can't (EPERM unlink).
+
+Still open: phase 5 (anachronism gates), phase 6 (Tailwinds port + AI competitor era-gating for TW's own seeded rivals). The RoC ceiling in era-balance-test is 8× — the era new-build pricing question (classic prices are used-frame prices) remains the lever to ratchet it down.
 
 ---
 

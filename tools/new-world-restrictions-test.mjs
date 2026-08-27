@@ -93,9 +93,12 @@ test('every id in LESSOR_ALLOW and LESSOR_BLOCK actually exists', () => {
   assert.deepEqual(ghosts, [], 'override sets reference non-existent type ids');
 });
 
-test('the doubleDeck flag covers the whole 747 family and the A380', () => {
+test('the doubleDeck flag covers the whole 747 family, the A380 and the Stratocruiser', () => {
   const flagged = AIRCRAFT_TYPES.filter(t => t.doubleDeck).map(t => t.id).sort();
-  const expected = ['a380', 'b747100', 'b747200', 'b747300', 'b7478f', 'b7478i',
+  // b377: the Boeing 377 Stratocruiser (era worlds phase 4) genuinely was a
+  // double-decker — lower-deck lounge — and the flag correctly keeps it off
+  // lessor books like every other two-deck airframe.
+  const expected = ['a380', 'b377', 'b747100', 'b747200', 'b747300', 'b7478f', 'b7478i',
     'b747400', 'b747400d', 'b747400f', 'b747sp'].sort();
   assert.deepEqual(flagged, expected);
 });

@@ -109,11 +109,13 @@ test('expired lines are refused everywhere: order, lease, planners', () => {
   assert.equal(aircraftOrderable(getAircraftType('dc3'), null), true, 'classic worlds untouched');
 });
 
-test('the 1978 era opens with a real fleet and 1950 with only the DC-3', () => {
-  const at = (y) => AIRCRAFT_TYPES.filter(t => aircraftAvailability(t, y) !== 'future').length;
-  assert.equal(at(1950), 1);
-  assert.ok(at(1978) >= 30, `1978 should field 30+ types, got ${at(1978)}`);
-  assert.ok(at(2000) >= 95, `2000 should field 95+ types, got ${at(2000)}`);
+test('every era opens with a real fleet — the propliner catalogue is in', () => {
+  const at = (y) => AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, y)).length;
+  assert.equal(at(1950), 5, 'DC-3, DC-4, L-749, CV-240, Stratocruiser');
+  assert.ok(at(1955) >= 10, `1955 should field 10+ types, got ${at(1955)}`);
+  assert.ok(at(1958) >= 18, `1958 (jet age dawn) should field 18+, got ${at(1958)}`);
+  assert.ok(at(1978) >= 48, `1978 should field 48+ types, got ${at(1978)}`);
+  assert.ok(at(2000) >= 95, `2000 should field 95+ ORDERABLE types (expiry has removed the propliners by now), got ${at(2000)}`);
 });
 
 // ── Reducer enforcement ──────────────────────────────────────────────────────

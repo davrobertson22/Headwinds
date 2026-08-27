@@ -33,7 +33,7 @@ import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor,
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
-import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
+import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm, aircraftAvailability } from '../data/aircraft.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -2165,7 +2165,14 @@ function blockTimeOneWay(distKm) { return distKm / 820 + 0.5; }
  */
 export function pickCompetitorAircraftType(distKm, tier) {
   const target  = TIER_SEAT_TARGET[tier] ?? 200;
-  const capable = AIRCRAFT_TYPES.filter(t => (t.range ?? 0) >= distKm);
+  // AI carriers shop the same market as the player: a line 30+ years out of
+  // production has no airworthy frames left to buy (aircraft.js
+  // AIRFRAME_MARKET_LIFETIME_YEARS). Classic worlds evaluate at 2026 — without
+  // this, adding the propliner-era catalogue (era worlds phase 4) had modern
+  // AI airlines founding on DC-6Bs. Deliberate behaviour change; the golden
+  // master was re-baselined with it.
+  const capable = AIRCRAFT_TYPES.filter(t => (t.range ?? 0) >= distKm
+    && aircraftAvailability(t, 2026) !== 'expired');
   if (capable.length === 0) return null;
 
   // Score each capable aircraft: seat misfit vs the tier's preferred size, plus a

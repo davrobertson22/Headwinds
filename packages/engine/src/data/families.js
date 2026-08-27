@@ -196,7 +196,24 @@ export const AIRCRAFT_FAMILY = {
   dc1030: 'mcd_dc10', md11: 'mcd_dc10',                     // DC-10 / MD-11 family
   dc1030f: 'mcd_dc10', md11f: 'mcd_dc10',
   dc863: 'mcd_dc8', dc873f: 'mcd_dc8',                      // DC-8 family
+  dc830: 'mcd_dc8',                                         // early -30 shares line and tooling
   dc3: 'douglas_dc3',
+
+  // Propliner era (era worlds phase 4) ─────────────────────────────────────
+  dc4:  'douglas_piston', dc6b: 'douglas_piston', dc7c: 'douglas_piston',   // one evolutionary line, shared tooling
+  l749: 'lockheed_connie', l1049g: 'lockheed_connie', l1649: 'lockheed_connie',
+  cv240: 'convair_pistonliner', cv440: 'convair_pistonliner',
+  b377:  'boeing_377',
+  m404:  'martin_404',
+  comet1: 'dh_comet', comet4: 'dh_comet',
+  viscount700: 'vickers_viscount', viscount800: 'vickers_viscount',
+  vanguard: 'vickers_vanguard',
+  britannia: 'bristol_britannia',
+  il14: 'ilyushin_il14',
+  il18: 'ilyushin_il18',
+  tu104: 'tupolev_tu104',
+  hs748: 'hawker_748',
+  b707120: 'boeing_707',                                    // same line as the -320B / 720B
 
   // Lockheed ────────────────────────────────────────────────────────────────
   l1011: 'lockheed_l1011',
@@ -354,6 +371,24 @@ export const FAMILY_INFO = {
   // skills no modern shop keeps) = 14.5k. It genuinely costs an ATR-72's family
   // to keep a DC-3 airworthy, and that is the point of the entry.
   douglas_dc3: { name: 'Douglas DC-3', category: 'turboprop', weeklyBaseCost: 15_000, note: 'Radial piston airframe — vintage tooling and skills' },
+
+  // ── Propliner era (era worlds phase 4) ─────────────────────────────────────
+  // Costs interpolated from the table above, per its own rules: band anchor
+  // × 1.15 pre-1990 scarce parts where the band applies it, × 1.10 for 3+
+  // engines, × 1.15 orphaned certificate. Cross-checks named per entry.
+  douglas_piston:      { name: 'Douglas DC-4/6/7',   category: 'turboprop', weeklyBaseCost: 19_000, note: 'One evolutionary quad-piston line; 46-80 seat band 15k × 1.15 vintage × 1.10 quad — beside lockheed_l188 28k which also carries the orphan bump' },
+  lockheed_connie:     { name: 'Lockheed Constellation', category: 'turboprop', weeklyBaseCost: 24_000, note: 'Triple-tail quads, Wright R-3350s; 81-110 band 19k × 1.15 × 1.10 — under lockheed_l188 28k (smaller support ecosystem there)' },
+  convair_pistonliner: { name: 'Convair 240/440',    category: 'turboprop', weeklyBaseCost: 15_000, note: 'Piston twins, huge production run; 37-45 band 13k × 1.15 — beside convair_cv580 20k whose conversion has no OEM' },
+  boeing_377:          { name: 'Boeing 377 Stratocruiser', category: 'turboprop', weeklyBaseCost: 26_000, note: 'R-4360 quad, tiny run; 81-110 band 19k × 1.15 vintage × 1.10 quad × orphan rounding — the maintenance hangar queen of the era' },
+  martin_404:          { name: 'Martin 4-0-4',       category: 'turboprop', weeklyBaseCost: 15_000, note: '40-seat piston twin; 37-45 band 13k × 1.15 — matches convair_pistonliner, its direct competitor' },
+  dh_comet:            { name: 'de Havilland Comet', category: 'narrowBody', weeklyBaseCost: 39_000, note: 'First jet airliner; 100-134 narrowbody 34k × 1.15 vintage — beside boeing_717 34k in-production anchor' },
+  vickers_viscount:    { name: 'Vickers Viscount',   category: 'turboprop', weeklyBaseCost: 17_000, note: 'Dart turboprops, enormous run; 46-80 band 15k × 1.15 — beside atr/dhc_q 15k in-production anchors' },
+  vickers_vanguard:    { name: 'Vickers Vanguard',   category: 'turboprop', weeklyBaseCost: 22_000, note: 'Big Tyne turboprop, tiny run; 81-110 band 19k × 1.15 — beside ilyushin_il18 24k which adds the quad bump' },
+  bristol_britannia:   { name: 'Bristol Britannia',  category: 'turboprop', weeklyBaseCost: 26_000, note: '139-seat long-range turboprop; extrapolated 23k anchor × 1.15 — beside lockheed_connie 24k' },
+  ilyushin_il14:       { name: 'Ilyushin Il-14',     category: 'turboprop', weeklyBaseCost: 11_000, note: '≤36-seat band held flat at 11k even for long-dead types, per the table\'s own rule (Short 360 precedent)' },
+  ilyushin_il18:       { name: 'Ilyushin Il-18',     category: 'turboprop', weeklyBaseCost: 24_000, note: 'Soviet quad turboprop; 81-110 band 19k × 1.15 × 1.10 — beside antonov_an24 20k' },
+  tupolev_tu104:       { name: 'Tupolev Tu-104',     category: 'narrowBody', weeklyBaseCost: 45_000, note: 'Orphaned early Soviet jet; 100-134 band 34k × 1.15 vintage × 1.15 orphan — beside tupolev_tu134 30k (regional band)' },
+  hawker_748:          { name: 'Hawker Siddeley 748', category: 'turboprop', weeklyBaseCost: 15_000, note: '46-80 band held at anchor: 26-year production run and wide operator base — the well-supported exception, like the ATRs' },
 
   // ── Legacy regional ──────────────────────────────────────────────────────
   bae_146: { name: 'BAe 146 / Avro RJ',  category: 'regional', weeklyBaseCost: 27_000, note: 'Out of production — parts availability declining' },
