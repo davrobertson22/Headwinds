@@ -169,7 +169,7 @@ export function prepareWeek(state, {
       && a.status !== 'grounded' && a.status !== 'maintenance' && a.status !== 'retired';
     if (a.status === 'grounded' || stuckGrounded) {
       const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
-      if (weeksLeft <= 0) return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0 };
+      if (weeksLeft <= 0) return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0, groundedReason: null };
       return { ...a, status: 'grounded', groundedWeeksLeft: weeksLeft };
     }
     if (a.status === 'maintenance') {

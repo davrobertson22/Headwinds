@@ -55,6 +55,8 @@ import {
   computeConnectingDemand,
   HUB_TIERS,
   PRICE_CAP_MULTIPLE,
+  CARGO_PRICE_CAP_MULTIPLE,
+  cargoPriceChokeFactor,
 } from '../models/demand.js';
 import {
   ALLIANCES,
@@ -2521,7 +2523,11 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
     const basePool   = cargoCityPairDemand(route.origin, route.destination, gameDate?.month)
                      * maturity * FREIGHTER_CAPTURE_RATE * demandMultiplier;
     // Yield elasticity: pricing above the reference rate shrinks the tonnage you win.
-    const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
+    // The choke is what gives that a floor — elasticity alone never reaches zero,
+    // and on a lane whose pool is 3-7x the freighter's payload a third of the pool
+    // still fills the aeroplane, so the inflated rate used to be free money.
+    const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY))
+                     * cargoPriceChokeFactor(yieldPrice, refYield);
     demandTonnes = basePool * elasticity;
   }
 
@@ -2712,8 +2718,11 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
     if (rivalLaneCap > 0) {
       const rivalYield = rivalLane.yieldCapSum > 0 ? rivalLane.yieldCapSum / rivalLaneCap : 0;
       const anchorRef  = cargoReferenceYield(r0.origin, r0.destination);
+      // Choked on the same curve as own routes: a rival pricing at three times
+      // the going rate wins no freight, so it must dilute the lane by nothing.
       const rivalElast = rivalYield > 0
         ? Math.min(1.6, Math.pow(anchorRef / rivalYield, CARGO_YIELD_ELASTICITY))
+          * cargoPriceChokeFactor(rivalYield, anchorRef)
         : 1;
       rivalWeightedCap = rivalLaneCap * rivalElast;
     }
@@ -2728,7 +2737,10 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
       // pool. On a single-pair lane this is the anchor's yield, as before.
       const refYield   = cargoReferenceYield(route.origin, route.destination);
       const yieldPrice = Math.max(0.01, route.yieldPrice ?? refYield);
-      const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY));
+      // Same elasticity AND the same choke as the solo path — a shared lane must
+      // not be the one place a gouging rate escapes the ceiling.
+      const elasticity = Math.min(1.6, Math.pow(refYield / yieldPrice, CARGO_YIELD_ELASTICITY))
+                       * cargoPriceChokeFactor(yieldPrice, refYield);
       alloc.set(route.id, {
         // Own share of the lane pool: the player's own capacity as a fraction of
         // ALL freighter capacity on the lane (own + yield-weighted rival), then

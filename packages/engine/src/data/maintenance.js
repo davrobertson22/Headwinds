@@ -89,6 +89,24 @@ export function autoSchedulingActive(labor, maintenanceBudget) {
 export const REP_PENALTY_DECAY = 0.92;  // multiplicative decay per week
 export const REP_PENALTY_MAX   = 25;    // cap so repeated forced groundings can't zero reputation forever
 
+/**
+ * Why a tail is out of service, in the player's words. A cabin refit and a
+ * mechanical failure both park the aircraft with status 'grounded' and a
+ * groundedWeeksLeft countdown — only `groundedReason` tells them apart, and
+ * calling a refit the player paid for "grounded, in repair" reads as a bug.
+ */
+export function groundedLabel(a) {
+  return a?.groundedReason === 'refit' ? 'Refitting' : 'Grounded';
+}
+export function groundedTitle(a) {
+  return a?.groundedReason === 'refit'
+    ? 'Cabin refit in progress — automatically resumes its routes when the work is done'
+    : 'In repair, automatically resumes its routes when fixed';
+}
+export function groundedKind(a) {
+  return a?.groundedReason === 'refit' ? 'Cabin refit' : 'AOG repair';
+}
+
 /** An aircraft the sim must treat as not flying (no revenue, no accrual, not deployable). */
 export function isOutOfService(a) {
   return a?.status === 'grounded' || a?.status === 'maintenance';
@@ -159,8 +177,29 @@ export function dueInfo(a, type, absWeek) {
   const cProgress = Math.max(hoursSinceC / C_HOURS_DUE, weeksSinceC / C_WEEKS_DUE);
   const dProgress = Math.max(hoursSinceD / D_HOURS_DUE, weeksSinceD / D_WEEKS_DUE);
 
+  // TIME REMAINING on each clock. The panel used to print hours *accrued*,
+  // which is the same number for C and D on a young airframe and answers a
+  // question nobody asked — "how long until this is due" is the one the player
+  // is actually planning around (Discord, 2026-08-27).
+  const cHoursLeft = Math.max(0, C_HOURS_DUE - hoursSinceC);
+  const dHoursLeft = Math.max(0, D_HOURS_DUE - hoursSinceD);
+  const cWeeksLeft = Math.max(0, C_WEEKS_DUE - weeksSinceC);
+  const dWeeksLeft = Math.max(0, D_WEEKS_DUE - weeksSinceD);
+
+  // Estimated weeks until due, from THIS airframe's own average utilization —
+  // a tail flying 130 block-hours a week burns the hour clock in a fraction of
+  // the calendar allowance, and whichever clock runs out first is the due date.
+  // A parked tail (no hours flown) has no hour estimate at all, so it falls
+  // back to the calendar clock, which is still ticking for it.
+  const avgHoursPerWeek = weeksSinceC > 0 ? hoursSinceC / weeksSinceC : 0;
+  const avgHoursPerWeekD = weeksSinceD > 0 ? hoursSinceD / weeksSinceD : 0;
+  const weeksToHours = (hoursLeft, perWeek) => (perWeek > 0 ? Math.ceil(hoursLeft / perWeek) : Infinity);
+  const cDueInWeeks = cDue ? 0 : Math.min(cWeeksLeft, weeksToHours(cHoursLeft, avgHoursPerWeek));
+  const dDueInWeeks = dDue ? 0 : Math.min(dWeeksLeft, weeksToHours(dHoursLeft, avgHoursPerWeekD));
+
   return {
     hoursSinceC, hoursSinceD, weeksSinceC, weeksSinceD,
+    cHoursLeft, dHoursLeft, cWeeksLeft, dWeeksLeft, cDueInWeeks, dDueInWeeks,
     cDue, dDue, cPastGrace, dPastGrace, cOver, dOver,
     cSoon, dSoon, primaryDue, forcedType, soonType, state,
     cProgress, dProgress,

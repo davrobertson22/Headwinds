@@ -92,6 +92,58 @@ export function priceChokeFactor(price, refForClass, quality = 50) {
 }
 
 /**
+ * Cargo's analogue of PRICE_CAP_MULTIPLE — the multiple of reference yield at
+ * which freight demand reaches exactly zero. Held at the passenger value so the
+ * two markets tell one story: nobody buys at three times the going rate.
+ */
+export const CARGO_PRICE_CAP_MULTIPLE = 3;
+
+/**
+ * Demand multiplier (0-1) for a cargo yield above its reference rate — the
+ * freight twin of priceChokeFactor().
+ *
+ * WHY THIS EXISTS: the cargo path used to discipline pricing with nothing but
+ * its power-law elasticity, `min(1.6, (ref/yield)^CARGO_YIELD_ELASTICITY)`.
+ * That has no floor, and a trunk lane's gravity pool runs 3-7x one freighter's
+ * weekly payload — so shrinking the pool to a third still left the aeroplane
+ * oversubscribed and the inflated rate was banked on every tonne. Profit rose
+ * monotonically with yield out past 4x reference. Measured across five lanes,
+ * the profit-maximising yield sat at 2.6x-4.0x reference, worth 2.3x-3.8x the
+ * profit of pricing at the going rate, and 32% of live cargo routes had found
+ * it. See docs/cargo-yield-choke-audit-2026-08-27.md.
+ *
+ * Passengers never had this hole: priceChokeFactor has always forced fares to
+ * zero demand at the cap, and restricted worlds add nwrYieldChokeFactor's
+ * exponential penalty above ~1.10x reference. Freight simply never called
+ * either one. This is that call, with the same two terms:
+ *
+ *   1. a convex cap — 1 - t^2, reaching zero at CARGO_PRICE_CAP_MULTIPLE.
+ *   2. nwrYieldChokeFactor — restricted worlds only, and exactly 1 elsewhere,
+ *      so classic worlds keep the arcade economy they were built with.
+ *
+ * Freighters carry no cabin, so there is no quality score to earn pricing
+ * headroom with: v1 passes the default 50 (threshold 1.10x). Reliability is
+ * what forwarders actually buy on, so the natural future input is the on-time
+ * rate laborEffects() already computes on the passenger side.
+ *
+ * At or below reference this returns exactly 1, leaving every sanely-priced
+ * route bit-identical to its pre-choke behaviour.
+ *
+ * @param {number} yieldPrice  the rate being charged ($/tonne-km)
+ * @param {number} refYield    the lane's reference yield ($/tonne-km)
+ * @param {number} quality     0-100; headroom scales with it, as for fares
+ * @returns {number} 0-1
+ */
+export function cargoPriceChokeFactor(yieldPrice, refYield, quality = 50) {
+  const ref = Math.max(Number(refYield) || 0, 0.01);
+  const ratio = (Number(yieldPrice) || 0) / ref;
+  if (ratio <= 1) return 1;
+  if (ratio >= CARGO_PRICE_CAP_MULTIPLE) return 0;
+  const t = (ratio - 1) / (CARGO_PRICE_CAP_MULTIPLE - 1);
+  return Math.max(0, 1 - t * t) * nwrYieldChokeFactor(ratio, quality);
+}
+
+/**
  * Price elasticity per segment.
  * A ratio of (refPrice / yourPrice) is raised to this power.
  */
