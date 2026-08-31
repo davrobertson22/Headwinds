@@ -129,6 +129,15 @@ test('ORDER_AIRCRAFT refuses a type that has not entered service', () => {
   assert.equal(after.cash, base.cash, 'no money may move');
 });
 
+test('LEASE_AIRCRAFT and BUY_AIRCRAFT are gated too — the old actions are no back door', () => {
+  const base = { ...freshState(), phase: 'playing', cash: 500_000_000, startYear: 1950, year: 1, week: 1 };
+  for (const action of [{ type: 'LEASE_AIRCRAFT', typeId: 'b747400' }, { type: 'BUY_AIRCRAFT', typeId: 'b747400' }]) {
+    const after = gameReducer(base, action);
+    assert.equal((after.fleet ?? []).length, (base.fleet ?? []).length, `${action.type}: nothing may land`);
+    assert.equal(after.cash, base.cash, `${action.type}: no money may move`);
+  }
+});
+
 test('ORDER_AIRCRAFT accepts an in-service type in an era world', () => {
   const base = { ...freshState(), phase: 'playing', cash: 500_000_000, startYear: 1978, year: 1, week: 1 };
   assert.equal(orderDenial(base, 'b727200'), null);

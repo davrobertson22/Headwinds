@@ -9,11 +9,13 @@
 // era ticks produced no statsHistoryYearly.
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
-import { eraRevenueScale, eraPaxScale, eraCapitalScale } from '../packages/engine/src/data/era.js';
+import { eraRevenueScale, eraPaxScale, eraCapitalScale, eraOverheadScale } from '../packages/engine/src/data/era.js';
 import { routeLaunchCost, setEraCostScale, getEraCostScale, liabilityInsuranceWeekly } from '../packages/engine/src/data/overhead.js';
 import { OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_TEMPLATES, objectiveDesc } from '../packages/engine/src/data/objectives.js';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
+import { gateMonthlyFee, totalGateMonthlyFee, getAirport } from '../packages/engine/src/data/airports.js';
+import { weeklyFamilyBaseCost } from '../packages/engine/src/data/families.js';
 import { seedAirlineState } from '../apps/headwinds-server/src/lib/worldService.mjs';
 
 test('the era money scales: null in classic, ramping through the century', () => {
@@ -34,6 +36,15 @@ test('cost floors scale through the module knob and reset cleanly', () => {
     setEraCostScale(0.289);
     assert.equal(routeLaunchCost(1000), Math.round(62_000 * 0.289));
     assert.equal(liabilityInsuranceWeekly(getAircraftType('dc3')), Math.round(6_000 * 0.289));
+    // Fixed overheads too (found in the 1950 playtest: a 62-seat Constellation
+    // cannot carry $150K/wk of modern-dollar gate rent, wages and MRO contracts).
+    const jfk = getAirport('JFK');
+    assert.equal(gateMonthlyFee(jfk, 1), Math.round(gateMonthlyFee(jfk, 1) / 0.289 * 0.289));
+    assert.ok(totalGateMonthlyFee(jfk, 2) < 0.3 * (() => { setEraCostScale(1); const v = totalGateMonthlyFee(jfk, 2); setEraCostScale(0.289); return v; })());
+    const fleet = [{ id: 'a', typeId: 'dc3', status: 'idle' }];
+    setEraCostScale(1); const famClassic = weeklyFamilyBaseCost(fleet);
+    setEraCostScale(0.289);
+    assert.ok(famClassic > 0 && Math.abs(weeklyFamilyBaseCost(fleet) - famClassic * 0.289) < 1, 'family MRO base scales');
   } finally {
     setEraCostScale(1);
   }
@@ -43,7 +54,9 @@ test('cost floors scale through the module knob and reset cleanly', () => {
 test('the reducer sets the cost scale from state on every action', () => {
   const era = { ...freshState(), phase: 'playing', startYear: 1950, year: 1, week: 1 };
   gameReducer(era, { type: 'NOOP_UNKNOWN_ACTION' });
-  assert.ok(Math.abs(getEraCostScale() - eraCapitalScale(1950)) < 1e-9);
+  assert.ok(Math.abs(getEraCostScale() - eraOverheadScale(1950)) < 1e-9, 'overheads run at the OVERHEAD scale (sqrt of capital)');
+  assert.ok(Math.abs(eraOverheadScale(1950) - 0.537) < 0.01, `1950 overhead scale ${eraOverheadScale(1950)}`);
+  assert.equal(eraOverheadScale(null), null);
   gameReducer({ ...freshState(), phase: 'playing' }, { type: 'NOOP_UNKNOWN_ACTION' });
   assert.equal(getEraCostScale(), 1, 'a classic action resets it — worlds cannot leak into each other');
 });
@@ -75,9 +88,9 @@ test('starting capital scales at seed; the admin knob stays modern-equivalent', 
   });
   assert.equal(seedAirlineState(mk(null), { airlineName: 'A', hub: 'JFK' }).cash, 15_000_000);
   const c1950 = seedAirlineState(mk(1950), { airlineName: 'A', hub: 'JFK' }).cash;
-  assert.ok(c1950 > 4_000_000 && c1950 < 4_700_000, `1950 capital ${c1950}`);
+  assert.equal(c1950, 4_000_000, `1950 capital ${c1950} — $4.34M floored to a whole million`);
   const c1978 = seedAirlineState(mk(1978), { airlineName: 'A', hub: 'JFK' }).cash;
-  assert.ok(c1978 > 8_800_000 && c1978 < 9_800_000, `1978 capital ${c1978}`);
+  assert.equal(c1978, 9_000_000, `1978 capital ${c1978}`);
 });
 
 test('era worlds keep a yearly rollup; classic worlds never grow the field', () => {

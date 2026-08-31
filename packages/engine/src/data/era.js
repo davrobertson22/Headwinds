@@ -147,3 +147,26 @@ export function eraCapitalScale(calYear) {
   if (calYear == null) return null;
   return Math.max(0.25, Math.min(1, Math.sqrt(eraRevenueScale(calYear))));
 }
+
+
+// Fixed-overhead scale for an era year: gate rents, wages, MRO contracts, hub
+// investment, HQ, insurance, route launch and marketing floors all run at this
+// fraction of their modern-dollar level. The SQUARE ROOT of the capital scale
+// (1950: 0.54, 1978: 0.78) — a gentler cut than capital, on purpose: the
+// 1950 playtest showed that scaling overheads all the way down to the capital
+// scale (0.29) left the early decades printing money. Null in classic.
+export function eraOverheadScale(calYear) {
+  const c = eraCapitalScale(calYear);
+  return c == null ? null : Math.sqrt(c);
+}
+
+// Seed capital for an era start: the modern-equivalent figure × capitalScale,
+// then FLOORED to a whole million (never below $1M). The floor is deliberate —
+// playtesting showed the early decades generous once fixed overheads were
+// scaled, so a 1950 airline opens on $4.0M rather than $4.34M, 1978 on $9M
+// rather than $9.28M. Classic (calYear null) returns the modern figure as is.
+export function eraSeedCapital(modernCapital, calYear) {
+  const scale = eraCapitalScale(calYear);
+  if (scale == null) return modernCapital;
+  return Math.max(1_000_000, Math.floor(modernCapital * scale / 1_000_000) * 1_000_000);
+}

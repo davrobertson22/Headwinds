@@ -3,7 +3,7 @@
 // state is produced by the SHARED engine — never reinvented here.
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
-import { eraCapitalScale } from '@tailwinds/engine/data/era.js';
+import { eraSeedCapital } from '@tailwinds/engine/data/era.js';
 import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import {
@@ -136,9 +136,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
   // ERA_MODE_PLAN.md §4). The tickConfig value stays the admin's
   // modern-equivalent knob; the scale applies at seed time, so serializeWorld
   // still reports the knob and a mid-era joiner is scaled to the CURRENT year.
-  const eraCapScale = eraCapitalScale(
-    Number.isInteger(tc.startYear) ? tc.startYear + (world.currentYear ?? 1) - 1 : null) ?? 1;
-  const startingCapital = Math.round((tc.startingCapital ?? DEFAULT_STARTING_CAPITAL) * eraCapScale);
+  const startingCapital = eraSeedCapital(tc.startingCapital ?? DEFAULT_STARTING_CAPITAL,
+    Number.isInteger(tc.startYear) ? tc.startYear + (world.currentYear ?? 1) - 1 : null);
   const demandMultiplier = tc.demandMultiplier ?? DEFAULT_DEMAND_MULT;
 
   // Seed the airline from the SHARED engine — identical to the solo opening,

@@ -1,3 +1,4 @@
+import { getEraCostScale } from './overhead.js';
 // Airport data: IATA code, name, city, country, lat, lon, population (millions, metro area)
 // Population drives passenger demand in the gravity model.
 // effectivePop (optional): demand catchment in millions for major hubs whose metro population
@@ -2387,10 +2388,13 @@ export const GATE_COST_ESCALATION = {
  * @param {object} airport  - airport record from AIRPORTS
  * @param {number} [n=1]    - which gate number (1 = first gate)
  */
+// Era worlds: airport charges are constant-dollar fixed overhead and scale with
+// the era's capital scale (data/era.js) — a 1950 gate at a 1950 airport is a
+// fraction of today's rent. getEraCostScale() is 1 in classic worlds.
 export function gateMonthlyFee(airport, n = 1) {
   const base = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
   const rate = GATE_COST_ESCALATION[airport?.tier] ?? 1.05;
-  return Math.round(base * Math.pow(rate, n - 1));
+  return Math.round(base * Math.pow(rate, n - 1) * getEraCostScale());
 }
 
 /**
@@ -2405,8 +2409,8 @@ export function totalGateMonthlyFee(airport, count) {
   if (!count || count <= 0) return 0;
   const base = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
   const rate = GATE_COST_ESCALATION[airport?.tier] ?? 1.05;
-  if (rate === 1) return base * count;
-  return Math.round(base * (Math.pow(rate, count) - 1) / (rate - 1));
+  if (rate === 1) return Math.round(base * count * getEraCostScale());
+  return Math.round(base * (Math.pow(rate, count) - 1) / (rate - 1) * getEraCostScale());
 }
 
 // ─── Gate scarcity (Headwinds multiplayer, optional per-world) ─────────────────

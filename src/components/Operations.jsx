@@ -24,7 +24,7 @@ import {
   awarenessDemandMultiplier, marketingAwarenessGain,
   AWARENESS_PARITY, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
   campaignDemandBoostPct, campaignEquilibriumStrength,
-  shareOfVoiceFactor, competitorPressureDrag,
+  shareOfVoiceFactor, competitorPressureDrag, getEraCostScale,
 } from '../data/overhead.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { getAirport } from '../data/airports.js';
@@ -216,7 +216,7 @@ function NegotiationBanner({ negotiation, labor, fleetSize, complexityMult, disp
   const canCounter = counter < demand - 1e-9;
   const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(negotiation.group) ? complexityMult : 1.0;
   const weeklyDelta = (mult) =>
-    Math.round(group.baseWeeklyPerAircraft * (mult - gs.payMultiplier) * fleetSize * famMult);
+    Math.round(group.baseWeeklyPerAircraft * (mult - gs.payMultiplier) * fleetSize * famMult * getEraCostScale());
 
   const btn = {
     padding: '7px 14px', borderRadius: 6, border: '1px solid var(--border)',
@@ -308,7 +308,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
   const payMultiplier = draftPay;
   const affectedByComplexity  = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) && complexityMult > 1.0;
   const famMult               = affectedByComplexity ? complexityMult : 1.0;
-  const weeklyCostPerAircraft = Math.round(group.baseWeeklyPerAircraft * payMultiplier * famMult);
+  const weeklyCostPerAircraft = Math.round(group.baseWeeklyPerAircraft * payMultiplier * famMult * getEraCostScale());
   const totalWeeklyCost       = weeklyCostPerAircraft * fleetSize;
   const costPerHead           = headcount > 0 ? Math.round(totalWeeklyCost / headcount) : 0;
   const complexityPct         = Math.round((complexityMult - 1) * 100);
@@ -815,7 +815,7 @@ export default function Operations() {
   const totalLaborWeekly = LABOR_GROUPS.reduce((sum, g) => {
     const payMult = labor[g.id]?.payMultiplier ?? 1.0;
     const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(g.id) ? complexityMult : 1.0;
-    return sum + Math.round(g.baseWeeklyPerAircraft * payMult * fleetSize * famMult);
+    return sum + Math.round(g.baseWeeklyPerAircraft * payMult * fleetSize * famMult * getEraCostScale());
   }, 0);
 
   // Count aircraft per family

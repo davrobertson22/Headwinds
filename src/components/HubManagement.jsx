@@ -6,6 +6,7 @@ import { getAirport } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
 import AirportLink from './AirportLink.jsx';
 import { formatMoney } from '../utils/simulation.js';
+import { getEraCostScale } from '../data/overhead.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import {
   HUB_TIERS, HUB_MIN_GATES, HUB_TIER_COUNT, FOCUS_MIN_GATES,
@@ -215,7 +216,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
         <Stat label="Quality Boost"   value={`+${tierDef.qualityBonus} pts`} sub="on hub routes" color={tierDef.color} />
         <Stat label="Cost Efficiency" value={`−${Math.round(tierDef.stationDiscount * 100)}% / −${Math.round(tierDef.layoverDiscount * 100)}%`}
                                       sub="station / crew layover costs" />
-        <Stat label="Investment"      value={formatMoney(tierDef.weeklyInvestment) + '/wk'} sub="weekly overhead" />
+        <Stat label="Investment"      value={formatMoney(Math.round(tierDef.weeklyInvestment * getEraCostScale())) + '/wk'} sub="weekly overhead" />
       </div>
 
       {/* Congestion + contest */}
@@ -298,7 +299,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
             </button>
             {checklist?.ok && (
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                +{formatMoney((nextTier?.weeklyInvestment ?? 0) - tierDef.weeklyInvestment)}/wk overhead once complete
+                +{formatMoney(Math.round(((nextTier?.weeklyInvestment ?? 0) - tierDef.weeklyInvestment) * getEraCostScale()))}/wk overhead once complete
               </span>
             )}
           </div>
@@ -403,7 +404,7 @@ export default function HubManagement() {
 
   const hubCodes    = Object.keys(hubs);
   const totalConn   = hubCodes.reduce((s, c) => s + (lastReport?.hubThroughput?.[c] ?? 0), 0);
-  const totalInvest = hubCodes.reduce((s, c) => s + (HUB_TIERS[hubs[c]?.tier]?.weeklyInvestment ?? 0), 0);
+  const totalInvest = hubCodes.reduce((s, c) => s + Math.round((HUB_TIERS[hubs[c]?.tier]?.weeklyInvestment ?? 0) * getEraCostScale()), 0);
   const costSavings = lastReport?.totalHubCostSavings ?? 0;
 
   // Airports with 5+ gates, not designated, not under construction

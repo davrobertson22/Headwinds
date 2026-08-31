@@ -1,3 +1,4 @@
+import { getEraCostScale } from './overhead.js';
 /**
  * families.js — Aircraft family groupings and MRO base costs.
  *
@@ -526,13 +527,16 @@ export function fleetComplexityMultiplier(fleet) {
  * @returns {number}
  */
 export function weeklyFamilyBaseCost(fleet, offsetsByFamily = null) {
+  // Era worlds: outsourced MRO contracts are fixed overhead — scaled like the
+  // rest (getEraCostScale() is 1 in classic worlds).
+  const eraScale = getEraCostScale();
   let total = 0;
   for (const famId of activeFamilies(fleet)) {
     const gross  = FAMILY_INFO[famId]?.weeklyBaseCost ?? 0;
     // A certified jet base does this family's work in-house, so most of the
     // outsourced contract falls away (see data/mroBase.js contractOffset).
     const offset = Math.max(0, Math.min(1, offsetsByFamily?.[famId] ?? 0));
-    total += gross * (1 - offset);
+    total += gross * (1 - offset) * eraScale;
   }
   return Math.round(total);
 }

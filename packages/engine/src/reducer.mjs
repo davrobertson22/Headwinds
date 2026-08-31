@@ -8,7 +8,7 @@
 // the five checkRouteRestrictions() call sites had lost the `aircraftType`
 // context that Tailwinds passes, which silently disabled every runway-length
 // check in Headwinds. Restored. Worth diffing the two on any shared change.
-import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX, eraRevenueScale, eraPaxScale, eraCapitalScale } from './data/era.js';
+import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX, eraRevenueScale, eraPaxScale, eraCapitalScale, eraOverheadScale } from './data/era.js';
 import { featureLive, ERA_FEATURE_MESSAGE } from './data/eraFeatures.js';
 import {
   weeklyTick, defaultConfig,
@@ -1328,7 +1328,7 @@ function reducer(state, action) {
   const _eraFi = eraFareIndex(calendarYear(state));
   setFareIndex(_eraFi != null ? _eraFi * (state?.fareIndex ?? 1) : (state?.fareIndex ?? 1));
   setEraStartYear(state?.startYear ?? null);
-  setEraCostScale(eraCapitalScale(calendarYear(state)) ?? 1);
+  setEraCostScale(eraOverheadScale(calendarYear(state)) ?? 1);
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   switch (action.type) {
 
@@ -1359,6 +1359,7 @@ function reducer(state, action) {
       // multiplayer leasing goes through ORDER_AIRCRAFT). Restricted worlds gate
       // it on the same rules so the old action can't be a back door.
       if (state.newWorldRestrictions && leaseDenial(state, action.typeId, 1)) return state;
+      if (orderDenial(state, action.typeId)) return state;   // era gate (§3.2)
       const type       = getAircraftType(action.typeId);
       const count      = nextAircraftNumber(action.typeId, state.fleet, state.pendingOrders);
       const name       = action.name ?? `${type?.name ?? action.typeId} #${count}`;
@@ -1402,6 +1403,7 @@ function reducer(state, action) {
     case 'BUY_AIRCRAFT': {
       const type         = getAircraftType(action.typeId);
       if (!type) return state;
+      if (orderDenial(state, action.typeId)) return state;   // era gate (§3.2)
       // Instant single-unit buy — no bulk-order discount (that requires a
       // multi-unit ORDER_AIRCRAFT). Price at the single-frame tier.
       const price        = effectivePurchasePrice(type, 1);
