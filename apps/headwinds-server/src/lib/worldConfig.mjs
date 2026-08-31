@@ -1,6 +1,7 @@
 // World-tier config, derivations, and JSON serializers.
 // Single home for the §3a rules (admin world creation + the tick worker).
 import { randomBytes, randomUUID } from 'node:crypto';
+import { eraSeedCapital } from '@tailwinds/engine/data/era.js';
 
 /**
  * Second chances per world: the original airline plus this many re-foundings.
@@ -212,6 +213,11 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Admin-tunable knobs live in tickConfig (JSON); fall back to the defaults so
     // worlds created before these existed serialize sensibly.
     startingCapital: world.tickConfig?.startingCapital ?? DEFAULT_STARTING_CAPITAL,
+    // What a player joining NOW actually receives: the knob, era-scaled to the
+    // world's current calendar year (seedAirlineState applies the same rule).
+    // Equals startingCapital in classic worlds.
+    seedCapital: eraSeedCapital(world.tickConfig?.startingCapital ?? DEFAULT_STARTING_CAPITAL,
+      Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear + (world.currentYear ?? 1) - 1 : null),
     demandMultiplier: world.tickConfig?.demandMultiplier ?? DEFAULT_DEMAND_MULT,
     scheduledStartAt: world.tickConfig?.scheduledStartAt ?? null,
     // Optional gate scarcity (finite airport capacity, auctions, gate market).

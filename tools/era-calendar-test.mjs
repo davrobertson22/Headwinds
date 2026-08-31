@@ -65,6 +65,10 @@ test('serializeWorld surfaces startYear, null for classic worlds', () => {
   assert.equal(serializeWorld(w({})).startYear, null);
   assert.equal(serializeWorld(w({ startYear: 1978 })).startYear, 1978);
   assert.equal(serializeWorld(w({ startYear: 'x' })).startYear, null, 'garbage in tickConfig reads as classic');
+  // What a joiner actually receives, era-scaled to the world's CURRENT year.
+  assert.equal(serializeWorld(w({})).seedCapital, 15_000_000);
+  assert.equal(serializeWorld(w({ startYear: 1950 })).seedCapital, 4_000_000, 'a 1950 world in its 2nd year still seeds ~1951 money');
+  assert.equal(serializeWorld(w({ startYear: 1950, startingCapital: 30_000_000 })).seedCapital, 9_000_000, 'the knob scales through (1951: 30M × 0.30, floored)');
 });
 
 // ── History labels ────────────────────────────────────────────────────────────

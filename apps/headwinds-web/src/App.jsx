@@ -15,6 +15,7 @@ import SeasonResults from './SeasonResults.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
+import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
 
 // Lazy: the full game UI (and its CSS) loads only when a player opens a world —
 // it's the whole solo app, no need to ship it to the lobby.
@@ -445,7 +446,11 @@ function CreateWorld({ token, onCreated }) {
         <label>Starting capital ($)
           <input type="number" min={1000000} max={500000000} step={1000000} value={startingCapital}
             onChange={(e) => setStartingCapital(e.target.value)} />
-          <span className="muted">{fmtMoney(Number(startingCapital))} per airline · default $15.0M</span>
+          <span className="muted">
+            {Number.isInteger(startYear)
+              ? <>{fmtMoney(Number(startingCapital))} modern-equivalent → airlines seed with <strong>{fmtMoney(eraSeedCapital(Number(startingCapital), startYear))}</strong> in {startYear} (later joiners scale to the year they join) · default $15.0M</>
+              : <>{fmtMoney(Number(startingCapital))} per airline · default $15.0M</>}
+          </span>
         </label>
         <label>Demand multiplier
           <input type="number" min={0.5} max={3} step={0.1} value={demandMultiplier}
@@ -938,6 +943,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                   ? `${world.startYear + world.progress.year - 1} · year ${world.progress.year} of ${world.progress.totalYears}`
                   : `Year ${world.progress.year} of ${world.progress.totalYears}`)} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
+            {world.seedCapital != null && <> · start with {fmtMoney(world.seedCapital)}</>}
             {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
           </p>
           {world.status !== 'LOBBY' && (
