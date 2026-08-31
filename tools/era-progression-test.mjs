@@ -10,7 +10,7 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import { eraRevenueScale, eraPaxScale, eraCapitalScale, eraOverheadScale } from '../packages/engine/src/data/era.js';
-import { routeLaunchCost, setEraCostScale, getEraCostScale, liabilityInsuranceWeekly } from '../packages/engine/src/data/overhead.js';
+import { routeLaunchCost, setEraCostScale, getEraCostScale, liabilityInsuranceWeekly, weeklyLandingFee, weeklyGroundHandlingCost, weeklyPassengerCompensation } from '../packages/engine/src/data/overhead.js';
 import { OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_TEMPLATES, objectiveDesc } from '../packages/engine/src/data/objectives.js';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
@@ -45,6 +45,15 @@ test('cost floors scale through the module knob and reset cleanly', () => {
     setEraCostScale(1); const famClassic = weeklyFamilyBaseCost(fleet);
     setEraCostScale(0.289);
     assert.ok(famClassic > 0 && Math.abs(weeklyFamilyBaseCost(fleet) - famClassic * 0.289) < 1, 'family MRO base scales');
+    // Per-flight airport and service charges follow the same knob.
+    setEraCostScale(1);
+    const landC = weeklyLandingFee('Narrow Body', 7, 'mega', 'major');
+    const handC = weeklyGroundHandlingCost({ economy: { passengers: 1000 } });
+    const compC = weeklyPassengerCompensation(1000, 0.8, 1500);
+    setEraCostScale(0.289);
+    assert.ok(landC > 0 && Math.abs(weeklyLandingFee('Narrow Body', 7, 'mega', 'major') - landC * 0.289) < 1, 'landing fees scale');
+    assert.ok(handC > 0 && Math.abs(weeklyGroundHandlingCost({ economy: { passengers: 1000 } }) - handC * 0.289) < 1, 'ground handling scales');
+    assert.ok(compC > 0 && Math.abs(weeklyPassengerCompensation(1000, 0.8, 1500) - compC * 0.289) < 1, 'compensation scales');
   } finally {
     setEraCostScale(1);
   }

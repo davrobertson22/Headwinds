@@ -460,8 +460,9 @@ export function weeklyLandingFee(aircraftCategory, weeklyFrequency, originTier, 
   const catFees = LANDING_FEE_PER_DEPARTURE[aircraftCategory];
   const feeAtOrigin = catFees?.[originTier] ?? LANDING_FEE_DEFAULT;
   const feeAtDest   = catFees?.[destTier]   ?? LANDING_FEE_DEFAULT;
-  // Each weekly frequency generates one outbound (lands at dest) + one return (lands at origin)
-  return (feeAtDest + feeAtOrigin) * weeklyFrequency;
+  // Each weekly frequency generates one outbound (lands at dest) + one return (lands at origin).
+  // Era: airport charges are constant-dollar overhead and follow the era scale (1 in classic).
+  return Math.round((feeAtDest + feeAtOrigin) * weeklyFrequency * _eraCostScale);
 }
 
 
@@ -511,10 +512,11 @@ export const GROUND_HANDLING_COST_PER_PAX = {
  * Multiply by 2 to get total boarded passengers in both directions.
  */
 export function weeklyGroundHandlingCost(classSummary) {
+  // Era: handling is a labour service — follows the era scale (1 in classic).
   return Math.round(
     Object.entries(GROUND_HANDLING_COST_PER_PAX).reduce((s, [cls, rate]) => {
       return s + (classSummary[cls]?.passengers ?? 0) * 2 * rate;
-    }, 0)
+    }, 0) * _eraCostScale
   );
 }
 
@@ -595,7 +597,8 @@ export function weeklyLayoverCost(blockTimeHrs, seats, category, weeklyFreq) {
   const flightDeckCrew = (category === 'Wide Body' || category === 'Double Deck' || category === 'Supersonic') ? 3 : 2;
   const cabinCrew      = Math.max(1, Math.ceil(seats / 50));
   const totalCrew      = flightDeckCrew + cabinCrew;
-  return Math.round(totalCrew * LAYOVER_COST_PER_CREW_NIGHT * weeklyFreq * 2);
+  // Era: hotel nights and per diems follow the era scale (1 in classic).
+  return Math.round(totalCrew * LAYOVER_COST_PER_CREW_NIGHT * weeklyFreq * 2 * _eraCostScale);
 }
 
 
@@ -630,7 +633,9 @@ export function compensationPerPax(distKm) {
 export function weeklyPassengerCompensation(passengers, onTimeRate, distKm) {
   const delayRate = Math.max(0, 1 - onTimeRate);
   const compensableFraction = delayRate * COMPENSATION_ESCALATION_RATE;
-  return Math.round(passengers * compensableFraction * compensationPerPax(distKm));
+  // Era: compensation regimes are a modern thing and the amounts are set in
+  // modern money — follows the era scale (1 in classic).
+  return Math.round(passengers * compensableFraction * compensationPerPax(distKm) * _eraCostScale);
 }
 
 
