@@ -569,6 +569,26 @@ export default async function worldRoutes(fastify) {
     return { world: serializeWorld(updated, {}) };
   });
 
+  // ── Set a world's visibility (ADMIN — reversible) ─────────────────────────
+  // The create form defaults to PRIVATE and the lobby lists PUBLIC only, so a
+  // world made public here appears in "Open worlds" on the next load. Private
+  // worlds keep their join code; making one public does not clear it.
+  fastify.post('/worlds/:id/visibility', {
+    preHandler: requireAdmin,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      body: { type: 'object', required: ['visibility'], properties: { visibility: { type: 'string', enum: ['PUBLIC', 'PRIVATE'] } } },
+    },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    const updated = await prisma.world.update({
+      where: { id: world.id },
+      data: { visibility: request.body.visibility },
+    });
+    return { world: serializeWorld(updated, {}) };
+  });
+
   // ── Archive a world (ADMIN — reversible) ──────────────────────────────────
   // Hides it from the lobby and stops ticks (the scheduler only advances RUNNING
   // worlds). Remembers the prior status + archive instant in tickConfig so

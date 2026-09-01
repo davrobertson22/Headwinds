@@ -553,6 +553,13 @@ function AdminWorldsManager({ token }) {
     setBusyId(null);
   };
 
+  const setVisibility = async (id, visibility) => {
+    setBusyId(id); setError(null);
+    try { await api(`/worlds/${id}/visibility`, { method: 'POST', token, body: { visibility } }); load(); }
+    catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
   if (!open) {
     return <button className="btn small" onClick={() => setOpen(true)}>🛠 Manage all worlds (admin)</button>;
   }
@@ -565,7 +572,7 @@ function AdminWorldsManager({ token }) {
       <ErrorNote error={error} />
       {!worlds ? <p className="muted">Loading…</p> : worlds.length === 0 ? <p className="muted">No worlds.</p> : (
         <table className="worlds">
-          <thead><tr><th>World</th><th>Status</th><th>Players</th><th>Stage</th><th /></tr></thead>
+          <thead><tr><th>World</th><th>Status</th><th>Players</th><th>Stage</th><th>Visibility</th><th /></tr></thead>
           <tbody>
             {worlds.map((w) => (
               <tr key={w.id}>
@@ -577,6 +584,14 @@ function AdminWorldsManager({ token }) {
                     title={STAGE_HINTS[w.stage ?? 'beta']}
                     onChange={(e) => setStage(w.id, e.target.value)}>
                     {WORLD_STAGES.map((sg) => <option key={sg} value={sg}>{STAGE_LABELS[sg]}</option>)}
+                  </select>
+                </td>
+                <td>
+                  <select value={w.visibility ?? 'PUBLIC'} disabled={busyId === w.id}
+                    title="Public worlds are listed under Open worlds; private ones are reachable by link and join code only"
+                    onChange={(e) => setVisibility(w.id, e.target.value)}>
+                    <option value="PUBLIC">Public</option>
+                    <option value="PRIVATE">Private</option>
                   </select>
                 </td>
                 <td>
@@ -655,6 +670,12 @@ function WorldsScreen({ token, me }) {
                 <td>
                   <a href={`#/w/${w.id}`}>{w.name}</a>
                   <StageChip stage={w.stage ?? 'beta'} />
+                  {w.startYear != null && (
+                    <span title={`Era world: the calendar starts in ${w.startYear} and moves through real time — aircraft, demand, fares and fuel follow history`}
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(169,139,255,0.15)', color: '#a98bff', border: '1px solid rgba(169,139,255,0.4)', whiteSpace: 'nowrap' }}>
+                      🕰 {w.startYear}
+                    </span>
+                  )}
                   {w.newWorldRestrictions && (
                     <span title="New world restrictions: old-gen single-deck leasing only, lease order book capped at 25% of fleet"
                       style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', whiteSpace: 'nowrap' }}>
@@ -920,6 +941,12 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           <h2>
             {world.name} <StatusChip status={world.status} />
             <StageChip stage={world.stage ?? 'beta'} size="md" />
+            {world.startYear != null && (
+              <span title={`Era world: the calendar started in ${world.startYear} and moves through real time — aircraft appear when they entered service, demand, fares and fuel follow history`}
+                style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(169,139,255,0.15)', color: '#a98bff', border: '1px solid rgba(169,139,255,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                🕰 ERA · {world.startYear}
+              </span>
+            )}
             {world.newWorldRestrictions && (
               <span title="New world restrictions: lessors carry single-deck previous-generation aircraft only, and your lease order book is capped at 25% of the fleet you operate (minimum 5)"
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
