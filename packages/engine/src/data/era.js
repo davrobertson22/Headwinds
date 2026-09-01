@@ -170,3 +170,16 @@ export function eraSeedCapital(modernCapital, calYear) {
   if (scale == null) return modernCapital;
   return Math.max(1_000_000, Math.floor(modernCapital * scale / 1_000_000) * 1_000_000);
 }
+
+// Headwinds: the admin's "Starting capital" knob is the LITERAL amount a founding
+// airline receives in an era world — $4M typed means $4M in 1950 (Dave's call,
+// 2026-08-31). A player joining later in the world's life is scaled from that
+// figure by how far the era's capital scale has moved since the world opened,
+// so a 1970 joiner to a 1950 world is not handicapped against airlines that
+// have had twenty years to grow. Classic worlds (startYear null) return the knob.
+export function eraJoinCapital(knob, startYear, calYear) {
+  const s0 = eraCapitalScale(startYear);
+  const s1 = eraCapitalScale(calYear);
+  if (s0 == null || s1 == null || s0 <= 0) return knob;
+  return Math.max(100_000, Math.round(knob * (s1 / s0) / 100_000) * 100_000);
+}

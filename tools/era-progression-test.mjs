@@ -9,7 +9,7 @@
 // era ticks produced no statsHistoryYearly.
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
-import { eraRevenueScale, eraPaxScale, eraCapitalScale, eraOverheadScale } from '../packages/engine/src/data/era.js';
+import { eraRevenueScale, eraPaxScale, eraCapitalScale, eraOverheadScale, eraSeedCapital, eraJoinCapital } from '../packages/engine/src/data/era.js';
 import { routeLaunchCost, setEraCostScale, getEraCostScale, liabilityInsuranceWeekly, weeklyLandingFee, weeklyGroundHandlingCost, weeklyPassengerCompensation } from '../packages/engine/src/data/overhead.js';
 import { OBJECTIVE_TEMPLATES, MULTIPLAYER_OBJECTIVE_TEMPLATES, objectiveDesc } from '../packages/engine/src/data/objectives.js';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
@@ -90,16 +90,21 @@ test('objective thresholds, descriptions and rewards scale with the era', () => 
   }
 });
 
-test('starting capital scales at seed; the admin knob stays modern-equivalent', () => {
+test('the admin knob is the literal founding amount; later joiners scale with the era', () => {
   const mk = (sy) => ({
     id: 'w', worldSeed: 's', currentYear: 1, currentWeek: 1, lengthYears: 40,
     tickConfig: { startingCapital: 15_000_000, demandMultiplier: 1, ...(sy ? { startYear: sy } : {}) },
   });
   assert.equal(seedAirlineState(mk(null), { airlineName: 'A', hub: 'JFK' }).cash, 15_000_000);
-  const c1950 = seedAirlineState(mk(1950), { airlineName: 'A', hub: 'JFK' }).cash;
-  assert.equal(c1950, 4_000_000, `1950 capital ${c1950} — $4.34M floored to a whole million`);
-  const c1978 = seedAirlineState(mk(1978), { airlineName: 'A', hub: 'JFK' }).cash;
-  assert.equal(c1978, 9_000_000, `1978 capital ${c1978}`);
+  assert.equal(seedAirlineState(mk(1950), { airlineName: 'A', hub: 'JFK' }).cash, 15_000_000, '$15M typed = $15M in 1950');
+  const four = { ...mk(1950), tickConfig: { ...mk(1950).tickConfig, startingCapital: 4_000_000 } };
+  assert.equal(seedAirlineState(four, { airlineName: 'A', hub: 'JFK' }).cash, 4_000_000, '$4M typed = $4M in 1950');
+  // A 1970 joiner to that world is scaled by how far the era has moved since 1950.
+  const later = { ...four, currentYear: 21 };
+  const c1970 = seedAirlineState(later, { airlineName: 'B', hub: 'JFK' }).cash;
+  assert.ok(c1970 > 4_000_000 && c1970 < 9_000_000, `1970 joiner ${c1970}`);
+  assert.equal(eraJoinCapital(4_000_000, null, null), 4_000_000, 'classic: the knob');
+  assert.equal(eraSeedCapital(15_000_000, 1950), 4_000_000, 'the Tailwinds rule (no knob) still floors the modern figure');
 });
 
 test('era worlds keep a yearly rollup; classic worlds never grow the field', () => {

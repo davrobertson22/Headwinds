@@ -3,7 +3,7 @@
 // state is produced by the SHARED engine — never reinvented here.
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
 import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
-import { eraSeedCapital } from '@tailwinds/engine/data/era.js';
+import { eraJoinCapital } from '@tailwinds/engine/data/era.js';
 import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import {
@@ -132,11 +132,11 @@ export const OG_NAME_PATTERN = /[[({<][\s._\-]*(?:[O0][\s._\-]*G|D[\s._\-]*[E3][
 export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } = {}) {
   // Per-world admin knobs (default when the world predates them / tickConfig empty).
   const tc = world.tickConfig ?? {};
-  // Era worlds: capital scales with the era (sqrt of the revenue scale —
-  // ERA_MODE_PLAN.md §4). The tickConfig value stays the admin's
-  // modern-equivalent knob; the scale applies at seed time, so serializeWorld
-  // still reports the knob and a mid-era joiner is scaled to the CURRENT year.
-  const startingCapital = eraSeedCapital(tc.startingCapital ?? DEFAULT_STARTING_CAPITAL,
+  // Era worlds: the admin knob is the LITERAL founding amount ($4M typed = $4M
+  // in 1950). A mid-era joiner is scaled from it by how far the era's capital
+  // scale has moved since the world opened (see eraJoinCapital).
+  const startingCapital = eraJoinCapital(tc.startingCapital ?? DEFAULT_STARTING_CAPITAL,
+    Number.isInteger(tc.startYear) ? tc.startYear : null,
     Number.isInteger(tc.startYear) ? tc.startYear + (world.currentYear ?? 1) - 1 : null);
   const demandMultiplier = tc.demandMultiplier ?? DEFAULT_DEMAND_MULT;
 

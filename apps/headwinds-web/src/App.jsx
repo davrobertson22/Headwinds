@@ -448,7 +448,7 @@ function CreateWorld({ token, onCreated }) {
             onChange={(e) => setStartingCapital(e.target.value)} />
           <span className="muted">
             {Number.isInteger(startYear)
-              ? <>{fmtMoney(Number(startingCapital))} modern-equivalent → airlines seed with <strong>{fmtMoney(eraSeedCapital(Number(startingCapital), startYear))}</strong> in {startYear} (later joiners scale to the year they join) · default $15.0M</>
+              ? <>Airlines founded in {startYear} start with exactly <strong>{fmtMoney(Number(startingCapital))}</strong>; later joiners scale with the era from there. For reference, the modern $15.0M is worth about {fmtMoney(eraSeedCapital(15_000_000, startYear))} in {startYear}.</>
               : <>{fmtMoney(Number(startingCapital))} per airline · default $15.0M</>}
           </span>
         </label>
