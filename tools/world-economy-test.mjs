@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { FUEL_MIN_INDEX, FUEL_MAX_INDEX, FUEL_BASE_INDEX } from '../packages/engine/src/utils/fuel.js';
+import { eraFuelMean, ERA_FUEL_MIN_INDEX } from '../packages/engine/src/data/era.js';
 import { MARKET_BASE_INDEX } from '../packages/engine/src/utils/market.js';
 import {
   seededRand, worldFuelIndex, worldMarketIndex, worldEconomyAt, FUEL_HISTORY_CAP,
@@ -118,6 +119,30 @@ await test('tickService and the backfill share ONE walk implementation', () => {
   assert.ok(src.includes("from './worldEconomy.mjs'"), 'tickService must import the shared walks');
   assert.ok(!/function worldFuelIndex/.test(src), 'no private copy of the fuel walk in tickService');
   assert.ok(!/function worldMarketIndex/.test(src), 'no private copy of the market walk in tickService');
+});
+
+await test('era worlds open on the period fuel price, not the 2026 base', () => {
+  // HEAD failure: the walk started at 1.0 whatever the era, so a 1950 world
+  // ran 1.00 → 0.70 (W5) → 0.54 (W10) against a 0.45 mean — founders paid
+  // double the era's fuel through their most fragile two months and could
+  // lock a week-1 hedge at 1.0x.
+  for (const sy of [1950, 1978, 2000]) {
+    const mean = eraFuelMean(sy);
+    const open = worldEconomyAt(SEED, 1, { startYear: sy });
+    assert.equal(open.fuelPrice.index, mean, `${sy}: week-1 index is the era mean`);
+    assert.equal(open.fuelPrice.history.length, 0);
+    // The first weeks wobble around the mean, they do not decay towards it.
+    for (const w of [1, 5, 10]) {
+      const idx = worldFuelIndex(`${SEED}-${sy}`, w, sy);
+      assert.ok(Math.abs(idx - mean) < 0.25, `${sy} W${w}: ${idx} vs mean ${mean}`);
+      assert.ok(idx >= ERA_FUEL_MIN_INDEX, 'era floor');
+    }
+    // Backfill and live walk agree on the seeded start.
+    assert.equal(worldEconomyAt(SEED, 11, { startYear: sy }).fuelPrice.index, worldFuelIndex(SEED, 10, sy));
+  }
+  // Classic worlds are byte-identical: base seed, base index.
+  assert.equal(worldEconomyAt(SEED, 1).fuelPrice.index, FUEL_BASE_INDEX);
+  assert.equal(worldEconomyAt(SEED, 1, { startYear: null }).fuelPrice.index, FUEL_BASE_INDEX);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

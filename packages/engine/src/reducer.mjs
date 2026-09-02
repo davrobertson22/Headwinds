@@ -13,7 +13,7 @@ import { featureLive, ERA_FEATURE_MESSAGE } from './data/eraFeatures.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
-  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate, shortYearLabel, calendarYear,
+  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey, isMultiStop,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
@@ -960,9 +960,20 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
 // anything already flying; the UI renders the message on the locked row.
 export function orderDenial(state, typeId) {
   const cy = calendarYear(state);
-  if (cy == null) return null;
   const type = getAircraftType(typeId);
   if (!type) return null;
+  if (cy == null) {
+    // Classic world: the era-only propliners are not on the 2026 market at all
+    // (see aircraftOrderable) — refused here so a hand-crafted decision cannot
+    // lease the cheapest seats in the catalogue past the hidden store card.
+    if (type.eraOnly) {
+      return {
+        code: 'era_only', typeId: type.id, oop: type.oop,
+        message: `The ${type.name} is not on the market — no airworthy frames remain in service today.`,
+      };
+    }
+    return null;
+  }
   const avail = cometWithdrawn(state, type.id) ? 'expired' : aircraftAvailability(type, cy);
   if (avail === 'future') {
     return {
@@ -1357,10 +1368,12 @@ function reducer(state, action) {
   // calendar, not stored — the era yield curve declines across the century, so
   // a seeded-once fareIndex would go stale within a decade. Composes
   // multiplicatively with any stored index (an era world that is also NWR).
-  const _eraFi = eraFareIndex(calendarYear(state));
+  // The continuous curves read the FRACTIONAL calendar position so nothing
+  // steps on January W1 (calendarYearFrac); the discrete gates keep calendarYear.
+  const _eraFi = eraFareIndex(calendarYearFrac(state));
   setFareIndex(_eraFi != null ? _eraFi * (state?.fareIndex ?? 1) : (state?.fareIndex ?? 1));
   setEraStartYear(state?.startYear ?? null);
-  setEraCostScale(eraOverheadScale(calendarYear(state)) ?? 1);
+  setEraCostScale(eraOverheadScale(calendarYearFrac(state)) ?? 1);
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   switch (action.type) {
@@ -3776,7 +3789,7 @@ function reducer(state, action) {
       // the shared value; in solo, tick the per-save market price forward. Stays
       // here rather than in prepareWeek: it is a random draw, and a projection
       // must neither predict it nor burn it.
-      const _fuelCy          = calendarYear(state);
+      const _fuelCy          = calendarYearFrac(state);
       const nextFuelIndex    = injectedFuel != null ? injectedFuel
         : _fuelCy == null ? tickFuelPrice(baseFuelIndex)
         : tickFuelPrice(baseFuelIndex, undefined,

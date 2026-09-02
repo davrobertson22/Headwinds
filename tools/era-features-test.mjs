@@ -9,7 +9,7 @@ import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import { featureLive, ERA_FEATURE_FROM, ERA_FEATURE_MESSAGE } from '../packages/engine/src/data/eraFeatures.js';
 import { rollEvents, EVENT_TEMPLATES } from '../packages/engine/src/data/events.js';
-import { gameReducer, freshState, eraFeatureDenial, COMET_GROUNDING } from '../packages/engine/src/reducer.mjs';
+import { gameReducer, freshState, eraFeatureDenial, orderDenial, cometWithdrawn, COMET_GROUNDING } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType, aircraftAvailability } from '../packages/engine/src/data/aircraft.js';
 import { openDueAuctions } from '../apps/headwinds-server/src/lib/gateService.mjs';
 
@@ -80,6 +80,60 @@ test('the Comet 1 grounding: fleet withdrawn, insurance paid, fires once', () =>
   assert.equal(aircraftAvailability(getAircraftType('comet1'), 1953), 'new');
   assert.equal(aircraftAvailability(getAircraftType('comet1'), 1955), 'expired');
   assert.equal(aircraftAvailability(getAircraftType('comet1'), null), 'available', 'classic untouched');
+});
+
+test('after the grounding the Comet 1 cannot be ordered for the rest of 1954, and orders in flight are refunded', () => {
+  // HEAD failure: withdrawnYear 1955 closed the market from the NEXT January,
+  // so for 37 weeks after 1954 W15 the type still read 'new' — ordered at W40,
+  // the starter perk delivered it on the spot and, cometGrounded already true,
+  // it flew into 1955 and beyond. A joiner in late 1954 had the same window.
+  const t = getAircraftType('comet1');
+  // Calendar-derived, so a FRESH blob (a late-1954 joiner) is covered too.
+  assert.equal(cometWithdrawn(eraState(1950, 1954, { week: COMET_GROUNDING.week - 1 }), 'comet1'), false, 'the week before');
+  assert.equal(cometWithdrawn(eraState(1950, 1954, { week: COMET_GROUNDING.week }), 'comet1'), true, 'the grounding week');
+  assert.equal(cometWithdrawn(eraState(1950, 1954, { week: 40 }), 'comet1'), true, 'the rest of 1954');
+  assert.equal(cometWithdrawn(eraState(1950, 1960), 'comet1'), true);
+  assert.equal(cometWithdrawn(eraState(1950, 1953), 'dc3'), false, 'only the Comet');
+  assert.equal(cometWithdrawn({ ...freshState(), year: 5, week: 40 }, 'comet1'), false, 'classic untouched');
+
+  const late1954 = eraState(1950, 1954, { week: 40 });
+  assert.equal(orderDenial(late1954, 'comet1')?.code, 'no_airworthy_frames');
+  const ordered = gameReducer(late1954, { type: 'ORDER_AIRCRAFT', typeId: 'comet1', quantity: 1, ownershipType: 'owned' });
+  assert.equal(ordered.fleet.filter(a => a.typeId === 'comet1').length, 0, 'no Comet delivered after the grounding');
+  assert.equal((ordered.pendingOrders ?? []).filter(o => o.typeId === 'comet1').length, 0, 'none on order either');
+  const leased = gameReducer(late1954, { type: 'ORDER_AIRCRAFT', typeId: 'comet1', quantity: 1, ownershipType: 'lease' });
+  assert.equal((leased.pendingOrders ?? []).length + leased.fleet.filter(a => a.typeId === 'comet1').length, 0, 'lease refused too');
+  assert.equal(orderDenial(eraState(1950, 1954, { week: 10 }), 'comet1'), null, 'still orderable before the grounding');
+
+  // Orders in flight at the grounding: cancelled, purchase refunded in full,
+  // lease deposit returned — the player's money is not stranded with the type.
+  let st = eraState(1952, 1954, { week: COMET_GROUNDING.week - 1 });
+  // Two starter-perk frames already flying, so the next order queues.
+  st = gameReducer(st, { type: 'ORDER_AIRCRAFT', typeId: 'dc6b', quantity: 2, ownershipType: 'owned' });
+  const cashBefore = st.cash;
+  st = gameReducer(st, { type: 'ORDER_AIRCRAFT', typeId: 'comet1', quantity: 1, ownershipType: 'owned' });
+  const order = (st.pendingOrders ?? []).find(o => o.typeId === 'comet1');
+  assert.ok(order, 'the Comet order is queued, not delivered');
+  const paid = cashBefore - st.cash;
+  st = gameReducer(st, { type: 'ORDER_AIRCRAFT', typeId: 'dc6b', quantity: 1, ownershipType: 'owned' });   // a queued bystander
+  assert.ok((st.pendingOrders ?? []).some(o => o.typeId === 'dc6b'), 'the DC-6B order is queued');
+  st = gameReducer(st, { type: 'ADVANCE_WEEK' });   // flies W14, enters W15
+  assert.ok((st.pendingOrders ?? []).some(o => o.typeId === 'comet1'), 'still on order the week before');
+  st = gameReducer(st, { type: 'ADVANCE_WEEK' });   // W15: the grounding fires before the week flies
+  assert.equal(st.cometGrounded, true);
+  assert.equal((st.pendingOrders ?? []).filter(o => o.typeId === 'comet1').length, 0, 'the order is cancelled');
+  // Refund check: the same two weeks without the Comet order end on the same
+  // cash (the order's price went out and came back in full).
+  let ctrl = eraState(1952, 1954, { week: COMET_GROUNDING.week - 1 });
+  ctrl = gameReducer(ctrl, { type: 'ORDER_AIRCRAFT', typeId: 'dc6b', quantity: 2, ownershipType: 'owned' });
+  ctrl = gameReducer(ctrl, { type: 'ORDER_AIRCRAFT', typeId: 'dc6b', quantity: 1, ownershipType: 'owned' });
+  ctrl = gameReducer(ctrl, { type: 'ADVANCE_WEEK' });
+  ctrl = gameReducer(ctrl, { type: 'ADVANCE_WEEK' });
+  assert.ok(Math.abs(st.cash - ctrl.cash) <= 1, `purchase refunded in full (paid ${paid}: ${st.cash} vs control ${ctrl.cash})`);
+  assert.ok((st.pendingOrders ?? []).some(o => o.typeId === 'dc6b') || st.fleet.filter(a => a.typeId === 'dc6b').length === 3, 'other orders untouched');
+  assert.ok(st.pendingToasts?.some(t => /Comet/.test(t.title) && /cancelled/.test(t.message)), 'the player is told the order is gone');
+  for (let i = 0; i < 10; i++) st = gameReducer(st, { type: 'ADVANCE_WEEK' });
+  assert.equal(st.fleet.filter(a => a.typeId === 'comet1').length, 0, 'nothing delivers later');
 });
 
 test('a classic world never grounds anything at week 15 of year 5', () => {

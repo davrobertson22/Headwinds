@@ -1483,6 +1483,24 @@ export function calendarYear(state) {
 }
 
 /**
+ * Era worlds: the calendar position as a FRACTIONAL year — 1950.0 at week 1,
+ * 1950.5 at week 27 — for the CONTINUOUS era curves (demand, fare, overhead
+ * scale, fuel mean). Evaluating those at the integer year stepped every
+ * curve once a year, on January W1: demand +9–11% overnight in the 1950s–60s,
+ * fares and gate rents a notch, and at 48 weeks/day a game year is ~a real
+ * day, so players watched a sawtooth they had done nothing to earn. The
+ * DISCRETE gates (entry into service, feature unlocks, events, the Comet)
+ * keep reading calendarYear — a type still enters service in January.
+ * Classic worlds: null, like calendarYear.
+ */
+export function calendarYearFrac(state) {
+  const s = state?.startYear;
+  if (!Number.isInteger(s)) return null;
+  const week = Math.min(52, Math.max(1, Number(state?.week) || 1));
+  return s + ((state?.year ?? 1) - 1) + (week - 1) / 52;
+}
+
+/**
  * Long year label for a given ordinal year: "1952" in an era world,
  * "Year 3" in a classic one. Defaults to the state's current year.
  */

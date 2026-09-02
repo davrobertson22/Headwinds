@@ -185,14 +185,19 @@ export function genWorldName() {
 }
 
 // Progress through a world's lifetime.
+// The clock points at the week about to be flown, so a finished world parks
+// on year L+1 week 1 (tickService completeIndex). Progress is reported as
+// weeks FLOWN, and a finished world reads as year L week 52, 100% — never
+// "year 101 of 100".
 export function worldProgress(world) {
   const total = totalWeeks(world.lengthYears);
-  const done = (world.currentYear - 1) * WEEKS_PER_YEAR + world.currentWeek;
+  const flown = Math.min(total, (world.currentYear - 1) * WEEKS_PER_YEAR + world.currentWeek - 1);
+  const complete = flown >= total;
   return {
-    year: world.currentYear,
-    week: world.currentWeek,
+    year: complete ? world.lengthYears : world.currentYear,
+    week: complete ? WEEKS_PER_YEAR : world.currentWeek,
     totalYears: world.lengthYears,
-    percent: Math.min(100, Math.round((done / total) * 100)),
+    percent: Math.min(100, Math.round((flown / total) * 100)),
   };
 }
 

@@ -2273,6 +2273,7 @@ export const AIRCRAFT_TYPES = [
     // fewer seats, cheaper to buy, rougher to keep. Line closed in 1945, so it is
     // second-hand in every era world and expired (off the AI picker) by 2026.
     id: 'c47',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Douglas C-47 Skytrain',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -3376,6 +3377,7 @@ export const AIRCRAFT_TYPES = [
   // Commons Special:FilePath redirects (resolved by exact filename).
   {
     id: 'dc4',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Douglas DC-4',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -3397,6 +3399,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'l749',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Lockheed L-749 Constellation',
     manufacturer: 'Lockheed',
     category: 'Turboprop',
@@ -3417,6 +3420,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'cv240',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Convair CV-240',
     manufacturer: 'Convair',
     category: 'Turboprop',
@@ -3437,6 +3441,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'b377',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Boeing 377 Stratocruiser',
     manufacturer: 'Boeing',
     category: 'Turboprop',
@@ -3458,6 +3463,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'dc6b',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Douglas DC-6B',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -3478,6 +3484,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'm404',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Martin 4-0-4',
     manufacturer: 'Martin',
     category: 'Turboprop',
@@ -3498,6 +3505,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'comet1',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'de Havilland Comet 1',
     manufacturer: 'de Havilland',
     category: 'Narrow Body',
@@ -3519,6 +3527,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'viscount700',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Vickers Viscount 700',
     manufacturer: 'Vickers',
     category: 'Turboprop',
@@ -3539,6 +3548,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'il14',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Ilyushin Il-14',
     manufacturer: 'Ilyushin',
     category: 'Turboprop',
@@ -3559,6 +3569,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'l1049g',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Lockheed L-1049G Super Constellation',
     manufacturer: 'Lockheed',
     category: 'Turboprop',
@@ -3579,6 +3590,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'cv440',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Convair CV-440 Metropolitan',
     manufacturer: 'Convair',
     category: 'Turboprop',
@@ -3599,6 +3611,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'dc7c',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Douglas DC-7C Seven Seas',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -3619,6 +3632,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'tu104',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Tupolev Tu-104',
     manufacturer: 'Tupolev',
     category: 'Narrow Body',
@@ -3639,6 +3653,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'britannia',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Bristol Britannia 310',
     manufacturer: 'Bristol',
     category: 'Turboprop',
@@ -3659,6 +3674,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'l1649',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Lockheed L-1649A Starliner',
     manufacturer: 'Lockheed',
     category: 'Turboprop',
@@ -3679,6 +3695,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'viscount800',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Vickers Viscount 800',
     manufacturer: 'Vickers',
     category: 'Turboprop',
@@ -3699,6 +3716,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'b707120',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Boeing 707-120',
     manufacturer: 'Boeing',
     category: 'Narrow Body',
@@ -3718,6 +3736,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'comet4',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'de Havilland Comet 4',
     manufacturer: 'de Havilland',
     category: 'Narrow Body',
@@ -3738,6 +3757,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'il18',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Ilyushin Il-18',
     manufacturer: 'Ilyushin',
     category: 'Turboprop',
@@ -3758,6 +3778,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'dc830',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Douglas DC-8-30',
     manufacturer: 'Douglas',
     category: 'Narrow Body',
@@ -3777,6 +3798,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'vanguard',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Vickers Vanguard',
     manufacturer: 'Vickers',
     category: 'Turboprop',
@@ -3797,6 +3819,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'hs748',
+    eraOnly: true,   // era worlds only — a 2026 startup cannot buy or lease it (classic parity for the AI picker, which already skips it)
     name: 'Hawker Siddeley 748',
     manufacturer: 'Hawker Siddeley',
     category: 'Turboprop',
@@ -4020,6 +4043,7 @@ export function lessorSupplies(type, calYear = null) {
     const a = aircraftAvailability(type, calYear);
     return a === 'new' || a === 'used';
   }
+  if (type.eraOnly) return false;   // classic world: not on the market at all
   if (LESSOR_BLOCK.has(type.id)) return false;
   if (LESSOR_ALLOW.has(type.id)) return true;
   return (type.eis ?? 9999) <= LESSOR_EIS_CUTOFF;
@@ -4055,8 +4079,12 @@ export function aircraftAvailability(type, calYear = null) {
 
 /** Can this type be acquired at all (bought or leased) at this calendar year? */
 export function aircraftOrderable(type, calYear = null) {
+  // Classic worlds: the catalogue is timeless EXCEPT for the era-only propliners
+  // (eraOnly) — they were added for 1950s starts and leaked into the 2026 market
+  // as the cheapest lease per seat on the books (Discord 2026-09-01/02).
+  if (calYear == null) return !type?.eraOnly;
   const a = aircraftAvailability(type, calYear);
-  return a === 'available' || a === 'new' || a === 'used';
+  return a === 'new' || a === 'used';
 }
 
 /**
@@ -4077,9 +4105,17 @@ export function eraDeliveredAgeWeeks(type, calYear = null) {
   if (calYear == null) return published;
   if (type?.freighter && published > 0 && type?.oop == null) return published;
   if (type?.oop == null || calYear <= type.oop) return 0;
-  if (published > 0) {
+  // A line that closed long before 2026 but carries no band is a classic-world
+  // conceit (the Concorde: still sold factory-fresh in 2026, prestige over
+  // realism — and its maintenance is balanced on that). An era world in the
+  // period has no such licence — a 1990 Concorde is a used 1979 frame — so it
+  // ages on the oldest band UNTIL 2026, where the modern catalogue's own rule
+  // resumes: an era world at 2026 is the classic market, by invariant (see
+  // era-availability-test), and classic itself is untouched.
+  const band = published > 0 ? published : (type.oop < 2005 && calYear < 2026 ? 832 : 0);
+  if (band > 0) {
     const span = Math.max(1, 2026 - type.oop);
-    return Math.max(0, Math.min(832, Math.round(published * (calYear - type.oop) / span)));
+    return Math.max(0, Math.min(832, Math.round(band * (calYear - type.oop) / span)));
   }
   if (calYear <= 2026) return 0;
   return Math.min(832, Math.round((calYear - 2026) * (312 / 20)));

@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import {
-  ticksDue, weekIndex, tickWorldOnce, runDueTicks,
+  ticksDue, weekIndex, nextTickAt, tickWorldOnce, runDueTicks,
 } from '../apps/headwinds-server/src/lib/tickService.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../apps/headwinds-server/src/world.mjs';
 
@@ -189,7 +189,7 @@ await test('ticksDue derives owed weeks from startedAt + pace', () => {
 
 await test('ticksDue never exceeds world length', () => {
   const w = makeWorld({ lengthYears: 50, startedAt: new Date(Date.now() - 100 * 365 * 24 * 3600 * 1000) });
-  assert.equal(ticksDue(w), 50 * 52 - 1); // target capped at totalWeeks
+  assert.equal(ticksDue(w), 50 * 52); // target capped at completeIndex: every one of the 2,600 weeks gets flown
 });
 
 console.log('\n── tickWorldOnce ────────────────────────────────────────');
@@ -226,12 +226,27 @@ await test('year rollover: week 52 → year 2 week 1', async () => {
   assert.equal(res.week, 1);
 });
 
-await test('final week ends the world', async () => {
-  const w = makeWorld({ currentYear: 50, currentWeek: 51 });
-  const prisma = fakePrisma({ world: w, airlines: [] });
+await test('the final week is flown: the tick from Y50 W52 ends the world, the one before does not', async () => {
+  // HEAD failure: ended fired on toIndex === totalWeeks, i.e. the tick that
+  // flew week 51 — the last week of the last year was never flown and the
+  // final year never rolled up.
+  const early = makeWorld({ currentYear: 50, currentWeek: 51 });
+  const p1 = fakePrisma({ world: early, airlines: [seedAirline('a1', 'Alpha', 'JFK')] });
+  const r1 = await tickWorldOnce(p1, early, { log: quiet });
+  assert.equal(r1.ended, false, 'week 51 flown, week 52 still to come');
+  assert.equal(p1._db.world.status, 'RUNNING');
+  const w = makeWorld({ currentYear: 50, currentWeek: 52 });
+  const onClock = seedAirline('a1', 'Alpha', 'JFK');
+  onClock.state = { ...onClock.state, year: 50, week: 52 };
+  const prisma = fakePrisma({ world: w, airlines: [onClock] });
   const res = await tickWorldOnce(prisma, w, { log: quiet });
   assert.equal(res.ended, true);
+  assert.equal(res.year, 51); assert.equal(res.week, 1);
   assert.equal(prisma._db.world.status, 'ENDED');
+  assert.equal(prisma._db.airlines[0].state.week, 1, 'the airline flew week 52 and sits on Y51 W1');
+  assert.equal(prisma._db.airlines[0].state.year, 51);
+  assert.equal(ticksDue({ ...w, currentYear: 51, currentWeek: 1 }), 0, 'nothing owed once complete');
+  assert.equal(nextTickAt({ ...w, currentYear: 51, currentWeek: 1 }), null);
 });
 
 console.log('\n── runDueTicks (the worker loop) ────────────────────────');

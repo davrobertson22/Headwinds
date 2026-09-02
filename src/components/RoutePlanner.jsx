@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useGame, addRouteBlockReason, slotCapAt, peakSlotsUsedAt } from '../store/GameContext.jsx';
+import { useGame, addRouteBlockReason, slotCapAt, peakSlotsUsedAt, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
@@ -564,7 +564,7 @@ export default function RoutePlanner() {
   // Aircraft types that can reach this route
   const reachableTypes = useMemo(() => {
     if (!routeData) return [];
-    return AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, calendarYear(state)) && reachKmFor(t) >= routeData.dist);
+    return AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
   }, [routeData, reachByType]);
 
   // Hard ceiling on flights/week for this aircraft on this route: one airframe

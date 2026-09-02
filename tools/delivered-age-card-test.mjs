@@ -276,7 +276,7 @@ test('in 1950 the CV-240 (line open until 1954) is sold new, not 16 years old', 
     'a factory-new frame must quote the factory-fresh maintenance');
 });
 
-test('in 1950 the DC-3 (line closed 1946) still arrives used — but four years old, not sixteen', () => {
+test('in 1950 the DC-3 (line closed 1946) still arrives used — but under a year old, not sixteen', () => {
   const card = cardFor(eraCards, 'Douglas DC-3');
   assert.ok(/out of production/i.test(card), 'the DC-3 lost its used-airframe notice');
   assert.ok(!/16 years old/.test(card), 'the DC-3 quotes its 2026 age in 1950');

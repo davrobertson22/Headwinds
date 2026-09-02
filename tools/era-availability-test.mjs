@@ -109,6 +109,41 @@ test('expired lines are refused everywhere: order, lease, planners', () => {
   assert.equal(aircraftOrderable(getAircraftType('dc3'), null), true, 'classic worlds untouched');
 });
 
+test('the era-only propliners are off the classic market — store, lessor and reducer agree', () => {
+  // Discord 2026-09-01/02: the August propliner block leaked into 2026 worlds as
+  // the cheapest lease per seat on the books (Vanguard $912/seat-wk vs Q400
+  // $1,328; C-47 $103). Classic keeps the June historic block (737-200, L-1011,
+  // DC-3 …) — only the 22 pre-1960 additions and the C-47 carry eraOnly.
+  const eraOnly = AIRCRAFT_TYPES.filter(t => t.eraOnly);
+  assert.equal(eraOnly.length, 23, eraOnly.map(t => t.id).join(','));
+  for (const t of eraOnly) assert.equal(aircraftOrderable(t, null), false, `${t.id} orderable in classic`);
+  assert.equal(aircraftOrderable(getAircraftType('dc3'), null), true, 'the DC-3 has been in classic since June');
+  assert.equal(aircraftOrderable(getAircraftType('b737200'), null), true, 'the June historic block stays');
+  for (const t of eraOnly) assert.equal(aircraftOrderable(t, 1962), aircraftAvailability(t, 1962) !== 'future' && aircraftAvailability(t, 1962) !== 'expired', `${t.id} era path unchanged`);
+  const classic = { ...freshState(), phase: 'playing', cash: 500_000_000, year: 1, week: 1 };
+  assert.equal(orderDenial(classic, 'c47')?.code, 'era_only');
+  assert.equal(orderDenial(classic, 'dc3'), null);
+  for (const action of [{ type: 'LEASE_AIRCRAFT', typeId: 'cv240' }, { type: 'BUY_AIRCRAFT', typeId: 'cv240' },
+                        { type: 'ORDER_AIRCRAFT', typeId: 'cv240', quantity: 1, ownershipType: 'lease' }]) {
+    const after = gameReducer(classic, action);
+    assert.equal((after.fleet ?? []).length, 0, `${action.type}: nothing may land in classic`);
+    assert.equal((after.pendingOrders ?? []).length, 0, `${action.type}: nothing may be ordered in classic`);
+  }
+});
+
+test('a band-less classic conceit ages in an era world: the 1990 Concorde is a used 1979 frame', () => {
+  const c = getAircraftType('concorde');
+  assert.equal(eraDeliveredAgeWeeks(c, null), 0, 'classic still sells it new');
+  assert.equal(eraDeliveredAgeWeeks(c, 1978), 0, 'in production: new');
+  const w1990 = eraDeliveredAgeWeeks(c, 1990);
+  assert.ok(w1990 > 100 && w1990 < 300, `1990: ${w1990}w — a few years old, not factory fresh`);
+  assert.ok(eraDeliveredAgeWeeks(c, 2005) > w1990, 'and older as the years pass');
+  assert.equal(eraDeliveredAgeWeeks(c, 2026), 0, 'at 2026 the era market IS the classic market (invariant above)');
+  // Recent closures without a band (the 2005+ rule) still deliver new through 2026.
+  const recent = AIRCRAFT_TYPES.find(t => t.oop != null && t.oop >= 2005 && !(t.deliveredAgeWeeks > 0));
+  if (recent) assert.equal(eraDeliveredAgeWeeks(recent, 2020), 0, `${recent.id} still new in 2020`);
+});
+
 test('every era opens with a real fleet — the propliner catalogue is in', () => {
   const at = (y) => AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, y)).length;
   assert.equal(at(1950), 6, 'C-47, DC-3, DC-4, L-749, CV-240, Stratocruiser');

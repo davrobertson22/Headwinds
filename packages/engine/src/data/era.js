@@ -113,7 +113,9 @@ export const ERA_DEMAND_GROWTH_CAP = 8.0;
 export function eraDemandGrowthFactor(startYear, absWeek) {
   if (!Number.isInteger(startYear)) return 1;
   const w = Math.max(1, Number(absWeek) || 1);
-  const idx = eraDemandIndex(startYear + Math.floor((w - 1) / 52));
+  // Fractional year: the index moves a little every week rather than
+  // stepping on January W1 (see calendarYearFrac in utils/simulation.js).
+  const idx = eraDemandIndex(startYear + (w - 1) / 52);
   return Math.min(ERA_DEMAND_GROWTH_CAP, Math.max(0.02, idx));
 }
 

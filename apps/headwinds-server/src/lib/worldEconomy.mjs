@@ -40,16 +40,30 @@ export function seededRand(seedStr, salt) {
 // join-time backfill) recomputes from scratch.
 const _fuelWalkMemo = new Map();
 
+// Where the walk STARTS. Classic: the procedural base (1.0). Era: the period's
+// own mean — an OU walk seeded at 1.0 with a 0.45 target took ~10 weeks to
+// get there (1950: 1.00 → 0.70 at W5 → 0.54 at W10), so every founder paid
+// roughly double the era's fuel through the most fragile stretch of the game
+// and could lock a week-1 hedge at 1.0x. The same fix the Tailwinds port made
+// at START_GAME on 2026-08-31; the shared walk had kept the modern seed.
+// Null past 2026 (eraFuelMean) falls back to the base, as the walk itself does.
+function fuelWalkSeed(startYear) {
+  if (!Number.isInteger(startYear)) return FUEL_BASE_INDEX;
+  return eraFuelMean(startYear) ?? FUEL_BASE_INDEX;
+}
+
 function eraWeekParams(startYear, w) {
   if (!Number.isInteger(startYear)) return [FUEL_BASE_INDEX, undefined];
-  const mean = eraFuelMean(startYear + Math.floor((w - 1) / 52)) ?? FUEL_BASE_INDEX;
+  // Fractional year, so the 1973 shock ramps through the year instead of
+  // landing whole on January W1 (matches calendarYearFrac in the engine).
+  const mean = eraFuelMean(startYear + (w - 1) / 52) ?? FUEL_BASE_INDEX;
   return [mean, ERA_FUEL_MIN_INDEX];
 }
 
 export function worldFuelIndex(seed, weekIndex, startYear = null) {
   const key = `${seed}|${Number.isInteger(startYear) ? startYear : ''}`;
   let m = _fuelWalkMemo.get(key);
-  if (!m || m.week > weekIndex) m = { week: 0, idx: FUEL_BASE_INDEX };
+  if (!m || m.week > weekIndex) m = { week: 0, idx: fuelWalkSeed(startYear) };
   let { week, idx } = m;
   for (let w = week + 1; w <= weekIndex; w++) {
     const [mean, minIdx] = eraWeekParams(startYear, w);
@@ -90,7 +104,7 @@ export function worldMarketIndex(seed, weekIndex) {
 export function worldEconomyAt(seed, worldLinearWeek, { historyCap = FUEL_HISTORY_CAP, startYear = null } = {}) {
   const upto = Math.max(0, Math.floor(worldLinearWeek) - 1);
   const history = [];
-  let idx = FUEL_BASE_INDEX;
+  let idx = fuelWalkSeed(startYear);
   for (let w = 1; w <= upto; w++) {
     const [mean, minIdx] = eraWeekParams(startYear, w);
     idx = tickFuelPrice(idx, seededRand(seed, `fuel:${w}`), mean, minIdx);
@@ -100,7 +114,9 @@ export function worldEconomyAt(seed, worldLinearWeek, { historyCap = FUEL_HISTOR
   for (let w = 1; w <= upto; w++) mkt = tickMarketIndex(mkt, seededRand(seed, `mkt:${w}`));
   return {
     fuelPrice: {
-      index: history.length > 0 ? history[history.length - 1] : FUEL_BASE_INDEX,
+      // No ticks yet: the seed itself — an era world's opening price is the
+      // period's, not 2026's (the founding blob prices its first hedge off this).
+      index: history.length > 0 ? history[history.length - 1] : fuelWalkSeed(startYear),
       history: history.slice(-historyCap),
     },
     marketIndex: mkt,

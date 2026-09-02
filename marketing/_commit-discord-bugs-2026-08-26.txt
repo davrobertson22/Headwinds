@@ -1,0 +1,65 @@
+Commit split — Discord bug fixes (2026-08-26) vs the tombstone work in flight
+============================================================================
+
+Two changes share one working tree. They are disjoint except for package.json,
+whose `test` chain is a single long line, so `git add -p` cannot split it. Two
+intermediate copies do the job instead:
+
+  marketing/_split-pkg-bugfix.json   HEAD + the three bug-fix test entries only
+  marketing/_split-pkg-final.json    byte-identical to the current working file
+
+THIS CHANGE (Discord, Knightmare 2026-08-25 — three reported bugs)
+  packages/engine/src/data/territories.js      new
+  src/data/territories.js                      new (shim)
+  packages/engine/src/models/demand.js
+  packages/engine/src/reducer.mjs
+  packages/engine/src/utils/simulation.js
+  src/components/Fleet.jsx
+  src/components/HubManagement.jsx
+  tools/fleet-cargo-panel-test.mjs             new
+  tools/territory-hub-test.mjs                 new
+  tools/cover-outlook-test.mjs                 new
+  package.json                                 (bugfix variant)
+
+NOT THIS CHANGE — the tombstone work, still in progress in another session
+  apps/headwinds-server/src/lib/tickService.mjs
+  apps/headwinds-server/src/routes/worlds.mjs
+  apps/headwinds-server/src/lib/tombstone.mjs  new
+  tools/tombstone-dead-airlines.mjs            new
+  tools/tombstone-test.mjs                     new
+  package.json                                 (its chain entries + test:nwr-default alias)
+
+Also untracked and unrelated: docs/game-improvement-audit-2026-08-24.md
+
+The New World Restrictions default-on work committed itself as 199760c while
+this session was running; nothing of it is left in the tree.
+
+Sequence
+--------
+
+The desktop bridge cannot unlink, so it left a stale .git/index.lock behind —
+the first line clears it.
+
+    cd ~/Documents/Claude/Projects/Headwinds
+    rm -f .git/index.lock
+    cp package.json marketing/_split-pkg-final.json
+    cp marketing/_split-pkg-bugfix.json package.json
+    git add packages/engine/src/data/territories.js src/data/territories.js packages/engine/src/models/demand.js packages/engine/src/reducer.mjs packages/engine/src/utils/simulation.js src/components/Fleet.jsx src/components/HubManagement.jsx tools/fleet-cargo-panel-test.mjs tools/territory-hub-test.mjs tools/cover-outlook-test.mjs package.json
+    git commit -m "Discord bugs: freighter route panel, Puerto Rico as US soil, honest reserve-cover badge"
+    cp marketing/_split-pkg-final.json package.json
+    git status --porcelain
+
+After the last line the tree should show only the tombstone files and
+package.json (its two chain entries plus the test:nwr-default alias).
+
+Losslessness: the bugfix variant differs from HEAD by exactly the three chain
+entries and the three aliases this change adds; _split-pkg-final.json is a byte
+copy of the working file, so restoring it puts the tree back exactly as it was.
+
+Tailwinds (separate repo, clean tree, one commit)
+-------------------------------------------------
+
+    cd ~/Documents/Claude/Projects/"Airline Management Game"
+    rm -f .git/index.lock
+    git add src/data/territories.js src/models/demand.js src/utils/simulation.js src/store/GameContext.jsx src/components/Fleet.jsx src/components/HubManagement.jsx tools/fleet-cargo-panel-test.mjs tools/territory-hub-test.mjs tools/cover-outlook-test.mjs package.json
+    git commit -m "Port Headwinds bug fixes: freighter route panel, sovereign territories, cover outlook"

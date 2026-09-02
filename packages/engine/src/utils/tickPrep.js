@@ -237,7 +237,8 @@ export function prepareWeek(state, {
   // week only — never written to the fleet, so a parked aircraft flies again the
   // moment its crew arrive, with no status to unwind.
   const crewGroundedIds = state.crewPipeline
-    ? unstaffedAircraftIds(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
+    ? unstaffedAircraftIds(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId),
+        new Set([...(state.routes ?? []), ...(state.cargoRoutes ?? [])].map(r => r.aircraftId)))
     : [];
 
   // Disruption reaches the schedule through a transient field on the labor

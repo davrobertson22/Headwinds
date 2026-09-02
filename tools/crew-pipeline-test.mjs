@@ -339,6 +339,25 @@ t('parking is deterministic and hits the crew-hungriest tail first', () => {
   assert.equal(a[0], 'wb1', 'the widebody frees the most crew, so it parks first');
 });
 
+t('among equally hungry tails, the idle one parks first, then the newest — never the one on the trunk route', () => {
+  // 2026-08-31 era playtest: lease a second CV-240 before its crew train and the
+  // id tie-break parked the one already flying while the delivery sat idle.
+  const tf = (a) => TYPES[a.t];
+  const two = [{ id: 'flying', t: 'nb', ageWeeks: 40 }, { id: 'fresh', t: 'nb', ageWeeks: 0 }];
+  const need = crewRequired('pilots', two, tf);
+  const labor = { pilots: { headcount: need * 0.5 }, cabinCrew: { headcount: need * 4 },
+                  groundStaff: { headcount: 99 }, maintenanceTeam: { headcount: 99 } };
+  assert.deepEqual(unstaffedAircraftIds(labor, two, tf, new Set(['flying'])), ['fresh'], 'the unassigned tail parks');
+  assert.deepEqual(unstaffedAircraftIds(labor, [...two].reverse(), tf, new Set(['flying'])), ['fresh'], 'fleet order must not matter');
+  // Both assigned: the newest tail parks.
+  assert.deepEqual(unstaffedAircraftIds(labor, two, tf, new Set(['flying', 'fresh'])), ['fresh']);
+  // Only the idle one is assigned-less but it is the OLDER frame: still parks first — earning beats age.
+  const older = [{ id: 'old-idle', t: 'nb', ageWeeks: 900 }, { id: 'new-flying', t: 'nb', ageWeeks: 0 }];
+  assert.deepEqual(unstaffedAircraftIds(labor, older, tf, new Set(['new-flying'])), ['old-idle']);
+  // No assignment info: newest parks (the legacy id order no longer decides).
+  assert.deepEqual(unstaffedAircraftIds(labor, two, tf), ['fresh']);
+});
+
 t('parking is TRANSIENT — no status is written, and tails fly again once crewed', () => {
   const typeOfA = (a) => getAircraftType(a.typeId);
   const st = flyingState({ pilots: 0 });

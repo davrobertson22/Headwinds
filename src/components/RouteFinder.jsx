@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useGame } from '../store/GameContext.jsx';
+import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { weekToGameDate, effectiveRangeKm, formatMoney, calendarYear } from '../utils/simulation.js';
@@ -87,7 +87,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
     : 0;
 
   const catalogueTypes = useMemo(
-    () => AIRCRAFT_TYPES.filter(t => !t.freighter && aircraftOrderable(t, calendarYear(state)) && !fleetTypes.some(f => f.type.id === t.id)),
+    () => AIRCRAFT_TYPES.filter(t => !t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && !fleetTypes.some(f => f.type.id === t.id)),
     [fleetTypes]
   );
 

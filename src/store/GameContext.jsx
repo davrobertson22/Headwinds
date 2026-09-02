@@ -5,7 +5,7 @@ import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke, setEraS
 import { setEraCostScale, getEraCostScale } from '../../packages/engine/src/data/overhead.js';
 import { setEraPriceYear, getEraPriceYear } from '../../packages/engine/src/data/aircraft.js';
 import { eraFareIndex, eraOverheadScale } from '../../packages/engine/src/data/era.js';
-import { calendarYear } from '../../packages/engine/src/utils/simulation.js';
+import { calendarYear, calendarYearFrac } from '../../packages/engine/src/utils/simulation.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -38,7 +38,7 @@ const GameContext = createContext(null);
 // era overhead scale. Idempotent, so it is safe to call synchronously during
 // render (the first paint is already right) and again from an effect.
 export function effectiveFareIndex(state) {
-  const eraFi = eraFareIndex(calendarYear(state));
+  const eraFi = eraFareIndex(calendarYearFrac(state));
   const stored = state?.fareIndex ?? 1;
   return eraFi != null ? eraFi * stored : stored;
 }
@@ -47,7 +47,7 @@ export function syncEngineWorldState(state) {
   const fareIndex = effectiveFareIndex(state);
   const nwrOn     = state?.newWorldRestrictions === true;
   const eraStart  = Number.isInteger(state?.startYear) ? state.startYear : null;
-  const costScale = eraOverheadScale(calendarYear(state)) ?? 1;
+  const costScale = eraOverheadScale(calendarYearFrac(state)) ?? 1;
   if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
   if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
   if (getEraStartYear() !== eraStart) setEraStartYear(eraStart);
@@ -138,7 +138,7 @@ export function GameProvider({ children }) {
   // dependency too.
   useEffect(() => {
     syncEngineWorldState(state);
-  }, [state?.fareIndex, state?.newWorldRestrictions, state?.startYear, state?.year]);
+  }, [state?.fareIndex, state?.newWorldRestrictions, state?.startYear, state?.year, state?.week]);
 
   // Latched so the warning fires on the transition, not on every state change —
   // a broken autosave would otherwise queue a toast on every click.
@@ -193,7 +193,7 @@ export function RemoteGameProvider({ state, dispatch, remoteApi = null, remoteCh
   // against the COMPOSED era index, so a render can no longer undo the reducer.
   syncEngineWorldState(state);
   useEffect(() => { syncEngineWorldState(state); },
-    [state?.fareIndex, state?.newWorldRestrictions, state?.startYear, state?.year]);
+    [state?.fareIndex, state?.newWorldRestrictions, state?.startYear, state?.year, state?.week]);
 
   const value = useMemo(
     () => hydratedValue(state, dispatch, true, remoteApi, remoteChrome),

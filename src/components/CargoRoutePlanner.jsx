@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
+import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
@@ -221,7 +221,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   // Freighter types that can reach this route
   const reachableTypes = useMemo(() => {
     if (!routeData) return [];
-    return AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && reachKmFor(t) >= routeData.dist);
+    return AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
   }, [routeData, reachByType]);
 
   useMemo(() => {

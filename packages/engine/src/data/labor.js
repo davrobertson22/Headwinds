@@ -411,19 +411,32 @@ export function unstaffedCrewScale(labor, fleet, typeOf) {
  *
  * Parks the crew-HUNGRIEST aircraft first: standing down one widebody frees more
  * crew than standing down one turboprop, so the airline keeps the largest number
- * of aircraft flying. Ties break on id so the choice is deterministic — every
- * client and the server must park exactly the same tails.
+ * of aircraft flying. Among equally hungry tails, park the one that is NOT
+ * earning: an aircraft with no route assigned goes first, then the newest tail
+ * (lowest ageWeeks) — the 2026-08-31 era playtest leased a second aircraft
+ * before its crew had trained and the id tie-break parked the one already
+ * flying the trunk route while the fresh delivery sat idle with a crew. Ties
+ * still break on id so the choice is deterministic — every client and the
+ * server must park exactly the same tails.
+ *
+ * `assignedIds` (optional) is the set of aircraft ids currently on a route.
  *
  * Returns aircraft IDS. The caller applies them transiently for the week; nothing
  * here writes to the fleet, because a parked tail must fly again the moment its
  * crew arrive.
  */
-export function unstaffedAircraftIds(labor, fleet, typeOf) {
+export function unstaffedAircraftIds(labor, fleet, typeOf, assignedIds = null) {
   if (unstaffedCrewScale(labor, fleet, typeOf) <= 0) return [];
   const CRITICAL = ['pilots', 'cabinCrew'];
+  const assigned = (a) => (assignedIds ? (assignedIds.has(a.id) ? 1 : 0) : 0);
   const sorted = [...(fleet ?? [])].sort((a, b) => {
     const d = crewScaleFor('pilots', typeOf(b)) - crewScaleFor('pilots', typeOf(a));
-    return d !== 0 ? d : String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    if (d !== 0) return d;
+    const r = assigned(a) - assigned(b);                       // idle tails park first
+    if (r !== 0) return r;
+    const age = (a.ageWeeks ?? 0) - (b.ageWeeks ?? 0);         // then the newest tail
+    if (age !== 0) return age;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
   });
   const flying = new Set(sorted.map((a) => a.id));
   const crewable = () => CRITICAL.every((id) => {

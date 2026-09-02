@@ -64,12 +64,21 @@ const safeInt = (v) => {
 export const weekIndex = (world) =>
   (world.currentYear - 1) * WEEKS_PER_YEAR + world.currentWeek;
 
+// The clock index at which a world is complete. The clock points at the week
+// ABOUT TO BE FLOWN (a tick flies `fromIndex` and lands on `fromIndex + 1`),
+// so a world of N weeks is finished only once the clock has moved PAST week N —
+// index N + 1, i.e. year L+1 week 1. Ending at index N left the last week of
+// the last year unflown: a 100-year 1950 world closed on 2049 W51, the final
+// year never got its statsHistoryYearly row (the rollup fires on entering
+// week 1) and the world went ENDED one tick-interval before its endsAt.
+export const completeIndex = (world) => totalWeeks(world.lengthYears) + 1;
+
 // When the NEXT week lands for this world (null when not RUNNING or complete).
 // Week toIndex = weekIndex+1 becomes due once elapsed ≥ weekIndex × interval —
 // the same derived schedule ticksDue() uses, exposed for client countdowns.
 export function nextTickAt(world) {
   if (world.status !== 'RUNNING' || !world.startedAt) return null;
-  if (weekIndex(world) >= totalWeeks(world.lengthYears)) return null;
+  if (weekIndex(world) >= completeIndex(world)) return null;
   return new Date(
     new Date(world.startedAt).getTime() + weekIndex(world) * tickIntervalMs(world.weeksPerDay),
   );
@@ -82,7 +91,7 @@ export function ticksDue(world, now = new Date()) {
   const elapsed = now.getTime() - new Date(world.startedAt).getTime();
   const target = Math.min(
     1 + Math.floor(elapsed / tickIntervalMs(world.weeksPerDay)),
-    totalWeeks(world.lengthYears),
+    completeIndex(world),
   );
   return Math.max(0, target - weekIndex(world));
 }
@@ -93,11 +102,14 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const fromIndex = weekIndex(world);
   const toIndex = fromIndex + 1;
   if (world.status !== 'RUNNING') return { ok: false, reason: 'not-running' };
-  if (fromIndex >= totalWeeks(world.lengthYears)) return { ok: false, reason: 'complete' };
+  if (fromIndex >= completeIndex(world)) return { ok: false, reason: 'complete' };
 
   const newYear = Math.floor((toIndex - 1) / WEEKS_PER_YEAR) + 1;
   const newWeek = ((toIndex - 1) % WEEKS_PER_YEAR) + 1;
-  const ended = toIndex >= totalWeeks(world.lengthYears);
+  // The final tick flies week 52 of the last year and parks the clock on
+  // year L+1 week 1 — "January of the year after", which is also exactly
+  // endsAt (see completeIndex).
+  const ended = toIndex >= completeIndex(world);
 
   // Reads first (outside the transaction): active airlines + their rival views.
   // Humans-only competition — each airline ticks against the OTHER players'
@@ -547,7 +559,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         // ones, so nothing is released here any more.
         const tickedWorld = { ...world, currentWeek: newWeek, currentYear: newYear };
         if (newWeek === GATE_AUCTION_OPEN_WEEK) await openDueAuctions(prisma, tickedWorld, { log });
-        if (newWeek === 1 && toIndex > 1) await resolveDueAuctions(prisma, tickedWorld, { log });
+        if (newWeek === 1 && toIndex > 1 && !ended) await resolveDueAuctions(prisma, tickedWorld, { log });
       } catch (err) {
         log.error(`[tick] world ${world.id} gate hooks failed (week still committed):`, err?.message ?? err);
       }
@@ -556,8 +568,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     // ── Year in review ───────────────────────────────────────────────────────
     // At 8 weeks/day a game year is ~6.5 real days — a natural weekly beat the
     // game never marked. `newWeek === 1 && toIndex > 1` is "a new game year just
-    // began"; it can never coincide with the final tick (that lands on week 52),
-    // so this never doubles up with the world-end ceremony. For EVERY world, not
+    // began". The final tick ALSO lands on week 1 (of year L+1) — `!ended`
+    // keeps it from doubling up with the world-end ceremony, whose honours
+    // roll covers the last year. For EVERY world, not
     // just scarcity ones. Post-commit and best-effort — a news failure never
     // rolls back the week.
     if (newWeek === 1 && toIndex > 1 && !ended) {

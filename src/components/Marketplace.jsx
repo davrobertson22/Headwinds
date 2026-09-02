@@ -727,7 +727,7 @@ export default function Marketplace() {
 
   const q = query.trim().toLowerCase();
   const filtered = AIRCRAFT_TYPES.filter(t =>
-    (calYear == null || ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired' && !cometWithdrawn(state, t.id))) &&
+    (calYear == null ? !t.eraOnly : ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired' && !cometWithdrawn(state, t.id))) &&
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
     (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q))
