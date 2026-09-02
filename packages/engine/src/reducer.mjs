@@ -38,7 +38,7 @@ import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
 import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
-         lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF } from './data/aircraft.js';
+         lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF, isVintage } from './data/aircraft.js';
 import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
   GATE_AIRLINE_CAP, GATE_ALLIANCE_CAP, GATE_HUB_GUARANTEE,
@@ -963,13 +963,12 @@ export function orderDenial(state, typeId) {
   const type = getAircraftType(typeId);
   if (!type) return null;
   if (cy == null) {
-    // Classic world: the era-only propliners are not on the 2026 market at all
-    // (see aircraftOrderable) — refused here so a hand-crafted decision cannot
-    // lease the cheapest seats in the catalogue past the hidden store card.
-    if (type.eraOnly) {
+    // Classic world: the catalogue is timeless (see aircraftOrderable); only a
+    // type whose certificate was pulled is refused.
+    if (type.withdrawnYear != null) {
       return {
-        code: 'era_only', typeId: type.id, oop: type.oop,
-        message: `The ${type.name} is not on the market — no airworthy frames remain in service today.`,
+        code: 'withdrawn', typeId: type.id, withdrawnYear: type.withdrawnYear,
+        message: `The ${type.name} was grounded in ${type.withdrawnYear} — no airworthy frames remain.`,
       };
     }
     return null;
@@ -1092,6 +1091,17 @@ function applyCometGrounding(state) {
 }
 
 export function leaseDenial(state, typeId, quantity = 1) {
+  // Vintage metal on the 2026 market is buy-only in EVERY classic world — no
+  // lessor exists for a line closed 50 years, restrictions or not (aircraft.js
+  // isVintage). Checked ahead of the NWR gate so an open world can't lease the
+  // cheapest seats in the catalogue on a $4K/wk ticket.
+  const vt = getAircraftType(typeId);
+  if (vt && calendarYear(state) == null && isVintage(vt)) {
+    return {
+      code: 'vintage', typeId: vt.id, oop: vt.oop,
+      message: `No lessor stocks the ${vt.name} — the line closed in ${vt.oop}. Vintage metal is bought outright.`,
+    };
+  }
   if (!state?.newWorldRestrictions) return null;
 
   const type = getAircraftType(typeId);
@@ -1100,7 +1110,9 @@ export function leaseDenial(state, typeId, quantity = 1) {
   if (!lessorSupplies(type, calendarYear(state))) {
     const why = type.doubleDeck
       ? `Lessors don't carry double-deck aircraft — the ${type.name} must be bought outright.`
-      : `Lessors don't carry the ${type.name} (${type.eis}). Their books stop at ${LESSOR_EIS_CUTOFF}; newer aircraft must be bought new or used.`;
+      : (calendarYear(state) == null && isVintage(type))
+        ? `No lessor stocks the ${type.name} — the line closed in ${type.oop}. Vintage metal is bought outright.`
+        : `Lessors don't carry the ${type.name} (${type.eis}). Their books stop at ${LESSOR_EIS_CUTOFF}; newer aircraft must be bought new or used.`;
     return { code: 'not_stocked', typeId: type.id, message: why };
   }
 
@@ -1411,7 +1423,7 @@ function reducer(state, action) {
       // Legacy instant-lease path (solo only — not in the Headwinds allow-list,
       // multiplayer leasing goes through ORDER_AIRCRAFT). Restricted worlds gate
       // it on the same rules so the old action can't be a back door.
-      if (state.newWorldRestrictions && leaseDenial(state, action.typeId, 1)) return state;
+      if (leaseDenial(state, action.typeId, 1)) return state;   // NWR rules + vintage buy-only
       if (orderDenial(state, action.typeId)) return state;   // era gate (§3.2)
       const type       = getAircraftType(action.typeId);
       const count      = nextAircraftNumber(action.typeId, state.fleet, state.pendingOrders);
@@ -1570,7 +1582,7 @@ function reducer(state, action) {
       // stops the order dead; a full order book stops it dead; an order larger
       // than the remaining slots is CLAMPED to what fits, mirroring the
       // affordability trim below rather than silently dropping the whole thing.
-      if (state.newWorldRestrictions && action.ownershipType === 'lease') {
+      if (action.ownershipType === 'lease') {
         const denial = leaseDenial(state, action.typeId, orderQty);
         if (denial && denial.code !== 'order_book_partial') {
           return {

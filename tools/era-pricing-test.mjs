@@ -82,8 +82,12 @@ test('LEASE_AIRCRAFT in 1950 stamps the era rate on the tail — locked for the 
   const e = gameReducer(era(1950), { type: 'LEASE_AIRCRAFT', typeId: 'cv240' });
   assert.equal(e.fleet[0].weeklyLease, eraWeeklyLease(cv, 1950));
   assert.ok(e.fleet[0].weeklyLease > 2 * cv.weeklyLease);
-  const c = gameReducer(classic(), { type: 'LEASE_AIRCRAFT', typeId: 'cv240' });
-  assert.equal(c.fleet[0].weeklyLease, cv.weeklyLease, 'classic parity');
+  // Classic parity on a non-vintage type — the CV-240 (line closed 1954) is
+  // buy-only in a 2026 world under the vintage rule (era-availability-test).
+  const f27 = getAircraftType('f27');
+  const c = gameReducer(classic(), { type: 'LEASE_AIRCRAFT', typeId: 'f27' });
+  assert.equal(c.fleet[0].weeklyLease, f27.weeklyLease, 'classic parity');
+  assert.equal(gameReducer(classic(), { type: 'LEASE_AIRCRAFT', typeId: 'cv240' }).fleet.length, 0, 'vintage: no lease in classic');
 });
 
 test('ORDER_AIRCRAFT prices owned and leased orders at the era figure', () => {

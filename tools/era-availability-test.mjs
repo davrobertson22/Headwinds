@@ -9,6 +9,7 @@ import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import {
   AIRCRAFT_TYPES, getAircraftType, aircraftAvailability, aircraftOrderable, eraDeliveredAgeWeeks, lessorSupplies,
+  isVintage, VINTAGE_AFTER_YEARS, VINTAGE_AGE_FLOOR, VINTAGE_AGE_CAP,
 } from '../packages/engine/src/data/aircraft.js';
 import { gameReducer, freshState, orderDenial, leaseDenial } from '../packages/engine/src/reducer.mjs';
 
@@ -37,10 +38,67 @@ test('every banded passenger type has a real production-line closure', () => {
 
 // ── Delivered age generalisation ─────────────────────────────────────────────
 
-test('classic worlds reproduce the published table exactly (parity)', () => {
+test('classic worlds reproduce the published table exactly (parity) — except vintage lines', () => {
   for (const t of AIRCRAFT_TYPES) {
+    if (isVintage(t)) continue;   // covered below
     assert.equal(eraDeliveredAgeWeeks(t, null), t.deliveredAgeWeeks ?? 0, t.id);
   }
+});
+
+// ── Vintage metal on the 2026 market (Discord 2026-09-01/02) ────────────────
+// The 1950s propliners were briefly hidden from classic as "era-only" after they
+// leaked in as the cheapest lease per seat on the books (Vanguard $114/seat-wk
+// vs ATR 72 $564, same maintenance band). Dave: every aircraft belongs on the
+// 2026 market. So instead: a line closed VINTAGE_AFTER_YEARS+ delivers old
+// (VINTAGE_AGE_FLOOR → VINTAGE_AGE_CAP, i.e. 5.5× maintenance) and is buy-only.
+
+test('vintage rule: lines closed 50+ years deliver 20–30 years old and are buy-only; everything younger is untouched', () => {
+  const dc3 = getAircraftType('dc3'), van = getAircraftType('vanguard'), dc863 = getAircraftType('dc863');
+  const b732 = getAircraftType('b737200'), il18 = getAircraftType('il18'), hs748 = getAircraftType('hs748');
+  const conc = getAircraftType('concorde');
+  assert.equal(VINTAGE_AFTER_YEARS, 50); assert.equal(VINTAGE_AGE_FLOOR, 20); assert.equal(VINTAGE_AGE_CAP, 30);
+  assert.equal(isVintage(dc3), true);   assert.equal(eraDeliveredAgeWeeks(dc3, null), 30 * 52, '1946 line: capped at 30y');
+  assert.equal(isVintage(van), true);   assert.equal(eraDeliveredAgeWeeks(van, null), 30 * 52, '1964 line: 62y closed → cap');
+  assert.equal(isVintage(dc863), true); assert.equal(eraDeliveredAgeWeeks(dc863, null), 24 * 52, '1972 line: 54y closed → 20 + 4');
+  assert.equal(isVintage(b732), false); assert.equal(eraDeliveredAgeWeeks(b732, null), b732.deliveredAgeWeeks, '1988 line: published band');
+  assert.equal(isVintage(il18), false,  '1978 line (48y): not yet vintage — the June-block rule applies');
+  assert.equal(isVintage(hs748), false, '1988 line: published band');
+  assert.equal(isVintage(conc), false); assert.equal(eraDeliveredAgeWeeks(conc, null), 0, 'band-less classic conceit untouched');
+  for (const t of AIRCRAFT_TYPES) {
+    const v = isVintage(t);
+    assert.equal(v, (t.deliveredAgeWeeks ?? 0) > 0 && t.oop != null && 2026 - t.oop >= VINTAGE_AFTER_YEARS, t.id);
+    if (v) {
+      const y = eraDeliveredAgeWeeks(t, null) / 52;
+      assert.ok(y >= VINTAGE_AGE_FLOOR && y <= VINTAGE_AGE_CAP && y > (t.deliveredAgeWeeks ?? 0) / 52, `${t.id} ${y}y`);
+      assert.equal(lessorSupplies(t, null), false, `${t.id} leasable in classic`);
+      assert.equal(aircraftOrderable(t, null), t.withdrawnYear == null, `${t.id} orderable in classic`);
+    }
+    // Era worlds are untouched by the rule — their calendar IS the vintage rule.
+    assert.equal(eraDeliveredAgeWeeks(t, 2026), t.deliveredAgeWeeks ?? 0, `${t.id} era@2026`);
+  }
+  const vintage = AIRCRAFT_TYPES.filter(isVintage).map(t => t.id);
+  assert.ok(vintage.includes('c47') && vintage.includes('dc4') && vintage.includes('l188') && vintage.includes('cv580'), vintage.join(','));
+});
+
+test('vintage rule in the reducer: a classic world buys a DC-4 at 30y old, cannot lease it, and never sees the Comet 1', () => {
+  const classic = { ...freshState(), phase: 'playing', cash: 500_000_000, year: 1, week: 1 };
+  assert.equal(orderDenial(classic, 'dc4'), null, 'on the market');
+  assert.equal(leaseDenial(classic, 'dc4')?.code, 'vintage', 'buy-only, restrictions or not');
+  assert.equal(leaseDenial({ ...classic, newWorldRestrictions: true }, 'dc4')?.code, 'vintage');
+  assert.equal(leaseDenial(classic, 'b737200'), null, 'June block still leases in an open world');
+  const bought = gameReducer(classic, { type: 'BUY_AIRCRAFT', typeId: 'dc4' });
+  assert.equal(bought.fleet.length, 1);
+  assert.equal(bought.fleet[0].ageWeeks, 30 * 52, 'delivered at the vintage age');
+  for (const action of [{ type: 'LEASE_AIRCRAFT', typeId: 'dc4' }, { type: 'ORDER_AIRCRAFT', typeId: 'dc4', quantity: 1, ownershipType: 'lease' }]) {
+    const after = gameReducer(classic, action);
+    assert.equal((after.fleet ?? []).length + (after.pendingOrders ?? []).length, 0, `${action.type}: no lease of vintage metal`);
+  }
+  const ordered = gameReducer(classic, { type: 'ORDER_AIRCRAFT', typeId: 'dc4', quantity: 1, ownershipType: 'owned' });
+  assert.equal((ordered.pendingOrders ?? []).length, 1, 'owned order goes through');
+  assert.equal(orderDenial(classic, 'comet1')?.code, 'withdrawn', 'grounded type has no market at any date');
+  assert.equal(aircraftOrderable(getAircraftType('comet1'), null), false);
+  const comet = gameReducer(classic, { type: 'BUY_AIRCRAFT', typeId: 'comet1' });
+  assert.equal(comet.fleet.length, 0);
 });
 
 test('an era world at 2026 also reproduces the published table exactly', () => {
@@ -107,28 +165,6 @@ test('expired lines are refused everywhere: order, lease, planners', () => {
   assert.equal(aircraftOrderable(getAircraftType('dc3'), 2040), false);
   assert.equal(aircraftOrderable(getAircraftType('dc3'), 1960), true, 'fine while frames exist');
   assert.equal(aircraftOrderable(getAircraftType('dc3'), null), true, 'classic worlds untouched');
-});
-
-test('the era-only propliners are off the classic market — store, lessor and reducer agree', () => {
-  // Discord 2026-09-01/02: the August propliner block leaked into 2026 worlds as
-  // the cheapest lease per seat on the books (Vanguard $912/seat-wk vs Q400
-  // $1,328; C-47 $103). Classic keeps the June historic block (737-200, L-1011,
-  // DC-3 …) — only the 22 pre-1960 additions and the C-47 carry eraOnly.
-  const eraOnly = AIRCRAFT_TYPES.filter(t => t.eraOnly);
-  assert.equal(eraOnly.length, 23, eraOnly.map(t => t.id).join(','));
-  for (const t of eraOnly) assert.equal(aircraftOrderable(t, null), false, `${t.id} orderable in classic`);
-  assert.equal(aircraftOrderable(getAircraftType('dc3'), null), true, 'the DC-3 has been in classic since June');
-  assert.equal(aircraftOrderable(getAircraftType('b737200'), null), true, 'the June historic block stays');
-  for (const t of eraOnly) assert.equal(aircraftOrderable(t, 1962), aircraftAvailability(t, 1962) !== 'future' && aircraftAvailability(t, 1962) !== 'expired', `${t.id} era path unchanged`);
-  const classic = { ...freshState(), phase: 'playing', cash: 500_000_000, year: 1, week: 1 };
-  assert.equal(orderDenial(classic, 'c47')?.code, 'era_only');
-  assert.equal(orderDenial(classic, 'dc3'), null);
-  for (const action of [{ type: 'LEASE_AIRCRAFT', typeId: 'cv240' }, { type: 'BUY_AIRCRAFT', typeId: 'cv240' },
-                        { type: 'ORDER_AIRCRAFT', typeId: 'cv240', quantity: 1, ownershipType: 'lease' }]) {
-    const after = gameReducer(classic, action);
-    assert.equal((after.fleet ?? []).length, 0, `${action.type}: nothing may land in classic`);
-    assert.equal((after.pendingOrders ?? []).length, 0, `${action.type}: nothing may be ordered in classic`);
-  }
 });
 
 test('a band-less classic conceit ages in an era world: the 1990 Concorde is a used 1979 frame', () => {

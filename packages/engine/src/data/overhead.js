@@ -361,10 +361,20 @@ export function valueRemaining(ageWeeks, type) {
   // was worth 2.14× catalogue, so buy-then-sell printed money. Classic worlds
   // (price year null) get exactly the published band — the parity invariant.
   const deliveredYears = eraDeliveredAgeWeeks(type, getEraPriceYear()) / 52;
-  const now  = 1 - ageYears / DEPRECIATION_YEARS;
-  const base = 1 - deliveredYears / DEPRECIATION_YEARS;   // = 1 for a new build
-  return Math.max(0.1, base > 0 ? now / base : 0);
+  // Vintage metal (classic 2026 market, line closed 50+ years — see
+  // vintageDeliveredAgeWeeks) arrives at up to DEPRECIATION_YEARS old, where the
+  // straight line has already hit the floor: a frame bought at catalogue would
+  // be worth 10% the week it landed. So the line is shifted: the frame is
+  // priced as delivered VINTAGE_NAV_LIFE_YEARS from the floor and runs down
+  // from there. A frame delivered before the rule (younger than today's band)
+  // is worth catalogue, no more — the cap keeps buy-then-sell from printing.
+  const shift = Math.max(0, deliveredYears - (DEPRECIATION_YEARS - VINTAGE_NAV_LIFE_YEARS));
+  const now  = 1 - (ageYears - shift) / DEPRECIATION_YEARS;
+  const base = 1 - (deliveredYears - shift) / DEPRECIATION_YEARS;   // = 1 for a new build
+  return Math.max(0.1, Math.min(1, base > 0 ? now / base : 0));
 }
+/** Years a vintage frame (delivered at the depreciation floor) has left before it books at 10%. */
+export const VINTAGE_NAV_LIFE_YEARS = 10;
 
 /**
  * Weekly liability premium per aircraft (owned or leased), stepped by aircraft

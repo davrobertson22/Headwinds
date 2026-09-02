@@ -5,6 +5,7 @@ import {
   AIRCRAFT_TYPES,
   aircraftAvailability,
   eraDeliveredAgeWeeks,
+  isVintage,
   AIRCRAFT_CATEGORIES,
   getAircraftType,
   buyDiscount,
@@ -661,6 +662,7 @@ export default function Marketplace() {
   function leaseBlockReason(type) {
     const eraLock = eraLockReason(type);
     if (eraLock) return eraLock;
+    if (calYear == null && isVintage(type)) return `No lessor stocks it \u2014 line closed ${type.oop}. Buy it outright`;
     if (!restricted) return null;
     if (!lessorSupplies(type, calYear)) {
       return type.doubleDeck
@@ -727,7 +729,7 @@ export default function Marketplace() {
 
   const q = query.trim().toLowerCase();
   const filtered = AIRCRAFT_TYPES.filter(t =>
-    (calYear == null ? !t.eraOnly : ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired' && !cometWithdrawn(state, t.id))) &&
+    (calYear == null ? t.withdrawnYear == null : ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired' && !cometWithdrawn(state, t.id))) &&
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
     (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q))
@@ -1127,7 +1129,7 @@ export default function Marketplace() {
                 </div>
                 {deliveredAgeYears(type, calYear) > 0 && (
                   <div style={{ marginTop: 4, fontSize: 11, color: 'var(--yellow)' }}>
-                    <Glyph e="🕐" /> Out of production — arrives{' '}
+                    <Glyph e="🕐" /> {calYear == null && isVintage(type) ? `Vintage — line closed ${type.oop}, the youngest frame left arrives` : 'Out of production — arrives'}{' '}
                     <strong>{`${deliveredAgeYears(type, calYear)} years old`}</strong>
                     {`, so maintenance already bills at `}
                     {`${(deliveredMaint(type, calYear) / (type.baseMaintenancePerWk || 1)).toFixed(2)}x base `}
