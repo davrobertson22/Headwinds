@@ -70,7 +70,7 @@ test('serializeWorld surfaces startYear, null for classic worlds', () => {
   assert.equal(serializeWorld(w({ startYear: 1978 })).startYear, 1978);
   assert.equal(serializeWorld(w({ startYear: 'x' })).startYear, null, 'garbage in tickConfig reads as classic');
   // What a joiner actually receives, era-scaled to the world's CURRENT year.
-  assert.equal(serializeWorld(w({})).seedCapital, 15_000_000);
+  assert.equal(serializeWorld(w({})).seedCapital, 10_000_000);
   assert.equal(serializeWorld({ ...w({ startYear: 1950, startingCapital: 4_000_000 }), currentYear: 1 }).seedCapital, 4_000_000, 'at founding: exactly the knob');
   assert.equal(serializeWorld(w({ startYear: 1950, startingCapital: 4_000_000 })).seedCapital, 4_200_000, 'year 2 (1951): scaled up a notch with the era');
   assert.ok(serializeWorld({ ...w({ startYear: 1950, startingCapital: 4_000_000 }), currentYear: 21 }).seedCapital > 4_000_000, 'a 1970 joiner gets more');

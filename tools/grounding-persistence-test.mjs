@@ -53,7 +53,9 @@ const TYPE = 'crj200';
 const find = (s, id) => s.fleet.find(a => a.id === id);
 
 function newGame() {
-  return gameReducer(freshState(), { type: 'START_GAME', airlineName: 'MX', hub: 'JFK', enableObjectives: false });
+  const s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'MX', hub: 'JFK', enableObjectives: false });
+  // Two CRJs bought outright is more than the $10M founders' equity covers.
+  return { ...s, cash: 50_000_000 };
 }
 function withJet(s, dest = 'ORD') {
   const before = s.fleet.length;

@@ -154,12 +154,13 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
   });
 
   // Scale the seeded opening balances to this world's starting capital. The engine
-  // seeds cash=$15M with marketCap/sharePrice at fixed multiples of it, so scaling
+  // seeds cash=STARTING_CASH with marketCap/sharePrice at fixed multiples of it, so scaling
   // marketCap/sharePrice by the same factor keeps them internally consistent.
   const capitalScale = seeded.cash > 0 ? startingCapital / seeded.cash : 1;
   const state = {
     ...seeded,
     cash: startingCapital,
+    paidInCapital: startingCapital,
     marketCap: (seeded.marketCap ?? 0) * capitalScale,
     sharePrice: (seeded.sharePrice ?? 0) * capitalScale,
     multiplayer: true,

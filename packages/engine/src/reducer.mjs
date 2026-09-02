@@ -1175,7 +1175,13 @@ export function gateLeaseDenial(state, airportCode) {
 // STATE SHAPE
 // ─────────────────────────────────────────────
 
-export const STARTING_CASH = 15_000_000;
+// Founders' equity for a classic start. $15M from the July 2026 rebalance
+// until Sept 2026, when it came back to the $10M the site advertises. What an
+// airline ACTUALLY started on lives in state.paidInCapital (set by the world's
+// startingCapital knob at join; LEGACY_STARTING_CASH for blobs that predate
+// the field) so balance sheets and founder cost basis stay honest.
+export const STARTING_CASH = 10_000_000;
+export const LEGACY_STARTING_CASH = 15_000_000;
 
 function freshState() {
   return {
@@ -1186,6 +1192,7 @@ function freshState() {
     hub: '',
     homeCountry: '',  // ISO country code of starting hub — hubs restricted to this country
     cash: STARTING_CASH,
+    paidInCapital: STARTING_CASH,  // founders' equity this airline started on
     activeEvents:  [],    // currently active random events
     showDebrief:   false, // show weekly debrief modal
     pendingToasts: [],    // toast configs waiting to be shown
@@ -1379,7 +1386,7 @@ function reducer(state, action) {
   switch (action.type) {
 
     case 'START_GAME': {
-      // Startup capital: $15M of founders' EQUITY (see STARTING_CASH in freshState).
+      // Startup capital: $10M of founders' EQUITY (see STARTING_CASH in freshState).
       // It is not a loan — there is no debt to service at launch, giving new airlines
       // breathing room to reach profitability. Players can borrow from the bank later.
       return {
@@ -5770,7 +5777,10 @@ function reducer(state, action) {
       // Floors, not rounding: the two tranches together must never bill the pool
       // for more than `sold x price`, or the server's re-check rejects the listing.
       const primaryGross = Math.floor(soldNew * price);
-      const secSale      = founderSaleProceeds(soldSec, price);
+      // Cost basis is what THIS airline's founders subscribed — the world's
+      // starting-capital knob — not the classic default.
+      const secSale      = founderSaleProceeds(soldSec, price,
+        (state.paidInCapital ?? LEGACY_STARTING_CASH) / TOTAL_SHARES);
       const gross        = primaryGross + secSale.gross;   // what the pool pays
       const proceeds     = primaryGross + secSale.net;     // what reaches the treasury
       // A token fill is not a listing — below the market's minimum ticket the

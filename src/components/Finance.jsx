@@ -42,7 +42,7 @@ import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
 import {
-  LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
+  LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, LEGACY_STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
   creditRating, loanRate, borrowingCapacity, amortizedWeeklyPayment,
   outstandingBalance, collateralValue, unencumberedOwnedFleet,
 } from '../data/credit.js';
@@ -1524,6 +1524,7 @@ function SubSectionHeader({ label, colSpan = 4 }) {
 function BalanceSheet() {
   const { state } = useGame();
   const { fleet, cash, financialHistory } = state;
+  const paidInCapital = state.paidInCapital ?? LEGACY_STARTING_CAPITAL;
 
   // Assets
   const ownedFleet = fleet.filter(a => a.ownershipType === 'owned').map(a => {
@@ -1563,7 +1564,7 @@ function BalanceSheet() {
   // loan proceeds ↔ loan balance), the weekly change in equity equals accrual net
   // income. Retained earnings is therefore the accumulated accrual earnings.
   const totalEquity = totalAssets - totalLiabilities;
-  const retainedEarnings = totalEquity - STARTING_CAPITAL;
+  const retainedEarnings = totalEquity - paidInCapital;
   const totalLiabPlusEquity = totalLiabilities + totalEquity;
 
   // Key ratios — leverage uses loans + capitalised lease commitment for realism.
@@ -1662,7 +1663,7 @@ function BalanceSheet() {
                 <BSTotalRow label="Total Liabilities" value={totalLiabilities} negative />
 
                 <BSSectionHeader label="Equity" />
-                <BSRow label="Paid-in capital"     value={STARTING_CAPITAL}  indent={1} />
+                <BSRow label="Paid-in capital"     value={paidInCapital}  indent={1} />
                 <BSRow
                   label="Retained earnings"
                   sublabel={`accumulated net income · ${financialHistory.length} weeks`}
@@ -2063,6 +2064,7 @@ function AirportBreakdown({ proj }) {
 function CashFlow({ proj }) {
   const { state } = useGame();
   const { cash, financialHistory } = state;
+  const paidInCapital = state.paidInCapital ?? LEGACY_STARTING_CAPITAL;
 
   // Single source of truth (same figures as P&L / Forecast / Unit Economics).
   const report = proj.report;
@@ -2097,7 +2099,7 @@ function CashFlow({ proj }) {
 
   // Investing CF — estimated from cash reconciliation
   const ytdNet         = ytd(financialHistory, 'profit');
-  const theoreticalCash = STARTING_CAPITAL + ytdNet;
+  const theoreticalCash = paidInCapital + ytdNet;
   const investingOutflow = Math.max(0, theoreticalCash - cash);
   const ytdWeeks        = financialHistory.length;
   const avgWeeklyInvesting = ytdWeeks > 0 ? investingOutflow / ytdWeeks : 0;
@@ -2184,7 +2186,7 @@ function CashFlow({ proj }) {
             <table>
               <thead><tr><th>Cash Reconciliation (Since Start)</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
               <tbody>
-                <CFRow label="Starting capital"                    value={STARTING_CAPITAL} positive />
+                <CFRow label="Starting capital"                    value={paidInCapital} positive />
                 <CFRow label={`Total operating CF (${ytdWeeks}wk)`} value={ytdNet} />
                 <CFTotalRow label="Theoretical cash (ops only)"    value={theoreticalCash} />
                 <Spacer />

@@ -31,9 +31,9 @@ export const MIN_WEEKS_PER_DAY = 1;
 export const MAX_WEEKS_PER_DAY = 96;
 
 // Per-world starting capital (founders' equity). Default matches the solo game's
-// STARTING_CASH ($15M); market cap seeds at 1.5× as always. Admin may override
-// per world to make a world easier (more runway) or harder.
-export const DEFAULT_STARTING_CAPITAL = 15_000_000;
+// STARTING_CASH ($10M); market cap seeds at a fixed multiple as always. Admin may
+// override per world to make a world easier (more runway) or harder.
+export const DEFAULT_STARTING_CAPITAL = 10_000_000;
 export const MIN_STARTING_CAPITAL = 1_000_000;
 
 // Era worlds: the world's week 1 of year 1 is January of this real calendar

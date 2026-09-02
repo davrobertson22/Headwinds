@@ -165,8 +165,9 @@ export function eraOverheadScale(calYear) {
 // Seed capital for an era start: the modern-equivalent figure × capitalScale,
 // then FLOORED to a whole million (never below $1M). The floor is deliberate —
 // playtesting showed the early decades generous once fixed overheads were
-// scaled, so a 1950 airline opens on $4.0M rather than $4.34M, 1978 on $9M
-// rather than $9.28M. Classic (calYear null) returns the modern figure as is.
+// scaled, so a 1950 airline opens on a round $2M rather than $2.89M, 1978 on
+// $6M rather than $6.18M (from the $10M modern figure; the $15M-era numbers
+// were $4M and $9M). Classic (calYear null) returns the modern figure as is.
 export function eraSeedCapital(modernCapital, calYear) {
   const scale = eraCapitalScale(calYear);
   if (scale == null) return modernCapital;

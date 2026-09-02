@@ -26,8 +26,11 @@
 import { getAircraftType, eraPurchasePrice } from './aircraft.js';
 import { valueRemaining } from './overhead.js';
 
-/** Paid-in capital every airline starts with. */
-export const STARTING_CAPITAL = 15_000_000;
+/** Paid-in capital a new (classic-default) airline begins with. Prefer
+ *  state.paidInCapital where a state is to hand — worlds set their own knob. */
+export const STARTING_CAPITAL = 10_000_000;
+/** What every airline started on before paidInCapital was stored (pre-Sept 2026). */
+export const LEGACY_STARTING_CAPITAL = 15_000_000;
 
 /** No airline borrows below this, however good its books. */
 export const LOAN_RATE_FLOOR = 0.03;
@@ -197,7 +200,7 @@ export function creditScore(state) {
     return s + (a.weeklyLease ?? t?.weeklyLease ?? 0) * 52;
   }, 0);
   const totalDebt = annualLease + totalDebtOutstanding(state);
-  const equity    = STARTING_CAPITAL
+  const equity    = (state?.paidInCapital ?? LEGACY_STARTING_CAPITAL)
     + (state?.financialHistory ?? []).reduce((s, h) => s + (Number(h?.profit) || 0), 0);
 
   const debtToEquity = equity > 0 ? totalDebt / Math.max(equity, 1) : 99;

@@ -1476,8 +1476,9 @@ export const CAPITAL = {
   // Cost basis is what the founders subscribed at incorporation — STARTING_CASH
   // (reducer.mjs) spread over TOTAL_SHARES. Held as a literal because market.js
   // is imported BY the reducer and must never import back; capital-test.mjs
-  // asserts the two stay in step.
-  FOUNDER_BASIS_PER_SHARE: 0.15,
+  // asserts the two stay in step. This is only the DEFAULT: the IPO passes the
+  // airline's own paidInCapital / TOTAL_SHARES, since worlds set their own knob.
+  FOUNDER_BASIS_PER_SHARE: 0.10,
 
   // ── Secondary offerings ─────────────────────────────────────────────────
   OFFERING_MAX_PCT_PER_YEAR: 0.15, // of shares outstanding, per game year
