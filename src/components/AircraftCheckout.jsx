@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import { getAircraftType, effectivePurchasePrice, orderDiscount,
+import { getAircraftType, effectivePurchasePrice, eraWeeklyLease, orderDiscount,
          LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier,
          leaseOrderBookCap } from '../data/aircraft.js';
 import {
@@ -11,8 +11,7 @@ import {
   SEAT_QUALITY_FITTING_FEE,
   cabinInstallFee,
   weekToGameDate,
-  configRangeMod,
-} from '../utils/simulation.js';
+  configRangeMod, calendarYear } from '../utils/simulation.js';
 import {
   wifiInstallCost, wifiRetrofitCost, wifiLeaseSurcharge, WIFI_WEEKLY_OPEX,
 } from '../data/wifi.js';
@@ -310,13 +309,14 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const alreadyOwned    = fleetCountNow + pendingCountNow;
   const discount        = mode === 'buy' ? orderDiscount(quantity) : 0;
   const discPct         = Math.round(discount * 100);
-  const baseUnitPrice   = effectivePurchasePrice(type, mode === 'buy' ? quantity : 1);
+  const calYear         = calendarYear(state);   // era new-build premium while the line is open (null = classic)
+  const baseUnitPrice   = effectivePurchasePrice(type, mode === 'buy' ? quantity : 1, calYear);
   const enginePriceAdj  = Math.round(baseUnitPrice * (enginePriceMod - 1));
   const unitBuyPrice    = Math.round(baseUnitPrice * enginePriceMod) + wingtipCost;
   const totalBuyPrice   = unitBuyPrice * quantity;
 
   const leaseRateMult    = leaseTermRateMultiplier(leaseTermWeeks);
-  const baseWeeklyLease  = type.weeklyLease;
+  const baseWeeklyLease  = eraWeeklyLease(type, calYear);
   const engineLeaseAdj   = Math.round(baseWeeklyLease * (enginePriceMod - 1));
   const wingtipLeaseAdj  = (hasWingtips && wingtipDef) ? Math.round((wingtipDef.cost ?? 0) / 200) : 0;
   const wifiLeaseAdj     = hasWifi ? wifiLeaseSurcharge() : 0;

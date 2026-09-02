@@ -23,7 +23,7 @@
 // aeroplane. That is what makes ownership a decision instead of a formality.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getAircraftType } from './aircraft.js';
+import { getAircraftType, eraPurchasePrice } from './aircraft.js';
 import { valueRemaining } from './overhead.js';
 
 /** Paid-in capital every airline starts with. */
@@ -257,7 +257,7 @@ export function loanRate(state, productId) {
 export function aircraftBookValue(aircraft) {
   const type = getAircraftType(aircraft?.typeId);
   if (!type) return 0;
-  return Math.round((type.purchasePrice ?? 0) * valueRemaining(aircraft?.ageWeeks, type));
+  return Math.round(eraPurchasePrice(type) * valueRemaining(aircraft?.ageWeeks, type));
 }
 
 /** Every tail currently pledged against a live secured loan. */

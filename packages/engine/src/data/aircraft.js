@@ -2276,6 +2276,7 @@ export const AIRCRAFT_TYPES = [
     name: 'Douglas C-47 Skytrain',
     manufacturer: 'Douglas',
     category: 'Turboprop',
+    surplus: true,   // sold off by the thousand after 1945 — never priced as new metal (no era new-build premium)
     eis: 1942,
     oop: 1945,   // year the production line closed (era worlds: second-hand only after this)
     seats: 28,
@@ -3378,6 +3379,7 @@ export const AIRCRAFT_TYPES = [
     name: 'Douglas DC-4',
     manufacturer: 'Douglas',
     category: 'Turboprop',
+    surplus: true,   // most airline DC-4s were converted C-54s — war-surplus pricing (no era new-build premium)
     eis: 1946,
     oop: 1947,   // year the production line closed (era worlds: second-hand only after this)
     seats: 44,
@@ -3852,8 +3854,8 @@ export const buyDiscount = orderDiscount;
  * @param {object} type          - aircraft type object from AIRCRAFT_TYPES
  * @param {number} orderQuantity - units in this single order
  */
-export function effectivePurchasePrice(type, orderQuantity) {
-  return Math.round(type.purchasePrice * (1 - orderDiscount(orderQuantity)));
+export function effectivePurchasePrice(type, orderQuantity, calYear = _eraPriceYear) {
+  return Math.round(eraPurchasePrice(type, calYear) * (1 - orderDiscount(orderQuantity)));
 }
 
 // ─── Efficiency metric ────────────────────────────────────────────────────────
@@ -4081,6 +4083,52 @@ export function eraDeliveredAgeWeeks(type, calYear = null) {
   }
   if (calYear <= 2026) return 0;
   return Math.min(832, Math.round((calYear - 2026) * (312 / 20)));
+}
+
+// ─── Era new-build pricing (ERA_MODE_PLAN.md §6, built 2026-09-02) ───────────
+// Every purchasePrice/weeklyLease in the catalogue is a 2026 figure. For a type
+// whose line has closed that is what a USED frame fetches today — the price the
+// classic market sells it at, `deliveredAgeWeeks` old. An era world asking the
+// same table for a factory-new CV-240 in 1950 (or a 737-800 in 1998) got a
+// used-frame price for new metal; the 1950 capital sweep showed seed capital
+// barely biting because of it.
+//
+// While the line is open the type sells at ERA_NEW_BUILD_PREMIUM × catalogue;
+// after it closes the used market slides linearly back to the catalogue figure
+// over ERA_PRICE_DECAY_YEARS. Lines still open in 2026 are untouched (their
+// catalogue price already IS the new-build price), and so are `surplus` types —
+// the war-glut C-47 and DC-4 that were never sold as new metal to airlines.
+// Classic worlds (calYear null) return exactly 1 — the parity invariant.
+//
+// The reducer sets the module year on every action (like setEraCostScale), so
+// helpers with no state in hand — NAV, collateral, check costs, insurance book
+// value — read the same market price the acquisition sites charge.
+export const ERA_NEW_BUILD_PREMIUM   = 2.5;
+export const ERA_PRICE_DECAY_YEARS   = 12;
+
+let _eraPriceYear = null;
+export function setEraPriceYear(calYear) {
+  _eraPriceYear = Number.isInteger(calYear) ? calYear : null;
+}
+export function getEraPriceYear() { return _eraPriceYear; }
+
+/** Multiplier on the catalogue price/lease for this type at `calYear` (1 in classic). */
+export function eraPriceScale(type, calYear = _eraPriceYear) {
+  if (calYear == null || !type) return 1;
+  if (type.surplus) return 1;
+  if (type.oop == null || type.oop > 2026) return 1;
+  const fresh = 1 - Math.min(1, Math.max(0, calYear - type.oop) / ERA_PRICE_DECAY_YEARS);
+  return 1 + (ERA_NEW_BUILD_PREMIUM - 1) * fresh;
+}
+
+/** Catalogue purchase price at `calYear` — the market price of a frame of this type as delivered. */
+export function eraPurchasePrice(type, calYear = _eraPriceYear) {
+  return Math.round((type?.purchasePrice ?? 0) * eraPriceScale(type, calYear));
+}
+
+/** Catalogue weekly lease at `calYear`. */
+export function eraWeeklyLease(type, calYear = _eraPriceYear) {
+  return Math.round((type?.weeklyLease ?? 0) * eraPriceScale(type, calYear));
 }
 
 /** Every type a lessor will offer, in market-display order. */

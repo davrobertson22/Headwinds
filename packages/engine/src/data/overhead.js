@@ -8,6 +8,10 @@
  *   4. Marketing budget         — player-controlled; drives a demand multiplier
  */
 
+// The one import this leaf module carries: aircraft.js is itself a leaf (fuel.js only),
+// so the era market price of a frame can feed the insurance book value without a cycle.
+import { eraPurchasePrice, eraDeliveredAgeWeeks, getEraPriceYear } from './aircraft.js';
+
 // ─── 1. HQ & Corporate overhead ──────────────────────────────────────────────
 //
 // Represents: executive pay, HQ office rent, GDS/reservation system,
@@ -351,7 +355,12 @@ export const DEPRECIATION_YEARS = 30;
  */
 export function valueRemaining(ageWeeks, type) {
   const ageYears       = (ageWeeks ?? 0) / 52;
-  const deliveredYears = (type?.deliveredAgeWeeks ?? 0) / 52;
+  // Era worlds: normalise against the age the ERA's market delivers this type
+  // at — the same age eraPurchasePrice() prices — not the frozen-2026 band.
+  // Against the 2026 band a factory-new CV-240 in 1950 (age 0 vs a 16y band)
+  // was worth 2.14× catalogue, so buy-then-sell printed money. Classic worlds
+  // (price year null) get exactly the published band — the parity invariant.
+  const deliveredYears = eraDeliveredAgeWeeks(type, getEraPriceYear()) / 52;
   const now  = 1 - ageYears / DEPRECIATION_YEARS;
   const base = 1 - deliveredYears / DEPRECIATION_YEARS;   // = 1 for a new build
   return Math.max(0.1, base > 0 ? now / base : 0);
@@ -411,7 +420,7 @@ export function weeklyInsuranceCost(aircraft, aircraftType) {
   // Hull: book value declines linearly over the useful life (same schedule as
   // depreciation and the balance sheet — one definition of "book value").
   const remaining  = valueRemaining(aircraft.ageWeeks, aircraftType);    // never below 10 % of delivered value
-  const bookValue  = aircraftType.purchasePrice * remaining;
+  const bookValue  = eraPurchasePrice(aircraftType) * remaining;
   const hullAnnual = bookValue * HULL_INSURANCE_ANNUAL_RATE;
   const hullWeekly = Math.round(hullAnnual / 52);
   return liability + hullWeekly;

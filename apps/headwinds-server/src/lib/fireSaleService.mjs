@@ -24,7 +24,7 @@
 // because "Nordic Air's slot at LHR" is the part worth reading.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { getAircraftType, eraPurchasePrice } from '@tailwinds/engine/data/aircraft.js';
 import { valueRemaining } from '@tailwinds/engine/data/overhead.js';
 import { listSoldAircraftTx } from './aircraftMarketService.mjs';
 import { auctionReserveOf, isGateScarcity } from './gateService.mjs';
@@ -53,10 +53,12 @@ const toNum = (v) => (typeof v === 'bigint' ? Number(v) : Number(v) || 0);
  * maintenance multiplier, which needs the tick's absolute week and is not worth
  * threading here for an aeroplane whose logbook stopped.
  */
-export function distressedNav(aircraft) {
+export function distressedNav(aircraft, calYear = null) {
   const type = getAircraftType(aircraft?.typeId);
   if (!type) return 0;
-  const nav = (type.purchasePrice ?? 0) * valueRemaining(aircraft?.ageWeeks, type);
+  // Era worlds price the frame at the era's market (new-build premium while the
+  // line is open) — the same figure SELL_AIRCRAFT would have paid. Null = classic.
+  const nav = eraPurchasePrice(type, calYear) * valueRemaining(aircraft?.ageWeeks, type);
   return Math.max(0, Math.round(nav * AIRCRAFT_DISTRESS_FACTOR));
 }
 
@@ -73,12 +75,14 @@ export async function fireSaleFleet(prisma, { world, airlineName, fleet, weekInd
   if (owned.length === 0) return 0;
 
   let listed = 0;
+  const tc = world?.tickConfig ?? {};
+  const calYear = Number.isInteger(tc.startYear) ? tc.startYear + (world?.currentYear ?? 1) - 1 : null;
   // One transaction per aircraft rather than one for the lot: this runs
   // post-commit on a tick that has just written every airline in the world, and
   // a forty-frame estate held open in a single transaction is exactly the kind
   // of long lock the tick's own budget notes warn about.
   for (const aircraft of owned) {
-    const navPrice = distressedNav(aircraft);
+    const navPrice = distressedNav(aircraft, calYear);
     if (navPrice <= 0) continue;
     try {
       await withTx(prisma, async (tx) => {

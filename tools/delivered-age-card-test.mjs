@@ -25,7 +25,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { AIRCRAFT_TYPES, seatEfficiency, efficiencyScore } from '../src/data/aircraft.js';
+import { AIRCRAFT_TYPES, seatEfficiency, efficiencyScore, eraPurchasePrice, eraWeeklyLease } from '../src/data/aircraft.js';
 import { formatMoney, maintenanceMultiplier } from '../src/utils/simulation.js';
 
 const store = new Map();
@@ -280,6 +280,14 @@ test('in 1950 the DC-3 (line closed 1946) still arrives used — but four years 
   const card = cardFor(eraCards, 'Douglas DC-3');
   assert.ok(/out of production/i.test(card), 'the DC-3 lost its used-airframe notice');
   assert.ok(!/16 years old/.test(card), 'the DC-3 quotes its 2026 age in 1950');
+});
+
+test('in 1950 the CV-240 card quotes the era new-build price, not the 2026 used-frame price', () => {
+  const card = cardFor(eraCards, 'Convair CV-240');
+  const t = get('cv240');
+  assert.ok(card.includes(formatMoney(eraPurchasePrice(t, 1950))), `card lacks ${formatMoney(eraPurchasePrice(t, 1950))}`);
+  assert.ok(card.includes(formatMoney(eraWeeklyLease(t, 1950))), `card lacks ${formatMoney(eraWeeklyLease(t, 1950))}/wk`);
+  assert.ok(!card.includes(`>${formatMoney(t.purchasePrice)}<`), 'the card still prints the used-frame catalogue price in 1950');
 });
 
 test('a type previewed ahead of its entry into service says so on the card, not only on the button', () => {

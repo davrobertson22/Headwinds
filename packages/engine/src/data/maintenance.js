@@ -17,6 +17,7 @@
  * multiplayer tick stay deterministic and replayable.
  */
 
+import { eraPurchasePrice } from './aircraft.js';   // era market price of the frame (catalogue × 1 in classic)
 import { DEPRECIATION_YEARS, valueRemaining } from './overhead.js';
 
 // ─── Due thresholds (dual trigger — whichever comes first) ────────────────────
@@ -136,7 +137,7 @@ export function checkDurationWeeks(typeOrCategory, checkType) {
  */
 export function checkCost(type, checkType, { maintMod = 1, laborMult = 1, hubFactor = 1, forced = false } = {}) {
   const pct  = checkType === 'D' ? D_COST_PCT : C_COST_PCT;
-  const base = (type?.purchasePrice ?? 0) * pct * maintMod * laborMult * hubFactor;
+  const base = eraPurchasePrice(type) * pct * maintMod * laborMult * hubFactor;
   return Math.round(base * (forced ? FORCED_COST_MULT : 1));
 }
 
@@ -328,7 +329,7 @@ export const AOG_WRITE_OFF_PAYOUT_FRACTION = 0.80;
  */
 export function airframeNAV(a, type, absWeek = 0) {
   const remaining = valueRemaining(a?.ageWeeks, type);
-  return Math.round((type?.purchasePrice ?? 0) * remaining * maintNavMultiplier(a, absWeek));
+  return Math.round(eraPurchasePrice(type) * remaining * maintNavMultiplier(a, absWeek));
 }
 
 /**
@@ -344,7 +345,7 @@ export function airframeNAV(a, type, absWeek = 0) {
  */
 export function aogRepairCost(a, type, severity, { maintMod = 1, laborMult = 1, baseFactor = 1, absWeek = 0 } = {}) {
   const pct      = AOG_COST_PCT[severity] ?? AOG_COST_PCT.major;
-  const uncapped = Math.round((type?.purchasePrice ?? 0) * pct * aogAgeFactor(a) * maintMod * laborMult * baseFactor);
+  const uncapped = Math.round(eraPurchasePrice(type) * pct * aogAgeFactor(a) * maintMod * laborMult * baseFactor);
   const nav      = airframeNAV(a, type, absWeek);
   const cap      = Math.round(nav * AOG_NAV_CAP_FRACTION);
   const writeOff = uncapped > cap;

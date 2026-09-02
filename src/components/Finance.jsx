@@ -9,7 +9,7 @@ import {
   buildEventDemandModel,
   stateLoungeFields,
 } from '../utils/simulation.js';
-import { getAircraftType } from '../data/aircraft.js';
+import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
 import InfoTip from './InfoTip.jsx';
 import {
@@ -92,7 +92,7 @@ function aircraftBookValue(aircraft, type) {
   if (aircraft?.ownershipType !== 'owned' || !type?.purchasePrice) return 0;
   const ageYears = (aircraft.ageWeeks ?? 0) / 52;
   const remaining = Math.max(0, 1 - ageYears / DEPRECIATION_YEARS);
-  return Math.round(type.purchasePrice * remaining);
+  return Math.round(eraPurchasePrice(type) * remaining);
 }
 
 function ytd(history, key) {
@@ -469,7 +469,7 @@ function PLStatement({ proj }) {
   const totHullIns    = fleet.filter(a => a.ownershipType === 'owned').reduce((s, a) => {
     const t = getAircraftType(a.typeId);
     const ageYrs = (a.ageWeeks ?? 0) / 52;
-    const bv = (t?.purchasePrice ?? 0) * Math.max(0.1, 1 - ageYrs / DEPRECIATION_YEARS);
+    const bv = eraPurchasePrice(t) * Math.max(0.1, 1 - ageYrs / DEPRECIATION_YEARS);
     return s + Math.round(bv * HULL_INSURANCE_ANNUAL_RATE / 52);
   }, 0);
   const totLiabilityIns = fleet.reduce((s, a) => s + liabilityInsuranceWeekly(getAircraftType(a.typeId)), 0);

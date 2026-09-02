@@ -36,7 +36,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          founderSaleProceeds, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
-import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
+import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF } from './data/aircraft.js';
 import {
@@ -963,7 +963,7 @@ export function orderDenial(state, typeId) {
   if (cy == null) return null;
   const type = getAircraftType(typeId);
   if (!type) return null;
-  const avail = aircraftAvailability(type, cy);
+  const avail = cometWithdrawn(state, type.id) ? 'expired' : aircraftAvailability(type, cy);
   if (avail === 'future') {
     return {
       code: 'not_yet_flying', typeId: type.id, eis: type.eis,
@@ -1009,10 +1009,38 @@ function refuseEraFeature(state, feature) {
 // market from ever reappearing.
 export const COMET_GROUNDING = { calendarYear: 1954, week: 15, typeId: 'comet1', hullPayoutFrac: 0.8 };
 
+// Has the Comet 1's certificate been withdrawn at this blob's calendar week?
+// Derived from the CALENDAR, not from state.cometGrounded: the catalogue's
+// withdrawnYear (1955) only closes the market from the NEXT January, and the
+// grounding flag is per-airline and already true once it has fired — so for
+// the 37 weeks between 1954 W15 and year-end the type read as 'new', could be
+// ordered (the starter-fleet perk delivered it on the spot), and a frame
+// acquired then was never grounded because the flag had nothing left to fire.
+// A player joining mid-1954 had the same window on a fresh blob.
+export function cometWithdrawn(state, typeId) {
+  if (typeId !== COMET_GROUNDING.typeId) return false;
+  const cy = calendarYear(state);
+  if (cy == null) return false;
+  return cy > COMET_GROUNDING.calendarYear
+    || (cy === COMET_GROUNDING.calendarYear && (state?.week ?? 1) >= COMET_GROUNDING.week);
+}
+
 function applyCometGrounding(state) {
-  const comets = (state.fleet ?? []).filter(a => a.typeId === COMET_GROUNDING.typeId);
-  if (comets.length === 0) return { ...state, cometGrounded: true };
-  let working = state;
+  // Frames on order die with the type: a purchase order is refunded in full
+  // (the manufacturer has nothing to deliver), a lease order returns its
+  // deposit — the CANCEL_ORDER terms without the cancellation fee, since this
+  // is history's doing, not the player's.
+  const cometOrders   = (state.pendingOrders ?? []).filter(o => o.typeId === COMET_GROUNDING.typeId);
+  const orderRefund   = cometOrders.reduce((s, o) => s + (o.ownershipType === 'owned'
+    ? (o.totalPrice ?? 0) : (o.leaseDeposit ?? 0)), 0);
+  const withoutOrders = cometOrders.length === 0 ? state : {
+    ...state,
+    cash:          (state.cash ?? 0) + orderRefund,
+    pendingOrders: (state.pendingOrders ?? []).filter(o => o.typeId !== COMET_GROUNDING.typeId),
+  };
+  const comets = (withoutOrders.fleet ?? []).filter(a => a.typeId === COMET_GROUNDING.typeId);
+  if (comets.length === 0 && cometOrders.length === 0) return { ...withoutOrders, cometGrounded: true };
+  let working = withoutOrders;
   for (const a of comets) {
     const settled = settleCoversForRemoval(working, a.id);
     working = { ...working, ...settled };
@@ -1021,7 +1049,7 @@ function applyCometGrounding(state) {
   const type     = getAircraftType(COMET_GROUNDING.typeId);
   const payout   = comets
     .filter(a => a.ownershipType !== 'lease')
-    .length * Math.round((type?.purchasePrice ?? 0) * COMET_GROUNDING.hullPayoutFrac);
+    .length * Math.round(eraPurchasePrice(type) * COMET_GROUNDING.hullPayoutFrac);
   const routes      = (working.routes ?? []).filter(r => !cometIds.has(r.aircraftId));
   const cargoRoutes = (working.cargoRoutes ?? []).filter(r => !cometIds.has(r.aircraftId));
   const keptIds     = new Set([...routes, ...cargoRoutes].map(r => r.aircraftId));
@@ -1029,9 +1057,13 @@ function applyCometGrounding(state) {
     .filter(a => !cometIds.has(a.id))
     .map(a => (a.status === 'retired' || keptIds.has(a.id)) ? a
       : { ...a, status: a.status === 'assigned' ? 'idle' : a.status });
-  const msg = comets.length === 1
-    ? 'Your Comet 1 has been grounded permanently.'
-    : `Your ${comets.length} Comet 1s have been grounded permanently.`;
+  const msg = (comets.length === 0
+    ? 'Your Comet 1 order has been cancelled.'
+    : comets.length === 1
+      ? 'Your Comet 1 has been grounded permanently.'
+      : `Your ${comets.length} Comet 1s have been grounded permanently.`)
+    + (comets.length > 0 && cometOrders.length > 0
+      ? ` ${cometOrders.length} on order ${cometOrders.length === 1 ? 'is' : 'are'} cancelled and refunded.` : '');
   return {
     ...working,
     fleet, routes, cargoRoutes,
@@ -1243,7 +1275,7 @@ function fleetNAVOf(fleet, absWeek = null) {
     const type      = getAircraftType(a.typeId);
     const remaining = valueRemaining(a.ageWeeks, type);
     const maintMod  = absWeek == null ? 1 : maintNavMultiplier(a, absWeek);
-    total += Math.round((type?.purchasePrice ?? 0) * remaining * maintMod);
+    total += Math.round(eraPurchasePrice(type) * remaining * maintMod);
   }
   return total;
 }
@@ -1329,6 +1361,7 @@ function reducer(state, action) {
   setFareIndex(_eraFi != null ? _eraFi * (state?.fareIndex ?? 1) : (state?.fareIndex ?? 1));
   setEraStartYear(state?.startYear ?? null);
   setEraCostScale(eraOverheadScale(calendarYear(state)) ?? 1);
+  setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   switch (action.type) {
 
@@ -1389,7 +1422,7 @@ function reducer(state, action) {
         // do stamp the rate (a real lease fixes rent for its term; only a renewal
         // reprices). Same value as the fallback it replaces, so no existing save
         // changes behaviour on the week this ships.
-        weeklyLease:        Math.round(type?.weeklyLease ?? 0),
+        weeklyLease:        eraWeeklyLease(type),
         leaseTermWeeks,
         leaseRemainingWeeks: leaseTermWeeks,
         // This path charges no deposit, so the tail must say so explicitly. An
@@ -1540,7 +1573,7 @@ function reducer(state, action) {
 
       if (action.ownershipType === 'owned') {
         const unitCostAt = (disc) =>
-          Math.round(Math.round(type.purchasePrice * (1 - disc)) * enginePriceMod)
+          Math.round(Math.round(eraPurchasePrice(type) * (1 - disc)) * enginePriceMod)
           + wingtipCost + seatFittingFee + wifiFitCost;
         while (orderQty > 0) {
           orderDisc = orderDiscount(orderQty);
@@ -1580,7 +1613,7 @@ function reducer(state, action) {
         // Price: uniform bulk-order discount (orderDisc) applied to every frame in
         // this order. Leases carry no purchase price.
         const unitBasePrice  = action.ownershipType === 'owned'
-          ? Math.round(type.purchasePrice * (1 - orderDisc))
+          ? Math.round(eraPurchasePrice(type) * (1 - orderDisc))
           : 0;
         const unitTotalPrice = action.ownershipType === 'owned'
           ? Math.round(unitBasePrice * enginePriceMod) + wingtipCost
@@ -1588,7 +1621,7 @@ function reducer(state, action) {
 
         // Lease: term-adjusted weekly rate (longer term = lower rate) + 12-week
         // upfront deposit due at order time.
-        const baseWeeklyLease   = type.weeklyLease ?? 0;
+        const baseWeeklyLease   = eraWeeklyLease(type);   // era new-build premium while the line is open (× 1 in classic)
         const engineLeaseAdj    = Math.round(baseWeeklyLease * (enginePriceMod - 1));
         const wingtipLeaseAdj   = (action.hasWingtips && wingtipDef) ? Math.round((wingtipDef.cost ?? 0) / 200) : 0;
         // A lessor recovers a factory-fitted connectivity package through the
@@ -2061,7 +2094,7 @@ function reducer(state, action) {
       const type          = aircraft ? getAircraftType(aircraft.typeId) : null;
       const remaining     = valueRemaining(aircraft?.ageWeeks, type);
       const sellAbsWeek   = absoluteWeek(state.year, state.week);
-      const nav           = Math.round((type?.purchasePrice ?? 0) * remaining * maintNavMultiplier(aircraft, sellAbsWeek));
+      const nav           = Math.round(eraPurchasePrice(type) * remaining * maintNavMultiplier(aircraft, sellAbsWeek));
       const fee           = Math.round(nav * 0.05);
       const proceeds      = nav - fee;
       const settled       = settleCoversForRemoval(state, action.aircraftId);

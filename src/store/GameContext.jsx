@@ -1,7 +1,11 @@
 import { createContext, useContext, useReducer, useEffect, useMemo, useRef } from 'react';
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
-import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke } from '../../packages/engine/src/utils/market.js';
+import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke, setEraStartYear, getEraStartYear } from '../../packages/engine/src/utils/market.js';
+import { setEraCostScale, getEraCostScale } from '../../packages/engine/src/data/overhead.js';
+import { setEraPriceYear, getEraPriceYear } from '../../packages/engine/src/data/aircraft.js';
+import { eraFareIndex, eraOverheadScale } from '../../packages/engine/src/data/era.js';
+import { calendarYear } from '../../packages/engine/src/utils/simulation.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -15,6 +19,42 @@ export * from '../../packages/engine/src/reducer.mjs';
 // ─────────────────────────────────────────────
 
 const GameContext = createContext(null);
+
+// ── World-level engine module state, derived from the adopted blob ───────────
+// The engine keeps four module-scoped knobs that every referencePrice() /
+// pairDemandGrowth() / overhead call reads: the fare index, the NWR yield
+// choke, the era start year and the era cost scale. gameReducer sets all four
+// at its entry (reducer.mjs, "World fare index") — but a provider that ADOPTS a
+// state (localStorage on first render, or the server blob in Headwinds) never
+// runs the reducer, so until the player's first action the planners rendered
+// on the classic 2026 economy: an 18x demand overstatement in a 1950 world,
+// and the modern fare ladder against a tick pricing at 1.55x. Worse, the old
+// sync check compared getFareIndex() to the STORED index, so after the reducer
+// composed the era index the next render snapped it back to 1.0 — the
+// "reference reverts when I click off" report, now in era worlds.
+//
+// This is the one place the derivation lives on the client, and it MUST match
+// the reducer's entry block: era fare index x stored index, era start year,
+// era overhead scale. Idempotent, so it is safe to call synchronously during
+// render (the first paint is already right) and again from an effect.
+export function effectiveFareIndex(state) {
+  const eraFi = eraFareIndex(calendarYear(state));
+  const stored = state?.fareIndex ?? 1;
+  return eraFi != null ? eraFi * stored : stored;
+}
+
+export function syncEngineWorldState(state) {
+  const fareIndex = effectiveFareIndex(state);
+  const nwrOn     = state?.newWorldRestrictions === true;
+  const eraStart  = Number.isInteger(state?.startYear) ? state.startYear : null;
+  const costScale = eraOverheadScale(calendarYear(state)) ?? 1;
+  if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
+  if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
+  if (getEraStartYear() !== eraStart) setEraStartYear(eraStart);
+  if (getEraCostScale() !== costScale) setEraCostScale(costScale);
+  const priceYear = calendarYear(state);
+  if (getEraPriceYear() !== priceYear) setEraPriceYear(priceYear);
+}
 const SAVE_KEY = 'bbae_save_v2'; // bump version to avoid old-format conflicts
 
 /**
@@ -83,22 +123,22 @@ export function GameProvider({ children }) {
       const saved = localStorage.getItem(SAVE_KEY);
       init = saved ? reconcileState(JSON.parse(saved)) : freshState();
     } catch (_) { init = freshState(); }
-    // World fare index (New World Restrictions) on FIRST RENDER. The reducer sets
-    // this on every action, but useReducer's lazy initialiser does not run the
-    // reducer — so without this a restricted world would render the Marketplace,
-    // FareEditor and route planners on the CLASSIC fare ladder until the player's
-    // first action corrected it.
-    setFareIndex(init?.fareIndex ?? 1);
-    setNwrYieldChoke(init?.newWorldRestrictions === true);
+    // World fare index / era knobs on FIRST RENDER. The reducer sets these on
+    // every action, but useReducer's lazy initialiser does not run the reducer —
+    // so without this a restricted or era save would render the Marketplace,
+    // FareEditor and route planners on the CLASSIC economy until the player's
+    // first action corrected it (see syncEngineWorldState).
+    syncEngineWorldState(init);
     return init;
   });
 
   // Keep it in step when the world's state is adopted from the server (Headwinds
   // multiplayer replaces the whole blob without a local action).
+  // The era fare index and cost scale move every January, so state.year is a
+  // dependency too.
   useEffect(() => {
-    setFareIndex(state?.fareIndex ?? 1);
-    setNwrYieldChoke(state?.newWorldRestrictions === true);
-  }, [state?.fareIndex, state?.newWorldRestrictions]);
+    syncEngineWorldState(state);
+  }, [state?.fareIndex, state?.newWorldRestrictions, state?.startYear, state?.year]);
 
   // Latched so the warning fires on the transition, not on every state change —
   // a broken autosave would otherwise queue a toast on every click.
@@ -140,19 +180,20 @@ export function GameProvider({ children }) {
 // submits validated intents to the API. Every screen that calls useGame() works
 // unchanged on top of it. No localStorage: the server owns persistence.
 export function RemoteGameProvider({ state, dispatch, remoteApi = null, remoteChrome = null, children }) {
-  // World fare index (New World Restrictions). The engine's referencePrice() reads
-  // a module-scoped index that the reducer sets on every action — but in
-  // multiplayer the server owns the state and NO reducer call happens on load, so
-  // until the player's first action the whole fare ladder rendered unrestricted.
-  // Worse, it then snapped to the real index the moment they touched anything:
-  // reported as "it shows the new reference, I edit a price, and when I click off
-  // it reverts to the old one". Set it whenever the adopted state's index changes,
-  // and synchronously during render so the FIRST paint is already correct.
-  const fareIndex = state?.fareIndex ?? 1;
-  const nwrOn     = state?.newWorldRestrictions === true;
-  if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
-  if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
-  useEffect(() => { setFareIndex(fareIndex); setNwrYieldChoke(nwrOn); }, [fareIndex, nwrOn]);
+  // World fare index / era knobs. The engine's referencePrice() and
+  // pairDemandGrowth() read module-scoped state that the reducer sets on every
+  // action — but in multiplayer the server owns the state and NO reducer call
+  // happens on load, so until the player's first action the whole fare ladder
+  // rendered unrestricted (and, in an era world, the planners quoted 2026
+  // demand). Worse, it then snapped to the real index the moment they touched
+  // anything: reported as "it shows the new reference, I edit a price, and
+  // when I click off it reverts to the old one". Sync whenever the adopted
+  // state's world inputs change, and synchronously during render so the FIRST
+  // paint is already correct. syncEngineWorldState is idempotent and compares
+  // against the COMPOSED era index, so a render can no longer undo the reducer.
+  syncEngineWorldState(state);
+  useEffect(() => { syncEngineWorldState(state); },
+    [state?.fareIndex, state?.newWorldRestrictions, state?.startYear, state?.year]);
 
   const value = useMemo(
     () => hydratedValue(state, dispatch, true, remoteApi, remoteChrome),
