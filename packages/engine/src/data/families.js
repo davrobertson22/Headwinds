@@ -198,7 +198,7 @@ export const AIRCRAFT_FAMILY = {
   dc1030f: 'mcd_dc10', md11f: 'mcd_dc10',
   dc863: 'mcd_dc8', dc873f: 'mcd_dc8',                      // DC-8 family
   dc830: 'mcd_dc8',                                         // early -30 shares line and tooling
-  dc3: 'douglas_dc3',
+  dc3: 'douglas_dc3', c47: 'douglas_dc3',   // the C-47 is a DC-3 with a cargo door
 
   // Propliner era (era worlds phase 4) ─────────────────────────────────────
   dc4:  'douglas_piston', dc6b: 'douglas_piston', dc7c: 'douglas_piston',   // one evolutionary line, shared tooling

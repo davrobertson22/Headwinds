@@ -248,5 +248,51 @@ test('every table row still fills every column', () => {
     `${cells} cells against ${headers} headers — a column was added on one side only`);
 });
 
+section('6. Era worlds quote the age the era actually delivers');
+
+// Reported in Discord 2026-09-01 (Ross): in a 1950 world "many planes that are
+// appearing as used only are actually in production". The reducer was right —
+// eraDeliveredAgeWeeks(cv240, 1950) is 0, the frame arrives factory-new — but
+// the card and the table read the frozen-2026 `deliveredAgeWeeks` table, so a
+// CV-240 with the line open advertised itself as 16 years old, billing 16-year
+// maintenance. The card must quote what the reducer will stamp on the frame.
+
+const eraSave = (startYear) => ({
+  phase: 'playing', week: 1, year: 1, startYear, cash: 4_000_000, hub: 'JFK', airlineName: 'Test',
+  routes: [], cargoRoutes: [], competitors: [], fleet: [], pendingOrders: [],
+});
+store.set('bbae_save_v2', JSON.stringify(eraSave(1950)));
+store.set('market_layout', 'cards');
+const eraCards = renderToString(React.createElement(GameProvider, null, React.createElement(Marketplace)));
+store.set('market_layout', 'table');
+const eraTable = renderToString(React.createElement(GameProvider, null, React.createElement(Marketplace)));
+store.delete('bbae_save_v2');
+
+test('in 1950 the CV-240 (line open until 1954) is sold new, not 16 years old', () => {
+  const card = cardFor(eraCards, 'Convair CV-240');
+  assert.ok(!/out of production/i.test(card), 'a CV-240 in production in 1950 carries the out-of-production notice');
+  assert.ok(!/16 years old/.test(card), 'the card quotes the 2026 delivered age in a 1950 world');
+  assert.ok(card.includes(formatMoney(get('cv240').baseMaintenancePerWk)),
+    'a factory-new frame must quote the factory-fresh maintenance');
+});
+
+test('in 1950 the DC-3 (line closed 1946) still arrives used — but four years old, not sixteen', () => {
+  const card = cardFor(eraCards, 'Douglas DC-3');
+  assert.ok(/out of production/i.test(card), 'the DC-3 lost its used-airframe notice');
+  assert.ok(!/16 years old/.test(card), 'the DC-3 quotes its 2026 age in 1950');
+});
+
+test('a type previewed ahead of its entry into service says so on the card, not only on the button', () => {
+  const card = cardFor(eraCards, 'Vickers Viscount 700');
+  assert.ok(/Not yet in service · 1953/.test(card.replace(/<!-- -->/g, '')), 'no in-service badge on the Viscount card in 1950');
+  const row = eraTable.slice(eraTable.indexOf('Vickers Viscount 700'), eraTable.indexOf('</tr>', eraTable.indexOf('Vickers Viscount 700')));
+  assert.ok(/Enters service 1953/.test(row), 'no in-service chip on the Viscount table row in 1950');
+});
+
+test('the 1950 table marks in-production propliners new', () => {
+  const row = eraTable.slice(eraTable.indexOf('Convair CV-240'), eraTable.indexOf('</tr>', eraTable.indexOf('Convair CV-240')));
+  assert.ok(!/y used/.test(row), `CV-240 row in 1950: ${row.match(/\d+y used/)?.[0]}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

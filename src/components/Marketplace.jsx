@@ -4,6 +4,7 @@ import { useGame } from '../store/GameContext.jsx';
 import {
   AIRCRAFT_TYPES,
   aircraftAvailability,
+  eraDeliveredAgeWeeks,
   AIRCRAFT_CATEGORIES,
   getAircraftType,
   buyDiscount,
@@ -30,16 +31,23 @@ import { Glyph } from './Icons.jsx';
 // delivery while a 6y-old NG bills 1.18x, which can invert the running-cost ranking
 // the card appears to show. Always quote the bill the player will actually pay.
 
+//
+// Era worlds: the published `deliveredAgeWeeks` is the 2026 table. A CV-240 in
+// 1950 is in production and delivers factory-new, so the card must quote the
+// age the reducer will actually stamp on the frame — eraDeliveredAgeWeeks(type,
+// calYear) — not the 16-year-old second-hand figure of the classic market.
+// (Classic worlds pass calYear null and get the published table, unchanged.)
+
 /** Weekly maintenance a fresh delivery of this type will actually bill, in $. */
-function deliveredMaint(type) {
+function deliveredMaint(type, calYear = null) {
   return Math.round(
-    (type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(type?.deliveredAgeWeeks ?? 0)
+    (type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(eraDeliveredAgeWeeks(type, calYear))
   );
 }
 
 /** Whole years old this type arrives at, or 0 for anything still in production. */
-function deliveredAgeYears(type) {
-  return Math.round((type?.deliveredAgeWeeks ?? 0) / 52);
+function deliveredAgeYears(type, calYear = null) {
+  return Math.round(eraDeliveredAgeWeeks(type, calYear) / 52);
 }
 
 // Category accent colors
@@ -538,6 +546,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
                         {t.name}
+                        {r.eraBlock && <span className="market-chip market-chip-yellow" title={r.eraBlock}>{r.eraBlock}</span>}
                         {r.owned > 0 && <span className="market-chip market-chip-blue">{r.owned} in fleet</span>}
                         {r.onOrder > 0 && <span className="market-chip market-chip-yellow">{r.onOrder} ordered</span>}
                       </div>
@@ -934,9 +943,9 @@ export default function Marketplace() {
               : type.fuelBurnPer100km / (type.seats || 1),
             eff:      effScore,
             effColor: effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)',
-            age:      deliveredAgeYears(type),
-            maint:    deliveredMaint(type),
-            maintPer: deliveredMaint(type) / (type.freighter ? (type.payloadTonnes || 1) : (type.seats || 1)),
+            age:      deliveredAgeYears(type, calYear),
+            maint:    deliveredMaint(type, calYear),
+            maintPer: deliveredMaint(type, calYear) / (type.freighter ? (type.payloadTonnes || 1) : (type.seats || 1)),
             lease:    type.weeklyLease,
             buy:      buyPrice,
             discPct:  0,
@@ -999,6 +1008,15 @@ export default function Marketplace() {
                   >
                     {CAT_LABELS[type.category] || type.category}
                   </span>
+                  {eraLock && (
+                    <span className="badge" title={eraLock} style={{
+                      marginLeft: 6,
+                      background: 'rgba(210,153,34,0.2)', color: 'var(--yellow)',
+                      border: '1px solid rgba(210,153,34,0.4)',
+                    }}>
+                      <Glyph e="🔒" /> {type.eis > calYear ? `Not yet in service · ${type.eis}` : 'No frames left'}
+                    </span>
+                  )}
                   {alreadyOwned > 0 && (
                     <span className="badge badge-blue" style={{ marginLeft: 6 }}>{alreadyOwned} in fleet</span>
                   )}
@@ -1057,12 +1075,12 @@ export default function Marketplace() {
                   </div>
                   <div className="aircraft-stat-pill">
                     <span className="aircraft-stat-pill-label">Maint/wk</span>
-                    <span className="aircraft-stat-pill-value">{formatMoney(deliveredMaint(type))}</span>
+                    <span className="aircraft-stat-pill-value">{formatMoney(deliveredMaint(type, calYear))}</span>
                   </div>
                   <div className="aircraft-stat-pill" title="Weekly maintenance as delivered, spread across capacity. The fuel bar below does not include it.">
                     <span className="aircraft-stat-pill-label">{type.freighter ? 'Maint/tonne' : 'Maint/seat'}</span>
                     <span className="aircraft-stat-pill-value">
-                      {formatMoney(deliveredMaint(type) / (type.freighter ? (type.payloadTonnes || 1) : (type.seats || 1)))}
+                      {formatMoney(deliveredMaint(type, calYear) / (type.freighter ? (type.payloadTonnes || 1) : (type.seats || 1)))}
                     </span>
                   </div>
                 </div>
@@ -1105,12 +1123,12 @@ export default function Marketplace() {
                   <Glyph e="📅" /> Delivery in <strong>{nextDeliveryWeeks} week{nextDeliveryWeeks !== 1 ? 's' : ''}</strong>
                   {onOrder > 0 && ` (${onOrder} already queued)`}
                 </div>
-                {deliveredAgeYears(type) > 0 && (
+                {deliveredAgeYears(type, calYear) > 0 && (
                   <div style={{ marginTop: 4, fontSize: 11, color: 'var(--yellow)' }}>
                     <Glyph e="🕐" /> Out of production — arrives{' '}
-                    <strong>{`${deliveredAgeYears(type)} years old`}</strong>
+                    <strong>{`${deliveredAgeYears(type, calYear)} years old`}</strong>
                     {`, so maintenance already bills at `}
-                    {`${(deliveredMaint(type) / (type.baseMaintenancePerWk || 1)).toFixed(2)}x base `}
+                    {`${(deliveredMaint(type, calYear) / (type.baseMaintenancePerWk || 1)).toFixed(2)}x base `}
                     {`and climbs faster from here.`}
                   </div>
                 )}

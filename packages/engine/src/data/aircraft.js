@@ -2266,6 +2266,31 @@ export const AIRCRAFT_TYPES = [
     image: 'https://upload.wikimedia.org/wikipedia/commons/d/df/Douglas_DC-3%2C_SE-CFP.jpg',
   },
   {
+    // War-surplus DC-3 (Discord 2026-09-01, Ross). Thousands of C-47s were sold
+    // off after 1945 for a fraction of a DC-3's price, and most regional airlines
+    // of the late 1940s started on them: same airframe with a cargo door, a
+    // strengthened floor and a bare troop cabin re-seated to airline layout —
+    // fewer seats, cheaper to buy, rougher to keep. Line closed in 1945, so it is
+    // second-hand in every era world and expired (off the AI picker) by 2026.
+    id: 'c47',
+    name: 'Douglas C-47 Skytrain',
+    manufacturer: 'Douglas',
+    category: 'Turboprop',
+    eis: 1942,
+    oop: 1945,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 28,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
+    range: 2_600,
+    runwayFt: 3000,
+    weeklyLease:    2_900,
+    purchasePrice: 1150000,   // sits on the $40K/seat small-type floor (aircraft-consistency-test)
+    fuelBurnPer100km: 93.75,
+    crewCostPerKm: 0.9,
+    baseMaintenancePerWk: 6_800,
+    description: 'The surplus DC-3. Military cargo door, bare cabin, bargain price — the airframe most postwar start-ups actually began with.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/d/df/Douglas_DC-3%2C_SE-CFP.jpg',
+  },
+  {
     id: 'dc863',
     name: 'Douglas DC-8-63',
     manufacturer: 'Douglas',

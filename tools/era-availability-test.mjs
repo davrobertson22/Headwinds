@@ -111,7 +111,7 @@ test('expired lines are refused everywhere: order, lease, planners', () => {
 
 test('every era opens with a real fleet — the propliner catalogue is in', () => {
   const at = (y) => AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, y)).length;
-  assert.equal(at(1950), 5, 'DC-3, DC-4, L-749, CV-240, Stratocruiser');
+  assert.equal(at(1950), 6, 'C-47, DC-3, DC-4, L-749, CV-240, Stratocruiser');
   assert.ok(at(1955) >= 10, `1955 should field 10+ types, got ${at(1955)}`);
   assert.ok(at(1958) >= 18, `1958 (jet age dawn) should field 18+, got ${at(1958)}`);
   assert.ok(at(1978) >= 48, `1978 should field 48+ types, got ${at(1978)}`);
