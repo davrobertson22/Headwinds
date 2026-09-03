@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, fleetAvgUtilization, isRouteActive, weekToGameDate } from '../utils/simulation.js';
 import { computeQualityScore, cabinQualityPoints } from '../models/demand.js';
+// The projected-share row asks the demand model itself — never a hand-rolled
+// ratio (models/pairShare.js is the single source of truth for share previews).
+import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
+import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js';
 import { laborEffects } from '../data/labor.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
 import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
@@ -574,7 +578,7 @@ function StatLine({ label, value, color, prefix = '' }) {
   );
 }
 
-function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
+export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
   const { state } = useGame();
   const [a, b] = routeKey.split('-');
   const oAirport = getAirport(a);
@@ -587,6 +591,32 @@ function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
   // playerRoute is a pair AGGREGATE (all your aircraft on this city pair).
   const pQual = playerPairQuality(playerRoute, fleet, laborFx);
   const pLegs = playerRoute.legs ?? [playerRoute];
+
+  // Projected share — the demand model's split for this pair, from the same
+  // pairMarketShare the weekly tick agrees with. It sees what the comparison
+  // rows below structurally CANNOT: brand awareness/reputation, marketing,
+  // connectivity, cabin mix and capacity caps. Without it a player who wins
+  // every visible row can lose the pair and reads the game as broken
+  // (Discord, 2026-09-02: $140/q92 vs $184/q82 and still half-empty — the
+  // missing input was awareness, which no cell on this card displayed).
+  const shareInfo = useMemo(() => {
+    try { return pairMarketShare(state, a, b); }
+    catch { return null; }   // a malformed entry must never take down the page
+  }, [state, a, b]);
+  // Rival share by airline id. Summed, not assigned: on a pooled metro lane one
+  // airline can bring several offers (JFK and EWR are different products), and
+  // its column should carry the airline's whole slice.
+  const rivalShares = useMemo(() => {
+    const map = {};
+    if (!shareInfo || !(shareInfo.totalPax > 0)) return map;
+    shareInfo.offers.forEach((o, i) => {
+      if (o.airlineId && o.airlineId !== 'player') {
+        map[o.airlineId] = (map[o.airlineId] ?? 0)
+          + (shareInfo.results[i]?.totalPax ?? 0) / shareInfo.totalPax;
+      }
+    });
+    return map;
+  }, [shareInfo]);
 
   const cols = 1 + competitors.length; // you + N competitors
 
@@ -661,6 +691,16 @@ function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
             );
           })}
         </>)}
+        {/* Projected share — the model's answer, not a departure count */}
+        {shareInfo?.playerShare != null && shareInfo.totalPax > 0 && (<>
+          <RowLabel>
+            <span title="How this week's passengers split between the carriers on this pair, according to the demand model that books them — including brand awareness, reputation, marketing, connectivity and cabin mix, not just the rows above.">
+              Projected share
+            </span>
+          </RowLabel>
+          <ShareCell share={shareInfo.playerShare} isPlayer />
+          {competitors.map(c => <ShareCell key={c.id} share={rivalShares[c.id] ?? null} />)}
+        </>)}
       </div>
 
       {/* Hints */}
@@ -670,6 +710,8 @@ function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
         competitors={competitors}
         routeKey={routeKey}
         refP={refP}
+        shareInfo={shareInfo}
+        awareness={state.awareness ?? 5}
       />
     </div>
   );
@@ -734,7 +776,24 @@ function FreqCell({ freq }) {
   );
 }
 
-function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP }) {
+/** One cell of the projected-share row. `data-share` carries the rounded figure
+ *  so the SSR agreement test can read exactly what the player was shown. */
+function ShareCell({ share, isPlayer }) {
+  if (share == null) return (
+    <div style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>–</div>
+  );
+  const pct = Math.round(share * 100);
+  return (
+    <div data-share={pct} data-carrier={isPlayer ? 'player' : 'rival'} style={{ padding: '7px 8px', textAlign: 'center' }}>
+      <span style={{ fontWeight: 700, color: isPlayer ? 'var(--accent)' : 'var(--text)' }}>{pct}%</span>
+      <div style={{ height: 3, background: 'var(--surface2)', borderRadius: 2, marginTop: 3, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: isPlayer ? 'var(--accent)' : 'var(--text-muted)', borderRadius: 2 }} />
+      </div>
+    </div>
+  );
+}
+
+function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP, shareInfo, awareness }) {
   const hints = [];
 
   for (const c of competitors) {
@@ -751,6 +810,29 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
 
     if (priceDiff < -compPrice * 0.12 && qualDiff > 15)
       hints.push({ type: 'good', text: `You lead ${c.name} on both price and quality, strong position.` });
+  }
+
+  // Brand awareness — the biggest input the comparison grid cannot show. Below
+  // parity, part of the market simply never considers you, whatever your price
+  // or quality (awarenessDemandMultiplier: awareness 5 reaches ~45% of demand).
+  if (awareness != null && awareness < AWARENESS_PARITY - 15) {
+    const reach = Math.round(awarenessDemandMultiplier(awareness) * 100);
+    hints.push({ type: 'warn', text: `Brand awareness is ${Math.round(awareness)}/100 — only ~${reach}% of this market considers flying with you at all, whatever your price or quality. Brand marketing builds awareness (parity at ${AWARENESS_PARITY}).` });
+  }
+
+  // Business cabin — an economy-only offer is excluded from the business
+  // segment outright, so a rival with the only J cabin takes every business
+  // traveller on the pair no matter how it compares on the rows above.
+  if (shareInfo?.playerResult && shareInfo.offers?.length > 1) {
+    const pOffer = shareInfo.offers[0];
+    const playerSellsJ = pOffer.businessPrice != null && (pOffer.businessSeats ?? 0) > 0;
+    const rivalSellsJ = shareInfo.offers.some((o, i) =>
+      i > 0 && o.airlineId !== 'player' && o.businessPrice != null && (o.businessSeats ?? 0) > 0);
+    const bizD = shareInfo.market?.businessDemand ?? 0;
+    const bizPct = Math.round(100 * bizD / Math.max(1, bizD + (shareInfo.market?.leisureDemand ?? 0)));
+    if (!playerSellsJ && rivalSellsJ && bizPct >= 5) {
+      hints.push({ type: 'info', text: `You sell no business cabin on this pair — the business segment (~${bizPct}% of this market) can only book with rivals. Add business seats in your aircraft's cabin configuration to compete for it.` });
+    }
   }
 
   if (hints.length === 0) return null;
