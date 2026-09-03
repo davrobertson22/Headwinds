@@ -1,4 +1,5 @@
 import { weeklyWearFailureProb, isOutOfService } from './maintenance.js';
+import { getAircraftType, isPressurized, hasAPU } from './aircraft.js';
 
 // ── Random event templates ────────────────────────────────────────────────────
 //
@@ -674,16 +675,40 @@ export function tickEvents(activeEvents) {
 
 // ── Mechanical failure descriptions ──────────────────────────────────────────
 
+// `needs` names a system the airframe has to actually carry for the fault to be
+// possible — see failureTypesFor below. Everything unmarked can happen to
+// anything with wings.
 const FAILURE_TYPES = [
   { label: 'Engine fault',          icon: '🔧', severity: 'major',  durationRange: [2, 4] },
   { label: 'Hydraulics leak',       icon: '🔩', severity: 'major',  durationRange: [2, 3] },
   { label: 'Avionics fault',        icon: '📡', severity: 'minor',  durationRange: [1, 2] },
   { label: 'Landing gear issue',    icon: '⚙️', severity: 'major',  durationRange: [2, 4] },
-  { label: 'APU failure',           icon: '🔌', severity: 'minor',  durationRange: [1, 2] },
-  { label: 'Pressurization fault',  icon: '💨', severity: 'major',  durationRange: [2, 3] },
+  { label: 'APU failure',           icon: '🔌', severity: 'minor',  durationRange: [1, 2], needs: 'apu' },
+  { label: 'Pressurization fault',  icon: '💨', severity: 'major',  durationRange: [2, 3], needs: 'pressurization' },
   { label: 'Fuel system anomaly',   icon: '⛽', severity: 'minor',  durationRange: [1, 2] },
   { label: 'Structural crack found',icon: '🪛', severity: 'severe', durationRange: [3, 5] },
 ];
+
+/**
+ * The faults an aircraft TYPE can actually suffer.
+ *
+ * Discord 2026-09-02 (CorporalSimmons): a DC-4 grounded two weeks with a
+ * "Pressurization fault" — an aircraft whose own description calls it
+ * unpressurised. The table was drawn from uniformly with no idea what it was
+ * breaking, so any airframe could lose any system, including ones it never had.
+ *
+ * An unknown type keeps the full table (a new aircraft breaks like an airliner,
+ * never like nothing), and so does anything that would otherwise filter down to
+ * nothing.
+ */
+export function failureTypesFor(type) {
+  const pool = FAILURE_TYPES.filter(f => {
+    if (f.needs === 'pressurization') return isPressurized(type);
+    if (f.needs === 'apu')            return hasAPU(type);
+    return true;
+  });
+  return pool.length ? pool : FAILURE_TYPES;
+}
 
 /**
  * Probability of a mechanical failure occurring this week for a given aircraft.
@@ -713,7 +738,11 @@ export function rollMechanicalFailures(fleet, maintenanceBudget = 1.0) {
     const prob = weeklyWearFailureProb(aircraft, null, maintenanceBudget);
     if (Math.random() > prob) continue;
 
-    const tmpl = FAILURE_TYPES[Math.floor(Math.random() * FAILURE_TYPES.length)];
+    // Drawn from what THIS airframe can suffer — a propliner cannot lose a
+    // pressurization system it does not have. Same two draws either way, so
+    // the tick's RNG sequence is unchanged.
+    const pool = failureTypesFor(getAircraftType(aircraft.typeId));
+    const tmpl = pool[Math.floor(Math.random() * pool.length)];
     const weeksGrounded = randInt(tmpl.durationRange[0], tmpl.durationRange[1]);
     failures.push({
       aircraftId:    aircraft.id,

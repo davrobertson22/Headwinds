@@ -740,7 +740,10 @@ test('no freighter sits in a family of its own invention', () => {
   // passenger sibling or another freighter of the same airframe. The exceptions
   // are the two purpose-built outsize Antonovs, which have no passenger version
   // anywhere in the catalogue and legitimately carry their own family.
-  const ALLOWED_FREIGHT_ONLY = new Set(['antonov_an124', 'antonov_an12']);
+  // The C-46 (2026-09-03) is the third: a war-surplus piston hauler whose
+  // airline career was entirely freight, from an OEM that left the aircraft
+  // business in 1951 — there is no passenger sibling to group it with.
+  const ALLOWED_FREIGHT_ONLY = new Set(['antonov_an124', 'antonov_an12', 'curtiss_c46']);
   const lonely = AIRCRAFT_TYPES.filter(t => t.freighter).filter((t) => {
     const fam = aircraftFamily(t.id);
     if (ALLOWED_FREIGHT_ONLY.has(fam)) return false;

@@ -17,7 +17,7 @@ import {
   lessorSupplies,
   leaseOrderBookCap,
 } from '../data/aircraft.js';
-import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear } from '../utils/simulation.js';
+import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
@@ -495,6 +495,7 @@ const TABLE_COLS = [
   { key: 'name',     label: 'Aircraft',     align: 'left'  },
   { key: 'seats',    label: 'Seats',        align: 'right' },
   { key: 'range',    label: 'Range',        align: 'right' },
+  { key: 'speed',    label: 'Cruise',       align: 'right', title: 'Cruise speed (km/h). Sets block time, so it decides how many rotations a week a frame can fly \u2014 a 350 km/h propliner flies a third of the sectors a jet does on the same route.' },
   { key: 'runway',   label: 'Runway',       align: 'right', title: 'Minimum runway length required (ft)' },
   { key: 'fuel',     label: 'Fuel/seat',    align: 'right', title: 'Litres per seat per 100 km (per tonne for freighters)' },
   { key: 'eff',      label: 'Fuel eff.',    align: 'right', title: 'Fuel cost per seat, scored 0-100 across the passenger fleet. FUEL ONLY — maintenance, crew and ownership are not in this number.' },
@@ -560,6 +561,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                 </td>
                 <td style={{ textAlign: 'right' }}>{t.freighter ? `${t.payloadTonnes}t` : t.seats}</td>
                 <td style={{ textAlign: 'right' }}>{t.range.toLocaleString()} km</td>
+                <td style={{ textAlign: 'right' }}>{r.speed.toLocaleString()} km/h</td>
                 <td style={{ textAlign: 'right' }}>{t.runwayFt ? `${t.runwayFt.toLocaleString()} ft` : '–'}</td>
                 <td style={{ textAlign: 'right' }}>{r.fuel.toFixed(2)}</td>
                 <td style={{ textAlign: 'right', color: r.effColor, fontWeight: 600 }}>{t.freighter ? '–' : r.eff}</td>
@@ -941,6 +943,7 @@ export default function Marketplace() {
             name:     type.name,
             seats:    type.freighter ? (type.payloadTonnes ?? 0) : type.seats,
             range:    type.range,
+            speed:    cruiseSpeedKmh(type),
             runway:   type.runwayFt ?? 0,
             fuel:     type.freighter
               ? type.fuelBurnPer100km / (type.payloadTonnes || 1)
@@ -1058,6 +1061,10 @@ export default function Marketplace() {
                   <div className="aircraft-stat-pill">
                     <span className="aircraft-stat-pill-label">Range</span>
                     <span className="aircraft-stat-pill-value">{type.range.toLocaleString()} km</span>
+                  </div>
+                  <div className="aircraft-stat-pill" title="Cruise speed. Block time is flight time plus turnaround, so this is what caps how many rotations a week the frame can fly.">
+                    <span className="aircraft-stat-pill-label">Cruise</span>
+                    <span className="aircraft-stat-pill-value">{cruiseSpeedKmh(type).toLocaleString()} km/h</span>
                   </div>
                   <div className="aircraft-stat-pill">
                     <span className="aircraft-stat-pill-label">Runway</span>

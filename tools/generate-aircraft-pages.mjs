@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
 import { fuelCostPerKm } from '../src/utils/fuel.js';
+import { cruiseSpeedKmh } from '../src/utils/simulation.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'public');
@@ -236,6 +237,7 @@ function statsTable(group, isFreight) {
         <td><a href="#${t.id}">${esc(t.name)}</a></td>
         <td>${isFreight ? `${t.payloadTonnes} t` : fmtInt(t.seats)}</td>
         <td>${fmtInt(t.range)} km</td>
+        <td>${fmtInt(cruiseSpeedKmh(t))} km/h</td>
         <td>${fmtMoney(t.weeklyLease)}</td>
         <td>${fmtMoney(t.purchasePrice)}</td>
         <td>${t.fuelBurnPer100km.toFixed(0)} L</td>
@@ -244,7 +246,7 @@ function statsTable(group, isFreight) {
     )
     .join('\n');
   return `    <div class="tablewrap"><table class="stats">
-      <thead><tr><th>Aircraft</th><th>${isFreight ? 'Payload' : 'Seats'}</th><th>Range</th><th>Lease/wk</th><th>Price</th><th>Fuel/100km</th><th>Fuel/${isFreight ? 'tonne' : 'seat'}-km</th></tr></thead>
+      <thead><tr><th>Aircraft</th><th>${isFreight ? 'Payload' : 'Seats'}</th><th>Range</th><th>Cruise</th><th>Lease/wk</th><th>Price</th><th>Fuel/100km</th><th>Fuel/${isFreight ? 'tonne' : 'seat'}-km</th></tr></thead>
       <tbody>
 ${rows}
       </tbody>
@@ -255,6 +257,7 @@ function aircraftCard(t, group, isFreight) {
   const specs = [
     isFreight ? `<span>Payload <b>${t.payloadTonnes} tonnes</b></span>` : `<span>Seats <b>${fmtInt(t.seats)}</b></span>`,
     `<span>Range <b>${fmtInt(t.range)} km</b></span>`,
+    `<span>Cruise <b>${fmtInt(cruiseSpeedKmh(t))} km/h</b></span>`,
     `<span>Lease <b>${fmtMoney(t.weeklyLease)}/wk</b></span>`,
     `<span>Buy <b>${fmtMoney(t.purchasePrice)}</b></span>`,
     `<span>Fuel <b>${t.fuelBurnPer100km.toFixed(0)} L/100km</b> (≈ $${t.fuelKm.toFixed(2)}/km)</span>`,

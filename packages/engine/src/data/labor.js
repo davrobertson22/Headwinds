@@ -501,6 +501,40 @@ export function ensureCrewSeeded(labor, fleet, typeOf) {
   return changed ? next : labor;
 }
 
+/**
+ * Crew that come with an acquired airline.
+ *
+ * Buying a carrier buys its people (Discord 2026-09-02, four4forfore). Before
+ * this, an acquisition handed you their fleet, routes, gates and cash and left
+ * their workforce behind: the merged airline needed roughly twice the crew it
+ * had, aircraft went unstaffed, and the only cure was a ten-week pilot course
+ * you had to pay for on top of the acquisition premium.
+ *
+ * Adds the DELTA in requirement between the two fleets, so:
+ *   - a shortfall you were already carrying comes through the deal unchanged
+ *     (the acquisition is not a way to fix your own understaffing), and
+ *   - inherited crew are available immediately — they are already trained and
+ *     already flying these aircraft; they were on the target's payroll last week.
+ *
+ * A group with no headcount recorded is left alone for ensureCrewSeeded, which
+ * sizes an untracked save to whatever fleet it is holding at the time.
+ */
+export function absorbCrewFor(labor, fleetBefore, fleetAfter, typeOf) {
+  if (!labor) return labor;
+  const next = { ...labor };
+  let changed = false;
+  for (const g of LABOR_GROUPS) {
+    const cur = labor[g.id];
+    if (!cur || cur.headcount == null) continue;
+    const delta = Math.ceil(crewRequired(g.id, fleetAfter, typeOf)
+                          - crewRequired(g.id, fleetBefore, typeOf));
+    if (delta <= 0) continue;
+    next[g.id] = { ...cur, headcount: cur.headcount + delta };
+    changed = true;
+  }
+  return changed ? next : labor;
+}
+
 /** Fully-staffed labor state for a fleet — used when seeding a new save/world. */
 export function seedCrewFor(labor, fleet, typeOf) {
   const next = { ...labor };

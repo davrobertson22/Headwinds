@@ -11,7 +11,7 @@ import {
   SEAT_QUALITY_FITTING_FEE,
   cabinInstallFee,
   weekToGameDate,
-  configRangeMod, calendarYear } from '../utils/simulation.js';
+  configRangeMod, calendarYear, cruiseSpeedKmh } from '../utils/simulation.js';
 import {
   wifiInstallCost, wifiRetrofitCost, wifiLeaseSurcharge, WIFI_WEEKLY_OPEX,
 } from '../data/wifi.js';
@@ -407,7 +407,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
               <div style={{ fontWeight: 700, fontSize: 19 }}>{type.name}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 {type.manufacturer} · <span style={{ color: catColor }}>{type.category}</span>
-                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range
+                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range · {cruiseSpeedKmh(type).toLocaleString()} km/h cruise
               </div>
             </div>
             <button className="btn btn-ghost" onClick={onClose} style={{ padding: '4px 10px', marginLeft: 8 }}><Glyph e="✕" /></button>

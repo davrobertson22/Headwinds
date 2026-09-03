@@ -302,5 +302,31 @@ test('the 1950 table marks in-production propliners new', () => {
   assert.ok(!/y used/.test(row), `CV-240 row in 1950: ${row.match(/\d+y used/)?.[0]}`);
 });
 
+section('7. Cruise speed is a listed spec, and the 1950 market has a freighter');
+
+// Discord 2026-09-03 (CorporalSimmons): "I would add speed to the list of
+// specifications instead of it being a semi-hidden stat" — cruise speed set
+// block time, and so how many rotations a week a frame could fly, while
+// appearing on no screen. Same thread: the C-46, because before it the
+// earliest freighter in the catalogue was the 1959 An-12 and cargo did not
+// exist in a 1950 world.
+
+test('every market card carries a cruise-speed pill', () => {
+  const card = cardFor(eraCards, 'Douglas DC-4');
+  assert.ok(/Cruise/.test(card), 'no cruise pill on the card');
+  assert.ok(card.includes('365'), `the DC-4 card does not quote its 365 km/h cruise`);
+});
+
+test('the comparison table has a cruise column', () => {
+  assert.ok(/>Cruise</.test(eraTable), 'no Cruise column header in the table view');
+  const row = eraTable.slice(eraTable.indexOf('Douglas DC-4'), eraTable.indexOf('</tr>', eraTable.indexOf('Douglas DC-4')));
+  assert.ok(/365 km\/h/.test(row.replace(/<!-- -->/g, '')), `no cruise speed in the DC-4 row`);
+});
+
+test('a 1950 world can buy a freighter and a North Star', () => {
+  assert.ok(eraCards.includes('C-46 Commando'), 'the 1950 market lists no freighter at all');
+  assert.ok(eraCards.includes('Canadair North Star'), 'the North Star (1947) is missing from a 1950 market');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

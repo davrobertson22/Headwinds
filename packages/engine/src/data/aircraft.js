@@ -540,6 +540,7 @@ export const AIRCRAFT_TYPES = [
   // ── AIRCRAFT INDUSTRIES ─────────────────────────────────────────────────────
   {
     id: 'l410',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Let L-410 Turbolet',
     manufacturer: 'Aircraft Industries',
     category: 'Turboprop',
@@ -617,6 +618,7 @@ export const AIRCRAFT_TYPES = [
   // ── BEECHCRAFT ──────────────────────────────────────────────────────────────
   {
     id: 'b1900d',
+    apu: false,   // no auxiliary power unit
     name: 'Beechcraft 1900D',
     manufacturer: 'Beechcraft',
     category: 'Turboprop',
@@ -1401,6 +1403,7 @@ export const AIRCRAFT_TYPES = [
   // ── BRITTEN-NORMAN ──────────────────────────────────────────────────────────
   {
     id: 'bn2islander',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Britten-Norman Islander',
     manufacturer: 'Britten-Norman',
     category: 'Turboprop',
@@ -1422,6 +1425,7 @@ export const AIRCRAFT_TYPES = [
   // ── CESSNA ──────────────────────────────────────────────────────────────────
   {
     id: 'c208b',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Cessna 208B Grand Caravan EX',
     manufacturer: 'Cessna',
     category: 'Turboprop',
@@ -1906,6 +1910,7 @@ export const AIRCRAFT_TYPES = [
   // ── PILATUS ─────────────────────────────────────────────────────────────────
   {
     id: 'pc12',
+    apu: false,   // no auxiliary power unit
     name: 'Pilatus PC-12 NGX',
     manufacturer: 'Pilatus',
     category: 'Turboprop',
@@ -1965,6 +1970,7 @@ export const AIRCRAFT_TYPES = [
   // ── SHORT BROTHERS ──────────────────────────────────────────────────────────
   {
     id: 'short360',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Short 360',
     manufacturer: 'Short Brothers',
     category: 'Turboprop',
@@ -2027,6 +2033,7 @@ export const AIRCRAFT_TYPES = [
   // ── VIKING AIR ──────────────────────────────────────────────────────────────
   {
     id: 'dhc6',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'DHC-6 Twin Otter 400',
     manufacturer: 'Viking Air',
     category: 'Turboprop',
@@ -2050,6 +2057,38 @@ export const AIRCRAFT_TYPES = [
   // seat-efficiency comparison. Same airframes as their passenger equivalents, so
   // fuel/crew/maintenance mirror those; purchase prices reflect the freighter/used
   // conversion market. Sorted by payload (small → large).
+  {
+    // Curtiss C-46 Commando (Discord 2026-09-03, CorporalSimmons: "an earlygame
+    // surplus Cargo aircraft ... available from 1950 but already out of
+    // production"). Before this the earliest freighter in the table was the
+    // 1959 An-12, so cargo was simply unplayable in a 1950 era world. War
+    // surplus by the thousand: twice a DC-3's payload, a short-field twin that
+    // works a 3,600 ft strip, slow and thirsty for what it lifts, and orphaned
+    // — Curtiss-Wright left the aircraft business in 1951, so it carries its own
+    // family and its own parts problem. Line closed 1945, so it is second-hand
+    // in every era world.
+    id: 'c46',
+    name: 'Curtiss C-46 Commando',
+    manufacturer: 'Curtiss',
+    category: 'Freighter',
+    surplus: true,   // sold off by the thousand after 1945 — never priced as new metal (no era new-build premium)
+    eis: 1942,
+    oop: 1945,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    freighter: true,
+    payloadTonnes: 6.8,
+    cruiseKmh: 300,
+    range: 1_900,
+    runwayFt: 3600,
+    weeklyLease: 3500,
+    purchasePrice: 1400000,
+    fuelBurnPer100km: 115,
+    crewCostPerKm: 0.95,
+    baseMaintenancePerWk: 7_000,
+    deliveredAgeWeeks: 832,   // arrives 16y old — war-surplus metal, not a new build
+    description: 'The war-surplus hauler. Twice a DC-3\'s load out of a short gravel strip, on two big radials nobody builds parts for any more.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Curtiss_C-46A_Commando,_Royal_Carga_JP38822.jpg?width=960',
+  },
   {
     id: 'atr72f',
     name: 'ATR 72-600F',
@@ -2248,6 +2287,7 @@ export const AIRCRAFT_TYPES = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     id: 'dc3',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Douglas DC-3',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -2273,6 +2313,7 @@ export const AIRCRAFT_TYPES = [
     // fewer seats, cheaper to buy, rougher to keep. Line closed in 1945, so it is
     // second-hand in every era world and expired (off the AI picker) by 2026.
     id: 'c47',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Douglas C-47 Skytrain',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -2817,6 +2858,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'do228',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Dornier 228',
     manufacturer: 'Dornier',
     category: 'Turboprop',
@@ -2855,6 +2897,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'js31',
+    apu: false,   // no auxiliary power unit
     name: 'BAe Jetstream 31',
     manufacturer: 'British Aerospace',
     category: 'Turboprop',
@@ -3006,6 +3049,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'c408',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Cessna 408 SkyCourier',
     manufacturer: 'Cessna',
     category: 'Turboprop',
@@ -3042,6 +3086,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'emb110',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Embraer EMB-110 Bandeirante',
     manufacturer: 'Embraer',
     category: 'Turboprop',
@@ -3376,6 +3421,7 @@ export const AIRCRAFT_TYPES = [
   // Commons Special:FilePath redirects (resolved by exact filename).
   {
     id: 'dc4',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Douglas DC-4',
     manufacturer: 'Douglas',
     category: 'Turboprop',
@@ -3394,6 +3440,35 @@ export const AIRCRAFT_TYPES = [
     cruiseKmh: 365,
     description: 'War-surplus workhorse. Cheap, slow and unpressurised — the airframe that built the postwar route map.',
     image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Douglas_DC-4_Pan_Am.jpg?width=960',
+  },
+  {
+    // Canadair North Star / C-4 Argonaut (Discord 2026-09-03, CorporalSimmons:
+    // "a DC-4 but weird ... in basically every way except name, it's a DC-5").
+    // A DC-4 airframe with the DC-6's nose and pressurisation and, uniquely,
+    // Rolls-Royce Merlins in place of radials: 520 km/h against the DC-4's 365,
+    // 6,200 km against 4,000, 55 seats against 44. The Merlins are the price —
+    // liquid-cooled fighter engines on an airliner meant short overhaul
+    // intervals, high burn for the size, and a support ecosystem shared with
+    // nothing else in the catalogue (its own family, so a DC-4 operator adding
+    // one takes a second family base cost). Line closed 1950; 71 built.
+    id: 'northstar',
+    name: 'Canadair North Star',
+    manufacturer: 'Canadair',
+    category: 'Turboprop',
+    eis: 1947,
+    oop: 1950,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 55,
+    deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
+    range: 6_200,
+    runwayFt: 4800,
+    weeklyLease:      6_400,
+    purchasePrice: 2500000,
+    fuelBurnPer100km: 162,
+    crewCostPerKm: 1.15,
+    baseMaintenancePerWk: 14_000,
+    cruiseKmh: 520,
+    description: 'A DC-4 re-engined with Merlins — faster and longer-legged than anything else of 1947, and loud enough that passengers complained in writing.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/G-ALHJ_Canadair_C.4_Argonaut_(WFU)_BOAC_LHR_01MAR64_(5562138341).jpg?width=960',
   },
   {
     id: 'l749',
@@ -3497,6 +3572,32 @@ export const AIRCRAFT_TYPES = [
     image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Martin_4-0-4,_Piedmont_Airlines_JP6984859.jpg?width=960',
   },
   {
+    // Early Super Constellation (Discord 2026-09-03, CorporalSimmons: a 1951
+    // alternative to the 377, "a middle ground between the 377 and the DC-7").
+    // The stretched Connie as first delivered — plain R-3350s, no tip tanks:
+    // most of the L-1049G's cabin four years earlier, without the G's range or
+    // its turbo-compound overhaul bills. Buys capacity in 1951, when the only
+    // other 90+ seat frame is the Stratocruiser.
+    id: 'l1049',
+    name: 'Lockheed L-1049 Super Constellation',
+    manufacturer: 'Lockheed',
+    category: 'Turboprop',
+    eis: 1951,
+    oop: 1954,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 88,
+    deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
+    range: 4_300,
+    runwayFt: 5800,
+    weeklyLease:      11_900,
+    purchasePrice: 4600000,
+    fuelBurnPer100km: 200,
+    crewCostPerKm: 1.5,
+    baseMaintenancePerWk: 21_000,
+    cruiseKmh: 480,
+    description: 'The stretched Connie as first built: plain R-3350s, no tip tanks. Most of a 1049G four years early, and it will not cross an ocean.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Trans_World_Airlines_Lockheed_L-1049A_Super_Constellation_Star_of_the_Seine_N6902C_at_Kansas_City_Fairfax_Airport_(KCK),_June_1951_Clint_Groves_(cropped).jpg?width=960',
+  },
+  {
     id: 'comet1',
     name: 'de Havilland Comet 1',
     manufacturer: 'de Havilland',
@@ -3539,6 +3640,7 @@ export const AIRCRAFT_TYPES = [
   },
   {
     id: 'il14',
+    pressurized: false,   // no cabin pressurization — cannot suffer a pressurization fault
     name: 'Ilyushin Il-14',
     manufacturer: 'Ilyushin',
     category: 'Turboprop',
@@ -3819,6 +3921,35 @@ export const AIRCRAFT_TYPES = [
 
 export function getAircraftType(id) {
   return AIRCRAFT_TYPES.find(a => a.id === id);
+}
+
+// ─── Systems an airframe actually carries ─────────────────────────────────────
+//
+// A mechanical failure has to be possible on the aircraft it grounds. Discord
+// 2026-09-02 (CorporalSimmons): a DC-4 — "cheap, slow and unpressurised", in its
+// own catalogue entry — was grounded two weeks by a "Pressurization fault".
+//
+// Only the exceptions are flagged in the table above, so a new aircraft added
+// without either key is treated as a normal modern airliner.
+
+/** Year from which an airliner is assumed to carry an APU (727-era onward). */
+export const APU_FROM_YEAR = 1962;
+
+/** Does this airframe have a pressurized cabin? Unknown types: yes. */
+export function isPressurized(type) {
+  return type?.pressurized !== false;
+}
+
+/**
+ * Does this airframe carry an APU? Piston and early-turboprop airliners did not
+ * (ground carts and engine bleed did the job), and neither do the unpressurized
+ * light twins — the rest of the catalogue does.
+ */
+export function hasAPU(type) {
+  if (!type) return true;
+  if (type.apu != null) return type.apu;
+  if (type.pressurized === false) return false;
+  return (type.eis ?? APU_FROM_YEAR) >= APU_FROM_YEAR;
 }
 
 export const AIRCRAFT_CATEGORIES = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body', 'Double Deck', 'Supersonic', 'Freighter'];

@@ -202,7 +202,9 @@ export const AIRCRAFT_FAMILY = {
 
   // Propliner era (era worlds phase 4) ─────────────────────────────────────
   dc4:  'douglas_piston', dc6b: 'douglas_piston', dc7c: 'douglas_piston',   // one evolutionary line, shared tooling
-  l749: 'lockheed_connie', l1049g: 'lockheed_connie', l1649: 'lockheed_connie',
+  l749: 'lockheed_connie', l1049: 'lockheed_connie', l1049g: 'lockheed_connie', l1649: 'lockheed_connie',
+  northstar: 'canadair_northstar',   // DC-4 tooling, but Merlins — the engine shop is the family
+  c46: 'curtiss_c46',                // orphaned OEM, no passenger sibling anywhere in the catalogue
   cv240: 'convair_pistonliner', cv440: 'convair_pistonliner',
   b377:  'boeing_377',
   m404:  'martin_404',
@@ -378,6 +380,8 @@ export const FAMILY_INFO = {
   // × 1.15 pre-1990 scarce parts where the band applies it, × 1.10 for 3+
   // engines, × 1.15 orphaned certificate. Cross-checks named per entry.
   douglas_piston:      { name: 'Douglas DC-4/6/7',   category: 'turboprop', weeklyBaseCost: 19_000, note: 'One evolutionary quad-piston line; 46-80 seat band 15k × 1.15 vintage × 1.10 quad — beside lockheed_l188 28k which also carries the orphan bump' },
+  canadair_northstar:  { name: 'Canadair North Star', category: 'turboprop', weeklyBaseCost: 22_000, note: 'DC-4 airframe on Rolls-Royce Merlins; 46-80 band 15k \u00d7 1.15 vintage \u00d7 1.10 quad \u00d7 1.15 orphaned engine line \u2014 above douglas_piston 19k, which shares its parts with three types' },
+  curtiss_c46:         { name: 'Curtiss C-46 Commando', category: 'turboprop', weeklyBaseCost: 17_000, note: 'War-surplus piston freighter; DC-3 anchor 15k \u00d7 1.15 orphaned certificate (Curtiss-Wright left the business in 1951) \u2014 a bigger airframe than a DC-3 with a smaller support ecosystem' },
   lockheed_connie:     { name: 'Lockheed Constellation', category: 'turboprop', weeklyBaseCost: 24_000, note: 'Triple-tail quads, Wright R-3350s; 81-110 band 19k × 1.15 × 1.10 — under lockheed_l188 28k (smaller support ecosystem there)' },
   convair_pistonliner: { name: 'Convair 240/440',    category: 'turboprop', weeklyBaseCost: 15_000, note: 'Piston twins, huge production run; 37-45 band 13k × 1.15 — beside convair_cv580 20k whose conversion has no OEM' },
   boeing_377:          { name: 'Boeing 377 Stratocruiser', category: 'turboprop', weeklyBaseCost: 26_000, note: 'R-4360 quad, tiny run; 81-110 band 19k × 1.15 vintage × 1.10 quad × orphan rounding — the maintenance hangar queen of the era' },
