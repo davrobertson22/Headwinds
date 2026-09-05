@@ -38,9 +38,19 @@
  * would charge for the same kit twice. See the note on `provisionCost` in
  * ancillaries.js.
  *
+ * ── Which airframes can carry it ────────────────────────────────────────────
+ * Not all of them. The rule itself lives with the other airframe-capability
+ * predicates in aircraft.js (`canFitWifi`, next to `isPressurized` and
+ * `hasAPU`); this module reads it so that every Wi-Fi call site — the order
+ * form, the retrofit button, the reducer — inherits the same answer. A tail
+ * that cannot be fitted still takes the `absentQ` drag: the market judges the
+ * flight it got, not the engineering that made it impossible.
+ *
  * No Date.now(), no Math.random() — every function here is pure so the golden
  * master and the reducer can both call it.
  */
+
+import { getAircraftType, canFitWifi, wifiAirframeDenial } from './aircraft.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -92,6 +102,28 @@ export function wifiLeaseSurcharge() {
 /** Is this tail fitted? Undefined/legacy tails read as NOT equipped. */
 export function isWifiEquipped(aircraft) {
   return !!aircraft?.hasWifi;
+}
+
+/**
+ * Can this TAIL be fitted — i.e. is its airframe a candidate at all?
+ * Takes a tail (or an order, or a bare typeId) so callers on either side of
+ * delivery can ask the same question.
+ */
+export function canFitWifiTo(aircraftOrTypeId) {
+  const typeId = typeof aircraftOrTypeId === 'string'
+    ? aircraftOrTypeId
+    : aircraftOrTypeId?.typeId;
+  if (!typeId) return false;
+  return canFitWifi(getAircraftType(typeId));
+}
+
+/** Player-facing reason a tail's airframe cannot be fitted, or null. */
+export function wifiAirframeReason(aircraftOrTypeId) {
+  const typeId = typeof aircraftOrTypeId === 'string'
+    ? aircraftOrTypeId
+    : aircraftOrTypeId?.typeId;
+  if (!typeId) return null;
+  return wifiAirframeDenial(getAircraftType(typeId));
 }
 
 /**
@@ -178,12 +210,24 @@ export function wifiCoverageFor(aircraft) {
  * @returns {{ ok, reasons: string[], eligible: object[], unitCost, capex }}
  */
 export function canRetrofitWifi(aircraftList = [], cash = 0) {
-  const unitCost = wifiRetrofitCost();
-  const eligible = (aircraftList ?? []).filter(
+  const unitCost   = wifiRetrofitCost();
+  const candidates = (aircraftList ?? []).filter(
     a => a && !isWifiEquipped(a) && a.status !== 'retired');
-  const capex    = eligible.length * unitCost;
-  const reasons  = [];
-  if (eligible.length === 0) reasons.push('Every aircraft selected is already fitted with Wi-Fi.');
-  else if (cash < capex)     reasons.push('Not enough cash to fit Wi-Fi to this many aircraft.');
-  return { ok: reasons.length === 0, reasons, eligible, unitCost, capex };
+  // Airframes that could never carry an installation are dropped from the
+  // quote entirely, so the capex on the button never includes a tail the
+  // reducer is going to refuse.
+  const unfittable = candidates.filter(a => !canFitWifiTo(a));
+  const eligible   = candidates.filter(a => canFitWifiTo(a));
+  const capex      = eligible.length * unitCost;
+  const reasons    = [];
+  if (eligible.length === 0) {
+    reasons.push(unfittable.length > 0 && candidates.length === unfittable.length
+      ? (unfittable.length === 1
+          ? wifiAirframeReason(unfittable[0])
+          : 'None of these airframes can be fitted with Wi-Fi — they left production decades before onboard connectivity existed.')
+      : 'Every aircraft selected is already fitted with Wi-Fi.');
+  } else if (cash < capex) {
+    reasons.push('Not enough cash to fit Wi-Fi to this many aircraft.');
+  }
+  return { ok: reasons.length === 0, reasons, eligible, unfittable, unitCost, capex };
 }

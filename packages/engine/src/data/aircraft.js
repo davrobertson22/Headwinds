@@ -3952,6 +3952,63 @@ export function hasAPU(type) {
   return (type.eis ?? APU_FROM_YEAR) >= APU_FROM_YEAR;
 }
 
+/**
+ * Year from which an airframe is assumed to be a candidate for onboard
+ * connectivity — keyed on the year its PRODUCTION LINE closed, not on when it
+ * entered service.
+ *
+ * Discord 2026-09-03 (Kat the Fox, CorporalSimmons): the order form offered a
+ * "Wi-Fi & streaming package" on a Lockheed Constellation, and a Boeing 377
+ * could be ordered with connectivity line-fit at the factory — a factory that
+ * shut in 1950. `ERA_FEATURE_FROM.wifi` gates the CALENDAR (no Wi-Fi anywhere
+ * before 2004), which is the right gate for an era world and no gate at all in
+ * a classic world, where the vintage rule puts every propliner in the
+ * catalogue at 2026 prices.
+ *
+ * So the airframe needs its own gate. The line is drawn at the end of the
+ * first jet generation: a type whose line closed before 1970 left mainline
+ * passenger service long before anyone put an antenna on a fuselage, and has
+ * neither the cabin power provisioning nor an STC that could ever have been
+ * written. That covers every propliner (Constellation, Stratocruiser, DC-3
+ * through DC-7, the Convairs, Viscounts, Martin 4-0-4, Il-14) and the
+ * first-generation jets alongside them (Comet, 707-120, DC-8-30, 720B,
+ * CV-990, Tu-104). Everything from the 727/737-200 generation onward stays
+ * fittable, which is roughly where real retrofit programmes did reach.
+ *
+ * A type still in production (no `oop`) is always fittable.
+ */
+export const WIFI_AIRFRAME_FROM = 1970;
+
+/**
+ * Can this airframe carry a connectivity installation at all?
+ * Set `wifi: true`/`wifi: false` on a type to override the rule — the same
+ * "only the exceptions are flagged" convention as `pressurized` and `apu`.
+ */
+export function canFitWifi(type) {
+  if (!type) return false;
+  if (type.wifi != null) return type.wifi;
+  return (type.oop ?? Infinity) >= WIFI_AIRFRAME_FROM;
+}
+
+/**
+ * Why this airframe cannot be fitted — the ONE place this sentence is written.
+ * Every surface that has to explain the refusal (order form, fleet badge,
+ * retrofit toast) reads it from here, so the copy cannot drift between the
+ * screen that refuses and the screen that explains.
+ *
+ * A type barred by the `wifi: false` override may have no `oop` at all, so the
+ * closure clause is conditional — "the line closed in undefined" is how a
+ * documented escape hatch turns into a bug report.
+ */
+export function wifiAirframeDenial(type) {
+  if (!type || canFitWifi(type)) return null;
+  const closed = type.oop != null
+    ? ` — the line closed in ${type.oop}, decades before onboard connectivity existed, and no `
+      + `installation was ever certified for the type`
+    : ' — no connectivity installation was ever certified for the type';
+  return `The ${type.name} cannot be fitted with Wi-Fi${closed}.`;
+}
+
 export const AIRCRAFT_CATEGORIES = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body', 'Double Deck', 'Supersonic', 'Freighter'];
 
 // ─── Purchase pricing helpers ─────────────────────────────────────────────────

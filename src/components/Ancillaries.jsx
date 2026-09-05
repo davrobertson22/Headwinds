@@ -11,6 +11,7 @@ import { Glyph } from './Icons.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import {
   fleetWifiCoverage, wifiEquippedCount, isWifiEquipped, wifiRetrofitCost, WIFI_WEEKLY_OPEX,
+  canFitWifiTo,
 } from '../data/wifi.js';
 import {
   isLoungeOpen, loungeEndpointCoverage, normalizeLoungePolicy,
@@ -279,6 +280,14 @@ export default function Ancillaries() {
   const liveFleet   = fleet.filter(a => a.status !== 'retired');
   const wifiCov     = fleetWifiCoverage(fleet, seatsOf);
   const wifiFitted  = wifiEquippedCount(fleet);
+  // Tails whose airframe can never carry an installation. They count against
+  // coverage — the market meets a Constellation with no Wi-Fi and judges it —
+  // but they must not be counted as a retrofit the player has neglected, or
+  // the card sends them to the Fleet page to buy something that isn't for sale.
+  // Only UNFITTED tails count here. A save from before the gate existed can
+  // hold a fitted Constellation; counting it would have the card say "1 of 1
+  // fitted" and "1 cannot be fitted at all" about the same aeroplane.
+  const wifiImpossible = liveFleet.filter(a => !isWifiEquipped(a) && !canFitWifiTo(a)).length;
   const loungeCov   = routes.length > 0
     ? routes.reduce((n, r) => n + loungeEndpointCoverage(lounges, r.origin, r.destination), 0) / routes.length
     : 0;
@@ -292,11 +301,17 @@ export default function Ancillaries() {
         : wifiFitted === 0
           ? 'No aircraft fitted'
           : `${wifiFitted} of ${liveFleet.length} aircraft fitted — ${Math.round(wifiCov * 100)}% of your seats`,
-      detail: wifiFitted === 0
+      detail: wifiFitted === 0 && wifiImpossible === liveFleet.length && liveFleet.length > 0
+        ? `no aircraft in this fleet can carry it — those airframes left production long before onboard `
+          + `connectivity existed. Every route still takes the no-Wi-Fi quality penalty.`
+        : wifiFitted === 0
         ? `fit it at order time, or retrofit from the Fleet page for ${formatMoney(wifiRetrofitCost())} per aircraft. `
           + `Until then this earns nothing and every route takes the no-Wi-Fi quality penalty.`
         : `${formatMoney(WIFI_WEEKLY_OPEX)}/wk per fitted aircraft to run. Routes flown by an unfitted tail `
-          + `sell no Wi-Fi and take the penalty.`,
+          + `sell no Wi-Fi and take the penalty.`
+          + (wifiImpossible > 0
+              ? ` ${wifiImpossible} of your aircraft cannot be fitted at all.`
+              : ''),
     },
     lounge: {
       headline: openLounges.length === 0

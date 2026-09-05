@@ -27,7 +27,7 @@ import { isLeaseExpiring, leaseRemainingWeeks, LEASE_EXPIRY_WARN_WEEKS } from '.
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
-import { canRetrofitWifi, isWifiEquipped, WIFI_WEEKLY_OPEX } from '../data/wifi.js';
+import { canRetrofitWifi, isWifiEquipped, WIFI_WEEKLY_OPEX, canFitWifiTo, wifiAirframeReason } from '../data/wifi.js';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -462,6 +462,21 @@ function WifiBadge({ aircraft }) {
   // Era worlds: onboard Wi-Fi doesn't exist before 2004 (phase 5) — no badge,
   // no button, no quality penalty story to tell.
   if (!featureLive('wifi', eraCalendarYear(state))) return null;
+
+  // Airframe gate: a propliner or first-generation jet can never be fitted, so
+  // it gets a stated reason in place of a button it could never press
+  // (Discord 2026-09-03). It still takes the absent-amenity drag — the market
+  // judges the flight, not the engineering — and the tooltip says so, because
+  // a penalty with no visible cause is the complaint that started this.
+  if (!canFitWifiTo(aircraft)) {
+    return (
+      <span className="badge"
+            style={{ background: 'var(--surface3)', color: 'var(--text-dim)', border: '1px solid var(--border)' }}
+            title={`${wifiAirframeReason(aircraft)} It still takes the no-Wi-Fi quality penalty on every route it flies.`}>
+        <Glyph e="📶" /> No Wi-Fi possible
+      </span>
+    );
+  }
 
   return (
     <button
@@ -1870,13 +1885,19 @@ export default function Fleet() {
     if (checkedNoWifi.length === 0) return;
     const names = checkedNoWifi.slice(0, 8).map(a => a.name).join(', ')
                 + (checkedNoWifi.length > 8 ? `, +${checkedNoWifi.length - 8} more` : '');
-    const already = checkedAircraft.length - checkedNoWifi.length;
+    // Two reasons a selected tail is not in the quote, and they need separate
+    // sentences: it already has Wi-Fi, or its airframe can never carry it.
+    // Folding the second into "already have it" is how a player concludes the
+    // retrofit silently failed.
+    const skipped = wifiQuote.unfittable?.length ?? 0;
+    const already = checkedAircraft.length - checkedNoWifi.length - skipped;
     const body = `${names}\n\n`
       + `${formatMoney(wifiQuote.unitCost)} per aircraft to retrofit — `
       + `${formatMoney(wifiQuote.capex)} in total, due now.\n`
       + `Running cost afterwards: ${formatMoney(WIFI_WEEKLY_OPEX)}/wk per aircraft, `
       + `charged whether it flies or sits.\n\n`
       + (already > 0 ? `${already} of the aircraft you selected already have it and won't be charged again.\n\n` : '')
+      + (skipped > 0 ? `${skipped} cannot be fitted at all — those airframes left production long before onboard connectivity existed.\n\n` : '')
       + `What you charge passengers for Wi-Fi is set airline-wide on the Ancillaries tab.`;
     if (!featureLive('wifi', eraCalendarYear(state))) return;
     if (await confirm({
@@ -2404,6 +2425,21 @@ export default function Fleet() {
               >
                 <Glyph e="✔" /> Buy out ({checkedLeased.length}) · {formatMoney(bulkBuyoutCost)}
               </button>
+            )}
+            {/* Select nothing but propliners and there is no retrofit to offer —
+                but a bar that simply loses its button reads as the selection
+                being ignored. Show the reason in its place. */}
+            {checkedNoWifi.length === 0 && (wifiQuote.unfittable?.length ?? 0) > 0 && (
+              <span
+                style={{
+                  fontSize: 12, padding: '5px 12px', borderRadius: 6,
+                  background: 'var(--surface3)', color: 'var(--text-dim)',
+                  border: '1px solid var(--border)',
+                }}
+                title={wifiQuote.reasons[0]}
+              >
+                <Glyph e="📶" /> No Wi-Fi possible ({wifiQuote.unfittable.length})
+              </span>
             )}
             {checkedNoWifi.length > 0 && (
               <button

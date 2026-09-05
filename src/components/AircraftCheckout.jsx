@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType, effectivePurchasePrice, eraWeeklyLease, orderDiscount,
          LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier,
-         leaseOrderBookCap } from '../data/aircraft.js';
+         leaseOrderBookCap, canFitWifi, wifiAirframeDenial } from '../data/aircraft.js';
 import {
   formatMoney,
   CLASS_FARE_MULTIPLIERS,
@@ -15,6 +15,7 @@ import {
 import {
   wifiInstallCost, wifiRetrofitCost, wifiLeaseSurcharge, WIFI_WEEKLY_OPEX,
 } from '../data/wifi.js';
+import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import CabinTemplatePicker from './CabinTemplatePicker.jsx';
@@ -310,6 +311,16 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const discount        = mode === 'buy' ? orderDiscount(quantity) : 0;
   const discPct         = Math.round(discount * 100);
   const calYear         = calendarYear(state);   // era new-build premium while the line is open (null = classic)
+
+  // Two independent gates on the connectivity option, and both have been
+  // wrong (Discord 2026-09-03): the WORLD has to have onboard internet in it
+  // at all, and the AIRFRAME has to be able to carry an installation. A
+  // Constellation fails the second in every world; a brand-new DC-6 in a 1950
+  // world failed the first and was offered the package anyway.
+  const wifiEraLive     = featureLive('wifi', calYear);
+  const wifiFittable    = canFitWifi(type);
+  const wifiOffered     = wifiEraLive && wifiFittable;
+  const wantsWifi       = hasWifi && wifiOffered;
   const baseUnitPrice   = effectivePurchasePrice(type, mode === 'buy' ? quantity : 1, calYear);
   const enginePriceAdj  = Math.round(baseUnitPrice * (enginePriceMod - 1));
   const unitBuyPrice    = Math.round(baseUnitPrice * enginePriceMod) + wingtipCost;
@@ -319,7 +330,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const baseWeeklyLease  = eraWeeklyLease(type, calYear);
   const engineLeaseAdj   = Math.round(baseWeeklyLease * (enginePriceMod - 1));
   const wingtipLeaseAdj  = (hasWingtips && wingtipDef) ? Math.round((wingtipDef.cost ?? 0) / 200) : 0;
-  const wifiLeaseAdj     = hasWifi ? wifiLeaseSurcharge() : 0;
+  const wifiLeaseAdj     = wantsWifi ? wifiLeaseSurcharge() : 0;
   // Term-adjusted weekly rate: longer commitments earn a lower rate (see LEASE_TERM_OPTIONS).
   const unitWeeklyLease  = Math.round((baseWeeklyLease + engineLeaseAdj + wingtipLeaseAdj + wifiLeaseAdj) * leaseRateMult);
   const totalWeeklyLease = unitWeeklyLease * quantity;
@@ -334,7 +345,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   // Leased: the lessor amortises it into the rate instead (wifiLeaseAdj below),
   // so charging it here too would bill for the same antenna twice. Both mirror
   // ORDER_AIRCRAFT exactly — if these drift, the quote on screen is a lie.
-  const unitWifiFee     = (hasWifi && mode === 'buy') ? wifiInstallCost() : 0;
+  const unitWifiFee     = (wantsWifi && mode === 'buy') ? wifiInstallCost() : 0;
   const unitExtras      = unitFittingFee + unitInstallFee + unitWifiFee;
   const totalFittingFee = unitFittingFee * quantity;
   const totalInstallFee = unitInstallFee * quantity;
@@ -370,7 +381,7 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
       ownershipType: mode === 'buy' ? 'owned' : 'lease',
       engineId:      selectedEngine?.id ?? null,
       hasWingtips,
-      hasWifi,
+      hasWifi:       wantsWifi,
       quantity,
       config:        cabinConfig,
       name:          customName.trim() || null,
@@ -595,7 +606,31 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
           )}
 
           {/* ── Onboard connectivity ─────────────────────────────────────── */}
-          {!isFreighter && (
+          {/* Not offered at all when the world has no onboard internet yet, and
+              not offered on an airframe that could never carry it. In both
+              cases the player sees WHY rather than a silently missing option —
+              an absent checkbox reads as a bug, a stated reason reads as a
+              rule. */}
+          {!isFreighter && !wifiOffered && (
+            <section style={{ marginBottom: 18 }}>
+              <div style={sectionTitle}>Onboard Connectivity</div>
+              <div style={{ display: 'flex', gap: 10, padding: '9px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                <div style={{ opacity: 0.5, fontSize: 15, lineHeight: 1.2 }}><Glyph e="📶" /></div>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-dim)' }}>
+                    Wi-Fi &amp; streaming package unavailable
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>
+                    {!wifiEraLive
+                      ? ERA_FEATURE_MESSAGE.wifi
+                      : `${wifiAirframeDenial(type)} It will take the no-Wi-Fi quality `
+                        + `penalty on every route it flies.`}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+          {!isFreighter && wifiOffered && (
             <section style={{ marginBottom: 18 }}>
               <div style={sectionTitle}>Onboard Connectivity</div>
               <label style={{ display: 'flex', gap: 10, padding: '9px 12px', borderRadius: 7, border: `1px solid ${hasWifi ? 'var(--accent)' : 'var(--border)'}`, background: hasWifi ? 'rgba(56,139,253,0.08)' : 'var(--surface2)', cursor: 'pointer', transition: 'all 0.15s' }}>

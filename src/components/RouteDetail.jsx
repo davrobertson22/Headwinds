@@ -3,6 +3,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getAircraftType } from '../data/aircraft.js';
+import { canFitWifiTo } from '../data/wifi.js';
 import {
   buildRouteMarket, computeMarketShare, buildCompetitorOffer,
   computeQualityScore, computeConnectingDemand, routeMaturityFactor, HUB_TIERS,
@@ -70,8 +71,13 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
     { label: 'Fleet age',           pts: bd.agePts,      sub: 'newer aircraft score higher' },
     { label: 'Cabin space',         pts: bd.spacePts,    sub: 'floor left unfilled = more room' },
     { label: 'Catering',            pts: bd.cateringPts, sub: 'matters more on long flights' },
+    // Don't send the player to buy something that isn't for sale: an airframe
+    // that can never be fitted gets the reason, not the retrofit prompt
+    // (Discord 2026-09-03).
     { label: 'Ancillaries',         pts: bd.ancillaryPts ?? 0, sub: bd.wifiEquipped === false
-        ? 'à la carte generosity — no Wi-Fi on this aircraft (fit it from the Fleet page)'
+        ? (canFitWifiTo(aircraft)
+            ? 'à la carte generosity — no Wi-Fi on this aircraft (fit it from the Fleet page)'
+            : 'à la carte generosity — this airframe cannot carry Wi-Fi at all')
         : 'à la carte generosity · Operations → Ancillaries' },
     { label: 'Ground staff',        pts: bd.groundPts,   sub: 'morale bonus / penalty' },
     { label: 'Hub investment',      pts: bd.hubPts,      sub: 'from hub tier at endpoints' },
