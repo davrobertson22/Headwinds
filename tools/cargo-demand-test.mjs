@@ -324,6 +324,13 @@ test('the pair helper picks the better endpoint', () => {
 // A contested pair. The connectivity bonus is a term in the SHARE fight, so a
 // route with no rival on it cannot show the effect however big the hub — which
 // is exactly why an uncontested assertion here would be worthless.
+//
+// JFK–DEN, not JFK–ORD: the pair has to be one where the share fight decides
+// anything. On ORD (42k pax/wk against 9.6k rival seats) every rival is full,
+// and since spill recapture a full rival's overflow fills you to whatever you
+// could sell alone — the bonus moves your share of the fight and your fight
+// share stops mattering. DEN's pool (~15k) is still bigger than the rivals'
+// seats but not so big that the split is irrelevant.
 const RIVALS = [
   { competitorId: 'r1', frequency: 28, priceMultiplier: 0.95, tier: 'legacy', seatsPerFlight: 200, qualityScore: 70 },
   { competitorId: 'r2', frequency: 21, priceMultiplier: 0.90, tier: 'budget', seatsPerFlight: 189, qualityScore: 58 },
@@ -331,7 +338,7 @@ const RIVALS = [
 const contested = (hubSpokes) => {
   const type = getAircraftType('b7878');
   const ac = { id: 'w', typeId: 'b7878', ageWeeks: 60, config: defaultConfig(type.seats) };
-  const route = { id: 'r', origin: 'JFK', destination: 'ORD', hub: 'JFK',
+  const route = { id: 'r', origin: 'JFK', destination: 'DEN', hub: 'JFK',
                   aircraftId: 'w', weeklyFrequency: 21, ticketPrice: 240, weeksOpen: 60,
                   ...(hubSpokes == null ? {} : { hubSpokes }) };
   return simulateRoute(route, ac, { week: 30, month: 7 }, null, 1.0, null, RIVALS);

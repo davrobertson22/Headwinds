@@ -823,6 +823,32 @@ export function offersAppealCapture(offers) {
 }
 
 /**
+ * How much of a pair's travellers the SET of offers can reach between them by
+ * brand — `1 − ∏(1 − min(1, brandReach_i))`. The brand sibling of
+ * offersAppealCapture, and the contested-path half of the monopoly rule that
+ * multiplies the pool by brandReach.
+ *
+ * One known brand in the fight and this is 1.0: everyone considers someone,
+ * and reach then only decides who wins (the ln(brandReach) utility term). Two
+ * unknown brands do NOT between them reach the whole market — before this they
+ * did: reach cancelled inside the softmax, so two start-ups splitting a pair
+ * were handed 100% of it while either alone reached 45%. Spill recapture made
+ * that visible (a capped start-up rival handed its half back, and the player
+ * carried MORE than in a monopoly), but the duplication was always there. For
+ * a single offer it reduces to that offer's own reach — the monopoly rule — so
+ * the two paths agree at the boundary. Reach above 1 counts as 1 here; the
+ * utility term still rewards it with share.
+ */
+export function offersBrandCapture(offers) {
+  let unreached = 1;
+  for (const o of offers ?? []) {
+    unreached *= (1 - Math.min(1, Math.max(0, o?.brandReach ?? 1)));
+    if (unreached <= 0) return 1;
+  }
+  return 1 - unreached;
+}
+
+/**
  * Softmax over an array of utility values.
  * Returns an array of market share fractions (sum = 1).
  *
@@ -843,6 +869,10 @@ export function softmax(utilities) {
  * @param {AirlineOffer[]} offers   - one per airline serving this route
  * @returns {MarketShareResult[]}
  */
+// DEBUG_MS=1 dumps every contested share fight to stderr (node only; the
+// engine also runs in the browser, where `process` does not exist).
+const DEBUG_MS = typeof process !== 'undefined' && !!process.env?.DEBUG_MS;
+
 export function computeMarketShare(market, offers) {
   if (offers.length === 0) return [];
 
@@ -924,55 +954,86 @@ export function computeMarketShare(market, offers) {
   // appeal, i.e. exactly the monopoly rule, so the two paths agree where they
   // meet.
   const appealCapture = offersAppealCapture(offers);
-  const adjustedLeisureDemand  = Math.round(leisurePool * appealCapture * Math.min(1.5, leisureElasticityFactor));
   // Business pool scales with the market's share-weighted quality: an
   // all-budget pair loses business travelers to other modes entirely, while a
   // premium-served market attracts extra (see businessQualityCapture).
   const marketBizCapture = offers.reduce(
     (s, o, i) => s + businessQualityCapture(o.qualityScore) * businessShares[i], 0);
-  const adjustedBusinessDemand = Math.round(
+  // The pool BEFORE brand: everyone these airports and fares could carry.
+  const leisureBase  = Math.round(leisurePool * appealCapture * Math.min(1.5, leisureElasticityFactor));
+  const businessBase = Math.round(
     market.businessDemand * appealCapture * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
+  // …of whom this many consider at least one of the carriers (offersBrandCapture).
+  const brandCapture = offersBrandCapture(offers);
+  const adjustedLeisureDemand  = Math.round(leisureBase  * brandCapture);
+  const adjustedBusinessDemand = Math.round(businessBase * brandCapture);
+  // …and no single carrier can ever carry more than it would ALONE on the pair
+  // at its own fare — the monopoly rule (_monopolyResult's pool: brand reach,
+  // appeal, own-price elasticity and choke), applied per offer as a ceiling on
+  // raw + spill. Without it a full rival's spill flowed to a pricey or unknown
+  // carrier until it carried more than a monopoly would have, because the
+  // contested pool is sized on the share-weighted AVERAGE fare, not on the fare
+  // those spilled passengers would actually have to pay.
+  const soloCeil   = offers.map(o => _soloCeiling(market, o, compressedRef));
+  const reachCeilL = soloCeil.map(c => c.leisure);
+  const reachCeilB = soloCeil.map(c => c.business);
 
-  return offers.map((offer, i) => {
-    const lShare = leisureShares[i];
-    const bShare = businessShares[i];
-
-    // Raw demand allocation (elastic total × softmax share × per-fare choke).
-    // The choke drives an individual carrier's demand to ~0 as its own fare
-    // approaches the cap, even though the share softmax alone would still hand it
-    // a sliver of the market.
+  // ── Raw allocation: elastic pool × softmax share × per-fare choke ──────────
+  // The choke drives an individual carrier's demand to ~0 as its own fare
+  // approaches the cap, even though the share softmax alone would still hand it
+  // a sliver of the market.
+  const rawBusiness = offers.map((offer, i) => {
     const bizPrice = offer.businessPrice != null
       ? offer.businessPrice
       : offer.economyPrice * BUSINESS_PRICE_MULTIPLIER;
-    let leisurePax  = Math.round(
-      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore)
-    );
     // High quality stretches the tolerable business fare before the choke bites.
-    let businessPax = Math.round(
-      adjustedBusinessDemand * bShare
-      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore)
-    );
+    return adjustedBusinessDemand * businessShares[i]
+      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore);
+  });
+  const rawLeisure = offers.map((offer, i) =>
+    adjustedLeisureDemand * leisureShares[i]
+      * priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore));
 
-    // The demand the market GENERATED for this offer, before any seat count is
-    // consulted. The load models downstream (nwrDemandScale,
-    // directionalLoadMultiplier) apply min(demand, capacity) themselves, so
-    // feeding them the capped figure locked them permanently into the
-    // demand<=capacity regime — a route drowning in demand was docked the same
-    // haircuts as one scraping parity.
-    const leisurePaxUncapped  = leisurePax;
-    const businessPaxUncapped = businessPax;
-
-    // Cap at capacity. Business is capped at its own cabin; leisure may then use
-    // ALL remaining physical seats (premium + economy), not just the economy cabin,
-    // so excess leisure demand fills spare seats instead of being discarded.
-    const businessCapped = offer.businessPrice != null && businessPax > offer.businessSeats;
-    if (businessCapped) businessPax = offer.businessSeats;
+  // ── Capacity, with spill recapture ─────────────────────────────────────────
+  // Business is capped at its own cabin; leisure may then use ALL remaining
+  // physical seats (premium + economy), so excess leisure demand fills spare
+  // seats instead of being discarded.
+  //
+  // A capped offer's unserved demand is NOT discarded: it is re-allocated among
+  // the offers that still have room, pro rata to their raw allocation, until
+  // nothing spills or nobody has room (allocateWithSpill). Before this, a rival
+  // with 10 seats and a good fare could "take" thousands of passengers it could
+  // not carry, and they vanished from the market — a connecting itinerary,
+  // seat-thin by construction, did it on every pair it touched. Demand is now
+  // lost only when every carrier on the pair is full.
+  const bizCap = offers.map(o => (o.businessPrice != null && Number.isFinite(o.businessSeats)) ? Math.max(0, o.businessSeats) : Infinity);
+  const businessPaxArr = allocateWithSpill(rawBusiness, bizCap, reachCeilB);
+  const leisureCap = offers.map((o, i) => {
     // Prefer true total capacity; fall back to economy-seat cap (never below it).
-    const leisureCapacity = offer.totalSeats != null
-      ? Math.max(0, offer.totalSeats - businessPax)
-      : offer.economySeats;
-    const leisureCapped  = leisurePax  > leisureCapacity;
-    if (leisureCapped)  leisurePax  = leisureCapacity;
+    const bizPax = Math.min(businessPaxArr.demand[i], bizCap[i]);
+    const cap = o.totalSeats != null ? o.totalSeats - bizPax : o.economySeats;
+    return Number.isFinite(cap) ? Math.max(0, cap) : Infinity;
+  });
+  const leisurePaxArr = allocateWithSpill(rawLeisure, leisureCap, reachCeilL);
+
+  if (DEBUG_MS) {
+    console.error(`[ms] ${market.origin}-${market.destination} ref ${market.referencePrice} pool L ${market.leisureDemand} B ${market.businessDemand} → base L ${leisureBase} B ${businessBase} capture ${brandCapture.toFixed(3)} avgL ${avgLeisurePrice.toFixed(0)}`);
+    offers.forEach((o, i) => console.error(`   ${String(o.airlineId).padEnd(14)} $${o.economyPrice} seats ${o.totalSeats ?? o.economySeats} reach ${o.brandReach ?? 1} share ${leisureShares[i].toFixed(3)} rawL ${rawLeisure[i].toFixed(0)} → L ${leisurePaxArr.demand[i].toFixed(0)} cap ${leisureCap[i]} ceil ${reachCeilL[i].toFixed(0)} ${leisurePaxArr.capped[i] ? 'CAPPED' : ''}`));
+  }
+  return offers.map((offer, i) => {
+    const lShare = leisureShares[i];
+    const bShare = businessShares[i];
+    // The demand the market GENERATED for this offer — its own raw allocation
+    // plus any spill it received — before its seat count is consulted. The load
+    // models downstream (nwrDemandScale, directionalLoadMultiplier) apply
+    // min(demand, capacity) themselves, so feeding them the capped figure locked
+    // them permanently into the demand<=capacity regime.
+    const leisurePaxUncapped  = Math.round(leisurePaxArr.demand[i]);
+    const businessPaxUncapped = Math.round(businessPaxArr.demand[i]);
+    const leisurePax  = Math.round(Math.min(leisurePaxArr.demand[i],  leisureCap[i]));
+    const businessPax = Math.round(Math.min(businessPaxArr.demand[i], bizCap[i]));
+    const leisureCapped  = leisurePaxArr.capped[i];
+    const businessCapped = businessPaxArr.capped[i];
 
     const economyRevenue  = leisurePax  * offer.economyPrice;
     const businessRevenue = offer.businessPrice != null ? businessPax * offer.businessPrice : 0;
@@ -994,7 +1055,82 @@ export function computeMarketShare(market, offers) {
   });
 }
 
+/**
+ * Allocate demand against per-offer limits with spill recapture.
+ *
+ * Each offer has two limits: `cap` (seats) and `ceil` (what it would carry
+ * alone at its own fare — _soloCeiling; Infinity when unbounded). Each round,
+ * every open offer whose demand exceeds min(cap, ceil) is pinned there and its
+ * excess pooled; the pool is handed to the offers still open, pro rata to their
+ * RAW allocation (share × fare choke — an offer the choke drove to zero attracts
+ * no spill either). Repeats until a round spills nothing or nobody is open, so
+ * it terminates in at most `raw.length` rounds. Demand nobody open can take is
+ * lost — every seat full, or nobody left whose fare and brand the rest of the
+ * market would accept.
+ *
+ * @param {number[]} raw   demand generated for each offer
+ * @param {number[]} cap   seats available to each offer (Infinity = unlimited)
+ * @param {number[]} [ceil]   solo ceiling per offer (Infinity = none)
+ * @returns {{ demand: number[], capped: boolean[] }}  demand = min(raw + spill
+ *          received, ceil) — may exceed cap (caller applies min); capped marks
+ *          the offers pinned by SEATS (an offer at its solo ceiling is not
+ *          "capped": it has room, just nobody left who would buy from it).
+ */
+export function allocateWithSpill(raw, cap, ceil = null) {
+  const demand = raw.map(v => Math.max(0, v || 0));
+  const capped = raw.map(() => false);
+  const closed = raw.map(() => false);
+  const lim = (i) => Math.min(cap[i], ceil ? ceil[i] : Infinity);
+  for (let round = 0; round <= raw.length; round++) {
+    let spill = 0;
+    for (let i = 0; i < demand.length; i++) {
+      if (closed[i]) continue;
+      const l = lim(i);
+      if (demand[i] > l) {
+        spill += demand[i] - l;
+        if (demand[i] > cap[i]) capped[i] = true;
+        demand[i] = l;
+        closed[i] = true;
+      }
+    }
+    if (spill <= 0) break;
+    let openWeight = 0;
+    for (let i = 0; i < demand.length; i++) if (!closed[i]) openWeight += demand[i];
+    if (openWeight <= 0) break;                  // nobody open → demand is lost
+    for (let i = 0; i < demand.length; i++) {
+      if (!closed[i]) demand[i] += spill * demand[i] / openWeight;
+    }
+  }
+  return { demand, capped };
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/**
+ * What ONE offer would carry alone on the pair at its own fare — the demand half
+ * of _monopolyResult, before seats: pool × marketing × brand × appeal × lounge
+ * (business) × own-price elasticity × fare choke. Used as the per-offer ceiling
+ * on raw + spilled demand in the contested path, so a full rival can never make
+ * a carrier better off than a monopoly would. `ref` is the (competition-
+ * compressed) reference fare the contested market is being priced against.
+ */
+function _soloCeiling(market, offer, ref) {
+  const sens       = 1 - (offer.priceSensitivityReduction ?? 0);
+  const poolMult   = (1 + (offer.marketingBoost ?? 0))
+    * Math.min(1, Math.max(0, offer.brandReach ?? 1))
+    * Math.min(1, Math.max(0, offerAirportAppeal(offer)));
+  const leisure = market.leisureDemand * poolMult
+    * Math.min(1.5, Math.pow(ref / Math.max(offer.economyPrice, 1), ELASTICITY.leisure * sens))
+    * priceChokeFactor(offer.economyPrice, ref, offer.qualityScore);
+  const noBusiness = offer.businessPrice == null || !((offer.businessSeats ?? 0) > 0);
+  const bizRef     = ref * BUSINESS_PRICE_MULTIPLIER * businessFareTolerance(offer.qualityScore);
+  const business = noBusiness ? 0 : market.businessDemand * poolMult
+    * Math.max(0, offer.loungeAppeal ?? 1)
+    * businessQualityCapture(offer.qualityScore)
+    * Math.min(1.5, Math.pow(bizRef / Math.max(offer.businessPrice, 1), ELASTICITY.business * sens))
+    * priceChokeFactor(offer.businessPrice, bizRef, offer.qualityScore);
+  return { leisure: Math.max(0, leisure), business: Math.max(0, business) };
+}
 
 function _monopolyResult(market, offer) {
   // A business fare with ZERO business seats is not a real business cabin: treat it
@@ -1022,8 +1158,9 @@ function _monopolyResult(market, offer) {
   // — those travellers drive, connect on someone else, or don't go. It shrinks
   // the pool, before elasticity and before the capacity cap, which is why a
   // high-demand trunk route can still fill an unknown carrier's aircraft while
-  // a thin one cannot. In competitive markets it is a utility term instead
-  // (see computeUtility); it must never be both, or the brand counts twice.
+  // a thin one cannot. In competitive markets the utility term decides who
+  // wins among the travellers who consider anyone, and offersBrandCapture
+  // decides how many that is — for one offer it reduces to exactly this line.
   const brandPool = Math.max(0, offer.brandReach ?? 1);
   // Airport appeal on an UNCONTESTED pair: a metro pair prices at its metro
   // total however you fly it, so a lone service from a weak secondary field
