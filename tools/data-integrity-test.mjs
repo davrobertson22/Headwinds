@@ -70,7 +70,7 @@ for (let i = 0; i < AIRPORTS.length; i++) for (let j = i + 1; j < AIRPORTS.lengt
   if (a.city === b.city || isSameMetro(a, b, km)) continue;
   if (isSurfaceConnected(a, b, km)) suppressed++; else spared++;
 }
-eq(suppressed, 125, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
+eq(suppressed, 126, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
 eq(spared, 28, 'in-band spared (water-hop) pair count');
 
 console.log(`\ndata-integrity: ${passed} passed, ${failed} failed`);

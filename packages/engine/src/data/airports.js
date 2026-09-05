@@ -230,6 +230,7 @@ export const AIRPORTS = [
   { code: 'VVI', name: 'Viru Viru Intl',                city: 'Santa Cruz',      country: 'BO', lat: -17.65, lon: -63.13,   population: 1.7,  tier: 'regional', runwayFt: 11483 },
   { code: 'CUR', name: 'Hato Intl',                     city: 'Willemstad',      country: 'CW', lat: 12.19,  lon: -68.96,   population: 0.15, tier: 'regional', runwayFt: 11188 },
   { code: 'PBM', name: 'Johan Adolf Pengel Intl',       city: 'Paramaribo',      country: 'SR', lat: 5.45,   lon: -55.19,   population: 0.6,  tier: 'regional', runwayFt: 11417 },
+  { code: 'CAY', name: 'Félix Eboué',                   city: 'Cayenne',         country: 'GF', lat: 4.82,   lon: -52.36,   population: 0.3,  tier: 'regional', runwayFt: 10499 },
   { code: 'BEL', name: 'Val de Cans Intl',              city: 'Belem',           country: 'BR', lat: -1.38,  lon: -48.48,   population: 2.5,  tier: 'regional', runwayFt: 9186 },
   { code: 'CGH', name: 'Congonhas Airport',             city: 'Sao Paulo',       country: 'BR', lat: -23.63, lon: -46.66,   population: 22.4, tier: 'major'   , runwayFt: 6365 },
 
@@ -244,6 +245,8 @@ export const AIRPORTS = [
   { code: 'BRS', name: 'Bristol Airport',               city: 'Bristol',         country: 'GB', lat: 51.38,  lon: -2.72,    population: 0.7,  tier: 'regional', runwayFt: 6598 },
   { code: 'NCL', name: 'Newcastle Airport',             city: 'Newcastle',       country: 'GB', lat: 55.04,  lon: -1.69,    population: 0.9,  tier: 'regional', runwayFt: 7644 },
   { code: 'BFS', name: 'Belfast Intl',                  city: 'Belfast',         country: 'GB', lat: 54.66,  lon: -6.22,    population: 0.34, tier: 'regional', runwayFt: 9121 },
+  { code: 'CWL', name: 'Cardiff Airport',                city: 'Cardiff',         country: 'GB', lat: 51.40,  lon: -3.34,    population: 0.5,  tier: 'regional', runwayFt: 7848 },
+  { code: 'VLY', name: 'Anglesey Airport',               city: 'Anglesey',        country: 'GB', lat: 53.25,  lon: -4.54,    population: 0.07, tier: 'regional', runwayFt: 7510 },
   { code: 'ORY', name: 'Paris Orly',                    city: 'Paris',           country: 'FR', lat: 48.72,  lon: 2.36,     population: 11.0, tier: 'major'   , runwayFt: 11975 },
   { code: 'LYS', name: 'Lyon Saint-Exupery',           city: 'Lyon',            country: 'FR', lat: 45.72,  lon: 5.08,     population: 1.7,  tier: 'regional', runwayFt: 13124 },
   { code: 'NCE', name: 'Nice Cote d Azur',              city: 'Nice',            country: 'FR', lat: 43.66,  lon: 7.21,     population: 1.0,  tier: 'regional', runwayFt: 9721 },
@@ -2901,7 +2904,7 @@ export const COUNTRY_REGION = {
   SH: 'Africa', BI: 'Africa', KM: 'Africa', GQ: 'Africa', SZ: 'Africa',
   GN: 'Africa', LS: 'Africa', LR: 'Africa', SL: 'Africa', SS: 'Africa',
   SY: 'Middle East',
-  GY: 'South America',
+  GY: 'South America', GF: 'South America',
   // Europe
   GB: 'Europe', FR: 'Europe', DE: 'Europe', NL: 'Europe',
   ES: 'Europe', IT: 'Europe', CH: 'Europe', AT: 'Europe',
