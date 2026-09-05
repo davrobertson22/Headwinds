@@ -929,6 +929,43 @@ export function buildHubContestMap(competitors = [], routeCountByAirport = {}, h
 const MAX_OWN_METAL_ODS_PER_HUB = 150;
 
 /**
+ * How many own-metal itineraries the weekly report keeps for the UI, per hub and
+ * in total. The full list is far too big to persist inside lastReport.
+ */
+export const OWN_METAL_ENTRIES_PER_HUB = 15;
+export const OWN_METAL_ENTRIES_CAP     = 120;
+
+/**
+ * Trim ownMetalOD.entries for storage WITHOUT starving a hub.
+ *
+ * A flat global top-N sorted by revenue is what the report used to do, and it
+ * silently emptied secondary hubs: one long-haul market out-earns a dozen
+ * regional ones, so a mega-hub's markets fill the whole quota and a domestic hub
+ * carrying thousands of connecting pax keeps ZERO entries. Every UI that lists
+ * itineraries (AirportDetail's transit card, the HubManagement hub card) reads
+ * this array, so those hubs were told "no passengers connected here last week"
+ * while byHub reported thousands.
+ *
+ * Round-robin instead: every hub gets its best market before any hub gets its
+ * second, so the cap costs a hub depth, never presence. Output stays sorted by
+ * revenue — callers filter by hub and slice.
+ */
+export function trimOwnMetalEntries(entries = [], perHub = OWN_METAL_ENTRIES_PER_HUB, cap = OWN_METAL_ENTRIES_CAP) {
+  const byHub = new Map();
+  for (const e of entries) {                 // input is already revenue-sorted
+    const list = byHub.get(e?.hub) ?? [];
+    if (list.length < perHub) { list.push(e); byHub.set(e?.hub, list); }
+  }
+  const kept = [];
+  for (let round = 0; round < perHub && kept.length < cap; round++) {
+    for (const list of byHub.values()) {
+      if (round < list.length && kept.length < cap) kept.push(list[round]);
+    }
+  }
+  return kept.sort((a, b) => (b?.revenue ?? 0) - (a?.revenue ?? 0));
+}
+
+/**
  * Compute own-metal connecting revenue from real A→hub→C itineraries.
  *
  * Replaces the old abstract "internal feed" pool: each own-metal connection

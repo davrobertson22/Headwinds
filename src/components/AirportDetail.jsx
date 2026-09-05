@@ -632,7 +632,15 @@ export default function AirportDetail({ code, onBack }) {
           <div style={{ fontWeight: 600, marginBottom: 12 }}>Transit & Connectivity</div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
             <Stat label="Gateway Score"    value={`${Math.round(gwScore * 100)}%`} sub="of traffic is transit" color={gwScore >= 0.65 ? 'var(--purple)' : gwScore >= 0.45 ? 'var(--accent)' : 'var(--text-muted)'} />
-            <Stat label="Transit Pool"     value={Math.round(gwScore * 800).toLocaleString()} sub="weekly connecting pax available" />
+            <Stat label="Transit Pool"     value={Math.round(gwScore * 800).toLocaleString()} sub="gateway feed available, per route" />
+            {/* WHAT YOU ACTUALLY CARRIED — the authoritative figure, straight off
+                the weekly tick (ownMetalOD.byHub). The two stats to its left are
+                a market estimate of the pool; this is the real number, and it
+                must be shown whether or not the per-itinerary list survived the
+                report's storage trim. */}
+            {hubTransit && hubTransit.pax > 0 && (
+              <Stat label="Connecting Pax" value={hubTransit.pax.toLocaleString()} sub="you carried over this hub last week" color="var(--green)" />
+            )}
           </div>
           <div style={{ height: 6, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
             <div style={{ width: `${Math.round(gwScore * 100)}%`, height: '100%', background: 'var(--purple)', borderRadius: 3 }} />
@@ -687,6 +695,15 @@ export default function AirportDetail({ code, onBack }) {
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
                 Real connecting passengers you carried over {code} last week, by origin → destination.
               </div>
+            </div>
+          ) : hubTransit && hubTransit.pax > 0 ? (
+            /* Pax carried, itinerary detail not retained. The report keeps only a
+               bounded slice of itineraries, so never read an empty list as "no
+               connecting traffic" — byHub is the honest number. */
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-dim)' }}>
+              {hubTransit.pax.toLocaleString()} pax · {formatMoney(hubTransit.revenue)}/wk connected over {code} last week
+              across {hubTransit.markets} {hubTransit.markets === 1 ? 'market' : 'markets'}.
+              The per-itinerary breakdown isn't kept for this hub this week.
             </div>
           ) : (
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-dim)' }}>

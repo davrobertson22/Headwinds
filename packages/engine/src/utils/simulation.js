@@ -65,7 +65,7 @@ import {
   allianceMembers,
   partnerInterlineRevenue,
 } from '../data/alliances.js';
-import { runNetworkTick } from '../models/network.js';
+import { runNetworkTick, trimOwnMetalEntries } from '../models/network.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
 import { buildEncroachmentOffer } from '../models/encroachment.js';
@@ -4877,7 +4877,9 @@ export function weeklyTick(state) {
       totalRevenue: ownMetalOD?.totalRevenue ?? 0,
       totalPax:     ownMetalOD?.totalPax ?? 0,
       byHub:        ownMetalOD?.byHub ?? {},
-      entries:      (ownMetalOD?.entries ?? []).slice(0, 40),
+      // Per-hub round-robin, NOT a global top-N: a flat trim emptied every
+      // secondary hub's itinerary list while byHub still reported its pax.
+      entries:      trimOwnMetalEntries(ownMetalOD?.entries ?? []),
     },
     loyaltyMultiplier,
     loyaltyStrength,                                   // penetration × maturity factor
