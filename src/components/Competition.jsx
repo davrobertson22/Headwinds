@@ -7,6 +7,7 @@ import { computeQualityScore, cabinQualityPoints } from '../models/demand.js';
 // The projected-share row asks the demand model itself — never a hand-rolled
 // ratio (models/pairShare.js is the single source of truth for share previews).
 import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
+import { rivalIndexFor, rivalOneStopOffersFor, RIVAL_CONN_PREFIX } from '../../packages/engine/src/models/network.js';
 import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js';
 import { laborEffects } from '../data/labor.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
@@ -191,9 +192,16 @@ export default function Competition() {
   const playerCargoKeys = cargoRoutes.map(r => [r.origin, r.destination].sort().join('-'));
 
   // Routes where at least one competitor overlaps with the player
-  const contestedKeys = Object.keys(playerRouteMap).filter(k =>
-    competitors.some(c => k in c.routes)
-  );
+  // A pair is contested by a rival NONSTOP or by a rival ONE-STOP over its hub
+  // (HUB_CONNECTIVITY_PLAN.md Phase 1b) — a player losing JFK–AMS to Rhine
+  // Air via Frankfurt has to be able to see it here.
+  const rivalIdx = rivalIndexFor(state);
+  const contestedKeys = Object.keys(playerRouteMap).filter(k => {
+    if (competitors.some(c => k in c.routes)) return true;
+    if (!rivalIdx) return false;
+    const [o, d] = k.split('-');
+    return rivalOneStopOffersFor(rivalIdx, { origin: o, destination: d }).length > 0;
+  });
 
   // Prior week profit for player
   const playerLastWeek = financialHistory.length > 0
@@ -618,7 +626,23 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
     return map;
   }, [shareInfo]);
 
-  const cols = 1 + competitors.length; // you + N competitors
+  // Rival ONE-STOP routings on this pair — one column each, named "Rival via
+  // HUB". Read straight off the share fight's offers, so the column exists
+  // exactly when the tick sells that itinerary against you.
+  const viaRoutings = useMemo(() => {
+    if (!shareInfo) return [];
+    return shareInfo.offers
+      .map((o, i) => ({ o, r: shareInfo.results[i] }))
+      .filter(({ o }) => String(o.airlineId).startsWith(RIVAL_CONN_PREFIX) && o.via)
+      .map(({ o, r }) => ({
+        id: o.airlineId, name: o.via.name ?? o.via.competitorId, hub: o.via.hub, tier: o.via.tier,
+        price: o.economyPrice, quality: o.qualityScore, freq: o.weeklyFrequency,
+        seats: o.totalSeats ?? ((o.economySeats ?? 0) + (o.businessSeats ?? 0)),
+        share: shareInfo.totalPax > 0 ? (r?.totalPax ?? 0) / shareInfo.totalPax : null,
+      }));
+  }, [shareInfo]);
+
+  const cols = 1 + competitors.length + viaRoutings.length; // you + nonstop rivals + rival one-stops
 
   return (
     <div className="card" style={{ padding: '12px 14px' }}>
@@ -652,6 +676,13 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
         <div />
         <ColHeader isPlayer>You</ColHeader>
         {competitors.map(c => <ColHeader key={c.id}>{c.name}</ColHeader>)}
+        {viaRoutings.map(v => (
+          <ColHeader key={v.id}>
+            <span title={`${v.name} sells this pair as a connection over its ${v.hub} hub — one itinerary, two of its flights. This column is that itinerary, not a nonstop.`}>
+              {v.name}<span style={{ display: 'block', fontSize: 10, fontWeight: 600, color: 'var(--purple)' }}>via {v.hub}</span>
+            </span>
+          </ColHeader>
+        ))}
 
         {/* Price */}
         <RowLabel>Price (economy)</RowLabel>
@@ -663,11 +694,13 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
           const price = cfg.economyFare ?? Math.round(refP * cfg.priceMultiplier);
           return <PriceCell key={c.id} price={price} refP={refP} />;
         })}
+        {viaRoutings.map(v => <PriceCell key={v.id} price={v.price} refP={refP} />)}
 
         {/* Quality */}
         <RowLabel>Quality score</RowLabel>
         <QualityCell score={pQual} isPlayer />
         {competitors.map(c => <QualityCell key={c.id} score={c.baseQualityScore} />)}
+        {viaRoutings.map(v => <QualityCell key={v.id} score={v.quality} />)}
 
         {/* Frequency — summed across every aircraft you fly on the pair */}
         <RowLabel>Flights / week</RowLabel>
@@ -675,9 +708,14 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
         {competitors.map(c => (
           <FreqCell key={c.id} freq={c.routes[routeKey].frequency} />
         ))}
+        {viaRoutings.map(v => (
+          <div key={v.id} style={{ padding: '7px 8px', textAlign: 'center' }} title="The thinner of the two legs — a connection can only run as often as its weaker flight">
+            {v.freq}×
+          </div>
+        ))}
 
         {/* Seats/week — human rivals publish configured capacity (open book) */}
-        {competitors.some(c => c.routes[routeKey].seats != null) && (<>
+        {(competitors.some(c => c.routes[routeKey].seats != null) || viaRoutings.length > 0) && (<>
           <RowLabel>Seats / week</RowLabel>
           <div style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text-muted)' }}>
             {playerRoute.seatsPerWeek != null ? playerRoute.seatsPerWeek.toLocaleString() : '–'}
@@ -690,6 +728,12 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
               </div>
             );
           })}
+          {viaRoutings.map(v => (
+            <div key={v.id} style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text-muted)' }}
+              title="Seats the rival protects for connecting passengers on this itinerary — a fraction of the thinner leg, by hub tier">
+              {v.seats.toLocaleString()}
+            </div>
+          ))}
         </>)}
         {/* Projected share — the model's answer, not a departure count */}
         {shareInfo?.playerShare != null && shareInfo.totalPax > 0 && (<>
@@ -700,6 +744,7 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
           </RowLabel>
           <ShareCell share={shareInfo.playerShare} isPlayer />
           {competitors.map(c => <ShareCell key={c.id} share={rivalShares[c.id] ?? null} />)}
+          {viaRoutings.map(v => <ShareCell key={v.id} share={v.share} />)}
         </>)}
       </div>
 
@@ -712,6 +757,7 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
         refP={refP}
         shareInfo={shareInfo}
         awareness={state.awareness ?? 5}
+        viaRoutings={viaRoutings}
       />
     </div>
   );
@@ -793,8 +839,16 @@ function ShareCell({ share, isPlayer }) {
   );
 }
 
-function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP, shareInfo, awareness }) {
+function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP, shareInfo, awareness, viaRoutings = [] }) {
   const hints = [];
+
+  // Rival one-stops — the column a player is least likely to expect. Name the
+  // routing and what it costs, so a lost pair is never blamed on the fare alone.
+  for (const v of viaRoutings) {
+    if (v.share == null || v.share < 0.08) continue;
+    const cheaper = playerRoute.ticketPrice > v.price;
+    hints.push({ type: 'warn', text: `${v.name}'s connection over ${v.hub} takes ~${Math.round(v.share * 100)}% of this pair — you're competing with their hub, not a nonstop. Their itinerary sells at $${v.price}${cheaper ? ` against your $${playerRoute.ticketPrice}` : ''}; a connection is penalised for the stop, so you win it on fare, frequency and quality.` });
+  }
 
   for (const c of competitors) {
     const compPrice = c.routes[routeKey].economyFare

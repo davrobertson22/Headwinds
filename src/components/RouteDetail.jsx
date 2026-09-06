@@ -11,6 +11,7 @@ import {
 // pairShare has no src/models shim; RoutePlanner/Routes import the engine path
 // directly too.
 import { playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
+import { rivalIndexFor, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
 import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
@@ -248,6 +249,13 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
 
   // Competitors on this route
   const competitorsOnRoute = (state.competitors ?? []).filter(c => c.routes?.[routeKey]);
+  // Rival ONE-STOP routings sold on this pair (HUB_CONNECTIVITY_PLAN.md Phase
+  // 1b) — the same offers the tick puts into this market, so the share panel
+  // below and the Competitors table agree with what actually books.
+  const viaOffers = useMemo(() => {
+    const idx = rivalIndexFor(state);
+    return idx && market ? rivalOneStopOffersFor(idx, market) : [];
+  }, [state, market]);
 
   // Hub quality bonus for this O&D. Hoisted above the memos because BOTH
   // shareResults and playerSims need it: playerSims feeds it to stateBrandReach
@@ -321,11 +329,11 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       }
     }
 
-    const compOffers = competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean);
+    const compOffers = [...competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean), ...viaOffers];
     const allOffers  = [...(playerOffer ? [playerOffer] : []), ...compOffers];
     const results    = computeMarketShare(market, allOffers);
     return { shareResults: results };
-  }, [playerRoutes, competitorsOnRoute, market, origin, dest, state.hub, hubs, maxHubBonus]);
+  }, [playerRoutes, competitorsOnRoute, viaOffers, market, origin, dest, state.hub, hubs, maxHubBonus]);
 
   // Live simulate each player aircraft.
   // When multiple aircraft share this O&D we pre-compute combined demand and
@@ -388,7 +396,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           marketingBoost: playerCampaignBoost(state, origin, dest),
           brandReach: stateBrandReach(state, maxHubBonus, false),
         };
-        const compOffers = competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean);
+        const compOffers = [...competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean), ...viaOffers];
         const [combined] = computeMarketShare(market, [combinedOffer, ...compOffers]);
         for (const { aircraft, eco, biz } of validSims) {
           const ecoFrac = totalEcoSeats > 0 ? eco / totalEcoSeats : 1 / validSims.length;
@@ -431,7 +439,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       return [{ route, aircraft, type, result: { ...result, weeklyLeaseCost, weeklyMaintCost,
         trueProfit: result.revenue - (result.totalOpCost ?? 0) - weeklyLeaseCost - weeklyMaintCost } }];
     });
-  }, [playerRoutes, state.fleet, gameDate, competitorsOnRoute, market, origin, dest, state.hub, shareResults, rrById, eventDemand, maxHubBonus]);
+  }, [playerRoutes, state.fleet, gameDate, competitorsOnRoute, viaOffers, market, origin, dest, state.hub, shareResults, rrById, eventDemand, maxHubBonus]);
 
   // result.passengers is one-way (per direction) — directly comparable to market demand.
   const totalPax     = playerSims.reduce((s, {result}) => s + result.passengers, 0);
@@ -785,7 +793,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       )}
 
       {/* Row 3: Competitors — full width */}
-      {competitorsOnRoute.length > 0 && (
+      {(competitorsOnRoute.length > 0 || viaOffers.length > 0) && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 12 }}>Competitors</div>
           <div style={{ overflowX: 'auto' }}>
@@ -828,6 +836,47 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
                             <div style={{ width: `${c.baseQualityScore}%`, height: '100%', background: TIER_COLOR[c.tier] ?? 'var(--accent)' }} />
                           </div>
                           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.baseQualityScore}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {share ? share.totalPax.toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* Rival one-stops: a carrier that does not fly this pair nonstop
+                    but sells it as a connection over its hub. Priced as the sum
+                    of its two legs (through-fares come later); seats are the
+                    slice of the thinner leg it protects for connections. */}
+                {viaOffers.map(o => {
+                  const rival     = (state.competitors ?? []).find(c => c.id === o.via.competitorId);
+                  const priceDiff = Math.round((o.economyPrice / refP - 1) * 100);
+                  const share     = shareResults.find(s => s.airlineId === o.airlineId);
+                  return (
+                    <tr key={o.airlineId} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {o.via.name}
+                        <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: 'var(--purple)' }}
+                          title={`${o.via.name} sells ${origin}–${dest} as a connection over its ${o.via.hub} hub: ${origin}→${o.via.hub} then ${o.via.hub}→${dest}, ${o.via.circuity.toFixed(2)}× the nonstop distance`}>
+                          via {o.via.hub}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>{rival ? <TierBadge tier={rival.tier} /> : '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>one-stop</td>
+                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{o.weeklyFrequency}× each way</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{(o.economySeats ?? 0).toLocaleString()}</td>
+                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                        ${o.economyPrice}
+                        <span style={{ fontSize: 11, marginLeft: 5, color: priceDiff > 0 ? 'var(--red)' : 'var(--green)' }}>
+                          ({priceDiff >= 0 ? '+' : ''}{priceDiff}%)
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 48, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
+                            <div style={{ width: `${o.qualityScore}%`, height: '100%', background: 'var(--purple)' }} />
+                          </div>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{o.qualityScore}</span>
                         </div>
                       </td>
                       <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>

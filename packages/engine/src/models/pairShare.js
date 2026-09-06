@@ -35,6 +35,7 @@ import {
   HUB_TIERS,
 } from './demand.js';
 import { buildEncroachmentOffer } from './encroachment.js';
+import { rivalIndexFor, rivalOneStopOffersFor } from './network.js';
 import { memberPairKeysOf } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
 import { getAircraftType } from '../data/aircraft.js';
@@ -209,6 +210,9 @@ export function buildRivalPairOffers(state, market) {
     const offer = buildCompetitorOffer(c, market);
     if (offer) offers.push(offer);
   }
+  // Rival one-stops over their hubs — same index, same offers as the tick.
+  const rivalIndex = rivalIndexFor(state);
+  if (rivalIndex) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
   return offers;
 }
 
@@ -646,6 +650,7 @@ export function projectRouteAddition(state, spec) {
       demandMult,
       state.ancillaries ?? null,
       state.competitors ?? [],
+      rivalIndexFor(state),
     );
     if (!result) return { result, share };
     // Landing fees are charged per departure by weeklyTick and were simply absent

@@ -65,7 +65,7 @@ import {
   allianceMembers,
   partnerInterlineRevenue,
 } from '../data/alliances.js';
-import { runNetworkTick, trimOwnMetalEntries } from '../models/network.js';
+import { runNetworkTick, trimOwnMetalEntries, rivalIndexFor, rivalOneStopOffersFor } from '../models/network.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
 import { buildEncroachmentOffer } from '../models/encroachment.js';
@@ -1613,7 +1613,7 @@ export function defaultConfig(totalSeats) {
  * @param {object[]|null} specs        offer specs contesting this pair
  * @param {object}        market       from buildRouteMarket
  */
-export function rivalOffersFor(competitors, specs, market) {
+export function rivalOffersFor(competitors, specs, market, rivalIndex = null) {
   const key = [market.origin, market.destination].sort().join('-');
   const specList = (specs ?? []).filter(Boolean);
   const spokenFor = new Set(
@@ -1634,6 +1634,9 @@ export function rivalOffersFor(competitors, specs, market) {
     const offer = buildEncroachmentOffer(spec, market);
     if (offer) offers.push(offer);
   }
+  // Rival one-stops over THEIR hubs (HUB_CONNECTIVITY_PLAN.md Phase 1b). The
+  // index is null when state.rivalItineraries is off — the old world, exactly.
+  if (rivalIndex) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
   return offers;
 }
 
@@ -1654,7 +1657,7 @@ export function rivalOffersFor(competitors, specs, market) {
  *                                           empties seats instead of skimming revenue.
  * @returns {object|null}
  */
-export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null, eventDemandMult = 1.0, ancillaries = null, competitors = null) {
+export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandOverride = null, encroachmentSpecs = [], avgUtilization = null, satisfaction = null, eventDemandMult = 1.0, ancillaries = null, competitors = null, rivalIndex = null) {
   const origin = getAirport(route.origin);
   const dest   = getAirport(route.destination);
   const type   = getAircraftType(aircraft.typeId);
@@ -1787,7 +1790,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // Injected challengers (route encroachment, and every human rival in
     // multiplayer) contest this O&D through the same channel — rivalOffersFor()
     // merges the two banks and publishes each airline exactly once.
-    const competitorOffers = rivalOffersFor(competitors, encroachmentSpecs, market);
+    const competitorOffers = rivalOffersFor(competitors, encroachmentSpecs, market, rivalIndex);
     competitorOffersCount = competitorOffers.length;
     const allOffers = [playerOffer, ...competitorOffers];
     const shareResults = computeMarketShare(market, allOffers);
@@ -2226,7 +2229,7 @@ export function pairConnectivityBonus(spokeCounts, hubCodes, origin, destination
  * @param {object} [gameDate={month:6}]
  * @returns {object|null}   null if an aircraft/airport is invalid or a leg exceeds range
  */
-export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null, demandMultFor = null, ancillaries = null, competitors = null, encroachSpecsFor = null, segmentDemandFor = null) {
+export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, avgUtilization = null, satisfaction = null, demandMultFor = null, ancillaries = null, competitors = null, encroachSpecsFor = null, segmentDemandFor = null, rivalIndex = null) {
   const type  = getAircraftType(aircraft.typeId);
   if (!type) return null;
   const stops = routeStops(route);
@@ -2326,7 +2329,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     // pay out its whole pool twice.
     const pooledSlice = segmentDemandFor ? segmentDemandFor(segKey) : null;
     const competitorOffers = pooledSlice ? [] : rivalOffersFor(
-      competitors, encroachSpecsFor ? encroachSpecsFor(segKey) : null, market);
+      competitors, encroachSpecsFor ? encroachSpecsFor(segKey) : null, market, rivalIndex);
     const res = pooledSlice
       ? { leisurePax: pooledSlice.ecoDemand ?? 0, businessPax: pooledSlice.bizDemand ?? 0 }
       : computeMarketShare(market, [offer, ...competitorOffers])[0];
@@ -3561,6 +3564,9 @@ export function weeklyTick(state) {
   const allianceMembership  = state.allianceMembership  ?? null;
   const codeshareAgreements = state.codeshareAgreements ?? [];
   const competitors         = state.competitors         ?? [];
+  // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): one index
+  // per tick, null unless the world has them on.
+  const rivalIndex          = rivalIndexFor(state);
 
   // Build set of airports the player serves (for interline adjacency).
   // Only routes operating this month count — a dormant route serves no one.
@@ -3627,6 +3633,7 @@ export function weeklyTick(state) {
     routeCountByAirport,
     slotsByAirport,
     demandMultFor: eventDemandMultFor,   // world-event shocks hit itinerary O&Ds too
+    rivalIndex,
   });
   const {
     cannibalizationMap, partnerODRevenue, partnerHealthDecay,
@@ -4013,7 +4020,7 @@ export function weeklyTick(state) {
           : buildRouteMarket(ka, kb, gameDate, laneMarket.maturityFactor,
               eventDemandMultFor(ka, kb));
         laneRivalOffers.push(...rivalOffersFor(
-          (competitors ?? []).filter(c => c?.routes?.[k]), encroachByPair(k), kMarket));
+          (competitors ?? []).filter(c => c?.routes?.[k]), encroachByPair(k), kMarket, rivalIndex));
       }
 
       const laneResults = computeMarketShare(
@@ -4117,7 +4124,7 @@ export function weeklyTick(state) {
         ...nwrLoadFieldsFor(route),
       };
       const result = simulateTagRoute(tagRoute, aircraft, gameDate, laborWithSeniority, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries, competitors, encroachByPair,
-        (segKey) => tagSegmentDemand.get(`${route.id}|${segKey}`) ?? null);
+        (segKey) => tagSegmentDemand.get(`${route.id}|${segKey}`) ?? null, rivalIndex);
       if (!result) continue;
 
       const cateringRev    = result.cateringRevenue ?? 0;
@@ -4219,7 +4226,7 @@ export function weeklyTick(state) {
     const rkRoute = [route.origin, route.destination].sort().join('-');
     const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, laborWithSeniority, fuelMultiplier,
       demandAllocations.get(route.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
-      eventDemandMultFor(route.origin, route.destination), ancillaries, competitors);
+      eventDemandMultFor(route.origin, route.destination), ancillaries, competitors, rivalIndex);
     if (!result) continue;
 
     // Connecting passengers: additional revenue from hub-feed and partner agreements.

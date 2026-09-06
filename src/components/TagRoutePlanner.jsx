@@ -20,6 +20,7 @@ import AirportSelect from './AirportSelect.jsx';
 import { Glyph } from './Icons.jsx';
 import { isReserve } from '../data/reserve.js';
 import ReserveNotice, { reserveOptionTag } from './ReserveNotice.jsx';
+import { rivalIndexFor } from '../models/network.js';
 
 // ─── Region-grouped airport <select> (only airports with a gate) ───────────────
 
@@ -150,7 +151,7 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
       buildEventDemandModel(state.activeEvents).multFor, state.ancillaries ?? null,
       // Same rivals the tick contests this rotation against — the planner used
       // to forecast every segment as a monopoly.
-      state.competitors ?? [], (key) => rivalSpecsFor(state, key));
+      state.competitors ?? [], (key) => rivalSpecsFor(state, key), null, rivalIndexFor(state));
   }, [route, aircraft, inRange, gd.month, state.labor]); // eslint-disable-line
 
   // ── Validation: the ENGINE's reading, not a second one computed here ──

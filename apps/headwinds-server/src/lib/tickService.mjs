@@ -167,9 +167,16 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     // that polls afterwards adopts the trimmed schedule rather than fighting it.
     // Pure, version-stamped and deterministic, so running it again in the
     // recompute pass below (or on the client's own load) is a no-op.
-    const preState = applyScheduleTrimMigration(airline.state);
-    const trimNotices = preState === airline.state ? []
-      : (preState.scheduleTrimNotices ?? []).slice((airline.state?.scheduleTrimNotices ?? []).length);
+    // Rule flags the tick reads LIVE from the world, so an admin flip lands on
+    // every airline at the next tick (and persists into the blob, so the
+    // client's projections agree with what the tick just did).
+    const migrated = applyScheduleTrimMigration(airline.state);
+    const trimNotices = migrated === airline.state ? []
+      : (migrated.scheduleTrimNotices ?? []).slice((airline.state?.scheduleTrimNotices ?? []).length);
+    const preState = {
+      ...migrated,
+      rivalItineraries: world.tickConfig?.rivalItineraries === true,
+    };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),
       { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,

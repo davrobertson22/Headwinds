@@ -138,6 +138,41 @@ test('two unknown brands do not between them reach the whole market', () => {
     `two 45%-reach brands should reach ${(expect * 100).toFixed(0)}% of the pair, got ${(both / full * 100).toFixed(0)}%`);
 });
 
+// ── The fare choke is a limit, not a sink ─────────────────────────────────
+
+test('an over-priced rival\'s unsold allocation goes to the carrier whose fare they will pay', () => {
+  // The rival wins softmax share it cannot sell (fare past the choke cap).
+  // Before: that share was deleted. Now: the refusers fly the cheaper carrier.
+  // Economy-only on both sides so the business cabin (where a q95 rival can
+  // legitimately sell dear seats) does not muddy the leisure arithmetic.
+  const dear = offer('dear', { ...ROOMY, economyPrice: 162 * 2.6, businessPrice: null, businessSeats: 0, qualityScore: 95 });
+  const me   = offer('me',   { ...ROOMY, businessPrice: null, businessSeats: 0 });
+  const res  = computeMarketShare(MARKET, [me, dear]);
+  const dearRes = by(res, 'dear'), meRes = by(res, 'me');
+  assert.ok(dearRes.leisureShare > 0.05, `fixture: the dear offer must win some share (${dearRes.leisureShare.toFixed(2)})`);
+  assert.ok(dearRes.totalPax < meRes.totalPax * 0.1, 'and sell next to nothing');
+  // Baseline: the same two-carrier market with the dear rival unable to carry
+  // anyone at all (zero seats → full spill recapture). Same fare compression,
+  // same pool — so the only difference is whether the CHOKED share comes back.
+  const shut = by(computeMarketShare(MARKET, [me, { ...dear, economySeats: 0, businessSeats: 0, totalSeats: 0 }]), 'me');
+  assert.ok(meRes.totalPax >= shut.totalPax * 0.97,
+    `me carried ${meRes.totalPax} beside a choked rival vs ${shut.totalPax} beside a shut one — the choked share evaporated`);
+  assert.ok(meRes.totalPax <= alone(me) + 1, 'never more than alone');
+});
+
+test('two carriers at the same over-priced fare hand each other nothing', () => {
+  // Someone who refused $X at A refuses $X at B: no spill between equals, so
+  // the pair sells exactly what one over-priced fare sells (H9 duopoly rule).
+  const p = Math.round(162 * 1.5);
+  const a = offer('a', { ...ROOMY, economyPrice: p, businessPrice: Math.round(p * BUSINESS_PRICE_MULTIPLIER) });
+  const b = offer('b', { ...ROOMY, economyPrice: p, businessPrice: Math.round(p * BUSINESS_PRICE_MULTIPLIER) });
+  const res = computeMarketShare(MARKET, [a, b]);
+  for (const r of res) assert.equal(r.leisurePax, r.leisurePaxUncapped);
+  const total = carried(res);
+  const one = computeMarketShare(MARKET, [a])[0].totalPax;
+  assert.ok(total <= one * 1.02, `duopoly at one fare sold ${total}, a monopoly at that fare ${one}`);
+});
+
 test('a monopoly result is untouched', () => {
   const [solo] = computeMarketShare(MARKET, [TINY]);
   assert.equal(solo.totalPax, 12);

@@ -406,6 +406,9 @@ export default async function worldRoutes(fastify) {
           // Optional gate scarcity (finite airport capacity, auctions, gate market).
           gateScarcity: { type: 'boolean' },
           newWorldRestrictions: { type: 'boolean' },
+          crewPipeline: { type: 'boolean' },
+          // Rival one-stop itineraries (default ON; false = point-to-point rivals).
+          rivalItineraries: { type: 'boolean' },
           // Cosmetic maturity label: alpha | beta | live (default beta).
           stage: { type: 'string', enum: WORLD_STAGES },
           // Era world: real calendar year of week 1 (omit for a classic world).
@@ -566,6 +569,27 @@ export default async function worldRoutes(fastify) {
       where: { id: world.id },
       data: { tickConfig: tc },
     });
+    return { world: serializeWorld(updated, {}) };
+  });
+
+  // ── Switch rival one-stop itineraries on a running world (ADMIN) ──────────
+  // HUB_CONNECTIVITY_PLAN.md decision 4: new worlds get them at creation;
+  // an existing world is flipped here. The tick reads the flag live and
+  // re-stamps every airline blob, so it lands at the world's next tick. It is
+  // a revenue change for every player on pairs a rival hub can reach, so post
+  // a news item before flipping a live world.
+  fastify.post('/worlds/:id/rival-itineraries', {
+    preHandler: requireAdmin,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
+    },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    const tc = { ...(world.tickConfig ?? {}) };
+    if (request.body.enabled) tc.rivalItineraries = true; else delete tc.rivalItineraries;
+    const updated = await prisma.world.update({ where: { id: world.id }, data: { tickConfig: tc } });
     return { world: serializeWorld(updated, {}) };
   });
 

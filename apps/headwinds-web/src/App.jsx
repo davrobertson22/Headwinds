@@ -337,6 +337,8 @@ function CreateWorld({ token, onCreated }) {
   const [newWorldRestrictions, setNewWorldRestrictions] = useState(true);
   // Crew pipeline (A7) — opt-in, independent of New World Restrictions.
   const [crewPipeline, setCrewPipeline] = useState(false);
+  // Rival one-stop itineraries — on by default (HUB_CONNECTIVITY_PLAN.md).
+  const [rivalItineraries, setRivalItineraries] = useState(true);
   const [stage, setStage] = useState('beta');
   // Era world: real calendar year of week 1 ('' = classic ordinal world).
   const [eraSel, setEraSel] = useState('');           // '' | preset year | 'custom'
@@ -368,6 +370,8 @@ function CreateWorld({ token, onCreated }) {
           // old omit-when-false shorthand would have silently forced restrictions.
           newWorldRestrictions,
           ...(crewPipeline ? { crewPipeline: true } : {}),
+          // Always explicit: the server treats an absent field as ON.
+          rivalItineraries,
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
@@ -483,6 +487,19 @@ function CreateWorld({ token, onCreated }) {
             Fly short-handed and your on-time rate and passenger satisfaction suffer. Pay below
             market and crew leave faster than you can replace them, so the pay dial becomes a
             retention decision, not just a cost. Growth has to be planned, not clicked.
+          </span>
+        </label>
+        <label style={{ alignItems: 'flex-start' }}>Rival connections
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={rivalItineraries}
+              onChange={(e) => setRivalItineraries(e.target.checked)} />
+            <span className="muted">{rivalItineraries ? 'ON — rivals sell one-stop itineraries over their hubs' : 'Off — rivals fly point-to-point only (classic)'}</span>
+          </span>
+          <span className="muted small">
+            Every airline in the world sells connections, not just you. A rival hubbed at Frankfurt
+            with flights to New York and Amsterdam competes on New York–Amsterdam via Frankfurt,
+            in the same demand model that books your own passengers — and your connections over
+            your hubs face theirs. Turning it off gives the older world where only you can hub.
           </span>
         </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
@@ -680,6 +697,12 @@ function WorldsScreen({ token, me }) {
                     <span title="New world restrictions: old-gen single-deck leasing only, lease order book capped at 25% of fleet"
                       style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', whiteSpace: 'nowrap' }}>
                       🔒 LEASING
+                    </span>
+                  )}
+                  {w.rivalItineraries && (
+                    <span title="Rival connections: every airline sells one-stop itineraries over its hubs"
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(163,113,247,0.15)', color: '#a371f7', border: '1px solid rgba(163,113,247,0.35)' }}>
+                      ⇄ HUBS
                     </span>
                   )}
                   {w.gateScarcity && (
@@ -951,6 +974,12 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
               <span title="New world restrictions: lessors carry single-deck previous-generation aircraft only, and your lease order book is capped at 25% of the fleet you operate (minimum 5)"
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                 🔒 NEW WORLD RESTRICTIONS
+              </span>
+            )}
+            {world.rivalItineraries && (
+              <span title="Rival connections: every airline in this world sells one-stop itineraries over its hubs, in the same demand model that books your passengers"
+                style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(163,113,247,0.15)', color: '#a371f7', border: '1px solid rgba(163,113,247,0.35)' }}>
+                ⇄ RIVAL CONNECTIONS
               </span>
             )}
             {world.gateScarcity && (

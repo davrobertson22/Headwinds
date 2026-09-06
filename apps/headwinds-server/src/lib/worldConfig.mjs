@@ -110,7 +110,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, stage, startYear,
+  newWorldRestrictions, crewPipeline, stage, startYear, rivalItineraries,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -127,6 +127,9 @@ export function validateWorldConfig({
   }
   if (crewPipeline != null && typeof crewPipeline !== 'boolean') {
     throw badRequest('crewPipeline must be true or false');
+  }
+  if (rivalItineraries != null && typeof rivalItineraries !== 'boolean') {
+    throw badRequest('rivalItineraries must be true or false');
   }
   if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
     throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
@@ -235,6 +238,11 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional crew pipeline (A7): hiring has a lead time and understaffing
     // degrades the operation. Opt-in, independent of newWorldRestrictions.
     crewPipeline: world.tickConfig?.crewPipeline === true,
+    // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell
+    // connections over their hubs in every passenger market. On for new
+    // worlds; an existing world is switched on by an admin (POST
+    // /worlds/:id/rival-itineraries) and takes effect at its next tick.
+    rivalItineraries: world.tickConfig?.rivalItineraries === true,
     // Era world: real calendar year of week 1 (null = classic ordinal world).
     startYear: Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null,
     // Maturity label — see WORLD_STAGES. Changes no rules, so the admin panel

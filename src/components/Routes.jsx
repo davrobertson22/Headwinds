@@ -40,6 +40,7 @@ import {
   buildEventDemandModel, committedPeakBlockHours, routesCommittedTo, blockHourFit,
   stateLoungeFields,
 } from '../utils/simulation.js';
+import { rivalIndexFor } from '../models/network.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -1126,7 +1127,7 @@ function TagRouteCard({ route, onClose, onAddAircraft, siblingCount = 1 }) {
     state.ancillaries ?? null,
     // The live carrier bank and this segment's challengers. Without them a tag
     // route previewed as an uncontested monopoly on every one of its segments.
-    state.competitors ?? [], (key) => rivalSpecsFor(state, key)) : null;
+    state.competitors ?? [], (key) => rivalSpecsFor(state, key), null, rivalIndexFor(state)) : null;
   const landingFee = type ? routeLandingFee(route, type, route.weeklyFrequency) : 0;
   const profit   = sim ? sim.profit - landingFee : 0;
 

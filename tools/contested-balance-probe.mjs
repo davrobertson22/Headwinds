@@ -6,6 +6,7 @@
 // capacity-capped vs demand-limited in the final week.
 //
 //   node --import ./tools/_register-loader.mjs tools/contested-balance-probe.mjs [weeks=104]
+//   RIVAL_ITIN=1 … turns rival one-stop itineraries on (HUB_CONNECTIVITY_PLAN.md 1b)
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
 import { getAirport } from '../packages/engine/src/data/airports.js';
@@ -37,7 +38,8 @@ gates.JFK = 24; gates.ORD = 14;
 let st = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Probe', hub: 'JFK', enableObjectives: false });
 st = { ...st, cash: 500_000_000, fleet, routes, routePricing, gates,
   hubs: { JFK: { tier: 2, tierSince: 0 }, ORD: { tier: 1, tierSince: 0 } },
-  fareIndex: NWR_FARE_INDEX, newWorldRestrictions: true };
+  fareIndex: NWR_FARE_INDEX, newWorldRestrictions: true,
+  ...(process.env.RIVAL_ITIN ? { rivalItineraries: true } : {}) };
 
 const years = [];
 let acc = { rev: 0, pax: 0, profit: 0 };

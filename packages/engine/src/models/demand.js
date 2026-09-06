@@ -869,6 +869,9 @@ export function softmax(utilities) {
  * @param {AirlineOffer[]} offers   - one per airline serving this route
  * @returns {MarketShareResult[]}
  */
+/** Id prefix of every rival one-stop offer (defined here so demand.js need not import network.js). */
+export const RIVAL_CONN_PREFIX = '__rival_conn__';
+
 // DEBUG_MS=1 dumps every contested share fight to stderr (node only; the
 // engine also runs in the browser, where `process` does not exist).
 const DEBUG_MS = typeof process !== 'undefined' && !!process.env?.DEBUG_MS;
@@ -898,8 +901,12 @@ export function computeMarketShare(market, offers) {
   // the market's fares against itself simply for serving two of its own
   // airports. Offers with no airlineId are treated as distinct, which is what
   // every pre-metro caller gets and keeps their arithmetic identical.
+  // Rival ONE-STOP itineraries are not extra carriers for this purpose
+  // (HUB_CONNECTIVITY_PLAN.md §3.4): a connection over someone's hub does not
+  // compress the pair's nonstop fare ladder the way a second nonstop does.
   const distinctCarriers = new Set(
-    offers.map((o, i) => o.airlineId ?? `__offer${i}`)).size;
+    offers.filter(o => !String(o.airlineId ?? '').startsWith(RIVAL_CONN_PREFIX))
+      .map((o, i) => o.airlineId ?? `__offer${i}`)).size;
   const fareCompression = Math.max(
     COMPETITIVE_FARE_COMPRESSION_FLOOR,
     1 - COMPETITIVE_FARE_COMPRESSION_PER_RIVAL * (distinctCarriers - 1)
@@ -923,12 +930,24 @@ export function computeMarketShare(market, offers) {
   const leisureShares  = softmax(leisureUtils);
   const businessShares = anyBiz ? softmax(businessUtils) : offers.map(() => 0);
 
-  // Weighted-average prices across the market (share-weighted)
-  const avgLeisurePrice  = offers.reduce((s, o, i) => s + o.economyPrice  * leisureShares[i],  0);
-  const avgBusinessPrice = offers.reduce((s, o, i) => {
-    const p = (o.businessPrice != null ? o.businessPrice : o.economyPrice * BUSINESS_PRICE_MULTIPLIER);
-    return s + p * businessShares[i];
-  }, 0);
+  // Weighted-average prices across the market — weighted by the share each
+  // offer would actually SELL (softmax share × its fare choke), not by softmax
+  // share alone. An offer priced past the choke cap sells nothing, and letting
+  // it drag the "market price" up shrank the whole pool for everyone else: three
+  // $650 one-stops on a $478 pair took the pool down 15% while carrying nobody.
+  const bizPriceOf = (o) => (o.businessPrice != null ? o.businessPrice : o.economyPrice * BUSINESS_PRICE_MULTIPLIER);
+  const weightedAvg = (priceOf, shares, refForChoke) => {
+    let num = 0, den = 0;
+    offers.forEach((o, i) => {
+      const w = shares[i] * priceChokeFactor(priceOf(o), refForChoke(o), o.qualityScore);
+      num += priceOf(o) * w; den += w;
+    });
+    // Everyone choked: fall back to the plain share-weighted mean.
+    return den > 0 ? num / den : offers.reduce((s, o, i) => s + priceOf(o) * shares[i], 0);
+  };
+  const avgLeisurePrice  = weightedAvg(o => o.economyPrice, leisureShares, () => compressedRef);
+  const avgBusinessPrice = weightedAvg(bizPriceOf, businessShares,
+    o => compressedBizRef * businessFareTolerance(o.qualityScore));
 
   // Elasticity factors: demand shrinks when average market price is above the
   // (competition-compressed) reference
@@ -982,17 +1001,20 @@ export function computeMarketShare(market, offers) {
   // The choke drives an individual carrier's demand to ~0 as its own fare
   // approaches the cap, even though the share softmax alone would still hand it
   // a sliver of the market.
-  const rawBusiness = offers.map((offer, i) => {
-    const bizPrice = offer.businessPrice != null
-      ? offer.businessPrice
-      : offer.economyPrice * BUSINESS_PRICE_MULTIPLIER;
-    // High quality stretches the tolerable business fare before the choke bites.
-    return adjustedBusinessDemand * businessShares[i]
-      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore);
-  });
-  const rawLeisure = offers.map((offer, i) =>
-    adjustedLeisureDemand * leisureShares[i]
-      * priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore));
+  //
+  // The choke is a LIMIT, not a deletion: the share the softmax hands an
+  // over-priced offer minus what its fare can sell is demand that goes to the
+  // other carriers (through the same spill machinery as a full cabin), not
+  // demand that ceases to exist. Before this, an offer priced past the cap was
+  // a sink — it won share and sold nothing, and the passengers vanished.
+  const chokeB = offers.map(offer =>
+    priceChokeFactor(bizPriceOf(offer), compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore));
+  const chokeL = offers.map(offer =>
+    priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore));
+  const rawBusinessFull = offers.map((offer, i) => adjustedBusinessDemand * businessShares[i]);
+  const rawLeisureFull  = offers.map((offer, i) => adjustedLeisureDemand  * leisureShares[i]);
+  const rawBusiness = rawBusinessFull.map((v, i) => v * chokeB[i]);
+  const rawLeisure  = rawLeisureFull.map((v, i)  => v * chokeL[i]);
 
   // ── Capacity, with spill recapture ─────────────────────────────────────────
   // Business is capped at its own cabin; leisure may then use ALL remaining
@@ -1006,15 +1028,20 @@ export function computeMarketShare(market, offers) {
   // not carry, and they vanished from the market — a connecting itinerary,
   // seat-thin by construction, did it on every pair it touched. Demand is now
   // lost only when every carrier on the pair is full.
+  // What each offer cannot sell of its own allocation at its fare is handed to
+  // the others pro rata to what THEY sell (choked raw), choked again at the
+  // receiver's fare; the second-order remainder stays home. Then seats.
+  const startB = chokeRedistribute(rawBusinessFull, chokeB);
+  const startL = chokeRedistribute(rawLeisureFull,  chokeL);
   const bizCap = offers.map(o => (o.businessPrice != null && Number.isFinite(o.businessSeats)) ? Math.max(0, o.businessSeats) : Infinity);
-  const businessPaxArr = allocateWithSpill(rawBusiness, bizCap, reachCeilB);
+  const businessPaxArr = allocateWithSpill(startB, bizCap, reachCeilB, rawBusiness);
   const leisureCap = offers.map((o, i) => {
     // Prefer true total capacity; fall back to economy-seat cap (never below it).
     const bizPax = Math.min(businessPaxArr.demand[i], bizCap[i]);
     const cap = o.totalSeats != null ? o.totalSeats - bizPax : o.economySeats;
     return Number.isFinite(cap) ? Math.max(0, cap) : Infinity;
   });
-  const leisurePaxArr = allocateWithSpill(rawLeisure, leisureCap, reachCeilL);
+  const leisurePaxArr = allocateWithSpill(startL, leisureCap, reachCeilL, rawLeisure);
 
   if (DEBUG_MS) {
     console.error(`[ms] ${market.origin}-${market.destination} ref ${market.referencePrice} pool L ${market.leisureDemand} B ${market.businessDemand} → base L ${leisureBase} B ${businessBase} capture ${brandCapture.toFixed(3)} avgL ${avgLeisurePrice.toFixed(0)}`);
@@ -1070,13 +1097,17 @@ export function computeMarketShare(market, offers) {
  *
  * @param {number[]} raw   demand generated for each offer
  * @param {number[]} cap   seats available to each offer (Infinity = unlimited)
- * @param {number[]} [ceil]   solo ceiling per offer (Infinity = none)
+ * @param {number[]} [ceil]    solo ceiling per offer (Infinity = none)
+ * @param {number[]} [weights] how spill is shared among open offers (default:
+ *                             their current demand). The caller passes the
+ *                             CHOKED raw allocation, so an offer its fare drove
+ *                             to zero attracts no spill either.
  * @returns {{ demand: number[], capped: boolean[] }}  demand = min(raw + spill
  *          received, ceil) — may exceed cap (caller applies min); capped marks
  *          the offers pinned by SEATS (an offer at its solo ceiling is not
  *          "capped": it has room, just nobody left who would buy from it).
  */
-export function allocateWithSpill(raw, cap, ceil = null) {
+export function allocateWithSpill(raw, cap, ceil = null, weights = null) {
   const demand = raw.map(v => Math.max(0, v || 0));
   const capped = raw.map(() => false);
   const closed = raw.map(() => false);
@@ -1094,14 +1125,51 @@ export function allocateWithSpill(raw, cap, ceil = null) {
       }
     }
     if (spill <= 0) break;
+    const w = (i) => Math.max(0, weights ? (weights[i] || 0) : demand[i]);
     let openWeight = 0;
-    for (let i = 0; i < demand.length; i++) if (!closed[i]) openWeight += demand[i];
+    for (let i = 0; i < demand.length; i++) if (!closed[i]) openWeight += w(i);
     if (openWeight <= 0) break;                  // nobody open → demand is lost
     for (let i = 0; i < demand.length; i++) {
-      if (!closed[i]) demand[i] += spill * demand[i] / openWeight;
+      if (!closed[i]) demand[i] += spill * w(i) / openWeight;
     }
   }
   return { demand, capped };
+}
+
+/**
+ * The fare choke as a REDISTRIBUTION rather than a deletion.
+ *
+ * Read the choke as a willingness-to-pay curve: choke(p) is the share of the
+ * travellers allocated to an offer who will actually pay p. The (1 − choke_j)
+ * who refuse offer j's fare are not gone — they are handed to the other
+ * offers, pro rata to what those offers sell, and each receiver i keeps only
+ * the buyers its LOWER fare unlocks: (choke_i − choke_j) / (1 − choke_j).
+ * Someone who refused $X at carrier A refuses $X at carrier B, so an offer at
+ * the same or a higher fare receives nothing; the passengers a $650 one-stop
+ * cannot sell on a $478 pair all go to the carriers priced at the reference.
+ * What no receiver's fare unlocks stays home.
+ */
+export function chokeRedistribute(rawFull, choke) {
+  const n = rawFull.length;
+  const sold = rawFull.map((v, i) => Math.max(0, v || 0) * choke[i]);
+  const W = sold.reduce((s, v) => s + v, 0);
+  if (!(W > 0)) return sold;
+  const out = sold.slice();
+  for (let j = 0; j < n; j++) {
+    const residual = Math.max(0, rawFull[j] || 0) * (1 - choke[j]);
+    if (!(residual > 0) || choke[j] >= 1) continue;
+    // Receivers: everyone but j, weighted by what they sell.
+    let wSum = 0;
+    for (let i = 0; i < n; i++) if (i !== j) wSum += sold[i];
+    if (!(wSum > 0)) continue;
+    for (let i = 0; i < n; i++) {
+      if (i === j) continue;
+      const unlocked = Math.max(0, choke[i] - choke[j]) / (1 - choke[j]);
+      if (unlocked <= 0) continue;
+      out[i] += residual * (sold[i] / wSum) * unlocked;
+    }
+  }
+  return out;
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -2289,7 +2357,7 @@ const COMPETITOR_DEFAULT_ROUTES = {
 // inventory you can inspect before buying the carrier and inherit when you do.
 
 /** Seat size a carrier of each tier prefers when choosing aircraft for a route. */
-const TIER_SEAT_TARGET = { budget: 160, legacy: 250, premium: 330 };
+export const TIER_SEAT_TARGET = { budget: 160, legacy: 250, premium: 330 };
 
 /** Approx one-way block time (hours): ~820 km/h cruise + 0.5h taxi/turn. */
 function blockTimeOneWay(distKm) { return distKm / 820 + 0.5; }

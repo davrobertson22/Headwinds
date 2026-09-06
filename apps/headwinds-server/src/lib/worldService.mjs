@@ -40,8 +40,9 @@ export async function createWorld(prisma, {
   crewPipeline,
   stage,
   startYear,
+  rivalItineraries,
 } = {}) {
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage, startYear });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage, startYear, rivalItineraries });
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -70,6 +71,13 @@ export async function createWorld(prisma, {
     // newWorldRestrictions — omitting it leaves the world on the classic model
     // where crew is instantaneous. Fixed at creation like the other rule flags.
     ...(crewPipeline === true ? { crewPipeline: true } : {}),
+    // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
+    // sell connections over their hubs in every passenger market. ON BY
+    // DEFAULT for every new world; pass `rivalItineraries: false` explicitly
+    // for the old point-to-point rival model. Worlds created before this keep
+    // whatever their stored tickConfig says (nothing) until an admin flips
+    // them — the tick reads the flag live, so flipping takes effect next tick.
+    ...(rivalItineraries !== false ? { rivalItineraries: true } : {}),
     // Era world (ERA_MODE_PLAN.md): week 1 of year 1 is January of this real
     // calendar year. Drives aircraft availability, the era demand/fare curves
     // and the historical fuel walk. Fixed at creation — the whole design keys
@@ -195,6 +203,9 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
       crewPipeline: true,
       labor: seedCrewFor(seeded.labor ?? DEFAULT_LABOR_STATE, seeded.fleet ?? [], (a) => getAircraftType(a.typeId)),
     } : {}),
+    // Rival itineraries: baked at join so the client's projections agree with
+    // the tick from the first render; the tick re-stamps it every week anyway.
+    ...(tc.rivalItineraries === true ? { rivalItineraries: true } : {}),
   };
 
   // ── One world, one calendar ─────────────────────────────────────────────────
