@@ -316,6 +316,47 @@ export function buildPartnerRoutes(competitors, partnershipMap) {
 }
 
 /**
+ * Interline feed from real rival legs (HUB_CONNECTIVITY_PLAN.md Phase 2).
+ *
+ * Every NON-partner rival route that touches one of the player's DESIGNATED
+ * hubs becomes a bare-interline leg the player's connections can join onto —
+ * "the rest of the industry's flights into your hub". One leg per rival per
+ * direction, carrying the rival's id, so each carrier's feed is its own
+ * routing in the O&D market (KLM's Amsterdam passengers and Delta's are
+ * different products) and so buildAllConnections can refuse the itineraries
+ * that rival would carry itself. Partners are excluded here because
+ * buildPartnerRoutes already carries them at their real partnership tier.
+ * Nothing outside a designated hub: an undesignated airport has no transfer
+ * product, exactly as for your own metal.
+ */
+export function buildInterlineLegs(competitors = [], partnershipMap = new Map(), hubs = {}) {
+  const isPartner = (id) => (partnershipMap instanceof Map ? partnershipMap.has(id) : !!partnershipMap?.[id]);
+  const hubSet = new Set(Object.entries(hubs ?? {}).filter(([, h]) => h && h.tier != null).map(([c]) => c));
+  if (hubSet.size === 0) return [];
+  const legs = [];
+  for (const c of competitors ?? []) {
+    if (!c?.id || !c.routes || isPartner(c.id)) continue;
+    for (const [routeKey, cfg] of Object.entries(c.routes)) {
+      if (!cfg) continue;
+      const [a, b] = routeKey.split('-');
+      if (!hubSet.has(a) && !hubSet.has(b)) continue;
+      const freq = cfg.frequency ?? 0;
+      if (!(freq > 0)) continue;
+      const price = cfg.economyFare != null
+        ? Math.max(1, Math.round(cfg.economyFare))
+        : Math.round((referencePrice(a, b) ?? 300) * (cfg.priceMultiplier ?? 1));
+      for (const [origin, destination] of [[a, b], [b, a]]) {
+        legs.push({
+          origin, destination, routeKey, weeklyFrequency: freq, price,
+          owner: 'partner', partnerId: c.id, partnershipType: 'interline', interline: true,
+        });
+      }
+    }
+  }
+  return legs;
+}
+
+/**
  * Build a Map<competitorId, partnershipType> from game state.
  * Codeshare agreements take precedence over alliance membership for tier.
  * If a competitor is in a JV (joint venture) agreement, mark them specially.
@@ -474,13 +515,21 @@ function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteK
  * @param {Map}     partnershipMap     - from buildPartnershipMap
  * @returns {Connection[]}
  */
-export function buildAllConnections(playerRoutes, competitors, partnershipMap) {
+export function buildAllConnections(playerRoutes, competitors, partnershipMap, options = {}) {
+  const { hubs = {}, interline = false } = options;
   // Expand tag flights into their legs so every airport they touch (including
   // intermediate stops) is a real network node that can form/feed connections.
   const legRoutes        = expandRoutesToLegs(playerRoutes);
   const partnerRoutes    = buildPartnerRoutes(competitors, Object.fromEntries(partnershipMap));
+  // Phase 2: non-partner rival legs into the player's designated hubs, as
+  // bare-interline feed. Only formed AT those hubs (filtered below) — the legs
+  // are built to touch a hub, but the other endpoint may be a player airport
+  // too, and a connection formed THERE would be a transfer product the player
+  // does not have.
+  const interlineRoutes  = interline ? buildInterlineLegs(competitors, partnershipMap, hubs) : [];
+  const designated       = new Set(Object.entries(hubs ?? {}).filter(([, h]) => h && h.tier != null).map(([c]) => c));
   const playerRouteKeys  = new Set(legRoutes.map(r => [r.origin, r.destination].sort().join('-')));
-  const adjacencyIndex   = buildAdjacencyIndex(legRoutes, partnerRoutes);
+  const adjacencyIndex   = buildAdjacencyIndex(legRoutes, [...partnerRoutes, ...interlineRoutes]);
 
   // Hub airports = every airport a player leg touches (intermediate stops included)
   const hubCandidates = new Set();
@@ -489,10 +538,29 @@ export function buildAllConnections(playerRoutes, competitors, partnershipMap) {
     hubCandidates.add(r.destination);
   }
 
+  const interlineIds = new Set(interlineRoutes.map(l => l.partnerId));
+  const routesOf = new Map((competitors ?? []).map(c => [c?.id, c?.routes ?? {}]));
+
   const allConnections = [];
   for (const hub of hubCandidates) {
     const conns = findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, playerRouteKeys);
-    allConnections.push(...conns);
+    for (const c of conns) {
+      const feeder = interlineIds.has(c.leg1PartnerId) && c.leg1Owner === 'partner' ? c.leg1PartnerId
+                   : interlineIds.has(c.leg2PartnerId) && c.leg2Owner === 'partner' ? c.leg2PartnerId : null;
+      if (feeder) {
+        // A bare-interline itinerary exists only at a designated hub…
+        if (!designated.has(hub)) continue;
+        // …and only where the feeding rival would not carry the passenger
+        // itself: if it also flies the OTHER leg out of this hub, that is its
+        // own connection (a Phase-1b rival one-stop in the same market), not
+        // feed for you. A rival hubbed at your hub keeps its own transfers.
+        const otherLeg = c.leg1PartnerId === feeder
+          ? [hub, c.legTwoDest].sort().join('-')
+          : [c.legOneOrigin, hub].sort().join('-');
+        if (routesOf.get(feeder)?.[otherLeg]) continue;
+      }
+      allConnections.push(c);
+    }
   }
 
   return allConnections;
@@ -663,7 +731,11 @@ export function computePartnerODRevenue(connections, options = {}) {
 
     if (!byOD.has(dirKey)) byOD.set(dirKey, { dirKey, origin, dest, routings: new Map() });
     // Collapse exact-duplicate enumerations of the same routing (same hub/metal).
-    const sig = `${conn.hub}|${conn.leg1Owner}`;
+    // Interline feed is per carrier: two rivals feeding the same hub are two
+    // routings competing in the market, not one.
+    const sig = conn.partnershipType === 'interline'
+      ? `${conn.hub}|${conn.leg1Owner}|${conn.leg1Owner === 'partner' ? conn.leg1PartnerId : conn.leg2PartnerId}`
+      : `${conn.hub}|${conn.leg1Owner}`;
     const group = byOD.get(dirKey);
     if (!group.routings.has(sig)) group.routings.set(sig, conn);
   }
@@ -728,6 +800,7 @@ export function computePartnerODRevenue(connections, options = {}) {
       totalPax     += pax;
       entries.push({
         odKey,
+        origin, dest,                       // direction — the tick seats feed on the player leg
         hub:               meta.hub,
         partnerLeg:        meta.partnerLeg,
         pax,
@@ -991,7 +1064,9 @@ export function buildRivalHubIndex(competitors = []) {
         if (!hubSet.has(h)) continue;
         const spoke = h === a ? b : a;
         if (!legs.has(h)) legs.set(h, new Map());
-        legs.get(h).set(spoke, cfg);
+        // Leg fare resolved ONCE here, not per market lookup: a 75-carrier
+        // world asks for ~1,500 O&Ds a tick and referencePrice is the cost.
+        legs.get(h).set(spoke, { ...cfg, legPrice: rivalLegPrice(cfg, h, spoke) });
       }
     }
     const tierAt = new Map();
@@ -1002,6 +1077,18 @@ export function buildRivalHubIndex(competitors = []) {
     }
     idx.set(c.id, { rival: c, legs, tierAt });
   }
+  // Second key: spoke → the (rival, hub) pairs that fly it. A market lookup then
+  // walks only the hubs its ORIGIN is a spoke of, not every hub in the world.
+  const bySpoke = new Map();
+  for (const entry of idx.values()) {
+    for (const [h] of entry.tierAt) {
+      for (const spoke of entry.legs.get(h).keys()) {
+        if (!bySpoke.has(spoke)) bySpoke.set(spoke, []);
+        bySpoke.get(spoke).push({ entry, hub: h });
+      }
+    }
+  }
+  idx.bySpoke = bySpoke;
   return idx;
 }
 
@@ -1048,8 +1135,8 @@ function rivalLegPrice(cfg, a, b) {
  */
 export function buildRivalConnectionOffer(rival, hub, tier, legIn, legOut, market, circuity) {
   const tierDef = HUB_TIERS[tier] ?? HUB_TIERS[1];
-  const pIn  = rivalLegPrice(legIn,  market.origin, hub);
-  const pOut = rivalLegPrice(legOut, hub, market.destination);
+  const pIn  = legIn.legPrice  ?? rivalLegPrice(legIn,  market.origin, hub);
+  const pOut = legOut.legPrice ?? rivalLegPrice(legOut, hub, market.destination);
   const economyPrice = pIn + pOut;
   const freq = Math.min(legIn.frequency ?? 0, legOut.frequency ?? 0);
   if (!(freq > 0)) return null;
@@ -1088,20 +1175,20 @@ export function rivalOneStopOffersFor(rivalIndex, market) {
   const key = [A, C].sort().join('-');
   const direct = routeDistance(A, C) || 0;
   const out = [];
-  for (const { rival, legs, tierAt } of rivalIndex.values()) {
-    if (rival.routes?.[key]) continue;
-    for (const [h, tier] of tierAt) {
-      if (h === A || h === C) continue;
-      const m = legs.get(h);
-      const legIn = m?.get(A), legOut = m?.get(C);
-      if (!legIn || !legOut) continue;
-      const circuity = direct > 0
-        ? ((routeDistance(A, h) || 0) + (routeDistance(h, C) || 0)) / direct
-        : Infinity;
-      if (!(circuity <= MAX_CIRCUITY)) continue;
-      const offer = buildRivalConnectionOffer(rival, h, tier, legIn, legOut, market, circuity);
-      if (offer) out.push(offer);
-    }
+  for (const { entry, hub: h } of (rivalIndex.bySpoke?.get(A) ?? [])) {
+    const { rival, legs, tierAt } = entry;
+    if (h === A || h === C) continue;
+    if (rival.routes?.[key]) continue;                // their nonstop speaks
+    const m = legs.get(h);
+    const legIn = m.get(A), legOut = m.get(C);
+    if (!legIn || !legOut) continue;
+    const tier = tierAt.get(h);
+    const circuity = direct > 0
+      ? ((routeDistance(A, h) || 0) + (routeDistance(h, C) || 0)) / direct
+      : Infinity;
+    if (!(circuity <= MAX_CIRCUITY)) continue;
+    const offer = buildRivalConnectionOffer(rival, h, tier, legIn, legOut, market, circuity);
+    if (offer) out.push(offer);
   }
   return out;
 }
@@ -1479,6 +1566,7 @@ export function runNetworkTick(state) {
     slotsByAirport       = {},   // player weekly departures per airport (congestion)
     demandMultFor        = null, // (origin, dest) → world-event demand multiplier
     rivalIndex           = null, // rival one-stop itineraries (rivalIndexFor(state); null = off)
+    interlineFeed        = !!rivalIndex, // Phase 2: rival legs feed the player's hubs (same flag)
   } = state;
 
   const partnershipMap = buildPartnershipMap(
@@ -1493,7 +1581,7 @@ export function runNetworkTick(state) {
   // model can pit the player's connections against real head-to-head competition.
   const competitorRouteIndex = buildCompetitorRouteIndex(competitors);
 
-  const connections        = buildAllConnections(routes, competitors, partnershipMap);
+  const connections        = buildAllConnections(routes, competitors, partnershipMap, { hubs, interline: interlineFeed });
   const cannibalizationMap = buildCannibalizationMap(connections);
   const partnerODRevenue   = computePartnerODRevenue(connections, {
     gameDate,

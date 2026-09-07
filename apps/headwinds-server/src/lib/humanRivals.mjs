@@ -240,6 +240,15 @@ export async function loadAllianceMap(prisma, worldId) {
   return byAirline;
 }
 
+/** `{ [code]: { tier } }` for every hub the blob has designated (tier != null). */
+function designatedHubsOf(s) {
+  const out = {};
+  for (const [code, h] of Object.entries(s?.hubs ?? {})) {
+    if (h && h.tier != null) out[code] = { tier: h.tier };
+  }
+  return out;
+}
+
 // One competitor-shaped object for a human rival (consumed by the Competition
 // tab, marketing voice, alliances, codeshares — everywhere state.competitors
 // flows in the engine).
@@ -293,6 +302,14 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     dev: isDevEmail(airlineRow.account?.email),
     name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
     homeHub: airlineRow.hub ?? s.hub ?? null,
+    // DESIGNATED hubs, code → { tier } (HUB_CONNECTIVITY_PLAN.md Phase 5). The
+    // engine sells this rival's one-stop connections over exactly these, at
+    // the tier it actually holds — a focus city is a tier-0 connection point,
+    // as it is for you. Always an object: an empty map means "connects
+    // nowhere", never "fall back to the home base" — the rule you live under
+    // (own-metal only over designated hubs) is theirs too. A hub still under
+    // construction lives in hubConstruction and is not here.
+    hubs: designatedHubsOf(s),
     tier: 'legacy',                  // humans set real prices; tier only styles fallbacks
     logoId: s.logoId ?? 'compass',
     baseQualityScore: qualityOf(s),

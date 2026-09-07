@@ -58,6 +58,7 @@ import {
   PRICE_CAP_MULTIPLE,
   CARGO_PRICE_CAP_MULTIPLE,
   cargoPriceChokeFactor,
+  GATEWAY_RESIDUAL,
 } from '../models/demand.js';
 import {
   ALLIANCES,
@@ -3636,9 +3637,27 @@ export function weeklyTick(state) {
     rivalIndex,
   });
   const {
-    cannibalizationMap, partnerODRevenue, partnerHealthDecay,
+    cannibalizationMap, partnerODRevenue: partnerODRaw, partnerHealthDecay,
     hubContestMap, ownMetalOD,
   } = networkTick;
+
+  // Partner-fed passengers (alliance / codeshare / Phase-2 interline) occupy
+  // real seats on the player's leg of the itinerary. Index each O&D entry by
+  // that leg's route key; the route loop below scales it with the leg's seat
+  // headroom exactly as it scales own-metal and gateway feed, and the scaled
+  // figures are what the report and the cash delta carry. Before this the
+  // partner feed rode above the seat count — free revenue on a full aircraft.
+  const partnerLegFeed = {};   // routeKey → { pax, revenue, entries[] }
+  for (const e of partnerODRaw?.entries ?? []) {
+    if (!e.origin || !e.dest || !e.hub) continue;
+    const legKey = e.partnerLeg === 'leg2'
+      ? [e.origin, e.hub].sort().join('-')     // player flies origin→hub
+      : [e.hub, e.dest].sort().join('-');      // player flies hub→dest
+    const f = partnerLegFeed[legKey] ?? (partnerLegFeed[legKey] = { pax: 0, revenue: 0, entries: [] });
+    f.pax += e.pax; f.revenue += e.playerRevenue; f.entries.push(e);
+  }
+  const partnerScaled = { totalRevenue: 0, totalPax: 0, entries: [] };
+  const partnerScaledKeys = new Set();
 
   // Contest factors for the external connecting pool, keyed by airport.
   const contestFactors = {};
@@ -4073,6 +4092,24 @@ export function weeklyTick(state) {
     }
   // ── End pre-pass ─────────────────────────────────────────────────────────────
 
+  // Leg feed is a PAIR figure (own-metal byRouteKey, partner legs) but this
+  // loop runs per TAIL. Two tails on one pair used to each be credited the
+  // whole pair's itinerary feed — 34 connecting pax on the market, 68 on the
+  // books. Each tail takes its share of the pair's seats.
+  const pairSeatsOneWay = {};
+  for (const r0 of routes) {
+    if (isMultiStop(r0) || !isRouteActive(r0, gameDate.month)) continue;
+    const ac0 = fleet.find(a => a.id === r0.aircraftId);
+    if (!ac0 || isOutOfService(ac0) || crewGroundedSet.has(ac0.id)) continue;
+    const k0 = [r0.origin, r0.destination].sort().join('-');
+    pairSeatsOneWay[k0] = (pairSeatsOneWay[k0] ?? 0) + configBodies(ac0.config ?? {}) * (r0.weeklyFrequency ?? 7);
+  }
+  const legFeedShare = (route, seatsOneWay) => {
+    const k = [route.origin, route.destination].sort().join('-');
+    const total = pairSeatsOneWay[k] ?? 0;
+    return total > 0 ? Math.min(1, (seatsOneWay ?? 0) / total) : 1;
+  };
+
   for (const route of routes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) continue;
@@ -4247,7 +4284,10 @@ export function weeklyTick(state) {
       slotsByAirport[route.origin]      ?? 0,
       slotsByAirport[route.destination] ?? 0,
       connectingPrice,
-      { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes, gates, contestFactors },
+      { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes, gates, contestFactors,
+        // Phase 2: with rival itineraries on, the modeled carriers' feed is real
+        // interline itineraries and the pool is only the world beyond them.
+        gatewayResidual: rivalIndex ? GATEWAY_RESIDUAL : 1.0 },
     );
     const routeKey     = [route.origin, route.destination].sort().join('-');
     // Cannibalization multiplier applies ONLY to the residual external pool —
@@ -4260,22 +4300,39 @@ export function weeklyTick(state) {
     let   extPax       = Math.round(connectingRaw.totalPax     * cannibFactor * evConnMult);
     let   extRevenue   = Math.round(connectingRaw.totalRevenue * cannibFactor * evConnMult);
 
-    // Own-metal itinerary feed on this leg (competition/congestion-adjusted upstream).
+    // Own-metal itinerary feed on this leg (competition/congestion-adjusted
+    // upstream), this tail's share of the pair's seats.
     const ownMetalLeg = ownMetalOD?.byRouteKey?.[routeKey] ?? null;
-    let   itinPax     = ownMetalLeg?.pax     ?? 0;
-    let   itinRevenue = ownMetalLeg?.revenue ?? 0;
+    const feedShare   = legFeedShare(route, result.configuredSeatsOneWay);
+    let   itinPax     = Math.round((ownMetalLeg?.pax     ?? 0) * feedShare);
+    let   itinRevenue = Math.round((ownMetalLeg?.revenue ?? 0) * feedShare);
 
     // Capacity coupling: connecting passengers occupy real seats. Cap combined
     // connecting pax by the seats left after direct passengers board (5% ops buffer).
     const seatHeadroom = Math.max(0,
       Math.round((result.configuredSeatsOneWay ?? 0) * 0.95) - (result.passengers ?? 0));
-    const wantPax  = extPax + itinPax;
+    const partnerLeg   = partnerLegFeed[routeKey] ?? null;
+    const partnerPaxRaw = Math.round((partnerLeg?.pax ?? 0) * feedShare);
+    const wantPax  = extPax + itinPax + partnerPaxRaw;
     const capScale = wantPax > seatHeadroom && wantPax > 0 ? seatHeadroom / wantPax : 1;
     if (capScale < 1) {
       extPax      = Math.round(extPax      * capScale);
       extRevenue  = Math.round(extRevenue  * capScale);
       itinPax     = Math.round(itinPax     * capScale);
       itinRevenue = Math.round(itinRevenue * capScale);
+    }
+    // Partner feed on this leg, seated. A leg can carry several O&D entries;
+    // each is scaled by the same factor and re-emitted for the report.
+    let partnerPax = 0, partnerRevenue = 0;
+    if (partnerLeg) {
+      partnerScaledKeys.add(routeKey);
+      for (const e of partnerLeg.entries) {
+        const pax = Math.round(e.pax * feedShare * capScale);
+        const rev = Math.round(e.playerRevenue * feedShare * capScale);
+        partnerPax += pax; partnerRevenue += rev;
+        partnerScaled.entries.push({ ...e, pax, playerRevenue: rev, capacityScale: +capScale.toFixed(3) });
+      }
+      partnerScaled.totalPax += partnerPax; partnerScaled.totalRevenue += partnerRevenue;
     }
 
     const connecting = {
@@ -4285,6 +4342,8 @@ export function weeklyTick(state) {
       externalRevenue:  extRevenue,
       itineraryPax:     itinPax,
       itineraryRevenue: itinRevenue,
+      partnerPax,                                   // partner / interline feed seated on this leg
+      partnerRevenue,                               // the player's prorated share of it
       feeds:            ownMetalLeg?.feeds ?? [],   // top O&D markets feeding this leg
       origin:           connectingRaw.origin,
       destination:      connectingRaw.destination,
@@ -4735,6 +4794,12 @@ export function weeklyTick(state) {
   // O&D-based partner revenue (replaces the old flat per-adjacent-route model).
   // Computed by network.js: for each mixed-leg connection (player leg + partner leg),
   // the player earns a mileage-prorated share of the itinerary fare.
+  // Partner feed whose player leg was not simulated this week (grounded,
+  // covered, inactive season) has no seats: it is dropped, not carried free.
+  for (const e of partnerODRaw?.entries ?? []) {
+    if (!e.origin || !e.dest || !e.hub) { partnerScaled.entries.push(e); partnerScaled.totalPax += e.pax; partnerScaled.totalRevenue += e.playerRevenue; }
+  }
+  const partnerODRevenue = partnerScaled;
   const totalAllianceRevenue  = 0;   // now folded into partnerODRevenue
   const totalCodeshareRevenue = partnerODRevenue.totalRevenue;
   const totalPartnerRevenue   = partnerODRevenue.totalRevenue;

@@ -1716,6 +1716,18 @@ export const AIRPORT_GATEWAY_SCORES = {
 const BASE_GATEWAY_POOL = 800;
 
 /**
+ * What is left of the gateway pool once rival itineraries are on
+ * (HUB_CONNECTIVITY_PLAN.md Phase 2). The pool has been the game's ONLY
+ * representation of other carriers' passengers connecting onto yours; with
+ * rival networks now real data, the modeled carriers' feed is sold as real
+ * interline itineraries (network.js buildInterlineLegs) and the pool shrinks to
+ * the world beyond them — carriers the game does not model. Applied only when
+ * the caller passes it (i.e. when state.rivalItineraries is on); the classic
+ * world keeps the whole pool. 1.0 = mechanism landed, constant not yet tuned.
+ */
+export const GATEWAY_RESIDUAL = 1.0;
+
+/**
  * Compute connecting passenger demand for one endpoint of a route.
  *
  * @param {string}   airportCode       - the airport to evaluate
@@ -1735,9 +1747,10 @@ function connectingAtEndpoint(airportCode, hubs, playerSlotsHere, ticketPrice, {
   partnerHubCodes = [],
   gatesHere = 0,
   contestFactor = 1.0,
+  gatewayResidual = 1.0,
 } = {}) {
   const gwScore = AIRPORT_GATEWAY_SCORES[airportCode] ?? 0.20;
-  const pool    = gwScore * BASE_GATEWAY_POOL;
+  const pool    = gwScore * BASE_GATEWAY_POOL * Math.min(1, Math.max(0, gatewayResidual));
 
   const hubInfo = hubs[airportCode]; // { tier } or undefined
 
@@ -1840,6 +1853,7 @@ export function computeConnectingDemand(
     partnerHubCodes = [],
     gates = {},            // { [code]: gateCount } — for gate-based congestion
     contestFactors = {},   // { [code]: 0–1 } — competitor hub contest (network.js)
+    gatewayResidual = 1.0, // GATEWAY_RESIDUAL when rival itineraries are on, else 1
   } = options;
   // Compute distance once here and pass to both endpoints
   const distKm = routeDistance(origin, destination);
@@ -1855,14 +1869,14 @@ export function computeConnectingDemand(
 
   const originSide = _scaleConnecting(
     connectingAtEndpoint(origin, hubsMap, playerSlotsAtOrigin, ticketPrice, {
-      weeklyFrequency, distKm, partnerHubCodes,
+      weeklyFrequency, distKm, partnerHubCodes, gatewayResidual,
       gatesHere: gates[origin] ?? 0, contestFactor: contestFactors[origin] ?? 1.0,
     }),
     priceFactor
   );
   const destSide = _scaleConnecting(
     connectingAtEndpoint(destination, hubsMap, playerSlotsAtDest, ticketPrice, {
-      weeklyFrequency, distKm, partnerHubCodes,
+      weeklyFrequency, distKm, partnerHubCodes, gatewayResidual,
       gatesHere: gates[destination] ?? 0, contestFactor: contestFactors[destination] ?? 1.0,
     }),
     priceFactor

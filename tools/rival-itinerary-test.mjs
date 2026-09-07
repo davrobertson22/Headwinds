@@ -101,6 +101,25 @@ test('a human rival prices its legs at the fare it actually charges', () => {
   assert.equal(o.economyPrice, 200);
 });
 
+test('a human rival connects over its DESIGNATED hubs at their real tier — not over its home base', () => {
+  // Phase 5: the Headwinds rival view exports `hubs` (code → { tier }). A focus
+  // city (tier 0) is a connection point with the tier-0 penalty; an
+  // undesignated home base is not a connection point at all.
+  const legs = ['FRA-JFK', 'FRA-AMS', 'FRA-MAD', 'FRA-FCO', 'LHR-JFK', 'LHR-AMS', 'LHR-MAD', 'LHR-FCO'];
+  const focus = { ...rival('carol', 'FRA', legs, { economyFare: 300 }), human: true, hubs: { FRA: { tier: 0 } } };
+  const offers = rivalOneStopOffersFor(buildRivalHubIndex([focus]), mkt('JFK', 'AMS'));
+  assert.equal(offers.length, 1, 'FRA (designated focus city) sells the connection; LHR (undesignated) does not');
+  assert.equal(offers[0].via.hub, 'FRA');
+  assert.equal(offers[0].via.tier, 0);
+  assert.ok(Math.abs(offers[0].connectivityBonus + HUB_TIERS[0].connPenalty) < 1e-9, 'tier-0 penalty');
+  // Designated at a tier the spoke count would not earn: the designation wins.
+  const major = { ...focus, hubs: { FRA: { tier: 2 } } };
+  assert.equal(rivalOneStopOffersFor(buildRivalHubIndex([major]), mkt('JFK', 'AMS'))[0].via.tier, 2);
+  // A human with an EMPTY hubs map connects nowhere, home base included.
+  const none = { ...focus, hubs: {} };
+  assert.equal(rivalOneStopOffersFor(buildRivalHubIndex([none]), mkt('JFK', 'AMS')).length, 0);
+});
+
 console.log('\n── where the offers enter ───────────────');
 
 test('rivalOffersFor appends one-stops when handed an index, and nothing without one', () => {

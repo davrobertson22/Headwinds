@@ -18,6 +18,7 @@ import {
   playerAllianceDef, RIVAL_VIEW_POLL_MAX_STALE_MS,
 } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
+import { referencePrice } from '../packages/engine/src/utils/market.js';
 import { checkRouteRestrictions } from '../packages/engine/src/data/airportRestrictions.js';
 
 let passed = 0, failed = 0;
@@ -123,6 +124,48 @@ await test('a human rival on your route reduces your route revenue', () => {
     `contested revenue (${contestedRev}) should be below solo monopoly revenue (${soloRev})`);
 });
 
+await test('a human rival\'s DESIGNATED hub sells a one-stop against you, end to end through the rival view', () => {
+  // Phase 5. Carol hubs at PHL (designated Hub) flying PHL–JFK and PHL–DCA;
+  // Alice flies JFK–DCA nonstop, priced above reference so the aircraft is
+  // demand-limited. With rival itineraries on, Carol's JFK→PHL→DCA connection
+  // (PHL is on the way — 1.03× the nonstop distance) competes; with them off,
+  // or with PHL undesignated, it does not exist. (BOS would be 2.8× and
+  // excluded by MAX_CIRCUITY — a backtrack nobody would sell.)
+  let carolState = makeAirline({ id: 'a3', name: 'Carol Connect', hub: 'PHL', dest: 'JFK', fare: 150 }).state;
+  // uid() is Date.now()+Math.random(), and this file pins Math.random — two
+  // leases in one millisecond would share an id (see rival-dedupe-test).
+  { const ms = Date.now(); while (Date.now() === ms) { /* next tail gets its own id */ } }
+  carolState = gameReducer(carolState, { type: 'LEASE_AIRCRAFT', typeId: shortHaul.id });
+  carolState = gameReducer(carolState, { type: 'ADD_GATE', airportCode: 'DCA' });
+  const tail2 = carolState.fleet.find(a => a.status !== 'assigned')?.id ?? carolState.fleet[1]?.id;
+  assert.ok(tail2 && tail2 !== carolState.fleet[0].id, 'carol needs a second tail');
+  carolState = gameReducer(carolState, { type: 'ADD_ROUTE', aircraftId: tail2, origin: 'PHL', destination: 'DCA', weeklyFrequency: 14 });
+  assert.equal(carolState.routes.length, 2, `carol's second route not created (${carolState.error ?? 'no error'})`);
+  carolState = gameReducer(carolState, { type: 'UPDATE_TICKET_PRICE', routeId: carolState.routes[1].id, ticketPrice: 120 });
+  const carolHubbed = { id: 'a3', worldId: 'w1', name: 'Carol Connect', hub: 'PHL', status: 'ACTIVE',
+    state: { ...carolState, hubs: { PHL: { tier: 1, tierSince: 0 } }, gates: { ...carolState.gates, PHL: 10 } } };
+  const carolBare = { ...carolHubbed, state: { ...carolState, hubs: {} } };
+
+  const ref = referencePrice('JFK', 'DCA');
+  const al = makeAirline({ id: 'a1', name: 'Alice Air', hub: 'JFK', dest: 'DCA', fare: Math.round(ref * 1.8) });
+  const pax = (rivals, flag) => {
+    const views = buildRivalViews([al, ...rivals]);
+    const st = { ...withRivals(al.state, views.get('a1')), rivalItineraries: flag };
+    const after = gameReducer(st, { type: 'ADVANCE_WEEK' });
+    return after.lastReport.routeResults[0].passengers;
+  };
+  // Carol's mere presence costs Alice a few pax either way (rival ad pressure
+  // at the shared airports), so the baseline is Carol present with NO hub.
+  const vsBare = pax([carolBare], true);
+  const vsHubOff = pax([carolHubbed], false);
+  const vsHubOn = pax([carolHubbed], true);
+  assert.equal(vsHubOff, vsBare, 'with the world flag off, a designated hub changes nothing');
+  assert.ok(vsHubOn < vsBare * 0.97,
+    `Carol via PHL should take passengers off JFK–DCA: ${vsBare} → ${vsHubOn}`);
+  // …and the view itself carries the designation the engine used.
+  assert.deepEqual(buildRivalViews([al, carolHubbed]).get('a1').competitors[0].hubs, { PHL: { tier: 1 } });
+});
+
 console.log('\n── multiplayer ticks never run the AI ───────────────────');
 
 await test('injected human competitors pass through the tick untouched', () => {
@@ -163,6 +206,24 @@ await test('toHumanCompetitor carries every field the Competition tab reads', ()
   const key = pairKeyOf('JFK', 'BOS');
   assert.ok(c.routes[key], 'route map keyed by sorted pair');
   assert.ok(c.routes[key].frequency > 0 && c.routes[key].priceMultiplier > 0);
+});
+
+await test('toHumanCompetitor exports the rival\'s DESIGNATED hubs with their real tiers (Phase 5)', () => {
+  // HUB_CONNECTIVITY_PLAN.md Phase 5: the engine sells a human rival's one-stop
+  // connections over the hubs it has designated, at the tier it actually holds
+  // — a focus city is a tier-0 connection point, exactly as it is for you. A
+  // hub still under construction is not a hub.
+  const hubbed = { ...bob, state: { ...bob.state,
+    hubs: { JFK: { tier: 2, tierSince: 0 }, BOS: { tier: 0, tierSince: 4 } },
+    hubConstruction: { ORD: { targetTier: 1, weeksLeft: 3, capex: 5e6 } } } };
+  const c = toHumanCompetitor(hubbed);
+  assert.deepEqual(c.hubs, { JFK: { tier: 2 }, BOS: { tier: 0 } });
+  // No designation at all → an empty map, NOT a fallback to the home base:
+  // the rule you live under (own-metal only over designated hubs) is theirs too.
+  const bare = toHumanCompetitor({ ...bob, state: { ...bob.state, hubs: {} } });
+  assert.deepEqual(bare.hubs, {});
+  const noKey = { ...bob.state }; delete noKey.hubs;
+  assert.deepEqual(toHumanCompetitor({ ...bob, state: noKey }).hubs, {}, 'a blob with no hubs key exports an empty map');
 });
 
 console.log('\n── OG veteran badge ──────────────────────────────────────');
