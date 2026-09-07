@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import {
   buildRivalHubIndex, rivalIndexFor, rivalOneStopOffersFor, rivalHubTierForSpokes,
   MAX_CIRCUITY, computeOwnMetalODRevenue, buildOwnMetalConnections,
+  throughFare, connectionPenaltyFor,
 } from '../packages/engine/src/models/network.js';
 import { buildRouteMarket, computeMarketShare, HUB_TIERS } from '../packages/engine/src/models/demand.js';
 import { rivalOffersFor, simulateRoute, defaultConfig } from '../packages/engine/src/utils/simulation.js';
@@ -71,10 +72,12 @@ test('a rival hub between the endpoints yields exactly one offer, with the §3.3
   const o = offers[0];
   assert.ok(o.airlineId.startsWith('__rival_conn__rhine__FRA'));
   assert.equal(o.via.hub, 'FRA'); assert.equal(o.via.competitorId, 'rhine'); assert.equal(o.via.tier, 1);
-  assert.equal(o.economyPrice, Math.round(referencePrice('JFK', 'FRA')) + Math.round(referencePrice('FRA', 'AMS')), 'sum of legs');
+  // Phase 3: priced against the nonstop market — the sum of legs capped at the through-fare.
+  assert.equal(o.economyPrice, throughFare(Math.round(referencePrice('JFK', 'FRA')) + Math.round(referencePrice('FRA', 'AMS')), 'JFK', 'AMS'));
   assert.equal(o.weeklyFrequency, 14, 'min of the two legs');
   assert.ok(o.economySeats > 0 && o.economySeats < 14 * 250, 'a fraction of the thinner leg');
-  assert.ok(Math.abs(o.connectivityBonus + HUB_TIERS[1].connPenalty) < 1e-9, 'tier-1 connection penalty');
+  // Phase 3: the tier penalty scaled by what the stop costs the traveller.
+  assert.ok(Math.abs(o.connectivityBonus + connectionPenaltyFor(HUB_TIERS[1].connPenalty, o.via.timeRatio)) < 1e-9, 'tier-1 connection penalty × time ratio');
   assert.equal(o.qualityScore, 70 + Math.round(HUB_TIERS[1].qualityBonus / 2));
   assert.ok(o.via.circuity > 1 && o.via.circuity <= MAX_CIRCUITY);
 });
@@ -111,7 +114,7 @@ test('a human rival connects over its DESIGNATED hubs at their real tier — not
   assert.equal(offers.length, 1, 'FRA (designated focus city) sells the connection; LHR (undesignated) does not');
   assert.equal(offers[0].via.hub, 'FRA');
   assert.equal(offers[0].via.tier, 0);
-  assert.ok(Math.abs(offers[0].connectivityBonus + HUB_TIERS[0].connPenalty) < 1e-9, 'tier-0 penalty');
+  assert.ok(Math.abs(offers[0].connectivityBonus + connectionPenaltyFor(HUB_TIERS[0].connPenalty, offers[0].via.timeRatio)) < 1e-9, 'tier-0 penalty × time ratio');
   // Designated at a tier the spoke count would not earn: the designation wins.
   const major = { ...focus, hubs: { FRA: { tier: 2 } } };
   assert.equal(rivalOneStopOffersFor(buildRivalHubIndex([major]), mkt('JFK', 'AMS'))[0].via.tier, 2);

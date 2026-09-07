@@ -58,7 +58,6 @@ import {
   PRICE_CAP_MULTIPLE,
   CARGO_PRICE_CAP_MULTIPLE,
   cargoPriceChokeFactor,
-  GATEWAY_RESIDUAL,
 } from '../models/demand.js';
 import {
   ALLIANCES,
@@ -3641,8 +3640,8 @@ export function weeklyTick(state) {
     hubContestMap, ownMetalOD,
   } = networkTick;
 
-  // Partner-fed passengers (alliance / codeshare / Phase-2 interline) occupy
-  // real seats on the player's leg of the itinerary. Index each O&D entry by
+  // Partner-fed passengers (alliance / codeshare / joint venture) occupy real
+  // seats on the player's leg of the itinerary. Index each O&D entry by
   // that leg's route key; the route loop below scales it with the leg's seat
   // headroom exactly as it scales own-metal and gateway feed, and the scaled
   // figures are what the report and the cash delta carry. Before this the
@@ -4284,10 +4283,7 @@ export function weeklyTick(state) {
       slotsByAirport[route.origin]      ?? 0,
       slotsByAirport[route.destination] ?? 0,
       connectingPrice,
-      { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes, gates, contestFactors,
-        // Phase 2: with rival itineraries on, the modeled carriers' feed is real
-        // interline itineraries and the pool is only the world beyond them.
-        gatewayResidual: rivalIndex ? GATEWAY_RESIDUAL : 1.0 },
+      { weeklyFrequency: route.weeklyFrequency ?? 7, partnerHubCodes, gates, contestFactors },
     );
     const routeKey     = [route.origin, route.destination].sort().join('-');
     // Cannibalization multiplier applies ONLY to the residual external pool —

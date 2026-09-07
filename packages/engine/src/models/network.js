@@ -316,47 +316,6 @@ export function buildPartnerRoutes(competitors, partnershipMap) {
 }
 
 /**
- * Interline feed from real rival legs (HUB_CONNECTIVITY_PLAN.md Phase 2).
- *
- * Every NON-partner rival route that touches one of the player's DESIGNATED
- * hubs becomes a bare-interline leg the player's connections can join onto —
- * "the rest of the industry's flights into your hub". One leg per rival per
- * direction, carrying the rival's id, so each carrier's feed is its own
- * routing in the O&D market (KLM's Amsterdam passengers and Delta's are
- * different products) and so buildAllConnections can refuse the itineraries
- * that rival would carry itself. Partners are excluded here because
- * buildPartnerRoutes already carries them at their real partnership tier.
- * Nothing outside a designated hub: an undesignated airport has no transfer
- * product, exactly as for your own metal.
- */
-export function buildInterlineLegs(competitors = [], partnershipMap = new Map(), hubs = {}) {
-  const isPartner = (id) => (partnershipMap instanceof Map ? partnershipMap.has(id) : !!partnershipMap?.[id]);
-  const hubSet = new Set(Object.entries(hubs ?? {}).filter(([, h]) => h && h.tier != null).map(([c]) => c));
-  if (hubSet.size === 0) return [];
-  const legs = [];
-  for (const c of competitors ?? []) {
-    if (!c?.id || !c.routes || isPartner(c.id)) continue;
-    for (const [routeKey, cfg] of Object.entries(c.routes)) {
-      if (!cfg) continue;
-      const [a, b] = routeKey.split('-');
-      if (!hubSet.has(a) && !hubSet.has(b)) continue;
-      const freq = cfg.frequency ?? 0;
-      if (!(freq > 0)) continue;
-      const price = cfg.economyFare != null
-        ? Math.max(1, Math.round(cfg.economyFare))
-        : Math.round((referencePrice(a, b) ?? 300) * (cfg.priceMultiplier ?? 1));
-      for (const [origin, destination] of [[a, b], [b, a]]) {
-        legs.push({
-          origin, destination, routeKey, weeklyFrequency: freq, price,
-          owner: 'partner', partnerId: c.id, partnershipType: 'interline', interline: true,
-        });
-      }
-    }
-  }
-  return legs;
-}
-
-/**
  * Build a Map<competitorId, partnershipType> from game state.
  * Codeshare agreements take precedence over alliance membership for tier.
  * If a competitor is in a JV (joint venture) agreement, mark them specially.
@@ -515,21 +474,18 @@ function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteK
  * @param {Map}     partnershipMap     - from buildPartnershipMap
  * @returns {Connection[]}
  */
-export function buildAllConnections(playerRoutes, competitors, partnershipMap, options = {}) {
-  const { hubs = {}, interline = false } = options;
+export function buildAllConnections(playerRoutes, competitors, partnershipMap) {
   // Expand tag flights into their legs so every airport they touch (including
   // intermediate stops) is a real network node that can form/feed connections.
   const legRoutes        = expandRoutesToLegs(playerRoutes);
+  // Feed onto the player's legs comes from PARTNERS only — alliance, codeshare,
+  // joint venture — at their real partnership tier. A stranger's passengers do
+  // not through-connect onto you; the residual self-connect and unmodeled-world
+  // traffic is the gateway pool (demand.js connectingAtEndpoint). Decided
+  // 2026-09-05 (HUB_CONNECTIVITY_PLAN.md Phase 2): feed is what agreements buy.
   const partnerRoutes    = buildPartnerRoutes(competitors, Object.fromEntries(partnershipMap));
-  // Phase 2: non-partner rival legs into the player's designated hubs, as
-  // bare-interline feed. Only formed AT those hubs (filtered below) — the legs
-  // are built to touch a hub, but the other endpoint may be a player airport
-  // too, and a connection formed THERE would be a transfer product the player
-  // does not have.
-  const interlineRoutes  = interline ? buildInterlineLegs(competitors, partnershipMap, hubs) : [];
-  const designated       = new Set(Object.entries(hubs ?? {}).filter(([, h]) => h && h.tier != null).map(([c]) => c));
   const playerRouteKeys  = new Set(legRoutes.map(r => [r.origin, r.destination].sort().join('-')));
-  const adjacencyIndex   = buildAdjacencyIndex(legRoutes, [...partnerRoutes, ...interlineRoutes]);
+  const adjacencyIndex   = buildAdjacencyIndex(legRoutes, partnerRoutes);
 
   // Hub airports = every airport a player leg touches (intermediate stops included)
   const hubCandidates = new Set();
@@ -538,29 +494,10 @@ export function buildAllConnections(playerRoutes, competitors, partnershipMap, o
     hubCandidates.add(r.destination);
   }
 
-  const interlineIds = new Set(interlineRoutes.map(l => l.partnerId));
-  const routesOf = new Map((competitors ?? []).map(c => [c?.id, c?.routes ?? {}]));
-
   const allConnections = [];
   for (const hub of hubCandidates) {
     const conns = findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, playerRouteKeys);
-    for (const c of conns) {
-      const feeder = interlineIds.has(c.leg1PartnerId) && c.leg1Owner === 'partner' ? c.leg1PartnerId
-                   : interlineIds.has(c.leg2PartnerId) && c.leg2Owner === 'partner' ? c.leg2PartnerId : null;
-      if (feeder) {
-        // A bare-interline itinerary exists only at a designated hub…
-        if (!designated.has(hub)) continue;
-        // …and only where the feeding rival would not carry the passenger
-        // itself: if it also flies the OTHER leg out of this hub, that is its
-        // own connection (a Phase-1b rival one-stop in the same market), not
-        // feed for you. A rival hubbed at your hub keeps its own transfers.
-        const otherLeg = c.leg1PartnerId === feeder
-          ? [hub, c.legTwoDest].sort().join('-')
-          : [c.legOneOrigin, hub].sort().join('-');
-        if (routesOf.get(feeder)?.[otherLeg]) continue;
-      }
-      allConnections.push(c);
-    }
+    allConnections.push(...conns);
   }
 
   return allConnections;
@@ -660,14 +597,16 @@ function buildOutsideOptionOffer(market) {
  * @returns {AirlineOffer}
  */
 function buildPlayerConnectionOffer(conn, market) {
-  const penalty   = CONNECTION_PENALTY[conn.partnershipType] ?? CONNECTION_PENALTY.interline;
+  const penalty   = connectionPenaltyFor(
+    CONNECTION_PENALTY[conn.partnershipType] ?? CONNECTION_PENALTY.interline,
+    connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest));
   const minFreq   = Math.min(conn.leg1Freq, conn.leg2Freq);
   // Seats this O&D can realistically claim on the thinner leg, over the week.
   const econSeats = Math.max(
     1,
     Math.round(minFreq * ASSUMED_SEATS_PER_FLIGHT * CONNECTING_SEAT_FRACTION),
   );
-  const economyPrice = conn.totalPrice;
+  const economyPrice = throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
   return {
     airlineId:         '__player_conn__',
     origin:            market.origin,
@@ -731,11 +670,7 @@ export function computePartnerODRevenue(connections, options = {}) {
 
     if (!byOD.has(dirKey)) byOD.set(dirKey, { dirKey, origin, dest, routings: new Map() });
     // Collapse exact-duplicate enumerations of the same routing (same hub/metal).
-    // Interline feed is per carrier: two rivals feeding the same hub are two
-    // routings competing in the market, not one.
-    const sig = conn.partnershipType === 'interline'
-      ? `${conn.hub}|${conn.leg1Owner}|${conn.leg1Owner === 'partner' ? conn.leg1PartnerId : conn.leg2PartnerId}`
-      : `${conn.hub}|${conn.leg1Owner}`;
+    const sig = `${conn.hub}|${conn.leg1Owner}`;
     const group = byOD.get(dirKey);
     if (!group.routings.has(sig)) group.routings.set(sig, conn);
   }
@@ -1002,6 +937,58 @@ export function buildHubContestMap(competitors = [], routeCountByAirport = {}, h
 }
 
 
+// ─── Itinerary quality (HUB_CONNECTIVITY_PLAN.md Phase 3) ────────────────────
+//
+// What a stop costs the traveller, and what a connection sells for. Both
+// apply to EVERY connecting offer — own-metal, partner-fed and rival one-stop —
+// so no carrier's connection is scored by a different rule.
+
+/** The trip-time ratio the per-tier connection penalties were calibrated for: a
+ *  typical long-haul stop (JFK–AMS via FRA ≈ 1.37). */
+export const CONNECTION_TIME_BASE = 1.35;
+/** Hours a connection adds at the hub: minimum connect time plus the second leg's taxi and climb. */
+export const CONNECT_TIME_HOURS = 1.5;
+/** Clamp on the penalty scaling — an on-the-way stop earns a small discount, a doubling stop pays up to 2.5×. */
+export const CONNECTION_TIME_FACTOR_MIN = 0.8;
+export const CONNECTION_TIME_FACTOR_MAX = 2.5;
+/** A connection sells at no more than this × the nonstop reference fare (decision 2, Phase 3). */
+export const THROUGH_FARE_INDEX = 1.0;
+
+const APPROX_CRUISE_KMH = 800, APPROX_LEG_OVERHEAD_H = 0.5;
+/** Fleet-independent block time for pricing a stop — not the scheduling model. */
+export function approxBlockHours(km) {
+  return (km || 0) / APPROX_CRUISE_KMH + APPROX_LEG_OVERHEAD_H;
+}
+
+/**
+ * (block A→H + connect time + block H→C) ÷ block A→C. Circuity lives inside
+ * this: a longer path is a longer trip. MIA–ATL via MCO ≈ 2.2 (the stop doubles
+ * a 90-minute sector); JFK–AMS via FRA ≈ 1.4.
+ */
+export function connectionTimeRatio(origin, hub, dest) {
+  const direct = routeDistance(origin, dest);
+  if (!(direct > 0)) return CONNECTION_TIME_BASE;
+  const via = approxBlockHours(routeDistance(origin, hub)) + CONNECT_TIME_HOURS + approxBlockHours(routeDistance(hub, dest));
+  return via / approxBlockHours(direct);
+}
+
+/** The tier / partnership penalty scaled by how much of the traveller's time the stop costs. */
+export function connectionPenaltyFor(basePenalty, timeRatio) {
+  const f = Math.min(CONNECTION_TIME_FACTOR_MAX, Math.max(CONNECTION_TIME_FACTOR_MIN, timeRatio / CONNECTION_TIME_BASE));
+  return basePenalty * f;
+}
+
+/**
+ * A connection is priced against the NONSTOP market, not additively: the sum
+ * of two leg fares on a triangle is structurally above the through reference,
+ * and real carriers do not sell it that way. Never above the sum of legs.
+ */
+export function throughFare(sumOfLegs, origin, dest) {
+  const ref = referencePrice(origin, dest);
+  if (!(ref > 0)) return sumOfLegs;
+  return Math.min(sumOfLegs, Math.round(ref * THROUGH_FARE_INDEX));
+}
+
 // ─── Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b) ─────────
 //
 // Until this, the only airline in the game that sold a connection was the
@@ -1137,7 +1124,8 @@ export function buildRivalConnectionOffer(rival, hub, tier, legIn, legOut, marke
   const tierDef = HUB_TIERS[tier] ?? HUB_TIERS[1];
   const pIn  = legIn.legPrice  ?? rivalLegPrice(legIn,  market.origin, hub);
   const pOut = legOut.legPrice ?? rivalLegPrice(legOut, hub, market.destination);
-  const economyPrice = pIn + pOut;
+  const economyPrice = throughFare(pIn + pOut, market.origin, market.destination);
+  const timeRatio = connectionTimeRatio(market.origin, hub, market.destination);
   const freq = Math.min(legIn.frequency ?? 0, legOut.frequency ?? 0);
   if (!(freq > 0)) return null;
   const seatFraction = ({ 0: 0.10, 1: 0.15, 2: 0.18, 3: 0.22 })[tier] ?? CONNECTING_SEAT_FRACTION;
@@ -1158,8 +1146,8 @@ export function buildRivalConnectionOffer(rival, hub, tier, legIn, legOut, marke
     businessSeats:     bizSeats,
     totalSeats:        econSeats + bizSeats,
     qualityScore:      (rival.baseQualityScore ?? 60) + Math.round((tierDef.qualityBonus ?? 0) / 2) + (rival.allianceId ? 3 : 0),
-    connectivityBonus: -(tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal),
-    via: { competitorId: rival.id, name: rival.name, hub, tier, circuity, legInPrice: pIn, legOutPrice: pOut },
+    connectivityBonus: -connectionPenaltyFor(tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal, timeRatio),
+    via: { competitorId: rival.id, name: rival.name, hub, tier, circuity, timeRatio, legInPrice: pIn, legOutPrice: pOut },
   };
 }
 
@@ -1422,6 +1410,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     // One offer per routing (per hub), all competing in the same market.
     const offers = [];
     const meta   = new Map();
+    const economyPriceOf = new Map();
     let i = 0;
     // Contest raises the outside option once per market: use the strongest
     // rival presence among the hubs involved.
@@ -1430,7 +1419,8 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     for (const conn of conns) {
       const tier    = hubs[conn.hub].tier;
       const tierDef = HUB_TIERS[tier] ?? HUB_TIERS[1];
-      const penalty = tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal;
+      const penalty = connectionPenaltyFor(tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal,
+        connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest));
 
       const minFreq = Math.min(conn.leg1Freq, conn.leg2Freq);
       // Better transfer products reserve more of each leg's inventory for
@@ -1438,7 +1428,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
       // tiers differentiated even in capacity-capped markets.
       const seatFraction = ({ 0: 0.10, 1: 0.15, 2: 0.18, 3: 0.22 })[tier] ?? CONNECTING_SEAT_FRACTION;
       const econSeats = Math.max(1, Math.round(minFreq * ASSUMED_SEATS_PER_FLIGHT * seatFraction));
-      const economyPrice = conn.totalPrice;
+      const economyPrice = throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
 
       const offer = {
         airlineId:         `__own_conn__${i++}`,
@@ -1455,6 +1445,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
       };
       offers.push(offer);
       meta.set(offer.airlineId, { conn, tier });
+      economyPriceOf.set(offer.airlineId, economyPrice);
 
       maxCompWeight = Math.max(maxCompWeight, contestMap[conn.hub]?.compWeight ?? 0);
     }
@@ -1516,7 +1507,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
 
       totalRevenue += revenue;
       totalPax     += pax;
-      entries.push({ od, hub: conn.hub, pax, revenue, share: +(r.leisureShare ?? 0).toFixed(4) });
+      entries.push({ od, hub: conn.hub, pax, revenue, fare: economyPriceOf.get(r.airlineId) ?? null, share: +(r.leisureShare ?? 0).toFixed(4) });
     }
   }
 
@@ -1566,7 +1557,6 @@ export function runNetworkTick(state) {
     slotsByAirport       = {},   // player weekly departures per airport (congestion)
     demandMultFor        = null, // (origin, dest) → world-event demand multiplier
     rivalIndex           = null, // rival one-stop itineraries (rivalIndexFor(state); null = off)
-    interlineFeed        = !!rivalIndex, // Phase 2: rival legs feed the player's hubs (same flag)
   } = state;
 
   const partnershipMap = buildPartnershipMap(
@@ -1581,7 +1571,7 @@ export function runNetworkTick(state) {
   // model can pit the player's connections against real head-to-head competition.
   const competitorRouteIndex = buildCompetitorRouteIndex(competitors);
 
-  const connections        = buildAllConnections(routes, competitors, partnershipMap, { hubs, interline: interlineFeed });
+  const connections        = buildAllConnections(routes, competitors, partnershipMap);
   const cannibalizationMap = buildCannibalizationMap(connections);
   const partnerODRevenue   = computePartnerODRevenue(connections, {
     gameDate,
