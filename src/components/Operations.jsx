@@ -5,6 +5,7 @@ import {
   CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, CREW_INSTANT_AIRCRAFT, crewRequired,
   crewAvailable, crewInTraining, crewShortfall, crewHireCost, splitStarterHire,
   CREW_PER_UNIT, crewBodies, crewRequiredAhead, deliveriesWithinLeadTime,
+  crewRequiredForOrderBook, weeksUntilHiringDue,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -254,6 +255,8 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
   // Local draft so a pay-slider drag updates the label/cost preview live but only
   // dispatches SET_LABOR_PAY once, on release, instead of on every drag value.
   const [draftPay, setDraftPay] = useState(committedPay);
+  // Custom hire amount, in people. Empty until the player types one.
+  const [customHire, setCustomHire] = useState('');
   useEffect(() => setDraftPay(committedPay), [committedPay]);
   const commitPay = (v) => dispatch({ type: 'SET_LABOR_PAY', group: group.id, payMultiplier: v });
   const payMultiplier = draftPay;
@@ -325,18 +328,22 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         // narrowbody-equivalents (1.0 = one 160-seat narrowbody's full crew
         // establishment) and keeps doing so; showing that index raw is what had
         // players reading "0.9 pilots" off an A319 and concluding the game was
-        // broken. Hires are still dispatched in units — the buttons offer whole
-        // units and print what they mean in bodies.
+        // broken.
         const haveBodies  = crewBodies(group.id, crew.available);
         const needBodies  = crewBodies(group.id, crew.required);
         const aheadBodies = crewBodies(group.id, crew.requiredAhead);
+        const bookBodies  = crewBodies(group.id, crew.orderBookRequired);
         const trainBodies = crewBodies(group.id, crew.training);
         // Size the gap off the forward requirement: the point of showing it is
         // that you can hire for a delivery before it lands, not after.
-        const gapUnits  = Math.max(0, Math.ceil(crew.requiredAhead - crew.available - crew.training - 1e-9));
-        const gapBodies = crewBodies(group.id, gapUnits);
-        const hire = (n) => dispatch({ type: 'HIRE_CREW', group: group.id, count: n });
-        const opts = [...new Set([Math.max(1, gapUnits), 1, 5])].slice(0, 3).sort((a, b) => a - b);
+        const gapBodies  = Math.max(0, Math.ceil(aheadBodies - haveBodies - trainBodies));
+        const bookGap    = Math.max(0, Math.ceil(bookBodies - haveBodies - trainBodies));
+        const costPerHead = crewHireCost(group.id, 1 / perUnit);
+        const hireBodies = (n) => dispatch({ type: 'HIRE_CREW', group: group.id, bodies: n });
+        const customN = Math.max(0, Math.floor(Number(customHire) || 0));
+        const customCost = crewHireCost(group.id, customN / perUnit);
+        const presets = [...new Set([gapBodies || bookGap || perUnit, perUnit])]
+          .filter(n => n > 0).slice(0, 2);
         return (
           <div style={{
             marginBottom: 10, padding: '8px 10px', borderRadius: 4,
@@ -353,12 +360,29 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
               ≈{perUnit} per narrowbody — enough to fly it all week with leave, training and reserve cover,
               scaled by aircraft size.
             </div>
-            {crew.arriving?.length > 0 && (
-              <div style={{ fontSize: 11, color: aheadBodies > haveBodies + trainBodies ? 'var(--yellow)' : 'var(--text-dim)', marginBottom: 4 }}>
-                🛬 {crew.arriving.length} aircraft arriving within the {CREW_LEAD_WEEKS[group.id]}-week training
-                window → you will need {aheadBodies.toLocaleString()}
-              </div>
+
+            {/* Aircraft on order. EVERY group says something whenever anything is
+                on order — the line used to appear only once a delivery was inside
+                this group's training window, so with a delivery 6-10 weeks out
+                pilots and maintenance spoke and cabin crew and ground staff went
+                silent, which reads as a broken indicator rather than "not yet". */}
+            {crew.onOrder > 0 && (
+              crew.hiringDueIn === 0 ? (
+                <div style={{ fontSize: 11, color: gapBodies > 0 ? 'var(--yellow)' : 'var(--text-dim)', marginBottom: 4 }}>
+                  🛬 {crew.arriving.length} of {crew.onOrder} aircraft arriving inside the {CREW_LEAD_WEEKS[group.id]}-week
+                  training window → hire {gapBodies > 0 ? `${gapBodies.toLocaleString()} now` : 'nothing, you are covered'}
+                  {bookGap > gapBodies && ` · ${bookGap.toLocaleString()} for the whole order book`}
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
+                  🛬 {crew.onOrder} aircraft on order → you will need {bookBodies.toLocaleString()} {group.name.toLowerCase()}
+                  {bookGap > 0
+                    ? ` (${bookGap.toLocaleString()} more). Training takes ${CREW_LEAD_WEEKS[group.id]} wk${CREW_LEAD_WEEKS[group.id] === 1 ? '' : 's'}, so start hiring in ${crew.hiringDueIn} wk${crew.hiringDueIn === 1 ? '' : 's'}.`
+                    : ' — already covered.'}
+                </div>
+              )
             )}
+
             {crew.instantRoom > 0 && (
               <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>
                 ⚡ Starter crew — your first {CREW_INSTANT_AIRCRAFT} aircraft crew up instantly, no training wait
@@ -382,22 +406,41 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 Staffed for the fleet you fly today, {gapBodies.toLocaleString()} short for the one you have on order.
               </div>
             )}
+
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              {opts.map(n => {
-                const cost = crewHireCost(group.id, n);
-                const bodies = crewBodies(group.id, n);
+              {presets.map(n => {
+                const cost = crewHireCost(group.id, n / perUnit);
+                const instant = (n / perUnit) <= crew.instantRoom;
                 return (
                   <button key={n} className="btn-small" disabled={cost > cash}
-                    onClick={() => hire(n)}
+                    onClick={() => hireBodies(n)}
                     title={cost > cash ? 'Not enough cash to train this many'
-                      : n <= crew.instantRoom ? 'Starter crew — starts work immediately'
+                      : instant ? 'Starter crew — starts work immediately'
                       : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
-                    Hire {bodies.toLocaleString()} · {formatMoney(cost)}{n <= crew.instantRoom ? ' · instant' : ''}
+                    Hire {n.toLocaleString()} · {formatMoney(cost)}{instant ? ' · instant' : ''}
                   </button>
                 );
               })}
+              {/* Hire any number you like — asked for directly (2026-09-07): the
+                  fixed buttons cannot express "I want 40 cabin crew". Typed in
+                  PEOPLE and converted to the engine's units on dispatch. */}
+              <input
+                type="number" min="1" step="1" placeholder="Custom"
+                value={customHire}
+                onChange={e => setCustomHire(e.target.value)}
+                style={{ width: 80 }}
+                className="form-input"
+                aria-label={`Number of ${group.name.toLowerCase()} to hire`}
+              />
+              <button className="btn-small" disabled={customN <= 0 || customCost > cash}
+                onClick={() => { hireBodies(customN); setCustomHire(''); }}
+                title={customN <= 0 ? 'Enter how many people to hire'
+                  : customCost > cash ? 'Not enough cash to train this many'
+                  : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
+                Hire{customN > 0 ? ` ${customN.toLocaleString()} · ${formatMoney(customCost)}` : ''}
+              </button>
               <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
-                {CREW_LEAD_WEEKS[group.id]}-week training
+                {formatMoney(costPerHead)} each · {CREW_LEAD_WEEKS[group.id]}-week training
               </span>
             </div>
           </div>
@@ -784,8 +827,15 @@ export default function Operations() {
     // pilot hired today is only usable in ten weeks.
     const requiredAhead = crewRequiredAhead(g.id, fleet, state.pendingOrders, typeOfAircraft, currentAbsWeek);
     const arriving = deliveriesWithinLeadTime(g.id, state.pendingOrders, currentAbsWeek);
+    // Where the airline is heading once EVERY order lands, plus when hiring for
+    // the next one should start. Without these a group whose training window is
+    // shorter than the wait for the next delivery showed nothing at all, which
+    // reads as a missing indicator rather than "not yet".
+    const orderBookRequired = crewRequiredForOrderBook(g.id, fleet, state.pendingOrders, typeOfAircraft);
+    const hiringDueIn = weeksUntilHiringDue(g.id, state.pendingOrders, currentAbsWeek);
     return [g.id, { required, available, training, nextReady, instantRoom,
-                    requiredAhead, arriving,
+                    requiredAhead, arriving, orderBookRequired, hiringDueIn,
+                    onOrder: (state.pendingOrders ?? []).length,
                     short: required > 0 ? Math.max(0, (required - available) / required) : 0 }];
   })) : null;
   const crewGap = crewOn ? crewShortfall(labor, fleet, typeOfAircraft) : null;

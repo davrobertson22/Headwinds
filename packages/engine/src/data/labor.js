@@ -551,10 +551,47 @@ export function deliveriesWithinLeadTime(groupId, pendingOrders, absWeek) {
   return (pendingOrders ?? []).filter(o => (Number(o?.deliverAbsWeek) || 0) <= horizon);
 }
 
-/** Training cost for hiring `count` narrowbody-equivalents into a group. */
+/**
+ * Requirement once EVERY aircraft on order has arrived, however far out.
+ *
+ * `crewRequiredAhead` deliberately stops at the group's own training horizon —
+ * that is what you must hire for TODAY. This is the other half a player needs:
+ * where the airline is heading, so a delivery outside the horizon is still
+ * visible instead of the panel simply saying nothing. (2026-09-07, ASAS: the
+ * indicator "only shows up for pilots and maintenance but not cabin crew and
+ * ground staff" — a delivery 6-10 weeks out is inside the pilot and maintenance
+ * windows and outside the shorter two, so those two rendered nothing at all.)
+ */
+export function crewRequiredForOrderBook(groupId, fleet, pendingOrders, typeOf) {
+  return crewRequired(groupId, [...(fleet ?? []), ...(pendingOrders ?? [])], typeOf);
+}
+
+/**
+ * Weeks until hiring for the next delivery should START, for this group.
+ *
+ * Zero (or negative) means hire now — the delivery is already inside the
+ * training window. `null` means nothing is on order.
+ */
+export function weeksUntilHiringDue(groupId, pendingOrders, absWeek) {
+  const due = (pendingOrders ?? [])
+    .map(o => Number(o?.deliverAbsWeek) || 0)
+    .filter(w => w > 0)
+    .sort((a, b) => a - b)[0];
+  if (due == null) return null;
+  return Math.max(0, due - (CREW_LEAD_WEEKS[groupId] ?? 0) - (Number(absWeek) || 0));
+}
+
+/**
+ * Training cost for hiring `count` narrowbody-equivalents into a group.
+ *
+ * NOT rounded: a player hiring a custom number of PEOPLE lands on a fractional
+ * number of units (15 pilots at 9 per unit is 1.67), and rounding the unit count
+ * would charge them for crew they did not ask for. Whole-unit callers are
+ * unaffected — rounding an integer is the integer.
+ */
 export function crewHireCost(groupId, count) {
-  const n = Math.max(0, Math.round(Number(count) || 0));
-  return n * (CREW_TRAINING_COST[groupId] ?? 0);
+  const n = Math.max(0, Number(count) || 0);
+  return Math.round(n * (CREW_TRAINING_COST[groupId] ?? 0));
 }
 
 /**

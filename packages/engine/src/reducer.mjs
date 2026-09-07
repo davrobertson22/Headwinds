@@ -49,7 +49,8 @@ import {
 import { sovereignCountry } from './data/territories.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects,
          CREW_LEAD_WEEKS, crewHireCost, crewAttritionRate, crewRequired,
-         seedCrewFor, ensureCrewSeeded, splitStarterHire, absorbCrewFor } from './data/labor.js';
+         seedCrewFor, ensureCrewSeeded, splitStarterHire, absorbCrewFor,
+         crewUnitsForBodies } from './data/labor.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
@@ -3245,8 +3246,17 @@ function reducer(state, action) {
       if (!state.crewPipeline) return state;
       const group = action.group;
       if (!LABOR_GROUP_MAP[group]) return state;
-      const count = Math.max(0, Math.round(Number(action.count) || 0));
-      if (count === 0) return state;
+      // Two ways to say how many. `bodies` is PEOPLE, which is what the screen
+      // asks for and what a player typing a custom number means; `count` is the
+      // engine's own narrowbody-equivalent unit and stays the wire format for
+      // every existing caller (playbot, older clients, tests). Adding a field
+      // rather than changing what `count` means matters in multiplayer: a client
+      // on the previous build sending count:5 must keep meaning five UNITS, not
+      // five people.
+      const count = action.bodies != null
+        ? Math.max(0, crewUnitsForBodies(group, Math.floor(Number(action.bodies) || 0)))
+        : Math.max(0, Math.round(Number(action.count) || 0));
+      if (count <= 0) return state;
       const cost = crewHireCost(group, count);
       if (cost > state.cash) return state;               // can't train what you can't fund
       // Seed FIRST: an airline that predates the pipeline has no headcount yet,

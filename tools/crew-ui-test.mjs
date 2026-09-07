@@ -10,8 +10,9 @@ import { getAircraftType } from '../src/data/aircraft.js';
 import { formatMoney } from '../src/utils/simulation.js';
 import {
   DEFAULT_LABOR_STATE, seedCrewFor, crewRequired, crewHireCost, CREW_LEAD_WEEKS,
-  splitStarterHire, CREW_INSTANT_AIRCRAFT, crewBodies,
+  splitStarterHire, CREW_INSTANT_AIRCRAFT, crewBodies, CREW_PER_UNIT,
 } from '../src/data/labor.js';
+import { gameReducer } from '../src/store/GameContext.jsx';
 
 const store = new Map();
 globalThis.window = globalThis.window ?? {};
@@ -100,14 +101,93 @@ test('an understaffed airline warns, and quotes the real hire cost + lead time',
   const html = render(React.createElement(Operations));
   assert.ok(/Short-handed|Severely understaffed/.test(html), 'no shortfall warning rendered');
   assert.ok(/% short/.test(html), 'no shortfall percentage rendered');
-  // The button must quote the SAME cost the reducer will charge — for the gap
-  // that remains AFTER founding crew, which is what the panel offers to close.
-  const gap = Math.max(1, Math.ceil(crewRequired('pilots', FLEET, typeOf) - 1));
   assert.ok(html.includes(`${CREW_LEAD_WEEKS.pilots}-week training`), 'lead time not shown');
-  // Quote the SAME number the reducer charges, formatted the way the app does.
-  const cost = crewHireCost('pilots', gap);
-  assert.ok(html.includes(formatMoney(cost)),
-    `hire button should quote the engine cost for ${gap} (${formatMoney(cost)})`);
+
+  // Every hire button must quote the SAME cost the reducer will charge for the
+  // number of PEOPLE printed on it. Read the buttons off the page rather than
+  // recomputing a gap here — that is what makes this an agreement test. The page
+  // renders all four groups, so slice each card out by its own per-narrowbody
+  // marker before pricing its buttons.
+  let checked = 0;
+  for (const g of ['pilots', 'cabinCrew', 'groundStaff', 'maintenanceTeam']) {
+    const per = CREW_PER_UNIT[g];
+    const from = html.indexOf(`≈${per} per narrowbody`);
+    assert.ok(from > -1, `no staffing card rendered for ${g}`);
+    const rest = html.slice(from);
+    const to = rest.indexOf('Pay rate');
+    const card = to > -1 ? rest.slice(0, to) : rest;
+    for (const m of card.matchAll(/Hire ([\d,]+) · (\$[\d.]+[KMB]?)/g)) {
+      const people = Number(m[1].replace(/,/g, ''));
+      assert.equal(m[2], formatMoney(crewHireCost(g, people / per)),
+        `${g}: hire button for ${people} quotes ${m[2]}, not the engine cost`);
+      checked++;
+    }
+  }
+  assert.ok(checked >= 4, `expected hire buttons on every card, priced ${checked}`);
+
+  // And the per-person rate, so a custom amount is priceable before typing it.
+  assert.ok(html.includes(`${formatMoney(crewHireCost('pilots', 1 / CREW_PER_UNIT.pilots))} each`),
+    'per-person training cost not shown');
+});
+
+test('any number of staff can be hired, priced per person', () => {
+  const labor = seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf);
+  seed({ crewPipeline: true, labor: { ...labor, pilots: { ...labor.pilots, headcount: 1 } } });
+  const html = render(React.createElement(Operations));
+  assert.ok(/placeholder="Custom"/.test(html), 'no custom hire field rendered');
+
+  // The action the field dispatches: PEOPLE in, the right number of units out,
+  // and a bill that matches what the button quoted.
+  const perUnit = CREW_PER_UNIT.pilots;
+  const before = { ...freshState(), phase: 'playing', week: 20, year: 2, hub: 'JFK',
+                   cash: 400_000_000, fleet: FLEET, routes: [], crewPipeline: true, labor };
+  const after = gameReducer(before, { type: 'HIRE_CREW', group: 'pilots', bodies: 15 });
+  const queued = (after.labor.pilots.pipeline ?? []).reduce((s, b) => s + b.count, 0)
+               + (after.labor.pilots.headcount - labor.pilots.headcount);
+  assert.ok(Math.abs(crewBodies('pilots', queued) - 15) <= 1,
+    `hiring 15 people should queue ~15 people, queued ${crewBodies('pilots', queued)}`);
+  assert.equal(before.cash - after.cash, crewHireCost('pilots', 15 / perUnit),
+    'a custom hire must be billed at the per-person rate');
+
+  // A fractional number of people is not a thing; the odd one is dropped, never
+  // rounded up into crew the player did not ask for.
+  const half = gameReducer(before, { type: 'HIRE_CREW', group: 'pilots', bodies: 15.9 });
+  assert.equal(before.cash - half.cash, crewHireCost('pilots', 15 / perUnit));
+
+  // Legacy callers (playbot, an older multiplayer client) still mean UNITS.
+  const legacy = gameReducer(before, { type: 'HIRE_CREW', group: 'pilots', count: 2 });
+  assert.equal(before.cash - legacy.cash, crewHireCost('pilots', 2),
+    'count: must keep meaning narrowbody-equivalents, not people');
+});
+
+test('REGRESSION: every group reports the order book, not just the long-lead ones', () => {
+  // Reported 2026-09-07: "the indicator for how many I need to order only shows
+  // up for pilots and maintenance but not cabin crew and ground staff". Cause: a
+  // delivery 8 weeks out is INSIDE the pilot (10wk) and maintenance (6wk)
+  // training windows and OUTSIDE cabin crew (5wk) and ground staff (2wk), and
+  // the panel said nothing at all for a group whose window had not opened —
+  // indistinguishable from a broken indicator. Every card must speak.
+  const labor = seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf);
+  const absWeek = (2 - 1) * 52 + 20;
+  seed({
+    crewPipeline: true, labor,
+    pendingOrders: [{ id: 'o1', typeId: NB.id, ownershipType: 'owned',
+                      deliverAbsWeek: absWeek + 8, totalPrice: 90_000_000 }],
+  });
+  const html = render(React.createElement(Operations));
+  for (const g of ['pilots', 'cabinCrew', 'groundStaff', 'maintenanceTeam']) {
+    const per = CREW_PER_UNIT[g];
+    const from = html.indexOf(`≈${per} per narrowbody`);
+    assert.ok(from > -1, `no staffing card for ${g}`);
+    const rest = html.slice(from);
+    const to = rest.indexOf('Pay rate');
+    const card = to > -1 ? rest.slice(0, to) : rest;
+    assert.ok(/aircraft on order|arriving inside/.test(card),
+      `${g} says nothing about the aircraft on order`);
+  }
+  // The short-window groups must also say WHEN to act, not just that an aircraft
+  // is coming: 8 weeks out less 5 weeks of cabin-crew training is 3 weeks.
+  assert.ok(/start hiring in 3 wks/.test(html), 'no "start hiring in N weeks" guidance');
 });
 
 test('crew in training are surfaced with a ready-in countdown', () => {
