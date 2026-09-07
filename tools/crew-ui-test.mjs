@@ -10,7 +10,7 @@ import { getAircraftType } from '../src/data/aircraft.js';
 import { formatMoney } from '../src/utils/simulation.js';
 import {
   DEFAULT_LABOR_STATE, seedCrewFor, crewRequired, crewHireCost, CREW_LEAD_WEEKS,
-  splitStarterHire, CREW_INSTANT_AIRCRAFT,
+  splitStarterHire, CREW_INSTANT_AIRCRAFT, crewBodies,
 } from '../src/data/labor.js';
 
 const store = new Map();
@@ -75,7 +75,7 @@ test('an airline past the starter allowance is not promised instant hiring', () 
 test('a classic save shows no crew panel at all', () => {
   seed({ crewPipeline: false });
   const html = render(React.createElement(Operations));
-  assert.ok(!/crewed/.test(html), 'classic save must not render staffing');
+  assert.ok(!/fully staffed|% short/.test(html), 'classic save must not render staffing');
   assert.ok(!/in training/.test(html), 'classic save must not render a training line');
   assert.ok(!/Hire \d/.test(html), 'classic save must not offer hiring');
 });
@@ -83,8 +83,13 @@ test('a classic save shows no crew panel at all', () => {
 test('a fully staffed pipeline airline renders staffing and no warning', () => {
   seed({ crewPipeline: true, labor: seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf) });
   const html = render(React.createElement(Operations));
-  assert.ok(/crewed/.test(html), 'staffing line missing');
-  assert.ok(/fully staffed/.test(html), 'should say fully staffed');
+  assert.ok(/fully staffed/.test(html), 'staffing line missing');
+  // The panel must speak in PEOPLE, never in the engine's narrowbody-equivalent
+  // index — "0.9 pilots" is the bug this display exists to fix.
+  const bodies = crewBodies('pilots', crewRequired('pilots', FLEET, typeOf));
+  assert.ok(html.includes(`/ ${bodies.toLocaleString()} pilots`),
+    `staffing should require ${bodies} pilots, in people`);
+  assert.ok(!/\d\.\d \/ \d\.\d/.test(html), 'staffing must not print fractional crew');
   assert.ok(!/Short-handed/.test(html), 'must not warn when fully staffed');
 });
 
@@ -113,7 +118,8 @@ test('crew in training are surfaced with a ready-in countdown', () => {
   };
   seed({ crewPipeline: true, labor: training });
   const html = render(React.createElement(Operations));
-  assert.ok(/3 in training/.test(html), 'training count not shown');
+  assert.ok(html.includes(`${crewBodies('pilots', 3).toLocaleString()} in training`),
+    'training count not shown in people');
   assert.ok(/next ready in 6 wks/.test(html), 'ready-in countdown not shown');
 });
 

@@ -22,6 +22,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import InfoTip from './InfoTip.jsx';
+import { LABOR_GROUPS, CREW_LEAD_WEEKS, crewBodiesForAircraft } from '../data/labor.js';
 import { Glyph } from './Icons.jsx';
 
 // ── Delivered-age economics ───────────────────────────────────────────────────
@@ -623,6 +624,8 @@ export default function Marketplace() {
   const { state, dispatch } = useGame();
   const confirm = useConfirm();
   const { cash, fleet, pendingOrders = [], year, week } = state;
+  // Crew requirements are only meaningful where hiring has a lead time.
+  const crewOn = state.crewPipeline === true;
 
   const [view, setView]                     = useState('browse'); // 'browse' | 'orders'
   const [activeCategory, setActiveCategory] = useState('All');
@@ -1112,6 +1115,29 @@ export default function Marketplace() {
                     </div>
                     <div style={{ height: 4, borderRadius: 2, background: 'var(--surface3)', overflow: 'hidden' }}>
                       <div style={{ height: '100%', borderRadius: 2, width: `${effScore}%`, background: effColor, transition: 'width 0.3s' }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Crew required — the answer to "how many staff does this need?".
+                    Shown in PEOPLE (see CREW_PER_UNIT in labor.js): the engine sizes crew in
+                    narrowbody-equivalents, which is why an A319 scores 0.9, and printing that
+                    index on a shop card is what made players think the model was broken.
+                    Only in worlds running the crew pipeline — elsewhere crew is instant and
+                    the number would be trivia. */}
+                {crewOn && (
+                  <div style={{ marginTop: 10, padding: '7px 9px', borderRadius: 4, background: 'var(--surface2)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Crew required for one {type.name}
+                      <InfoTip text={`Staffing for one airframe, sized on aircraft size. Hire before you order: pilots take ${CREW_LEAD_WEEKS.pilots} weeks to train, cabin crew ${CREW_LEAD_WEEKS.cabinCrew}, maintenance ${CREW_LEAD_WEEKS.maintenanceTeam}, ramp ${CREW_LEAD_WEEKS.groundStaff}.`} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12 }}>
+                      {LABOR_GROUPS.map(g => (
+                        <span key={g.id} style={{ color: 'var(--text)' }}>
+                          <strong>{crewBodiesForAircraft(g.id, type)}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}> {g.name.toLowerCase()}</span>
+                        </span>
+                      ))}
                     </div>
                   </div>
                 )}

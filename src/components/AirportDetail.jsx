@@ -12,6 +12,7 @@ import {
 } from '../models/demand.js';
 import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
 import { rivalIndexFor, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
+import { requestDepartureBoard } from './Departures.jsx';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
 import { gateDenialFor, lockoutWeeksLeft, idleWarningFor } from './GateDenial.jsx';
 import { Glyph } from './Icons.jsx';
@@ -749,6 +750,15 @@ export default function AirportDetail({ code, onBack }) {
               );
             })()}
           </div>
+          {/* The board itself lives under Operations, where it has room for an
+              airport picker and a day selector; this opens it on this airport. */}
+          {airlinePresence.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <button className="btn-small" onClick={() => requestDepartureBoard(code)}>
+                🛫 Departure board for {code}
+              </button>
+            </div>
+          )}
           {airlinePresence.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No airline data available.</div>
           ) : (

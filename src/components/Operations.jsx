@@ -4,6 +4,7 @@ import {
   moraleTarget, moraleColor,
   CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, CREW_INSTANT_AIRCRAFT, crewRequired,
   crewAvailable, crewInTraining, crewShortfall, crewHireCost, splitStarterHire,
+  CREW_PER_UNIT, crewBodies, crewRequiredAhead, deliveriesWithinLeadTime,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -31,77 +32,27 @@ import { getAirport } from '../data/airports.js';
 import { useState, useEffect } from 'react';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
+import Departures, { takeDepartureBoardRequest } from './Departures.jsx';
 import { Glyph } from './Icons.jsx';
 
-// ─── Headcount estimation ─────────────────────────────────────────────────────
-
-// Market-rate weekly wage (fully loaded) assumed for one in-house ground
-// staffer — used to derive a realistic headcount from the ground staff budget.
-const GROUND_STAFF_MARKET_WAGE_WK = 900;
-
-/**
- * Estimate headcount per labor group from actual fleet + route data.
- *
- * Pilots & cabin crew:  constrained by EASA/FAA block-hour limits.
- * Ground staff:         scales with weekly departures.
- * Maintenance:          scales with block hours + base staffing per airframe.
- */
-export function estimateHeadcount(groupId, fleet, routes) {
-  const n = fleet.length;
-  if (n === 0) return 0;
-
-  // Total weekly block hours across all routes on all aircraft
-  const totalBlockHrs = fleet.reduce((sum, aircraft) => {
-    const type = getAircraftType(aircraft.typeId);
-    if (!type) return sum;
-    return sum + routes
-      .filter(r => r.aircraftId === aircraft.id)
-      .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0);
-  }, 0);
-
-  // Average economy-equivalent seats per aircraft (for cabin crew sizing)
-  const avgSeats = fleet.reduce((sum, a) => sum + (getAircraftType(a.typeId)?.seats ?? 100), 0) / n;
-
-  switch (groupId) {
-    case 'pilots': {
-      // Wide bodies need 3 on the flight deck (captain + FO + relief for rest requirements).
-      // Narrow body / regional / turboprop: 2 (captain + FO).
-      // Computed per-aircraft so mixed fleets get the right blend.
-      // Each pilot certified for ~22 effective block hrs/wk; 15% scheduling buffer.
-      return fleet.reduce((sum, aircraft) => {
-        const type      = getAircraftType(aircraft.typeId);
-        const deckCrew  = type?.category === 'Wide Body' ? 3 : 2;
-        const acBlockHrs = routes
-          .filter(r => r.aircraftId === aircraft.id)
-          .reduce((s, r) => s + weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency, type), 0);
-        const flying = Math.ceil((acBlockHrs / 22) * deckCrew * 1.15);
-        return sum + Math.max(deckCrew, flying); // at least a full deck on retainer per aircraft
-      }, 0);
-    }
-    case 'cabinCrew': {
-      // Min 1 FA per 50 seats (FAA requirement); ~30 effective block hrs/wk per FA
-      const crewPerFlight = Math.max(1, Math.ceil(avgSeats / 50));
-      const minRetainer   = n * crewPerFlight;
-      const flying        = Math.ceil((totalBlockHrs / 30) * crewPerFlight * 1.15);
-      return Math.max(minRetainer, flying);
-    }
-    case 'groundStaff': {
-      // In-house core team only (gate leads, ops control, supervisors) —
-      // per-flight handling labor is outsourced and billed separately via the
-      // ground handling fee on each departure. Headcount is what the base
-      // (1.0×) budget employs at a market ground-staff wage (~$900/wk fully
-      // loaded), so displayed per-person pay stays realistic and scales with
-      // the pay slider instead of the fleet's departure count.
-      const baseBudget = (LABOR_GROUP_MAP.groundStaff?.baseWeeklyPerAircraft ?? 4000) * n;
-      return Math.max(n * 3, Math.round(baseBudget / GROUND_STAFF_MARKET_WAGE_WK));
-    }
-    case 'maintenanceTeam':
-      // ~1 line technician per 5 block hours + base staffing of 5 per airframe
-      return Math.max(n * 5, Math.ceil(totalBlockHrs / 5) + n * 3);
-    default:
-      return n * 5;
-  }
+// ─── Headcount ────────────────────────────────────────────────────────────────
+//
+// One source of truth: the crew requirement the pipeline already computes, in
+// narrowbody-equivalents, converted to people by CREW_PER_UNIT. This replaces
+// the old `estimateHeadcount`, which derived a headcount from block hours and
+// therefore disagreed with the requirement printed a few lines below it — two
+// different answers to "how many people work here" on one screen.
+//
+// It also means a parked aircraft still shows its crew, which is right: you are
+// paying them whether or not the tail flies this week.
+export function headcountFor(groupId, fleet, typeOf) {
+  return crewBodies(groupId, crewRequired(groupId, fleet, typeOf));
 }
+
+const SUB_TABS = [
+  { id: 'labor',      label: 'Labour & Costs' },
+  { id: 'departures', label: 'Departure Board' },
+];
 
 // ─── Shared slider styling ─────────────────────────────────────────────────────
 // Visuals + hit area live in .hw-range (index.css); this only sets the width.
@@ -369,9 +320,23 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         const short = crew.short;
         const severe = short >= CREW_SEVERE_SHORTFALL;
         const tone = short <= 0 ? 'var(--green)' : severe ? 'var(--red)' : 'var(--yellow)';
-        const shortUnits = Math.max(0, Math.ceil(crew.required - crew.available));
+        const perUnit = CREW_PER_UNIT[group.id] ?? 1;
+        // Everything below this line is in PEOPLE. The engine works in
+        // narrowbody-equivalents (1.0 = one 160-seat narrowbody's full crew
+        // establishment) and keeps doing so; showing that index raw is what had
+        // players reading "0.9 pilots" off an A319 and concluding the game was
+        // broken. Hires are still dispatched in units — the buttons offer whole
+        // units and print what they mean in bodies.
+        const haveBodies  = crewBodies(group.id, crew.available);
+        const needBodies  = crewBodies(group.id, crew.required);
+        const aheadBodies = crewBodies(group.id, crew.requiredAhead);
+        const trainBodies = crewBodies(group.id, crew.training);
+        // Size the gap off the forward requirement: the point of showing it is
+        // that you can hire for a delivery before it lands, not after.
+        const gapUnits  = Math.max(0, Math.ceil(crew.requiredAhead - crew.available - crew.training - 1e-9));
+        const gapBodies = crewBodies(group.id, gapUnits);
         const hire = (n) => dispatch({ type: 'HIRE_CREW', group: group.id, count: n });
-        const opts = [...new Set([Math.max(1, shortUnits), 1, 5])].slice(0, 3).sort((a, b) => a - b);
+        const opts = [...new Set([Math.max(1, gapUnits), 1, 5])].slice(0, 3).sort((a, b) => a - b);
         return (
           <div style={{
             marginBottom: 10, padding: '8px 10px', borderRadius: 4,
@@ -380,10 +345,20 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
               <span style={{ color: 'var(--text-muted)' }}>Staffing</span>
               <span style={{ fontWeight: 600, color: tone }}>
-                {crew.available.toFixed(1)} / {crew.required.toFixed(1)} crewed
+                {haveBodies.toLocaleString()} / {needBodies.toLocaleString()} {group.name.toLowerCase()}
                 {short > 0 ? ` · ${Math.round(short * 100)}% short` : ' · fully staffed'}
               </span>
             </div>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4 }}>
+              ≈{perUnit} per narrowbody — enough to fly it all week with leave, training and reserve cover,
+              scaled by aircraft size.
+            </div>
+            {crew.arriving?.length > 0 && (
+              <div style={{ fontSize: 11, color: aheadBodies > haveBodies + trainBodies ? 'var(--yellow)' : 'var(--text-dim)', marginBottom: 4 }}>
+                🛬 {crew.arriving.length} aircraft arriving within the {CREW_LEAD_WEEKS[group.id]}-week training
+                window → you will need {aheadBodies.toLocaleString()}
+              </div>
+            )}
             {crew.instantRoom > 0 && (
               <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>
                 ⚡ Starter crew — your first {CREW_INSTANT_AIRCRAFT} aircraft crew up instantly, no training wait
@@ -391,7 +366,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
             )}
             {crew.training > 0 && (
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
-                🎓 {crew.training} in training
+                🎓 {trainBodies.toLocaleString()} in training
                 {crew.nextReady != null && crew.nextReady > 0 ? ` · next ready in ${crew.nextReady} wk${crew.nextReady === 1 ? '' : 's'}` : ' · ready next week'}
               </div>
             )}
@@ -402,16 +377,22 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                   : '⚠ Short-handed — on-time performance is suffering. Hire before it gets worse.'}
               </div>
             )}
+            {short <= 0 && gapBodies > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--yellow)', marginBottom: 6 }}>
+                Staffed for the fleet you fly today, {gapBodies.toLocaleString()} short for the one you have on order.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               {opts.map(n => {
                 const cost = crewHireCost(group.id, n);
+                const bodies = crewBodies(group.id, n);
                 return (
                   <button key={n} className="btn-small" disabled={cost > cash}
                     onClick={() => hire(n)}
                     title={cost > cash ? 'Not enough cash to train this many'
                       : n <= crew.instantRoom ? 'Starter crew — starts work immediately'
                       : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
-                    Hire {n} · {formatMoney(cost)}{n <= crew.instantRoom ? ' · instant' : ''}
+                    Hire {bodies.toLocaleString()} · {formatMoney(cost)}{n <= crew.instantRoom ? ' · instant' : ''}
                   </button>
                 );
               })}
@@ -778,6 +759,9 @@ export default function Operations() {
   const fleetSize = fleet.length;
   const laborRelations = state.laborRelations ?? DEFAULT_LABOR_RELATIONS;
   const currentAbsWeek = ((state.year ?? 1) - 1) * 52 + (state.week ?? 1);
+  // An airport screen may have asked for the board on a specific airport.
+  const [requestedAirport] = useState(() => takeDepartureBoardRequest());
+  const [subTab, setSubTab] = useState(requestedAirport ? 'departures' : 'labor');
 
   // ── Crew pipeline (A7) ──────────────────────────────────────────────────
   // Only in worlds/saves running the pipeline. `required` and `available` are
@@ -795,14 +779,20 @@ export default function Operations() {
       : null;
     // How much of the NEXT hire would start work immediately (starter crew).
     const instantRoom = splitStarterHire(g.id, Number.MAX_SAFE_INTEGER, available, fleet, typeOfAircraft).instant;
+    // What the fleet will need once aircraft arriving inside this group's own
+    // training lead time have landed. Hire buttons size off THIS, because a
+    // pilot hired today is only usable in ten weeks.
+    const requiredAhead = crewRequiredAhead(g.id, fleet, state.pendingOrders, typeOfAircraft, currentAbsWeek);
+    const arriving = deliveriesWithinLeadTime(g.id, state.pendingOrders, currentAbsWeek);
     return [g.id, { required, available, training, nextReady, instantRoom,
+                    requiredAhead, arriving,
                     short: required > 0 ? Math.max(0, (required - available) / required) : 0 }];
   })) : null;
   const crewGap = crewOn ? crewShortfall(labor, fleet, typeOfAircraft) : null;
 
-  // Pre-compute headcount estimates for all groups
+  // Headcount, in people, from the same requirement the crew box shows.
   const headcounts = Object.fromEntries(
-    LABOR_GROUPS.map(g => [g.id, estimateHeadcount(g.id, fleet, routes)])
+    LABOR_GROUPS.map(g => [g.id, headcountFor(g.id, fleet, typeOfAircraft)])
   );
   const totalHeadcount = Object.values(headcounts).reduce((s, n) => s + n, 0);
 
@@ -833,6 +823,29 @@ export default function Operations() {
 
   return (
     <div>
+      {/* Sub-tabs. Labour and the departure board are both "how the operation is
+          running", and the board needs a home with room for an airport picker —
+          the airport screen shows one airport, this shows any of them. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        {SUB_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '7px 12px', fontSize: 13,
+              fontWeight: subTab === t.id ? 600 : 400,
+              color: subTab === t.id ? 'var(--text)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${subTab === t.id ? 'var(--blue)' : 'transparent'}`,
+              marginBottom: -1,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'departures' ? <Departures initialAirport={requestedAirport} /> : (<>
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
@@ -1085,6 +1098,7 @@ export default function Operations() {
         Low maintenance budget accelerates aging: aircraft with higher {'>'}ageWeeks trigger steeper maintenance cost multipliers,
         compounding over time.
       </div>
+      </>)}
     </div>
   );
 }

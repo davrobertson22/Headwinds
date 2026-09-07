@@ -6,6 +6,15 @@
 
 export const LOGO_PX = 128;
 
+/**
+ * What to upload, in one sentence, for the UI to show next to the file picker.
+ * Players kept asking ("also what should the ideal image size be for the logos"
+ * — Discord, 2026-09-07) because nothing on screen said. Lives here so the
+ * advice and the code that enforces it can never drift apart.
+ */
+export const LOGO_UPLOAD_HINT =
+  `Square image, ${LOGO_PX * 2}×${LOGO_PX * 2} or larger — it is centre-cropped to a square and saved at ${LOGO_PX}px. Keep the mark centred and clear of the edges.`;
+
 export function fileToLogoDataURL(file) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type?.startsWith('image/')) {

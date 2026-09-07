@@ -465,6 +465,92 @@ export function crewAttritionRate(payMultiplier = 1.0, morale = 80) {
   return CREW_ATTRITION_BASE * payFactor * moraleFactor;
 }
 
+// ─── Crew units → people ─────────────────────────────────────────────────────
+//
+// Everything above counts crew in NARROWBODY-EQUIVALENTS: 1.0 is the full crew
+// establishment of one 160-seat narrowbody, whatever that is in bodies. It is a
+// scale index, and it has to be — it also divides the wage bill, and a 124-seat
+// A319 does not cost what a 189-seat 737-900 costs to crew.
+//
+// It is not, however, a number a player can read. Shown raw next to the word
+// "pilots" it says an A319 requires 0.9 pilots, which is nonsense, and that is
+// exactly what the Discord asked about (2026-09-07). So the requirement is
+// converted to PEOPLE for display, and only for display: the engine keeps
+// working in units and nothing below needs recalibrating.
+//
+// The multipliers are crews-per-tail, not seats-per-flight. One narrowbody does
+// not need two pilots; it needs enough pilots to fly ~70 block hours a week with
+// leave, sick cover, training days, standby and reserve on top — which is why
+// the real figure is ~9-11 per tail and not 2. Anchored on a 160-seat narrowbody
+// at typical utilisation:
+//
+//   pilots           2 on the deck x ~4.5 crews/tail          -> 9
+//   cabinCrew        4 per flight x ~5 crews/tail             -> 20
+//   groundStaff      in-house core only (gate leads, ops      -> 5
+//                    control, supervisors); per-turn handling
+//                    is outsourced and billed per departure
+//   maintenanceTeam  line + base technicians across shifts    -> 13
+//
+// The old `estimateHeadcount` in the Operations screen derived a similar number
+// from block hours and disagreed with the pipeline's own requirement — two
+// headcounts on one page. This is the single source of truth; that helper is
+// gone.
+export const CREW_PER_UNIT = {
+  pilots: 9,
+  cabinCrew: 20,
+  groundStaff: 5,
+  maintenanceTeam: 13,
+};
+
+/** People represented by `units` narrowbody-equivalents of a group. */
+export function crewBodies(groupId, units) {
+  const per = CREW_PER_UNIT[groupId] ?? 1;
+  return Math.round((Number(units) || 0) * per);
+}
+
+/** Inverse of crewBodies — how many units `bodies` people are. */
+export function crewUnitsForBodies(groupId, bodies) {
+  const per = CREW_PER_UNIT[groupId] ?? 1;
+  return (Number(bodies) || 0) / per;
+}
+
+/** People one airframe requires from a group — the per-aircraft answer. */
+export function crewBodiesForAircraft(groupId, aircraftType) {
+  return crewBodies(groupId, crewScaleFor(groupId, aircraftType));
+}
+
+// ─── Forward requirement (aircraft already on order) ─────────────────────────
+//
+// `crewRequired` reads the fleet you HAVE. Pilots take ten weeks to train, so an
+// airline that orders three aircraft is told it is fully staffed right up to the
+// week they land — and then it is short, with no way to have known. ("i also
+// don't know how many staff are required per aircraft, so im just guessing how
+// many I need to train before it arrives" — Discord, 2026-09-07.)
+//
+// So: the requirement INCLUDING deliveries that land inside this group's own
+// training lead time. A pilot hired today is usable in ten weeks, so aircraft
+// arriving within ten weeks are aircraft you must hire for today; a ramp agent
+// trains in two, so the ramp's horizon is two weeks and it is not asked to staff
+// a delivery a quarter out.
+//
+// Display and hire sizing only. The shortfall penalty, the grounding rule and
+// the wage bill all still read the CURRENT fleet — you are not punished for crew
+// you have not needed yet, and you do not pay for aircraft you do not have.
+export function crewRequiredAhead(groupId, fleet, pendingOrders, typeOf, absWeek) {
+  const horizon = (Number(absWeek) || 0) + (CREW_LEAD_WEEKS[groupId] ?? 0);
+  const arriving = (pendingOrders ?? []).filter(o => (Number(o?.deliverAbsWeek) || 0) <= horizon);
+  return crewRequired(groupId, [...(fleet ?? []), ...arriving], typeOf);
+}
+
+/**
+ * Aircraft arriving inside a group's training lead time — what makes
+ * `crewRequiredAhead` bigger than `crewRequired`, so the UI can say why.
+ */
+export function deliveriesWithinLeadTime(groupId, pendingOrders, absWeek) {
+  const horizon = (Number(absWeek) || 0) + (CREW_LEAD_WEEKS[groupId] ?? 0);
+  return (pendingOrders ?? []).filter(o => (Number(o?.deliverAbsWeek) || 0) <= horizon);
+}
+
 /** Training cost for hiring `count` narrowbody-equivalents into a group. */
 export function crewHireCost(groupId, count) {
   const n = Math.max(0, Math.round(Number(count) || 0));

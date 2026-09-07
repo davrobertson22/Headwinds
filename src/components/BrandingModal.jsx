@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import AirlineLogo, { AIRLINE_LOGOS } from './AirlineLogo.jsx';
 import { ACCENT_COLORS } from './SetupScreen.jsx';
-import { fileToLogoDataURL } from '../utils/logoImage.js';
+import { fileToLogoDataURL, LOGO_UPLOAD_HINT } from '../utils/logoImage.js';
 import { Glyph } from './Icons.jsx';
 import { CloseIcon } from './Icons.jsx';
 
@@ -158,6 +158,9 @@ export default function BrandingModal({ onClose }) {
             })}
           </div>
 
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+            {LOGO_UPLOAD_HINT}
+          </div>
           {logoError && (
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--red)' }}>{logoError}</div>
           )}
