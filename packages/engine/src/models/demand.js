@@ -2392,6 +2392,30 @@ export function pickCompetitorAircraftType(distKm, tier) {
   return capable.slice().sort((a, b) => score(a) - score(b))[0];
 }
 
+/**
+ * The next size up for an AI carrier up-gauging a route it keeps filling: the
+ * smallest capable, still-in-production type with at least `minSeats` seats
+ * (same range and market-lifetime rules as pickCompetitorAircraftType, and the
+ * same mild penalty for range far beyond the mission). Null when nothing bigger
+ * exists — a carrier already on the largest frame simply stops growing.
+ *
+ * `prefer(type)` (higher is better) overrides the size-step default: the AI
+ * passes its projected route profit, so an ageing gas-guzzler that happens to
+ * be the next size up never beats a modern frame that would earn more.
+ * `maxSeats` bounds the search — the AI keeps a 400 km shuttle off widebodies.
+ */
+export function pickLargerCompetitorAircraftType(distKm, minSeats, { prefer = null, maxSeats = Infinity } = {}) {
+  const capable = AIRCRAFT_TYPES.filter(t => (t.range ?? 0) >= distKm
+    && (t.seats ?? 0) >= minSeats && (t.seats ?? 0) <= maxSeats
+    && aircraftAvailability(t, 2026) !== 'expired');
+  if (capable.length === 0) return null;
+  const need  = distKm * 1.25;
+  const score = prefer
+    ? (t) => -prefer(t)
+    : (t) => ((t.seats ?? 0) - minSeats) + Math.max(0, (t.range ?? 0) - need) * 0.005;
+  return capable.slice().sort((a, b) => score(a) - score(b))[0];
+}
+
 /** Tails needed to fly `frequency` weekly departures over `distKm`, assuming ~98 utilisable block-h/tail/wk. */
 export function tailsForRoute(distKm, frequency) {
   const WEEKLY_BLOCK_PER_TAIL = 14 * 7;   // 98h
@@ -3188,7 +3212,10 @@ export function buildPairIncumbents(competitors, playerRoutes = []) {
  * @param {object} cfg              route config { frequency, priceMultiplier, aircraftType?, tails? }
  * @param {number} [month=1]
  * @param {Map<string,number>|null} [pairCounts]  from buildPairIncumbents (null = monopoly)
- * @returns {{ revenue, cost, profit, pax, flights, loadFactor }|null}
+ * @returns {{ revenue, cost, profit, pax, flights, loadFactor, demandOneWay, capOneWay, seats }|null}
+ *   demandOneWay is what the carrier COULD have sold one-way (before the 88%
+ *   cap) and capOneWay the seats it flew — the adaptive AI reads the gap
+ *   between them when right-sizing a route's capacity (competitorAI.js).
  */
 export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, pairCounts = null) {
   const ac      = TIER_AIRCRAFT[competitor.tier]        ?? TIER_AIRCRAFT.legacy;
@@ -3249,6 +3276,9 @@ export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, 
     pax:        weeklyPax,
     flights:    flightsPerWk,
     loadFactor: capOneWay > 0 ? paxOneWay / capOneWay : 0,
+    demandOneWay,
+    capOneWay,
+    seats,
   };
 }
 

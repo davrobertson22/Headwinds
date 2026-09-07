@@ -573,11 +573,10 @@ export default async function worldRoutes(fastify) {
   });
 
   // ── Switch rival one-stop itineraries on a running world (ADMIN) ──────────
-  // HUB_CONNECTIVITY_PLAN.md decision 4: new worlds get them at creation;
-  // an existing world is flipped here. The tick reads the flag live and
-  // re-stamps every airline blob, so it lands at the world's next tick. It is
-  // a revenue change for every player on pairs a rival hub can reach, so post
-  // a news item before flipping a live world.
+  // HUB_CONNECTIVITY_PLAN.md: ON for every world by default (absent key =
+  // on). This route switches a world OFF (stores `false`) or back on (removes
+  // the key). The tick reads the flag live and re-stamps every airline blob,
+  // so it lands at the world's next tick.
   fastify.post('/worlds/:id/rival-itineraries', {
     preHandler: requireAdmin,
     schema: {
@@ -588,7 +587,7 @@ export default async function worldRoutes(fastify) {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
     const tc = { ...(world.tickConfig ?? {}) };
-    if (request.body.enabled) tc.rivalItineraries = true; else delete tc.rivalItineraries;
+    if (request.body.enabled) delete tc.rivalItineraries; else tc.rivalItineraries = false;
     const updated = await prisma.world.update({ where: { id: world.id }, data: { tickConfig: tc } });
     return { world: serializeWorld(updated, {}) };
   });

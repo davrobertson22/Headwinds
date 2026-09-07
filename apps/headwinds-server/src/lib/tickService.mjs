@@ -169,13 +169,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     // recompute pass below (or on the client's own load) is a no-op.
     // Rule flags the tick reads LIVE from the world, so an admin flip lands on
     // every airline at the next tick (and persists into the blob, so the
-    // client's projections agree with what the tick just did).
+    // client's projections agree with what the tick just did). Rival
+    // itineraries are ON unless a world's tickConfig says `false` — Dave,
+    // 2026-09-05: the alpha worlds get the change, and every world after them.
     const migrated = applyScheduleTrimMigration(airline.state);
     const trimNotices = migrated === airline.state ? []
       : (migrated.scheduleTrimNotices ?? []).slice((airline.state?.scheduleTrimNotices ?? []).length);
     const preState = {
       ...migrated,
-      rivalItineraries: world.tickConfig?.rivalItineraries === true,
+      rivalItineraries: world.tickConfig?.rivalItineraries !== false,
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

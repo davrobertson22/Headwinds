@@ -35,6 +35,7 @@ import {
   tickCompetitorPricing,
   computeCompetitorRoutePnL,
   buildPairIncumbents,
+  pickLargerCompetitorAircraftType,
 } from './demand.js';
 
 // ─── Personality archetypes ──────────────────────────────────────────────────
@@ -77,6 +78,41 @@ const MIN_ROUTES = 3;
 
 /** Cumulative loss-weeks on a route before it gets cut. */
 const LOSS_WEEKS_TO_CUT = 10;
+
+/**
+ * Capacity right-sizing (HUB_CONNECTIVITY_PLAN.md "AI capacity realism").
+ * A route's capacity used to be fixed at launch for its whole life. Now a
+ * carrier reads its own P&L each action week: a route that keeps selling out
+ * (P&L load factor at the 88% cap) gains frequency in ~25% steps and, once the
+ * schedule is dense, up-gauges to a larger type; a route flying under 55% is
+ * trimmed toward a 70% load BEFORE the loss timer can cut it. Streaks are
+ * counted in weeks (`_routeLoad`, signed: >0 full, <0 thin) so a seasonal
+ * blip moves nothing. At most CAPACITY_MOVES_PER_ACT routes change per action
+ * week, so a 20-route carrier re-plans its network over about a year.
+ */
+const CAPACITY_FULL_LF        = 0.85;   // P&L caps LF at 0.88 — "we could have sold more"
+const CAPACITY_THIN_LF        = 0.55;
+const FULL_WEEKS_TO_GROW      = 8;
+const THIN_WEEKS_TO_TRIM      = 8;
+const CAPACITY_MOVES_PER_ACT  = 2;
+const GROW_STEP               = 0.25;   // +25% frequency per move (min +1)
+const TRIM_STEP               = 0.30;   // −30% frequency per move (min −1)
+const GROW_TARGET_LF          = 0.80;   // size the schedule to demand at this load
+const TRIM_TARGET_LF          = 0.70;
+const MIN_FREQUENCY           = 3;      // matches the expansion floor
+const MAX_FREQUENCY           = 28;     // matches the player-response cap
+const UPGAUGE_FROM_FREQUENCY  = 21;     // dense schedule → bigger aircraft, not more flights
+const UPGAUGE_MIN_SEAT_STEP   = 1.15;   // the next size must be a real step up
+/**
+ * Largest frame an up-gauge may reach, by stage length and carrier tier. The
+ * P&L model sees unlimited demand on a trunk lane, so without this a 300 km
+ * shuttle would end up on an A340; real short-haul stays narrowbody (gates,
+ * turn times, slots) and budget carriers fly one narrowbody family.
+ */
+function upgaugeSeatCeiling(distKm, tier) {
+  const byStage = distKm < 1500 ? 250 : distKm < 3500 ? 330 : Infinity;
+  return tier === 'budget' ? Math.min(byStage, 250) : byStage;
+}
 
 /** Fire sale: acquisition premium drops from 1.25× to this while flag is set. */
 export const FIRE_SALE_PREMIUM = 0.75;
@@ -388,14 +424,127 @@ export function tickCompetitorAI(competitors, ctx) {
     // Per-route P&L (only on action weeks — keeps the tick cheap).
     const pnl = {};
     for (const key of routeKeys) pnl[key] = computeCompetitorRoutePnL(c, key, routes[key], month, incumbents);
+    const inWar = (k) => !!(c._fareWars && c._fareWars[k]);   // war losses are deliberate — don't cut/trim
+    // What a route would earn under a different schedule/type — every capacity
+    // move below has to pay: no growth that loses money, no trim that earns less.
+    const projected = (key, cfg) => computeCompetitorRoutePnL(c, key, cfg, month, incumbents)?.profit ?? -Infinity;
 
-    // 1. Track losses; cut chronic losers (forced cuts when broke).
+    // 1a. Capacity right-sizing: fit the schedule to the loads it carries.
+    //     Trims run first (they free cash and can save a route from the loss
+    //     timer below); growth takes the most profitable full route first.
+    const loadMap = { ...(c._routeLoad ?? {}) };
+    const trimmed = new Set();
+    {
+      for (const key of routeKeys) {
+        const p = pnl[key];
+        if (!p) { delete loadMap[key]; continue; }
+        const prev = loadMap[key] ?? 0;
+        if (p.loadFactor >= CAPACITY_FULL_LF)      loadMap[key] = Math.max(0, prev) + arch.actEvery;
+        else if (p.loadFactor < CAPACITY_THIN_LF)  loadMap[key] = Math.min(0, prev) - arch.actEvery;
+        else                                       loadMap[key] = 0;
+      }
+      let movesLeft = CAPACITY_MOVES_PER_ACT;
+
+      // Trim candidates: chronically thin routes, plus routes that are losing
+      // money without being full — a smaller schedule is tried before the loss
+      // timer below withdraws them (right-size, then exit).
+      const losingUnfull = (k) => (pnl[k]?.profit ?? 0) < 0 && (pnl[k]?.loadFactor ?? 1) < CAPACITY_FULL_LF
+        && (lossMap[k] ?? 0) >= arch.actEvery;
+      const thin = routeKeys
+        .filter(k => ((loadMap[k] ?? 0) <= -THIN_WEEKS_TO_TRIM || losingUnfull(k))
+          && !inWar(k) && routes[k].frequency > MIN_FREQUENCY)
+        .sort((x, y) => (pnl[x]?.loadFactor ?? 0) - (pnl[y]?.loadFactor ?? 0));
+      for (const key of thin) {
+        if (movesLeft <= 0) break;
+        const cfg = routes[key];
+        const p   = pnl[key];
+        const [a, b] = key.split('-');
+        const dist   = routeDistance(a, b);
+        const type   = cfg.aircraftType ? getAircraftType(cfg.aircraftType) : null;
+        // Toward the demand at a 70% load, but never more than −30% in one move.
+        const want    = Math.ceil((p.demandOneWay ?? 0) / Math.max(1, (p.seats ?? 150) * TRIM_TARGET_LF));
+        const floor   = Math.max(MIN_FREQUENCY, Math.round(cfg.frequency * (1 - TRIM_STEP)));
+        const newFreq = Math.min(cfg.frequency - 1, Math.max(want, floor, MIN_FREQUENCY));
+        if (newFreq >= cfg.frequency) continue;
+        const newTails = tailsForRoute(dist, newFreq);
+        const surplus  = Math.max(0, (cfg.tails ?? 1) - newTails);
+        if (projected(key, { ...cfg, frequency: newFreq, tails: Math.max(1, (cfg.tails ?? 1) - surplus) }) < p.profit) continue;
+        if (surplus > 0) {
+          cash += tailSalvage(type, surplus);
+          const drop = new Set(fleet.filter(f => f.routeKey === key).slice(0, surplus));
+          fleet = fleet.filter(f => !drop.has(f));
+        }
+        routes[key] = { ...cfg, frequency: newFreq, tails: Math.max(1, (cfg.tails ?? 1) - surplus) };
+        loadMap[key] = 0;
+        trimmed.add(key);
+        movesLeft--;
+        events.push({ type: 'trim', airlineId: c.id, name: c.name, routeKey: key,
+          description: `${c.name} trimmed ${a} → ${b} to ${newFreq}×/wk after months of half-empty flights.` });
+      }
+
+      const canGrow = !c.fireSale && (lastProfit > 0 || cash > reserve * 2);
+      const full = routeKeys
+        .filter(k => canGrow && (loadMap[k] ?? 0) >= FULL_WEEKS_TO_GROW && (pnl[k]?.profit ?? 0) > 0)
+        .sort((x, y) => (pnl[y]?.profit ?? 0) - (pnl[x]?.profit ?? 0));
+      for (const key of full) {
+        if (movesLeft <= 0) break;
+        const cfg = routes[key];
+        const p   = pnl[key];
+        const [a, b] = key.split('-');
+        const dist   = routeDistance(a, b);
+        const type   = cfg.aircraftType ? getAircraftType(cfg.aircraftType) : pickCompetitorAircraftType(dist, c.tier);
+        if (!type) continue;
+        const tails  = cfg.tails ?? 1;
+
+        // Dense schedule: fly something bigger rather than a 22nd flight.
+        if (cfg.frequency >= UPGAUGE_FROM_FREQUENCY) {
+          const bigger = pickLargerCompetitorAircraftType(dist, Math.ceil(type.seats * UPGAUGE_MIN_SEAT_STEP), {
+            prefer:   (t) => projected(key, { ...cfg, aircraftType: t.id, tails }),
+            maxSeats: upgaugeSeatCeiling(dist, c.tier),
+          });
+          if (bigger && projected(key, { ...cfg, aircraftType: bigger.id, tails }) > p.profit) {
+            const cost = tailDeposit(bigger, tails) - tailSalvage(type, tails);
+            if (cash - cost < reserve) continue;
+            cash -= cost;
+            fleet = fleet.map(f => f.routeKey === key ? { ...f, typeId: bigger.id, ageWeeks: 0 } : f);
+            routes[key] = { ...cfg, aircraftType: bigger.id, tails };
+            loadMap[key] = 0;
+            movesLeft--;
+            events.push({ type: 'boost', airlineId: c.id, name: c.name, routeKey: key,
+              description: `${c.name} up-gauged ${a} → ${b} to the larger ${bigger.name ?? bigger.id} — the route keeps selling out.` });
+            continue;
+          }
+          if (cfg.frequency >= MAX_FREQUENCY) continue;   // biggest frame, fullest schedule: nothing left to add
+        }
+
+        // Otherwise add flights: +25% (at least one), no further than demand
+        // supports at an 80% load, never past the schedule cap.
+        const want    = Math.ceil((p.demandOneWay ?? 0) / Math.max(1, type.seats * GROW_TARGET_LF));
+        const step    = Math.max(1, Math.round(cfg.frequency * GROW_STEP));
+        const newFreq = Math.min(MAX_FREQUENCY, cfg.frequency + step, Math.max(cfg.frequency + 1, want));
+        if (newFreq <= cfg.frequency) continue;
+        const newTails = tailsForRoute(dist, newFreq);
+        const addTails = Math.max(0, newTails - tails);
+        const cost     = tailDeposit(type, addTails);
+        if (cash - cost < reserve) continue;
+        if (projected(key, { ...cfg, frequency: newFreq, aircraftType: type.id, tails: Math.max(tails, newTails) }) <= p.profit) continue;
+        cash -= cost;
+        for (let i = 0; i < addTails; i++) fleet.push(makeCompetitorTail(c.id, type.id, key, false));
+        routes[key] = { ...cfg, frequency: newFreq, aircraftType: type.id, tails: Math.max(tails, newTails) };
+        loadMap[key] = 0;
+        movesLeft--;
+        events.push({ type: 'boost', airlineId: c.id, name: c.name, routeKey: key,
+          description: `${c.name} added flights on ${a} → ${b} (${cfg.frequency} → ${newFreq}×/wk) — the route keeps selling out.` });
+      }
+    }
+
+    // 1. Track losses; cut chronic losers (forced cuts when broke). A route
+    //    that was just right-sized gets a fresh start on the loss timer.
     for (const key of routeKeys) {
       const p = pnl[key];
       if (!p) continue;
-      lossMap[key] = p.profit < 0 ? (lossMap[key] ?? 0) + arch.actEvery : 0;
+      lossMap[key] = (p.profit < 0 && !trimmed.has(key)) ? (lossMap[key] ?? 0) + arch.actEvery : 0;
     }
-    const inWar = (k) => !!(c._fareWars && c._fareWars[k]);   // war losses are deliberate — don't cut
     const cuttable = routeKeys
       .filter(k => (lossMap[k] ?? 0) >= LOSS_WEEKS_TO_CUT && !inWar(k))
       .sort((a, b) => (pnl[a]?.profit ?? 0) - (pnl[b]?.profit ?? 0));
@@ -415,6 +564,7 @@ export function tickCompetitorAI(competitors, ctx) {
       fleet = fleet.filter(f => f.routeKey !== key);
       delete routes[key];
       delete lossMap[key];
+      delete loadMap[key];
       cutsAllowed--;
       const [a, b] = key.split('-');
       events.push({ type: 'cut', airlineId: c.id, name: c.name, routeKey: key,
@@ -583,7 +733,7 @@ export function tickCompetitorAI(competitors, ctx) {
       }
     }
 
-    return { ...c, routes, fleet, cash, _routeLoss: lossMap };
+    return { ...c, routes, fleet, cash, _routeLoss: lossMap, _routeLoad: loadMap };
   });
 
   // ── Lifecycle: bankruptcies ────────────────────────────────────────────────

@@ -72,12 +72,11 @@ export async function createWorld(prisma, {
     // where crew is instantaneous. Fixed at creation like the other rule flags.
     ...(crewPipeline === true ? { crewPipeline: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
-    // sell connections over their hubs in every passenger market. ON BY
-    // DEFAULT for every new world; pass `rivalItineraries: false` explicitly
-    // for the old point-to-point rival model. Worlds created before this keep
-    // whatever their stored tickConfig says (nothing) until an admin flips
-    // them — the tick reads the flag live, so flipping takes effect next tick.
-    ...(rivalItineraries !== false ? { rivalItineraries: true } : {}),
+    // sell connections over their hubs in every passenger market. ON for every
+    // world unless explicitly switched off — an absent key means ON, so the
+    // worlds created before the feature (the alphas) got it at the next tick
+    // after deploy with no backfill. Only `false` is stored.
+    ...(rivalItineraries === false ? { rivalItineraries: false } : {}),
     // Era world (ERA_MODE_PLAN.md): week 1 of year 1 is January of this real
     // calendar year. Drives aircraft availability, the era demand/fare curves
     // and the historical fuel walk. Fixed at creation — the whole design keys
@@ -205,7 +204,7 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     } : {}),
     // Rival itineraries: baked at join so the client's projections agree with
     // the tick from the first render; the tick re-stamps it every week anyway.
-    ...(tc.rivalItineraries === true ? { rivalItineraries: true } : {}),
+    rivalItineraries: tc.rivalItineraries !== false,
   };
 
   // ── One world, one calendar ─────────────────────────────────────────────────

@@ -239,10 +239,11 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // degrades the operation. Opt-in, independent of newWorldRestrictions.
     crewPipeline: world.tickConfig?.crewPipeline === true,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell
-    // connections over their hubs in every passenger market. On for new
-    // worlds; an existing world is switched on by an admin (POST
-    // /worlds/:id/rival-itineraries) and takes effect at its next tick.
-    rivalItineraries: world.tickConfig?.rivalItineraries === true,
+    // connections over their hubs in every passenger market. ON for every
+    // world — existing ones included — unless an admin has switched it off
+    // (POST /worlds/:id/rival-itineraries {enabled:false}); takes effect at
+    // the world's next tick.
+    rivalItineraries: world.tickConfig?.rivalItineraries !== false,
     // Era world: real calendar year of week 1 (null = classic ordinal world).
     startYear: Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null,
     // Maturity label — see WORLD_STAGES. Changes no rules, so the admin panel
