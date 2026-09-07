@@ -8,7 +8,7 @@ import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.j
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
-  DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE,
+  DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
 } from './worldConfig.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
 import { splitLogo } from './logoColumn.mjs';
@@ -72,11 +72,11 @@ export async function createWorld(prisma, {
     // where crew is instantaneous. Fixed at creation like the other rule flags.
     ...(crewPipeline === true ? { crewPipeline: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
-    // sell connections over their hubs in every passenger market. ON for every
-    // world unless explicitly switched off — an absent key means ON, so the
-    // worlds created before the feature (the alphas) got it at the next tick
-    // after deploy with no backfill. Only `false` is stored.
-    ...(rivalItineraries === false ? { rivalItineraries: false } : {}),
+    // sell connections over their hubs in every passenger market. Every world
+    // created from now on stores the key explicitly — ON unless the creator
+    // unticked it. Worlds without the key predate the feature and resolve via
+    // rivalItinerariesOf (alphas on, betas off).
+    rivalItineraries: rivalItineraries !== false,
     // Era world (ERA_MODE_PLAN.md): week 1 of year 1 is January of this real
     // calendar year. Drives aircraft availability, the era demand/fare curves
     // and the historical fuel walk. Fixed at creation — the whole design keys
@@ -204,7 +204,7 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     } : {}),
     // Rival itineraries: baked at join so the client's projections agree with
     // the tick from the first render; the tick re-stamps it every week anyway.
-    rivalItineraries: tc.rivalItineraries !== false,
+    rivalItineraries: rivalItinerariesOf(tc),
   };
 
   // ── One world, one calendar ─────────────────────────────────────────────────

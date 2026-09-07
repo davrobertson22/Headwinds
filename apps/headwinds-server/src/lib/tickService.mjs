@@ -13,7 +13,7 @@ import { applyScheduleTrimMigration } from '@tailwinds/engine/utils/simulation.j
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
-import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import {
@@ -177,7 +177,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       : (migrated.scheduleTrimNotices ?? []).slice((airline.state?.scheduleTrimNotices ?? []).length);
     const preState = {
       ...migrated,
-      rivalItineraries: world.tickConfig?.rivalItineraries !== false,
+      rivalItineraries: rivalItinerariesOf(world.tickConfig),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

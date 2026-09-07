@@ -67,6 +67,17 @@ export function worldStageOf(tickConfig) {
   return tickConfig?.alpha === true ? 'alpha' : DEFAULT_WORLD_STAGE;
 }
 
+// Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md). Rollout decision
+// (Dave, 2026-09-07): the alpha worlds get it, every world created from now on
+// gets it, and the existing beta worlds — the standard ruleset players are in
+// the middle of — do NOT. So: an explicit `rivalItineraries` on the world wins
+// (createWorld always writes one, the admin toggle rewrites it); a world with
+// no key predates the feature and is on only if it is an alpha.
+export function rivalItinerariesOf(tickConfig) {
+  if (typeof tickConfig?.rivalItineraries === 'boolean') return tickConfig.rivalItineraries;
+  return worldStageOf(tickConfig) === 'alpha';
+}
+
 // Per-world global demand multiplier — scales the whole passenger pool so worlds
 // with more players can carry more surviving airlines. 1.0 = identical to solo.
 export const DEFAULT_DEMAND_MULT = 1;
@@ -243,7 +254,7 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // world — existing ones included — unless an admin has switched it off
     // (POST /worlds/:id/rival-itineraries {enabled:false}); takes effect at
     // the world's next tick.
-    rivalItineraries: world.tickConfig?.rivalItineraries !== false,
+    rivalItineraries: rivalItinerariesOf(world.tickConfig),
     // Era world: real calendar year of week 1 (null = classic ordinal world).
     startYear: Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null,
     // Maturity label — see WORLD_STAGES. Changes no rules, so the admin panel

@@ -587,7 +587,7 @@ export default async function worldRoutes(fastify) {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
     const tc = { ...(world.tickConfig ?? {}) };
-    if (request.body.enabled) delete tc.rivalItineraries; else tc.rivalItineraries = false;
+    tc.rivalItineraries = request.body.enabled === true;   // explicit either way — overrides the stage default
     const updated = await prisma.world.update({ where: { id: world.id }, data: { tickConfig: tc } });
     return { world: serializeWorld(updated, {}) };
   });
