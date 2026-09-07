@@ -20,7 +20,7 @@
 
 import assert from 'node:assert/strict';
 import {
-  connectionTimeRatio, connectionPenaltyFor, throughFare,
+  connectionTimeRatio, connectionPenaltyFor, CONNECTION_PENALTY_SCALE, throughFare,
   CONNECTION_TIME_BASE, THROUGH_FARE_INDEX, CONNECTION_PENALTY,
   buildRivalHubIndex, rivalOneStopOffersFor, buildOwnMetalConnections, computeOwnMetalODRevenue,
 } from '../packages/engine/src/models/network.js';
@@ -46,13 +46,21 @@ test('a stop on a short sector costs far more, relatively, than a stop on a long
   assert.ok(shortHop > longHaul);
 });
 
-test('the penalty scales with the ratio around the long-haul calibration point, clamped', () => {
-  const base = CONNECTION_PENALTY.ownMetal;
-  assert.ok(Math.abs(connectionPenaltyFor(base, CONNECTION_TIME_BASE) - base) < 1e-9, 'at the calibration ratio the tier penalty is unchanged');
-  assert.ok(connectionPenaltyFor(base, 2.2) > base * 1.3, 'a doubling stop is penalised harder');
-  assert.ok(connectionPenaltyFor(base, 1.05) < base, 'an on-the-way stop is penalised a little less');
-  assert.ok(connectionPenaltyFor(base, 9) <= base * 2.5 + 1e-9, 'clamped above');
-  assert.ok(connectionPenaltyFor(base, 0.5) >= base * 0.8 - 1e-9, 'clamped below');
+test('the penalty scales with the ratio around the long-haul calibration point, clamped, ×CONNECTION_PENALTY_SCALE', () => {
+  // The tier bases date from when the only connections were the player's own;
+  // CONNECTION_PENALTY_SCALE (2) brings a one-stop's preference into line with
+  // airline QSI practice. The scale applies to every modern connection alike.
+  const base = CONNECTION_PENALTY.ownMetal * CONNECTION_PENALTY_SCALE;
+  assert.equal(CONNECTION_PENALTY_SCALE, 2);
+  assert.ok(Math.abs(connectionPenaltyFor(CONNECTION_PENALTY.ownMetal, CONNECTION_TIME_BASE) - base) < 1e-9, 'at the calibration ratio the tier penalty is the scaled base');
+  assert.ok(connectionPenaltyFor(CONNECTION_PENALTY.ownMetal, 2.2) > base * 1.3, 'a doubling stop is penalised harder');
+  assert.ok(connectionPenaltyFor(CONNECTION_PENALTY.ownMetal, 1.05) < base, 'an on-the-way stop is penalised a little less');
+  assert.ok(connectionPenaltyFor(CONNECTION_PENALTY.ownMetal, 9) <= base * 2.5 + 1e-9, 'clamped above');
+  assert.ok(connectionPenaltyFor(CONNECTION_PENALTY.ownMetal, 0.5) >= base * 0.8 - 1e-9, 'clamped below');
+  // At equal fare a Major-Hub one-stop takes about a third of a pair against a
+  // nonstop — not the ~42% the unscaled base allowed.
+  const w = Math.exp(-connectionPenaltyFor(HUB_TIERS[2].connPenalty, CONNECTION_TIME_BASE));
+  assert.ok(w / (1 + w) < 0.37 && w / (1 + w) > 0.30, `equal-fare share ${(w / (1 + w)).toFixed(3)}`);
 });
 
 test('a rival one-stop over an on-the-way hub scores better than the same rival over a detour hub', () => {

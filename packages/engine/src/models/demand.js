@@ -876,7 +876,11 @@ export const RIVAL_CONN_PREFIX = '__rival_conn__';
 // engine also runs in the browser, where `process` does not exist).
 const DEBUG_MS = typeof process !== 'undefined' && !!process.env?.DEBUG_MS;
 
-export function computeMarketShare(market, offers) {
+export function computeMarketShare(market, offers, { legacy = false } = {}) {
+  // The hub-connectivity package is one switch (network.js hubPackageOn):
+  // callers on an OFF world pass { legacy: true } and get the pre-package
+  // allocation, unchanged. Nothing passed = the modern rules.
+  if (legacy) return _computeMarketShareLegacy(market, offers);
   if (offers.length === 0) return [];
 
   // Single airline: monopoly, no softmax needed
@@ -1171,6 +1175,167 @@ export function chokeRedistribute(rawFull, choke) {
   }
   return out;
 }
+
+/**
+ * computeMarketShare as it was before HUB_CONNECTIVITY_PLAN.md — verbatim from
+ * 818c2ff, the last commit before the package's first engine change. A world
+ * with the package off (the existing Headwinds beta worlds) books every
+ * passenger through this, byte-for-byte as before; the alphas and every new
+ * world use the rewrite above. Do not "improve" this function: its only job is
+ * to be identical to what those worlds have always run. Retire it with the
+ * beta worlds.
+ */
+function _computeMarketShareLegacy(market, offers) {
+  if (offers.length === 0) return [];
+
+  // Single airline: monopoly, no softmax needed
+  if (offers.length === 1) {
+    return [_monopolyResult(market, offers[0])];
+  }
+
+  // Competitive market: softmax share allocation with price elasticity on market size.
+  // Elasticity compresses the total market based on the share-weighted average price
+  // across all carriers, so pricing above the reference price shrinks the pie rather
+  // than just redistributing share.  Each airline's effective demand is:
+  //   market.demand × elasticityFactor × softmaxShare
+  //
+  // Competitive fare compression: rivals lower what travelers consider a "normal"
+  // fare on the pair (real-world yields compress when a second carrier enters, on
+  // top of the passenger split). The elasticity/choke reference drifts down 5% per
+  // additional carrier, floored at −10% — so holding monopoly-era fares in a
+  // contested market shrinks demand instead of merely splitting it.
+  // Distinct CARRIERS, not offers. Since the share fight pools a whole metro
+  // pair, one airline can now bring several offers to it (JFK–LHR and EWR–LHR
+  // are different products) — counting offers would have an airline compressing
+  // the market's fares against itself simply for serving two of its own
+  // airports. Offers with no airlineId are treated as distinct, which is what
+  // every pre-metro caller gets and keeps their arithmetic identical.
+  const distinctCarriers = new Set(
+    offers.map((o, i) => o.airlineId ?? `__offer${i}`)).size;
+  const fareCompression = Math.max(
+    COMPETITIVE_FARE_COMPRESSION_FLOOR,
+    1 - COMPETITIVE_FARE_COMPRESSION_PER_RIVAL * (distinctCarriers - 1)
+  );
+  const compressedRef    = market.referencePrice * fareCompression;
+  const compressedBizRef = compressedRef * BUSINESS_PRICE_MULTIPLIER;
+
+  const leisureUtils  = offers.map(o => computeUtility(o, market, 'leisure'));
+  // Business softmax EXCLUDES economy-only offers (no business cabin). Otherwise a
+  // cheap all-economy carrier captures business-segment share it cannot sell —
+  // phantom pax that earn $0, inflate its load factor, and (for player configs with
+  // totalSeats) eat its own leisure capacity, while starving full-service rivals of
+  // J demand. Zeroing their share renormalises the pool over business-capable
+  // carriers and propagates through avgBusinessPrice, marketBizCapture and the pax
+  // allocation below (all multiply by businessShares[i]). If NO carrier offers
+  // business, the whole segment is unserved here (shares all 0).
+  const bizCapable = offers.map(o => o.businessPrice != null && (o.businessSeats ?? 0) > 0);
+  const anyBiz = bizCapable.some(Boolean);
+  const businessUtils = offers.map((o, i) =>
+    anyBiz && !bizCapable[i] ? -Infinity : computeUtility(o, market, 'business'));
+  const leisureShares  = softmax(leisureUtils);
+  const businessShares = anyBiz ? softmax(businessUtils) : offers.map(() => 0);
+
+  // Weighted-average prices across the market (share-weighted)
+  const avgLeisurePrice  = offers.reduce((s, o, i) => s + o.economyPrice  * leisureShares[i],  0);
+  const avgBusinessPrice = offers.reduce((s, o, i) => {
+    const p = (o.businessPrice != null ? o.businessPrice : o.economyPrice * BUSINESS_PRICE_MULTIPLIER);
+    return s + p * businessShares[i];
+  }, 0);
+
+  // Elasticity factors: demand shrinks when average market price is above the
+  // (competition-compressed) reference
+  const leisureElasticityFactor  = Math.pow(compressedRef / Math.max(avgLeisurePrice,  1), ELASTICITY.leisure);
+  const businessElasticityFactor = Math.pow(
+    compressedBizRef / Math.max(avgBusinessPrice, 1),
+    ELASTICITY.business
+  );
+  // When NO carrier on the pair sells a business cabin, the business travellers
+  // do not stop existing — they buy economy tickets, exactly as the monopoly
+  // path has always folded them (_monopolyResult's `noBusiness` branch). This
+  // used to zero the shares AND drop the pool, so the moment a second
+  // all-economy carrier appeared on a pair the whole J segment vanished from
+  // the market: two identical LCCs together carried ~38% less than one of them
+  // alone, and the contested and monopoly paths described two different worlds.
+  const leisurePool = anyBiz
+    ? market.leisureDemand
+    : market.leisureDemand + market.businessDemand;
+  // How much of the metro pair these offers can reach BETWEEN them. One primary
+  // airport in the fight and this is 1.0 — the market is fully served and appeal
+  // only decides who wins it, via the utility term. A lane flown solely out of
+  // weak secondary fields shrinks. For a single offer it equals that offer's own
+  // appeal, i.e. exactly the monopoly rule, so the two paths agree where they
+  // meet.
+  const appealCapture = offersAppealCapture(offers);
+  const adjustedLeisureDemand  = Math.round(leisurePool * appealCapture * Math.min(1.5, leisureElasticityFactor));
+  // Business pool scales with the market's share-weighted quality: an
+  // all-budget pair loses business travelers to other modes entirely, while a
+  // premium-served market attracts extra (see businessQualityCapture).
+  const marketBizCapture = offers.reduce(
+    (s, o, i) => s + businessQualityCapture(o.qualityScore) * businessShares[i], 0);
+  const adjustedBusinessDemand = Math.round(
+    market.businessDemand * appealCapture * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
+
+  return offers.map((offer, i) => {
+    const lShare = leisureShares[i];
+    const bShare = businessShares[i];
+
+    // Raw demand allocation (elastic total × softmax share × per-fare choke).
+    // The choke drives an individual carrier's demand to ~0 as its own fare
+    // approaches the cap, even though the share softmax alone would still hand it
+    // a sliver of the market.
+    const bizPrice = offer.businessPrice != null
+      ? offer.businessPrice
+      : offer.economyPrice * BUSINESS_PRICE_MULTIPLIER;
+    let leisurePax  = Math.round(
+      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore)
+    );
+    // High quality stretches the tolerable business fare before the choke bites.
+    let businessPax = Math.round(
+      adjustedBusinessDemand * bShare
+      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore)
+    );
+
+    // The demand the market GENERATED for this offer, before any seat count is
+    // consulted. The load models downstream (nwrDemandScale,
+    // directionalLoadMultiplier) apply min(demand, capacity) themselves, so
+    // feeding them the capped figure locked them permanently into the
+    // demand<=capacity regime — a route drowning in demand was docked the same
+    // haircuts as one scraping parity.
+    const leisurePaxUncapped  = leisurePax;
+    const businessPaxUncapped = businessPax;
+
+    // Cap at capacity. Business is capped at its own cabin; leisure may then use
+    // ALL remaining physical seats (premium + economy), not just the economy cabin,
+    // so excess leisure demand fills spare seats instead of being discarded.
+    const businessCapped = offer.businessPrice != null && businessPax > offer.businessSeats;
+    if (businessCapped) businessPax = offer.businessSeats;
+    // Prefer true total capacity; fall back to economy-seat cap (never below it).
+    const leisureCapacity = offer.totalSeats != null
+      ? Math.max(0, offer.totalSeats - businessPax)
+      : offer.economySeats;
+    const leisureCapped  = leisurePax  > leisureCapacity;
+    if (leisureCapped)  leisurePax  = leisureCapacity;
+
+    const economyRevenue  = leisurePax  * offer.economyPrice;
+    const businessRevenue = offer.businessPrice != null ? businessPax * offer.businessPrice : 0;
+
+    return {
+      airlineId:       offer.airlineId,
+      leisureShare:    lShare,
+      businessShare:   bShare,
+      leisurePax,
+      businessPax,
+      leisurePaxUncapped,
+      businessPaxUncapped,
+      totalPax:        leisurePax + businessPax,
+      economyRevenue:  Math.round(economyRevenue),
+      businessRevenue: Math.round(businessRevenue),
+      totalRevenue:    Math.round(economyRevenue + businessRevenue),
+      capacityCapped:  leisureCapped || businessCapped,
+    };
+  });
+}
+
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 

@@ -35,7 +35,7 @@ import {
   HUB_TIERS,
 } from './demand.js';
 import { buildEncroachmentOffer } from './encroachment.js';
-import { rivalIndexFor, rivalOneStopOffersFor } from './network.js';
+import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from './network.js';
 import { memberPairKeysOf } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
 import { getAircraftType } from '../data/aircraft.js';
@@ -212,7 +212,7 @@ export function buildRivalPairOffers(state, market) {
   }
   // Rival one-stops over their hubs — same index, same offers as the tick.
   const rivalIndex = rivalIndexFor(state);
-  if (rivalIndex) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
+  if (rivalsOn(rivalIndex)) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
   return offers;
 }
 
@@ -360,7 +360,8 @@ export function pairMarketShare(state, origin, destination, opts = {}) {
              lanePooled: false, laneRivalCount: 0, siblingPairs: [] };
   }
 
-  const results = computeMarketShare(market, offers);
+  // Same rules as the tick: an OFF world (the betas) previews with the old allocation.
+  const results = computeMarketShare(market, offers, { legacy: isLegacy(rivalIndexFor(state)) });
   const playerResult = playerOffer ? (results[0] ?? null) : null;
   const totalPax = results.reduce((s, r) => s + (r.totalPax ?? 0), 0);
   // Everything YOUR airline carries in the lane — this pair plus your sibling

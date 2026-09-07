@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
   buildRivalHubIndex, rivalIndexFor, rivalOneStopOffersFor, rivalHubTierForSpokes,
   MAX_CIRCUITY, computeOwnMetalODRevenue, buildOwnMetalConnections,
-  throughFare, connectionPenaltyFor,
+  throughFare, connectionPenaltyFor, RIVALS_OFF, isLegacy, rivalsOn,
 } from '../packages/engine/src/models/network.js';
 import { buildRouteMarket, computeMarketShare, HUB_TIERS } from '../packages/engine/src/models/demand.js';
 import { rivalOffersFor, simulateRoute, defaultConfig } from '../packages/engine/src/utils/simulation.js';
@@ -56,9 +56,16 @@ test('a declared hub with enough spokes is a connection point; a busy non-hub is
 });
 
 test('the index is off unless state.rivalItineraries is true', () => {
-  assert.equal(rivalIndexFor({ competitors: [RHINE] }), null);
-  assert.equal(rivalIndexFor({ competitors: [RHINE], rivalItineraries: false }), null);
+  // OFF hands back the RIVALS_OFF sentinel — a real object, so "the caller
+  // passed nothing" (modern rules, no rivals) can never be mistaken for it.
+  assert.equal(rivalIndexFor({ competitors: [RHINE] }), RIVALS_OFF);
+  assert.equal(rivalIndexFor({ competitors: [RHINE], rivalItineraries: false }), RIVALS_OFF);
+  assert.ok(isLegacy(RIVALS_OFF) && !rivalsOn(RIVALS_OFF));
+  assert.ok(!isLegacy(undefined) && !rivalsOn(undefined), 'nothing passed = modern rules, no rivals');
   assert.ok(rivalIndexFor({ competitors: [RHINE], rivalItineraries: true }) instanceof Map);
+  const empty = rivalIndexFor({ competitors: [], rivalItineraries: true });
+  assert.ok(!isLegacy(empty) && rivalsOn(empty) && empty.size === 0, 'on with nobody else in the world is still the modern rules');
+  assert.deepEqual(rivalOneStopOffersFor(empty, buildRouteMarket('JFK', 'AMS', GD, 1, 1)), []);
 });
 
 console.log('\n── one-stop offers ──────────────────────');

@@ -11,7 +11,7 @@ import {
   AIRPORT_GATEWAY_SCORES, HUB_TIERS,
 } from '../models/demand.js';
 import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
-import { rivalIndexFor, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
+import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn } from '../../packages/engine/src/models/network.js';
 import { requestDepartureBoard } from './Departures.jsx';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
 import { gateDenialFor, lockoutWeeksLeft, idleWarningFor } from './GateDenial.jsx';
@@ -283,7 +283,7 @@ export default function AirportDetail({ code, onBack }) {
     const idx = rivalIndexFor(state);
     const cache = {};
     return (dest) => {
-      if (!idx) return [];
+      if (!rivalsOn(idx)) return [];
       if (!cache[dest]) {
         cache[dest] = rivalOneStopOffersFor(idx, { origin: code, destination: dest })
           .map(o => `${o.via.name} via ${o.via.hub}`);

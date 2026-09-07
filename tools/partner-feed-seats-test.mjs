@@ -67,6 +67,7 @@ const base = (fareMult, tails = 1) => ({
   routePricing: { 'DUB-LHR': defaultClassPrices(Math.round(referencePrice('LHR', 'DUB') * fareMult)) },
   routeCatering: {}, competitors: [R1], labor: undefined,
   codeshareAgreements: [{ competitorId: 'r1', weeklyFee: 0 }],
+  rivalItineraries: true,   // the hub-connectivity package is on (seated feed is part of it)
 });
 
 test('partner-fed passengers occupy real seats — a full leg scales its feed down', () => {

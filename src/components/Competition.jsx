@@ -7,7 +7,7 @@ import { computeQualityScore, cabinQualityPoints } from '../models/demand.js';
 // The projected-share row asks the demand model itself — never a hand-rolled
 // ratio (models/pairShare.js is the single source of truth for share previews).
 import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
-import { rivalIndexFor, rivalOneStopOffersFor, RIVAL_CONN_PREFIX } from '../../packages/engine/src/models/network.js';
+import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, RIVAL_CONN_PREFIX } from '../../packages/engine/src/models/network.js';
 import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js';
 import { laborEffects } from '../data/labor.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
@@ -198,7 +198,7 @@ export default function Competition() {
   const rivalIdx = rivalIndexFor(state);
   const contestedKeys = Object.keys(playerRouteMap).filter(k => {
     if (competitors.some(c => k in c.routes)) return true;
-    if (!rivalIdx) return false;
+    if (!rivalsOn(rivalIdx)) return false;
     const [o, d] = k.split('-');
     return rivalOneStopOffersFor(rivalIdx, { origin: o, destination: d }).length > 0;
   });

@@ -11,7 +11,7 @@ import {
 // pairShare has no src/models shim; RoutePlanner/Routes import the engine path
 // directly too.
 import { playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
-import { rivalIndexFor, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
+import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../../packages/engine/src/models/network.js';
 import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
@@ -254,7 +254,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   // below and the Competitors table agree with what actually books.
   const viaOffers = useMemo(() => {
     const idx = rivalIndexFor(state);
-    return idx && market ? rivalOneStopOffersFor(idx, market) : [];
+    return rivalsOn(idx) && market ? rivalOneStopOffersFor(idx, market) : [];
   }, [state, market]);
 
   // Hub quality bonus for this O&D. Hoisted above the memos because BOTH
@@ -331,7 +331,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
 
     const compOffers = [...competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean), ...viaOffers];
     const allOffers  = [...(playerOffer ? [playerOffer] : []), ...compOffers];
-    const results    = computeMarketShare(market, allOffers);
+    const results    = computeMarketShare(market, allOffers, { legacy: isLegacy(rivalIndexFor(state)) });
     return { shareResults: results };
   }, [playerRoutes, competitorsOnRoute, viaOffers, market, origin, dest, state.hub, hubs, maxHubBonus]);
 
@@ -397,7 +397,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           brandReach: stateBrandReach(state, maxHubBonus, false),
         };
         const compOffers = [...competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean), ...viaOffers];
-        const [combined] = computeMarketShare(market, [combinedOffer, ...compOffers]);
+        const [combined] = computeMarketShare(market, [combinedOffer, ...compOffers], { legacy: isLegacy(rivalIndexFor(state)) });
         for (const { aircraft, eco, biz } of validSims) {
           const ecoFrac = totalEcoSeats > 0 ? eco / totalEcoSeats : 1 / validSims.length;
           const bizFrac = totalBizSeats > 0 ? biz / totalBizSeats : 1 / validSims.length;

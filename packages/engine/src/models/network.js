@@ -596,17 +596,17 @@ function buildOutsideOptionOffer(market) {
  * @param {RouteMarket} market
  * @returns {AirlineOffer}
  */
-function buildPlayerConnectionOffer(conn, market) {
-  const penalty   = connectionPenaltyFor(
-    CONNECTION_PENALTY[conn.partnershipType] ?? CONNECTION_PENALTY.interline,
-    connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest));
+function buildPlayerConnectionOffer(conn, market, legacy = false) {
+  const basePenalty = CONNECTION_PENALTY[conn.partnershipType] ?? CONNECTION_PENALTY.interline;
+  const penalty   = legacy ? basePenalty : connectionPenaltyFor(
+    basePenalty, connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest));
   const minFreq   = Math.min(conn.leg1Freq, conn.leg2Freq);
   // Seats this O&D can realistically claim on the thinner leg, over the week.
   const econSeats = Math.max(
     1,
     Math.round(minFreq * ASSUMED_SEATS_PER_FLIGHT * CONNECTING_SEAT_FRACTION),
   );
-  const economyPrice = throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
+  const economyPrice = legacy ? conn.totalPrice : throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
   return {
     airlineId:         '__player_conn__',
     origin:            market.origin,
@@ -645,8 +645,9 @@ export function computePartnerODRevenue(connections, options = {}) {
     gameDate = { month: 6 },
     competitorRouteIndex = null,
     demandMultFor = null,   // (origin, dest) → world-event demand multiplier
-    rivalIndex = null,      // rival one-stop itineraries (null = off)
+    rivalIndex = undefined, // rivalIndexFor(state): RIVALS_OFF = old rules, undefined = modern, no rivals
   } = options;
+  const legacy = isLegacy(rivalIndex);
 
   const entries = [];
   let totalRevenue = 0;
@@ -699,7 +700,7 @@ export function computePartnerODRevenue(connections, options = {}) {
         PRORATE_FLOOR[partnerType] ?? PRORATE_FLOOR.interline,
       );
 
-      const offer = buildPlayerConnectionOffer(conn, market);
+      const offer = buildPlayerConnectionOffer(conn, market, legacy);
       offer.airlineId = `__player_conn__${i++}`;
       offers.push(offer);
       routingMeta.set(offer.airlineId, {
@@ -716,11 +717,11 @@ export function computePartnerODRevenue(connections, options = {}) {
       const offer = buildCompetitorOffer(competitor, market);
       if (offer) offers.push(offer);
     }
-    if (rivalIndex) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
+    if (rivalsOn(rivalIndex)) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
     offers.push(buildOutsideOptionOffer(market));
 
     // Score the whole market once; sum the player's routings.
-    const results = computeMarketShare(market, offers);
+    const results = computeMarketShare(market, offers, { legacy });
     for (const r of results) {
       const meta = routingMeta.get(r.airlineId);
       if (!meta) continue;   // competitor / outside option
@@ -735,7 +736,7 @@ export function computePartnerODRevenue(connections, options = {}) {
       totalPax     += pax;
       entries.push({
         odKey,
-        origin, dest,                       // direction — the tick seats feed on the player leg
+        ...(legacy ? {} : { origin, dest }),   // direction — the tick seats feed on the player leg
         hub:               meta.hub,
         partnerLeg:        meta.partnerLeg,
         pax,
@@ -973,9 +974,24 @@ export function connectionTimeRatio(origin, hub, dest) {
 }
 
 /** The tier / partnership penalty scaled by how much of the traveller's time the stop costs. */
+/**
+ * How much more a connection is disliked than the tier/partnership base
+ * penalties say. Those bases date from when the only connections in the game
+ * were the player's own, priced at the sum of their legs and so rarely
+ * competitive; at equal fare they let a one-stop over a Major Hub take ~42%
+ * of a pair against a nonstop. Airline QSI practice puts a one-stop at a
+ * fifth to a third of a nonstop's preference. ×2 lands at ~35% for a typical
+ * stop and ~15% for one that doubles the trip. Measured balance-neutral on a
+ * dense network (connections there are seat-bound, not preference-bound —
+ * HUB_CONNECTIVITY_PLAN.md §0); it bites where seats are not scarce, which is
+ * where a connection beating a half-empty nonstop was visibly wrong.
+ * Modern rule only — the legacy path never calls this.
+ */
+export const CONNECTION_PENALTY_SCALE = 2;
+
 export function connectionPenaltyFor(basePenalty, timeRatio) {
   const f = Math.min(CONNECTION_TIME_FACTOR_MAX, Math.max(CONNECTION_TIME_FACTOR_MIN, timeRatio / CONNECTION_TIME_BASE));
-  return basePenalty * f;
+  return basePenalty * f * CONNECTION_PENALTY_SCALE;
 }
 
 /**
@@ -1085,14 +1101,41 @@ export function buildRivalHubIndex(competitors = []) {
 const RIVAL_INDEX_CACHE = new WeakMap();
 
 /**
- * The rival hub index for this state, or null when rival itineraries are off
- * (`state.rivalItineraries !== true`). Every call site that can put a rival
- * offer into a market takes this; null means "the old world".
+ * The hub-connectivity package (HUB_CONNECTIVITY_PLAN.md) is ONE switch,
+ * `state.rivalItineraries`. Off means the whole package is off — rival
+ * one-stops, through-fares, the time-scaled connection penalty, partner feed
+ * in real seats, AND the spill/choke rewrite of computeMarketShare — and a
+ * world ticks byte-for-byte as it did before the package existed
+ * (tools/golden-master/beta-world.mjs locks that). The existing beta worlds
+ * run that way; the alphas and every new world run the package.
+ */
+export function hubPackageOn(state) {
+  return state?.rivalItineraries === true;
+}
+
+/**
+ * The value rivalIndexFor hands out when the package is OFF. A real object,
+ * not null, so "the caller passed nothing" (tests, tools: modern rules, no
+ * rivals) and "the world is off" (legacy rules) can never be confused.
+ */
+export const RIVALS_OFF = Object.freeze({ off: true, size: 0, bySpoke: new Map() });
+const EMPTY_RIVAL_INDEX = Object.freeze({ off: false, size: 0, bySpoke: new Map() });
+
+/** True when `rivalIndex` says the world runs the OLD rules (came from an off world). */
+export function isLegacy(rivalIndex) { return rivalIndex?.off === true; }
+/** True when the package is on and a rival index (possibly empty) was supplied. */
+export function rivalsOn(rivalIndex) { return rivalIndex != null && rivalIndex.off !== true; }
+
+/**
+ * The rival hub index for this state: RIVALS_OFF when the package is off, an
+ * empty index when it is on but nobody else is in the world yet (still the
+ * modern rules), else the built index. Every call site that can put a rival
+ * offer into a market takes this.
  */
 export function rivalIndexFor(state) {
-  if (!state || state.rivalItineraries !== true) return null;
+  if (!hubPackageOn(state)) return RIVALS_OFF;
   const comps = state.competitors;
-  if (!Array.isArray(comps) || comps.length === 0) return null;
+  if (!Array.isArray(comps) || comps.length === 0) return EMPTY_RIVAL_INDEX;
   let idx = RIVAL_INDEX_CACHE.get(comps);
   if (!idx) { idx = buildRivalHubIndex(comps); RIVAL_INDEX_CACHE.set(comps, idx); }
   return idx;
@@ -1362,8 +1405,9 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     slotsByAirport = {},
     gates = {},
     demandMultFor = null,   // (origin, dest) → world-event demand multiplier
-    rivalIndex = null,      // rival one-stop itineraries (null = off)
+    rivalIndex = undefined, // rivalIndexFor(state): RIVALS_OFF = old rules, undefined = modern, no rivals
   } = options;
+  const legacy = isLegacy(rivalIndex);
 
   const byRouteKey = {};
   const byHub      = {};
@@ -1419,7 +1463,8 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     for (const conn of conns) {
       const tier    = hubs[conn.hub].tier;
       const tierDef = HUB_TIERS[tier] ?? HUB_TIERS[1];
-      const penalty = connectionPenaltyFor(tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal,
+      const basePenalty = tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal;
+      const penalty = legacy ? basePenalty : connectionPenaltyFor(basePenalty,
         connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest));
 
       const minFreq = Math.min(conn.leg1Freq, conn.leg2Freq);
@@ -1428,7 +1473,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
       // tiers differentiated even in capacity-capped markets.
       const seatFraction = ({ 0: 0.10, 1: 0.15, 2: 0.18, 3: 0.22 })[tier] ?? CONNECTING_SEAT_FRACTION;
       const econSeats = Math.max(1, Math.round(minFreq * ASSUMED_SEATS_PER_FLIGHT * seatFraction));
-      const economyPrice = throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
+      const economyPrice = legacy ? conn.totalPrice : throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
 
       const offer = {
         airlineId:         `__own_conn__${i++}`,
@@ -1459,12 +1504,12 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
       const compOffer = buildCompetitorOffer(competitor, market);
       if (compOffer) offers.push(compOffer);
     }
-    if (rivalIndex) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
+    if (rivalsOn(rivalIndex)) offers.push(...rivalOneStopOffersFor(rivalIndex, market));
     const outside = buildOutsideOptionOffer(market);
-    if (!rivalIndex) outside.connectivityBonus += 0.15 * Math.log1p(maxCompWeight / 10);
+    if (!rivalsOn(rivalIndex)) outside.connectivityBonus += 0.15 * Math.log1p(maxCompWeight / 10);
     offers.push(outside);
 
-    const results = computeMarketShare(market, offers);
+    const results = computeMarketShare(market, offers, { legacy });
     for (const r of results) {
       const m = meta.get(r.airlineId);
       if (!m) continue;
@@ -1507,7 +1552,7 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
 
       totalRevenue += revenue;
       totalPax     += pax;
-      entries.push({ od, hub: conn.hub, pax, revenue, fare: economyPriceOf.get(r.airlineId) ?? null, share: +(r.leisureShare ?? 0).toFixed(4) });
+      entries.push({ od, hub: conn.hub, pax, revenue, ...(legacy ? {} : { fare: economyPriceOf.get(r.airlineId) ?? null }), share: +(r.leisureShare ?? 0).toFixed(4) });
     }
   }
 
@@ -1556,7 +1601,7 @@ export function runNetworkTick(state) {
     routeCountByAirport  = {},   // player routes per airport (contest / hub feed)
     slotsByAirport       = {},   // player weekly departures per airport (congestion)
     demandMultFor        = null, // (origin, dest) → world-event demand multiplier
-    rivalIndex           = null, // rival one-stop itineraries (rivalIndexFor(state); null = off)
+    rivalIndex           = undefined, // rivalIndexFor(state): RIVALS_OFF = old rules, undefined = modern, no rivals
   } = state;
 
   const partnershipMap = buildPartnershipMap(

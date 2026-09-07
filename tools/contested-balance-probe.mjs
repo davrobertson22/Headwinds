@@ -56,3 +56,12 @@ const aiCash = (st.competitors ?? []).reduce((s, c) => s + (c.cash ?? 0), 0);
 console.log(`weeks ${WEEKS}  cash ${(st.cash / 1e6).toFixed(0)}M  AI carriers ${st.competitors.length}`);
 years.forEach((y, i) => console.log(`  year ${i + 1}: revenue ${(y.rev / 1e6).toFixed(1)}M  pax ${Math.round(y.pax).toLocaleString()}  cashΔ ${(y.profit / 1e6).toFixed(1)}M`));
 console.log(`  final week: ${rr.length} routes, ${capped} at ≥95% load, mean LF ${(rr.reduce((s, x) => s + (x.loadFactor ?? 0), 0) / Math.max(1, rr.length) * 100).toFixed(1)}%, AI bank cash ${(aiCash / 1e6).toFixed(0)}M`);
+// Connections: what the itineraries WIN in the share fight vs what gets a SEAT
+// on the legs after direct passengers board. On a dense network the second
+// number is the binding one — preference terms move the first, seats the
+// second (HUB_CONNECTIVITY_PLAN.md §0, "why the penalty has no effect").
+const won    = r.ownMetalOD?.totalPax ?? 0;
+const seated = rr.reduce((s, x) => s + (x.connecting?.itineraryPax ?? 0), 0);
+const seatedRev = rr.reduce((s, x) => s + (x.connecting?.itineraryRevenue ?? 0), 0);
+const partnerSeated = rr.reduce((s, x) => s + (x.connecting?.partnerPax ?? 0), 0);
+console.log(`  connections: own-metal won ${won.toLocaleString()} pax/wk → seated ${seated.toLocaleString()} ($${(seatedRev / 1e6).toFixed(2)}M), partner seated ${partnerSeated.toLocaleString()}`);

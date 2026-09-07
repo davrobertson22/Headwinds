@@ -1,0 +1,17 @@
+{
+  "fullHash": "ae8cb52d9ccd04b0f542c9017a6cf382100b154473249704f6d0007290cf5a8c",
+  "projection": {
+    "week": 31,
+    "year": 1,
+    "cash": 622185356,
+    "revenue": 65007022,
+    "passengers": 107376,
+    "ownMetalPax": 2555,
+    "partnerPax": 0,
+    "routes": 35,
+    "cashWeek10": 482175973,
+    "cashWeek20": 524240657
+  },
+  "capturedWith": "tools/golden-master/beta-world.mjs",
+  "scenario": "30w / JFK T2 + ORD T1 / static rivals / rivalItineraries false"
+}
