@@ -187,7 +187,51 @@ test('REGRESSION: every group reports the order book, not just the long-lead one
   }
   // The short-window groups must also say WHEN to act, not just that an aircraft
   // is coming: 8 weeks out less 5 weeks of cabin-crew training is 3 weeks.
-  assert.ok(/start hiring in 3 wks/.test(html), 'no "start hiring in N weeks" guidance');
+  assert.ok(/by week 3/.test(html), 'no "hire N by week X" guidance');
+});
+
+test('REGRESSION: one styling rule for the order line, on every card', () => {
+  // "it shows now but it is in gray text, also the styling is inconsistent and i
+  // prefer the pilot's styling" (2026-09-07). The two branches had different
+  // colours, so a card telling you to hire fourteen people rendered dim grey
+  // purely because its training window had not opened yet. Urgency must key off
+  // whether crew are MISSING, never off which branch drew the line.
+  const labor = seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf);
+  const absWeek = (2 - 1) * 52 + 20;
+  seed({
+    crewPipeline: true, labor,
+    pendingOrders: [{ id: 'o1', typeId: NB.id, ownershipType: 'owned',
+                      deliverAbsWeek: absWeek + 8, totalPrice: 90_000_000 }],
+  });
+  const html = render(React.createElement(Operations));
+  let insideWindow = 0, notYet = 0;
+  for (const g of ['pilots', 'cabinCrew', 'groundStaff', 'maintenanceTeam']) {
+    const per = CREW_PER_UNIT[g];
+    const from = html.indexOf(`≈${per} per narrowbody`);
+    const rest = html.slice(from);
+    const to = rest.indexOf('Pay rate');
+    const card = to > -1 ? rest.slice(0, to) : rest;
+    const m = card.match(/color:var\((--[a-z-]+)\)[^"]*">🛬([\s\S]*?)<\/div>/);
+    assert.ok(m, `${g}: no order line found to style`);
+    const [, colour, text] = m;
+    // The rule: amber when crew are missing, dim when covered — whichever branch
+    // drew the line. A card that says "hire N" in grey is the reported bug.
+    if (/hire /i.test(text)) {
+      assert.equal(colour, '--yellow', `${g}: says hire but renders ${colour}`);
+    } else {
+      assert.equal(colour, '--text-dim', `${g}: covered but renders ${colour}`);
+    }
+    if (/training window/.test(text)) insideWindow++; else notYet++;
+  }
+  // Both branches must actually be exercised here, or the rule above is untested:
+  // 8 weeks out is inside the pilot and maintenance windows, outside the others.
+  assert.ok(insideWindow >= 1 && notYet >= 1,
+    `expected both branches on one page, got ${insideWindow} inside / ${notYet} not-yet`);
+
+  // And the duplicate: the pilots card used to carry both this line and a second
+  // one saying the same thing in the same colour.
+  assert.ok(!/short for the one you have on order/.test(html),
+    'the order shortfall is stated twice');
 });
 
 test('crew in training are surfaced with a ready-in countdown', () => {

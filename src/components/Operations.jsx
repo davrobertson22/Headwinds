@@ -365,23 +365,32 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 on order — the line used to appear only once a delivery was inside
                 this group's training window, so with a delivery 6-10 weeks out
                 pilots and maintenance spoke and cabin crew and ground staff went
-                silent, which reads as a broken indicator rather than "not yet". */}
-            {crew.onOrder > 0 && (
-              crew.hiringDueIn === 0 ? (
-                <div style={{ fontSize: 11, color: gapBodies > 0 ? 'var(--yellow)' : 'var(--text-dim)', marginBottom: 4 }}>
-                  🛬 {crew.arriving.length} of {crew.onOrder} aircraft arriving inside the {CREW_LEAD_WEEKS[group.id]}-week
-                  training window → hire {gapBodies > 0 ? `${gapBodies.toLocaleString()} now` : 'nothing, you are covered'}
-                  {bookGap > gapBodies && ` · ${bookGap.toLocaleString()} for the whole order book`}
+                silent, which reads as a broken indicator rather than "not yet".
+
+                ONE line, ONE colour rule, for all four groups. It was two
+                differently-styled branches, and the not-yet branch was dim grey
+                even when it was telling you to hire fourteen people — so the
+                cards looked like different features and the quiet one looked
+                unimportant ("it shows now but it is in gray text, also the
+                styling is inconsistent", 2026-09-07). Urgency now comes from
+                whether crew are actually MISSING, never from which branch
+                rendered: a gap is amber on every card, covered is dim on every
+                card. */}
+            {crew.onOrder > 0 && (() => {
+              const covered = bookGap <= 0;
+              return (
+                <div style={{ fontSize: 11, color: covered ? 'var(--text-dim)' : 'var(--yellow)', marginBottom: 4 }}>
+                  🛬 {crew.hiringDueIn === 0
+                    ? <>{crew.arriving.length} of {crew.onOrder} aircraft arriving inside the {CREW_LEAD_WEEKS[group.id]}-week training window</>
+                    : <>{crew.onOrder} aircraft on order</>}
+                  {' — '}
+                  {covered
+                    ? `you have the ${bookBodies.toLocaleString()} ${group.name.toLowerCase()} they need`
+                    : <>you will need {bookBodies.toLocaleString()} {group.name.toLowerCase()}, <strong>hire {bookGap.toLocaleString()}
+                        {crew.hiringDueIn === 0 ? ' now' : ` by week ${crew.hiringDueIn}`}</strong></>}
                 </div>
-              ) : (
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
-                  🛬 {crew.onOrder} aircraft on order → you will need {bookBodies.toLocaleString()} {group.name.toLowerCase()}
-                  {bookGap > 0
-                    ? ` (${bookGap.toLocaleString()} more). Training takes ${CREW_LEAD_WEEKS[group.id]} wk${CREW_LEAD_WEEKS[group.id] === 1 ? '' : 's'}, so start hiring in ${crew.hiringDueIn} wk${crew.hiringDueIn === 1 ? '' : 's'}.`
-                    : ' — already covered.'}
-                </div>
-              )
-            )}
+              );
+            })()}
 
             {crew.instantRoom > 0 && (
               <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>
@@ -401,12 +410,6 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                   : '⚠ Short-handed — on-time performance is suffering. Hire before it gets worse.'}
               </div>
             )}
-            {short <= 0 && gapBodies > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--yellow)', marginBottom: 6 }}>
-                Staffed for the fleet you fly today, {gapBodies.toLocaleString()} short for the one you have on order.
-              </div>
-            )}
-
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               {presets.map(n => {
                 const cost = crewHireCost(group.id, n / perUnit);
@@ -428,7 +431,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 type="number" min="1" step="1" placeholder="Custom"
                 value={customHire}
                 onChange={e => setCustomHire(e.target.value)}
-                style={{ width: 80 }}
+                style={{ width: 96 }}
                 className="form-input"
                 aria-label={`Number of ${group.name.toLowerCase()} to hire`}
               />
