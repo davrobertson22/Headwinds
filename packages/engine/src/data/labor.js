@@ -361,8 +361,22 @@ export function crewShortfall(labor, fleet, typeOf) {
     const need = crewRequired(g.id, fleet, typeOf);
     const have = crewAvailable(labor, g.id);
     const short = need > 0 ? Math.max(0, (need - have) / need) : 0;
-    byGroup[g.id] = short;
-    if (short > worst) worst = short;
+    // A gap smaller than ONE PERSON is not a shortfall.
+    //
+    // Attrition takes a fraction of the workforce every week and the tick stores
+    // headcount to two decimals, so a fully-crewed airline lands a hair under
+    // its requirement within a week of being fully staffed and STAYS there. The
+    // panel then reported "156 / 156 cabin crew · 0% short" and "⚠ Short-handed
+    // — on-time performance is suffering" at the same time, which is exactly as
+    // trustworthy as it sounds ("its just lying" / "It isn't understaffed at
+    // all", Discord 2026-09-07). Neither number was wrong; 0.03 of a missing
+    // cabin crew member is simply not a thing worth telling anyone about, and it
+    // must not cost them on-time performance either.
+    //
+    // Expressed in people rather than units because that is the resolution the
+    // game reports at, and a unit means a different number of people per group.
+    byGroup[g.id] = crewBodies(g.id, need - have) < 1 ? 0 : short;
+    if (byGroup[g.id] > worst) worst = byGroup[g.id];
   }
   return { byGroup, worst, severe: worst >= CREW_SEVERE_SHORTFALL };
 }
@@ -579,6 +593,71 @@ export function weeksUntilHiringDue(groupId, pendingOrders, absWeek) {
     .sort((a, b) => a - b)[0];
   if (due == null) return null;
   return Math.max(0, due - (CREW_LEAD_WEEKS[groupId] ?? 0) - (Number(absWeek) || 0));
+}
+
+// ─── Attrition-aware hiring ──────────────────────────────────────────────────
+//
+// "does staff required scale with age — because sometimes i order staff for my
+// whole orderbook and it ends up needing more by the time my order finishes"
+// (Discord, 2026-09-07). The requirement does NOT scale with age: crewScaleFor
+// reads seats and category and nothing else, and an airline's age moves its WAGE
+// scale (seniorityMultiplier), never its headcount.
+//
+// What actually happens is attrition. Every week a fraction of the people on the
+// line leave, faster when they are underpaid — 0.4% a week at market pay, up to
+// four times that below it. Hire exactly enough for the order book today and ten
+// weeks of wait will have quietly eaten a few percent of them, so the aircraft
+// lands short. The player was not wrong and the panel was not lying to them on
+// purpose; it just answered "how many are missing right now" to a question about
+// a delivery ten weeks out.
+//
+// So the recommendation is grossed up for the people who will leave before the
+// aircraft arrives.
+
+/** Fraction of a group still on the line after `weeks`, at this pay and morale. */
+export function crewSurvival(payMultiplier, morale, weeks) {
+  const w = Math.max(0, Number(weeks) || 0);
+  return Math.pow(1 - crewAttritionRate(payMultiplier, morale), w);
+}
+
+/** People expected to leave a group over `weeks`, given `onLine` today. */
+export function crewExpectedLeavers(onLine, payMultiplier, morale, weeks) {
+  const have = Math.max(0, Number(onLine) || 0);
+  return have * (1 - crewSurvival(payMultiplier, morale, weeks));
+}
+
+/**
+ * How many to hire NOW to be at `need` in `weeksToTarget` weeks' time.
+ *
+ * Three cohorts decay at different times: people already on the line decay for
+ * the whole wait; anyone in training decays from the week they graduate; and a
+ * hire made today cannot decay before it exists, so it decays from this group's
+ * training lead time. Solving for the hire:
+ *
+ *   need = onLine·s(W) + inTraining·s(W−L) + X·s(W−L)
+ *
+ * with s(t) the survival factor and L the lead time, both clamped at zero. At
+ * W = 0 every factor is 1 and this is exactly the old "need − have − training".
+ *
+ * Returned in the engine's units, like everything else here.
+ */
+export function crewHiresNeeded(groupId, {
+  need, onLine = 0, inTraining = 0, payMultiplier = 1.0, morale = 80, weeksToTarget = 0,
+}) {
+  const lead = CREW_LEAD_WEEKS[groupId] ?? 0;
+  const w = Math.max(0, Number(weeksToTarget) || 0);
+  const sAll  = crewSurvival(payMultiplier, morale, w);
+  const sHire = crewSurvival(payMultiplier, morale, Math.max(0, w - lead));
+  const covered = (Number(onLine) || 0) * sAll + (Number(inTraining) || 0) * sHire;
+  if (sHire <= 0) return Math.max(0, (Number(need) || 0) - covered);
+  return Math.max(0, ((Number(need) || 0) - covered) / sHire);
+}
+
+/** Weeks until the LAST aircraft on order arrives (0 when nothing is on order). */
+export function weeksToOrderBookComplete(pendingOrders, absWeek) {
+  const weeks = (pendingOrders ?? [])
+    .map(o => (Number(o?.deliverAbsWeek) || 0) - (Number(absWeek) || 0));
+  return weeks.length ? Math.max(0, Math.max(...weeks)) : 0;
 }
 
 /**

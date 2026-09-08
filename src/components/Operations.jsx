@@ -6,6 +6,7 @@ import {
   crewAvailable, crewInTraining, crewShortfall, crewHireCost, splitStarterHire,
   CREW_PER_UNIT, crewBodies, crewRequiredAhead, deliveriesWithinLeadTime,
   crewRequiredForOrderBook, weeksUntilHiringDue,
+  crewHiresNeeded, crewExpectedLeavers, weeksToOrderBookComplete,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -336,8 +337,16 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         const trainBodies = crewBodies(group.id, crew.training);
         // Size the gap off the forward requirement: the point of showing it is
         // that you can hire for a delivery before it lands, not after.
-        const gapBodies  = Math.max(0, Math.ceil(aheadBodies - haveBodies - trainBodies));
-        const bookGap    = Math.max(0, Math.ceil(bookBodies - haveBodies - trainBodies));
+        // Missing PEOPLE, not a percentage. A percentage rounds to "0% short"
+        // long before the gap stops being reported, which is how the card came
+        // to warn about a shortfall it was simultaneously printing as zero.
+        const missingBodies = Math.max(0, needBodies - haveBodies);
+        // How many to HIRE — not simply how many are missing. Crew leave while
+        // the order is in the air and a trainee is not usable for weeks, so this
+        // is grossed up for both (see crewHiresNeeded).
+        const gapBodies  = crewBodies(group.id, crew.hireAhead);
+        const bookGap    = crewBodies(group.id, crew.hireBook);
+        const leaversWk  = crewBodies(group.id, crew.leaversPerWeek);
         const costPerHead = crewHireCost(group.id, 1 / perUnit);
         const hireBodies = (n) => dispatch({ type: 'HIRE_CREW', group: group.id, bodies: n });
         const customN = Math.max(0, Math.floor(Number(customHire) || 0));
@@ -353,7 +362,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
               <span style={{ color: 'var(--text-muted)' }}>Staffing</span>
               <span style={{ fontWeight: 600, color: tone }}>
                 {haveBodies.toLocaleString()} / {needBodies.toLocaleString()} {group.name.toLowerCase()}
-                {short > 0 ? ` · ${Math.round(short * 100)}% short` : ' · fully staffed'}
+                {short > 0 ? ` · ${missingBodies.toLocaleString()} short` : ' · fully staffed'}
               </span>
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4 }}>
@@ -392,6 +401,18 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
               );
             })()}
 
+            {/* Attrition, made visible. It is the answer to "does staff required
+                scale with age" — the requirement does not, but the workforce
+                shrinks every week, faster when underpaid, so an airline that
+                hired exactly enough is short again a month later. Shown only
+                once it rounds to a whole person a week, or the line would read
+                "0 leave each week" on a small airline. */}
+            {leaversWk >= 1 && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
+                ↩ ≈{leaversWk.toLocaleString()} leave each week at {payMultiplier.toFixed(2)}× pay
+                {crew.onOrder > 0 ? ' — the hire figures above already cover those lost before delivery.' : ' — pay above market to slow it.'}
+              </div>
+            )}
             {crew.instantRoom > 0 && (
               <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>
                 ⚡ Starter crew — your first {CREW_INSTANT_AIRCRAFT} aircraft crew up instantly, no training wait
@@ -815,6 +836,10 @@ export default function Operations() {
   // directly comparable and need no translation.
   const crewOn = state.crewPipeline === true;
   const typeOfAircraft = (a) => getAircraftType(a.typeId);
+  // Computed FIRST so every card reads its shortfall from the same place the
+  // engine does. The card used to derive its own, which is how one screen came
+  // to say "156 / 156 cabin crew · 0% short" and "⚠ Short-handed" at once.
+  const crewGapEngine = crewOn ? crewShortfall(labor, fleet, typeOfAircraft) : null;
   const crew = crewOn ? Object.fromEntries(LABOR_GROUPS.map(g => {
     const required  = crewRequired(g.id, fleet, typeOfAircraft);
     const available = crewAvailable(labor, g.id);
@@ -836,12 +861,32 @@ export default function Operations() {
     // reads as a missing indicator rather than "not yet".
     const orderBookRequired = crewRequiredForOrderBook(g.id, fleet, state.pendingOrders, typeOfAircraft);
     const hiringDueIn = weeksUntilHiringDue(g.id, state.pendingOrders, currentAbsWeek);
+    // Hiring recommendations are ATTRITION-AWARE. Crew leave every week, so a
+    // hire sized to today's gap is already short by the time an aircraft ten
+    // weeks out arrives — which is what "i order staff for my whole orderbook
+    // and it ends up needing more by the time my order finishes" describes.
+    const pay = labor?.[g.id]?.payMultiplier ?? 1.0;
+    const mor = labor?.[g.id]?.morale ?? 80;
+    const weeksToBook = weeksToOrderBookComplete(state.pendingOrders, currentAbsWeek);
+    const weeksToArriving = arriving.length
+      ? Math.max(...arriving.map(o => (Number(o?.deliverAbsWeek) || 0) - currentAbsWeek))
+      : 0;
+    const hireAhead = crewHiresNeeded(g.id, {
+      need: requiredAhead, onLine: available, inTraining: training,
+      payMultiplier: pay, morale: mor, weeksToTarget: weeksToArriving,
+    });
+    const hireBook = crewHiresNeeded(g.id, {
+      need: orderBookRequired, onLine: available, inTraining: training,
+      payMultiplier: pay, morale: mor, weeksToTarget: weeksToBook,
+    });
+    const leaversPerWeek = crewExpectedLeavers(available, pay, mor, 1);
     return [g.id, { required, available, training, nextReady, instantRoom,
                     requiredAhead, arriving, orderBookRequired, hiringDueIn,
+                    hireAhead, hireBook, leaversPerWeek, weeksToBook,
                     onOrder: (state.pendingOrders ?? []).length,
-                    short: required > 0 ? Math.max(0, (required - available) / required) : 0 }];
+                    short: crewGapEngine?.byGroup?.[g.id] ?? 0 }];
   })) : null;
-  const crewGap = crewOn ? crewShortfall(labor, fleet, typeOfAircraft) : null;
+  const crewGap = crewGapEngine;
 
   // Headcount, in people, from the same requirement the crew box shows.
   const headcounts = Object.fromEntries(
@@ -961,7 +1006,7 @@ export default function Operations() {
           <strong>{crewGap.severe ? 'Severely understaffed' : 'Short-handed'}</strong>
           {' — '}
           {LABOR_GROUPS.filter(g => (crew?.[g.id]?.short ?? 0) > 0)
-            .map(g => `${g.name} ${Math.round((crew[g.id].short) * 100)}% short`)
+            .map(g => `${g.name} ${Math.max(0, crewBodies(g.id, crew[g.id].required) - crewBodies(g.id, crew[g.id].available)).toLocaleString()} short`)
             .join(' · ')}
           . Flying short-handed costs on-time performance and passenger satisfaction; crew take
           {' '}{Math.min(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))}–{Math.max(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))} weeks to train, so hire ahead of your deliveries.

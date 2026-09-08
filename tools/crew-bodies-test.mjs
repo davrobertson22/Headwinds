@@ -13,6 +13,7 @@ import {
   LABOR_GROUPS, CREW_PER_UNIT, CREW_LEAD_WEEKS,
   crewBodies, crewUnitsForBodies, crewBodiesForAircraft, crewScaleFor,
   crewRequired, crewRequiredAhead, deliveriesWithinLeadTime,
+  crewHiresNeeded, crewSurvival, crewExpectedLeavers, weeksToOrderBookComplete,
 } from '../packages/engine/src/data/labor.js';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
 
@@ -116,6 +117,61 @@ t('no orders, no change — the forward requirement degrades to the current one'
     assert.equal(crewRequiredAhead(g.id, FLEET, [], typeOf, ABS_WEEK), crewRequired(g.id, FLEET, typeOf));
     assert.equal(crewRequiredAhead(g.id, FLEET, undefined, typeOf, ABS_WEEK), crewRequired(g.id, FLEET, typeOf));
   }
+});
+
+// ── Attrition-aware hiring ───────────────────────────────────────────────────
+t('the requirement does NOT scale with age — the workforce shrinks instead', () => {
+  // The player's question: "does staff required scale with age". It does not;
+  // crewScaleFor reads seats and category only. An old airframe and a new one of
+  // the same type need identical crew.
+  const young = { typeId: 'a319', ageWeeks: 0 };
+  const old   = { typeId: 'a319', ageWeeks: 52 * 25 };
+  for (const g of LABOR_GROUPS) {
+    assert.equal(crewRequired(g.id, [young], typeOf), crewRequired(g.id, [old], typeOf),
+      `${g.id}: aircraft age must not change the crew requirement`);
+  }
+});
+
+t('hiring for a distant delivery covers the crew who will leave first', () => {
+  // Hire exactly the gap for an order ten weeks out and attrition eats into it
+  // before the aircraft lands — the reported "it ends up needing more by the
+  // time my order finishes".
+  const now  = crewHiresNeeded('pilots', { need: 10, onLine: 8, weeksToTarget: 0 });
+  const later = crewHiresNeeded('pilots', { need: 10, onLine: 8, weeksToTarget: 20 });
+  assert.ok(later > now, 'a delivery 20 weeks out must ask for more than today\'s gap');
+  assert.equal(now, 2, 'with no wait it is exactly the gap');
+});
+
+t('underpaying costs you more hires, because more of them leave', () => {
+  const market = crewHiresNeeded('pilots', { need: 10, onLine: 10, payMultiplier: 1.0, weeksToTarget: 20 });
+  const cheap  = crewHiresNeeded('pilots', { need: 10, onLine: 10, payMultiplier: 0.8, weeksToTarget: 20 });
+  assert.ok(cheap > market, 'cut-rate pay must demand more replacement hiring');
+  assert.ok(market > 0, 'even at market pay, holding a headcount for 20 weeks needs hires');
+});
+
+t('crew already in training count, but only from the week they graduate', () => {
+  const bare    = crewHiresNeeded('pilots', { need: 10, onLine: 5, inTraining: 0, weeksToTarget: 12 });
+  const pipeline = crewHiresNeeded('pilots', { need: 10, onLine: 5, inTraining: 3, weeksToTarget: 12 });
+  assert.ok(pipeline < bare, 'people already training must reduce what you hire now');
+  assert.ok(pipeline > 0);
+});
+
+t('a fully staffed airline with nothing on order is asked to hire nothing', () => {
+  assert.equal(crewHiresNeeded('pilots', { need: 10, onLine: 10, weeksToTarget: 0 }), 0);
+  assert.equal(weeksToOrderBookComplete([], 100), 0);
+  assert.equal(crewSurvival(1.0, 80, 0), 1);
+});
+
+t('survival and leavers are consistent with each other', () => {
+  const leavers = crewExpectedLeavers(100, 1.0, 80, 10);
+  assert.ok(Math.abs((100 - leavers) - 100 * crewSurvival(1.0, 80, 10)) < 1e-9);
+  assert.ok(leavers > 0 && leavers < 100);
+});
+
+t('the order-book horizon is the LAST delivery, not the first', () => {
+  const orders = [{ deliverAbsWeek: 105 }, { deliverAbsWeek: 130 }, { deliverAbsWeek: 112 }];
+  assert.equal(weeksToOrderBookComplete(orders, 100), 30);
+  assert.ok(CREW_LEAD_WEEKS.pilots > 0);
 });
 
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} — ${passed} passed, ${failed} failed`);

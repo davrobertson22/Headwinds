@@ -10,7 +10,7 @@ import { getAircraftType } from '../src/data/aircraft.js';
 import { formatMoney } from '../src/utils/simulation.js';
 import {
   DEFAULT_LABOR_STATE, seedCrewFor, crewRequired, crewHireCost, CREW_LEAD_WEEKS,
-  splitStarterHire, CREW_INSTANT_AIRCRAFT, crewBodies, CREW_PER_UNIT,
+  splitStarterHire, CREW_INSTANT_AIRCRAFT, crewBodies, CREW_PER_UNIT, crewShortfall,
 } from '../src/data/labor.js';
 import { gameReducer } from '../src/store/GameContext.jsx';
 
@@ -100,7 +100,8 @@ test('an understaffed airline warns, and quotes the real hire cost + lead time',
   seed({ crewPipeline: true, labor: short });
   const html = render(React.createElement(Operations));
   assert.ok(/Short-handed|Severely understaffed/.test(html), 'no shortfall warning rendered');
-  assert.ok(/% short/.test(html), 'no shortfall percentage rendered');
+  assert.ok(/\d+ short/.test(html), 'no shortfall size rendered');
+  assert.ok(!/% short/.test(html), 'shortfall must be reported in people, not a percentage');
   assert.ok(html.includes(`${CREW_LEAD_WEEKS.pilots}-week training`), 'lead time not shown');
 
   // Every hire button must quote the SAME cost the reducer will charge for the
@@ -232,6 +233,40 @@ test('REGRESSION: one styling rule for the order line, on every card', () => {
   // one saying the same thing in the same colour.
   assert.ok(!/short for the one you have on order/.test(html),
     'the order shortfall is stated twice');
+});
+
+test('REGRESSION: never "0 short" and "Short-handed" at the same time', () => {
+  // Reported 2026-09-07: a card reading "156 / 156 cabin crew · 0% short" with
+  // "⚠ Short-handed — on-time performance is suffering" underneath it. Cause:
+  // attrition removes a FRACTION of a person every week and the tick stores
+  // headcount to two decimals, so a fully-crewed airline lands a hair under its
+  // requirement within a week and stays there forever. Both numbers were
+  // "right"; together they were a lie. ("its just lying", "It isn't
+  // understaffed at all".)
+  const labor = seedCrewFor(DEFAULT_LABOR_STATE, FLEET, typeOf);
+  const bled = Object.fromEntries(Object.entries(labor).map(([id, g]) => {
+    const need = crewRequired(id, FLEET, typeOf);
+    // Exactly what a week of attrition leaves behind: a hair under, stored to 2dp.
+    return [id, { ...g, headcount: Math.round((need - 0.004) * 100) / 100 }];
+  }));
+  seed({ crewPipeline: true, labor: bled });
+  const html = render(React.createElement(Operations));
+  assert.ok(!/Short-handed|Severely short/.test(html),
+    'a sub-person gap must not warn about understaffing');
+  assert.ok(/fully staffed/.test(html), 'a sub-person gap should read as fully staffed');
+  assert.ok(!/· 0 short/.test(html), 'a zero shortfall must not be reported as a shortfall');
+
+  // Same rule in the engine, so the page banner and the OTP penalty agree with
+  // the card rather than each having their own opinion.
+  const gap = crewShortfall(bled, FLEET, typeOf);
+  assert.equal(gap.worst, 0, 'engine still sees a shortfall smaller than one person');
+
+  // And a REAL shortfall is still reported, in people.
+  const reallyShort = { ...labor, pilots: { ...labor.pilots, headcount: 1 } };
+  seed({ crewPipeline: true, labor: reallyShort });
+  const shortHtml = render(React.createElement(Operations));
+  assert.ok(/Short-handed|Severely short/.test(shortHtml), 'a real shortfall must still warn');
+  assert.ok(/\d+ short/.test(shortHtml), 'a real shortfall must say how many people');
 });
 
 test('crew in training are surfaced with a ready-in countdown', () => {
