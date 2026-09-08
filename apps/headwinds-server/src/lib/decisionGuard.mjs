@@ -21,7 +21,7 @@ import {
   borrowingCapacity, unencumberedOwnedFleet,
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
-import { LABOR_GROUP_MAP } from '@tailwinds/engine/data/labor.js';
+import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
@@ -403,6 +403,19 @@ function guardHireCrew(payload) {
   // past any legitimate one-click hire and keeps a forged number out of the blob.
   const group = String(payload.group ?? '');
   if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  // TWO wire formats, exactly as the reducer documents them: `bodies` is PEOPLE
+  // (what the staffing card sends and what a player typing a number means) and
+  // `count` is the engine's narrowbody-equivalent unit (playbot, older clients,
+  // tests). This guard read only `count`, so every hire the screen sent arrived
+  // as NaN and came back "Invalid number of crew to hire" — hiring was impossible
+  // in multiplayer. Forward whichever key the client used; never synthesise the
+  // other, or a pre-`bodies` client's count:5 would change meaning.
+  if (payload.bodies != null) {
+    const bodies = Math.floor(Number(payload.bodies));
+    if (!Number.isFinite(bodies) || bodies < 1) throw new GuardError('Invalid number of crew to hire.');
+    // Same ceiling as `count`, expressed in people: 500 narrowbody-equivalents.
+    return { group, bodies: Math.min(500 * (CREW_PER_UNIT[group] ?? 1), bodies) };
+  }
   const count = Math.floor(Number(payload.count));
   if (!Number.isFinite(count) || count < 1) throw new GuardError('Invalid number of crew to hire.');
   return { group, count: Math.min(500, count) };
