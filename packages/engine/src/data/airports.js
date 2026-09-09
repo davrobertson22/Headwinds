@@ -2360,8 +2360,24 @@ export const AIRPORTS = [
   { code: 'YYG', name: 'Charlottetown Alexander B. Campbell', city: 'Charlottetown', country: 'CA', lat: 46.2900, lon: -63.1211, population: 0.08, tier: 'regional', visitors: 0.4, runwayFt: 7000 },
 ];
 
+// Code -> record index, built once on first lookup.
+//
+// getAirport was a linear `AIRPORTS.find` over ~2,400 records. That is fine for
+// a handful of calls and ruinous inside the weekly tick: baseCityPairDemand
+// alone calls it four times per airport pair, and buildOwnMetalConnections asks
+// for every pair of spokes at every hub, so a 279-route network scanned the
+// array roughly 600,000 times a week. Profiled at 279 routes (2026-09-08), the
+// scan was 7% of tick self-time on its own and a large share of the demand
+// function's 38%. In Headwinds that cost is paid by the SERVER, once per world
+// per week. AIRPORTS is a frozen-in-practice module constant — nothing in the
+// engine mutates it — so one Map serves every lookup for the life of the process.
+let _airportIndex = null;
 export function getAirport(code) {
-  return AIRPORTS.find(a => a.code === code);
+  if (_airportIndex === null) {
+    _airportIndex = new Map();
+    for (const a of AIRPORTS) _airportIndex.set(a.code, a);
+  }
+  return _airportIndex.get(code);
 }
 
 // ─── Gate pricing ──────────────────────────────────────────────────────────────

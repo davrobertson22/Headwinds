@@ -139,6 +139,26 @@ export const CATEGORY_MEDIAN_SEATS = {
  * Shared by HQ overhead here and by crew pay in labor.js, so the two can never
  * disagree about where a 200-seat aircraft sits.
  */
+// The curve's knots depend only on the table handed in, and every caller hands
+// in one of a small number of module constants — so derive the sorted points
+// once per table instead of on every read. scaleBySeats is called for every
+// airframe from both HQ overhead and crew pay, and rebuilding the array (entries
+// + map + filter + sort) was 27% of weekly-tick self-time at a 279-aircraft
+// fleet once the demand model stopped dominating the profile (2026-09-08).
+// A WeakMap so a caller passing a throwaway table cannot leak it.
+const SEAT_CURVE_POINTS = new WeakMap();
+function seatCurvePoints(byCategory) {
+  if (byCategory == null) return [];
+  const cached = SEAT_CURVE_POINTS.get(byCategory);
+  if (cached) return cached;
+  const pts = Object.entries(CATEGORY_MEDIAN_SEATS)
+    .map(([cat, s]) => [s, byCategory[cat]])
+    .filter(([, v]) => typeof v === 'number')
+    .sort((a, b) => a[0] - b[0]);
+  SEAT_CURVE_POINTS.set(byCategory, pts);
+  return pts;
+}
+
 export function scaleBySeats(byCategory, seats) {
   const n = Number(seats);
   // No usable seat count means the curve has nothing to read. Return null so the
@@ -146,10 +166,7 @@ export function scaleBySeats(byCategory, seats) {
   // administer and crew an unknown widebody as though it were a 39-seat commuter.
   // This is how a synthetic type with no `seats` field got turboprop pilots.
   if (!Number.isFinite(n) || n <= 0) return null;
-  const pts = Object.entries(CATEGORY_MEDIAN_SEATS)
-    .map(([cat, s]) => [s, byCategory?.[cat]])
-    .filter(([, v]) => typeof v === 'number')
-    .sort((a, b) => a[0] - b[0]);
+  const pts = seatCurvePoints(byCategory);
   if (!pts.length) return null;
   if (n <= pts[0][0]) return pts[0][1];
   if (n >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];

@@ -572,7 +572,46 @@ function metroDemandMultiplier(metro) {
   return best;
 }
 
+// ── Memo for baseCityPairDemand ───────────────────────────────────────────────
+// The function below is a pure function of two airport codes over static module
+// data: airport records, metros, country tables, coefficients. Nothing about the
+// game clock enters it — demand GROWTH over the years is applied separately, by
+// pairDemandGrowth() at the call sites — so the answer for a pair never changes
+// within a process, and caching it cannot freeze a growing market.
+//
+// It is also the single hottest function in the weekly tick. Profiled at 279
+// routes (2026-09-08, the Discord report of a laggy 1991 Tailwinds save): 38% of
+// tick self-time, because buildOwnMetalConnections asks it about every pair of
+// spokes at every hub — ~38,000 calls a week for a single 279-spoke hub,
+// re-deriving the same gravity model from the same constants every time. The
+// server pays this for every world it ticks, so the memo is worth more here than
+// in the single-player build, and it is shared across worlds: the function's
+// answer depends on nothing world-specific.
+//
+// Capped and cleared wholesale rather than evicted one-by-one: a cleared cache
+// costs one tick of recomputation, and an LRU here would be more machinery than
+// the thing it manages.
+const PAIR_DEMAND_MEMO = new Map();
+const PAIR_DEMAND_MEMO_CAP = 200_000;
+
+/** Test seam — the suite asserts the memo does not change any answer. */
+export function clearPairDemandMemo() { PAIR_DEMAND_MEMO.clear(); }
+
 export function baseCityPairDemand(originCode, destCode) {
+  // Symmetric: every endpoint term enters as a product under the same sqrt and
+  // distance is symmetric, so one key serves both directions.
+  const memoKey = originCode < destCode
+    ? originCode + '\u0000' + destCode
+    : destCode + '\u0000' + originCode;
+  const hit = PAIR_DEMAND_MEMO.get(memoKey);
+  if (hit !== undefined) return hit;
+  const value = computeBaseCityPairDemand(originCode, destCode);
+  if (PAIR_DEMAND_MEMO.size >= PAIR_DEMAND_MEMO_CAP) PAIR_DEMAND_MEMO.clear();
+  PAIR_DEMAND_MEMO.set(memoKey, value);
+  return value;
+}
+
+function computeBaseCityPairDemand(originCode, destCode) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);
   if (!o || !d) return 0;
@@ -764,6 +803,13 @@ export function setEraStartYear(v) {
 
 /** The era start year currently in effect (null = classic world). */
 export function getEraStartYear() { return _eraStartYear; }
+
+// The world's CALENDAR year (start year + years elapsed), or null in a classic
+// world. Distinct from _eraStartYear: the AI aircraft pickers in models/demand.js
+// need "what is on the market NOW", not "what year did this world begin".
+let _eraCalendarYear = null;
+export function setEraCalendarYear(v) { _eraCalendarYear = Number.isInteger(v) ? v : null; }
+export function getEraCalendarYear() { return _eraCalendarYear; }
 
 /** Set the active world's fare index (1 = classic). Clamped to a sane band. */
 export function setFareIndex(v) {
