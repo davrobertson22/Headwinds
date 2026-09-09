@@ -29,11 +29,11 @@
  * needed — they capture min(adjustedDemand, capacity).
  */
 
-import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth } from '../utils/market.js';
+import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear } from '../utils/market.js';
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
-import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm, aircraftAvailability } from '../data/aircraft.js';
+import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm, aircraftAvailability, aircraftOrderable } from '../data/aircraft.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -2542,8 +2542,11 @@ export function pickCompetitorAircraftType(distKm, tier) {
   // this, adding the propliner-era catalogue (era worlds phase 4) had modern
   // AI airlines founding on DC-6Bs. Deliberate behaviour change; the golden
   // master was re-baselined with it.
+  // Era worlds: only types in service and still on the market this calendar
+  // year (a 1950 rival flies DC-6Bs, not A350s).
+  const eraYear = getEraCalendarYear();
   const capable = AIRCRAFT_TYPES.filter(t => (t.range ?? 0) >= distKm
-    && aircraftAvailability(t, 2026) !== 'expired');
+    && (eraYear != null ? aircraftOrderable(t, eraYear) : aircraftAvailability(t, 2026) !== 'expired'));
   if (capable.length === 0) return null;
 
   // Score each capable aircraft: seat misfit vs the tier's preferred size, plus a
@@ -2570,9 +2573,13 @@ export function pickCompetitorAircraftType(distKm, tier) {
  * `maxSeats` bounds the search — the AI keeps a 400 km shuttle off widebodies.
  */
 export function pickLargerCompetitorAircraftType(distKm, minSeats, { prefer = null, maxSeats = Infinity } = {}) {
+  // Same era gate as pickCompetitorAircraftType — the up-gauge shops the market
+  // of the world's calendar year, not 2026. Without this a 1962 rival that
+  // filled a Vanguard stepped straight onto an A321neo (Discord 2026-09-08).
+  const eraYear = getEraCalendarYear();
   const capable = AIRCRAFT_TYPES.filter(t => (t.range ?? 0) >= distKm
     && (t.seats ?? 0) >= minSeats && (t.seats ?? 0) <= maxSeats
-    && aircraftAvailability(t, 2026) !== 'expired');
+    && (eraYear != null ? aircraftOrderable(t, eraYear) : aircraftAvailability(t, 2026) !== 'expired'));
   if (capable.length === 0) return null;
   const need  = distKm * 1.25;
   const score = prefer
@@ -2621,6 +2628,60 @@ export function buildCompetitorFleet(airline) {
     for (let i = 0; i < tails; i++) fleet.push(makeCompetitorTail(airline.id, type.id, routeKey, true));
   }
   return { ...airline, routes, fleet };
+}
+
+/**
+ * Retire anachronistic AI metal (Discord 2026-09-08, wj: A321neos in 1962).
+ *
+ * The up-gauge picker used to shop the 2026 market in era worlds, so rivals in
+ * saved games are already flying types that had not been designed yet. Gating
+ * the picker stops it happening again; this heals the worlds it already
+ * happened to, on load and on every tick. A route whose type is not yet in
+ * service (or whose certificate has been pulled) is re-equipped with the era
+ * pick for its distance and tier, capped at the seat count it was flying so a
+ * heal never up-gauges by the back door; its tails are re-typed in place,
+ * keeping their ages. Types that are merely OLD are left alone — a 1962
+ * carrier flying a 1950 DC-6B is the point.
+ *
+ * Classic worlds (calYear null) are a no-op and return the same array.
+ */
+export function healAnachronisticCompetitorFleets(competitors, calYear) {
+  if (calYear == null || !Array.isArray(competitors)) return competitors;
+  const legal = (typeId) => {
+    const t = getAircraftType(typeId);
+    return t == null || ((t.eis ?? 0) <= calYear && (t.withdrawnYear == null || calYear < t.withdrawnYear));
+  };
+  let touched = false;
+  const healed = competitors.map(c => {
+    const bad = Object.entries(c.routes ?? {})
+      .filter(([, cfg]) => cfg?.aircraftType && !legal(cfg.aircraftType));
+    if (bad.length === 0) return c;
+    touched = true;
+    const routes  = { ...(c.routes ?? {}) };
+    const swapped = new Map();   // routeKey → replacement typeId
+    // Deliberately NOT pickCompetitorAircraftType: that reads the module-global
+    // era year, and the heal must work off the year it was handed (loads,
+    // tests, and any caller outside a reducer tick).
+    const target = TIER_SEAT_TARGET[c.tier] ?? 200;
+    for (const [routeKey, cfg] of bad) {
+      const [a, b]  = routeKey.split('-');
+      const dist    = routeDistance(a, b);
+      // Never let the heal hand out MORE seats than the illegal frame carried:
+      // this is a downgrade to period metal, not a free up-gauge.
+      const wasSeats = getAircraftType(cfg.aircraftType)?.seats ?? Infinity;
+      const type = AIRCRAFT_TYPES
+        .filter(t => (t.range ?? 0) >= dist && (t.seats ?? 0) <= wasSeats && aircraftOrderable(t, calYear))
+        .sort((x, y) => Math.abs((x.seats ?? 0) - target) - Math.abs((y.seats ?? 0) - target))[0];
+      if (!type) { delete routes[routeKey]; continue; }   // nothing of the era can fly it — drop the route
+      routes[routeKey] = { ...cfg, aircraftType: type.id, tails: tailsForRoute(dist, cfg.frequency ?? 7) };
+      swapped.set(routeKey, type.id);
+    }
+    const fleet = (c.fleet ?? [])
+      .filter(tail => routes[tail.routeKey] != null || tail.routeKey == null)
+      .map(tail => swapped.has(tail.routeKey) ? { ...tail, typeId: swapped.get(tail.routeKey) } : tail);
+    return { ...c, routes, fleet };
+  });
+  return touched ? healed : competitors;
 }
 
 // ─── Procedural starter networks ─────────────────────────────────────────────

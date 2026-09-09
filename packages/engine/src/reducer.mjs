@@ -26,7 +26,7 @@ import {
   calcReconfCost, refitWeeks,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
-         setFareIndex, setNwrYieldChoke, setEraStartYear,
+         setFareIndex, setNwrYieldChoke, setEraStartYear, setEraCalendarYear,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
          emptyEquity, migratedEquity, sharesOf, svpsOf,
@@ -90,6 +90,7 @@ import {
   HUB_TIER_COUNT,
   FOCUS_MIN_GATES,
   hubUpgradeChecklist,
+  healAnachronisticCompetitorFleets,
 } from './models/demand.js';
 import { tickCompetitorAI, retainedProfit, FIRE_SALE_PREMIUM, competitorMarketingSpend } from './models/competitorAI.js';
 import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
@@ -1394,6 +1395,7 @@ function reducer(state, action) {
   const _eraFi = eraFareIndex(calendarYearFrac(state));
   setFareIndex(_eraFi != null ? _eraFi * (state?.fareIndex ?? 1) : (state?.fareIndex ?? 1));
   setEraStartYear(state?.startYear ?? null);
+  setEraCalendarYear(calendarYear(state));
   setEraCostScale(eraOverheadScale(calendarYearFrac(state)) ?? 1);
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
@@ -4599,8 +4601,14 @@ function reducer(state, action) {
       if (newWeek > 52) { newWeek = 1; newYear++; }
 
       // Advance competitor networks (graceful fallback for old saves missing competitors)
-      const currentCompetitors = state.competitors
-        ?? sampleAndInitializeCompetitors(25);
+      // Era worlds: retire any AI metal that predates its own entry into
+      // service before the AI acts on it. Saved 1962 worlds are already flying
+      // A321neos (Discord 2026-09-08) — the picker fix stops new ones, this
+      // clears the ones already on the books. No-op in classic worlds.
+      const currentCompetitors = healAnachronisticCompetitorFleets(
+        state.competitors ?? sampleAndInitializeCompetitors(25),
+        calendarYear(state),
+      );
       const weekNumber = (state.year - 1) * 52 + state.week;
 
       // Adaptive competitor AI: expansion, cuts, capacity responses, pricing
