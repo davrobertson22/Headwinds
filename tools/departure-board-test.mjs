@@ -133,6 +133,41 @@ t('every row carries what the board has to print', () => {
   }
 });
 
+t('two aircraft on the same pair do not depart at the same minute (Discord 2026-09-09)', () => {
+  // Two route entries, same destination, same frequency — the report was that
+  // they "depart the airport at the same time and from the same gate".
+  const twoTails = [{ id: 'p', name: 'Twin Tails', isPlayer: true, onTimeRate: 0.9, legs: [
+    { to: 'LAX', weeklyFrequency: 7, typeId: 'a320neo', typeName: 'A320neo' },
+    { to: 'LAX', weeklyFrequency: 7, typeId: 'b738',    typeName: '737-800' },
+  ] }];
+  for (let day = 0; day < 7; day++) {
+    const rows = buildDepartureBoard({ airport: 'SFO', day, worldSeed: 'w-twin', carriers: twoTails });
+    assert.equal(rows.length, 2, `day ${day}: both tails fly`);
+    assert.notEqual(rows[0].time, rows[1].time, `day ${day}: distinct times`);
+    assert.ok(Math.abs(rows[0].time - rows[1].time) >= 60, `day ${day}: at least an hour apart`);
+    assert.notEqual(rows[0].flightNo, rows[1].flightNo);
+    assert.deepEqual(rows.map(r => r.typeId).sort(), ['a320neo', 'b738'], `day ${day}: each tail keeps its type`);
+  }
+});
+
+t('grouping by destination loses no rotation: a week of boards adds up to the weekly frequencies', () => {
+  const twoTails = [{ id: 'p', name: 'Twin Tails', isPlayer: true, onTimeRate: 0.9, legs: [
+    { to: 'LAX', weeklyFrequency: 7, typeId: 'a320neo', typeName: 'A320neo' },
+    { to: 'LAX', weeklyFrequency: 4, typeId: 'b738',    typeName: '737-800' },
+    { to: 'SEA', weeklyFrequency: 3, typeId: 'b738',    typeName: '737-800' },
+  ] }];
+  let lax = 0, sea = 0, b738 = 0;
+  for (let day = 0; day < 7; day++) {
+    for (const r of buildDepartureBoard({ airport: 'SFO', day, worldSeed: 'w-twin', carriers: twoTails })) {
+      if (r.destination === 'LAX') lax++; else if (r.destination === 'SEA') sea++;
+      if (r.typeId === 'b738') b738++;
+    }
+  }
+  assert.equal(lax, 11);
+  assert.equal(sea, 3);
+  assert.equal(b738, 7);
+});
+
 t('hash32 is the stable primitive everything rests on', () => {
   assert.equal(hash32('SYD|p|MEL'), hash32('SYD|p|MEL'));
   assert.notEqual(hash32('SYD|p|MEL'), hash32('SYD|p|BNE'));

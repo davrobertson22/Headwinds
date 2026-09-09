@@ -623,11 +623,20 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
             const pieSlices = [
               ...shareResults.map(s => {
                 const isPlayer = s.airlineId === 'player';
-                const comp = (state.competitors ?? []).find(c => c.id === s.airlineId);
+                // A rival ONE-STOP result is keyed `__rival_conn__<rival>__<hub>`,
+                // not by a competitor id — resolve it through its offer's `via`
+                // block, or the pie printed the raw key as an airline name
+                // (LtFrosty, Discord 2026-09-08).
+                const via  = viaOffers.find(o => o.airlineId === s.airlineId)?.via;
+                const comp = (state.competitors ?? []).find(c => c.id === (via?.competitorId ?? s.airlineId));
+                const label = isPlayer ? state.airlineName
+                            : via      ? `${via.name ?? comp?.name ?? 'Rival'} via ${via.hub}`
+                            : (comp?.name ?? s.airlineId);
                 return {
-                  label:    isPlayer ? state.airlineName : (comp?.name ?? s.airlineId),
+                  label,
                   pax:      s.totalPax,
                   color:    isPlayer ? 'var(--green)'
+                            : via ? 'var(--purple)'
                             : comp?.tier === 'premium' ? 'var(--purple)'
                             : comp?.tier === 'budget'  ? 'var(--yellow)'
                             : 'var(--accent)',

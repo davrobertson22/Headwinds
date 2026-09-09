@@ -18,7 +18,7 @@ import {
   buildCompetitorOffer, computeQualityScore, cabinQualityPoints,
   computeConnectingDemand, AIRPORT_GATEWAY_SCORES,
 } from '../models/demand.js';
-import { rivalIndexFor, isLegacy } from '../../packages/engine/src/models/network.js';
+import { rivalIndexFor, isLegacy, rivalsOn, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
 import { cateringQualityBonus, normalizeCateringLevel } from '../data/catering.js';
@@ -810,11 +810,16 @@ export default function RoutePlanner() {
       brandReach: stateBrandReach(state, 0, false),
     };
     const competitorOffers = competitorsOnRoute.map(c => c.offer).filter(Boolean);
-    const allOffers  = [playerOffer, ...competitorOffers];
-    const shareResults = computeMarketShare(routeData.market, allOffers, { legacy: isLegacy(rivalIndexFor(state)) });
+    // Rival one-stops over their hubs sell on this pair too — the tick puts
+    // them in the fight, so the share list here must as well (previews agree
+    // with the tick). Each carries a `via` block naming the rival and hub.
+    const rivalIdx  = rivalIndexFor(state);
+    const viaOffers = rivalsOn(rivalIdx) ? rivalOneStopOffersFor(rivalIdx, routeData.market) : [];
+    const allOffers  = [playerOffer, ...competitorOffers, ...viaOffers];
+    const shareResults = computeMarketShare(routeData.market, allOffers, { legacy: isLegacy(rivalIdx) });
     const playerShare  = shareResults.find(s => s.airlineId === 'player');
 
-    return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare,
+    return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare, viaOffers,
              shared: projection.shared, pairRouteCount: projection.pairRouteCount,
              lanePooled: projection.lanePooled, siblingPairs: projection.siblingPairs ?? [],
              rivalCount: projection.rivalCount ?? 0,
@@ -1274,12 +1279,15 @@ export default function RoutePlanner() {
                       <div style={{ flex: '0 0 210px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
                         {/* Market share */}
-                        {competitorsOnRoute.length > 0 && simulation.shareResults && (
+                        {(competitorsOnRoute.length > 0 || (simulation.viaOffers?.length ?? 0) > 0) && simulation.shareResults && (
                           <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>Est. Market Share</div>
                             {simulation.shareResults.map(s => {
                               const isPlayer = s.airlineId === 'player';
-                              const name     = isPlayer ? 'You' : (state.competitors ?? []).find(c => c.id === s.airlineId)?.name ?? s.airlineId;
+                              const via      = (simulation.viaOffers ?? []).find(o => o.airlineId === s.airlineId)?.via;
+                              const name     = isPlayer ? 'You'
+                                             : via ? `${via.name ?? 'Rival'} via ${via.hub}`
+                                             : (state.competitors ?? []).find(c => c.id === s.airlineId)?.name ?? s.airlineId;
                               const sharePct = totalDemand > 0 ? Math.round(s.totalPax / totalDemand * 100) : 0;
                               return (
                                 <div key={s.airlineId} style={{ marginBottom: 8 }}>

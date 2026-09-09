@@ -219,6 +219,20 @@ console.log('\n── the battle card names the routing ────');
     store.set('bbae_save_v2', JSON.stringify({ ...state, rivalItineraries: false }));
     assert.ok(!render().includes('via FRA'));
   });
+
+  // The route detail's market-share pie resolved every slice through the
+  // competitor list; a rival one-stop is keyed `__rival_conn__…` and matched no
+  // competitor, so the legend printed the raw key as an airline
+  // ("__rival_conn__human:cmt8…__DFW" — LtFrosty, Discord 2026-09-08).
+  const RouteDetail = (await import('../src/components/RouteDetail.jsx')).default;
+  test('the route detail pie names the one-stop, never its internal key', () => {
+    store.set('bbae_save_v2', JSON.stringify(state));
+    const html = renderToString(React.createElement(GameProvider, null,
+      React.createElement(RouteDetail, { origin: 'JFK', dest: 'AMS', onBack: () => {} })))
+      .replace(/<!-- -->/g, '');
+    assert.ok(!html.includes('__rival_conn__'), 'internal offer id leaked into the page');
+    assert.ok(html.includes('rhine via FRA'), 'legend names the rival and its hub');
+  });
 }
 
 console.log(`\n  ${passed} passed, ${failed} failed\n`);

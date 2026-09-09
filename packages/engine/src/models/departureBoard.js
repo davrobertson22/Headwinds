@@ -216,19 +216,37 @@ export function buildDepartureBoard({ airport, day = 0, worldSeed = 'w', carrier
   const taken = new Set();
   const rows = [];
   for (const c of carriers) {
+    // One carrier can bring SEVERAL legs to the same destination — a player
+    // with two tails on the pair has two route entries, each with its own
+    // frequency and type. Seeded per leg they hashed to the same seed, so both
+    // aircraft "departed at the same time from the same gate" (Discord,
+    // 2026-09-09). Group by destination and spread the combined day's
+    // rotations across the operating day; each leg keeps its own fixed days
+    // and its own aircraft type on the rows it contributes.
+    const byDest = new Map();
     for (const leg of c.legs ?? []) {
-      const routeSeed = `${worldSeed}|${airport}|${c.id}|${leg.to}`;
-      const n = departuresOnDay(leg.weeklyFrequency, day, routeSeed);
-      if (n <= 0) continue;
+      if (!byDest.has(leg.to)) byDest.set(leg.to, []);
+      byDest.get(leg.to).push(leg);
+    }
+    for (const [to, legs] of byDest) {
+      const routeSeed = `${worldSeed}|${airport}|${c.id}|${to}`;
+      const slots = [];
+      legs.forEach((leg, k) => {
+        const legSeed = k === 0 ? routeSeed : `${routeSeed}|leg${k}`;
+        const n = departuresOnDay(leg.weeklyFrequency, day, legSeed);
+        for (let j = 0; j < n; j++) slots.push(leg);
+      });
+      if (slots.length === 0) continue;
       const daySeed = `${routeSeed}|d${day}`;
-      const times = departureTimes(n, daySeed);
+      const times = departureTimes(slots.length, daySeed);
       times.forEach((time, i) => {
+        const leg = slots[i];
         const rowSeed = `${daySeed}|${i}`;
         rows.push({
           time,
           timeLabel:   formatClock(time),
           flightNo:    flightNumber(codes[c.id] ?? 'XX', routeSeed, i, taken),
-          destination: leg.to,
+          destination: to,
           airlineId:   c.id,
           airlineName: c.name,
           isPlayer:    !!c.isPlayer,
