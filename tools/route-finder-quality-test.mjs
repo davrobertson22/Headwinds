@@ -40,7 +40,6 @@ import {
   defaultClassPrices,
 } from '../src/utils/simulation.js';
 import { projectRouteAddition } from '../src/models/pairShare.js';
-import { computeConnectingDemand } from '../src/models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, laneBlockFor, SORTS, DEFAULT_SCORE_LIMIT,
 } from '../src/models/routeFinder.js';
@@ -100,7 +99,11 @@ function world({ routes = [], encroachments = {}, fleet = [mkAc('spare', laneJet
   return {
     week: 60, absWeek: 60, hub: HUB, hubs: {}, cash: 5e8,
     fleet, routes, cargoRoutes: [], competitors: [], humanRivals: {}, encroachments,
-    gates, routePricing: {}, gameDate: { week: 60, month: 6 },
+    // absWeek on the date, as prepareWeek stamps it before every real tick: the
+    // projection completes a caller-built date with the world's absWeek (demand
+    // growth), so a bare-tick fixture must carry it too or the two diverge by a
+    // year of growth that the game itself never would.
+    gates, routePricing: {}, gameDate: { week: 60, month: 6, absWeek: 60 },
   };
 }
 
@@ -433,21 +436,23 @@ test('the finder credits connecting revenue, as weeklyTick and the planner do', 
 
   for (const row of withFeed) {
     // Rebuild the planner's arithmetic for the same row and require agreement.
+    // The planner reads the projection's own `connecting` (projectConnectingFeed:
+    // the tick's recipe — own-metal itineraries, departures as slots, seat
+    // headroom); it no longer makes a bare computeConnectingDemand call, and
+    // neither may this test. tools/route-quote-reconciliation-test.mjs pins all
+    // three surfaces to the tick.
     const p = projectRouteAddition(st, {
       origin: row.origin, destination: row.code, aircraft: st.fleet[0],
       weeklyFrequency: row.projection.weeklyFrequency, ticketPrice: row.refPrice,
       classPrices: defaultClassPrices(row.refPrice), gameDate: st.gameDate,
+      cateringLevel: st.defaultCateringLevel,
     });
-    const conn = computeConnectingDemand(
-      row.origin, row.code, st.hubs,
-      1 + [...st.routes].filter(r => r.origin === row.origin || r.destination === row.origin).length,
-      1 + [...st.routes].filter(r => r.origin === row.code || r.destination === row.code).length,
-      row.refPrice,
-    );
     // The tail is OWNED in this fixture, so no lease is deducted (the tick charges none).
-    const plannerNet = Math.round(p.mature.profit + conn.totalRevenue);
+    const plannerNet = Math.round(p.mature.profit + (p.connecting?.totalRevenue ?? 0));
     assert.equal(row.projection.netProfit, plannerNet,
       `finder and planner disagree on ${row.origin}-${row.code}`);
+    assert.equal(row.projection.connectingRevenue, Math.round(p.connecting?.totalRevenue ?? 0),
+      `finder and projection disagree on ${row.origin}-${row.code} connecting feed`);
   }
 });
 

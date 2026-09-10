@@ -1391,6 +1391,30 @@ export function deployableFleetForRoute({
  * stop — interior stops twice (once each direction) — which summing the existing
  * per-leg fee reproduces exactly: Σ legs (feeFrom + feeTo) × freq.
  */
+/**
+ * Hub cost efficiency factors for the airports a route touches — the block the
+ * tick attaches to every route as `hubCostFactors` and simulateRoute reads for
+ * station, layover and maintenance discounts at T2+ hubs.
+ *   station: mean of per-endpoint discounts (hub-to-hub gets the full rate);
+ *   layover: max endpoint (crews based at the hub sleep at home);
+ *   maint:   best (lowest) factor among the hubs touched.
+ * Shared with the route projection so a launch forecast off a hub is costed the
+ * way the tick will cost it: on a six-spoke JFK T2 hub the previews ran ~1.8%
+ * over the tick's operating cost — about 3% of the route's profit — until then.
+ * Returns null when nothing touched is a hub (keeps route copies byte-identical).
+ */
+export function hubCostFactorsAt(hubs, codes) {
+  const defs = codes.map(c => {
+    const t = hubs?.[c]?.tier;
+    return t != null ? (HUB_TIERS[t] ?? null) : null;
+  });
+  const station = defs.reduce((s, d) => s + (d?.stationDiscount ?? 0), 0) / Math.max(1, defs.length);
+  const layover = Math.max(0, ...defs.map(d => d?.layoverDiscount ?? 0));
+  const maint   = Math.min(1.0, ...defs.map(d => d?.maintFactor ?? 1.0));
+  if (station <= 0 && layover <= 0 && maint >= 1.0) return null;
+  return { station: +station.toFixed(4), layover, maint };
+}
+
 export function routeLandingFee(route, type, weeklyFrequency) {
   const f   = weeklyFrequency ?? route.weeklyFrequency ?? 7;
   const cat = type?.category ?? 'Narrow Body';
@@ -2926,14 +2950,16 @@ export function priceSensitivityReductionFor(repElasticityRed, loyaltyStrength, 
  * tick (UI previews) that don't have the tick's intermediate loyalty/reputation
  * locals to hand.
  */
-export function stateSensReduction(state, hubQ = 0) {
+export function stateSensReduction(state, hubQ = 0, avgUtilizationOverride = null) {
   const loyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0 };
   const strength = loyaltyEffectiveStrength(
     loyaltyPenetration(loyalty.members ?? 0, loyaltyPaxBase(state)),
     loyalty.maturity ?? 0,
   );
   const tier = loyaltyTier(loyalty.effInvestment ?? loyalty.weeklyInvestment ?? 0);
-  const avgUtilization = fleetAvgUtilization(state.fleet ?? [],
+  // Reputation reads fleet utilisation. A projection passes the utilisation
+  // WITH the route it is adding, as the tick will see it.
+  const avgUtilization = avgUtilizationOverride ?? fleetAvgUtilization(state.fleet ?? [],
     [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
   const repInfo = calcReputation(state, loyaltyReputationBonus(strength), avgUtilization);
   return priceSensitivityReductionFor(
@@ -2956,14 +2982,36 @@ export function stateSensReduction(state, hubQ = 0) {
  * @param {boolean}  allianceContested   whether an alliance partner contests it
  * @returns {number} ~0.45–1.35, 1 = parity
  */
-export function stateBrandReach(state, hubQ = 0, allianceContested = false) {
+/**
+ * Rival ad pressure at one airport, as weeklyTick's mktDragAt computes it:
+ * competitor marketing spend there against the player's targeted spend and
+ * the airport's population. 0 when no rival spends.
+ */
+export function rivalAdDragAt(state, code) {
+  const spend = competitorMarketingSpend(state.competitors ?? [])[code];
+  if (!(spend > 0)) return 0;
+  const ap = getAirport(code);
+  return competitorPressureDrag(spend, state.targetedMarketing?.[code],
+    ap?.effectivePop ?? ap?.population ?? 1);
+}
+
+/**
+ * @param {string[]|null} stops  every airport the route touches. When given,
+ *   rivals' ad pressure — the worst along the path, as the tick takes it — is
+ *   applied as (1 − drag), exactly as brandReachFor does inside weeklyTick.
+ *   Previews that left it off quoted 1–3% more passengers than the tick booked
+ *   in any world where AI carriers advertise at the route's airports.
+ */
+export function stateBrandReach(state, hubQ = 0, allianceContested = false, stops = null, avgUtilizationOverride = null) {
+  const rivalAdDrag = stops?.length ? Math.max(0, ...stops.map(c => rivalAdDragAt(state, c))) : 0;
   const loyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0 };
   const strength = loyaltyEffectiveStrength(
     loyaltyPenetration(loyalty.members ?? 0, loyaltyPaxBase(state)),
     loyalty.maturity ?? 0,
   );
   const tier = loyaltyTier(loyalty.effInvestment ?? loyalty.weeklyInvestment ?? 0);
-  const avgUtilization = fleetAvgUtilization(state.fleet ?? [],
+  // Reputation reads fleet utilisation (see stateSensReduction).
+  const avgUtilization = avgUtilizationOverride ?? fleetAvgUtilization(state.fleet ?? [],
     [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
   const repInfo = calcReputation(state, loyaltyReputationBonus(strength), avgUtilization);
   const loyaltyBoostHub = loyaltyDemandBoostPct(strength, tier);
@@ -2974,6 +3022,7 @@ export function stateBrandReach(state, hubQ = 0, allianceContested = false) {
   return Math.max(0.01,
     awarenessDemandMultiplier(state.awareness ?? 5)
     * reputationDemandMultiplier(repInfo.overall)
+    * (1 - rivalAdDrag)
     * (1 + loyaltyLift) * (1 + allianceLift));
 }
 
@@ -3673,17 +3722,7 @@ export function weeklyTick(state) {
   // station: mean of per-endpoint discounts (hub-to-hub gets the full rate);
   // layover: max endpoint (crews based at the hub sleep at home);
   // maint:   best (lowest) factor among T2+ hubs touched.
-  const hubCostFactorsFor = (codes) => {
-    const defs = codes.map(c => {
-      const t = hubs[c]?.tier;
-      return t != null ? (HUB_TIERS[t] ?? null) : null;
-    });
-    const station = defs.reduce((s, d) => s + (d?.stationDiscount ?? 0), 0) / Math.max(1, defs.length);
-    const layover = Math.max(0, ...defs.map(d => d?.layoverDiscount ?? 0));
-    const maint   = Math.min(1.0, ...defs.map(d => d?.maintFactor ?? 1.0));
-    if (station <= 0 && layover <= 0 && maint >= 1.0) return null;
-    return { station: +station.toFixed(4), layover, maint };
-  };
+  const hubCostFactorsFor = (codes) => hubCostFactorsAt(hubs, codes);
 
   // Pre-build set of route-keys where an alliance/codeshare partner also operates
   const partnerContestedKeys = new Set();

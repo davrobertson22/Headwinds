@@ -5,7 +5,7 @@ import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/airc
 import { isOutOfService } from '../data/maintenance.js';
 import {
   baseCityPairDemand, referencePrice, distanceKm,
-  simulateRoute, formatMoney, formatPercent, weekToGameDate,
+  simulateRoute, formatMoney, formatPercent, currentGameDate,
   hubSpokeCounts, pairConnectivityBonus,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
@@ -16,7 +16,7 @@ import { laborEffects } from '../data/labor.js';
 import {
   buildRouteMarket, computeMarketShare,
   buildCompetitorOffer, computeQualityScore, cabinQualityPoints,
-  computeConnectingDemand, AIRPORT_GATEWAY_SCORES,
+  AIRPORT_GATEWAY_SCORES,
 } from '../models/demand.js';
 import { rivalIndexFor, isLegacy, rivalsOn, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
 import { routeLaunchCost } from '../data/overhead.js';
@@ -35,9 +35,6 @@ import { Glyph, GlyphLabel } from './Icons.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition, playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
 
-function weekToMonth(week) {
-  return weekToGameDate(week).monthIndex;
-}
 
 const MONTH_ABBR = ['', 'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const SEASON_PRESETS = [
@@ -452,7 +449,9 @@ export default function RoutePlanner() {
     setFares({});
   }, []);
 
-  const gameDate = { week: state.week, month: weekToMonth(state.week) };
+  // currentGameDate carries absWeek: without it buildRouteMarket applies no
+  // demand growth and this card quotes year-one demand in a year-four world.
+  const gameDate = currentGameDate(state);
 
   const originAirport = getAirport(origin);
   const destAirport   = getAirport(dest);
@@ -706,15 +705,6 @@ export default function RoutePlanner() {
     return cabinConfig ?? defaultConfig(type.seats);
   }, [cabinConfig, selectedTypeId]);
 
-  // Pre-count player routes at each endpoint (for hub feed bonus)
-  const routeCountAtOrigin = useMemo(
-    () => state.routes.filter(r => r.origin === origin || r.destination === origin).length,
-    [state.routes, origin]
-  );
-  const routeCountAtDest = useMemo(
-    () => state.routes.filter(r => r.origin === dest || r.destination === dest).length,
-    [state.routes, dest]
-  );
 
   // Simulate the selected aircraft type
   const simulation = useMemo(() => {
@@ -729,9 +719,22 @@ export default function RoutePlanner() {
     // feeds effectiveRangeKm and nothing else — fuel burn rides on the separate
     // fuelMod — so this moves the range guard and no part of the economics.
     const quotedReach = reachKmFor(type);
-    const simAircraft = { id:'p', typeId: selectedTypeId, ageWeeks: 0,
+    // The plane the Open Route button will actually assign (fleetOfType[0]:
+    // free idle first). Its age feeds cabin quality, and with a rival on the
+    // pair quality moves share — a zero-age synthetic frame previewed ~1% more
+    // passengers than the tick booked on the real tail. Its ownership decides
+    // the lease line: the tick charges an owned tail nothing and a leased one
+    // the rate it signed, not the catalogue rate.
+    const tail = fleetOfType[0] ?? null;
+    const simAircraft = { id:'p', typeId: selectedTypeId, ageWeeks: tail?.ageWeeks ?? 0,
       rangeMod: type.range > 0 ? quotedReach / type.range : 1.0,
       config: effectiveConfig ?? undefined };
+    const weeklyLease = tail
+      ? (tail.ownershipType === 'owned' ? 0 : (tail.weeklyLease ?? type.weeklyLease))
+      : type.weeklyLease;
+    const leaseNote = !tail ? 'list rate — none in fleet'
+      : tail.ownershipType === 'owned' ? `${tail.tailNumber ?? 'your tail'} is owned`
+      : `${tail.tailNumber ?? 'your tail'} · signed rate`;
     if (routeData.dist > quotedReach) return null;
     // Every cabin is priced in the fare editor — the forecast charges exactly the
     // fares the player has set (reference fares until overridden), matching what
@@ -765,16 +768,24 @@ export default function RoutePlanner() {
     // already mature and does not re-ramp it.
     const resultLaunch = projection.launch;
 
-    // Connecting passenger estimate
-    const connecting = computeConnectingDemand(
-      origin, dest, state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {}),
-      routeCountAtOrigin + 1, // +1 to include this planned route
-      routeCountAtDest   + 1,
-      effectivePrice,
-    );
+    // Connecting feed, from the projection — computed the way weeklyTick
+    // computes it (own-metal itineraries over your hubs, weekly departures as
+    // slots, gate congestion, seat headroom). The bare computeConnectingDemand
+    // call that used to sit here quoted ~6% of the tick's figure on a fed hub
+    // and a non-zero figure on an aircraft with no seats left to sell.
+    const connecting = projection.connecting ?? { totalPax: 0, totalRevenue: 0, origin: null, destination: null };
 
     const totalRevenue = result.revenue + connecting.totalRevenue;
-    const netProfit    = totalRevenue - result.totalOpCost - type.weeklyLease;
+    // `result.profit` is the projection's landing-fee-netted figure (pairShare
+    // subtracts routeLandingFee so it means what the tick means by profit).
+    // Rebuilding it here from totalOpCost silently dropped those fees again —
+    // $43k/wk on a 7x JFK–DEN, $166k/wk on a 35x shuttle — so this card quoted
+    // 13–40% more operating profit than the Route Finder listed and the tick
+    // booked for the same route. Landing fees are folded into the Op Cost cell
+    // below so Total Revenue − Op Cost − Lease = Net still holds on the card.
+    const landingFee   = result.landingFee ?? 0;
+    const opCostAllIn  = result.totalOpCost + landingFee;
+    const netProfit    = totalRevenue - opCostAllIn - weeklyLease;
 
     // Market share breakdown: player vs all competitors.
     // Seat counts and quality reflect the chosen cabin configuration so the
@@ -807,7 +818,7 @@ export default function RoutePlanner() {
       // same reason: omitting them is not "no opinion", it is "average carrier".
       priceSensitivityReduction: stateSensReduction(state, 0),
       marketingBoost: playerCampaignBoost(state, origin, dest),
-      brandReach: stateBrandReach(state, 0, false),
+      brandReach: stateBrandReach(state, 0, false, [origin, dest]),
     };
     const competitorOffers = competitorsOnRoute.map(c => c.offer).filter(Boolean);
     // Rival one-stops over their hubs sell on this pair too — the tick puts
@@ -820,12 +831,13 @@ export default function RoutePlanner() {
     const playerShare  = shareResults.find(s => s.airlineId === 'player');
 
     return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare, viaOffers,
+             landingFee, opCostAllIn, weeklyLease, leaseNote,
              shared: projection.shared, pairRouteCount: projection.pairRouteCount,
              lanePooled: projection.lanePooled, siblingPairs: projection.siblingPairs ?? [],
              rivalCount: projection.rivalCount ?? 0,
              pairPassengers: projection.pairPassengers, lanePassengers: projection.lanePassengers,
              laneDemand: projection.laneDemand };
-  }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, origin, dest, gameDate, routeCountAtOrigin, routeCountAtDest, reachByType]);
+  }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, state.hubs, state.gates, state.routes, fleetOfType, origin, dest, gameDate, reachByType]);
 
   // Gate + slot position at each endpoint for the planned frequency, measured the
   // way the engine measures it — slotCapAt() counts an alliance partner's granted
@@ -1260,8 +1272,10 @@ export default function RoutePlanner() {
                           { label: 'Connecting Rev',    value: `+${formatMoney(simulation.connecting.totalRevenue)}`, color: 'var(--accent)',
                             sub: `${simulation.connecting.totalPax} connecting pax` },
                           { label: 'Total Revenue',     value: formatMoney(simulation.totalRevenue),             color: 'var(--green)' },
-                          { label: 'Op Cost / wk',      value: formatMoney(simulation.result.totalOpCost),       color: 'var(--red)' },
-                          { label: 'Lease / wk',        value: formatMoney(simulation.type.weeklyLease),         color: 'var(--text-muted)' },
+                          { label: 'Op Cost / wk',      value: formatMoney(simulation.opCostAllIn),              color: 'var(--red)',
+                            sub: simulation.landingFee > 0 ? `incl. ${formatMoney(simulation.landingFee)} landing fees` : undefined },
+                          { label: 'Lease / wk',        value: formatMoney(simulation.weeklyLease),              color: 'var(--text-muted)',
+                            sub: simulation.leaseNote },
                           { label: 'Net Profit / wk',
                             value: (simulation.netProfit >= 0 ? '+' : '') + formatMoney(simulation.netProfit),
                             color: simulation.netProfit >= 0 ? 'var(--green)' : 'var(--red)',
@@ -1312,7 +1326,7 @@ export default function RoutePlanner() {
                             {[
                               { label: origin,      side: simulation.connecting.origin      },
                               { label: dest,        side: simulation.connecting.destination  },
-                            ].map(({ label, side }) => side.pax > 0 && (
+                            ].map(({ label, side }) => side && side.pax > 0 && (
                               <div key={label} style={{ marginBottom: 8 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
                                   <span style={{ fontWeight: 600 }}>{label}</span>
@@ -1328,6 +1342,22 @@ export default function RoutePlanner() {
                                 </div>
                               </div>
                             ))}
+                            {(simulation.connecting.itineraryPax ?? 0) > 0 && (
+                              <div style={{ marginBottom: 8 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+                                  <span style={{ fontWeight: 600 }}>Your network</span>
+                                  <span style={{ color: 'var(--green)' }}>+{simulation.connecting.itineraryPax} pax</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                                  Own-metal itineraries over your hubs · {formatMoney(simulation.connecting.itineraryRevenue ?? 0)}
+                                </div>
+                              </div>
+                            )}
+                            {(simulation.connecting.capacityScale ?? 1) < 1 && (
+                              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
+                                Limited by seats left after O&amp;D passengers board.
+                              </div>
+                            )}
                             <div style={{ marginTop: 6, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                               <span style={{ color: 'var(--text-muted)' }}>Total connecting</span>
                               <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{formatMoney(simulation.connecting.totalRevenue)}/wk</span>

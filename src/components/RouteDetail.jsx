@@ -14,7 +14,7 @@ import { playerCampaignBoost } from '../../packages/engine/src/models/pairShare.
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../../packages/engine/src/models/network.js';
 import { getAlliance } from '../data/alliances.js';
 import {
-  simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, weekToGameDate,
+  simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, currentGameDate,
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
@@ -27,9 +27,6 @@ import { Glyph, GlyphLabel } from './Icons.jsx';
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
-function weekToMonth(week) {
-  return weekToGameDate(week).monthIndex;
-}
 
 const TIER_COLOR = { budget: 'var(--yellow)', legacy: 'var(--accent)', premium: 'var(--purple)' };
 
@@ -193,7 +190,8 @@ function MarketSharePie({ slices }) {
 
 export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   const { state, dispatch } = useGame();
-  const gameDate  = { week: state.week, month: weekToMonth(state.week) };
+  // currentGameDate carries absWeek so the market panel grows with the world.
+  const gameDate  = currentGameDate(state);
   const hubs      = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
 
   const originAirport = getAirport(origin);
@@ -324,7 +322,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           // not mean "no opinion", it means "scored as the average carrier".
           priceSensitivityReduction: stateSensReduction(state, maxHubBonus),
           marketingBoost:    playerCampaignBoost(state, origin, dest),
-          brandReach:        stateBrandReach(state, maxHubBonus, false),
+          brandReach:        stateBrandReach(state, maxHubBonus, false, [origin, dest]),
         };
       }
     }
@@ -394,7 +392,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           // household name's slice of the pair and then split it across tails.
           priceSensitivityReduction: stateSensReduction(state, maxHubBonus),
           marketingBoost: playerCampaignBoost(state, origin, dest),
-          brandReach: stateBrandReach(state, maxHubBonus, false),
+          brandReach: stateBrandReach(state, maxHubBonus, false, [origin, dest]),
         };
         const compOffers = [...competitorsOnRoute.map(c => buildCompetitorOffer(c, market)).filter(Boolean), ...viaOffers];
         const [combined] = computeMarketShare(market, [combinedOffer, ...compOffers], { legacy: isLegacy(rivalIndexFor(state)) });

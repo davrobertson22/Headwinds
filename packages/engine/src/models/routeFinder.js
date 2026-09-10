@@ -46,7 +46,7 @@ import {
 } from '../utils/simulation.js';
 import { metroPairKeyOf, memberPairKeysOf, airportAppeal } from '../utils/market.js';
 import { projectRouteAddition } from './pairShare.js';
-import { computeConnectingDemand } from './demand.js';
+import { normalizeCateringLevel } from '../data/catering.js';
 
 /** How many leads get a full engine forecast before the finder stops paying for it. */
 export const DEFAULT_SCORE_LIMIT = 150;
@@ -273,15 +273,6 @@ export function scoreCandidates(state, rows, {
     config: defaultConfig(type.seats),
   };
 
-  // Routes the player already flies through each airport — the connecting model
-  // reads this as "slots", and the planner passes the same count (+1 for the
-  // route being considered). Built once; the finder scores up to 150 rows.
-  const routesAt = new Map();
-  for (const rt of [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]) {
-    for (const code of [rt.origin, rt.destination]) {
-      if (code) routesAt.set(code, (routesAt.get(code) ?? 0) + 1);
-    }
-  }
   // What the aircraft flying it actually costs per week. An OWNED tail has no
   // lease (the tick charges 0), and a leased one pays the rate IT signed at, not
   // the catalogue rate. Only a type the player doesn't own yet is priced at list.
@@ -307,19 +298,21 @@ export function scoreCandidates(state, rows, {
       weeklyFrequency: freq,
       ticketPrice: r.refPrice,
       classPrices: fares,
+      // The catering ADD_ROUTE will assign. Catering is a quality term in the
+      // share fight, so a finder that left it at the engine default forecast a
+      // different slice of a contested pair than the planner and the tick.
+      cateringLevel: normalizeCateringLevel(state.defaultCateringLevel),
       gameDate,
     });
     if (!p?.mature) continue;
     // Connecting feed. weeklyTick credits a route with its connecting revenue
     // (`routeRevenue = result.revenue + connecting.totalRevenue`), and the Route
     // Planner shows it — the finder omitting it ranked every hub spoke BELOW the
-    // profit the planner then quoted for the very same row.
-    const connecting = computeConnectingDemand(
-      r.origin, r.code, state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {}),
-      (routesAt.get(r.origin) ?? 0) + 1,
-      (routesAt.get(r.code)   ?? 0) + 1,
-      r.refPrice,
-    );
+    // profit the planner then quoted for the very same row. The projection now
+    // carries it, computed the tick's way (own-metal itineraries, departures as
+    // slots, seat headroom); the bare computeConnectingDemand call this used to
+    // make quoted 6% of the tick's figure on a fed hub.
+    const connecting = p.connecting ?? { totalRevenue: 0, totalPax: 0 };
     out[i] = {
       ...out[i],
       scored: true,
@@ -331,7 +324,11 @@ export function scoreCandidates(state, rows, {
         // The planner's headline number: what the route clears after operating
         // cost, landing fees and the lease on the aircraft flying it. A finder
         // that quoted revenue would rank the most expensive markets top.
-        netProfit:   Math.round(p.mature.profit + (connecting.totalRevenue ?? 0) - frameLease),
+        // profitAfterLandingFees is the tick's definition in BOTH repos
+        // (Tailwinds keeps `profit` pre-fee; Headwinds nets it) — reading it
+        // here is what keeps this file identical across them.
+        netProfit:   Math.round((p.mature.profitAfterLandingFees ?? p.mature.profit)
+                       + (connecting.totalRevenue ?? 0) - frameLease),
         connectingRevenue: Math.round(connecting.totalRevenue ?? 0),
         lanePooled:  !!p.lanePooled,
         siblingPairs: p.siblingPairs ?? [],

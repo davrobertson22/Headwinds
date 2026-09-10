@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
-import { weekToGameDate, effectiveRangeKm, formatMoney, calendarYear } from '../utils/simulation.js';
+import { effectiveRangeKm, formatMoney, calendarYear, currentGameDate } from '../utils/simulation.js';
 import { buildRouteMarket } from '../models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
@@ -47,7 +47,8 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const [sortBy, setSortBy]     = useState('demand');
   const [limit, setLimit]       = useState(PAGE_SIZE);
 
-  const gameDate = { week: state.week, month: weekToGameDate(state.week).monthIndex };
+  // currentGameDate carries absWeek — the finder's forecasts grow with the world.
+  const gameDate = currentGameDate(state);
   const originAirport = getAirport(origin);
 
   // ── Your fleet, as the picker sees it ──────────────────────────────────────
