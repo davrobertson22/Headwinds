@@ -220,6 +220,27 @@ function injectRulesLink(html) {
   return s;
 }
 
+// Link the public world pages (/worlds — live standings, rendered by
+// api/worlds.mjs) from every page. This is the one page on the site that shows
+// the product itself — real people running real airlines — to a visitor who
+// has not signed in, and it only counts if a reviewer or a crawler can reach it
+// from wherever they land. Worlds sits after Rules, before Play. Idempotent by
+// the same rule as injectRulesLink: a page that already links /worlds (the
+// landing page, play.html and the world pages themselves) is left alone.
+function injectWorldsLink(html) {
+  if (html.includes('href="/worlds"')) return html;
+  let s = html;
+  s = s.replace(
+    '<a class="link" href="/rules.html">Rules</a>',
+    '<a class="link" href="/rules.html">Rules</a>\n      <a class="link" href="/worlds">Worlds</a>',
+  );
+  s = s.replace(
+    '<a href="/rules.html">Rules</a>',
+    '<a href="/rules.html">Rules</a>\n      <a href="/worlds">Worlds</a>',
+  );
+  return s;
+}
+
 // Put the Headwinds logo mark + teal wordmark in the header of EVERY page.
 // The shared info pages (synced from Tailwinds) and the hand-written Headwinds
 // pages both ship a text-only brand link — only the landing page (the app's own
@@ -431,7 +452,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectRulesLink(before)))), f);
+  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectWorldsLink(injectRulesLink(before))))), f);
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 
@@ -454,7 +475,10 @@ writeFileSync(path.join(OUT, 'manifest.webmanifest'), JSON.stringify({
 }, null, 2) + '\n');
 
 // robots.txt + sitemap.xml for this domain.
-writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: https://${DOMAIN}/sitemap.xml\n`);
+// Two sitemaps: the static one written below, and /sitemap-worlds.xml, served
+// by api/sitemap-worlds.mjs, which lists every public world page — those come
+// and go with seasons, so a build-time list would be stale within weeks.
+writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: https://${DOMAIN}/sitemap.xml\nSitemap: https://${DOMAIN}/sitemap-worlds.xml\n`);
 // llms.txt for this domain — a plain-language map of the site for AI crawlers/agents.
 writeFileSync(path.join(OUT, 'llms.txt'), `# Headwinds — Multiplayer Airline Management Game
 
@@ -495,11 +519,11 @@ const today = new Date().toISOString().slice(0, 10);
 //
 // Cross-canonicaled pages stay out of the sitemap — a sitemap should only list
 // URLs whose canonical is on this domain.
-const pages = ['', 'play', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
-const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
+const pages = ['', 'play', 'worlds', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
+const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : p === 'worlds' ? '0.8' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-  pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
+  pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>${p === 'worlds' ? 'hourly' : 'monthly'}</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
   `\n</urlset>\n`);
 
-console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${sectioned} sectioned, ${copied} assets copied, ${brandFiles} brand files, ${linked} pages Rules-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''}${sectionMisses ? `, ${sectionMisses} section insert(s) MISSED` : ''}${metaMisses ? `, ${metaMisses} meta override(s) MISSED` : ''} → ${path.relative(HW, OUT)}/`);
+console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${sectioned} sectioned, ${copied} assets copied, ${brandFiles} brand files, ${linked} pages Rules/Worlds-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''}${sectionMisses ? `, ${sectionMisses} section insert(s) MISSED` : ''}${metaMisses ? `, ${metaMisses} meta override(s) MISSED` : ''} → ${path.relative(HW, OUT)}/`);

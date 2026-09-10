@@ -7,12 +7,32 @@
   "redirects": [
     {
       "source": "/:path*",
-      "has": [{ "type": "host", "value": "headwindsairlinegame.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "headwindsairlinegame.com"
+        }
+      ],
       "destination": "https://www.headwindsairlinegame.com/:path*",
       "permanent": true
     }
   ],
   "rewrites": [
-    { "source": "/play", "destination": "/play.html" }
+    {
+      "source": "/play",
+      "destination": "/play.html"
+    },
+    {
+      "source": "/worlds",
+      "destination": "/api/worlds"
+    },
+    {
+      "source": "/worlds/:id",
+      "destination": "/api/worlds?id=:id"
+    },
+    {
+      "source": "/sitemap-worlds.xml",
+      "destination": "/api/sitemap-worlds"
+    }
   ]
 }
