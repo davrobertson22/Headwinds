@@ -629,6 +629,219 @@ function AdminWorldsManager({ token }) {
   );
 }
 
+// ── Lobby: optional rulesets, as one consistent badge family ─────────────────
+// Every world ships a different mix of opt-in rules, and the old row of ad-hoc
+// inline-styled spans said so in tooltips only — invisible on a phone, and five
+// different visual languages on desktop. One shape, one place to add the next
+// one, and a legend under the list that says what each actually does.
+const WORLD_FEATURES = [
+  {
+    key: 'era',
+    on: (w) => w.startYear != null,
+    icon: '🕰',
+    label: (w) => `${w.startYear} start`,
+    rgb: '169,139,255',
+    blurb: 'Historical world. The calendar opens in that year and moves through real time — aircraft appear when they entered service and leave the order books when production ended.',
+  },
+  {
+    key: 'leasing',
+    on: (w) => !!w.newWorldRestrictions,
+    icon: '🔒',
+    label: () => 'Restricted leasing',
+    rgb: '56,211,159',
+    blurb: 'Lessors carry previous-generation single-deck aircraft only, and your lease order book is capped at 25% of the fleet you already fly. Anything bigger or newer must be bought.',
+  },
+  {
+    key: 'crew',
+    on: (w) => !!w.crewPipeline,
+    icon: '👥',
+    label: () => 'Crew pipeline',
+    rgb: '92,157,224',
+    blurb: 'Crew stop being instant. Pilots take ten weeks to train, ramp agents two, and flying short-handed costs you on-time performance. Pay below market and they leave.',
+  },
+  {
+    key: 'hubs',
+    on: (w) => !!w.rivalItineraries,
+    icon: '⇄',
+    label: () => 'Rival connections',
+    rgb: '163,113,247',
+    blurb: 'Every airline sells one-stop itineraries over its hubs, not just you. A rival hubbed at Frankfurt competes for New York–Amsterdam traffic against your own connections.',
+  },
+  {
+    key: 'gates',
+    on: (w) => !!w.gateScarcity,
+    icon: '⛩',
+    label: () => 'Gate scarcity',
+    rgb: '245,166,35',
+    blurb: 'Airports have 25–500 gates, capped at 60% per airline. Full airports auction gates once a year by sealed bid, and unused gates are forfeited after 24 weeks.',
+  },
+];
+
+const featuresOf = (w) => WORLD_FEATURES.filter((f) => f.on(w));
+
+function FeatureTag({ feature, world }) {
+  return (
+    <span className="wtag" style={{ '--wtag': feature.rgb }} title={feature.blurb}>
+      <span aria-hidden="true">{feature.icon}</span>{feature.label(world)}
+    </span>
+  );
+}
+
+// The legend. Collapsed by default — the tags are meant to be scannable, and
+// the prose is there for the first time you meet one.
+function FeatureLegend({ worlds }) {
+  const shown = WORLD_FEATURES.filter((f) => worlds.some((w) => f.on(w)));
+  if (shown.length === 0) return null;
+  return (
+    <details className="wlegend">
+      <summary>What the world tags mean</summary>
+      <dl>
+        {shown.map((f) => (
+          <Fragment key={f.key}>
+            <dt><FeatureTag feature={f} world={worlds.find((w) => f.on(w))} /></dt>
+            <dd className="muted small">{f.blurb}</dd>
+          </Fragment>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
+// "1 week / 1 hr" is the tick rate, not a sense of speed. What a player wants to
+// know before committing months to a world is how fast a game YEAR goes past.
+const paceHuman = (weeksPerDay) => {
+  if (!(weeksPerDay > 0)) return null;
+  const days = 52 / weeksPerDay;          // real days per game year
+  if (days < 0.75) return `about ${Math.round(1 / days)} game years a day`;
+  if (days < 1.4) return 'about a game year a day';
+  if (days < 10.5) return `a game year every ${Math.round(days)} days`;
+  return `a game year every ${Math.round(days / 7)} weeks`;
+};
+
+// Where the world's clock has got to, in words rather than "Y8/100".
+const whenLabel = (w) => {
+  if (w.status === 'LOBBY') {
+    const sub = w.scheduledStartAt
+      ? `Starts ${fmtStartTime(w.scheduledStartAt)}`
+      : 'The clock starts on the first join';
+    return { head: 'Not started', sub, line: sub };
+  }
+  const yr = w.progress?.year ?? 1;
+  const total = w.progress?.totalYears ?? '—';
+  return w.startYear != null
+    ? { head: String(w.startYear + yr - 1), sub: `Year ${yr} of ${total}`, line: `${w.startYear + yr - 1} · year ${yr} of ${total}` }
+    : { head: `Year ${yr}`, sub: `of ${total}`, line: `Year ${yr} of ${total}` };
+};
+
+function Meter({ pct, tone }) {
+  return (
+    <div className={`meter${tone ? ` meter-${tone}` : ''}`}>
+      <div style={{ width: `${Math.max(2, Math.min(100, pct))}%` }} />
+    </div>
+  );
+}
+
+// ── One open world ───────────────────────────────────────────────────────────
+function WorldCard({ world: w }) {
+  const open = () => goTo(`/w/${w.id}`);
+  const when = whenLabel(w);
+  const seatPct = w.maxPlayers ? (w.playerCount / w.maxPlayers) * 100 : 0;
+  const seatTone = seatPct >= 95 ? 'hot' : seatPct >= 75 ? 'warm' : null;
+  const tags = featuresOf(w);
+  const pct = w.progress?.percent ?? 0;
+  // Joining a world in its last years means starting from nothing against
+  // fifty-year-old incumbents. Worth saying out loud before someone commits.
+  const late = w.status !== 'LOBBY' && pct >= 80;
+
+  return (
+    <article className="wcard">
+      <div className="wcard-top">
+        <h3 className="wcard-name">
+          <a href={`#/w/${w.id}`}>{w.name}</a>
+        </h3>
+        <StageChip stage={w.stage ?? 'beta'} />
+      </div>
+
+      <div className="wtags">
+        {tags.length > 0
+          ? tags.map((f) => <FeatureTag key={f.key} feature={f} world={w} />)
+          : <span className="wtag wtag-plain">Standard rules</span>}
+      </div>
+
+      <div className="wcard-clock">
+        <span className="wcard-year">{when.head}</span>
+        <span className="muted small">{when.sub}</span>
+        {w.status !== 'LOBBY' && <span className="wcard-pct muted small">{pct}%</span>}
+      </div>
+      {w.status !== 'LOBBY' && <Meter pct={pct} tone={late ? 'warm' : null} />}
+
+      <dl className="wcard-facts">
+        <dt>Seats</dt>
+        <dd>
+          <span className={seatTone === 'hot' ? 'wcard-hot' : undefined}>
+            {w.playerCount} of {w.maxPlayers} taken
+          </span>
+          <Meter pct={seatPct} tone={seatTone} />
+        </dd>
+        <dt>Pace</dt>
+        <dd className="wcard-pace">
+          {paceHuman(w.weeksPerDay) ?? w.paceLabel}
+          <span className="muted small">{w.paceLabel}</span>
+        </dd>
+      </dl>
+
+      <div className="wcard-foot">
+        {w.status === 'LOBBY'
+          ? <span className="wcard-flag">Not started — join now</span>
+          : late
+            ? <span className="wcard-note">⚠ Final years</span>
+            : <span />}
+        <button className="btn primary small" onClick={open}>
+          {w.status === 'LOBBY' ? 'Join world →' : 'View / join →'}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+// ── One of your airlines ─────────────────────────────────────────────────────
+// The world's name leads, not the airline's: four airlines called "Austro" in
+// four worlds are told apart by where they fly, and the old chip buried that in
+// muted grey after an em-dash.
+function AirlineCard({ airline: a }) {
+  const w = a.world;
+  const when = w ? whenLabel(w) : null;
+  const broke = a.cash != null && a.cash < 0;
+  const dead = a.status && a.status !== 'ACTIVE';
+
+  return (
+    <a className={`wcard wcard-air${broke ? ' wcard-broke' : ''}`} href={`#/w/${a.worldId}`}>
+      <div className="wcard-top">
+        <h3 className="wcard-name">{w?.name ?? 'Your airline'}</h3>
+        {w && <StageChip stage={w.stage ?? 'beta'} />}
+      </div>
+      <p className="wcard-air-id muted small">
+        {a.name} · hub {a.hub}
+        {dead ? <> · <StatusChip status={a.status} /></> : null}
+      </p>
+      <p className={`wcard-cash${broke ? ' neg' : ''}`}>
+        {fmtMoney(a.cash)}
+        <span className="muted small"> cash</span>
+      </p>
+      {when && (
+        <>
+          <div className="wcard-clock">
+            <span className="muted small">{when.line}</span>
+            {w.status !== 'LOBBY' && <span className="wcard-pct muted small">{w.progress?.percent ?? 0}%</span>}
+          </div>
+          {w.status !== 'LOBBY' && <Meter pct={w.progress?.percent ?? 0} />}
+        </>
+      )}
+      <span className="wcard-resume">Resume →</span>
+    </a>
+  );
+}
+
 function WorldsScreen({ token, me }) {
   const [worlds, setWorlds] = useState(null);
   const [error, setError] = useState(null);
@@ -645,112 +858,100 @@ function WorldsScreen({ token, me }) {
     api('/worlds?status=ENDED').then((d) => setConcluded(d.worlds)).catch(() => {});
   }, []);
 
-  const myWorldIds = new Set((me?.airlines ?? []).map((a) => a.worldId));
+  const myWorldIds = useMemo(
+    () => new Set((me?.airlines ?? []).map((a) => a.worldId)),
+    [me],
+  );
+
+  // Worlds you already fly are the section above, with better information in
+  // them (your cash, your hub) — listing them again as "join" options was the
+  // old table's worst habit. What's left is sorted by how good a place it is to
+  // start: not-yet-running first, then youngest, because joining a world in its
+  // final years means competing against fifty-year-old incumbents.
+  const joinable = useMemo(() => {
+    if (!worlds) return null;
+    const rank = (w) => (w.status === 'LOBBY' ? -1 : (w.progress?.percent ?? 0));
+    return worlds
+      .filter((w) => !myWorldIds.has(w.id))
+      .sort((a, b) => rank(a) - rank(b)
+        || (b.maxPlayers - b.playerCount) - (a.maxPlayers - a.playerCount));
+  }, [worlds, myWorldIds]);
+
+  const airlines = me?.airlines ?? [];
 
   return (
     <>
-      {me?.airlines?.length > 0 && (
-        <div className="card">
-          <h3>Your airlines</h3>
-          <div className="row wrap">
-            {me.airlines.map((a) => (
-              <button key={a.id} className="btn airline-chip" onClick={() => goTo(`/w/${a.worldId}`)}>
-                <strong>{a.name}</strong> · {a.hub} · {fmtMoney(a.cash)}
-                {a.world ? <span className="muted"> — {a.world.name}</span> : null}
-              </button>
-            ))}
+      {airlines.length > 0 && (
+        <section>
+          <div className="list-head">
+            <h2>Your airlines</h2>
+            <span className="muted small">{airlines.length} in play — pick up where you left off</span>
           </div>
-        </div>
+          <div className="lobby-grid">
+            {airlines.map((a) => <AirlineCard key={a.id} airline={a} />)}
+          </div>
+        </section>
       )}
 
-      <div className="list-head">
-        <h2>Open worlds</h2>
-        {/* World creation is admin-only — the server enforces it (403), this just
-            hides the button for everyone else. */}
-        {token && me?.account?.isAdmin && <CreateWorld token={token} />}
-      </div>
-      <ErrorNote error={error} />
-      {!worlds ? <p className="muted">Loading worlds…</p> : worlds.length === 0 ? (
-        <p className="muted">
-          {me?.account?.isAdmin
-            ? 'No public worlds yet, create one, or wait for the spawner.'
-            : 'No open worlds right now, a fresh one spins up shortly, check back in a minute.'}
+      <section>
+        <div className="list-head">
+          <h2>{airlines.length > 0 ? 'Start another airline' : 'Open worlds'}</h2>
+          {/* World creation is admin-only — the server enforces it (403), this just
+              hides the button for everyone else. */}
+          {token && me?.account?.isAdmin && <CreateWorld token={token} />}
+        </div>
+        <p className="muted small section-note">
+          Every world is a separate game with its own rules, its own clock and its own rivals. Join as
+          many as you like — each airline keeps flying while you're away.
         </p>
-      ) : (
-        <table className="worlds">
-          <thead>
-            <tr><th>World</th><th>Pace</th><th>Progress</th><th>Players</th><th>Status</th><th /></tr>
-          </thead>
-          <tbody>
-            {worlds.map((w) => (
-              <tr key={w.id}>
-                <td>
-                  <a href={`#/w/${w.id}`}>{w.name}</a>
-                  <StageChip stage={w.stage ?? 'beta'} />
-                  {w.startYear != null && (
-                    <span title={`Era world: the calendar starts in ${w.startYear} and moves through real time — aircraft, demand, fares and fuel follow history`}
-                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(169,139,255,0.15)', color: '#a98bff', border: '1px solid rgba(169,139,255,0.4)', whiteSpace: 'nowrap' }}>
-                      🕰 {w.startYear}
-                    </span>
-                  )}
-                  {w.newWorldRestrictions && (
-                    <span title="New world restrictions: old-gen single-deck leasing only, lease order book capped at 25% of fleet"
-                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(56,211,159,0.15)', color: '#38d39f', border: '1px solid rgba(56,211,159,0.4)', whiteSpace: 'nowrap' }}>
-                      🔒 LEASING
-                    </span>
-                  )}
-                  {w.rivalItineraries && (
-                    <span title="Rival connections: every airline sells one-stop itineraries over its hubs"
-                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(163,113,247,0.15)', color: '#a371f7', border: '1px solid rgba(163,113,247,0.35)' }}>
-                      ⇄ HUBS
-                    </span>
-                  )}
-                  {w.gateScarcity && (
-                    <span title="Gate scarcity: finite airport gates, auctions, gate market"
-                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(245,166,35,0.15)', color: '#f5a623', border: '1px solid rgba(245,166,35,0.4)', whiteSpace: 'nowrap' }}>
-                      ⛩ GATES
-                    </span>
-                  )}
-                </td>
-                <td>{w.paceLabel}</td>
-                <td>{w.status === 'LOBBY'
-                  ? <span className="muted">{w.scheduledStartAt ? `Starts ${fmtStartTime(w.scheduledStartAt)}` : `${w.startYear ?? 'Y1'} · starts on first join`}</span>
-                  : <>{w.startYear != null ? `${w.startYear + w.progress.year - 1}` : `Y${w.progress.year}/${w.progress.totalYears}`} <span className="muted">({w.progress.percent}%)</span></>}</td>
-                <td>{w.playerCount}/{w.maxPlayers}</td>
-                <td><StatusChip status={w.status} /></td>
-                <td>
-                  <button className="btn small" onClick={() => goTo(`/w/${w.id}`)}>
-                    {myWorldIds.has(w.id) ? 'Open' : 'View / join'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        <ErrorNote error={error} />
+        {!joinable ? <p className="muted">Loading worlds…</p> : joinable.length === 0 ? (
+          <p className="muted">
+            {airlines.length > 0
+              ? "You're already in every open world. New ones spin up regularly — check back."
+              : me?.account?.isAdmin
+                ? 'No public worlds yet, create one, or wait for the spawner.'
+                : 'No open worlds right now, a fresh one spins up shortly, check back in a minute.'}
+          </p>
+        ) : (
+          <>
+            <div className="lobby-grid">
+              {joinable.map((w) => <WorldCard key={w.id} world={w} />)}
+            </div>
+            <FeatureLegend worlds={joinable} />
+          </>
+        )}
+      </section>
+
       {concluded?.length > 0 && (
-        <>
-          <div className="list-head" style={{ marginTop: 24 }}>
-            <h2>Concluded seasons</h2>
+        <section>
+          <div className="list-head" style={{ marginTop: 28 }}>
+            <h2>Hall of fame</h2>
           </div>
-          <p className="muted small">Finished worlds and their champions — click through for the full honours roll.</p>
-          <table className="worlds">
-            <thead>
-              <tr><th>World</th><th>Champion</th><th>Length</th><th /></tr>
-            </thead>
-            <tbody>
-              {concluded.map((w) => (
-                <tr key={w.id}>
-                  <td><a href={`#/w/${w.id}`}>{w.name}</a><StageChip stage={w.stage ?? 'beta'} /></td>
-                  <td>{w.champion ? <><span aria-hidden="true">🏆 </span>{w.champion}</> : <span className="muted">—</span>}</td>
-                  <td className="muted">{w.progress?.totalYears ? `${w.progress.totalYears} yr` : '—'}</td>
-                  <td><button className="btn small" onClick={() => goTo(`/w/${w.id}`)}>Results</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+          <p className="muted small section-note">
+            Seasons that have run their course, and the airline left standing. Click through for the full honours roll.
+          </p>
+          <ul className="hof">
+            {concluded.map((w) => (
+              <li key={w.id}>
+                <span className="hof-cup" aria-hidden="true">🏆</span>
+                <span className="hof-body">
+                  <span className="hof-title">
+                    <a href={`#/w/${w.id}`}>{w.name}</a>
+                    <StageChip stage={w.stage ?? 'beta'} />
+                  </span>
+                  <span className="hof-sub muted small">
+                    {w.champion ? <>Won by <strong>{w.champion}</strong></> : 'No champion recorded'}
+                    {w.progress?.totalYears ? ` · ${w.progress.totalYears} years` : ''}
+                  </span>
+                </span>
+                <button className="btn small" onClick={() => goTo(`/w/${w.id}`)}>Results</button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
+
       {token && me?.account?.isAdmin && <AdminWorldsManager token={token} />}
     </>
   );
@@ -1585,7 +1786,14 @@ export default function App() {
       {!ready ? <p className="muted">Loading…</p> : (
         <>
           {!session && <SignIn />}
-          {route.screen === 'worlds' && <><WorldsScreen token={token} me={me} /><UsernameCard me={me} token={token} refreshMe={refreshMe} /><CareerPanel career={me?.career} accountId={me?.account?.id} /></>}
+          {route.screen === 'worlds' && (
+            <>
+              {me && !me.account?.username && <UsernameCard me={me} token={token} refreshMe={refreshMe} />}
+              <WorldsScreen token={token} me={me} />
+              {me?.account?.username && <UsernameCard me={me} token={token} refreshMe={refreshMe} />}
+              <CareerPanel career={me?.career} accountId={me?.account?.id} />
+            </>
+          )}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
           {route.screen === 'player' && (
             <PlayerProfileScreen

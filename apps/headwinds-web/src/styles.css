@@ -354,3 +354,124 @@ footer a { color: var(--accent); }
 @media (max-width: 640px) {
   .hw-reconnecting { display: inline; }
 }
+
+/* =============================================================================
+   LOBBY CARDS — "Your airlines" / "Open worlds" / "Hall of fame".
+   The worlds list used to be a dense table: a code for the year ("Y8/100"),
+   a tick rate for the pace ("1 week / 1 hr"), a bare player count, and a row
+   of five differently-styled tooltip-only tags that wrapped onto a second
+   line. Same data, given room to be read.
+   ============================================================================= */
+.section-note { margin: 2px 0 12px; max-width: 62ch; }
+
+.lobby-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  margin: 10px 0 4px;
+}
+
+.wcard {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px 13px;
+  display: flex; flex-direction: column; gap: 9px;
+  transition: border-color .14s ease, transform .14s ease;
+}
+.wcard:hover { border-color: rgba(56, 201, 180, 0.45); }
+
+.wcard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.wcard-name { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.25; }
+.wcard-name a { color: var(--text); text-decoration: none; }
+.wcard-name a:hover { color: var(--accent); }
+
+.wtags { display: flex; flex-wrap: wrap; gap: 5px; }
+.wtag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; line-height: 1.6;
+  padding: 1px 8px; border-radius: 999px; white-space: nowrap; cursor: help;
+  color: rgb(var(--wtag)); background: rgba(var(--wtag), 0.13);
+  border: 1px solid rgba(var(--wtag), 0.38);
+}
+
+/* Clock line: the game-year reads large, the "of 100" small beside it. */
+.wcard-clock { display: flex; align-items: baseline; gap: 7px; margin-top: 1px; }
+.wcard-year { font-size: 20px; font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; }
+.wcard-pct { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+.meter {
+  height: 5px; background: var(--panel-2); border-radius: 3px;
+  overflow: hidden; border: 1px solid rgba(255,255,255,0.04);
+}
+.meter > div { height: 100%; background: var(--accent); border-radius: 3px; }
+.meter-warm > div { background: #e0a95c; }
+.meter-hot > div { background: var(--red); }
+
+/* Facts: a two-column definition list so the labels line up down the card. */
+.wcard-facts {
+  display: grid; grid-template-columns: 54px 1fr;
+  gap: 6px 10px; margin: 2px 0 0; font-size: 13px; align-items: baseline;
+}
+.wcard-facts dt {
+  color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.09em; padding-top: 1px;
+}
+.wcard-facts dd { margin: 0; display: flex; flex-direction: column; gap: 5px; }
+.wcard-hot { color: var(--red); font-weight: 600; }
+
+.wcard-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: auto; padding-top: 11px; border-top: 1px solid var(--line);
+}
+.wcard-flag { font-size: 12px; font-weight: 600; color: var(--accent); }
+.wcard-note { font-size: 12px; font-weight: 600; color: #e0a95c; }
+.wtag-plain { color: var(--muted); background: none; border-color: var(--line); cursor: default; }
+.wcard-pace { gap: 1px; }
+.wcard-pace .small { font-size: 12px; }
+
+/* Your-airline cards are one big click target. */
+.wcard-air {
+  text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  text-decoration: none;            /* the whole card is the link, not the words */
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.wcard-air:hover { border-color: var(--accent); }
+.wcard-air-id { margin: -4px 0 0; }
+.wcard-cash { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.wcard-cash.neg { color: var(--red); }
+.wcard-broke { box-shadow: inset 3px 0 0 var(--red); }
+.wcard-resume {
+  margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: 13px; font-weight: 600; color: var(--accent);
+}
+
+/* Tag legend — collapsed; the tags carry the meaning once you've read it once. */
+.wlegend { margin: 6px 0 4px; }
+.wlegend summary {
+  cursor: pointer; color: var(--muted); font-size: 13px;
+  padding: 4px 0; list-style-position: outside;
+}
+.wlegend summary:hover { color: var(--accent); }
+.wlegend dl {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 7px 14px; margin: 8px 0 4px; align-items: baseline;
+}
+.wlegend dt { white-space: nowrap; }
+.wlegend dd { margin: 0; max-width: 68ch; }
+
+/* Hall of fame — a list, not a third table. */
+.hof { list-style: none; margin: 8px 0 4px; padding: 0; }
+.hof li {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 11px 14px; margin-bottom: 8px;
+}
+.hof-cup { font-size: 20px; line-height: 1; }
+.hof-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.hof-title a { color: var(--text); text-decoration: none; font-weight: 600; }
+.hof-title a:hover { color: var(--accent); }
+
+@media (max-width: 640px) {
+  .lobby-grid { grid-template-columns: 1fr; }
+  .wcard-facts { grid-template-columns: 50px 1fr; }
+  .wlegend dl { grid-template-columns: 1fr; gap: 2px; }
+  .wlegend dd { margin-bottom: 8px; }
+}
