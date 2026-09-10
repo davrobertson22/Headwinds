@@ -3642,42 +3642,58 @@ function reducer(state, action) {
         };
       });
 
-      // ── Inherit routes, assigning ONE tail each (player model = 1 aircraft/route).
-      // Frequency is capped to what a single airframe can fly; surplus tails stay
-      // idle in the fleet, ready to redeploy.
+      // ── Inherit routes, one route per inherited TAIL ───────────────────────
+      // The player model is one aircraft per route, so a rival flying a pair with
+      // four tails becomes four routes on that pair, each with its own airframe,
+      // splitting the rival's schedule between them. It used to become ONE route
+      // capped to a single airframe's block hours with the other three tails
+      // parked — you paid for a 4x-daily trunk and inherited a thin one, while
+      // the thin one still pulled connecting traffic off your hub legs
+      // (Discord 2026-09-10, wj: demand falling network-wide after a buyout).
+      // Tails left over once the rival's frequency is covered stay idle, ready
+      // to redeploy.
       const assignedIds    = new Set();
       const slotsByAirport = {};
-      const inheritedRoutes = Object.entries(target.routes ?? {}).map(([key, cfg]) => {
+      const inheritedRoutes = [];
+      for (const [key, cfg] of Object.entries(target.routes ?? {})) {
         const [a, b] = key.split('-');
         const refP   = mktReferencePrice(a, b);
         const dist   = routeDistanceKm(a, b);
-
-        // Take the first available inherited tail on this route as the operator.
-        const poolIds   = tailsByRoute[key] ?? [];
-        const opId      = poolIds.find(id => !assignedIds.has(id)) ?? null;
-        const opType    = opId ? getAircraftType(acquiredFleet.find(f => f.id === opId)?.typeId) : null;
-        if (opId) assignedIds.add(opId);
-
-        // Cap frequency to a single tail's block-hour limit.
-        const cap  = opType ? Math.max(1, maxFrequency(dist, opType)) : (cfg.frequency ?? 7);
-        const freq = Math.min(cfg.frequency ?? 7, cap);
-
-        slotsByAirport[a] = (slotsByAirport[a] ?? 0) + freq;
-        slotsByAirport[b] = (slotsByAirport[b] ?? 0) + freq;
-
         const basePrice = Math.round(refP * (cfg.priceMultiplier ?? 1));
-        return {
-          id:              uid(),
-          origin:          a,
-          destination:     b,
-          aircraftId:      opId,
-          weeklyFrequency: freq,
-          hub:             state.hub,
-          weeksOpen:       0,
-          inherited:       true,
-          _basePrice:      basePrice,   // transient: folded into routePricing below
+
+        const addRoute = (opId, freq) => {
+          slotsByAirport[a] = (slotsByAirport[a] ?? 0) + freq;
+          slotsByAirport[b] = (slotsByAirport[b] ?? 0) + freq;
+          inheritedRoutes.push({
+            id:              uid(),
+            origin:          a,
+            destination:     b,
+            aircraftId:      opId,
+            weeklyFrequency: freq,
+            hub:             state.hub,
+            weeksOpen:       0,
+            inherited:       true,
+            _basePrice:      basePrice,   // transient: folded into routePricing below
+          });
         };
-      });
+
+        const poolIds = (tailsByRoute[key] ?? []).filter(id => !assignedIds.has(id));
+        let remaining = cfg.frequency ?? 7;
+
+        // No metal came with this route (a rival route with no tail on it) —
+        // keep it on the map unflown, exactly as before.
+        if (poolIds.length === 0) { addRoute(null, remaining); continue; }
+
+        for (const opId of poolIds) {
+          if (remaining <= 0) break;   // schedule covered; the rest stay idle
+          const opType = getAircraftType(acquiredFleet.find(f => f.id === opId)?.typeId);
+          const cap    = opType ? Math.max(1, maxFrequency(dist, opType)) : remaining;
+          const freq   = Math.min(remaining, cap);
+          assignedIds.add(opId);
+          remaining   -= freq;
+          addRoute(opId, freq);
+        }
+      }
 
       // Price/cater the inherited pairs (one set per O&D). Don't clobber a pair the
       // player already operates — they keep their own settings on overlapping routes.

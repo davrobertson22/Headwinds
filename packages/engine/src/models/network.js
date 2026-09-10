@@ -353,6 +353,88 @@ export function buildPartnershipMap(allianceMembership, codeshareAgreements, all
   return map;
 }
 
+/** Frequency assumed for a nonstop whose real schedule the caller didn't supply. */
+const DIRECT_PROXY_FREQ = 7;
+
+/**
+ * Index the player's own nonstops by O&D pair, so the direct-vs-connect logit
+ * can score the route that ACTUALLY exists.
+ *
+ * It used to score every direct with a hard-coded proxy — reference fare,
+ * seven weekly departures — no matter what was really flying. A 1x/week
+ * regional and a 4x-daily A320 diverted identical connecting traffic
+ * (Discord 2026-09-10, wj: demand falling network-wide after an acquisition,
+ * where every inherited nonstop arrives thin and still bites at full strength).
+ *
+ * @param {Array}  legs             - leg-level player routes (expandRoutesToLegs)
+ * @param {object} seatsByRouteKey  - { [sorted O&D]: one-way weekly seats }; 0 or
+ *                                    missing = unknown, and the capacity cap is
+ *                                    then skipped rather than guessed.
+ * @returns {Map<string, {freq: number, price: number, seats: number}>}
+ */
+export function buildDirectRouteIndex(legs = [], seatsByRouteKey = {}) {
+  const index = new Map();
+  for (const leg of legs) {
+    const key   = [leg.origin, leg.destination].sort().join('-');
+    const freq  = leg.weeklyFrequency ?? DIRECT_PROXY_FREQ;
+    const price = leg.ticketPrice ?? referencePrice(leg.origin, leg.destination) ?? 0;
+    const e = index.get(key) ?? { freq: 0, priceFreqSum: 0, price: 0, seats: 0 };
+    e.freq         += freq;
+    e.priceFreqSum += price * freq;
+    index.set(key, e);
+  }
+  for (const [key, e] of index) {
+    e.price = e.priceFreqSum / Math.max(e.freq, 1);
+    e.seats = seatsByRouteKey?.[key] ?? 0;
+  }
+  return index;
+}
+
+/**
+ * Share of an O&D market that stays on the 1-stop connection once the player's
+ * own nonstop competes for it.
+ *
+ * Two rules, both of which the old proxy skipped:
+ *   1. the nonstop is scored on its REAL frequency and fare;
+ *   2. it can only take the passengers it has SEATS for — a thin nonstop wins
+ *      its logit share up to its capacity and the spillover keeps connecting,
+ *      instead of scaring traffic off the hub legs into thin air.
+ *
+ * @param {number} connectUtil  logit utility of the connecting itinerary
+ * @param {object|undefined} direct  { freq, price, seats } from buildDirectRouteIndex
+ * @param {number} refP         reference fare for the O&D
+ * @param {number} odDemand     weekly one-way O&D pool (same units as `seats`)
+ * @returns {{connectionShare: number, directShare: number}} each 0–1
+ */
+function connectionShareVsDirect(connectUtil, direct, refP, odDemand, legacy = false) {
+  // Flag-off (beta) worlds keep the pre-package scoring exactly: reference fare,
+  // seven weekly departures, no capacity cap. See tools/golden-master/beta-world.mjs.
+  const spec  = legacy ? undefined : direct;
+  const freq  = spec?.freq  ?? DIRECT_PROXY_FREQ;
+  const price = spec?.price ?? refP;
+  const directUtil = -PRICE_WEIGHT * (price / Math.max(refP, 1))
+                     + FREQ_WEIGHT * Math.log1p(freq);
+  const mx    = Math.max(connectUtil, directUtil);
+  const eC    = Math.exp(connectUtil - mx);
+  const eD    = Math.exp(directUtil  - mx);
+  const total = eC + eD;
+  // Both shares are read off the softmax (not one minus the other) so a flag-off
+  // world reproduces the old arithmetic to the last bit.
+  let connectionShare = eC / total;
+  let directShare     = eD / total;
+
+  // Capacity cap. Seats are one-way weekly, the same basis as odDemand.
+  const seats = spec?.seats ?? 0;
+  if (seats > 0 && odDemand > 0 && odDemand * directShare > seats) {
+    directShare     = seats / odDemand;
+    connectionShare = 1 - directShare;
+  }
+  return {
+    connectionShare: Math.max(0, Math.min(1, connectionShare)),
+    directShare:     Math.max(0, Math.min(1, directShare)),
+  };
+}
+
 // ─── Connection enumeration ───────────────────────────────────────────────────
 
 /**
@@ -367,7 +449,7 @@ export function buildPartnershipMap(allianceMembership, codeshareAgreements, all
  * @param {Set<string>}           directRouteKeys   - same set (for checking if direct exists)
  * @returns {Connection[]}
  */
-function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteKeys) {
+function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteKeys, legacy = false) {
   const touchingRoutes = adjacencyIndex.get(hub) ?? [];
 
   // Split into routes that arrive at hub (i.e., destination === hub)
@@ -425,14 +507,11 @@ function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteK
       let directShare     = 0.0;
 
       if (directExists) {
-        // Direct route utility (we don't have its exact price here, so use refPrice as proxy)
-        const directUtil = -PRICE_WEIGHT * 1.0   // price at reference = normalised 1.0
-                           + FREQ_WEIGHT * Math.log1p(7); // assume baseline 7 freq
-        const expConn   = Math.exp(connectUtil - Math.max(connectUtil, directUtil));
-        const expDirect = Math.exp(directUtil  - Math.max(connectUtil, directUtil));
-        const total     = expConn + expDirect;
-        connectionShare = expConn   / total;
-        directShare     = expDirect / total;
+        // The nonstop is scored on what it really flies (and can really seat) —
+        // see connectionShareVsDirect. `directRouteKeys` is a Map when the caller
+        // knows the schedule and a bare Set when it doesn't; .get?.() covers both.
+        ({ connectionShare, directShare } = connectionShareVsDirect(
+          connectUtil, directRouteKeys.get?.(directKey), refP, odDemand, legacy));
       }
 
       connections.push({
@@ -474,7 +553,7 @@ function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteK
  * @param {Map}     partnershipMap     - from buildPartnershipMap
  * @returns {Connection[]}
  */
-export function buildAllConnections(playerRoutes, competitors, partnershipMap) {
+export function buildAllConnections(playerRoutes, competitors, partnershipMap, seatsByRouteKey = {}, legacy = false) {
   // Expand tag flights into their legs so every airport they touch (including
   // intermediate stops) is a real network node that can form/feed connections.
   const legRoutes        = expandRoutesToLegs(playerRoutes);
@@ -484,7 +563,10 @@ export function buildAllConnections(playerRoutes, competitors, partnershipMap) {
   // traffic is the gateway pool (demand.js connectingAtEndpoint). Decided
   // 2026-09-05 (HUB_CONNECTIVITY_PLAN.md Phase 2): feed is what agreements buy.
   const partnerRoutes    = buildPartnerRoutes(competitors, Object.fromEntries(partnershipMap));
-  const playerRouteKeys  = new Set(legRoutes.map(r => [r.origin, r.destination].sort().join('-')));
+  // Map, not Set: the direct-vs-connect logit needs the nonstop's real frequency
+  // and fare, and its seat count for the capacity cap. Map.has() keeps every
+  // existing "does a direct exist" check working unchanged.
+  const playerRouteKeys  = buildDirectRouteIndex(legRoutes, seatsByRouteKey);
   const adjacencyIndex   = buildAdjacencyIndex(legRoutes, partnerRoutes);
 
   // Hub airports = every airport a player leg touches (intermediate stops included)
@@ -496,7 +578,7 @@ export function buildAllConnections(playerRoutes, competitors, partnershipMap) {
 
   const allConnections = [];
   for (const hub of hubCandidates) {
-    const conns = findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, playerRouteKeys);
+    const conns = findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, playerRouteKeys, legacy);
     allConnections.push(...conns);
   }
 
@@ -1315,9 +1397,9 @@ export function trimOwnMetalEntries(entries = [], perHub = OWN_METAL_ENTRIES_PER
  * count one-way-consistent with the direct model. It feeds computeOwnMetalODRevenue
  * only; partner/interline feed is unchanged and still flows through buildAllConnections.
  */
-export function buildOwnMetalConnections(playerRoutes = []) {
+export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}, legacy = false) {
   const legs = expandRoutesToLegs(playerRoutes);
-  const directRouteKeys = new Set(legs.map(r => [r.origin, r.destination].sort().join('-')));
+  const directRouteKeys = buildDirectRouteIndex(legs, seatsByRouteKey);
 
   // Aggregate hub-adjacent frequency/price per (airport, spoke). Each round-trip
   // leg contributes to BOTH of its endpoints' spoke lists.
@@ -1373,11 +1455,8 @@ export function buildOwnMetalConnections(playerRoutes = []) {
                             + FREQ_WEIGHT  * Math.log1p(minFreq);
         let connectionShare = 1.0;
         if (directExists) {
-          const directUtil = -PRICE_WEIGHT * 1.0 + FREQ_WEIGHT * Math.log1p(7);
-          const mx = Math.max(connectUtil, directUtil);
-          const eC = Math.exp(connectUtil - mx);
-          const eD = Math.exp(directUtil  - mx);
-          connectionShare = eC / (eC + eD);
+          ({ connectionShare } = connectionShareVsDirect(
+            connectUtil, directRouteKeys.get(directKey), refP, odDemand, legacy));
         }
 
         connections.push({
@@ -1602,7 +1681,12 @@ export function runNetworkTick(state) {
     slotsByAirport       = {},   // player weekly departures per airport (congestion)
     demandMultFor        = null, // (origin, dest) → world-event demand multiplier
     rivalIndex           = undefined, // rivalIndexFor(state): RIVALS_OFF = old rules, undefined = modern, no rivals
+    seatsByRouteKey      = {},   // { [sorted O&D]: one-way weekly seats } — capacity cap on nonstop diversion
   } = state;
+
+  // Flag-off beta worlds tick as they did before the hub-connectivity package:
+  // the nonstop-vs-connection scoring below stays on the old proxy for them.
+  const legacyWorld = isLegacy(rivalIndex);
 
   const partnershipMap = buildPartnershipMap(
     allianceMembership,
@@ -1616,7 +1700,7 @@ export function runNetworkTick(state) {
   // model can pit the player's connections against real head-to-head competition.
   const competitorRouteIndex = buildCompetitorRouteIndex(competitors);
 
-  const connections        = buildAllConnections(routes, competitors, partnershipMap);
+  const connections        = buildAllConnections(routes, competitors, partnershipMap, seatsByRouteKey, legacyWorld);
   const cannibalizationMap = buildCannibalizationMap(connections);
   const partnerODRevenue   = computePartnerODRevenue(connections, {
     gameDate,
@@ -1632,7 +1716,7 @@ export function runNetworkTick(state) {
   // Own-metal itinerary revenue: real A→hub→C markets over designated hubs.
   // Enumerated bidirectionally (routes are round trips) so hub connectivity does
   // NOT depend on the stored origin/destination orientation of each spoke route.
-  const ownMetalConnections = buildOwnMetalConnections(routes);
+  const ownMetalConnections = buildOwnMetalConnections(routes, seatsByRouteKey, legacyWorld);
   const ownMetalOD = computeOwnMetalODRevenue(ownMetalConnections, {
     hubs,
     gameDate,

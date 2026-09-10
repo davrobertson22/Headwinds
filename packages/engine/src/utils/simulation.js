@@ -3671,6 +3671,26 @@ export function weeklyTick(state) {
     slotsByAirport[r.destination] = (slotsByAirport[r.destination] ?? 0) + freq;
   }
 
+  // Seats the player really flies on each O&D, one-way per week. The network
+  // model uses it to cap how much connecting traffic a nonstop can pull off the
+  // hub legs: a thin route wins its logit share up to its capacity and the rest
+  // keeps connecting. Multi-stop routes contribute to every pair they fly.
+  const seatsByRouteKey = {};
+  const fleetById = new Map(fleet.map(a => [a.id, a]));
+  for (const r of routes) {
+    if (!isRouteActive(r, gameDate.month)) continue;
+    const ac = fleetById.get(r.aircraftId);
+    if (!ac || isOutOfService(ac)) continue;
+    const seats = configBodies(ac.config ?? {}) || (getAircraftType(ac.typeId)?.seats ?? 0);
+    if (!seats) continue;
+    const oneWay = seats * (r.weeklyFrequency ?? 7);
+    const stops  = routeStops(r);
+    for (let i = 0; i < stops.length - 1; i++) {
+      const key = [stops[i], stops[i + 1]].sort().join('-');
+      seatsByRouteKey[key] = (seatsByRouteKey[key] ?? 0) + oneWay;
+    }
+  }
+
   // ── Network O&D cannibalization + itinerary revenue + hub competition ──────
   // Run the full network tick: enumerates 1-stop connections, applies logit
   // diversion when a direct route competes, computes O&D-based partner revenue,
@@ -3688,6 +3708,7 @@ export function weeklyTick(state) {
     slotsByAirport,
     demandMultFor: eventDemandMultFor,   // world-event shocks hit itinerary O&Ds too
     rivalIndex,
+    seatsByRouteKey,
   });
   const {
     cannibalizationMap, partnerODRevenue: partnerODRaw, partnerHealthDecay,
