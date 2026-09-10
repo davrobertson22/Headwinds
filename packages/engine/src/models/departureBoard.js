@@ -208,7 +208,14 @@ export function flightStatus(onTimeRate, seed) {
  * @param {string} o.worldSeed      anything stable per world (id, or name+year)
  * @param {object[]} o.carriers     [{ id, name, isPlayer, logoId, logoColor,
  *                                     customLogo, onTimeRate, legs: [{ to,
- *                                     weeklyFrequency, typeId, typeName }] }]
+ *                                     weeklyFrequency, typeId, typeName,
+ *                                     cancelled?, cancelReason? }] }]
+ *
+ * A leg flagged `cancelled` (its aircraft is grounded or in a heavy check with
+ * no reserve covering it) keeps its timetable slots — the flights were sold —
+ * but every one of them prints as Cancelled with `cancelReason` on the row,
+ * instead of an on-time roll for a plane that is not flying (Discord,
+ * 2026-09-10: "won't show flights cancelled when a plane can't fly").
  * @returns {object[]} rows sorted by scheduled time
  */
 export function buildDepartureBoard({ airport, day = 0, worldSeed = 'w', carriers = [] }) {
@@ -256,7 +263,9 @@ export function buildDepartureBoard({ airport, day = 0, worldSeed = 'w', carrier
           typeId:      leg.typeId,
           typeName:    leg.typeName,
           gate:        gateLabel(airport, c.id, routeSeed),
-          ...flightStatus(c.onTimeRate, rowSeed),
+          ...(leg.cancelled
+            ? { key: 'cancelled', label: 'Cancelled', delayMins: 0, reason: leg.cancelReason ?? 'Aircraft out of service' }
+            : flightStatus(c.onTimeRate, rowSeed)),
         });
       });
     }

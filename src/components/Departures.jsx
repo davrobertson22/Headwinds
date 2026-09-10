@@ -7,6 +7,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
 import { routeLegs, fleetAvgUtilization } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
+import { isOutOfService, groundedKind } from '../data/maintenance.js';
 import AirportSelect from './AirportSelect.jsx';
 import AirlineLogo from './AirlineLogo.jsx';
 import { Glyph } from './Icons.jsx';
@@ -98,14 +99,25 @@ export default function Departures({ initialAirport = null }) {
     // leaves this airport — a rotation stopping here departs here.
     const myLegs = [];
     for (const r of routes) {
+      const ac   = fleet.find(a => a.id === r.aircraftId);
+      const type = getAircraftType(ac?.typeId);
+      // A grounded or in-check tail with no reserve covering it is not flying
+      // this week — its departures are cancelled, and the board should say so
+      // rather than roll an on-time status for a plane in the hangar. (A
+      // covered route already carries the reserve's id, so it shows normally.)
+      const cancelled = isOutOfService(ac);
+      const cancelReason = !cancelled ? null
+        : ac.status === 'maintenance' ? `Aircraft in ${ac.checkType ?? 'heavy'} check`
+        : `Aircraft grounded — ${groundedKind(ac).toLowerCase()}`;
       for (const leg of routeLegs(r)) {
         if (leg.from !== airport) continue;
-        const type = getAircraftType(fleet.find(a => a.id === r.aircraftId)?.typeId);
         myLegs.push({
           to: leg.to,
           weeklyFrequency: r.weeklyFrequency ?? 0,
           typeId: type?.id,
           typeName: type?.name ?? '—',
+          cancelled,
+          cancelReason,
         });
       }
     }
@@ -259,8 +271,10 @@ export default function Departures({ initialAirport = null }) {
                       </td>
                       <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{r.typeName}</td>
                       <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{r.gate}</td>
-                      <td style={{ padding: '8px 12px', color: STATUS_COLOR[r.key], fontWeight: r.key === 'ontime' ? 400 : 600 }}>
+                      <td style={{ padding: '8px 12px', color: STATUS_COLOR[r.key], fontWeight: r.key === 'ontime' ? 400 : 600 }}
+                          title={r.reason ?? undefined}>
                         {r.label}
+                        {r.reason && <span style={{ display: 'block', fontSize: 10, fontWeight: 400, color: 'var(--text-dim)' }}>{r.reason}</span>}
                       </td>
                     </tr>
                   );

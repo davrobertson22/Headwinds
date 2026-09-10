@@ -101,5 +101,31 @@ test('the same save renders the same board twice — no reshuffle on re-render',
   assert.equal(render(React.createElement(Departures)), render(React.createElement(Departures)));
 });
 
+test('a grounded tail with no reserve prints its departures as Cancelled, with the reason (Discord 2026-09-10)', () => {
+  seed({ fleet: [{ ...FLEET[0], status: 'grounded', groundedWeeksLeft: 2, groundedReason: 'failure' }] });
+  const html = render(React.createElement(Departures));
+  const cancelled = (html.match(/Cancelled/g) ?? []).length;
+  const mine = (html.match(/Southern Cross/g) ?? []).length;
+  assert.ok(cancelled >= 2, `every one of the player's ${mine} departures should be cancelled (saw ${cancelled})`);
+  assert.ok(html.includes('Aircraft grounded'), 'reason names the grounding');
+  assert.ok(!/On Time|Delayed/.test(html.split('Velocity Air')[0]), 'no on-time roll for a plane in the hangar');
+});
+
+test('a tail in a C check reads the same way, naming the check', () => {
+  seed({ fleet: [{ ...FLEET[0], status: 'maintenance', checkType: 'C', checkWeeksLeft: 1 }] });
+  const html = render(React.createElement(Departures));
+  assert.ok(html.includes('Aircraft in C check'));
+});
+
+test('a covered route (reserve flying it) is NOT cancelled', () => {
+  const reserve = { ...FLEET[0], id: 'res1', name: 'Reserve', tailNumber: 'N2RES', status: 'assigned' };
+  seed({
+    fleet: [{ ...FLEET[0], status: 'grounded', groundedWeeksLeft: 2, groundedReason: 'failure' }, reserve],
+    routes: ROUTES.map(r => ({ ...r, aircraftId: 'res1', coverForAircraftId: 'ac1' })),
+  });
+  const html = render(React.createElement(Departures));
+  assert.ok(!html.includes('Aircraft grounded'), 'the reserve is flying these');
+});
+
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);
