@@ -252,7 +252,7 @@ export const COUNTRY_REGION = {
   KN:'CARIB', LC:'CARIB', VC:'CARIB', DM:'CARIB', AI:'CARIB', VG:'CARIB', TC:'CARIB',
   GP:'CARIB', MQ:'CARIB', BQ:'CARIB', BL:'CARIB',
   BR:'SAM', AR:'SAM', CL:'SAM', UY:'SAM', PY:'SAM', BO:'SAM', PE:'SAM', EC:'SAM',
-  CO:'SAM', VE:'SAM', GY:'SAM', SR:'SAM',
+  CO:'SAM', VE:'SAM', GY:'SAM', SR:'SAM', GF:'SAM',
   GB:'EUR', IE:'EUR', FR:'EUR', DE:'EUR', NL:'EUR', BE:'EUR', LU:'EUR', CH:'EUR',
   AT:'EUR', ES:'EUR', PT:'EUR', IT:'EUR', GR:'EUR', MT:'EUR', CY:'EUR', DK:'EUR',
   NO:'EUR', SE:'EUR', FI:'EUR', IS:'EUR', PL:'EUR', CZ:'EUR', SK:'EUR', HU:'EUR',
@@ -268,6 +268,7 @@ export const COUNTRY_REGION = {
   GN:'SSA', SL:'SSA', LR:'SSA', KE:'SSA', TZ:'SSA', UG:'SSA', RW:'SSA', BI:'SSA',
   ET:'SSA', SO:'SSA', DJ:'SSA', ER:'SSA', SS:'SSA', CF:'SSA', MG:'SSA', MU:'SSA',
   SC:'SSA', KM:'SSA', RE:'SSA', CV:'SSA', ST:'SSA', SH:'SSA', SZ:'SSA', LS:'SSA',
+  GQ:'SSA',
   KZ:'CAS', UZ:'CAS', TM:'CAS', TJ:'CAS', KG:'CAS', MN:'CAS', AF:'CAS',
   IN:'SAS', PK:'SAS', BD:'SAS', LK:'SAS', NP:'SAS', BT:'SAS', MV:'SAS',
   CN:'EAS', JP:'EAS', KR:'EAS', TW:'EAS', HK:'EAS', MO:'EAS', KP:'EAS',
@@ -277,6 +278,58 @@ export const COUNTRY_REGION = {
   TO:'OCE', KI:'OCE', TV:'OCE', NR:'OCE', CK:'OCE', PF:'OCE', GU:'OCE', AS:'OCE',
   MP:'OCE', NF:'OCE', PW:'OCE', FM:'OCE', MH:'OCE',
 };
+
+/**
+ * The same regions, named and ordered for a player-facing filter.
+ *
+ * "can we pls add regions to the route finder" (ASAS, 9/11/26). The engine has
+ * had a region for every country since border friction shipped — the finder
+ * simply never showed it. Reading COUNTRY_REGION rather than inventing a second
+ * geography is the point: a filter that put Morocco in "Africa" while
+ * borderFactor scored it as Europe's neighbour would be a preview disagreeing
+ * with the tick, which is the bug class this codebase keeps paying for.
+ *
+ * REGION_ORDER is west-to-east-ish rather than alphabetical, so a dropdown reads
+ * like a map instead of a spreadsheet.
+ */
+export const REGION_LABELS = {
+  NA:    'North America',
+  CARIB: 'Central America & Caribbean',
+  SAM:   'South America',
+  EUR:   'Europe',
+  NAF:   'North Africa',
+  SSA:   'Sub-Saharan Africa',
+  ME:    'Middle East',
+  CAS:   'Central Asia',
+  SAS:   'South Asia',
+  EAS:   'East Asia',
+  SEA:   'Southeast Asia',
+  OCE:   'Oceania',
+};
+
+export const REGION_ORDER = ['NA', 'CARIB', 'SAM', 'EUR', 'NAF', 'SSA', 'ME', 'CAS', 'SAS', 'EAS', 'SEA', 'OCE'];
+
+/**
+ * Region code for an airport or a bare country code, or null if the country is
+ * not in the table.
+ *
+ * Null is a real answer and callers must handle it: an airport whose country is
+ * missing from COUNTRY_REGION is one borderFactor is already scoring on the
+ * propensity fallback, and hiding it behind a made-up region would be worse than
+ * listing it under no region at all.
+ */
+export function regionOf(airportOrCountry) {
+  if (!airportOrCountry) return null;
+  const country = typeof airportOrCountry === 'string'
+    ? airportOrCountry
+    : airportOrCountry.country;
+  return COUNTRY_REGION[country] ?? null;
+}
+
+/** Display name for a region code. Unknown codes print as themselves. */
+export function regionLabel(code) {
+  return code ? (REGION_LABELS[code] ?? code) : 'Unlisted';
+}
 
 /**
  * Border friction. Domestic = 1.0. International defaults:

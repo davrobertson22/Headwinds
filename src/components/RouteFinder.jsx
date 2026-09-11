@@ -7,6 +7,7 @@ import { buildRouteMarket } from '../models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
 } from '../models/routeFinder.js';
+import { REGION_LABELS, REGION_ORDER, regionLabel } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
 
@@ -40,6 +41,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [minDist, setMinDist]   = useState('');
   const [maxDist, setMaxDist]   = useState('');
+  const [region, setRegion]     = useState('');
   const [soloOnly, setSoloOnly] = useState(false);
   const [showUnflyable, setShowUnflyable] = useState(false);
   const [showServed, setShowServed]       = useState(false);
@@ -103,6 +105,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
       aircraft: owned?.best ?? null,
       minDistKm: parseInt(minDist, 10) || 0,
       maxDistKm: parseInt(maxDist, 10) || Infinity,
+      region,
       hideUnflyable: !showUnflyable,
       hideServedLanes: !showServed,
       soloOnly,
@@ -110,7 +113,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.routes, state.competitors, state.humanRivals, state.encroachments,
-      origin, open, typeId, owned?.best, minDist, maxDist, showUnflyable, showServed,
+      origin, open, typeId, owned?.best, minDist, maxDist, region, showUnflyable, showServed,
       soloOnly, splitMetros]);
 
   // ── Forecasts, bounded ─────────────────────────────────────────────────────
@@ -279,6 +282,25 @@ export default function RouteFinder({ onPick, standalone = false }) {
               )}
             </div>
 
+            {/* Region */}
+            <div>
+              <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Region
+                <InfoTip text="Narrow the search to one part of the world. These are the same regions the demand model uses to price international traffic — travellers cross a border inside their own region far more readily than they leave it — so the region on a row is also part of why that market is the size it is." />
+              </div>
+              <select
+                className="form-select"
+                value={region}
+                onChange={e => { setRegion(e.target.value); resetPaging(); }}
+                style={{ width: 210 }}
+              >
+                <option value="">Any region — the whole world</option>
+                {REGION_ORDER.map(code => (
+                  <option key={code} value={code}>{REGION_LABELS[code]}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Distance band */}
             <div>
               <div className="form-label" style={{ marginBottom: 6 }}>Distance (km)</div>
@@ -346,12 +368,13 @@ export default function RouteFinder({ onPick, standalone = false }) {
           ) : results.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
               No unserved routes match these filters.
+              {region && <> Nothing in {REGION_LABELS[region]} is left — try “Any region”.</>}
               {selectedType && !showUnflyable && <> Try “Show what this aircraft can't fly” to see what {selectedType.name} is being kept out of.</>}
             </div>
           ) : (
             <>
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
-                {results.length.toLocaleString()} market{results.length !== 1 ? 's' : ''} from {originAirport.code} · showing {shown.length}
+                {results.length.toLocaleString()} market{results.length !== 1 ? 's' : ''} from {originAirport.code}{region ? ` in ${REGION_LABELS[region]}` : ''} · showing {shown.length}
                 {forecastReady && <> · forecast on {selectedType.name} at 7 flights/wk, reference fares</>}
               </div>
               <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
@@ -384,6 +407,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                           <td style={{ padding: '7px 12px' }}>
                             <span style={{ fontWeight: 700 }}>{a.code}</span>
                             <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{a.city}, {a.country}</span>
+                            <span style={{ color: 'var(--text-dim)', marginLeft: 6, fontSize: 11 }}>{regionLabel(r.region)}</span>
                             {r.block && (
                               <span title={r.block.reason} style={{ marginLeft: 8, fontSize: 10, color: 'var(--red)', border: '1px solid rgba(220,53,69,0.4)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
                                 {r.block.short}

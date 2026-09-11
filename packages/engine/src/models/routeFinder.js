@@ -44,7 +44,7 @@ import {
   baseCityPairDemand, distanceKm, referencePrice,
   effectiveRangeKm, maxFrequency, defaultConfig, defaultClassPrices,
 } from '../utils/simulation.js';
-import { metroPairKeyOf, memberPairKeysOf, airportAppeal } from '../utils/market.js';
+import { metroPairKeyOf, memberPairKeysOf, airportAppeal, regionOf } from '../utils/market.js';
 import { projectRouteAddition } from './pairShare.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 
@@ -147,6 +147,14 @@ export function findCandidates(state, {
   hideUnflyable = true,
   hideServedLanes = true,
   soloOnly = false,
+  // Destination world region, as COUNTRY_REGION spells it ('EUR', 'SEA', ...).
+  // '' is every region. "can we pls add regions to the route finder" (ASAS,
+  // 9/11/26): with 2,100 airports in the table, a distance band is a poor proxy
+  // for "show me Europe" — 5,000 km from JFK is most of western Europe AND most
+  // of South America, and the player wanting one of those does not want the
+  // other. The region comes from the engine's own table so the filter and the
+  // border-friction term that prices these markets never disagree.
+  region = '',
   // One row per MARKET, not per airport. Washington is IAD, DCA, BWI and HGR; all
   // four print the same metro total, so an ungrouped list shows the same 35,967
   // travellers a week four times over and reads as four separate opportunities.
@@ -168,6 +176,8 @@ export function findCandidates(state, {
     if (demand <= 0) continue;                 // same metro, or an unpriced pair
     const distKm = Math.round(distanceKm(from, a));
     if (distKm < minDistKm || distKm > maxDistKm) continue;
+    const destRegion = regionOf(a);
+    if (region && destRegion !== region) continue;
 
     // Lancelotbronner's question, answered: sibling airports ARE linked. A lane
     // you already fly out of the other New York field is not a new market, and
@@ -197,6 +207,9 @@ export function findCandidates(state, {
       code: a.code,
       distKm,
       demand,
+      // null when the destination's country is missing from COUNTRY_REGION —
+      // rendered as "Unlisted" rather than guessed at. See regionOf().
+      region: destRegion,
       refPrice: referencePrice(origin, a.code),
       lane,
       laneRivalCount: laneRivals.size,

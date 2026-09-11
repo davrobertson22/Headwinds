@@ -34,7 +34,13 @@ import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition, playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
+import { rankAircraftForRoute } from '../models/aircraftRecommender.js';
 
+
+// How many ranked aircraft the panel shows before you ask for the rest. Five is
+// the shortlist a player actually chooses from; the full list runs to 150+ types
+// on a short sector and reads as a catalogue dump.
+const TOP_RECOMMENDATIONS = 5;
 
 const MONTH_ABBR = ['', 'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const SEASON_PRESETS = [
@@ -426,6 +432,14 @@ export default function RoutePlanner() {
   // layout when you own one of the selected type, otherwise all-economy).
   const [cabinConfig, setCabinConfig] = useState(null);
   const [configSource, setConfigSource] = useState('economy');
+  // Whether the aircraft-recommendation panel is showing its shortlist or the
+  // whole reachable catalogue.
+  //
+  // It lives BELOW configSource on purpose: two suites seed this component's
+  // leading useState block by index (planner-class-fares, route-planner-render),
+  // so a slot inserted above cabinConfig silently re-points their fixtures at the
+  // wrong state. Append new state here, at the end of the block.
+  const [showAllRecs, setShowAllRecs] = useState(false);
 
   // A pair handed over by the Route Finder's optional "Plan". Parked rather
   // than passed as a prop, because this component does not exist yet when the
@@ -839,6 +853,59 @@ export default function RoutePlanner() {
              laneDemand: projection.laneDemand };
   }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, state.hubs, state.gates, state.routes, fleetOfType, origin, dest, gameDate, reachByType]);
 
+  // ── "or like aircraft recommendations to route planner too" (ASAS, 9/11/26) ──
+  //
+  // The picker above sorts by OWNERSHIP and defaults by AVAILABILITY. Neither is
+  // economics, and on a thin lane the two part company hard: measured on HEAD
+  // against a three-type fleet, the default pick was not the best earner on 380
+  // of 400 lanes, by an average of $406K/wk — a 189-seat jet at 30% load losing
+  // to a 55-seat one that fills.
+  //
+  // So the same forecast the card below runs, run once per candidate. It is the
+  // engine's projection rather than a bare simulateRoute for the usual reason:
+  // on a pair you already fly, a bare call hands every candidate the WHOLE pool
+  // and the ranking becomes cabin size with extra steps.
+  //
+  // Cost is 8–19ms for the whole reachable catalogue on a busy save, so this
+  // runs with the card rather than behind a button. Freighters are left out —
+  // this is a passenger route, and the planner's own default already refuses
+  // them.
+  const recommendations = useMemo(() => {
+    if (!routeData || reachableTypes.length === 0) return [];
+    const candidates = reachableTypes.filter(t => !t.freighter);
+    if (candidates.length === 0) return [];
+    return rankAircraftForRoute(state, {
+      origin, destination: dest, distKm: routeData.dist,
+      types: candidates,
+      weeklyFrequency: frequency,
+      ticketPrice: effectivePrice,
+      classPrices: effectiveFares ?? defaultClassPrices(effectivePrice),
+      cateringLevel, season, gameDate,
+      eventDemandMult: eventDemand.multFor(origin, dest),
+      capHours: bhCap,
+      // Mods count here exactly as the picker quotes them.
+      reachKmFor,
+      // The type on screen is forecast on the cabin the player has dialled in, so
+      // its row and the card cannot print different money for the same plane.
+      configFor: (t) => (t.id === selectedTypeId ? effectiveConfig : null),
+      availabilityFor: (id) => {
+        const pool = (deployableByType[id] ?? []).filter(d => d.eligible);
+        return {
+          ready:     pool.filter(d => !d.reserve).length,
+          onReserve: pool.filter(d => d.reserve).length,
+        };
+      },
+    });
+  }, [routeData, reachableTypes, deployableByType, frequency, effectivePrice, effectiveFares,
+      cateringLevel, season, selectedTypeId, effectiveConfig, state.fleet, state.routes,
+      state.hub, state.hubs, origin, dest, gameDate, reachByType]);
+
+  // The pick worth interrupting the player for: the best earner they can fly
+  // TODAY. A recommendation you would have to lease first is a different
+  // conversation, and gets its own line rather than the headline.
+  const bestReady = recommendations.find(r => r.ready > 0 && r.projection);
+  const bestOverall = recommendations.find(r => r.projection) ?? null;
+
   // Gate + slot position at each endpoint for the planned frequency, measured the
   // way the engine measures it — slotCapAt() counts an alliance partner's granted
   // slots, so a member launching on borrowed capacity is not told it has no gate.
@@ -1180,6 +1247,150 @@ export default function RoutePlanner() {
                     <SeasonPicker value={season} onChange={setSeason} currentMonth={gameDate.month} />
                   </div>
                 </div>
+
+                {/* ── Best aircraft for this route ─────────────────────────────
+                    The dropdown above answers "what CAN fly this?"; this answers
+                    "what SHOULD?". One row per reachable type, priced by the same
+                    projection as the card below, at the frequency and fares
+                    currently set — change either and the ranking moves with it. */}
+                {recommendations.length > 1 && (
+                  <div style={{
+                    border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+                    background: 'var(--surface2)', padding: '12px 14px', marginBottom: 20,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 15 }}><Glyph e="⭐" /></span>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>
+                        Best aircraft for this route
+                        <InfoTip text="Every aircraft that can reach this route, ranked by what it would clear a week — the same forecast as the card below, run once per type at the frequency and fares you have set here. Net is after operating cost, landing fees and the lease on the tail that would fly it, so a plane you own outright ranks above an identical one you would have to lease. A bigger cabin is not automatically better: on a thin market a small aircraft that fills beats a large one that does not. “N ready” is how many of that type are free to fly this lane today; everything else is a quote for an order." />
+                      </div>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)' }}>
+                        {origin} → {dest} · {frequency}×/wk · your fares
+                      </span>
+                    </div>
+
+                    {/* A ranking of losses is still a ranking, and reading the top of
+                        it as a recommendation is how a player talks themselves into
+                        a lane that cannot pay. Say it before the table, not after. */}
+                    {bestOverall && bestOverall.projection.netProfit < 0 ? (
+                      <div style={{ fontSize: 12, color: 'var(--yellow)', marginTop: 8 }}>
+                        Nothing reaching {dest} clears a profit at {frequency}×/wk and these fares — the
+                        {' '}best of them, the <strong>{bestOverall.type.name}</strong>, still loses
+                        {' '}{formatMoney(Math.abs(bestOverall.projection.netProfit))}/wk. Try fewer flights, higher
+                        {' '}fares, or a different market; the ranking below is least-bad, not good.
+                      </div>
+                    ) : bestReady && bestOverall && bestReady.typeId !== bestOverall.typeId ? (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                        Best you can fly today is the <strong style={{ color: 'var(--text)' }}>{bestReady.type.name}</strong>
+                        {' '}at {formatMoney(bestReady.projection.netProfit)}/wk. The {bestOverall.type.name} above it
+                        {' '}would have to be leased first.
+                      </div>
+                    ) : null}
+
+                    <div style={{ overflowX: 'auto', marginTop: 10 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                            <th style={{ textAlign: 'left',  padding: '4px 8px', fontWeight: 600 }}>#</th>
+                            <th style={{ textAlign: 'left',  padding: '4px 8px', fontWeight: 600 }}>Aircraft</th>
+                            <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>Seats</th>
+                            <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>Load</th>
+                            <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>Net / wk</th>
+                            <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(showAllRecs ? recommendations : recommendations.slice(0, TOP_RECOMMENDATIONS)).map((r, i) => {
+                            const chosen = r.typeId === selectedTypeId;
+                            const proj   = r.projection;
+                            return (
+                              <tr key={r.typeId} style={{
+                                borderTop: '1px solid var(--border-subtle)',
+                                background: chosen ? 'var(--surface3)' : 'transparent',
+                              }}>
+                                <td style={{ padding: '6px 8px', color: 'var(--text-dim)', fontSize: 12 }}>{i + 1}</td>
+                                <td style={{ padding: '6px 8px' }}>
+                                  <span style={{ fontWeight: chosen ? 700 : 600 }}>{r.type.name}</span>
+                                  {r.ready > 0 && (
+                                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--green)', border: '1px solid rgba(40,167,69,0.4)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                                      {r.ready} ready
+                                    </span>
+                                  )}
+                                  {r.ready === 0 && r.onReserve > 0 && (
+                                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--yellow)', border: '1px solid rgba(210,153,34,0.4)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                                      {r.onReserve} on reserve
+                                    </span>
+                                  )}
+                                  {!r.owned && (
+                                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text-dim)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                                      lease required
+                                    </span>
+                                  )}
+                                  {r.owned && r.ready === 0 && r.onReserve === 0 && (
+                                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text-dim)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                                      none free
+                                    </span>
+                                  )}
+                                  {/* A capped row is answering a different question from the one
+                                      asked, so it says so rather than quietly changing it. */}
+                                  {r.frequencyCapped && (
+                                    <span
+                                      title={`One ${r.type.name} fits ${r.weeklyFrequency} round trips a week on this sector, not ${frequency} — this row is forecast at ${r.weeklyFrequency}×.`}
+                                      style={{ marginLeft: 8, fontSize: 10, color: 'var(--yellow)', border: '1px solid rgba(210,153,34,0.4)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}
+                                    >
+                                      max {r.weeklyFrequency}×/wk
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--text-muted)' }}>{r.seats}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                                  {proj
+                                    ? <span style={{ color: proj.loadFactor >= 0.75 ? 'var(--green)' : proj.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' }}>
+                                        {Math.round(proj.loadFactor * 100)}%
+                                      </span>
+                                    : <span style={{ color: 'var(--text-dim)' }}>–</span>}
+                                </td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>
+                                  {proj
+                                    ? <span style={{ color: proj.netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                                        {proj.netProfit >= 0 ? '+' : ''}{formatMoney(proj.netProfit)}
+                                      </span>
+                                    : <span style={{ color: 'var(--text-dim)', fontWeight: 400 }} title="This market could not be forecast for this type">–</span>}
+                                </td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                                  {chosen
+                                    ? <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>shown below</span>
+                                    : (
+                                      <button
+                                        className="btn btn-ghost"
+                                        style={{ padding: '3px 10px', fontSize: 12, color: 'var(--accent)' }}
+                                        title={`Forecast this route on the ${r.type.name}`}
+                                        onClick={() => setSelectedTypeId(r.typeId)}
+                                      >
+                                        Use
+                                      </button>
+                                    )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {recommendations.length > TOP_RECOMMENDATIONS && (
+                      <button
+                        className="btn btn-ghost"
+                        style={{ marginTop: 8, padding: '4px 12px', fontSize: 12 }}
+                        onClick={() => setShowAllRecs(v => !v)}
+                      >
+                        {showAllRecs
+                          ? 'Show fewer'
+                          : `Show all ${recommendations.length} aircraft that can fly this`}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Results */}
                 {simulation && (
