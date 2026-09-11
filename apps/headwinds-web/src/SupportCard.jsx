@@ -55,8 +55,8 @@ export default function SupportCard({ me }) {
         <h3 style={{ marginTop: 0 }}><SupporterBadge /> Thank you</h3>
         <p className="muted small" style={{ marginBottom: 0 }}>
           You've chipped in toward the servers — the badge is on your airline in every
-          world, and the ads are off. It genuinely helps. If you ever want to change or
-          cancel a monthly tip, it's all on your{' '}
+          world. It genuinely helps. If you ever want to change or cancel a monthly tip,
+          it's all on your{' '}
           <a href={KOFI_URL} target="_blank" rel="noopener noreferrer">Ko-fi page</a>.
         </p>
       </div>

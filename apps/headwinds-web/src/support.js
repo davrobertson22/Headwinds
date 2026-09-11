@@ -23,12 +23,13 @@ export const SUPPORT_PITCH = MONTHLY_COST
   ? `Headwinds costs about ${MONTHLY_COST} a month in servers. It's free, and it stays free — if it's worth something to you, this helps cover the bill.`
   : "Headwinds is free and it stays free. Running the worlds costs real money every month, so if the game is worth something to you, chipping in helps cover the servers.";
 
-// What a supporter actually gets. Kept honest and kept short — and kept
-// cosmetic. See Account.isSupporter in schema.prisma for why nothing on this
-// list may ever touch the simulation.
+// What a supporter actually gets: the badge, and nothing else. Ads stay on for
+// everyone, supporters included — the game is ad-funded and that is not a lever
+// worth trading away. Kept honest, kept short, and kept cosmetic: see
+// Account.isSupporter in schema.prisma for why nothing on this list may ever
+// touch the simulation.
 export const SUPPORT_PERKS = [
   'A ♥ SUPPORTER badge beside your airline, in every world',
-  'No ads, anywhere in the game',
   'Nothing that affects the game itself — no cash, no gates, no speed',
 ];
 

@@ -8,7 +8,6 @@ import { api, readableError } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import SupportCard from './SupportCard.jsx';
-import { armAdFailsafe, resolveAds } from './ads.js';
 import CareerPanel from './CareerPanel.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import UsernameCard from './UsernameCard.jsx';
@@ -1793,19 +1792,6 @@ export default function App() {
     api('/me', { token }).then(setMe).catch(() => setMe(null));
   }, [token]);
   useEffect(() => { refreshMe(); }, [refreshMe]);
-
-  // Ads: paused in play.html's <head>, released here once we know who this is.
-  // Supporters keep them paused; everyone else (signed out included) gets them.
-  // Armed on mount so a crash between here and the resolve can't strand ads in
-  // the paused state — see ads.js.
-  useEffect(() => { armAdFailsafe(); }, []);
-  useEffect(() => {
-    if (!ready) return;
-    // Signed in but /me still in flight: wait, or a supporter sees a flash of
-    // the ads they paid to be rid of.
-    if (session && me == null) return;
-    resolveAds(me?.account?.isSupporter === true);
-  }, [ready, session, me]);
 
   // A profile's "✉ Message" button routes to the inbox widget through this
   // one-shot request (consumed by the widget once it opens the thread).

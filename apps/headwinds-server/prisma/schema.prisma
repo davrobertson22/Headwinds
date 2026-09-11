@@ -71,8 +71,9 @@ model Account {
   // column and nothing may ever be added that does. Headwinds' whole premise is
   // that every rival is a real person on the same terms; the moment money buys
   // cash, gates, tick speed or any other engine input, the standings stop
-  // meaning anything and no refund undoes that. Badge and ad-suppression are
-  // the entire perk surface — keep it that way.
+  // meaning anything and no refund undoes that. The badge is the entire perk
+  // surface — not even the ads come off, since they help pay for this — so keep
+  // it that way.
   isSupporter Boolean @default(false)
   // ── Player-chosen unique username (player profiles, phase 2) ─────────────
   // Nullable: accounts claim one from the lobby; `displayName` stays the

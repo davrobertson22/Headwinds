@@ -307,9 +307,9 @@ export default async function adminRoutes(fastify) {
   // belongs to (they are usually different addresses). If that ever stops being
   // true, the honest fix is a claim code the donor pastes in, not fuzzy matching.
   //
-  // The badge is COSMETIC. It buys a chip beside the airline name and it turns
-  // the in-app ads off for that account. It must never buy anything the engine
-  // can see — see the note on Account.isSupporter in schema.prisma.
+  // The badge is COSMETIC. It buys a chip beside the airline name and nothing
+  // else — not even an ad-free game. It must never buy anything the engine can
+  // see — see the note on Account.isSupporter in schema.prisma.
   fastify.get('/admin/supporters', { preHandler: requireAdmin }, async () => {
     const supporters = await prisma.account.findMany({
       where: { isSupporter: true },
