@@ -322,9 +322,23 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
       {/* ── Crew pipeline: staffing, training, hiring ── */}
       {crew && (() => {
         const short = crew.short;
-        const severe = short >= CREW_SEVERE_SHORTFALL;
-        const tone = short <= 0 ? 'var(--green)' : severe ? 'var(--red)' : 'var(--yellow)';
         const perUnit = CREW_PER_UNIT[group.id] ?? 1;
+        // How many to HIRE — not simply how many are missing. Crew leave while
+        // the order is in the air and a trainee is not usable for weeks, so this
+        // is grossed up for both (see crewHiresNeeded). Everything urgent on this
+        // card keys off it, because it is the only number that knows whether the
+        // player still has something to DO.
+        const gapBodies = crewBodies(group.id, crew.hireAhead);
+        // A shortfall whose people are ALREADY IN TRAINING is not an emergency,
+        // it is a wait. The engine is right that they cannot fly yet — the
+        // on-time penalty stays — but the screen was reporting an airline that
+        // had hired four times over identically to one that had hired nobody,
+        // in max-severity red, directly above a button offering nine more
+        // ("I now have 59 pilots instead of the 15 needed", Discord 2026-09-11).
+        // Severity now means "you still have to act", never "you are behind".
+        const covered = short > 0 && gapBodies <= 0;
+        const severe = !covered && short >= CREW_SEVERE_SHORTFALL;
+        const tone = short <= 0 ? 'var(--green)' : severe ? 'var(--red)' : 'var(--yellow)';
         // Everything below this line is in PEOPLE. The engine works in
         // narrowbody-equivalents (1.0 = one 160-seat narrowbody's full crew
         // establishment) and keeps doing so; showing that index raw is what had
@@ -341,11 +355,13 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         // long before the gap stops being reported, which is how the card came
         // to warn about a shortfall it was simultaneously printing as zero.
         const missingBodies = Math.max(0, needBodies - haveBodies);
-        // How many to HIRE — not simply how many are missing. Crew leave while
-        // the order is in the air and a trainee is not usable for weeks, so this
-        // is grossed up for both (see crewHiresNeeded).
-        const gapBodies  = crewBodies(group.id, crew.hireAhead);
         const bookGap    = crewBodies(group.id, crew.hireBook);
+        // Nothing left to do for this group: neither today's fleet nor the order
+        // book needs another body. Hiring is still OFFERED — a pilot takes ten
+        // weeks, so hiring ahead of an order you have not placed yet is a real
+        // move — but the button must stop presenting itself as the remedy for
+        // the shortfall printed above it.
+        const nothingNeeded = gapBodies <= 0 && bookGap <= 0;
         const leaversWk  = crewBodies(group.id, crew.leaversPerWeek);
         const costPerHead = crewHireCost(group.id, 1 / perUnit);
         const hireBodies = (n) => dispatch({ type: 'HIRE_CREW', group: group.id, bodies: n });
@@ -426,7 +442,9 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
             )}
             {short > 0 && (
               <div style={{ fontSize: 11, color: tone, marginBottom: 6 }}>
-                {severe
+                {covered
+                  ? `⏳ Short-handed until training finishes — on-time performance is suffering until then, but ${trainBodies.toLocaleString()} are on the way: no further hiring needed.`
+                  : severe
                   ? '⚠ Severely short — on-time performance and satisfaction are taking the maximum hit.'
                   : '⚠ Short-handed — on-time performance is suffering. Hire before it gets worse.'}
               </div>
@@ -439,6 +457,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                   <button key={n} className="btn-small" disabled={cost > cash}
                     onClick={() => hireBodies(n)}
                     title={cost > cash ? 'Not enough cash to train this many'
+                      : nothingNeeded ? `You already have enough ${group.name.toLowerCase()} for your fleet and everything on order — this hires ${n.toLocaleString()} more for growth`
                       : instant ? 'Starter crew — starts work immediately'
                       : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
                     Hire {n.toLocaleString()} · {formatMoney(cost)}{instant ? ' · instant' : ''}
@@ -996,22 +1015,49 @@ export default function Operations() {
         Labor Groups
       </div>
 
-      {crewGap && crewGap.worst > 0 && (
-        <div style={{
-          marginBottom: 10, padding: '9px 12px', borderRadius: 4, fontSize: 12,
-          background: 'var(--surface2)',
-          border: `1px solid ${crewGap.severe ? 'var(--red)' : 'var(--yellow)'}`,
-          color: crewGap.severe ? 'var(--red)' : 'var(--yellow)',
-        }}>
-          <strong>{crewGap.severe ? 'Severely understaffed' : 'Short-handed'}</strong>
-          {' — '}
-          {LABOR_GROUPS.filter(g => (crew?.[g.id]?.short ?? 0) > 0)
-            .map(g => `${g.name} ${Math.max(0, crewBodies(g.id, crew[g.id].required) - crewBodies(g.id, crew[g.id].available)).toLocaleString()} short`)
-            .join(' · ')}
-          . Flying short-handed costs on-time performance and passenger satisfaction; crew take
-          {' '}{Math.min(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))}–{Math.max(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))} weeks to train, so hire ahead of your deliveries.
-        </div>
-      )}
+      {/* Severity here means "you still have something to DO", not "you are
+          behind". A group whose gap is already sitting in the training queue is
+          reported as a wait, in amber, with the queue visible — the banner used
+          to render it in the same max-severity red as an airline that had hired
+          nobody, which is what sent a player to 59 pilots for a 15-pilot
+          airline (Discord 2026-09-11). The engine is untouched: those trainees
+          still cannot fly and the on-time penalty still bites, which is why the
+          banner keeps saying so rather than going quiet. */}
+      {crewGap && crewGap.worst > 0 && (() => {
+        const shortGroups = LABOR_GROUPS.filter(g => (crew?.[g.id]?.short ?? 0) > 0);
+        // Covered = the engine's own attrition-aware recommendation for this
+        // group is zero. Same number the card's hire buttons read, so the banner
+        // and the card can never disagree about whether hiring is needed.
+        const isCovered = (g) => crewBodies(g.id, crew?.[g.id]?.hireAhead ?? 0) <= 0;
+        const needHiring = shortGroups.filter(g => !isCovered(g));
+        const severe = needHiring.some(g => (crew?.[g.id]?.short ?? 0) >= CREW_SEVERE_SHORTFALL);
+        const tone = needHiring.length === 0 ? 'var(--yellow)'
+                   : severe ? 'var(--red)' : 'var(--yellow)';
+        const title = needHiring.length === 0 ? 'Crewing up'
+                    : severe ? 'Severely understaffed' : 'Short-handed';
+        const describe = (g) => {
+          const missing = Math.max(0, crewBodies(g.id, crew[g.id].required) - crewBodies(g.id, crew[g.id].available));
+          const training = crewBodies(g.id, crew[g.id].training);
+          return isCovered(g)
+            ? `${g.name} ${missing.toLocaleString()} short · ${training.toLocaleString()} in training`
+            : `${g.name} ${missing.toLocaleString()} short`;
+        };
+        return (
+          <div style={{
+            marginBottom: 10, padding: '9px 12px', borderRadius: 4, fontSize: 12,
+            background: 'var(--surface2)',
+            border: `1px solid ${tone}`, color: tone,
+          }}>
+            <strong>{title}</strong>
+            {' — '}
+            {shortGroups.map(describe).join(' · ')}
+            {needHiring.length === 0
+              ? '. Flying short-handed costs on-time performance and passenger satisfaction until they qualify — but everyone you need is already in training, so no further hiring needed.'
+              : <>. Flying short-handed costs on-time performance and passenger satisfaction; crew take
+                  {' '}{Math.min(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))}–{Math.max(...LABOR_GROUPS.map(g => CREW_LEAD_WEEKS[g.id]))} weeks to train, so hire ahead of your deliveries.</>}
+          </div>
+        );
+      })()}
 
       {LABOR_GROUPS.map(group => (
         <LaborCard

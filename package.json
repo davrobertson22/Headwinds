@@ -99,6 +99,7 @@
     "test:nwr-default": "node tools/nwr-default-test.mjs",
     "test:crew": "node tools/crew-pipeline-test.mjs",
     "test:crew-ui": "node --import ./tools/_register-loader.mjs tools/crew-ui-test.mjs",
+    "test:crew-covered-ui": "node --import ./tools/_register-loader.mjs tools/crew-covered-ui-test.mjs",
     "drift": "node tools/engine-drift-check.mjs",
     "test:adsense": "node tools/adsense-readiness-test.mjs",
     "test:worlds": "node tools/worlds-pages-test.mjs"
