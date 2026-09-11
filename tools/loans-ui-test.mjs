@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import {
-  creditRating, loanRate, borrowingCapacity, collateralValue,
+  creditRating, creditFactors, loanRate, borrowingCapacity, collateralValue,
   AIRCRAFT_LOAN_ID, getLoanProduct,
 } from '../src/data/credit.js';
 
@@ -158,6 +158,57 @@ test('a fleet with nothing owned offers no secured capacity', () => {
   assert.equal(collateralValue(leasedOnly), 0);
   // …but unsecured borrowing is untouched by that.
   assert.ok(borrowingCapacity(leasedOnly, 'long') > 0);
+});
+
+// ── The grade has to account for itself ───────────────────────────────────────
+//
+// A player with the largest and most profitable airline in the world asked, in
+// Discord, why their rating had fallen. It had fallen for a correct reason — a
+// run of world events put the four-week average net income below zero — but the
+// panel showed a letter and a word, so the only way to learn that was to ask the
+// developer. These check that the reasons are on screen, and that they are the
+// engine's reasons rather than a second opinion written in JSX.
+
+test('an airline with a deduction is told which check it failed, unprompted', () => {
+  const shocked = {
+    ...save,
+    cash: 800_000_000,
+    financialHistory: [
+      ...Array.from({ length: 96 }, (_, i) => ({ label: `W${i}`, week: i + 1, year: 1, revenue: 300_000_000, profit: 45_000_000 })),
+      ...Array.from({ length: 4 },  (_, i) => ({ label: `S${i}`, week: i + 1, year: 3, revenue: 275_000_000, profit: -63_800_000 })),
+    ],
+  };
+  const out = render(shocked);
+  const why = creditFactors(shocked);
+
+  assert.ok(out.includes('How your rating is assessed'),
+    'the breakdown must open on its own when something is deducting');
+  // The panel prints the engine's own sentences — there is no second copy to drift.
+  for (const f of why.factors) {
+    assert.ok(out.includes(f.detail), `"${f.detail}" is not on screen`);
+  }
+  // …and the deduction itself, so the arithmetic is checkable by the player.
+  assert.ok(out.includes('-25'), 'the earnings deduction should be shown as a number');
+  assert.ok(out.includes(String(creditRating(shocked).score) + '/100'),
+    'the score behind the letter should be on screen');
+});
+
+test('the panel says the damage is temporary, because it is', () => {
+  const shocked = {
+    ...save,
+    cash: 800_000_000,
+    financialHistory: Array.from({ length: 30 }, (_, i) => ({ label: `W${i}`, week: i + 1, year: 1, revenue: 275_000_000, profit: -63_800_000 })),
+  };
+  assert.ok(/stops counting against you/.test(render(shocked)),
+    'an airline in a bad run must be told the window rolls off');
+});
+
+test('a clean airline is not nagged with a breakdown it does not need', () => {
+  // The fixture save is profitable, unlevered and 30 weeks old: a flawless 100.
+  assert.equal(creditRating(save).score, 100, 'fixture should be clean');
+  assert.ok(!html.includes('How your rating is assessed'),
+    'a spotless rating should stay collapsed');
+  assert.ok(html.includes('100/100'), 'the score is still one click away');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

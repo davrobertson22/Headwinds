@@ -43,7 +43,7 @@ import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
 import {
   LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, LEGACY_STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
-  creditRating, loanRate, borrowingCapacity, amortizedWeeklyPayment,
+  creditRating, creditFactors, loanRate, borrowingCapacity, amortizedWeeklyPayment,
   outstandingBalance, collateralValue, unencumberedOwnedFleet,
 } from '../data/credit.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -3255,8 +3255,17 @@ function Loans({ proj }) {
   // compute its own from a forward projection the server never saw, which is how
   // a modded client came to be able to name its own interest rate.
   const credit = creditRating(state);
+  // …and the line items that produced it. A grade with no reasons attached is
+  // the same support question every time: "why did my rating drop?" The answer
+  // was always in the model; it was never on the screen.
+  const creditWhy = creditFactors(state);
+  const creditDeductions = creditWhy.factors.filter(f => f.delta < 0);
+  const creditRecovers = creditDeductions.some(f => f.id === 'earnings' || f.id === 'runway');
 
   // Loan form state
+  // Open by default whenever something is actually deducting — that is exactly
+  // the moment the player has a question. A clean sheet stays collapsed.
+  const [showCreditWhy, setShowCreditWhy] = useState(creditDeductions.length > 0);
   const [selectedProduct, setSelectedProduct] = useState('medium');
   const [loanAmount, setLoanAmount] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -3293,13 +3302,72 @@ function Loans({ proj }) {
               textAlign: 'center', fontWeight: 800, fontSize: 22,
               background: credit.color + '22', color: credit.color, border: `1px solid ${credit.color}44`
             }}>{credit.grade}</span>
-            <span style={{ color: credit.color, fontWeight: 600 }}>{credit.label}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: credit.color, fontWeight: 600, lineHeight: 1.2 }}>{credit.label}</div>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setShowCreditWhy(v => !v)}
+                style={{ padding: 0, marginTop: 2, fontSize: 11, color: 'var(--text-dim)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}
+                title="What the lender is looking at"
+              >
+                {credit.score}/100 · {showCreditWhy ? 'hide' : 'why?'}
+              </button>
+            </div>
           </div>
         </div>
         <StatBox label="Active Loans"       value={activeLoans.length}              color="blue" />
         <StatBox label="Total Debt (loans)" value={formatMoney(totalLoanDebt)}      color={totalLoanDebt > 0 ? 'red' : 'green'} />
         <StatBox label="Weekly Repayments"  value={formatMoney(weeklyLoanPayments)} color={weeklyLoanPayments > 0 ? 'red' : 'green'} />
       </div>
+
+      {/* Why the grade is the grade. Rendered from the same engine call that
+          prices the loans, so the explanation cannot drift from the rating. */}
+      {showCreditWhy && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">How your rating is assessed</div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 12 }}>
+            Every airline starts at 100. Lenders read your last{' '}
+            <strong>{creditWhy.windowWeeks} weeks of realised results</strong> — not
+            your cash balance, and not whether you've missed a payment.
+          </div>
+          <table style={{ width: '100%' }}>
+            <tbody>
+              {creditWhy.factors.map(f => (
+                <tr key={f.id}>
+                  <td style={{ width: 120, fontWeight: 600, verticalAlign: 'top', padding: '6px 0' }}>{f.label}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12, verticalAlign: 'top', padding: '6px 8px' }}>{f.detail}</td>
+                  <td style={{
+                    width: 56, textAlign: 'right', fontWeight: 700, verticalAlign: 'top', padding: '6px 0',
+                    color: f.delta < 0 ? 'var(--red)' : 'var(--green)',
+                  }}>
+                    {f.delta < 0 ? f.delta : '✓'}
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={2} style={{ borderTop: '1px solid var(--surface2)', paddingTop: 8, fontWeight: 600 }}>
+                  Score
+                </td>
+                <td style={{ borderTop: '1px solid var(--surface2)', paddingTop: 8, textAlign: 'right', fontWeight: 800, color: credit.color }}>
+                  {credit.score}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          {creditRecovers && (
+            <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(62,166,255,.07)', border: '1px solid rgba(62,166,255,.18)', fontSize: 12, color: 'var(--text-muted)' }}>
+              <Glyph e="↻" /> These read a rolling {creditWhy.windowWeeks}-week average, so a bad
+              run stops counting against you once {creditWhy.windowWeeks} profitable weeks have
+              closed behind it. Nothing here is permanent.
+            </div>
+          )}
+          {creditDeductions.length === 0 && (
+            <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(63,185,80,.06)', border: '1px solid rgba(63,185,80,.15)', fontSize: 12, color: 'var(--green)' }}>
+              <Glyph e="✓" /> Nothing is holding your rating down — you're on the best terms the desk offers.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Active loans */}
       {activeLoans.length > 0 && (

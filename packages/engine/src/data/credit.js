@@ -192,43 +192,109 @@ export function unsecuredDebtOutstanding(state) {
  * what changed is where the revenue and net-income figures come from (realised
  * results rather than a forward projection the server never had).
  */
-export function creditScore(state) {
+export function creditFactors(state) {
   const { weeklyRevenue, weeklyNetIncome, weeksOps } = creditInputs(state);
   const leased = (state?.fleet ?? []).filter(a => a.ownershipType !== 'owned');
   const annualLease = leased.reduce((s, a) => {
     const t = getAircraftType(a.typeId);
     return s + (a.weeklyLease ?? t?.weeklyLease ?? 0) * 52;
   }, 0);
-  const totalDebt = annualLease + totalDebtOutstanding(state);
+  const loanDebt  = totalDebtOutstanding(state);
+  const totalDebt = annualLease + loanDebt;
   const equity    = (state?.paidInCapital ?? LEGACY_STARTING_CAPITAL)
     + (state?.financialHistory ?? []).reduce((s, h) => s + (Number(h?.profit) || 0), 0);
 
   const debtToEquity = equity > 0 ? totalDebt / Math.max(equity, 1) : 99;
-  const runway = weeklyNetIncome < 0 && (state?.cash ?? 0) > 0
-    ? state.cash / -weeklyNetIncome
+  const cash = state?.cash ?? 0;
+  const runway = weeklyNetIncome < 0 && cash > 0
+    ? cash / -weeklyNetIncome
     : Infinity;
 
-  let score = 100;
-  if (debtToEquity > 4)      score -= 40;
-  else if (debtToEquity > 2) score -= 20;
-  else if (debtToEquity > 1) score -= 10;
+  const factors = [];
 
-  // An airline that has not yet traded a week gives a lender nothing to read,
-  // and an unread book is priced like a bad one. Without this a brand-new
-  // carrier — no revenue, no costs, no history — scores a flawless A on its
-  // first day, which is where a four-week average of realised results differs
-  // from the forward projection this rating used to be built on.
-  if (weeksOps === 0)                              score -= 25;
-  else if (weeklyNetIncome < 0)                    score -= 25;
-  else if (weeklyNetIncome < weeklyRevenue * 0.05) score -= 10;
+  // ── Leverage ───────────────────────────────────────────────────────────────
+  if (debtToEquity > 4) {
+    factors.push({ id: 'leverage', label: 'Leverage', delta: -40,
+      detail: 'Debt (loans + a year of lease rentals) is more than 4x equity.' });
+  } else if (debtToEquity > 2) {
+    factors.push({ id: 'leverage', label: 'Leverage', delta: -20,
+      detail: 'Debt (loans + a year of lease rentals) is more than 2x equity.' });
+  } else if (debtToEquity > 1) {
+    factors.push({ id: 'leverage', label: 'Leverage', delta: -10,
+      detail: 'Debt (loans + a year of lease rentals) exceeds equity.' });
+  } else {
+    factors.push({ id: 'leverage', label: 'Leverage', delta: 0,
+      detail: 'Debt is comfortably covered by equity.' });
+  }
 
-  if (Number.isFinite(runway) && runway < 4)       score -= 30;
-  else if (Number.isFinite(runway) && runway < 12) score -= 15;
+  // ── Earnings ───────────────────────────────────────────────────────────────
+  // The window is what a lender can actually read: realised results, averaged.
+  // A single catastrophic week is diluted by three; four bad weeks are not.
+  if (weeksOps === 0) {
+    factors.push({ id: 'earnings', label: 'Earnings', delta: -25,
+      detail: 'No trading week has closed yet, so there are no results to read.' });
+  } else if (weeklyNetIncome < 0) {
+    factors.push({ id: 'earnings', label: 'Earnings', delta: -25,
+      detail: `Average net income over the last ${CREDIT_WINDOW_WEEKS} weeks is negative.` });
+  } else if (weeklyNetIncome < weeklyRevenue * 0.05) {
+    factors.push({ id: 'earnings', label: 'Earnings', delta: -10,
+      detail: `Net margin over the last ${CREDIT_WINDOW_WEEKS} weeks is under 5%.` });
+  } else {
+    factors.push({ id: 'earnings', label: 'Earnings', delta: 0,
+      detail: `Profitable across the last ${CREDIT_WINDOW_WEEKS} weeks at a healthy margin.` });
+  }
 
-  if (weeksOps < 4)       score -= 15;
-  else if (weeksOps < 12) score -= 5;
+  // ── Liquidity ──────────────────────────────────────────────────────────────
+  if (Number.isFinite(runway) && runway < 4) {
+    factors.push({ id: 'runway', label: 'Cash runway', delta: -30,
+      detail: 'At the current burn rate, cash lasts under 4 weeks.' });
+  } else if (Number.isFinite(runway) && runway < 12) {
+    factors.push({ id: 'runway', label: 'Cash runway', delta: -15,
+      detail: 'At the current burn rate, cash lasts under 12 weeks.' });
+  } else {
+    factors.push({ id: 'runway', label: 'Cash runway', delta: 0,
+      detail: Number.isFinite(runway)
+        ? 'Cash covers the current burn rate for more than 12 weeks.'
+        : 'Not burning cash.' });
+  }
 
-  return Math.max(0, Math.min(100, score));
+  // ── Track record ───────────────────────────────────────────────────────────
+  if (weeksOps < 4) {
+    factors.push({ id: 'history', label: 'Track record', delta: -15,
+      detail: 'Fewer than 4 weeks of trading history.' });
+  } else if (weeksOps < 12) {
+    factors.push({ id: 'history', label: 'Track record', delta: -5,
+      detail: 'Fewer than 12 weeks of trading history.' });
+  } else {
+    factors.push({ id: 'history', label: 'Track record', delta: 0,
+      detail: `${weeksOps} weeks of trading history.` });
+  }
+
+  const raw = factors.reduce((s, f) => s + f.delta, 100);
+
+  return {
+    score: Math.max(0, Math.min(100, raw)),
+    factors,
+    windowWeeks: CREDIT_WINDOW_WEEKS,
+    inputs: {
+      weeklyRevenue, weeklyNetIncome, weeksOps, cash,
+      equity, loanDebt, annualLease, totalDebt, debtToEquity, runway,
+    },
+  };
+}
+
+/**
+ * 0-100 creditworthiness. Thresholds are carried over unchanged from the old
+ * client-side function so nobody's grade moves for a reason they can't see;
+ * what changed is where the revenue and net-income figures come from (realised
+ * results rather than a forward projection the server never had).
+ *
+ * The arithmetic now lives in `creditFactors`, which returns the same number
+ * along with the line items that produced it - because a grade a player cannot
+ * account for reads as a bug even when it is right.
+ */
+export function creditScore(state) {
+  return creditFactors(state).score;
 }
 
 export const CREDIT_GRADES = [
