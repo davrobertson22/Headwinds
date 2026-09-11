@@ -247,7 +247,14 @@ export const SEASONAL_PROFILES = {
   // Ski/winter-sport destinations — peaks Dec–Mar, deep summer trough.
   ski:         [null, 1.22, 1.30, 1.14, 0.70, 0.58, 0.62, 0.85, 0.88, 0.78, 0.84, 1.10, 1.30],
 
-  // Southern-hemisphere origins/destinations — seasons are flipped.
+  // ── Southern-hemisphere twins ───────────────────────────────────────────
+  // Not a six-month rotation of the curve above. The CLIMATE flips across the
+  // equator; the CALENDAR does not. Christmas and New Year stay in December,
+  // where in the south they land on the summer peak instead of the winter
+  // trough — which is why these curves are more lopsided than their northern
+  // counterparts rather than merely shifted. Each twin carries the same annual
+  // mean as the profile it mirrors, so crossing the equator moves demand
+  // between months without creating or destroying any.
   southern:    [null, 1.25, 1.28, 1.08, 0.90, 0.80, 0.74, 0.76, 0.80, 0.94, 1.02, 1.12, 1.20],
 
   // Asia–Pacific: Chinese New Year Jan/Feb, Golden Week May, steady.
@@ -261,15 +268,43 @@ export const SEASONAL_PROFILES = {
 
   // Sub-Saharan Africa — safari dry-season Jul–Oct peak; otherwise fairly stable.
   africa:      [null, 0.90, 0.88, 0.86, 0.90, 0.92, 0.96, 1.10, 1.12, 1.10, 1.06, 0.96, 0.92],
+
+  // Southern beach — Bondi, Copacabana, Camps Bay. The northern beach curve
+  // reflected, with the December holidays reinforcing the summer peak.
+  southernBeach:    [null, 1.48, 1.40, 1.12, 0.90, 0.78, 0.68, 0.70, 0.72, 0.82, 0.94, 1.12, 1.34],
+
+  // Southern alpine — Queenstown, Bariloche, Perisher. Snow falls Jul–Sep; the
+  // December holidays are a mild summer-trade bump, not the peak.
+  southernSki:      [null, 0.64, 0.62, 0.74, 0.86, 1.10, 1.26, 1.34, 1.30, 1.18, 0.80, 0.68, 0.78],
+
+  // Southern business — the long summer-holiday lull is Jan–Feb, and December
+  // dips for Christmas the same way it does everywhere.
+  southernBusiness: [null, 0.82, 0.90, 1.06, 1.08, 1.06, 1.02, 1.02, 1.04, 1.06, 1.08, 1.04, 0.84],
+};
+
+/**
+ * Which profile a climate archetype becomes in the southern hemisphere.
+ *
+ * The regional archetypes are absent on purpose: `asia`, `middleEast`,
+ * `caribbean` and `africa` are authored for a specific part of the world and
+ * are already right for the latitudes that use them — their shape is monsoon,
+ * Chinese New Year, hurricane season and safari, none of which mirror.
+ */
+const SOUTHERN_TWIN = {
+  generic:  'southern',
+  beach:    'southernBeach',
+  ski:      'southernSki',
+  business: 'southernBusiness',
 };
 
 // ── Country → profile mapping ─────────────────────────────────────────────
+// Which CLIMATE archetype a country follows. Hemisphere is NOT decided here —
+// it comes from each airport's latitude (see seasonalProfileForAirport), because
+// a country is not a hemisphere: Brazil, Indonesia, Ecuador, Kenya and Colombia
+// all straddle the equator, and 44 of the 51 countries with southern airports
+// were never on this list at all, so Montevideo, Windhoek, Harare, Suva and
+// Papeete all used to peak in July — the middle of their winter.
 const COUNTRY_PROFILE = {
-  // Southern hemisphere
-  AU: 'southern', NZ: 'southern',
-  AR: 'southern', CL: 'southern', PE: 'southern', BR: 'southern',
-  ZA: 'southern',
-
   // Middle East
   AE: 'middleEast', QA: 'middleEast', SA: 'middleEast', IL: 'middleEast',
 
@@ -292,15 +327,88 @@ const COUNTRY_PROFILE = {
 };
 
 /**
- * Which seasonal profile an airport follows, from its country.
+ * Which CLIMATE archetype an airport follows, from its country.
  *
- * Split out of getSeasonalProfile so the directional-skew model below can ask
- * about ONE endpoint — the blend is an average of two answers, and the skew is
- * their difference.
+ * This is only half the answer: the archetypes are authored for the northern
+ * hemisphere, and seasonalProfileForAirport turns one into the curve the
+ * airport actually flies by looking at its latitude. Kept separate because the
+ * directional-skew model below asks about ONE endpoint, and because the
+ * archetype is the thing worth naming in a test.
  */
 export function seasonalProfileIdFor(code) {
   const country = getAirport(code)?.country ?? 'US';
   return COUNTRY_PROFILE[country] ?? 'generic';
+}
+
+// ── Hemisphere ─────────────────────────────────────────────────────────────
+// Seasons are a function of latitude, not of a country list. Two thresholds
+// describe the whole model:
+//
+//   • outside ±TROPIC_OUTER the local hemisphere governs completely, so every
+//     northern temperate airport keeps the authored curve unchanged, to the
+//     digit — this is not a rebalance of the northern world;
+//   • inside ±TROPIC_INNER no hemisphere's summer is asserted at all. An
+//     airport at 3°S has no thermal season to speak of, and handing it either
+//     hemisphere's July is equally wrong; what it has is a wet and a dry
+//     season, which the regional archetypes model where we have them.
+//
+// Between the two the curves cross over smoothly, so there is no cliff down
+// the middle of a country: Rio at 22.8°S and São Paulo at 23.4°S are a hundred
+// kilometres and one tenth of a weighting apart, not two hemispheres.
+const TROPIC_INNER = 15;
+const TROPIC_OUTER = 25;
+
+const MONTH_INDEX = Array.from({ length: 12 }, (_, i) => i + 1);
+
+const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * How strongly each hemisphere's seasons apply at `lat`, and how much of the
+ * year is left flat. The three always sum to 1.
+ */
+export function hemisphereMix(lat) {
+  const n = clamp01((lat - TROPIC_INNER) / (TROPIC_OUTER - TROPIC_INNER));
+  const s = clamp01((-lat - TROPIC_INNER) / (TROPIC_OUTER - TROPIC_INNER));
+  return { north: n, south: s, flat: 1 - n - s };
+}
+
+const _profileCache = new Map();
+
+/**
+ * The seasonal multiplier profile (index 1–12) a single airport flies.
+ *
+ * Cached on archetype + hemisphere weighting rather than on the airport code,
+ * so every northern temperate airport on the same archetype shares ONE array
+ * object. getSeasonalProfile and directionalSeasonalSkew both lean on that:
+ * identical seasons compare by reference, and a domestic route costs no
+ * arithmetic and no allocation, exactly as before.
+ */
+export function seasonalProfileForAirport(code) {
+  const id   = seasonalProfileIdFor(code);
+  const base = SEASONAL_PROFILES[id] ?? SEASONAL_PROFILES.generic;
+  const twin = SEASONAL_PROFILES[SOUTHERN_TWIN[id]];
+
+  const lat = Number(getAirport(code)?.lat);
+  // A regional archetype is already authored for its own latitudes, and an
+  // airport with no coordinates has nothing to reason from: both keep the
+  // archetype untouched.
+  if (!twin || !Number.isFinite(lat)) return base;
+
+  const { north, south, flat } = hemisphereMix(lat);
+  if (north >= 1) return base;
+
+  const key = `${id}|${north.toFixed(3)}|${south.toFixed(3)}`;
+  const hit = _profileCache.get(key);
+  if (hit) return hit;
+
+  // The flat share is the profile's own annual mean, so damping toward the
+  // equator flattens the year without changing what it adds up to.
+  const mean = MONTH_INDEX.reduce((sum, m) => sum + base[m], 0) / 12;
+  const out = [null, ...MONTH_INDEX.map(m =>
+    Math.round((north * base[m] + south * twin[m] + flat * mean) * 1000) / 1000
+  )];
+  _profileCache.set(key, out);
+  return out;
 }
 
 /**
@@ -308,16 +416,14 @@ export function seasonalProfileIdFor(code) {
  * See getSeasonalProfile's contract above.
  */
 export function getSeasonalProfile(originCode, destCode) {
-  const oPid = seasonalProfileIdFor(originCode);
-  const dPid = seasonalProfileIdFor(destCode);
+  const oP = seasonalProfileForAirport(originCode);
+  const dP = seasonalProfileForAirport(destCode);
 
-  if (oPid === dPid) return SEASONAL_PROFILES[oPid];
+  if (oP === dP) return oP;
 
   // Blend origin + destination profiles
-  const oP = SEASONAL_PROFILES[oPid];
-  const dP = SEASONAL_PROFILES[dPid];
-  return [null, ...Array.from({ length: 12 }, (_, i) =>
-    Math.round(((oP[i + 1] + dP[i + 1]) / 2) * 1000) / 1000
+  return [null, ...MONTH_INDEX.map(m =>
+    Math.round(((oP[m] + dP[m]) / 2) * 1000) / 1000
   )];
 }
 
@@ -345,13 +451,13 @@ export const SEASONAL_SKEW_CAP = 0.35;
  * @returns {number} −SEASONAL_SKEW_CAP … +SEASONAL_SKEW_CAP
  */
 export function directionalSeasonalSkew(originCode, destCode, month) {
-  const oPid = seasonalProfileIdFor(originCode);
-  const dPid = seasonalProfileIdFor(destCode);
-  if (oPid === dPid) return 0;
+  const oP = seasonalProfileForAirport(originCode);
+  const dP = seasonalProfileForAirport(destCode);
+  if (oP === dP) return 0;
   const m = Math.round(Number(month));
   if (!Number.isFinite(m) || m < 1 || m > 12) return 0;
-  const o = SEASONAL_PROFILES[oPid]?.[m] ?? 1;
-  const d = SEASONAL_PROFILES[dPid]?.[m] ?? 1;
+  const o = oP?.[m] ?? 1;
+  const d = dP?.[m] ?? 1;
   const sum = o + d;
   if (!(sum > 0)) return 0;
   return Math.max(-SEASONAL_SKEW_CAP, Math.min(SEASONAL_SKEW_CAP, (o - d) / sum));
