@@ -34,5 +34,6 @@
       "source": "/sitemap-worlds.xml",
       "destination": "/api/sitemap-worlds"
     }
-  ]
+  ],
+  "ignoreCommand": "exit 1"
 }
