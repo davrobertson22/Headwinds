@@ -14,7 +14,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api.js';
 import { ReportDialog } from './Report.jsx';
-import OgBadge, { DevBadge } from './OgBadge.jsx';
+import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { useVisibleInterval } from './usePoll.js';
 
 const fmtTime = (t) => {
@@ -103,7 +103,7 @@ function InboxDrawer({ token, summary, error, thread, setThread, refresh, onClos
           ) : summary.conversations.map((c) => (
             <button key={c.accountId} className="hw-msg-convo" onClick={() => setThread(c.accountId)}>
               <span className="hw-msg-convo-name">
-                {c.name}{c.dev ? <DevBadge /> : null}{c.og ? <OgBadge /> : null}
+                {c.name}{c.dev ? <DevBadge /> : null}{c.og ? <OgBadge /> : null}{c.sup ? <SupporterBadge /> : null}
                 {c.unread > 0 && <span className="hw-msg-badge">{c.unread}</span>}
               </span>
               {c.lastMessage && (
@@ -204,6 +204,7 @@ function AccountThread({ token, accountId, fallbackName, onBack, onBlocked }) {
             style={{ color: 'inherit' }}>{name}</a>
           {data?.counterpart?.dev ? <DevBadge /> : null}
           {data?.counterpart?.og ? <OgBadge /> : null}
+          {data?.counterpart?.sup ? <SupporterBadge /> : null}
         </strong>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
           <button className="btn small" onClick={() => setReporting(true)} title="Report this player to the admins">⚠ Report</button>

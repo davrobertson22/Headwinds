@@ -48,6 +48,7 @@ const counterpartOf = (a) => ({
   accountId: a.id,
   name: displayNameOf(a) ?? 'Unknown',
   og: a.isOG === true,
+  sup: a.isSupporter === true,
   dev: isDevEmail(a.email), // email compared server-side only, never emitted
 });
 
@@ -72,7 +73,7 @@ export default async function accountMessageRoutes(fastify) {
     ])];
     const others = otherIds.length === 0 ? [] : await prisma.account.findMany({
       where: { id: { in: otherIds } },
-      select: { id: true, username: true, displayName: true, isOG: true, email: true },
+      select: { id: true, username: true, displayName: true, isOG: true, isSupporter: true, email: true },
     });
     const otherById = new Map(others.map((a) => [a.id, a]));
 
@@ -124,7 +125,7 @@ export default async function accountMessageRoutes(fastify) {
     const otherId = request.params.accountId;
     const other = await prisma.account.findUnique({
       where: { id: otherId },
-      select: { id: true, username: true, displayName: true, isOG: true, email: true },
+      select: { id: true, username: true, displayName: true, isOG: true, isSupporter: true, email: true },
     });
     if (!other) throw httpError(404, 'No such player');
 

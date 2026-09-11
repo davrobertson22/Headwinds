@@ -12,6 +12,7 @@
 // game in GamePlayScreen (which fetches for itself).
 import { useState, useEffect } from 'react';
 import { api } from './api.js';
+import { SeasonSupportPrompt } from './SupportCard.jsx';
 
 const fmtSvps = (n) => n == null ? '—'
   : Math.abs(n) >= 100 ? `$${Math.round(n).toLocaleString('en-US')}`
@@ -20,7 +21,7 @@ const fmtInt = (n) => (n == null ? '—' : Math.round(n).toLocaleString('en-US')
 
 const MEDAL = ['🥇', '🥈', '🥉'];
 
-export default function SeasonResults({ worldId, token, myAirlineId = null, preloaded = null }) {
+export default function SeasonResults({ worldId, token, myAirlineId = null, preloaded = null, me = null }) {
   const [data, setData] = useState(preloaded);
   const [error, setError] = useState(null);
 
@@ -122,6 +123,10 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
       <p className="muted small" style={{ marginTop: 8 }}>
         Passengers, network and #1-week records above are banked to each player's career.
       </p>
+
+      {/* The one moment in the whole game worth asking at: a season they just
+          finished, and the servers that ran it for seven months. */}
+      <SeasonSupportPrompt me={me} />
     </div>
   );
 }

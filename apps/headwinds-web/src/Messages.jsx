@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { authedApi } from './authedApi.js';
 import { ReportDialog } from './Report.jsx';
-import OgBadge, { DevBadge } from './OgBadge.jsx';
+import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { useVisibleInterval } from './usePoll.js';
 
 const fmtTime = (t) => {
@@ -101,7 +101,7 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose, onVi
           ) : summary.conversations.map((c) => (
             <button key={c.airlineId} className="hw-msg-convo" onClick={() => openThread(c.airlineId)}>
               <span className="hw-msg-convo-name">
-                {c.name}{c.dev ? <DevBadge /> : null}{c.og ? <OgBadge /> : null}
+                {c.name}{c.dev ? <DevBadge /> : null}{c.og ? <OgBadge /> : null}{c.sup ? <SupporterBadge /> : null}
                 {c.unread > 0 && <span className="hw-msg-badge">{c.unread}</span>}
               </span>
               {c.lastMessage && (
@@ -139,6 +139,8 @@ function MessagesDrawer({ worldId, token, summary, refresh, error, onClose, onVi
             ?? summary.airlines.find((a) => a.id === thread)?.og) === true}
           dev={(summary.conversations.find((c) => c.airlineId === thread)?.dev
             ?? summary.airlines.find((a) => a.id === thread)?.dev) === true}
+          sup={(summary.conversations.find((c) => c.airlineId === thread)?.sup
+            ?? summary.airlines.find((a) => a.id === thread)?.sup) === true}
           accountId={summary.conversations.find((c) => c.airlineId === thread)?.accountId
             ?? summary.airlines.find((a) => a.id === thread)?.accountId ?? null}
           onViewPlayer={onViewPlayer}
@@ -184,7 +186,7 @@ function Composer({ placeholder, disabled, onSend }) {
   );
 }
 
-function DmThread({ worldId, token, airlineId, name, og = false, dev = false, accountId = null, onViewPlayer = null, onBack, onBlocked }) {
+function DmThread({ worldId, token, airlineId, name, og = false, dev = false, sup = false, accountId = null, onViewPlayer = null, onBack, onBlocked }) {
   const confirm = useConfirm();
   const [messages, setMessages] = useState(null);
   const [error, setError] = useState(null);
@@ -212,7 +214,7 @@ function DmThread({ worldId, token, airlineId, name, og = false, dev = false, ac
     <div className="hw-msg-body hw-msg-thread">
       <div className="hw-msg-thread-head">
         <button className="btn small" onClick={onBack}>← Inbox</button>
-        <strong>{name}{dev ? <DevBadge /> : null}{og ? <OgBadge /> : null}</strong>
+        <strong>{name}{dev ? <DevBadge /> : null}{og ? <OgBadge /> : null}{sup ? <SupporterBadge /> : null}</strong>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
           {/* Account-level profile — present only when the shell injected the
               overlay opener AND the server sent an accountId. */}
@@ -291,7 +293,7 @@ function AllianceBoard({ worldId, token, onSeen }) {
           ? <p className="hw-msg-empty">Nothing on the board yet. Coordinate routes, plan a fare war, or just chat.</p>
           : data.messages.map((m) => (
             <div key={m.id} className={`hw-msg-bubble ${m.fromMe ? 'mine' : ''}`}>
-              {!m.fromMe && <div className="hw-msg-from">{m.from}{m.fromDev ? <DevBadge /> : null}{m.fromOG ? <OgBadge /> : null}</div>}
+              {!m.fromMe && <div className="hw-msg-from">{m.from}{m.fromDev ? <DevBadge /> : null}{m.fromOG ? <OgBadge /> : null}{m.fromSup ? <SupporterBadge /> : null}</div>}
               <div>{m.body}</div>
               <div className="hw-msg-time">{fmtTime(m.at)}</div>
             </div>

@@ -62,6 +62,18 @@ model Account {
   // panel). Account-wide: surfaces as a gold "✈ OG" chip beside every airline
   // this account flies, in every world — standings, Rivals tab, feed, messages.
   isOG Boolean @default(false)
+  // ── Supporter badge: this account has chipped in on Ko-fi toward the server
+  // bill. Admin-granted exactly like isOG (a Ko-fi donation mails Dave; the
+  // admin flips it from the moderation panel), account-wide, and rendered as a
+  // chip beside every airline this account flies.
+  //
+  // COSMETIC ONLY, AND PERMANENTLY SO. Nothing in packages/engine reads this
+  // column and nothing may ever be added that does. Headwinds' whole premise is
+  // that every rival is a real person on the same terms; the moment money buys
+  // cash, gates, tick speed or any other engine input, the standings stop
+  // meaning anything and no refund undoes that. Badge and ad-suppression are
+  // the entire perk surface — keep it that way.
+  isSupporter Boolean @default(false)
   // ── Player-chosen unique username (player profiles, phase 2) ─────────────
   // Nullable: accounts claim one from the lobby; `displayName` stays the
   // sign-up name and the fallback everywhere (display = username ?? displayName).

@@ -56,6 +56,9 @@ export default async function meRoutes(fastify) {
         isAdmin: isAdmin(account),
         // OG veteran badge (playing since the original Tailwinds).
         isOG: account.isOG === true,
+        // Ko-fi supporter badge (see Account.isSupporter — cosmetic only).
+        // Also what suppresses the in-app ads for this account.
+        isSupporter: account.isSupporter === true,
         // Claimed unique username (null until the account picks one from the
         // lobby). Display everywhere is username ?? displayName.
         username: account.username ?? null,

@@ -120,7 +120,7 @@ export default async function worldRoutes(fastify) {
                   THEN jsonb_array_length(a.state->'routes') ELSE 0 END AS routes,
              CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
                   THEN jsonb_array_length(a.state->'fleet') ELSE 0 END AS fleet,
-             acc."isOG" AS og, acc.email AS email
+             acc."isOG" AS og, acc."isSupporter" AS sup, acc.email AS email
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
@@ -211,6 +211,7 @@ export default async function worldRoutes(fastify) {
         fleet: Number(a.fleet),
         alliance: allianceNameByAirline.get(a.id) ?? null,
         og: a.og === true,
+        sup: a.sup === true,
         dev: isDevEmail(a.email),
         // Most recent player move (null if none yet this generation).
         lastMoveAt: lastMoveByAirline.get(a.id) ?? null,
@@ -329,6 +330,7 @@ export default async function worldRoutes(fastify) {
         fleet: (s.fleet ?? []).length,
         accountId: airline.accountId,
         og: airline.account?.isOG === true,
+        sup: airline.account?.isSupporter === true,
         dev: isDevEmail(airline.account?.email),
       },
       hubs: Object.keys(s.hubs ?? {}),

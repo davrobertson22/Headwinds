@@ -45,7 +45,7 @@ export const RIVAL_PROFILE_SELECT = {
   // against ADMIN_EMAILS. `careerStats` drives the cross-world career badges
   // (Champion / Veteran / Phoenix …) shown on the dossier — computed through
   // publicCareer so a private-world championship never leaks.
-  account: { select: { isOG: true, email: true, careerStats: true } },
+  account: { select: { isOG: true, isSupporter: true, email: true, careerStats: true } },
   // The visibility gate (lib/access.mjs) needs the world on this same read
   // rather than a second round trip.
   world: { select: { id: true, visibility: true } },

@@ -156,6 +156,18 @@ table.compact td { padding: 4px 8px; font-size: 14px; }
   white-space: nowrap;
 }
 
+/* SUPPORTER badge — chipped in on Ko-fi toward the server bill. Ko-fi blue, so
+   it reads as a third marker beside gold OG veterans and teal DEV operators.
+   Cosmetic only: nothing in the sim ever reads the flag behind it. */
+.supporter-badge {
+  display: inline-flex; align-items: center; gap: 3px; vertical-align: middle;
+  margin-left: 7px; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.06em; line-height: 1.5;
+  color: #8fb8f6; background: rgba(114, 164, 242, 0.14);
+  border: 1px solid rgba(114, 164, 242, 0.45);
+  white-space: nowrap;
+}
+
 /* Full-game mount: the solo app brings its own index.css and owns the viewport.
    Multiplayer chrome (lobby link, feed, messages, tick countdown) is rendered
    INSIDE the game's own topbar via remoteChrome — no second header bar. */

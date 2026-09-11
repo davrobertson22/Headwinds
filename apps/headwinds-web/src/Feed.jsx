@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api.js';
-import OgBadge, { DevBadge } from './OgBadge.jsx';
+import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { getAircraftType } from '../../../src/data/aircraft.js';
 
@@ -174,7 +174,7 @@ export default function FeedWidget({ worldId, token, myAirlineId = null, onOpenN
                 }}>
                   <span style={{ flexShrink: 0 }}>{d.icon}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <strong>{d.who}</strong>{e.dev ? <DevBadge /> : null}{e.og ? <OgBadge /> : null}{mine ? <strong> (you)</strong> : ''}
+                    <strong>{d.who}</strong>{e.dev ? <DevBadge /> : null}{e.og ? <OgBadge /> : null}{e.sup ? <SupporterBadge /> : null}{mine ? <strong> (you)</strong> : ''}
                     {d.what ? ` ${d.what}` : ''}
                     {e.week != null && <span style={{ opacity: 0.55 }}> · W{e.week}</span>}
                   </span>

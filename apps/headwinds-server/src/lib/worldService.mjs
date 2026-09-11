@@ -110,12 +110,15 @@ export async function createWorld(prisma, {
   });
 }
 
-// "OG" and "DEV" are reserved markers — account-level badges the game renders
-// itself (gold "✈ OG" veteran chip; teal "🛠 DEV" operator chip). Nobody gets to
-// fake them in plain text, so airline names may not contain bracketed look-alikes:
-// [OG], (og), {0G}, [ O.G ], [DEV], (d3v), <dev>, etc. Applies to EVERYONE
-// (real OGs/devs get the rendered chip; it never lives in a name).
-export const OG_NAME_PATTERN = /[[({<][\s._\-]*(?:[O0][\s._\-]*G|D[\s._\-]*[E3][\s._\-]*V)[\s._\-]*[\])}>]/i;
+// "OG", "DEV" and "SUPPORTER" are reserved markers — account-level badges the
+// game renders itself (gold "✈ OG" veteran chip; teal "🛠 DEV" operator chip;
+// Ko-fi-blue "♥ SUPPORTER" chip). Nobody gets to fake them in plain text, so
+// airline names may not contain bracketed look-alikes: [OG], (og), {0G},
+// [ O.G ], [DEV], (d3v), <dev>, [SUP], (supporter), {S.U.P}, etc. Applies to
+// EVERYONE (real OGs/devs/supporters get the rendered chip; it never lives in a
+// name). The constant keeps its original name because it is imported in four
+// places and in the test suite — it has covered more than OG since DEV landed.
+export const OG_NAME_PATTERN = /[[({<][\s._\-]*(?:[O0][\s._\-]*G|D[\s._\-]*[E3][\s._\-]*V|S[\s._\-]*U[\s._\-]*P(?:[\s._\-]*P[\s._\-]*[O0][\s._\-]*R[\s._\-]*T[\s._\-]*[E3][\s._\-]*R)?)[\s._\-]*[\])}>]/i;
 
 // ── Seeding an opening position ──────────────────────────────────────────────
 // The exact solo-game opening, rebased onto a live world's calendar and economy.
@@ -252,7 +255,7 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
 // world lifecycle, and one-airline-per-account-per-world.
 export async function joinWorld(prisma, { account, world, airlineName, hub, joinCode }) {
   if (OG_NAME_PATTERN.test(airlineName ?? '')) {
-    throw httpError(400, 'OG and DEV tags are reserved — they appear automatically as badges, not in the airline name.');
+    throw httpError(400, 'OG, DEV and SUPPORTER tags are reserved — they appear automatically as badges, not in the airline name.');
   }
   if (world.status === 'ENDED' || world.status === 'ARCHIVED') {
     throw httpError(409, 'This world has ended');

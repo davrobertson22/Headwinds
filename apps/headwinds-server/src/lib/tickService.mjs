@@ -116,7 +116,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // current states plus the world's alliance graph. No AI airlines exist.
   const airlines = await prisma.airline.findMany({
     where: { worldId: world.id, status: 'ACTIVE' },
-    include: { account: { select: { isOG: true, email: true } } }, // OG + DEV badges (email stays server-side)
+    include: { account: { select: { isOG: true, isSupporter: true, email: true } } }, // OG + DEV badges (email stays server-side)
   });
   const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines, world });
 
@@ -379,7 +379,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           await tx.$queryRaw`SELECT id FROM "Airline" WHERE id = ${id} FOR UPDATE`;
           const fresh = await tx.airline.findUnique({
             where: { id },
-            include: { account: { select: { isOG: true, email: true } } },
+            include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
           });
           // Gone or no longer active (bankrupt/abandoned mid-tick): nothing to write.
           if (!fresh || fresh.status !== 'ACTIVE') continue;

@@ -8,7 +8,7 @@
 // PLAYER_PROFILES_PLAN.md.
 import { useEffect, useState } from 'react';
 import { api } from './api.js';
-import OgBadge, { DevBadge } from './OgBadge.jsx';
+import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 
 const fmtNum = (n) => Math.round(Number(n) || 0).toLocaleString();
 
@@ -98,6 +98,7 @@ export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
           <h2 style={{ margin: 0 }}>{player.displayName}</h2>
           {player.dev ? <DevBadge /> : null}
           {player.isOG ? <OgBadge /> : null}
+          {player.isSupporter ? <SupporterBadge /> : null}
           {/* Account-level DM. The shell provides onMessage for OTHER players;
               `canMessage` (server-computed, same rule as the send path) says
               whether the DM would actually be accepted — so the button no

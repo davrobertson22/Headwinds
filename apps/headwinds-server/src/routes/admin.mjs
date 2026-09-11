@@ -19,6 +19,7 @@ const accountSummary = (a) => ({
   displayName: a.username ?? a.displayName,
   username: a.username ?? null,
   isOG: a.isOG,
+  isSupporter: a.isSupporter,
   bannedAt: a.bannedAt,
   banReason: a.banReason,
   bannedByEmail: a.bannedByEmail,
@@ -294,6 +295,63 @@ export default async function adminRoutes(fastify) {
     const updated = await prisma.account.update({
       where: { id: target.id },
       data: { isOG: request.body.og },
+    });
+    return { ok: true, account: accountSummary(updated) };
+  });
+
+  // ── Ko-fi supporter badge ───────────────────────────────────────────────────
+  // Someone donates on Ko-fi; Ko-fi mails the donation through with whatever
+  // name/note they left, and the admin grants the badge here — same search, same
+  // by-id-or-email grant as OG above. Deliberately manual: the volume is small,
+  // and a webhook would have to guess which Headwinds account a Ko-fi email
+  // belongs to (they are usually different addresses). If that ever stops being
+  // true, the honest fix is a claim code the donor pastes in, not fuzzy matching.
+  //
+  // The badge is COSMETIC. It buys a chip beside the airline name and it turns
+  // the in-app ads off for that account. It must never buy anything the engine
+  // can see — see the note on Account.isSupporter in schema.prisma.
+  fastify.get('/admin/supporters', { preHandler: requireAdmin }, async () => {
+    const supporters = await prisma.account.findMany({
+      where: { isSupporter: true },
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+    });
+    return { supporters: supporters.map(accountSummary) };
+  });
+
+  fastify.post('/admin/supporter', {
+    preHandler: requireAdmin,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['supporter'],
+        properties: {
+          accountId: { type: 'string', minLength: 1, maxLength: 60 },
+          email: { type: 'string', minLength: 3, maxLength: 200 },
+          supporter: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (request) => {
+    const { accountId } = request.body;
+    const email = request.body.email?.trim().toLowerCase();
+    if (!accountId && !email) throw httpError(400, 'Provide accountId or email');
+    const target = accountId
+      ? await prisma.account.findUnique({ where: { id: accountId } })
+      : await prisma.account.findUnique({ where: { email } });
+    if (!target) {
+      throw httpError(404, accountId
+        ? 'No such account'
+        : `No account with email ${email} — they need to sign in to Headwinds at least once first`);
+    }
+    if (target.isSupporter === request.body.supporter) {
+      throw httpError(409, request.body.supporter
+        ? `${target.displayName} already has the supporter badge`
+        : `${target.displayName} doesn't have the supporter badge`);
+    }
+    const updated = await prisma.account.update({
+      where: { id: target.id },
+      data: { isSupporter: request.body.supporter },
     });
     return { ok: true, account: accountSummary(updated) };
   });

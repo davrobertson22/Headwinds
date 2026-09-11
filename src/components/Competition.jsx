@@ -73,6 +73,29 @@ export function DevChip({ size = 10 }) {
   );
 }
 
+/** SUPPORTER badge — this player has chipped in on Ko-fi toward the servers.
+ *  Ko-fi blue, so it reads as a third marker beside gold OG veterans and teal
+ *  DEV operators. Driven by the account-level flag the server sends on each
+ *  competitor (`c.sup`) — never part of the name string, and never readable by
+ *  the simulation. Solo Tailwinds has no accounts, so `sup` is always undefined
+ *  there and this simply never renders. */
+export function SupporterChip({ size = 10 }) {
+  return (
+    <span
+      title="Supporter · chipped in toward the server bill"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle',
+        fontSize: size, fontWeight: 800, letterSpacing: '0.06em', lineHeight: 1.5,
+        padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+        color: '#8fb8f6', background: 'rgba(114,164,242,0.14)',
+        border: '1px solid rgba(114,164,242,0.45)',
+      }}
+    >
+      <span style={{ fontSize: size, lineHeight: 1 }}>♥</span>SUPPORTER
+    </span>
+  );
+}
+
 /** Compute player's quality score for one route — same inputs the engine uses
  *  (real on-time rate from morale + utilization, seat AND service cabin points). */
 function playerQuality(route, fleet, laborFx) {
@@ -240,6 +263,7 @@ export default function Competition() {
         playerSharePrice={state.equity?.isPublic === false ? null : (state.sharePrice ?? null)}
         playerProfitHistory={financialHistory.slice(-12).map(w => w.profit ?? 0)}
         playerOG={state.accountOG === true}
+        playerSupporter={state.accountSupporter === true}
         playerDev={state.accountDev === true}
         remote={remote}
         onSelect={remote ? setDetailCarrier : null}
@@ -297,7 +321,7 @@ export default function Competition() {
 
 function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerHub, playerCash,
                         playerMarketCap, playerSharePrice, playerProfitHistory = [], playerOG = false,
-                        playerDev = false, remote = false, onSelect = null }) {
+                        playerDev = false, playerSupporter = false, remote = false, onSelect = null }) {
   // Build unified list with player + competitors
   const entries = [
     {
@@ -309,6 +333,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       tier:        null,
       og:          playerOG,
       dev:         playerDev,
+      sup:         playerSupporter,
       weeklyProfit: playerLastWeek,
       marketCap:   playerMarketCap,
       sharePrice:  playerSharePrice,
@@ -326,6 +351,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       tier:        c.human ? null : c.tier,
       og:          c.og === true,   // OG veteran badge (account-level, from the server)
       dev:         c.dev === true,  // DEV badge — game operator
+      sup:         c.sup === true,  // Ko-fi supporter badge (account-level)
       weeklyProfit: c.weeklyStats?.weeklyProfit ?? null,
       marketCap:   c.marketCap ?? null,
       // Private airlines have a valuation but no traded price — the row falls
@@ -412,6 +438,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{entry.name}</span>
                   {entry.dev && <DevChip />}
                   {entry.og && <OgChip />}
+                  {entry.sup && <SupporterChip />}
                   {entry.isPlayer && (
                     <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(59,130,246,0.2)', color: '#60a5fa', fontWeight: 700 }}>
                       YOU
@@ -941,6 +968,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCas
           <span style={{ fontWeight: 700 }}>{carrier.name}</span>
           {carrier.dev === true && <DevChip />}
           {carrier.og === true && <OgChip />}
+          {carrier.sup === true && <SupporterChip />}
           {tier && <span style={{ fontSize: 11, color: tier.color, fontWeight: 600 }}>{tier.label}</span>}
           {isHuman && (
             <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99,
@@ -1431,6 +1459,7 @@ function RivalDetailView({ carrier, onClose }) {
               <span style={{ fontWeight: 800, fontSize: 18 }}>{carrier.name}</span>
               {carrier.dev === true && <DevChip size={11} />}
               {carrier.og === true && <OgChip size={11} />}
+              {carrier.sup === true && <SupporterChip size={11} />}
               {isHuman && (
                 <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99,
                                background: 'var(--accent-dim, var(--surface2))', color: 'var(--accent)', fontWeight: 700 }}>

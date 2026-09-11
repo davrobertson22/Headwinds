@@ -251,14 +251,21 @@ await test('og survives the weekly tick on injected competitors', () => {
   assert.equal(after.competitors[0].og, true);
 });
 
-await test('the reserved-tag name pattern blocks OG/DEV look-alikes but not honest names', async () => {
+await test('the reserved-tag name pattern blocks OG/DEV/SUPPORTER look-alikes but not honest names', async () => {
   const { OG_NAME_PATTERN } = await import('../apps/headwinds-server/src/lib/worldService.mjs');
   for (const bad of ['Sky [OG]', '[og] Air', 'Air (OG)', '{0G} Jets', 'Sky [ O.G ]', 'Air <og>',
-                     '[DEV] Air', 'Sky (dev)', '{D3V} Jets', 'Air <DEV>', '[ d.e.v ] Air']) {
+                     '[DEV] Air', 'Sky (dev)', '{D3V} Jets', 'Air <DEV>', '[ d.e.v ] Air',
+                     // ♥ SUPPORTER is a paid-looking chip, so a faked one is worth
+                     // more to a scammer than a faked OG: it implies the dev
+                     // vouched for them. Both the full word and the short form.
+                     'Sky [SUP]', '[supporter] Air', 'Air (SUP)', '{S.U.P} Jets',
+                     'Sky <SUPPORTER>', '[ s-u-p ] Air', 'Air [SUPP0RTER]']) {
     assert.ok(OG_NAME_PATTERN.test(bad), `should reject: ${bad}`);
   }
   for (const good of ['Skyline Atlantic', 'LOGAN Air', 'Golden Wings', 'OG-less Air', 'Origins Global',
-                      'Devon Airways', 'Delta Victor Air', 'Developer Express']) {
+                      'Devon Airways', 'Delta Victor Air', 'Developer Express',
+                      // The bracket is what makes it a fake — these are honest names.
+                      'Support Air', 'Supersonic Express', 'Superior Airways', 'Sup Air']) {
     assert.ok(!OG_NAME_PATTERN.test(good), `should allow: ${good}`);
   }
 });

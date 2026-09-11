@@ -213,7 +213,7 @@ export async function restartAirline(prisma, { account, world, airline, airlineN
     throw httpError(409, `You have used all ${MAX_RESTARTS} restarts in this world.`);
   }
   if (OG_NAME_PATTERN.test(airlineName ?? '')) {
-    throw httpError(400, 'OG and DEV tags are reserved — they appear automatically as badges, not in the airline name.');
+    throw httpError(400, 'OG, DEV and SUPPORTER tags are reserved — they appear automatically as badges, not in the airline name.');
   }
 
   // Capacity is deliberately NOT re-checked. The row already exists and already

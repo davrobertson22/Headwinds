@@ -374,7 +374,7 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
       // the two is what used to flood the feed with stale joins.
       prisma.airline.findMany({
         where: { worldId: world.id },
-        select: { id: true, name: true, accountId: true, account: { select: { isOG: true, email: true } } },
+        select: { id: true, name: true, accountId: true, account: { select: { isOG: true, isSupporter: true, email: true } } },
       }),
       want.has('players') ? prisma.airline.findMany({
         where: { worldId: world.id, ...at() },
@@ -427,6 +427,7 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
 
   const nameOf = new Map(airlines.map((a) => [a.id, a.name]));
   const ogOf = new Map(airlines.map((a) => [a.id, a.account?.isOG === true]));
+  const supOf = new Map(airlines.map((a) => [a.id, a.account?.isSupporter === true]));
   const devOf = new Map(airlines.map((a) => [a.id, isDevEmail(a.account?.email)]));
   const acctOf = new Map(airlines.map((a) => [a.id, a.accountId ?? null]));
   const who = (id) => ({
@@ -434,6 +435,7 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
     accountId: acctOf.get(id) ?? null,
     airline: nameOf.get(id) ?? 'An airline',
     og: ogOf.get(id) ?? false,
+    sup: supOf.get(id) ?? false,
     dev: devOf.get(id) ?? false,
   });
 

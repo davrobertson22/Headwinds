@@ -102,7 +102,7 @@ function withStatsBackfill(state) {
   return { ...state, statsHistory: merged };
 }
 
-export default function GamePlayScreen({ worldId, token }) {
+export default function GamePlayScreen({ worldId, token, me = null }) {
   const [state, setState] = useState(null);
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
@@ -641,7 +641,7 @@ export default function GamePlayScreen({ worldId, token }) {
             <div className="row" style={{ justifyContent: 'flex-end' }}>
               <button className="btn small" onClick={() => setShowCeremony(false)}>✕ Close</button>
             </div>
-            <SeasonResults worldId={worldId} token={token} myAirlineId={meta?.airlineId ?? null} />
+            <SeasonResults worldId={worldId} token={token} myAirlineId={meta?.airlineId ?? null} me={me} />
           </div>
         </div>,
         document.body

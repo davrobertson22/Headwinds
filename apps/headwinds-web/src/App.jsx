@@ -6,7 +6,9 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense, Fragment } f
 import { supabase } from './supabase.js';
 import { api, readableError } from './api.js';
 import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
-import OgBadge, { DevBadge } from './OgBadge.jsx';
+import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
+import SupportCard from './SupportCard.jsx';
+import { armAdFailsafe, resolveAds } from './ads.js';
 import CareerPanel from './CareerPanel.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import UsernameCard from './UsernameCard.jsx';
@@ -1266,6 +1268,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           worldId={world.id} token={token}
           myAirlineId={mine?.id ?? dead?.id ?? null}
           preloaded={data}
+          me={me}
         />
       )}
 
@@ -1305,7 +1308,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                     {a.accountId
                       ? <a href={`#/players/${a.accountId}`} title="View player profile"
                            onClick={(e) => e.stopPropagation()}>{a.name}</a>
-                      : a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
+                      : a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{a.sup ? <SupporterBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
                     {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
                     {(() => {
                       // Flag a probably-abandoned rival at a glance. Only shown when
@@ -1355,10 +1358,11 @@ const fmtWhen = (t) => {
 
 function ModerationScreen({ token, me }) {
   const confirm = useConfirm();
-  const [tab, setTab] = useState('OPEN'); // 'OPEN' | 'ALL' | 'BANS' | 'OGS'
+  const [tab, setTab] = useState('OPEN'); // 'OPEN' | 'ALL' | 'BANS' | 'OGS' (badges)
   const [reports, setReports] = useState(null);
   const [bans, setBans] = useState(null);
   const [ogs, setOgs] = useState(null);
+  const [supporters, setSupporters] = useState(null);
   const [ogQuery, setOgQuery] = useState('');
   const [ogResults, setOgResults] = useState(null); // account search results
   const [ogNote, setOgNote] = useState(null); // last grant/revoke confirmation
@@ -1374,6 +1378,7 @@ function ModerationScreen({ token, me }) {
       api('/admin/bans', { token }).then((d) => setBans(d.bans)).catch(setError);
     } else if (tab === 'OGS') {
       api('/admin/ogs', { token }).then((d) => setOgs(d.ogs)).catch(setError);
+      api('/admin/supporters', { token }).then((d) => setSupporters(d.supporters)).catch(setError);
     } else {
       api(`/admin/reports?status=${tab}`, { token })
         .then((d) => setReports(d.reports)).catch(setError);
@@ -1443,6 +1448,25 @@ function ModerationScreen({ token, me }) {
     setBusyId(null);
   };
 
+  // Grant or revoke the Ko-fi supporter badge. Same shape as setOg above —
+  // cosmetic, account-wide, reversible. A revoke is confirmed because someone
+  // paid for this one and taking it back is a thing you want to mean to do.
+  const setSupporter = async (account, supporter) => {
+    if (!supporter && !(await confirm({
+      title: `Remove the supporter badge from ${account.displayName}?`,
+      body: 'They chipped in on Ko-fi for this. Only do it if the donation was refunded or charged back.',
+      danger: true, confirmLabel: 'Remove badge',
+    }))) return;
+    setBusyId(account.id); setError(null); setOgNote(null);
+    try {
+      const res = await api('/admin/supporter', { method: 'POST', token, body: { accountId: account.id, supporter } });
+      setOgNote(`${supporter ? 'Granted' : 'Removed'} supporter for ${res.account.displayName} (${res.account.email})`);
+      setOgResults((rs) => rs?.map((r) => (r.id === account.id ? { ...r, isSupporter: supporter } : r)) ?? rs);
+      load();
+    } catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
   return (
     <>
       <a href="#/" className="muted">← All worlds</a>
@@ -1452,7 +1476,7 @@ function ModerationScreen({ token, me }) {
           <button className={`btn small ${tab === 'OPEN' ? 'primary' : ''}`} onClick={() => setTab('OPEN')}>Open reports</button>
           <button className={`btn small ${tab === 'ALL' ? 'primary' : ''}`} onClick={() => setTab('ALL')}>All reports</button>
           <button className={`btn small ${tab === 'BANS' ? 'primary' : ''}`} onClick={() => setTab('BANS')}>Banned players</button>
-          <button className={`btn small ${tab === 'OGS' ? 'primary' : ''}`} onClick={() => setTab('OGS')}>OG badges</button>
+          <button className={`btn small ${tab === 'OGS' ? 'primary' : ''}`} onClick={() => setTab('OGS')}>Badges</button>
         </div>
       </div>
       <ErrorNote error={error} />
@@ -1533,13 +1557,16 @@ function ModerationScreen({ token, me }) {
       ) : (
         <>
           <div className="card">
-            <h3><OgBadge /> Grant the OG veteran badge</h3>
+            <h3>Grant a badge</h3>
             <p className="muted small">
-              For players who've been flying since the original Tailwinds. Search by their
-              Discord/display name, airline name, or email — every account has an email behind
-              it (Discord sign-ins too), but you don't need to know it. The badge then shows
-              beside every airline they fly, in every world. Airline names containing bracketed
-              “OG” look-alikes are rejected at join, so the badge can't be faked in plain text.
+              Two account-level badges. Both are purely cosmetic, and both are worn on every
+              airline the account flies, in every world. <OgBadge /> is for players who have
+              been flying since the original Tailwinds. <SupporterBadge /> is for players who
+              have chipped in on Ko-fi toward the servers — Ko-fi emails you each donation, you
+              find the player here. Search by Discord/display name, airline name, or email:
+              every account has an email behind it (Discord sign-ins too), but you do not need
+              to know it. Airline names containing bracketed look-alikes of either tag are
+              rejected at join and at rename, so neither can be faked in plain text.
             </p>
             <form className="row" onSubmit={searchAccounts}>
               <input
@@ -1560,20 +1587,30 @@ function ModerationScreen({ token, me }) {
                     {ogResults.map((a) => (
                       <tr key={a.id}>
                         <td>
-                          {a.displayName}{a.isOG ? <OgBadge /> : null}{a.bannedAt ? <span className="chip chip-banned"> banned</span> : null}
+                          {a.displayName}{a.isOG ? <OgBadge /> : null}{a.isSupporter ? <SupporterBadge /> : null}
+                          {a.bannedAt ? <span className="chip chip-banned"> banned</span> : null}
                           {/* Rename trail — a new name must not outrun the old one's reputation. */}
                           {a.pastNames?.length ? <div className="muted small">formerly {a.pastNames.join(', ')}</div> : null}
                         </td>
                         <td className="muted">{a.email}</td>
                         <td className="muted small">{a.airlines?.length ? a.airlines.join(', ') : '—'}</td>
                         <td>
-                          {a.isOG ? (
-                            <button className="btn danger small" disabled={busyId === a.id}
-                              onClick={() => setOg(a, false)}>Remove</button>
-                          ) : (
-                            <button className="btn primary small" disabled={busyId === a.id}
-                              onClick={() => setOg(a, true)}>Grant OG</button>
-                          )}
+                          <div className="row">
+                            {a.isOG ? (
+                              <button className="btn danger small" disabled={busyId === a.id}
+                                onClick={() => setOg(a, false)}>Remove OG</button>
+                            ) : (
+                              <button className="btn primary small" disabled={busyId === a.id}
+                                onClick={() => setOg(a, true)}>Grant OG</button>
+                            )}
+                            {a.isSupporter ? (
+                              <button className="btn danger small" disabled={busyId === a.id}
+                                onClick={() => setSupporter(a, false)}>Remove supporter</button>
+                            ) : (
+                              <button className="btn primary small" disabled={busyId === a.id}
+                                onClick={() => setSupporter(a, true)}>Grant supporter</button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1584,6 +1621,7 @@ function ModerationScreen({ token, me }) {
             {ogNote && <p className="muted small">✓ {ogNote}</p>}
           </div>
 
+          <div className="list-head"><h3>OG veterans</h3></div>
           {ogs == null ? <p className="muted">Loading…</p> :
             ogs.length === 0 ? <p className="muted">No OG badges granted yet.</p> : (
             <table className="worlds">
@@ -1596,6 +1634,26 @@ function ModerationScreen({ token, me }) {
                     <td>
                       <button className="btn danger small" disabled={busyId === o.id}
                         onClick={() => setOg(o, false)}>Remove</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <div className="list-head"><h3>Ko-fi supporters</h3></div>
+          {supporters == null ? <p className="muted">Loading…</p> :
+            supporters.length === 0 ? <p className="muted">No supporter badges granted yet.</p> : (
+            <table className="worlds">
+              <thead><tr><th>Player</th><th>Email</th><th /></tr></thead>
+              <tbody>
+                {supporters.map((sp) => (
+                  <tr key={sp.id}>
+                    <td>{sp.displayName} <SupporterBadge /></td>
+                    <td className="muted">{sp.email}</td>
+                    <td>
+                      <button className="btn danger small" disabled={busyId === sp.id}
+                        onClick={() => setSupporter(sp, false)}>Remove</button>
                     </td>
                   </tr>
                 ))}
@@ -1696,7 +1754,7 @@ function ReportScreen({ token, me }) {
                 {others.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      {a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}
+                      {a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{a.sup ? <SupporterBadge /> : null}
                       {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
                     </td>
                     <td>{a.hub}</td>
@@ -1736,6 +1794,19 @@ export default function App() {
   }, [token]);
   useEffect(() => { refreshMe(); }, [refreshMe]);
 
+  // Ads: paused in play.html's <head>, released here once we know who this is.
+  // Supporters keep them paused; everyone else (signed out included) gets them.
+  // Armed on mount so a crash between here and the resolve can't strand ads in
+  // the paused state — see ads.js.
+  useEffect(() => { armAdFailsafe(); }, []);
+  useEffect(() => {
+    if (!ready) return;
+    // Signed in but /me still in flight: wait, or a supporter sees a flash of
+    // the ads they paid to be rid of.
+    if (session && me == null) return;
+    resolveAds(me?.account?.isSupporter === true);
+  }, [ready, session, me]);
+
   // A profile's "✉ Message" button routes to the inbox widget through this
   // one-shot request (consumed by the widget once it opens the thread).
   const [messageTo, setMessageTo] = useState(null);
@@ -1753,7 +1824,7 @@ export default function App() {
             airline's state and refs linger, and the week-gated state guards drop the
             new airline's (lower-week) state — so you'd order your first aircraft and
             nothing happens until a full page refresh. */}
-        <GamePlayScreen key={route.worldId} worldId={route.worldId} token={token} />
+        <GamePlayScreen key={route.worldId} worldId={route.worldId} token={token} me={me} />
       </Suspense>
     );
   }
@@ -1777,6 +1848,7 @@ export default function App() {
               {me?.account?.username ?? me?.account?.displayName ?? session.user.email}
               {me?.account?.isAdmin ? <DevBadge /> : null}
               {me?.account?.isOG ? <OgBadge /> : null}
+              {me?.account?.isSupporter ? <SupporterBadge /> : null}
             </span>
             <button className="btn small" onClick={signOut}>Sign out</button>
           </div>
@@ -1792,6 +1864,8 @@ export default function App() {
               <WorldsScreen token={token} me={me} />
               {me?.account?.username && <UsernameCard me={me} token={token} refreshMe={refreshMe} />}
               <CareerPanel career={me?.career} accountId={me?.account?.id} />
+              {/* The ask lives HERE and at season end — never in the game loop. */}
+              <SupportCard me={me} />
             </>
           )}
           {route.screen === 'world' && <WorldScreen worldId={route.worldId} token={token} me={me} refreshMe={refreshMe} />}
@@ -1810,7 +1884,8 @@ export default function App() {
       <footer className="muted small">
         <a href="/">Home</a> · <a href="/how-to-play.html">How to play</a> ·{' '}
         <a href="/strategy.html">Strategy</a> · <a href="/devlog.html">Devlog</a> ·{' '}
-        <a href="/faq.html">FAQ</a> — Headwinds is the multiplayer companion to{' '}
+        <a href="/faq.html">FAQ</a> · <a href="/support.html">Support</a> —{' '}
+        Headwinds is the multiplayer companion to{' '}
         <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noreferrer">Tailwinds</a>.
       </footer>
     </div>

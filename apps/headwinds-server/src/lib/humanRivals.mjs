@@ -298,6 +298,8 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // OG veteran badge (playing since the original Tailwinds) — account-level,
     // present only when the airline row was loaded with its account included.
     og: airlineRow.account?.isOG === true,
+    // Ko-fi supporter badge — cosmetic, never read by the sim.
+    sup: airlineRow.account?.isSupporter === true,
     // DEV badge — this rival is one of the game's operators (ADMIN_EMAILS).
     dev: isDevEmail(airlineRow.account?.email),
     name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
@@ -466,6 +468,7 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
       stockPool: null,   // filled in by attachStockPool (worlds with a float pool)
       // The player's OWN badges (shown on their leaderboard row in-game).
       selfOG: me.account?.isOG === true,
+      selfSupporter: me.account?.isSupporter === true,
       selfDev: isDevEmail(me.account?.email),
     });
   }
@@ -526,6 +529,7 @@ export function rivalOverlay(view) {
     // The player's own account badges — rebuilt on every injection (like the
     // views above), so a grant/revoke shows up on the next read/tick.
     accountOG: view?.selfOG === true,
+    accountSupporter: view?.selfSupporter === true,
     accountDev: view?.selfDev === true,
   };
 }
@@ -542,7 +546,7 @@ export function stripRivals(state) {
   if (!state || typeof state !== 'object') return state;
   const {
     competitors, humanRivals, encroachments,
-    allianceMembership, allianceDef, accountOG, accountDev,
+    allianceMembership, allianceDef, accountOG, accountDev, accountSupporter,
     gateMarket, worldMarket, stockPool, allianceSlotPool,
     ...rest
   } = state;
@@ -649,7 +653,7 @@ export async function loadRivalRows(prisma, worldId) {
       where: { worldId, status: 'ACTIVE' },
       // OG + DEV badges. The email never leaves the server — it's only compared
       // against ADMIN_EMAILS here; payloads carry booleans.
-      include: { account: { select: { isOG: true, email: true } } },
+      include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
     });
     return rows.map((r) => ({ ...r, state: projectRivalState(r.state) }));
   }
@@ -665,7 +669,8 @@ export async function loadRivalRows(prisma, worldId) {
   const statsTail = `[last-${RIVAL_STATS_KEEP - 1} to last]`;
   const rows = await prisma.$queryRaw`
     SELECT a.id, a."worldId", a.name, a.hub, a.status, a.restarts, a.version,
-           acc."isOG" AS "accountIsOG", acc.email AS "accountEmail",
+           acc."isOG" AS "accountIsOG", acc."isSupporter" AS "accountIsSupporter",
+           acc.email AS "accountEmail",
            (a.state - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo')
              || jsonb_build_object(
                   'financialHistory',
@@ -712,7 +717,8 @@ export async function loadRivalRows(prisma, worldId) {
     restarts: r.restarts,
     version: r.version,
     state: r.state,
-    account: { isOG: r.accountIsOG === true, email: r.accountEmail },
+    account: { isOG: r.accountIsOG === true, isSupporter: r.accountIsSupporter === true,
+               email: r.accountEmail },
   }));
 }
 

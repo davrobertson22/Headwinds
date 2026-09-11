@@ -241,6 +241,34 @@ function injectWorldsLink(html) {
   return s;
 }
 
+// Link the Ko-fi support page from every page's nav and footer. support.html is
+// a hand-written Headwinds page (apps/headwinds-web/pages/support.html) with a
+// Tailwinds counterpart of its own, so the LINK can't live in the synced root
+// public/ pages — same reasoning as injectRulesLink above, and same idempotence:
+// the page already carries its own links, and re-runs start from a clean OUT.
+//
+// Placement is deliberate. In the nav it goes LAST, after Rules/Worlds and
+// before Play: an ask should never outrank the way into the game. In the footer
+// it sits next to Contact, which is where someone already goes looking for the
+// person behind a free game.
+function injectSupportLink(html) {
+  if (html.includes('href="/support.html"')) return html;   // e.g. support.html itself
+  let s = html;
+  // Top nav — immediately before the Play button, whichever form it takes.
+  for (const play of ['<a class="link" href="/play">Play</a>', '<a class="link" href="/">Play</a>']) {
+    if (s.includes(play)) {
+      s = s.replace(play, '<a class="link" href="/support.html">Support</a>\n      ' + play);
+      break;
+    }
+  }
+  // Footer list — after Contact.
+  s = s.replace(
+    '<a href="/contact.html">Contact</a>',
+    '<a href="/contact.html">Contact</a>\n      <a href="/support.html">Support</a>',
+  );
+  return s;
+}
+
 // Put the Headwinds logo mark + teal wordmark in the header of EVERY page.
 // The shared info pages (synced from Tailwinds) and the hand-written Headwinds
 // pages both ship a text-only brand link — only the landing page (the app's own
@@ -452,7 +480,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectWorldsLink(injectRulesLink(before))))), f);
+  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectSupportLink(injectWorldsLink(injectRulesLink(before)))))), f);
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 

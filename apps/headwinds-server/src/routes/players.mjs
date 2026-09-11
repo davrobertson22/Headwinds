@@ -42,7 +42,7 @@ export default async function playerRoutes(fastify) {
     const account = await prisma.account.findUnique({
       where: { id: request.params.accountId },
       select: {
-        id: true, displayName: true, username: true, isOG: true, email: true,
+        id: true, displayName: true, username: true, isOG: true, isSupporter: true, email: true,
         createdAt: true, bannedAt: true, careerStats: true, dmPolicy: true,
       },
     });
@@ -121,6 +121,7 @@ export default async function playerRoutes(fastify) {
         displayName: account.username ?? account.displayName,
         username: account.username ?? null,
         isOG: account.isOG === true,
+        isSupporter: account.isSupporter === true,
         // The email itself never leaves the server — only this comparison.
         dev: isDevEmail(account.email),
         memberSince: account.createdAt,
