@@ -35,7 +35,7 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'SET_RESERVE', 'CLEAR_RESERVE',
   // Jet bases (MRO network). Capex, gate holdings and level progression are
   // all re-validated by the reducer; the guard below only sanitizes payloads.
-  'BUILD_MRO_BASE', 'UPGRADE_MRO_BASE', 'ADD_BASE_CERTIFICATION',
+  'BUILD_MRO_BASE', 'UPGRADE_MRO_BASE', 'ADD_BASE_CERTIFICATION', 'REMOVE_BASE_CERTIFICATION',
   'SET_BASE_PARTS_POOL', 'CLOSE_MRO_BASE',
   'RENAME_AIRCRAFT', 'CONFIGURE_AIRCRAFT', 'CONFIGURE_AIRCRAFT_BULK',
   'SAVE_CABIN_TEMPLATE', 'DELETE_CABIN_TEMPLATE',

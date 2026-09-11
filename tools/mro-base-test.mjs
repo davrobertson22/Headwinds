@@ -3,7 +3,8 @@
 //
 // Covers: AOG repair pricing and the write-off cap, base resolution gating
 // (family / network / open / slot), the efficiency ramp, alliance guest terms,
-// contract offsets, the build-upgrade-close lifecycle, and the weekly tick.
+// contract offsets, the build-upgrade-close lifecycle, adding and dropping
+// certifications, and the weekly tick.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
@@ -12,6 +13,8 @@ import * as M from '../packages/engine/src/data/maintenance.js';
 import * as B from '../packages/engine/src/data/mroBase.js';
 import { weeklyFamilyBaseCost, aircraftFamily, FAMILY_INFO } from '../packages/engine/src/data/families.js';
 import { absoluteWeek } from '../packages/engine/src/utils/fuel.js';
+import { ALLOWED_PLAYER_ACTIONS } from '../apps/headwinds-server/src/world.mjs';
+import { guardDecision } from '../apps/headwinds-server/src/lib/decisionGuard.mjs';
 
 const REAL_RANDOM = Math.random;
 // Determinism: keep RNG high (no wear failures, no events) but VARYING — uid()
@@ -433,6 +436,125 @@ t('an unaffordable build with extras is refused, not silently trimmed', () => {
   s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM, 'boeing_737'] });
   assert.equal(s.mroBases.ORD, undefined, 'no base');
   assert.equal(s.cash, before, 'no charge');
+});
+
+// ── Dropping a certification ─────────────────────────────────────────────────
+// Discord, Ringwraith, 2026-09-10: "how do I remove a certification from a jet
+// base?" You could not. Certifications were add-only, so an airline that retired
+// a family kept paying its extraCertOpex forever and the only way out was closing
+// the whole base for a quarter of its capex back. A drop refunds nothing — the
+// certification capex is sunk — but it stops the weekly bleed and hands back a
+// slot under the hard ceiling. It is deliberately NOT blocked when aircraft still
+// lean on the base: walking away from a family you no longer want to pay for is a
+// legitimate move, so the UI warns with baseRelianceMap and the engine obeys.
+
+t('dropping a certification past the allowance stops its weekly opex', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = { ...s, cash: 200_000_000 };
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM] });
+  s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: 'boeing_737' });
+  const weekly = B.baseWeeklyCost(s.mroBases.ORD);
+  const saved  = B.removeCertOpexSaved(s.mroBases.ORD);
+  assert.equal(saved, B.MRO_LEVELS[1].extraCertOpex, 'past the allowance, so a drop is worth the extra opex');
+  const before = s.cash;
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'ORD', familyId: 'boeing_737' });
+  assert.deepEqual(s.mroBases.ORD.families, [FAM], 'the family is gone');
+  assert.equal(s.cash, before, 'and nothing is refunded — the capex is sunk');
+  assert.equal(weekly - B.baseWeeklyCost(s.mroBases.ORD), saved,
+    'the weekly cost falls by exactly what the helper quoted');
+  assert.equal(B.removeCertOpexSaved(s.mroBases.ORD), 0, 'back inside the allowance, so the next drop is worth nothing');
+});
+
+t('dropping a certification inside the allowance saves nothing but frees the slot', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 2);
+  s = { ...s, cash: 200_000_000 };
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 2, families: [FAM] });
+  assert.equal(B.removeCertOpexSaved(s.mroBases.ORD), 0, 'L2 includes two and only one is spent');
+  const weekly = B.baseWeeklyCost(s.mroBases.ORD);
+  const before = s.cash;
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'ORD', familyId: FAM });
+  assert.deepEqual(s.mroBases.ORD.families, [], 'a base is allowed to hold no certifications at all');
+  assert.equal(s.cash, before, 'no refund');
+  assert.equal(B.baseWeeklyCost(s.mroBases.ORD), weekly, 'and no saving — an included certification was never charged for');
+  s = gameReducer(s, { type: 'ADD_BASE_CERTIFICATION', code: 'ORD', familyId: FAM });
+  assert.equal(s.cash, before, 'putting it back is free while inside the allowance');
+  assert.deepEqual(s.mroBases.ORD.families, [FAM]);
+});
+
+t('a drop shrinks the capex basis the parts pool and the close refund are priced off', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = { ...s, cash: 200_000_000 };
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM, 'boeing_737'] });
+  for (let i = 0; i < B.MRO_LEVELS[1].buildWeeks; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  assert.equal(B.isBaseOpen(s.mroBases.ORD), true, 'open, so the pool is being carried');
+  const sunk = B.sunkCapex(s.mroBases.ORD);
+  const pool = B.partsPoolCost(s.mroBases.ORD);
+  const refund = B.closeRefund(s.mroBases.ORD);
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'ORD', familyId: 'boeing_737' });
+  assert.equal(B.sunkCapex(s.mroBases.ORD), sunk - B.MRO_LEVELS[1].extraCertCapex, 'the extra certification leaves the basis');
+  assert.ok(B.partsPoolCost(s.mroBases.ORD) < pool, 'a smaller base carries a cheaper pool');
+  assert.ok(B.closeRefund(s.mroBases.ORD) < refund, 'and would refund less if closed — you cannot bank what you walked away from');
+});
+
+t('dropping a certification a base does not hold is a no-op', () => {
+  let { s } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM] });
+  const snap = s.mroBases.ORD;
+  const before = s.cash;
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'ORD', familyId: 'airbus_a320' });
+  assert.equal(s.mroBases.ORD, snap, 'the base object is untouched');
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'LAX', familyId: FAM });
+  assert.equal(s.mroBases.LAX, undefined, 'and a base that does not exist stays that way');
+  assert.equal(s.cash, before, 'neither costs nor pays anything');
+});
+
+t('an aircraft loses its base the moment its family certification is dropped', () => {
+  let { s, acId } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM] });
+  for (let i = 0; i < B.MRO_LEVELS[1].buildWeeks; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  const abs = absoluteWeek(s.year, s.week);
+  const ac  = find(s, acId);
+  assert.equal(B.resolveBaseFor(ac, s.mroBases, s.routes, s.cargoRoutes, abs)?.code, 'ORD', 'covered while certified');
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'ORD', familyId: FAM });
+  assert.equal(B.resolveBaseFor(ac, s.mroBases, s.routes, s.cargoRoutes, abs), null, 'and on its own again after');
+  assert.equal(B.baseCovers(s.mroBases.ORD, FAM), false);
+});
+
+t('the reliance map counts the aircraft a drop would strand', () => {
+  let { s, acId } = withJet(newGame());
+  s = withGates(s, 'ORD', 1);
+  s = gameReducer(s, { type: 'BUILD_MRO_BASE', code: 'ORD', level: 1, families: [FAM] });
+  for (let i = 0; i < B.MRO_LEVELS[1].buildWeeks; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  const snap = () => ({
+    bases: s.mroBases, fleet: s.fleet, routes: s.routes, cargoRoutes: s.cargoRoutes,
+    absWeek: absoluteWeek(s.year, s.week),
+  });
+  assert.equal(B.baseRelianceMap(snap()).ORD?.[FAM], 1, 'one jet currently leans on ORD for its family');
+  assert.ok(find(s, acId), 'and it is the one we bought');
+  s = gameReducer(s, { type: 'REMOVE_BASE_CERTIFICATION', code: 'ORD', familyId: FAM });
+  assert.equal(B.baseRelianceMap(snap()).ORD?.[FAM] ?? 0, 0, 'nobody leans on it once the certification is gone');
+});
+
+t('the drop is a legal multiplayer decision, payload and all', () => {
+  assert.ok(ALLOWED_PLAYER_ACTIONS.has('REMOVE_BASE_CERTIFICATION'),
+    'the server must accept it, or the client drops it before the fetch and nothing happens');
+  const out = guardDecision('REMOVE_BASE_CERTIFICATION', { code: 'ORD', familyId: 'boeing_737', capex: -1e9 }, {});
+  assert.equal(out.code, 'ORD');
+  assert.equal(out.familyId, 'boeing_737');
+  assert.equal(out.capex, undefined, 'the guard keeps only what the reducer reads');
+  assert.throws(() => guardDecision('REMOVE_BASE_CERTIFICATION', { code: 'ORD', familyId: '' }, {}),
+    'an empty family is refused');
+});
+
+t('the maintenance page offers the drop the engine now supports', () => {
+  const src = readFileSync(new URL('../src/components/Maintenance.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes("'REMOVE_BASE_CERTIFICATION'"), 'BaseCard dispatches the drop');
+  assert.ok(src.includes('baseRelianceMap'), 'and warns with the reliance count before it does');
 });
 
 t('the maintenance page still offers the certification the engine prices', () => {

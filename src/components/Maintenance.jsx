@@ -17,9 +17,9 @@ import {
 } from '../data/maintenance.js';
 import {
   mroLevelDef, canBuildBase, upgradeCapex, closeRefund, certCapacity,
-  addCertCapex, addCertOpex, certsIncludedLeft, certsFull,
+  addCertCapex, addCertOpex, removeCertOpexSaved, certsIncludedLeft, certsFull,
   baseEfficiency, baseSlots, baseWeeklyCost, totalBaseWeeklyCost, isBaseOpen,
-  resolveBaseFor, mroFactorsFor, familyContractOffsets,
+  resolveBaseFor, mroFactorsFor, familyContractOffsets, baseRelianceMap,
   clampPartsPool, partsPoolCost, partsPoolDurationMult,
   MRO_MAX_LEVEL, MRO_MAX_CERTS_PER_BASE, MRO_RAMP_WEEKS, PARTS_POOL_MIN, PARTS_POOL_MAX,
 } from '../data/mroBase.js';
@@ -192,7 +192,11 @@ function levelChip(level) {
   );
 }
 
-function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = [], cash = 0, dispatch, onUpgrade }) {
+function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = [], cash = 0, reliance = {}, dispatch, onUpgrade }) {
+  // Which certification the player has asked to drop, if any. A drop cannot be
+  // undone for free — the capex is sunk — so it confirms rather than firing off
+  // a bare × next to the chip.
+  const [dropping, setDropping] = useState(null);
   // Parts-pool slider draft: track the drag locally and commit SET_BASE_PARTS_POOL
   // once, on release, instead of firing a write on every intermediate drag value.
   const [draftPool, setDraftPool] = useState(clampPartsPool(base.partsPool));
@@ -214,6 +218,11 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = 
   const nextOpex    = addCertOpex(base);
   const includedLeft = certsIncludedLeft(base);
   const canAfford   = cash >= nextCapex;
+  // ...and what dropping one gives back: the weekly opex, but only past the
+  // level's allowance, and never the capex. `reliance` is how many aircraft
+  // currently route their maintenance through this base for that family.
+  const dropSaving   = removeCertOpexSaved(base);
+  const dropReliance = reliance[dropping] ?? 0;
 
   return (
     <div className="card" style={{ padding: '14px 18px' }}>
@@ -250,9 +259,24 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = 
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Certified:</span>
           {certs.map(f => (
             <span key={f} style={{
-              fontSize: 11, padding: '2px 7px', borderRadius: 4,
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-            }}>{FAMILY_INFO[f]?.name ?? f}</span>
+              fontSize: 11, padding: '2px 3px 2px 7px', borderRadius: 4,
+              background: 'var(--surface2)',
+              border: `1px solid ${dropping === f ? 'var(--yellow)' : 'var(--border)'}`,
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+            }}>
+              {FAMILY_INFO[f]?.name ?? f}
+              <button
+                type="button"
+                title={`Drop the ${FAMILY_INFO[f]?.name ?? f} certification at ${code}`}
+                aria-label={`Drop the ${FAMILY_INFO[f]?.name ?? f} certification at ${code}`}
+                onClick={() => setDropping(dropping === f ? null : f)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px',
+                  fontSize: 13, lineHeight: 1,
+                  color: dropping === f ? 'var(--yellow)' : 'var(--text-dim)',
+                }}
+              >×</button>
+            </span>
           ))}
           {certs.length === 0 && (
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>none</span>
@@ -262,6 +286,43 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = 
             {includedLeft > 0 ? ` · ${includedLeft} more included at L${base.level}` : ''}
           </span>
         </div>
+
+        {/* Dropping one. Nothing in the engine blocks this — an airline may walk
+            away from a family it no longer wants covered — so the job here is to
+            say plainly what it is worth and what it costs in cover. */}
+        {dropping && (
+          <div style={{
+            marginTop: 8, padding: '8px 10px', borderRadius: 6,
+            background: 'var(--surface2)', border: '1px solid var(--yellow)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>
+              Drop the {FAMILY_INFO[dropping]?.name ?? dropping} certification at {code}?
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.6 }}>
+              {dropSaving > 0
+                ? `Saves ${formatMoney(dropSaving)}/wk from here on.`
+                : `Saves nothing — this one sits inside the ${def?.name ?? 'base'} allowance, so you are not being charged for it.`}
+              {' '}What you paid to certify is sunk: there is no refund, and certifying again
+              later costs whatever it costs then.
+            </div>
+            {dropReliance > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4 }}>
+                ⚠ {dropReliance} aircraft {dropReliance === 1 ? 'sends its' : 'send their'} maintenance
+                through {code} today. After this {dropReliance === 1 ? 'it goes' : 'they go'} outside at full price.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  dispatch({ type: 'REMOVE_BASE_CERTIFICATION', code, familyId: dropping });
+                  setDropping(null);
+                }}
+              >Drop certification</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setDropping(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
 
         {/* A level's allowance is not a ceiling — past it a certification costs
             capex once and opex every week, up to MRO_MAX_CERTS_PER_BASE. */}
@@ -510,6 +571,15 @@ function MroNetwork({ state, dispatch, fleetFamilies, absWeek }) {
   const totalCost = totalBaseWeeklyCost(bases);
   const savings   = state.lastReport?.mro?.contractSavings ?? 0;
   const hosting   = state.lastReport?.mro?.hostingRevenue ?? 0;
+  // Who leans on which base today, by family. Built from the same resolver the
+  // tick uses, so the drop warning cannot drift away from what actually happens.
+  const reliance = baseRelianceMap({
+    bases,
+    fleet: state.fleet ?? [],
+    routes: state.routes ?? [],
+    cargoRoutes: state.cargoRoutes ?? [],
+    absWeek,
+  });
 
   return (
     <>
@@ -546,6 +616,7 @@ function MroNetwork({ state, dispatch, fleetFamilies, absWeek }) {
               hostingHere={hosting > 0 ? 0 : 0}
               fleetFamilies={fleetFamilies}
               cash={state.cash}
+              reliance={reliance[code] ?? {}}
               dispatch={dispatch}
               onUpgrade={(c, l) => dispatch({ type: 'UPGRADE_MRO_BASE', code: c, level: l })}
             />

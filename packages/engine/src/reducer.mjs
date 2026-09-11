@@ -1981,6 +1981,31 @@ function reducer(state, action) {
       };
     }
 
+    case 'REMOVE_BASE_CERTIFICATION': {
+      // action: { code, familyId }
+      // The mirror of ADD_BASE_CERTIFICATION, and deliberately not its inverse:
+      // certification capex is SUNK, so a drop refunds nothing. What it buys is
+      // the extra-cert opex back (only past the level's included allowance —
+      // see removeCertOpexSaved) and a slot under MRO_MAX_CERTS_PER_BASE.
+      //
+      // It is NOT blocked when aircraft still fly the family through this base.
+      // Walking away from a family you no longer want to pay for is a legitimate
+      // move, and a base whose fleet has been sold is exactly the case this
+      // exists for; the UI quotes baseRelianceMap and asks before dispatching.
+      // A base may legally end up certified for nothing: it covers no aircraft
+      // and still pays its level opex, which is the player's call to make.
+      const bases = state.mroBases ?? {};
+      const base  = bases[action.code];
+      const famId = action.familyId;
+      if (!base || !famId) return state;
+      const fams = base.families ?? [];
+      if (!fams.includes(famId)) return state;
+      return {
+        ...state,
+        mroBases: { ...bases, [action.code]: { ...base, families: fams.filter(f => f !== famId) } },
+      };
+    }
+
     case 'SET_BASE_PARTS_POOL': {
       const bases = state.mroBases ?? {};
       const base  = bases[action.code];

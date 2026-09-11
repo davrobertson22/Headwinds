@@ -149,6 +149,26 @@ test('a base card offers to certify a family it does not yet cover', () => {
   }
 });
 
+// Discord, Ringwraith, 2026-09-10: "how do I remove a certification from a jet
+// base?" The drop is the same shape of fix as the offer above — an affordance
+// over an engine action — so only a render proves a player can reach it.
+test('a base card offers a way off every certification it holds', () => {
+  const flownFamily = aircraftFamily(jet.id);
+  store.set('bbae_save_v2', JSON.stringify({
+    ...save,
+    mroBases: {
+      [P]: { code: P, level: 2, families: [flownFamily], openedWeek: 1, buildWeeksLeft: 0, partsPool: 1.0 },
+    },
+  }));
+  try {
+    const html = render(React.createElement(Maintenance)).replaceAll('<!-- -->', '');
+    assert.ok(html.includes(`certification at ${P}`),
+      'the certified family carries a drop control labelled with what it does');
+  } finally {
+    store.set('bbae_save_v2', JSON.stringify(save));
+  }
+});
+
 test('Operations no longer owns the maintenance budget', () => {
   const html = render(React.createElement(Operations));
   assert.ok(!html.includes('Budget level'), 'the budget slider moved off Operations');

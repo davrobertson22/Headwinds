@@ -307,6 +307,8 @@ function guardLoungePolicy(payload) {
   return out;
 }
 
+// Shared by ADD_BASE_CERTIFICATION and REMOVE_BASE_CERTIFICATION — identical
+// payload shape, and the reducer prices (or does not price) each one itself.
 function guardBaseCertification(payload) {
   const out = guardMroBase(payload);
   const fam = String(payload.familyId ?? '');
@@ -494,6 +496,7 @@ export function guardDecision(type, payload, state) {
     case 'BUILD_MRO_BASE':     return guardMroBase(payload, { needLevel: true, needFamilies: true });
     case 'UPGRADE_MRO_BASE':   return guardMroBase(payload, { needLevel: true });
     case 'ADD_BASE_CERTIFICATION': return guardBaseCertification(payload);
+    case 'REMOVE_BASE_CERTIFICATION': return guardBaseCertification(payload);
     case 'SET_BASE_PARTS_POOL': return guardPartsPool(payload);
     case 'CLOSE_MRO_BASE':     return guardMroBase(payload);
     case 'INSTALL_WIFI':       return { aircraftIds: guardAircraftIds(payload, state) };

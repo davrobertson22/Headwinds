@@ -207,6 +207,18 @@ export function addCertOpex(base) {
   return (base?.families?.length ?? 0) >= def.certsIncluded ? def.extraCertOpex : 0;
 }
 
+/**
+ * Weekly opex a base gets back by DROPPING one certification. Zero while the
+ * base is inside its level's included allowance — those cost nothing to hold, so
+ * dropping one buys nothing but a free slot under the ceiling. The mirror of
+ * addCertOpex, and the number the UI must quote before it offers the drop.
+ */
+export function removeCertOpexSaved(base) {
+  const def = mroLevelDef(base?.level);
+  if (!def) return 0;
+  return (base?.families?.length ?? 0) > def.certsIncluded ? def.extraCertOpex : 0;
+}
+
 /** Included certifications this base has not spent yet. */
 export function certsIncludedLeft(base) {
   const def = mroLevelDef(base?.level);
@@ -348,6 +360,31 @@ export function resolveBaseFor(aircraft, bases = {}, routes = [], cargoRoutes = 
     }
   }
   return best;
+}
+
+/**
+ * Who currently leans on which base, by family: { [code]: { [familyId]: count } }.
+ * An aircraft counts against a base when resolveBaseFor picks that base for it
+ * TODAY — so the map answers exactly the question a player asks before dropping a
+ * certification ("what am I giving up?"), and answers it with the same resolver
+ * the tick uses rather than a second opinion that can drift from it.
+ *
+ * Advisory only. Nothing in the reducer blocks a drop on the strength of this:
+ * an airline is allowed to stop paying for a family it no longer wants covered.
+ */
+export function baseRelianceMap(snap = {}) {
+  const { bases = {}, fleet = [], routes = [], cargoRoutes = [], absWeek = 0 } = snap;
+  const out = {};
+  for (const a of fleet ?? []) {
+    if (!a || a.status === 'retired') continue;
+    const famId = aircraftFamily(a.typeId);
+    if (!famId) continue;
+    const resolved = resolveBaseFor(a, bases, routes, cargoRoutes, absWeek);
+    if (!resolved?.code) continue;
+    if (!out[resolved.code]) out[resolved.code] = {};
+    out[resolved.code][famId] = (out[resolved.code][famId] ?? 0) + 1;
+  }
+  return out;
 }
 
 /**
