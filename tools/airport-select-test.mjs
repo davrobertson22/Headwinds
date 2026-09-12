@@ -67,7 +67,12 @@ test('pinned airports are not repeated in their region group', () => {
   assert.equal(all.length, new Set(all).size, 'an airport appeared twice');
 });
 
-test('regions follow the shared REGIONS order', () => {
+// Region ORDER is no longer the canonical REGIONS order — it follows where the
+// player's own gates are (tools/airport-order-test.mjs owns that behaviour and
+// the bug report behind it). This fixture is a North-America-heavy airline —
+// 24 gates there against 5, 5 and 2 elsewhere — so the two orders agree, which
+// is exactly why it still reads as a regression test for the grouping itself.
+test('every region in the pool gets exactly one group, in presence order', () => {
   const g = groupAirports({ gates, hubs });
   const regionLabels = labels(g).filter(l => REGIONS.includes(l));
   assert.deepEqual(regionLabels, ['North America', 'South America', 'Europe', 'Asia']);

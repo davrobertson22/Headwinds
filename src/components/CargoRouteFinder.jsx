@@ -6,6 +6,7 @@ import { distanceKm, formatMoney, currentGameDate, calendarYear } from '../utils
 import { cargoCityPairDemand, cargoReferenceYield, cargoBackhaulFactor } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
+import OriginPicker from './OriginPicker.jsx';
 
 const PAGE_SIZE = 25;
 const ACCENT    = '#e8833a';
@@ -29,8 +30,6 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
 
   const [open, setOpen]         = useState(!!standalone);
   const [origin, setOrigin]     = useState(state.hub || '');
-  const [query, setQuery]       = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [minDist, setMinDist]   = useState('');
   const [maxDist, setMaxDist]   = useState('');
   const [rangeTypeId, setRangeTypeId] = useState('');
@@ -101,15 +100,6 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
 
   const shown = results.slice(0, limit);
 
-  // Origin picker (compact inline search)
-  const originMatches = useMemo(() => {
-    const q = query.trim().toUpperCase();
-    if (!q) return [];
-    return AIRPORTS.filter(a =>
-      a.code.includes(q) || a.city.toUpperCase().includes(q) || a.name.toUpperCase().includes(q)
-    ).slice(0, 8);
-  }, [query]);
-
   function pickRangeType(id) {
     setRangeTypeId(id);
     const t = getAircraftType(id);
@@ -143,63 +133,12 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
           {/* Controls */}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
 
-            {/* Origin */}
-            <div style={{ position: 'relative', minWidth: 180 }}>
-              <div className="form-label" style={{ marginBottom: 6 }}>From</div>
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface2)',
-                  border: `1px solid ${pickerOpen ? ACCENT : 'var(--border)'}`,
-                  borderRadius: 'var(--radius)', padding: '7px 10px', cursor: 'pointer',
-                }}
-                onClick={() => setPickerOpen(v => !v)}
-              >
-                {originAirport ? (
-                  <>
-                    <span style={{ fontWeight: 700, fontSize: 15 }}>{originAirport.code}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{originAirport.city}</span>
-                  </>
-                ) : (
-                  <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Select airport…</span>
-                )}
-                <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 11 }}>▾</span>
-              </div>
-              {pickerOpen && (
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 100,
-                  background: 'var(--surface2)', border: `1px solid ${ACCENT}`,
-                  borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', overflow: 'hidden',
-                }}>
-                  <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                    <input
-                      autoFocus
-                      className="form-input"
-                      placeholder="Search city or code…"
-                      value={query}
-                      onChange={e => setQuery(e.target.value)}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                    {(query ? originMatches : AIRPORTS.slice(0, 8)).map(a => (
-                      <div
-                        key={a.code}
-                        onClick={() => { setOrigin(a.code); setQuery(''); setPickerOpen(false); resetPaging(); }}
-                        style={{ padding: '7px 10px', cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'center' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface3)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <span style={{ fontWeight: 700, fontSize: 13, width: 34, flexShrink: 0 }}>{a.code}</span>
-                        <span style={{ fontSize: 12 }}>{a.city}</span>
-                      </div>
-                    ))}
-                    {query && originMatches.length === 0 && (
-                      <div style={{ padding: 12, color: 'var(--text-dim)', fontSize: 12, textAlign: 'center' }}>No airports found</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Origin — your own network first (components/OriginPicker.jsx) */}
+            <OriginPicker
+              value={origin}
+              onChange={code => { setOrigin(code); resetPaging(); }}
+              accent={ACCENT}
+            />
 
             {/* Distance band */}
             <div>

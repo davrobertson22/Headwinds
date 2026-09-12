@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { useGame, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
-import { AIRPORTS, getAirport, gateCapacityOf } from '../data/airports.js';
+import { requestNav } from '../utils/navIntent.js';
+import { AIRPORTS, getAirport, gateCapacityOf, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
 import {
   baseCityPairDemand, referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE,
   cargoSlotsUsedAt, routeLegs, routeSegments,
@@ -14,7 +15,7 @@ import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn } from '../../packages/engine/src/models/network.js';
 import { requestDepartureBoard } from './Departures.jsx';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
-import { gateDenialFor, lockoutWeeksLeft, idleWarningFor } from './GateDenial.jsx';
+import { gateDenialFor, lockoutWeeksLeft, idleWarningFor, DisabledHint, GateDenialNote } from './GateDenial.jsx';
 import { Glyph } from './Icons.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import {
@@ -37,6 +38,148 @@ function Stat({ label, value, sub, color }) {
       <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{label}</div>
       <div style={{ fontWeight: 700, fontSize: 15, color: color ?? 'var(--text)' }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/**
+ * Getting a gate at THIS airport, from the page you are already looking at.
+ *
+ *   "could you add buying gates to the airport details page? Rn I have to go
+ *    through all my routes and the Alliance sharing thing to buy a slot"
+ *    (Barca, Discord 2026-09-10)
+ *
+ * He was right that the detail page was the obvious place and the one place it
+ * wasn't: this screen would tell you a gate was free at LHR, what it would cost
+ * you, who held the rest and exactly why you were or were not allowed one —
+ * and then offer no way to take it. The lease lived on the Airports tab's gate
+ * table, so the route out of here was Back → find the row → "+ Gate".
+ *
+ * The lease itself is the same ADD_GATE the gate table dispatches, guarded by
+ * the same gateLeaseDenial the server refuses with, so the two paths cannot
+ * disagree about what is allowed.
+ *
+ * A scarcity world has a second way in that this card does NOT duplicate: gates
+ * that only change hands by sealed auction or a player's listing. Re-rendering
+ * a bid form here would be a second copy of the Gate Market to keep in sync and
+ * a second place for a bid to go astray — so when there is an auction or a
+ * listing at this airport, the card says so, with the numbers, and hands over.
+ */
+function GateLeaseCard({ code, onBack }) {
+  const { state, dispatch, remoteApi } = useGame();
+  const confirm = useConfirm();
+  const airport = getAirport(code);
+  const myGates = (state.gates ?? {})[code] ?? 0;
+  const denial  = gateDenialFor(state, code);
+  const nextFee = gateMonthlyFee(airport, myGates + 1);
+  const nowFee  = totalGateMonthlyFee(airport, myGates);
+
+  const market   = state.gateMarket?.airports?.[code] ?? null;
+  // The Gate Market section only exists where the server can take a bid — in a
+  // solo/classic world there is nothing to hand over to.
+  const tradable = !!remoteApi?.placeGateBid;
+  const auction  = tradable ? market?.auction ?? null : null;
+  const forSale  = tradable ? (market?.listings ?? []).filter(l => !l.yours) : [];
+  const weekNow  = state.gateMarket?.week ?? (((state.year ?? 1) - 1) * 52 + (state.week ?? 1));
+
+  const toGateMarket = () => {
+    // onBack first: in the Airports tab this component IS the tab, so the
+    // section we want to scroll to is not mounted until the detail closes.
+    onBack?.();
+    requestNav('airports', { focus: 'gate-market' });
+  };
+
+  const leaseButton = (
+    <button
+      className={denial ? 'btn' : 'btn btn-primary'}
+      style={{ fontSize: 13, cursor: denial ? 'not-allowed' : 'pointer' }}
+      disabled={!!denial}
+      title={denial ? undefined : `Lease gate ${myGates + 1} at ${code}`}
+      onClick={async () => {
+        if (denial) return;
+        if (await confirm({
+          title: `Lease a gate at ${code}?`,
+          body: `${formatMoney(nextFee)}/month, from next month's bill`
+              + `${myGates > 0 ? ` — on top of the ${formatMoney(nowFee)}/mo you already pay here` : ''}.\n\n`
+              + `It gives you ${SLOTS_PER_GATE} more departures a week at ${code}. `
+              + `There is no up-front cost and you can release it again at any time, `
+              + `but an empty gate costs the same as a busy one.`,
+          confirmLabel: `Lease for ${formatMoney(nextFee)}/mo`,
+        })) {
+          dispatch({ type: 'ADD_GATE', airportCode: code });
+        }
+      }}
+    >
+      {myGates > 0 ? '+ Lease another gate' : '+ Lease a gate here'} — {formatMoney(nextFee)}/mo
+    </button>
+  );
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 16 }}><Glyph e="🛄" size={16} /></span>
+        <div style={{ fontWeight: 600 }}>Lease a Gate</div>
+      </div>
+
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+        {myGates > 0
+          ? <>You hold {myGates} gate{myGates === 1 ? '' : 's'} here for {formatMoney(nowFee)}/mo. Each one is worth {SLOTS_PER_GATE} departures a week, and gates get dearer the more of an airport you take.</>
+          : <>A gate at {code} is what lets you schedule departures here at all — {SLOTS_PER_GATE} a week per gate. No up-front cost; you pay monthly for as long as you hold it, flying or not.</>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
+        <Stat label="Next gate" value={`${formatMoney(nextFee)}/mo`} color="var(--accent)" sub={`+${SLOTS_PER_GATE} departures/wk`} />
+        {myGates > 0 && <Stat label="You pay now" value={`${formatMoney(nowFee)}/mo`} sub={`${myGates} gate${myGates === 1 ? '' : 's'}`} />}
+      </div>
+
+      <DisabledHint title={denial}>{leaseButton}</DisabledHint>
+      {/* A disabled button fires no pointer events, so the reason has to be on
+          the page and not in a tooltip. */}
+      <GateDenialNote state={state} code={code} reason={denial} />
+
+      {/* Scarcity worlds: the other two ways a gate changes hands here. */}
+      {auction && (
+        <div style={{
+          marginTop: 14, padding: '10px 12px', borderRadius: 'var(--radius)',
+          border: '1px solid rgba(56,201,180,0.4)', background: 'rgba(56,201,180,0.08)',
+          fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)',
+        }}>
+          <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
+            🔨 {auction.lots} gate{auction.lots === 1 ? '' : 's'} up for auction here
+          </div>
+          Sealed bids from {formatMoney(auction.reserve)}/gate, resolving in{' '}
+          {Math.max(0, auction.closesWeek - weekNow)} week{Math.max(0, auction.closesWeek - weekNow) === 1 ? '' : 's'}.
+          {auction.yourBid
+            ? <> You have bid {formatMoney(auction.yourBid.amount)} × {auction.yourBid.quantity}.</>
+            : <> You have not bid.</>}
+          <div style={{ marginTop: 8 }}>
+            <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: 12, color: 'var(--accent)' }}
+                    onClick={toGateMarket}>
+              {auction.yourBid ? 'Change your bid' : 'Place a bid'} in the Gate Market →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {forSale.length > 0 && (
+        <div style={{
+          marginTop: 10, padding: '10px 12px', borderRadius: 'var(--radius)',
+          border: '1px solid var(--border)', background: 'var(--surface2)',
+          fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)',
+        }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+            🤝 {forSale.length} gate{forSale.length === 1 ? '' : 's'} listed for sale here
+          </div>
+          Asking from {formatMoney(Math.min(...forSale.map(l => l.askPrice)))}, paid once — a bought gate is
+          yours outright rather than leased from the airport.
+          <div style={{ marginTop: 8 }}>
+            <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: 12, color: 'var(--accent)' }}
+                    onClick={toGateMarket}>
+              Buy in the Gate Market →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -584,6 +727,8 @@ export default function AirportDetail({ code, onBack }) {
             )}
           </div>
         )}
+
+        <GateLeaseCard code={code} onBack={onBack} />
 
         <LoungeCard code={code} />
 
