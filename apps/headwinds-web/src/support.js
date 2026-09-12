@@ -33,21 +33,9 @@ export const SUPPORT_PERKS = [
   'Nothing that affects the game itself — no cash, no gates, no speed',
 ];
 
-// Dismissal is remembered for 30 days, not forever: a player who says "not now"
-// in week one may feel differently after a season. Per-browser and best-effort —
-// localStorage throws in private windows and can come back empty, so every read
-// and write is guarded and the card simply shows when in doubt.
-const DISMISS_KEY = 'hw.support.dismissedAt';
-const DISMISS_DAYS = 30;
-
-export function isSupportCardDismissed() {
-  try {
-    const at = Number(window.localStorage.getItem(DISMISS_KEY));
-    if (!Number.isFinite(at) || at <= 0) return false;
-    return Date.now() - at < DISMISS_DAYS * 24 * 60 * 60 * 1000;
-  } catch { return false; }
-}
-
-export function dismissSupportCard() {
-  try { window.localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* no-op */ }
-}
+// The card used to be dismissible for 30 days. That was removed on 2026-09-12;
+// the helpers and the `hw.support.dismissedAt` key went with it. Any key left in
+// a returning player's localStorage is now inert — nothing reads it, so a player
+// who dismissed the card under the old build simply sees it again. No migration
+// is needed and nothing clears the key: it is a few bytes in their browser and
+// deleting it would mean shipping code whose only job is to delete code.

@@ -5,12 +5,8 @@
 // tick, nothing on a bankruptcy or failure screen. A player who has just lost an
 // airline is not a prospect, and a game that interrupts itself to ask for money
 // reads as a different kind of game than this one.
-import { useState } from 'react';
 import { SupporterBadge } from './OgBadge.jsx';
-import {
-  KOFI_URL, SUPPORT_PITCH, SUPPORT_PERKS,
-  isSupportCardDismissed, dismissSupportCard,
-} from './support.js';
+import { KOFI_URL, SUPPORT_PITCH, SUPPORT_PERKS } from './support.js';
 
 // The Ko-fi cup, inlined. A remote image would be a third-party request on the
 // lobby's critical path for a 16px glyph, and it would break the day Ko-fi moves
@@ -35,15 +31,19 @@ export function KofiButton({ label = 'Support on Ko-fi', className = 'btn primar
 }
 
 /**
- * The lobby card. Dismissible for 30 days (support.js), and replaced by a short
- * thank-you for anyone who has already given — asking a supporter again is how
- * you turn a supporter back into a stranger.
+ * The lobby card. Replaced by a short thank-you for anyone who has already given
+ * — asking a supporter again is how you turn a supporter back into a stranger.
+ *
+ * NOT dismissible (Dave, 2026-09-12). It used to carry a "Not now" that hid it
+ * for 30 days; the card is a static panel in the lobby rather than anything that
+ * interrupts play, so it stays put. The one rule that has not changed: it is
+ * still absent from the gameplay loop entirely — see the header of this file.
+ * A player's way out of the ask is to support, or to scroll past it.
  *
  * `me` is the /me payload; `me.account.isSupporter` decides which face it wears.
  */
 export default function SupportCard({ me }) {
   const isSupporter = me?.account?.isSupporter === true;
-  const [dismissed, setDismissed] = useState(() => isSupportCardDismissed());
 
   // Signed-out visitors see the lobby's sign-in card instead; no ask until
   // there's an account the badge could actually land on.
@@ -63,19 +63,9 @@ export default function SupportCard({ me }) {
     );
   }
 
-  if (dismissed) return null;
-
   return (
     <div className="card">
-      <div className="list-head" style={{ alignItems: 'flex-start' }}>
-        <h3 style={{ margin: 0 }}>Support Headwinds</h3>
-        <button
-          className="btn small" title="Hide this for a month"
-          onClick={() => { dismissSupportCard(); setDismissed(true); }}
-        >
-          Not now
-        </button>
-      </div>
+      <h3 style={{ marginTop: 0 }}>Support Headwinds</h3>
       <p className="muted small">{SUPPORT_PITCH}</p>
       <ul className="muted small" style={{ margin: '0 0 14px', paddingLeft: 18 }}>
         {SUPPORT_PERKS.map((perk) => <li key={perk}>{perk}</li>)}

@@ -78,11 +78,17 @@ test('says nothing at all when signed out', () => {
   assert.equal(render(React.createElement(SupportCard, { me: {} })), '');
 });
 
-test('honours a dismissal, and lets it expire after 30 days', () => {
+test('cannot be dismissed — no Not now control on the ask', () => {
+  store = new Map(); throwOnStorage = false;
+  const html = render(React.createElement(SupportCard, { me: me() }));
+  assert.ok(!/Not now/i.test(html), 'the dismiss control was removed on purpose — it should not come back');
+  assert.ok(!/Hide this/i.test(html), 'no hide affordance of any kind on the card');
+});
+
+test('ignores a dismissal left in localStorage by an older build', () => {
   store = new Map([['hw.support.dismissedAt', String(Date.now())]]);
-  assert.equal(render(React.createElement(SupportCard, { me: me() })), '', 'a fresh dismissal should hide it');
-  store = new Map([['hw.support.dismissedAt', String(Date.now() - 31 * 24 * 3600 * 1000)]]);
-  assert.ok(render(React.createElement(SupportCard, { me: me() })).includes(KOFI), 'a 31-day-old dismissal should have expired');
+  assert.ok(render(React.createElement(SupportCard, { me: me() })).includes(KOFI),
+    'a stale hw.support.dismissedAt must not keep the card hidden after the dismiss feature was removed');
 });
 
 test('renders when localStorage throws (private window)', () => {
