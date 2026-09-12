@@ -198,12 +198,32 @@ const BLITZ_PROB = { fortress: 0.20, aggressive: 0.15, expansionist: 0.08, copyc
 /** Weekly probability of an unprovoked hub brand campaign (healthy carriers). */
 const BLITZ_UNPROVOKED_PROB = 0.012;
 
+// Memoised on the competitor ARRAY's identity, the same contract rivalIndexFor
+// runs on: tickCompetitorAI rebuilds the roster with `competitors.map(a => ({...a}))`
+// and Headwinds re-injects a fresh array on every rival poll, so a new set is
+// always a new array and a repeat array is always the same set.
+//
+// Why it needs one: the preview path calls this through rivalAdDragAt, which
+// wants the spend at ONE airport and gets handed the whole world's map to read
+// a single key out of. The Route Planner's aircraft ranking prices 75 candidates
+// and the Route Finder 150 markets, each touching two airports, so a 40-player
+// world re-summed ~1,800 rival route keys hundreds of times to answer the same
+// question. It was 32% of a planner recompute.
+const MKT_SPEND_CACHE = new WeakMap();
+
 /**
  * Total competitor marketing spend ($/wk) per airport, for share-of-voice.
  * Pure derivation from competitor state — call each tick, nothing stored.
+ *
+ * The returned map is SHARED and frozen. Callers read it (the tick's mktDragAt,
+ * rivalAdDragAt, Operations' rival-voice column); none may write through it.
  * @returns {{[airportCode: string]: number}}
  */
 export function competitorMarketingSpend(competitors) {
+  if (competitors) {
+    const hit = MKT_SPEND_CACHE.get(competitors);
+    if (hit) return hit;
+  }
   const voice = {};
   const add = (code, amt) => { if (code && amt > 0) voice[code] = (voice[code] ?? 0) + amt; };
   for (const c of competitors ?? []) {
@@ -221,6 +241,8 @@ export function competitorMarketingSpend(competitors) {
       add(code, (blitz.spend ?? 0));
     }
   }
+  Object.freeze(voice);
+  if (competitors) MKT_SPEND_CACHE.set(competitors, voice);
   return voice;
 }
 

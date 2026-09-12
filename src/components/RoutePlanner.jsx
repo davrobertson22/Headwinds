@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { useGame, addRouteBlockReason, slotCapAt, peakSlotsUsedAt, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
@@ -870,6 +870,34 @@ export default function RoutePlanner() {
   // runs with the card rather than behind a button. Freighters are left out —
   // this is a passenger route, and the planner's own default already refuses
   // them.
+  //
+  // DEFERRED, not debounced. The ranking prices the whole reachable catalogue —
+  // ~75 forecasts — and that was measured at 88ms on a solo-shaped world and
+  // 366ms on a full one, which is why a fare box or the frequency slider felt
+  // like it was fighting back:
+  //
+  //   @silv4013  "the route planner and route finder tabs are so laggy its
+  //               almost unbearable"                                (9/11/26)
+  //   LtFrosty   "performance started taking a hit after the feature that shows
+  //               the best plane for each route was added"          (9/12/26)
+  //
+  // LtFrosty had the cause exactly right. The engine work above cut the rival
+  // half of that cost, but ~75 forecasts is still too much to run between a
+  // slider step and the next frame, and it is not what the player is looking at
+  // while they drag: the CARD is. So the card (and the slider, and the fare
+  // boxes) keep the live values and stay interactive, and the ranking re-runs off
+  // deferred copies — React renders it with the previous inputs while the new
+  // ones are still landing, then catches up once the drag stops.
+  //
+  // The panel says so while it lags (`recsStale` below). A ranking that quietly
+  // disagreed with the card beside it for the same settings would be the very
+  // bug this module exists to prevent — deferring is only acceptable because the
+  // disagreement is visible, brief, and always resolves to the card.
+  const defFrequency     = useDeferredValue(frequency);
+  const defPrice         = useDeferredValue(effectivePrice);
+  const defFares         = useDeferredValue(effectiveFares);
+  const defConfig        = useDeferredValue(effectiveConfig);
+  const defSelectedType  = useDeferredValue(selectedTypeId);
   const recommendations = useMemo(() => {
     if (!routeData || reachableTypes.length === 0) return [];
     const candidates = reachableTypes.filter(t => !t.freighter);
@@ -877,9 +905,9 @@ export default function RoutePlanner() {
     return rankAircraftForRoute(state, {
       origin, destination: dest, distKm: routeData.dist,
       types: candidates,
-      weeklyFrequency: frequency,
-      ticketPrice: effectivePrice,
-      classPrices: effectiveFares ?? defaultClassPrices(effectivePrice),
+      weeklyFrequency: defFrequency,
+      ticketPrice: defPrice,
+      classPrices: defFares ?? defaultClassPrices(defPrice),
       cateringLevel, season, gameDate,
       eventDemandMult: eventDemand.multFor(origin, dest),
       capHours: bhCap,
@@ -887,7 +915,7 @@ export default function RoutePlanner() {
       reachKmFor,
       // The type on screen is forecast on the cabin the player has dialled in, so
       // its row and the card cannot print different money for the same plane.
-      configFor: (t) => (t.id === selectedTypeId ? effectiveConfig : null),
+      configFor: (t) => (t.id === defSelectedType ? defConfig : null),
       availabilityFor: (id) => {
         const pool = (deployableByType[id] ?? []).filter(d => d.eligible);
         return {
@@ -896,9 +924,18 @@ export default function RoutePlanner() {
         };
       },
     });
-  }, [routeData, reachableTypes, deployableByType, frequency, effectivePrice, effectiveFares,
-      cateringLevel, season, selectedTypeId, effectiveConfig, state.fleet, state.routes,
+  }, [routeData, reachableTypes, deployableByType, defFrequency, defPrice, defFares,
+      cateringLevel, season, defSelectedType, defConfig, state.fleet, state.routes,
       state.hub, state.hubs, origin, dest, gameDate, reachByType]);
+
+  // True while the ranking is still showing the previous inputs. Drives the
+  // "catching up" note on the panel, so the player is never left comparing a
+  // stale row against a live card without being told.
+  const recsStale = defFrequency !== frequency
+    || defPrice !== effectivePrice
+    || defFares !== effectiveFares
+    || defConfig !== effectiveConfig
+    || defSelectedType !== selectedTypeId;
 
   // The pick worth interrupting the player for: the best earner they can fly
   // TODAY. A recommendation you would have to lease first is a different
@@ -1265,7 +1302,9 @@ export default function RoutePlanner() {
                         <InfoTip text="Every aircraft that can reach this route, ranked by what it would clear a week — the same forecast as the card below, run once per type at the frequency and fares you have set here. Net is after operating cost, landing fees and the lease on the tail that would fly it, so a plane you own outright ranks above an identical one you would have to lease. A bigger cabin is not automatically better: on a thin market a small aircraft that fills beats a large one that does not. “N ready” is how many of that type are free to fly this lane today; everything else is a quote for an order." />
                       </div>
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-dim)' }}>
-                        {origin} → {dest} · {frequency}×/wk · your fares
+                        {recsStale
+                          ? 'catching up…'
+                          : `${origin} → ${dest} · ${frequency}×/wk · your fares`}
                       </span>
                     </div>
 

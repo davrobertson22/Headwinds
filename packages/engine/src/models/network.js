@@ -626,7 +626,18 @@ export function buildCannibalizationMap(connections) {
  * @param {object[]} competitors  - live competitor airline objects (with .routes)
  * @returns {Map<string, object[]>}  sorted routeKey → competitors serving it
  */
+// Memoised on the competitor array's identity — same contract as rivalIndexFor
+// (see RIVAL_INDEX_CACHE below): a changed roster is always a new array.
+// runNetworkTick builds this index once per call, and the preview path calls
+// runNetworkTick once per CANDIDATE — 75 aircraft in the planner, 150 markets in
+// the finder — so on a full Headwinds world every rival's route map was
+// re-indexed hundreds of times to produce the identical Map. Read-only at every
+// call site (partner-feed head-to-head lookup), so one shared index is safe.
+const COMP_ROUTE_INDEX_CACHE = new WeakMap();
+
 export function buildCompetitorRouteIndex(competitors = []) {
+  const hit = competitors && COMP_ROUTE_INDEX_CACHE.get(competitors);
+  if (hit) return hit;
   const index = new Map();
   for (const comp of competitors) {
     for (const routeKey of Object.keys(comp.routes ?? {})) {
@@ -636,6 +647,7 @@ export function buildCompetitorRouteIndex(competitors = []) {
       index.get(key).push(comp);
     }
   }
+  if (competitors) COMP_ROUTE_INDEX_CACHE.set(competitors, index);
   return index;
 }
 
@@ -968,14 +980,32 @@ export function getCannibalizationPreview(
 /** Competitor quality factor by carrier tier for presence weighting. */
 const COMP_TIER_FACTOR = { budget: 0.7, legacy: 1.0, premium: 1.2 };
 
+// One carrier's route count per airport, derived once per route map.
+//
+// The scan below is O(that carrier's whole network) for a single airport, and
+// buildHubContestMap asks it for every designated hub, once per preview — which
+// the planner and finder run per candidate. Keyed on `comp.routes` rather than
+// on `comp`, so the count survives the `{...airline}` copy tickCompetitorAI
+// makes each week (the route map itself is only replaced when the network
+// actually changes) and is rebuilt the moment it isn't.
+const ROUTES_AT_CACHE = new WeakMap();
+
 /** Routes a competitor operates touching an airport. */
 function competitorRoutesAt(comp, code) {
-  let n = 0;
-  for (const key of Object.keys(comp.routes ?? {})) {
-    const [a, b] = key.split('-');
-    if (a === code || b === code) n++;
+  const routes = comp?.routes;
+  if (!routes) return 0;
+  let counts = ROUTES_AT_CACHE.get(routes);
+  if (!counts) {
+    counts = new Map();
+    for (const key of Object.keys(routes)) {
+      const i = key.indexOf('-');
+      const a = key.slice(0, i), b = key.slice(i + 1);
+      counts.set(a, (counts.get(a) ?? 0) + 1);
+      if (b !== a) counts.set(b, (counts.get(b) ?? 0) + 1);
+    }
+    ROUTES_AT_CACHE.set(routes, counts);
   }
-  return n;
+  return counts.get(code) ?? 0;
 }
 
 /**

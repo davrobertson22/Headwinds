@@ -77,6 +77,68 @@ export function rivalPairIndex(state) {
   return counts;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RIVAL TOPOLOGY KEY — what the finder actually reads off the rival set
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   ASAS  "it doesnt happen on tailwinds so maybe some problem is happening due
+//          to it being in multi player"                              (9/12/26)
+//
+// He is right, and this is the multiplayer half of it. Headwinds polls a rival
+// OVERLAY every few seconds and applies it with `{ ...cur, ...d.rivals }`, so
+// `competitors`, `humanRivals` and `encroachments` get brand-new object
+// identities whenever ANY player anywhere in the world moves — a fare nudge on a
+// lane you will never fly is enough. A screen that lists those three as memo
+// dependencies therefore rebuilds on a timer rather than on a change, and in the
+// Route Finder that rebuild drags the whole bounded forecast pass behind it:
+// ~2,000 markets re-walked and up to 150 of them re-priced, on the main thread,
+// while the player is doing nothing but reading the list. Tailwinds has no poll,
+// which is exactly why it never showed there.
+//
+// But the finder reads almost none of what moves. `rivalPairIndex` consumes WHO
+// flies WHICH pairs and nothing else — not fares, not seats, not frequencies, not
+// quality. So this is the real dependency: a string that changes when the
+// competitive MAP changes and stays put when rivals merely re-price.
+//
+// Memoised per source object, so a screen may call it on every render for free;
+// a genuinely new rival set is a new object and derives a new key.
+const TOPOLOGY_CACHE = new WeakMap();
+
+function cached(obj, derive) {
+  if (!obj || typeof obj !== 'object') return '';
+  const hit = TOPOLOGY_CACHE.get(obj);
+  if (hit !== undefined) return hit;
+  const key = derive(obj);
+  TOPOLOGY_CACHE.set(obj, key);
+  return key;
+}
+
+/**
+ * A stable identity for "who flies what" in this world.
+ *
+ * Two states with the same key present the same competitive map to the finder,
+ * whatever else has changed about the rivals in between. Use it as the memo
+ * dependency in place of `state.competitors` / `state.humanRivals` /
+ * `state.encroachments`, which in Headwinds change identity on a timer.
+ *
+ * @returns {string}
+ */
+export function rivalTopologyKey(state) {
+  const comps = cached(state?.competitors, (list) => (list ?? [])
+    .map((c) => `${c?.id ?? '?'}#${Object.keys(c?.routes ?? {}).sort().join(',')}`)
+    .sort().join(';'));
+  // Only the pair keys and who sits on them — a rival re-pricing an existing
+  // offer leaves both untouched, which is the whole point.
+  const humans = cached(state?.humanRivals, (byPair) => Object.entries(byPair ?? {})
+    .map(([k, specs]) => `${k}#${(specs ?? []).map((s) => s?.competitorId ?? '?').sort().join(',')}`)
+    .sort().join(';'));
+  const enc = cached(state?.encroachments, (byPair) => Object.entries(byPair ?? {})
+    .filter(([, spec]) => spec)
+    .map(([k, spec]) => `${k}#${spec?.competitorId ?? '?'}`)
+    .sort().join(';'));
+  return `${comps}|${humans}|${enc}`;
+}
+
 /** Metro lanes the player already serves, as a Set of lane keys. */
 export function servedLaneIndex(state) {
   const lanes = new Map();

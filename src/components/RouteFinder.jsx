@@ -1,15 +1,17 @@
 import { useState, useMemo } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
-import { AIRPORTS, getAirport } from '../data/airports.js';
+import { getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { effectiveRangeKm, formatMoney, calendarYear, currentGameDate } from '../utils/simulation.js';
 import { buildRouteMarket } from '../models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
+  rivalTopologyKey,
 } from '../models/routeFinder.js';
 import { REGION_LABELS, REGION_ORDER, regionLabel } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
+import OriginPicker from './OriginPicker.jsx';
 
 const PAGE_SIZE = 25;
 
@@ -37,8 +39,6 @@ export default function RouteFinder({ onPick, standalone = false }) {
 
   const [open, setOpen]         = useState(!!standalone);
   const [origin, setOrigin]     = useState(state.hub || '');
-  const [query, setQuery]       = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [minDist, setMinDist]   = useState('');
   const [maxDist, setMaxDist]   = useState('');
   const [region, setRegion]     = useState('');
@@ -96,6 +96,10 @@ export default function RouteFinder({ onPick, standalone = false }) {
 
   function resetPaging() { setLimit(PAGE_SIZE); }
 
+  // Who flies what, as one stable string — see rivalTopologyKey. Cheap enough to
+  // run every render (it is memoised per rival object in the engine).
+  const rivalKey = rivalTopologyKey(state);
+
   // ── Candidates (cheap: no demand model, safe to re-run on every keystroke) ──
   const rows = useMemo(() => {
     if (!originAirport || !open) return [];
@@ -111,8 +115,14 @@ export default function RouteFinder({ onPick, standalone = false }) {
       soloOnly,
       groupMetros: !splitMetros,
     });
+    // `rivalKey` rather than the three rival objects themselves. In Headwinds
+    // those are replaced wholesale by every rival-overlay poll — every few
+    // seconds, whenever ANY player in the world moves — so depending on their
+    // identity rebuilt this list, and the bounded forecast pass below with it,
+    // on a timer. The key changes when the competitive map changes and holds
+    // still when rivals merely re-price, which is all the finder reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.routes, state.competitors, state.humanRivals, state.encroachments,
+  }, [state.routes, rivalKey,
       origin, open, typeId, owned?.best, minDist, maxDist, region, showUnflyable, showServed,
       soloOnly, splitMetros]);
 
@@ -154,15 +164,6 @@ export default function RouteFinder({ onPick, standalone = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown, origin, gameDate.month]);
 
-  // Origin picker (compact inline search)
-  const originMatches = useMemo(() => {
-    const q = query.trim().toUpperCase();
-    if (!q) return [];
-    return AIRPORTS.filter(a =>
-      a.code.includes(q) || a.city.toUpperCase().includes(q) || a.name.toUpperCase().includes(q)
-    ).slice(0, 8);
-  }, [query]);
-
   return (
     <div className="card" style={{ marginBottom: 12 }}>
       {/* Header / toggle */}
@@ -188,63 +189,11 @@ export default function RouteFinder({ onPick, standalone = false }) {
           {/* Controls */}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
 
-            {/* Origin */}
-            <div style={{ position: 'relative', minWidth: 180 }}>
-              <div className="form-label" style={{ marginBottom: 6 }}>From</div>
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface2)',
-                  border: `1px solid ${pickerOpen ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 'var(--radius)', padding: '7px 10px', cursor: 'pointer',
-                }}
-                onClick={() => setPickerOpen(v => !v)}
-              >
-                {originAirport ? (
-                  <>
-                    <span style={{ fontWeight: 700, fontSize: 15 }}>{originAirport.code}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{originAirport.city}</span>
-                  </>
-                ) : (
-                  <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Select airport…</span>
-                )}
-                <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 11 }}>▾</span>
-              </div>
-              {pickerOpen && (
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 100,
-                  background: 'var(--surface2)', border: '1px solid var(--accent)',
-                  borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)', overflow: 'hidden',
-                }}>
-                  <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
-                    <input
-                      autoFocus
-                      className="form-input"
-                      placeholder="Search city or code…"
-                      value={query}
-                      onChange={e => setQuery(e.target.value)}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                    {(query ? originMatches : AIRPORTS.slice(0, 8)).map(a => (
-                      <div
-                        key={a.code}
-                        onClick={() => { setOrigin(a.code); setQuery(''); setPickerOpen(false); resetPaging(); }}
-                        style={{ padding: '7px 10px', cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'center' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface3)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <span style={{ fontWeight: 700, fontSize: 13, width: 34, flexShrink: 0 }}>{a.code}</span>
-                        <span style={{ fontSize: 12 }}>{a.city}</span>
-                      </div>
-                    ))}
-                    {query && originMatches.length === 0 && (
-                      <div style={{ padding: 12, color: 'var(--text-dim)', fontSize: 12, textAlign: 'center' }}>No airports found</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Origin — your own network first (components/OriginPicker.jsx) */}
+            <OriginPicker
+              value={origin}
+              onChange={code => { setOrigin(code); resetPaging(); }}
+            />
 
             {/* Aircraft — your fleet first, catalogue after */}
             <div>
