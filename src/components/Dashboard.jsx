@@ -5,6 +5,7 @@ import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenance
   stateLoungeFields,
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
+import { fuelImpact } from '../utils/fuelImpact.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
 import { isReserve } from '../data/reserve.js';
@@ -136,6 +137,10 @@ export default function Dashboard({ onNavigate }) {
   // folding it into RPK understates yield by the same trick in reverse. Neither
   // number is comparable to a flat route's, so both are left out rather than
   // mixed in wrong: the tiles describe the point-to-point network and say so.
+  // Fuel in dollars for the KPI tile: the index alone never told anyone that
+  // 1.28x on this fleet is $55M/wk (utils/fuelImpact.js).
+  const fuelKpi = useMemo(() => fuelImpact(state, { lookbacks: [] }), [state]);
+
   const networkStats = useMemo(() => {
     let pax = 0, seats = 0, rpk = 0, rev = 0, tagRoutes = 0;
     for (const rr of proj.report?.routeResults ?? []) {
@@ -643,6 +648,27 @@ export default function Dashboard({ onNavigate }) {
             onClick={canNavigate ? () => go('routes') : undefined}
           />
         )}
+        {fuelKpi && fuelKpi.baseBill > 0 && (() => {
+          const up = fuelKpi.excess > 0;
+          const flat = Math.abs(fuelKpi.excess) < fuelKpi.baseBill * 0.02;
+          const lbl = fuelKpi.status.label;
+          const color = lbl === 'Crisis' || lbl === 'Very High' ? 'red'
+                      : lbl === 'High' ? 'yellow'
+                      : lbl === 'Normal' ? 'blue' : 'green';
+          const sub = flat ? `${formatMoney(fuelKpi.bill)}/wk · at normal price`
+                    : up ? `+${formatMoney(fuelKpi.excess)}/wk above normal · ${formatMoney(fuelKpi.perTenth)} per 0.1`
+                    : `−${formatMoney(Math.abs(fuelKpi.excess))}/wk below normal · ${formatMoney(fuelKpi.perTenth)} per 0.1`;
+          return (
+            <KpiBox
+              label="Fuel"
+              value={`${fuelKpi.index.toFixed(2)}×`}
+              color={color}
+              sub={sub}
+              subColor={flat ? undefined : up ? 'var(--red)' : 'var(--green)'}
+              onClick={canNavigate ? () => requestNav('finance', { filter: { view: 'fuel' } }) : undefined}
+            />
+          );
+        })()}
         {satisfaction != null && (
           <KpiBox
             label="Satisfaction"

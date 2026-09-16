@@ -37,6 +37,8 @@ import {
   DEPRECIATION_YEARS,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
+import { fuelImpact, hedgeQuoteDollars } from '../utils/fuelImpact.js';
+import { consumeNavFilter } from '../utils/navIntent.js';
 // pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import { costBridge } from '../utils/pnlBridge.js';
@@ -154,7 +156,9 @@ function futureMonth(currentAbsWeek, offsetWeeks) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function FinanceInner({ initialView }) {
-  const [view, setView] = useState(initialView ?? 'pl');
+  // A deep link (the Dashboard's Fuel tile → requestNav('finance', { filter:
+  // { view: 'fuel' } })) lands on the named view; read once, on mount.
+  const [view, setView] = useState(() => consumeNavFilter('finance')?.view ?? initialView ?? 'pl');
   const { state } = useGame();
   // Compute the canonical weekly projection ONCE and share it across tabs (runs a
   // full engine tick incl. network/connection enumeration, so we don't want each
@@ -980,6 +984,29 @@ function PLStatement({ proj }) {
               <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 13, fontWeight: 500 }}>{formatMoney(-totFuel)}</td>
               <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{ytdFuel > 0 ? formatMoney(-ytdFuel) : '—'}</td>
             </tr>
+            {/* The price level, split out: what this bill would be at 1.0x is
+                the same flying; the remainder is the market. Kept as a note row,
+                not a cost line — it is already inside Fuel & Oil. */}
+            {(() => {
+              const mult = proj.fuelMultiplier;
+              if (!(totFuel > 0) || !(mult > 0) || Math.abs(mult - 1) < 0.02) return null;
+              const excess = Math.round(totFuel - totFuel / mult);
+              const pwExcess = pw ? (() => {
+                const d = fuelImpact({ financialHistory: [pw], hedgeContracts: state.hedgeContracts ?? [] }, { lookbacks: [] });
+                return d ? d.excess : null;
+              })() : null;
+              const c = excess > 0 ? 'var(--red)' : 'var(--green)';
+              return (
+                <tr data-testid="pl-fuel-price-note">
+                  <td style={{ paddingLeft: 28, fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                    of which fuel price {excess > 0 ? 'above' : 'below'} normal ({mult.toFixed(2)}×)
+                  </td>
+                  {pw && <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>{pwExcess != null ? formatMoney(-pwExcess) : '—'}</td>}
+                  <td style={{ textAlign: 'right', fontSize: 12, color: c, fontStyle: 'italic' }}>{formatMoney(-excess)}</td>
+                  <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)' }}>—</td>
+                </tr>
+              );
+            })()}
 
             {/* B. Flight Operations */}
             <CollapsibleSection
@@ -3797,6 +3824,85 @@ function CFTotalRow({ label, value }) {
 
 // ─── Fuel & Hedging ───────────────────────────────────────────────────────────
 
+// ─── What fuel is costing you ────────────────────────────────────────────────
+// The Fuel tab used to speak only in index multipliers. A player whose margin
+// had been eaten by a 40-week climb from 0.78x to 1.38x read "1.28x, High" every
+// week and still asked what was broken — nothing on screen ever said
+// "above-normal fuel is costing you $55M a week, 2.5x what you made". This card
+// does, from the same history the P&L prints (utils/fuelImpact.js).
+export function FuelImpactCard({ state, compact = false }) {
+  const fi = useMemo(() => fuelImpact(state), [state]);
+  if (!fi) return null;
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 };
+  const up = fi.excess > 0;
+  const excessColor = Math.abs(fi.excess) < fi.baseBill * 0.02 ? 'var(--text-muted)' : up ? 'var(--red)' : 'var(--green)';
+  const signed = (v) => (v >= 0 ? '+' : '−') + formatMoney(Math.abs(v));
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const anchor = fi.low && fi.low.weeksAgo > 0 && Math.abs(fi.low.dIndex) >= 0.1 ? fi.low : null;
+  const lookbacks = fi.ago.filter(a => Math.abs(a.dIndex) >= 0.02);
+
+  return (
+    <div style={card} data-testid="fuel-impact">
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>WHAT FUEL IS COSTING YOU</div>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Fuel bill this week</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>{formatMoney(fi.bill)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            {fi.shareOfRevenue != null ? `${pct(fi.shareOfRevenue)} of revenue` : ''}
+            {fi.shareOfCost != null ? ` · ${pct(fi.shareOfCost)} of costs` : ''}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>At normal prices (1.0×)</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-muted)' }}>{formatMoney(fi.baseBill)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>same flying, same fleet</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{up ? 'Above-normal fuel costs you' : 'Cheap fuel saves you'}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: excessColor }}>{formatMoney(Math.abs(fi.excess))}<span style={{ fontSize: 12, fontWeight: 400 }}>/wk</span></div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            {fi.excessVsProfit != null && up
+              ? (fi.excessVsProfit >= 1
+                  ? `${fi.excessVsProfit.toFixed(1)}× this week's profit`
+                  : `${pct(fi.excessVsProfit)} of this week's profit`)
+              : up && fi.profit <= 0 ? 'more than this week’s profit'
+              : fi.hedged ? `hedges saved ${formatMoney(fi.hedgeSaved)}` : `index ${fi.index.toFixed(2)}×`}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Every 0.1 on the index</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>{formatMoney(fi.perTenth)}<span style={{ fontSize: 12, fontWeight: 400 }}>/wk</span></div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+            {fi.hedged ? `${formatMoney(fi.hedgeSaved)}/wk saved by hedges` : 'unhedged — you pay the whole move'}
+          </div>
+        </div>
+      </div>
+
+      {(lookbacks.length > 0 || anchor) && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+          {lookbacks.map(a => (
+            <div key={a.weeks}>
+              <span style={{ color: 'var(--text-dim)' }}>{a.weeks} weeks ago ({a.label}):</span>
+              {' '}index {a.index.toFixed(2)}× → {fi.index.toFixed(2)}×,
+              {' '}fuel <span style={{ color: a.dBill > 0 ? 'var(--red)' : 'var(--green)' }}>{signed(a.dBill)}/wk</span>,
+              {' '}revenue {signed(a.dRevenue)}/wk,
+              {' '}profit <span style={{ color: a.dProfit < 0 ? 'var(--red)' : 'var(--green)' }}>{signed(a.dProfit)}/wk</span>
+            </div>
+          ))}
+          {anchor && (
+            <div>
+              <span style={{ color: 'var(--text-dim)' }}>Year low {anchor.index.toFixed(2)}× ({anchor.label}, {anchor.weeksAgo} wks ago):</span>
+              {' '}the same bill was {formatMoney(anchor.bill)} and profit was {formatMoney(anchor.profit)}/wk
+              {' '}— fuel alone is <span style={{ color: 'var(--red)' }}>{signed(anchor.dBill)}/wk</span> since.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FuelHedging() {
   const { state, dispatch } = useGame();
   const [selDuration, setSelDuration] = useState('short');
@@ -3830,6 +3936,9 @@ function FuelHedging() {
   const lockedPreview = selOpt ? hedgeLockedPrice(fuelIndex, selOpt) : fuelIndex;
   const expectedAvg   = selOpt ? expectedMeanIndex(fuelIndex, selOpt.weeks) : fuelIndex;
   const canBuy        = hedgedPct + selCoverage * 100 <= 100;
+  // The same lock, in dollars of this week's bill — so "25% at 1.249x" reads as
+  // "$50M/wk of fuel fixed at $62M/wk; saves $1.4M/wk if the market holds".
+  const quote         = selOpt ? hedgeQuoteDollars(state, selOpt, selCoverage) : null;
 
   // History chart. In multiplayer the just-ticked world index is stored as BOTH
   // the current index and the last history entry (the tick injects one shared
@@ -3860,6 +3969,8 @@ function FuelHedging() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      <FuelImpactCard state={state} />
 
       {/* ── Gauge + history ──────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -4017,6 +4128,12 @@ function FuelHedging() {
               // lock above or below today's index is a good deal.
               ['Expected average over term', `${expectedAvg.toFixed(3)}×`],
               ['Locked price', `${lockedPreview.toFixed(3)}× (${Math.round((selOpt?.premium ?? 0) * 100)}% premium for certainty)`],
+              ...(quote && quote.baseBillCovered > 0 ? [
+                ['Fuel covered', `${formatMoney(quote.baseBillCovered)}/wk of flying, fixed at ${formatMoney(quote.billCovered)}/wk`],
+                ['If the market stays at ' + fuelIndex.toFixed(3) + '×',
+                  `${quote.vsSpot >= 0 ? 'saves' : 'costs'} ${formatMoney(Math.abs(quote.vsSpot))}/wk (${formatMoney(Math.abs(quote.vsSpotTerm))} over the term)`],
+                ['Pays off when the index averages', `above ${quote.breakevenIndex.toFixed(3)}× · each 0.1 above = ${formatMoney(quote.perTenth)}/wk saved`],
+              ] : []),
               ['Expires', `W${Math.min(52, state.week + (selOpt?.weeks ?? 0))}, ${(state.startYear != null ? state.startYear - 1 : 0) + state.year + (state.week + (selOpt?.weeks ?? 0) > 52 ? 1 : 0)}`],
             ].map(([k, v]) => (
               <>

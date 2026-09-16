@@ -209,6 +209,18 @@ export default function AwayDigest() {
                 {' '}at {formatMoney(digest.biggestCost.amount)}.
               </div>
             )}
+            {digest.fuel && (
+              <div data-testid="away-fuel">
+                Fuel went <strong style={{ color: 'var(--text)' }}>{digest.fuel.from.toFixed(2)}× → {digest.fuel.to.toFixed(2)}×</strong>
+                {': '}your fuel bill is{' '}
+                <span style={{ color: digest.fuel.dBill > 0 ? 'var(--red)' : 'var(--green)' }}>
+                  {digest.fuel.dBill > 0 ? '+' : '−'}{formatMoney(Math.abs(digest.fuel.dBill))}/wk
+                </span>
+                {digest.fuel.excess > 0
+                  ? <> and above-normal fuel now costs {formatMoney(digest.fuel.excess)}/wk.</>
+                  : <>.</>}
+              </div>
+            )}
           </div>
         )}
 

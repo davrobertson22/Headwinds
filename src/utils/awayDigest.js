@@ -25,6 +25,8 @@
 // world news feed already answers for free.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { fuelDigest } from './fuelImpact.js';
+
 /** Fewer weeks than this is just a normal tick — the debrief covers it. */
 export const AWAY_MIN_WEEKS = 2;
 
@@ -149,8 +151,14 @@ export function buildAwayDigest(state, weeks) {
 
   const lfWindow = statsWindow.map(s => num(s.loadFactor)).filter(v => v > 0);
 
+  // Fuel over the gap, in dollars — null when the index barely moved. The
+  // comparison point is the last week the player SAW (the entry before the
+  // window), falling back to the window's first week on a short history.
+  const fuel = fuelDigest(state, fin.length > span ? span : Math.max(1, window.length - 1));
+
   return {
     weeks: span,
+    fuel,
     fromLabel: first?.label ?? '',
     toLabel:   last?.label  ?? '',
     cashDelta,
