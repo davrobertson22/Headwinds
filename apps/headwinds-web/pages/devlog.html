@@ -54,6 +54,17 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">September 16, 2026</p>
+      <h2>A faster Route Planner, and a plane that was never short</h2>
+      <p>Two fixes ported across from the Tailwinds bug channel, both of which apply just as much here.</p>
+      <ul>
+        <li><strong>The Route Planner&rsquo;s plane finder is around six times faster.</strong> Following the September lag reports: the &ldquo;best aircraft for this route&rdquo; ranking was re-running the entire network model once per candidate aircraft &mdash; seventy-five times &mdash; on every keystroke, fare change and frequency change. The model does not depend on which aircraft you are looking at, so it now runs once and every candidate reads the same answer. On a busy world that is roughly 150 ms down to 25 ms per change, and every figure is the same as before. Tag-route and cargo planners share the gain.</li>
+        <li><strong>The planner now tells you which aircraft is actually short.</strong> When a type is listed because one tail with a lighter cabin or wingtips can reach a lane, but that tail is busy elsewhere and your idle ones fall a few dozen kilometres short, the planner used to say the whole type was &ldquo;flying other networks&rdquo; &mdash; false about the parked ones, and pointing at a fix that would not help. It now names the tails that reach the lane and what stops each of the others, with the fix that would: lighten a cabin, fit wingtips, or route the long-legged one through the airport first.</li>
+        <li><strong>A plane flying <em>through</em> your origin on a multi-stop route is no longer ruled out.</strong> The planner counted only a route&rsquo;s two ends as airports an aircraft serves; the game itself has always counted every stop. The two now agree.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
       <p class="date">September 10, 2026</p>
       <h2>The world list rebuilt &mdash; you can now tell the worlds apart</h2>
       <p>The lobby is the first thing every player sees, and it was a spreadsheet: a code where the year should be, a tick rate where the pace should be, and five rule tags whose meaning lived in a tooltip you couldn&rsquo;t reach on a phone.</p>

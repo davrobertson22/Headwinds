@@ -14,7 +14,7 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
 import { getAirport } from '../src/data/airports.js';
-import { MAX_WEEKLY_BLOCK_HOURS } from '../src/utils/simulation.js';
+import { MAX_WEEKLY_BLOCK_HOURS, deployableFleetForRoute, routeDistanceKm, effectiveRangeKm } from '../src/utils/simulation.js';
 
 const store = new Map();
 globalThis.window = globalThis.window ?? {};
@@ -162,6 +162,84 @@ test('with no eligible aircraft the player is told why, not shown a blank list',
   store.set('bbae_save_v2', JSON.stringify(save));
   assert.ok(html.includes('no eligible aircraft'), 'expected the empty-picker option label');
   assert.ok(html.includes('No aircraft is free for this pair'), 'expected the explanatory hint');
+});
+
+console.log('\n── 5. The pool reads a route\'s stops the way ADD_ROUTE does ──');
+
+// Ringwraith (Discord, 15 Sep 2026): planes "flying from one of those airports"
+// were still told they couldn't reach the lane. The pool counted only a route's
+// endpoints as served; the reducer counts every stop (routeStops). A tail flying
+// FAR1 → HUB → FAR2 as a tag flight serves HUB.
+test('a tag stop counts as a served airport', () => {
+  const fleet  = [plane('ac_tag', 'Tag Flyer')];
+  const routes = [{ id: 'rt', origin: FAR1, destination: FAR2, stops: [FAR1, HUB, FAR2],
+                    aircraftId: 'ac_tag', weeklyFrequency: 3, weeksOpen: 20, hub: HUB }];
+  const pool = deployableFleetForRoute({
+    fleet, existingRoutes: routes, typeId: jet.id, origin: HUB, dest: SPOKE,
+    distKm: routeDistanceKm(HUB, SPOKE), weeklyFrequency: 3,
+  });
+  assert.equal(pool.length, 1);
+  assert.equal(pool[0].connectivityOk, true, 'HUB is an interior stop of its route — it serves HUB');
+  assert.equal(pool[0].eligible, true);
+});
+
+console.log('\n── 6. An empty pool names the real blocker ──────────────');
+
+// Resolved lazily: on a tree without the helper, section 5 above must still run
+// and fail on its own merits rather than the whole file dying at import.
+const deploymentShortfall = (await import('../src/utils/simulation.js')).deploymentShortfall
+  ?? (() => { throw new Error('deploymentShortfall is not exported from utils/simulation.js'); });
+
+// The type is listed because its longest-legged tail reaches the lane. That tail
+// is busy elsewhere; the idle ones are short as configured. The old sentence —
+// "flying other networks" — was false about the idle planes.
+const lane = (() => {
+  // A regional type and a pair just beyond its stock range, so a lighter cabin
+  // brings one tail into reach. Search the catalogue for a workable pair.
+  for (const t of AIRCRAFT_TYPES.filter(t => !t.freighter && t.range >= 1500 && t.range <= 4000)) {
+    const stock = effectiveRangeKm({ typeId: t.id, config: { economy: t.seats } }, t);
+    const light = effectiveRangeKm({ typeId: t.id, config: { economy: Math.round(t.seats * 0.5) } }, t);
+    if (light <= stock) continue;
+    for (const [a, b] of [['DFW','SFO'],['GRR','DFW'],['FRA','SFO'],['DFW','FRA'],['SFO','GRR'],['JFK','DEN'],['LHR','ATH'],['LHR','CAI'],['JFK','LAX'],['DFW','SEA'],['ORD','LAX'],['BOS','DEN']]) {
+      if (!getAirport(a) || !getAirport(b)) continue;
+      const d = routeDistanceKm(a, b);
+      if (d > stock && d <= light) return { t, a, b, d, stock, light };
+    }
+  }
+  return null;
+})();
+
+test('a mixed fleet is described as short AND committed, not just committed', () => {
+  assert.ok(lane, 'no type/pair combination found for the fixture');
+  const { t, a, b, d } = lane;
+  const mk = (id, seats, status) => ({ id, name: id, typeId: t.id, tailNumber: id.toUpperCase(),
+    status, ageWeeks: 52, ownershipType: 'owned', config: { economy: seats } });
+  const fleet = [
+    mk('lite', Math.round(t.seats * 0.5), 'assigned'),   // reaches the lane, flies FAR1–FAR2
+    mk('idle1', t.seats, 'idle'),                        // parked, short
+    mk('idle2', t.seats, 'idle'),                        // parked, short
+  ];
+  // The busy tail's own route: one short rotation a week between two airports
+  // that are neither end of the lane, so hours are never what stops it.
+  const [o1, o2] = [HUB, SPOKE, FAR1, FAR2, 'ORD', 'BOS'].filter(c => c !== a && c !== b && getAirport(c));
+  const routes = [{ id: 'rf', origin: o1, destination: o2, aircraftId: 'lite', weeklyFrequency: 1, weeksOpen: 20, hub: HUB }];
+  const pool = deployableFleetForRoute({ fleet, existingRoutes: routes, typeId: t.id, origin: a, dest: b, distKm: d, weeklyFrequency: 1 });
+  const short = deploymentShortfall(pool);
+  assert.equal(short?.reason, 'other-networks', JSON.stringify(short));
+  assert.equal(short.inRange, 1);
+  assert.equal(short.outOfRange, 2);
+  assert.equal(short.idleOutOfRange, 2);
+  assert.equal(short.reachable[0].id, 'lite');
+  assert.ok(short.bestShortReachKm > 0 && short.bestShortReachKm < d, 'the short tails\' best reach is below the lane');
+});
+
+test('the other reasons still come out by name', () => {
+  assert.equal(deploymentShortfall([])?.reason, 'none-owned');
+  const base = { aircraft: { id: 'x' }, idle: true, reserve: false, reachKm: 1000 };
+  assert.equal(deploymentShortfall([{ ...base, rangeOk: false, hoursOk: true, connectivityOk: true, eligible: false }])?.reason, 'out-of-range');
+  assert.equal(deploymentShortfall([{ ...base, rangeOk: true, hoursOk: false, connectivityOk: true, eligible: false }])?.reason, 'no-hours');
+  assert.equal(deploymentShortfall([{ ...base, rangeOk: true, hoursOk: true, connectivityOk: false, eligible: false }])?.reason, 'other-networks');
+  assert.equal(deploymentShortfall([{ ...base, rangeOk: true, hoursOk: true, connectivityOk: true, eligible: true }]), null, 'an eligible tail needs no explanation');
 });
 
 console.log(`\n  ${passed} passed, ${failed} failed\n`);

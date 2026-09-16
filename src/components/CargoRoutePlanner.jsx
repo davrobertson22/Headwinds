@@ -3,7 +3,7 @@ import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn } 
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
-import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm, calendarYear } from '../utils/simulation.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm, calendarYear } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { cargoPriceChokeFactor, CARGO_PRICE_CAP_MULTIPLE } from '../models/demand.js';
 import { routeLaunchCost } from '../data/overhead.js';
@@ -489,13 +489,12 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                   // A stationed reserve can still be deployed — it just stops
                   // standing by — so flag it rather than hiding it.
                   const reserveTail = target?.reserve ? target.aircraft : null;
-                  const anySpare  = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
                   const owned     = pool.length;
-                  // Backstop — see the note in RoutePlanner. The picker's reach and the
-                  // pool's rangeOk are the same measure taken in two files; if they ever
-                  // drift, say "out of range" rather than "flying other networks", which
-                  // is plainly false about a parked freighter.
-                  const outOfRange = owned > 0 && pool.every(d => d.rangeOk === false);
+                  // Why nothing can fly it, when nothing can — see deploymentShortfall
+                  // and the note in RoutePlanner: the busy freighter may be the only
+                  // one that reaches the lane, and the parked ones must not be told
+                  // they are "flying other networks".
+                  const short     = deploymentShortfall(pool);
                   const lCost     = routeLaunchCost(routeData.dist);
                   const canAfford = state.cash >= lCost;
                   const blocked   = !canAfford || !slotsOk;
@@ -514,13 +513,27 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                           </button>
                         ) : (
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                            {owned === 0
-                              ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
-                              : outOfRange
-                                ? <>Your {simulation.type.name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {routeData.dist.toLocaleString()} km. Lease a longer-legged freighter.</>
-                              : anySpare
-                                ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — a freighter can only add a lane that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
-                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another lane. Lease another {simulation.type.name} to open this route.</>}
+                            {(() => {
+                              const name   = simulation.type.name;
+                              const laneKm = routeData.dist.toLocaleString();
+                              const tailNames = (list) => list.map(a => a.tailNumber || a.name).join(', ');
+                              switch (short?.reason) {
+                                case 'none-owned':
+                                  return <>No {name} in your fleet — lease one from the Market first.</>;
+                                case 'out-of-range':
+                                  return <>Your {name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {laneKm} km. Lease a longer-legged freighter.</>;
+                                case 'no-hours':
+                                  return short.outOfRange > 0
+                                    ? <>Only {short.inRange} of your {owned} {name}s ({tailNames(short.reachable)}) reach{short.inRange === 1 ? 'es' : ''} {origin}–{dest} ({laneKm} km), and {short.inRange === 1 ? 'it is' : 'they are'} at full utilisation ({bhCap}h/wk). The other {short.outOfRange} get{short.outOfRange === 1 ? 's' : ''} {short.bestShortReachKm.toLocaleString()} km at most. Lease another {name}.</>
+                                    : <>Your {name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another lane. Lease another {name} to open this route.</>;
+                                case 'other-networks':
+                                  return short.outOfRange > 0
+                                    ? <>Only {short.inRange} of your {owned} {name}s ({tailNames(short.reachable)}) reach{short.inRange === 1 ? 'es' : ''} {origin}–{dest} ({laneKm} km), and {short.inRange === 1 ? 'it is' : 'they are'} flying other networks — a freighter can only add a lane that touches an airport it already serves. Your other {short.outOfRange}{short.idleOutOfRange > 0 ? ` (${short.idleOutOfRange} idle)` : ''} get{short.outOfRange === 1 ? 's' : ''} {short.bestShortReachKm.toLocaleString()} km at most. Route {tailNames(short.reachable)} through {origin} or {dest} first, or lease another.</>
+                                    : <>Your {name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — a freighter can only add a lane that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>;
+                                default:
+                                  return null;
+                              }
+                            })()}
                           </div>
                         )}
                         {simulation.result.profit < 0 && <span style={{ fontSize: 12, color: 'var(--yellow)' }}><Glyph e="⚠" /> Unprofitable at these settings</span>}

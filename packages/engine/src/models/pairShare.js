@@ -500,6 +500,33 @@ function sliceForRoute(pooled, route, aircraft, pairRoutes, fleet) {
  *   edited is swapped for the probe rather than counted twice).
  * @returns {object} same shape as weeklyTick's per-route `connecting`.
  */
+// ── Network-tick memo for projections ────────────────────────────────────────
+// Keyed on the state OBJECT (a WeakMap, so a superseded state takes its entries
+// with it) and then on the few spec fields the tick can see. The client never
+// mutates a state in place — a poll adopts a fresh blob, an overlay spreads a
+// new object, a local action goes through the reducer — so a stale hit is
+// impossible. Nothing in the tick reads the probe's aircraft: the memo is
+// exact, not approximate, and planner-memo-test is what says so.
+const NETWORK_TICK_MEMO = new WeakMap();
+const NETWORK_TICK_MEMO_CAP = 64;   // per state — the planner touches a handful of lanes at a time
+
+function memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPrice, gameDate, replacesRouteId }, compute) {
+  if (!state || typeof state !== 'object') return compute();
+  const key = [
+    origin, destination, weeklyFrequency ?? 7, ticketPrice ?? '',
+    gameDate?.month ?? 6, gameDate?.absWeek ?? '', gameDate?.week ?? '', gameDate?.year ?? '',
+    replacesRouteId ?? '',
+  ].join('|');
+  let perState = NETWORK_TICK_MEMO.get(state);
+  if (!perState) { perState = new Map(); NETWORK_TICK_MEMO.set(state, perState); }
+  const hit = perState.get(key);
+  if (hit !== undefined) return hit;
+  const value = compute();
+  if (perState.size >= NETWORK_TICK_MEMO_CAP) perState.clear();
+  perState.set(key, value);
+  return value;
+}
+
 export function projectConnectingFeed(state, spec) {
   const {
     origin, destination, aircraft, weeklyFrequency = 7, ticketPrice,
@@ -553,10 +580,21 @@ export function projectConnectingFeed(state, spec) {
   const rivalIndex = rivalIndexFor(state);
   const legacy     = isLegacy(rivalIndex);
 
-  const net = runNetworkTick({
-    routes, competitors, allianceMembership, codeshareAgreements, allianceDef,
-    gameDate, hubs, gates, routeCountByAirport, slotsByAirport, demandMultFor, rivalIndex,
-  });
+  // The network tick is the expensive half of a projection and it does not
+  // know which AIRCRAFT is being previewed: its inputs are the route list (the
+  // probe carries a frequency and a fare, no seats), the rivals, the calendar
+  // and the hubs. The plane finder asks this same question once per candidate
+  // type — 75 times on a long sector — and the seasonal strip twelve more times
+  // per row, all against the same state. Measured on a 279-route solo save that
+  // was ~3.5 s of blocking work on every keystroke in the Route Planner, most
+  // of it here (TheCookiesGuy, Discord, 14 Sep 2026; the same shape as the
+  // 11–12 Sep lag reports on Headwinds). Remember the answer per (state, lane,
+  // frequency, fare, calendar) and hand it back.
+  const net = memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPrice, gameDate, replacesRouteId }, () =>
+    runNetworkTick({
+      routes, competitors, allianceMembership, codeshareAgreements, allianceDef,
+      gameDate, hubs, gates, routeCountByAirport, slotsByAirport, demandMultFor, rivalIndex,
+    }));
   const contestFactors = {};
   for (const [code, c] of Object.entries(net.hubContestMap ?? {})) contestFactors[code] = c.contestFactor;
 
@@ -760,11 +798,18 @@ export function projectRouteAddition(state, spec) {
       }
     : state.routePricing;
   const routesPlus = [...(state.routes ?? []).filter(r => r.id !== replacesRouteId), previewRoute];
+  // Fleet utilisation as the tick will measure it — WITH this route flying.
+  // Reputation (and so brand reach and price sensitivity) reads it. Computed
+  // once here and handed to everything below: the pooled-offer builder reads it
+  // off the projection state as `_avgUtilization` rather than re-walking the
+  // fleet, and simulateRoute gets the same figure at launch and at maturity.
+  const utilWithProbe = fleetAvgUtilization(fleetPlus, [...routesPlus, ...(state.cargoRoutes ?? [])]);
   const stateForOffer = {
     ...state,
     fleet: fleetPlus,
     routes: routesPlus,
     routePricing: draftPricing,
+    _avgUtilization: utilWithProbe,
   };
 
   // Lane maturity. An established pair is already mature and does NOT re-ramp
@@ -781,9 +826,6 @@ export function projectRouteAddition(state, spec) {
 
   const hcf = hubCostFactorsAt(
     state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {}), [origin, destination]);
-  // Fleet utilisation as the tick will measure it — WITH this route flying.
-  // Reputation (and so brand reach and price sensitivity) reads it.
-  const utilWithProbe = fleetAvgUtilization(fleetPlus, [...routesPlus, ...(state.cargoRoutes ?? [])]);
   const runAt = (weeksOpen) => {
     const share = pairMarketShare(stateForOffer, origin, destination, {
       gameDate,

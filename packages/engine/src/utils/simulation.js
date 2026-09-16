@@ -164,6 +164,14 @@ export const CLASS_FARE_MULTIPLIERS = {
 
 /** Canonical, direction-agnostic key for an O&D pair. */
 export function routePairKey(origin, destination) {
+  // The hot path of the network model — called once per candidate itinerary,
+  // tens of thousands of times per projection on a big network. Two string
+  // codes compare exactly as Array.prototype.sort orders them, without the
+  // array. Anything else (a missing code) takes the original route so the
+  // key it produced before is the key it produces now.
+  if (typeof origin === 'string' && typeof destination === 'string') {
+    return origin <= destination ? origin + '-' + destination : destination + '-' + origin;
+  }
   return [origin, destination].sort().join('-');
 }
 
@@ -1349,7 +1357,11 @@ export function deployableFleetForRoute({
     .map(a => {
       const acRoutes = routesCommittedTo(a.id, existingRoutes);
       const usedBH   = acRoutes.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
-      const served   = new Set(acRoutes.flatMap(r => [r.origin, r.destination]));
+      // Every stop counts, tag stops included — the same reading ADD_ROUTE's
+      // connectivity guard takes (routeStops). Counting only the endpoints
+      // ruled out a tail that flies THROUGH the origin on a multi-stop route,
+      // which the engine would have accepted (Ringwraith, Discord, 15 Sep 2026).
+      const served   = new Set(acRoutes.flatMap(r => routeStops(r)));
       const connectivityOk = acRoutes.length === 0 || served.has(origin) || served.has(dest);
       const hoursOk  = usedBH + newBH <= capHours + 1e-6;
       // Range is per AIRFRAME: two tails of the same type differ once one has
@@ -1357,9 +1369,11 @@ export function deployableFleetForRoute({
       // stock one must not be counted as "ready" for a lane only the modded one
       // reaches — ADD_ROUTE would reject it. Measured exactly as the reducer's
       // guard measures it, so the pickers and the reducer never disagree.
-      const rangeOk  = !(distKm > 0) || distKm <= effectiveRangeKm(a, type);
+      const reachKm  = effectiveRangeKm(a, type);
+      const rangeOk  = !(distKm > 0) || distKm <= reachKm;
       return {
         aircraft:      a,
+        reachKm,
         idle:          a.status === 'idle',
         // Stationed reserves stay in the pool (you CAN deploy one — it simply
         // ends its standby) but they are flagged so the route pickers can label
@@ -1384,6 +1398,48 @@ export function deployableFleetForRoute({
       const rank = d => (d.reserve ? 2 : (d.idle ? 0 : 1));
       return (rank(x) !== rank(y)) ? (rank(x) - rank(y)) : (y.spareBlockHrs - x.spareBlockHrs);
     });
+}
+
+
+/**
+ * Why NO tail of a type can open this route, read off the pool
+ * deployableFleetForRoute built. Answers with the blocker the player can act on:
+ *
+ *   'none-owned'      — nothing of this type in the fleet
+ *   'out-of-range'    — every tail is short of the lane as configured
+ *   'no-hours'        — every tail that can reach it is out of block-hours
+ *   'other-networks'  — every tail that can reach it AND has hours is committed
+ *                       to a network that touches neither endpoint
+ *   null              — at least one tail is eligible; nothing to explain
+ *
+ * The distinction the pickers used to miss: a type is listed when its
+ * longest-legged tail reaches the lane, but that tail may be the busy one while
+ * the idle ones — stock cabins, no wingtips — fall a few dozen km short. The
+ * all-or-nothing range check then fell through to "flying other networks",
+ * which is plainly false about a parked plane and points at a fix that would
+ * not help. `outOfRange` / `bestShortReachKm` let the sentence say so.
+ * (Ringwraith, Discord, 15 Sep 2026: Convair 580s, EZE–IOS at 2,958 km against
+ * a 2,900 km catalogue range.)
+ */
+export function deploymentShortfall(pool = []) {
+  const owned = pool.length;
+  if (owned === 0) return { reason: 'none-owned', owned, inRange: 0, outOfRange: 0, idleOutOfRange: 0, bestShortReachKm: 0, reachable: [] };
+  const inRange    = pool.filter(d => d.rangeOk !== false);
+  const outOfRange = pool.filter(d => d.rangeOk === false);
+  const common = {
+    owned,
+    inRange:          inRange.length,
+    outOfRange:       outOfRange.length,
+    idleOutOfRange:   outOfRange.filter(d => d.idle).length,
+    // The furthest any short tail gets — what "as configured" means for them.
+    bestShortReachKm: outOfRange.reduce((m, d) => Math.max(m, d.reachKm ?? 0), 0),
+    // The tails that DO reach the lane, so the sentence can name them.
+    reachable:        inRange.map(d => d.aircraft),
+  };
+  if (pool.some(d => d.eligible)) return null;
+  if (inRange.length === 0) return { reason: 'out-of-range', ...common };
+  if (!inRange.some(d => d.hoursOk)) return { reason: 'no-hours', ...common };
+  return { reason: 'other-networks', ...common };
 }
 
 /**
@@ -2180,7 +2236,23 @@ export function breakEvenLoadFactor(result, allocatedFixed = 0) {
  * @param {object[]} routes
  * @returns {Record<string, number>} airport code → spoke count
  */
+const HUB_SPOKES_MEMO = new WeakMap();
 export function hubSpokeCounts(routes = []) {
+  // Pure over the array. A projection asks three times for the same route list
+  // (its own hub-spoke count, then the pooled offer at launch and at maturity);
+  // the tick asks once per fresh array. Remembered per array identity, which a
+  // reducer that never mutates a route list in place makes exact.
+  if (Array.isArray(routes)) {
+    const hit = HUB_SPOKES_MEMO.get(routes);
+    if (hit) return hit;
+    const out = computeHubSpokeCounts(routes);
+    HUB_SPOKES_MEMO.set(routes, out);
+    return out;
+  }
+  return computeHubSpokeCounts(routes);
+}
+
+function computeHubSpokeCounts(routes = []) {
   const sets = new Map();
   for (const route of routes ?? []) {
     const stops = routeStops(route);
@@ -2950,7 +3022,21 @@ export function priceSensitivityReductionFor(repElasticityRed, loyaltyStrength, 
  * tick (UI previews) that don't have the tick's intermediate loyalty/reputation
  * locals to hand.
  */
-export function stateSensReduction(state, hubQ = 0, avgUtilizationOverride = null) {
+// ── Projection-side reputation, remembered per state ─────────────────────────
+// stateSensReduction and stateBrandReach are the preview twins of two tick
+// locals, and a projection asks them four times (sensitivity + reach, at launch
+// and mature) for the same state and the same utilisation. The plane finder
+// then does that once per candidate type, and the seasonal strip twelve times
+// per row. calcReputation walks the whole fleet and every route each time; on a
+// 279-route save these two readers were a fifth of the Route Planner's work.
+//
+// Keyed on the state OBJECT — a WeakMap, so a superseded state takes its
+// entries with it and a stale hit is impossible — then on the two inputs the
+// score actually varies with. Projection-only: the tick has its own locals and
+// never comes through here.
+const STATE_REP_MEMO = new WeakMap();
+
+function projectionReputation(state, avgUtilizationOverride) {
   const loyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0 };
   const strength = loyaltyEffectiveStrength(
     loyaltyPenetration(loyalty.members ?? 0, loyaltyPaxBase(state)),
@@ -2958,10 +3044,27 @@ export function stateSensReduction(state, hubQ = 0, avgUtilizationOverride = nul
   );
   const tier = loyaltyTier(loyalty.effInvestment ?? loyalty.weeklyInvestment ?? 0);
   // Reputation reads fleet utilisation. A projection passes the utilisation
-  // WITH the route it is adding, as the tick will see it.
-  const avgUtilization = avgUtilizationOverride ?? fleetAvgUtilization(state.fleet ?? [],
-    [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
-  const repInfo = calcReputation(state, loyaltyReputationBonus(strength), avgUtilization);
+  // WITH the route it is adding, as the tick will see it; a projection state
+  // (pairShare's stateForOffer) carries the same figure as `_avgUtilization`
+  // so the pooled-offer builder does not re-derive it per call.
+  const avgUtilization = avgUtilizationOverride
+    ?? (Number.isFinite(state._avgUtilization) ? state._avgUtilization : null)
+    ?? fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
+  const loyaltyBonus = loyaltyReputationBonus(strength);
+  const key = `${loyaltyBonus}|${avgUtilization}`;
+  let perState = STATE_REP_MEMO.get(state);
+  if (!perState) { perState = new Map(); STATE_REP_MEMO.set(state, perState); }
+  let repInfo = perState.get(key);
+  if (!repInfo) {
+    repInfo = calcReputation(state, loyaltyBonus, avgUtilization);
+    if (perState.size >= 16) perState.clear();
+    perState.set(key, repInfo);
+  }
+  return { repInfo, strength, tier };
+}
+
+export function stateSensReduction(state, hubQ = 0, avgUtilizationOverride = null) {
+  const { repInfo, strength, tier } = projectionReputation(state, avgUtilizationOverride);
   return priceSensitivityReductionFor(
     reputationElasticityReduction(repInfo.overall), strength, tier, hubQ);
 }
@@ -2987,8 +3090,20 @@ export function stateSensReduction(state, hubQ = 0, avgUtilizationOverride = nul
  * competitor marketing spend there against the player's targeted spend and
  * the airport's population. 0 when no rival spends.
  */
+// Rival spend is a pure derivation from the competitor list, and the list is a
+// fresh array whenever it changes (the tick maps to clones; the client adopts
+// the server's overlay as a new array), so remembering the derivation per ARRAY
+// is exact. Projection-only, like the readers above.
+const RIVAL_SPEND_MEMO = new WeakMap();
+function rivalSpendFor(competitors) {
+  if (!Array.isArray(competitors)) return competitorMarketingSpend(competitors ?? []);
+  let spend = RIVAL_SPEND_MEMO.get(competitors);
+  if (!spend) { spend = competitorMarketingSpend(competitors); RIVAL_SPEND_MEMO.set(competitors, spend); }
+  return spend;
+}
+
 export function rivalAdDragAt(state, code) {
-  const spend = competitorMarketingSpend(state.competitors ?? [])[code];
+  const spend = rivalSpendFor(state.competitors ?? [])[code];
   if (!(spend > 0)) return 0;
   const ap = getAirport(code);
   return competitorPressureDrag(spend, state.targetedMarketing?.[code],
@@ -3004,16 +3119,8 @@ export function rivalAdDragAt(state, code) {
  */
 export function stateBrandReach(state, hubQ = 0, allianceContested = false, stops = null, avgUtilizationOverride = null) {
   const rivalAdDrag = stops?.length ? Math.max(0, ...stops.map(c => rivalAdDragAt(state, c))) : 0;
-  const loyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0 };
-  const strength = loyaltyEffectiveStrength(
-    loyaltyPenetration(loyalty.members ?? 0, loyaltyPaxBase(state)),
-    loyalty.maturity ?? 0,
-  );
-  const tier = loyaltyTier(loyalty.effInvestment ?? loyalty.weeklyInvestment ?? 0);
-  // Reputation reads fleet utilisation (see stateSensReduction).
-  const avgUtilization = avgUtilizationOverride ?? fleetAvgUtilization(state.fleet ?? [],
-    [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
-  const repInfo = calcReputation(state, loyaltyReputationBonus(strength), avgUtilization);
+  // Reputation reads fleet utilisation (see projectionReputation).
+  const { repInfo, strength, tier } = projectionReputation(state, avgUtilizationOverride);
   const loyaltyBoostHub = loyaltyDemandBoostPct(strength, tier);
   const loyaltyLift = hubQ > 0 ? loyaltyBoostHub : loyaltyBoostHub * 0.4;
   const allianceLift = allianceContested

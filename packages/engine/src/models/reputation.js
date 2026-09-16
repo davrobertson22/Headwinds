@@ -41,7 +41,11 @@ export function calcReputation(state, loyaltyBonus = 0, avgUtilization = null) {
 
   // ── Service score (35%) ────────────────────────────────────────────────────
   // Based on average cabin quality of assigned aircraft, filtered through morale
-  const assignedFleet = fleet.filter(a => routes.some(r => r.aircraftId === a.id));
+  // One pass over the routes, not one per airframe: at 279 routes and 160 tails
+  // the nested scan was 45,000 comparisons, and the projections call this four
+  // times per candidate type.
+  const flyingIds = new Set(routes.map(r => r.aircraftId));
+  const assignedFleet = fleet.filter(a => flyingIds.has(a.id));
   const serviceBase = assignedFleet.length > 0
     ? assignedFleet.reduce((s, a) => {
         const seatQ = QUALITY_SCORE[a.config?.seatQuality  ?? 'standard'] ?? 45;

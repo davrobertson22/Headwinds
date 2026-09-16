@@ -9,7 +9,7 @@ import {
   hubSpokeCounts, pairConnectivityBonus,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
-  buildEventDemandModel, deployableFleetForRoute, maxWeeklyBlockHoursFor,
+  buildEventDemandModel, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor,
   maxFrequency, routeActiveMonths, effectiveRangeKm,
   stateBrandReach, stateSensReduction, calendarYear } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
@@ -1628,16 +1628,13 @@ export default function RoutePlanner() {
                   // otherwise the best eligible one (idle first, then most spare).
                   const preferredD = eligible.find(d => d.aircraft.id === configSource) ?? eligible[0];
                   const preferred  = preferredD?.aircraft;
-                  const anySpare   = pool.some(d => d.hoursOk);   // has hours (network may not reach this lane)
                   const owned      = pool.length;
-                  // Backstop. The picker's reach (reachByType, here) and the pool's
-                  // rangeOk (deployableFleetForRoute, in simulation.js) are the same
-                  // measure taken in two files, so today a listed type always has at
-                  // least one tail that can reach. If they ever drift, the player gets
-                  // a true sentence about range instead of the "flying other networks"
-                  // one below — which is plainly false about a parked plane and points
-                  // at a fix that would not help.
-                  const outOfRange = owned > 0 && pool.every(d => d.rangeOk === false);
+                  // Why nothing can fly it, when nothing can. The type is listed when
+                  // its LONGEST-legged tail reaches the lane, and that tail may be the
+                  // busy one while the idle ones fall short as configured — so the
+                  // sentence has to separate "short" from "committed elsewhere", or it
+                  // tells a player with parked planes to go and lease another.
+                  const short      = deploymentShortfall(pool);
                   const lCost      = routeLaunchCost(routeData.dist);
                   const canAfford  = state.cash >= lCost;
                   const blocked    = !!routeRestriction;
@@ -1669,13 +1666,27 @@ export default function RoutePlanner() {
                           </button>
                         ) : (
                           <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                            {owned === 0
-                              ? <>No {simulation.type.name} in your fleet — lease one from the Market first.</>
-                              : outOfRange
-                                ? <>Your {simulation.type.name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {routeData.dist.toLocaleString()} km. Fit range-extending wingtips, lighten the cabin, or lease a longer-legged aircraft.</>
-                              : anySpare
-                                ? <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — an aircraft can only add a route that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>
-                                : <>Your {simulation.type.name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another route. Lease another {simulation.type.name} to open this route.</>}
+                            {(() => {
+                              const name  = simulation.type.name;
+                              const laneKm = routeData.dist.toLocaleString();
+                              const tailNames = (list) => list.map(a => a.tailNumber || a.name).join(', ');
+                              switch (short?.reason) {
+                                case 'none-owned':
+                                  return <>No {name} in your fleet — lease one from the Market first.</>;
+                                case 'out-of-range':
+                                  return <>Your {name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {laneKm} km. Fit range-extending wingtips, lighten the cabin, or lease a longer-legged aircraft.</>;
+                                case 'no-hours':
+                                  return short.outOfRange > 0
+                                    ? <>Only {short.inRange} of your {owned} {name}s ({tailNames(short.reachable)}) reach{short.inRange === 1 ? 'es' : ''} {origin}–{dest} ({laneKm} km) as configured, and {short.inRange === 1 ? 'it is' : 'they are'} at full utilisation ({bhCap}h/wk). The other {short.outOfRange} get{short.outOfRange === 1 ? 's' : ''} {short.bestShortReachKm.toLocaleString()} km at most — lighten a cabin or fit range-extending wingtips to bring one into reach, or lease another {name}.</>
+                                    : <>Your {name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another route. Lease another {name} to open this route.</>;
+                                case 'other-networks':
+                                  return short.outOfRange > 0
+                                    ? <>Only {short.inRange} of your {owned} {name}s ({tailNames(short.reachable)}) reach{short.inRange === 1 ? 'es' : ''} {origin}–{dest} ({laneKm} km) as configured, and {short.inRange === 1 ? 'it is' : 'they are'} flying other networks — an aircraft can only add a route that touches an airport it already serves. Your other {short.outOfRange}{short.idleOutOfRange > 0 ? ` (${short.idleOutOfRange} idle)` : ''} get{short.outOfRange === 1 ? 's' : ''} {short.bestShortReachKm.toLocaleString()} km at most — lighten a cabin or fit range-extending wingtips to bring one into reach, route {tailNames(short.reachable)} through {origin} or {dest} first, or lease another.</>
+                                    : <>Your {name}{owned > 1 ? 's are' : ' is'} flying other networks and can't reach {origin}–{dest} directly — an aircraft can only add a route that touches an airport it already serves. Lease another, or first route one through {origin} or {dest}.</>;
+                                default:
+                                  return null;
+                              }
+                            })()}
                           </div>
                         )}
                         {simulation.netProfit < 0 && (
