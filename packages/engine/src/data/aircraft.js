@@ -677,11 +677,30 @@ export const AIRCRAFT_TYPES = [
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Delta_Air_Lines%2C_N991AT%2C_Boeing_717-23S_%2849593115578%29.jpg/960px-Delta_Air_Lines%2C_N991AT%2C_Boeing_717-23S_%2849593115578%29.jpg',
   },
   {
-    id: 'b727200',
-    name: 'Boeing 727-200Adv',
+    id: 'b727100',
+    name: 'Boeing 727-100',
     manufacturer: 'Boeing',
     category: 'Narrow Body',
-    eis: 1972,
+    eis: 1964,
+    oop: 1972,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 131,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
+    range: 4_100,
+    runwayFt: 5800,
+    weeklyLease:       19_500,
+    purchasePrice: 8_000_000,
+    fuelBurnPer100km: 510,
+    crewCostPerKm: 1.70,
+    baseMaintenancePerWk: 50_000,
+    description: 'The original 727 of 1964: the trijet whose triple-slotted flaps brought jets to short-runway city airports. Smaller and thirstier per seat than the -200 stretch that followed, and needs a flight engineer.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Boeing_727-100_(United_Airlines)_(16279316443).jpg?width=960',
+  },
+  {
+    id: 'b727200',
+    name: 'Boeing 727-200',
+    manufacturer: 'Boeing',
+    category: 'Narrow Body',
+    eis: 1967,   // the -200 stretch (Northeast, Dec 1967); the -200 Advanced followed in 1972 on the same line
     oop: 1984,   // year the production line closed (era worlds: second-hand only after this)
     seats: 189,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
@@ -692,7 +711,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 593.75,
     crewCostPerKm: 1.78,
     baseMaintenancePerWk: 60_000,
-    description: 'Tri-jet classic from the 70s. Thirsty but very cheap and recognizable.',
+    description: 'The stretched 727, built from 1967 to 1984 (as the -200 Advanced from 1972). Tri-jet classic — thirsty but very cheap and recognizable.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/B-727_Iberia_%28cropped%29.jpg/960px-B-727_Iberia_%28cropped%29.jpg',
   },
   {
@@ -1792,6 +1811,44 @@ export const AIRCRAFT_TYPES = [
   },
 
   // ── MCDONNELL DOUGLAS ───────────────────────────────────────────────────────
+  {
+    id: 'dc910',
+    name: 'Douglas DC-9-10',
+    manufacturer: 'McDonnell Douglas',
+    category: 'Narrow Body',
+    eis: 1965,
+    oop: 1968,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 90,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
+    range: 2_300,
+    runwayFt: 5000,
+    weeklyLease:       13_000,
+    purchasePrice: 5_500_000,
+    fuelBurnPer100km: 360,
+    crewCostPerKm: 1.30,
+    baseMaintenancePerWk: 27_000,
+    description: 'The original 90-seat DC-9 of 1965: a two-crew, rear-engined short-hauler built for routes the 727 was too big for. Small and short-legged, but cheap and quick to turn.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Trans_World_Airlines_-_TWA_McDonnell_Douglas_DC-9-15_N1070T.jpg?width=960',
+  },
+  {
+    id: 'dc930',
+    name: 'Douglas DC-9-30',
+    manufacturer: 'McDonnell Douglas',
+    category: 'Narrow Body',
+    eis: 1967,
+    oop: 1982,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 115,
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
+    range: 2_800,
+    runwayFt: 5400,
+    weeklyLease:       19_000,
+    purchasePrice: 7_500_000,
+    fuelBurnPer100km: 395,
+    crewCostPerKm: 1.35,
+    baseMaintenancePerWk: 38_000,
+    description: 'The definitive DC-9 — 662 built, the workhorse of Eastern, Delta and the US short-haul market into the 2000s. Two-crew economics and short-field manners on a 115-seat cabin.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/TWA_DC-9-30_N932L_at_LGA_(24883148515).jpg?width=960',
+  },
   {
     id: 'dc950',
     name: 'Douglas DC-9-50',

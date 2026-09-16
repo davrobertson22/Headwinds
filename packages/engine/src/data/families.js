@@ -120,7 +120,7 @@ export const AIRCRAFT_FAMILY = {
   b717: 'boeing_717',
 
   // Boeing 727 ──────────────────────────────────────────────────────────────
-  b727200: 'boeing_727', b727200f: 'boeing_727',
+  b727100: 'boeing_727', b727200: 'boeing_727', b727200f: 'boeing_727',
 
   // Boeing 707 / 720 ────────────────────────────────────────────────────────
   // The 720 is a shortened, lightened 707 — same cockpit, same JT3D core.
@@ -193,7 +193,7 @@ export const AIRCRAFT_FAMILY = {
   do328: 'dornier_328', do328jet: 'dornier_328',
 
   // McDonnell Douglas / Douglas ─────────────────────────────────────────────
-  md80: 'mcd_md80', dc950: 'mcd_md80', md90: 'mcd_md80',   // DC-9 / MD-80 family
+  md80: 'mcd_md80', dc910: 'mcd_md80', dc930: 'mcd_md80', dc950: 'mcd_md80', md90: 'mcd_md80',   // DC-9 / MD-80 family
   dc1030: 'mcd_dc10', md11: 'mcd_dc10',                     // DC-10 / MD-11 family
   dc1030f: 'mcd_dc10', md11f: 'mcd_dc10',
   dc863: 'mcd_dc8', dc873f: 'mcd_dc8',                      // DC-8 family
