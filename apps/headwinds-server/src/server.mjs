@@ -10,7 +10,8 @@ import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
-import { isTransientTxError } from './lib/tx.mjs';
+import { transientKind, TRANSIENT_MESSAGE } from './lib/tx.mjs';
+import { probeDatabase, healthReport } from './lib/health.mjs';
 import meRoutes from './routes/me.mjs';
 import playerRoutes from './routes/players.mjs';
 import accountMessageRoutes from './routes/accountMessages.mjs';
@@ -50,16 +51,18 @@ export function buildServer() {
   // Internals stay in the log; the player gets something actionable.
   app.setErrorHandler((err, request, reply) => {
     // A transaction that timed out or lost a deadlock is not a broken request —
-    // it is a busy database. Say so, and mark it retryable so the client can just
-    // re-submit instead of telling the player their move failed.
-    const transient = !err.statusCode && isTransientTxError(err);
-    const status = err.statusCode ?? (transient ? 503 : 500);
+    // it is a busy database. A dropped or unobtainable connection is not a
+    // broken request either — it is a database that did not answer. Both are
+    // 503 + retryable so the client re-submits instead of telling the player
+    // their move failed (or, worse, that it was our bug).
+    const kind = err.statusCode ? null : transientKind(err);
+    const status = err.statusCode ?? (kind ? 503 : 500);
 
     if (status >= 500) request.log.error(err);
     // Below 500, pass through the machine-readable code when a helper set one.
     // Read from `appCode`, NOT `code`: Prisma ('P2028') and Fastify
     // ('FST_ERR_VALIDATION') both put their own values on `err.code`, and
-    // isTransientTxError above matches on it — a name collision here would be a
+    // transientKind above matches on it — a name collision here would be a
     // very quiet way to break transient-failure retry.
     // The client cannot decide whether a failed write is safe to re-submit from
     // the status alone — 409 is both "lost the version check, nothing written"
@@ -72,10 +75,8 @@ export function buildServer() {
     }
 
     return reply.code(status).send({
-      error: transient
-        ? 'The world is busy committing this week — give it a moment and try again.'
-        : 'Something went wrong on our end. Try again in a moment.',
-      retryable: transient,
+      error: kind ? TRANSIENT_MESSAGE[kind] : 'Something went wrong on our end. Try again in a moment.',
+      retryable: Boolean(kind),
     });
   });
 
@@ -84,11 +85,19 @@ export function buildServer() {
   // working out whether an egress fix had shipped. Railway injects
   // RAILWAY_GIT_COMMIT_SHA into every deploy; anywhere else it is simply absent
   // and this reports 'unknown' rather than throwing.
-  app.get('/health', async () => ({
-    ok: true,
-    service: 'headwinds-api',
-    commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'unknown',
-  }));
+  //
+  // It also asks Postgres a question. See lib/health.mjs for why: a healthcheck
+  // that stays green while every real request times out is how the 2026-09-16
+  // outage ran for eighteen hours with every dashboard reporting "Online".
+  app.get('/health', async (request, reply) => {
+    const db = await probeDatabase(prisma);
+    const { status, body } = healthReport({
+      db,
+      service: 'headwinds-api',
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? 'unknown',
+    });
+    return reply.code(status).send(body);
+  });
 
   app.register(meRoutes);
   app.register(playerRoutes);

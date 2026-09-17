@@ -45,11 +45,56 @@ const TRANSIENT_CODES = new Set(['P2028', 'P2034', 'P2024']);
 // (notably through pgBouncer), so match the wording too.
 const TRANSIENT_TEXT = /transaction already closed|transaction api error|transaction not found|write conflict|deadlock detected|unable to start a transaction|timed out fetching a new connection/i;
 
-export function isTransientTxError(err) {
-  if (!err) return false;
-  if (TRANSIENT_CODES.has(err.code)) return true;
-  return typeof err.message === 'string' && TRANSIENT_TEXT.test(err.message);
+// Connection-level failures: the pooler dropped our socket, or never handed us
+// one. Nothing about the request was wrong — the database was simply not
+// answering at that instant.
+//   P1001 — can't reach database server
+//   P1002 — database server reached but timed out
+//   P1008 — operations timed out
+//   P1017 — server has closed the connection
+//
+// THE OUTAGE THIS EXISTS FOR: on 2026-09-16 Supavisor's transaction-mode pool
+// wedged for ~18 hours. Every query died with
+//     FATAL: (ECHECKOUTTIMEOUT) unable to check out connection from the pool
+//     after 60000ms in Transaction mode
+// as a PrismaClientUnknownRequestError with NO code, and once the pool was
+// reconfigured every stale socket in Prisma's pool threw P1017 "Server has
+// closed the connection" exactly once before being replaced. Both reached the
+// player as a red "Something went wrong on our end" 500 — our-bug wording for a
+// failure that was not ours and that a retry would have cleared. The client
+// already treats 503 as transient (apps/headwinds-web/src/api.js); the server
+// just never said 503. See OUTAGE notes in the Headwinds project.
+const CONNECTION_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017']);
+const CONNECTION_TEXT = /server has closed the connection|can't reach database server|unable to check out connection from the pool|ECHECKOUTTIMEOUT|connection reset by peer|connection refused|broken pipe/i;
+
+/**
+ * Why a request failed through no fault of its own, or null if it is a real error.
+ *   'tx'         — lost a lock race / transaction budget; the world is busy committing
+ *   'connection' — the database or its pooler did not answer
+ * Both are safe to retry: every write is CAS-guarded (see the header), and a
+ * dropped connection rolls back whatever it was carrying.
+ */
+export function transientKind(err) {
+  if (!err) return null;
+  if (CONNECTION_CODES.has(err.code)) return 'connection';
+  if (TRANSIENT_CODES.has(err.code)) return 'tx';
+  const msg = typeof err.message === 'string' ? err.message : '';
+  if (CONNECTION_TEXT.test(msg)) return 'connection';
+  if (TRANSIENT_TEXT.test(msg)) return 'tx';
+  return null;
 }
+
+export function isTransientTxError(err) {
+  return transientKind(err) !== null;
+}
+
+// What the player reads on a 503. Below 500 the message is the route's own; at
+// 500 it is the driver's and never shown. These two are the only 5xx lines a
+// player sees, so they say what is happening and that trying again will work.
+export const TRANSIENT_MESSAGE = {
+  tx: 'The world is busy committing this week — give it a moment and try again.',
+  connection: 'The database is not answering right now — give it a moment and try again.',
+};
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
