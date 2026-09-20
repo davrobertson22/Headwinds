@@ -81,6 +81,11 @@ function describe(e) {
     };
     case 'used_aircraft_sold':  return { who: e.airline, what: `picked up a used ${typeName(d.typeId)}`, icon: '🏷️' };
     case 'joined':              return { who: e.airline, what: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}`, icon: '🛬' };
+    case 'fuel_quarter':        return {
+      who: d.cheapest?.name ?? 'Fuel',
+      what: `paid the least for fuel this quarter — ${(d.cheapest?.avgPaid ?? 0).toFixed(2)}× vs a ${(d.avgMarket ?? 0).toFixed(2)}× market`,
+      icon: '⛽',
+    };
     case 'alliance_founded':    return { who: d.alliance, what: 'alliance founded', icon: '🤝' };
     case 'alliance_joined':     return { who: e.airline, what: `joined the ${d.alliance} alliance`, icon: '🤝' };
     case 'alliance_left':       return { who: e.airline, what: 'left its alliance', icon: '🤝' };

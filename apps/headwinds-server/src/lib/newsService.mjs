@@ -628,6 +628,47 @@ export function scheduleTrimNewsRows({ worldId, week, notices }) {
     }));
 }
 
+export const FUEL_QUARTER_WEEKS = 13;
+
+/**
+ * Quarter-end fuel standings (FUEL_OPERATIONS_PLAN.md §5.5): at every 13th
+ * world-week, who paid least per unit of fuel over the quarter and what the
+ * world averaged. Reveals outcomes only — an airline's average paid, which is
+ * the public face of a private hedging decision; never the contracts.
+ *
+ * `airlines` is [{ airlineId, name, fuelPaid }] with `fuelPaid` as
+ * humanRivals.fuelPaidOf() shapes it. Nothing is written when it is not a
+ * quarter-end, when fewer than two airlines have a full quarter of flying, or
+ * when nobody's average differs from the market (a world where no one hedges
+ * has no standings to report — the row would just restate the index).
+ */
+export function fuelQuarterNewsRows({ worldId, week, airlines }) {
+  if (!(week > 0) || week % FUEL_QUARTER_WEEKS !== 0) return [];
+  const rows = (airlines ?? [])
+    .filter((a) => a?.airlineId && a.fuelPaid && a.fuelPaid.weeks >= FUEL_QUARTER_WEEKS)
+    .map((a) => ({ airlineId: a.airlineId, name: a.name ?? null, ...a.fuelPaid }));
+  if (rows.length < 2) return [];
+  if (!rows.some((r) => Math.abs(r.vsMarket) >= 0.005)) return [];
+  rows.sort((a, b) => a.avgPaid - b.avgPaid);
+  const cheapest = rows[0];
+  const dearest  = rows[rows.length - 1];
+  const worldAvgPaid = rows.reduce((s, r) => s + r.avgPaid, 0) / rows.length;
+  const avgMarket    = rows.reduce((s, r) => s + r.avgMarket, 0) / rows.length;
+  return [{
+    worldId, week, category: 'world', kind: 'fuel_quarter', tier: 2,
+    airlineId: cheapest.airlineId,
+    payload: {
+      quarterWeeks: FUEL_QUARTER_WEEKS,
+      avgMarket:    +avgMarket.toFixed(3),
+      worldAvgPaid: +worldAvgPaid.toFixed(3),
+      cheapest: { airlineId: cheapest.airlineId, name: cheapest.name, avgPaid: cheapest.avgPaid, vsMarket: cheapest.vsMarket },
+      dearest:  { airlineId: dearest.airlineId,  name: dearest.name,  avgPaid: dearest.avgPaid,  vsMarket: dearest.vsMarket },
+      // Top five, cheapest first, for a standings-style render.
+      table: rows.slice(0, 5).map((r) => ({ airlineId: r.airlineId, name: r.name, avgPaid: r.avgPaid, vsMarket: r.vsMarket })),
+    },
+  }];
+}
+
 export function gateForfeitureNewsRows({ worldId, week, releases, lockoutWeeks, nameOf }) {
   // One item per airport, not per gate.
   const byKey = new Map();

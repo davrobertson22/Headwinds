@@ -27,6 +27,7 @@
  */
 
 import { effectiveFuelMultiplier, absoluteWeek, hedgeLockedPrice, fuelIndexStatus,
+         hedgeUnwindQuote, hedgeWeekSavings, emptyHedgeStats,
          FUEL_BASE_INDEX } from './fuel.js';
 
 /** Hedges live at absolute week `abs` under tickPrep's rule (bought on or before, not yet expired). */
@@ -189,6 +190,71 @@ export function hedgeQuoteDollars(state, durationOpt, coverage) {
     vsSpotTerm: vsSpot * (durationOpt?.weeks ?? 0),
     breakevenIndex: locked,
     perTenth: Math.round(baseBill * cov * 0.1),
+  };
+}
+
+/**
+ * The unwind quote for one of this airline's live contracts, in dollars of
+ * this week's base bill — the same figure UNWIND_HEDGE settles on, so the
+ * button cannot promise a number the reducer then disagrees with.
+ *
+ * `canAfford` is false when exiting an underwater contract would take cash
+ * below zero; the reducer refuses the same case.
+ *
+ * @returns {object|null} null when the contract is unknown, expired, or the
+ *   airline has not flown a week yet (no bill to price against)
+ */
+export function hedgeUnwindDollars(state, contractId) {
+  const contracts = state?.hedgeContracts ?? [];
+  const contract  = contracts.find(h => h?.id === contractId);
+  if (!contract) return null;
+  const impact = fuelImpact(state, { lookbacks: [] });
+  if (!impact || !(impact.baseBill > 0)) return null;
+  const curAbsWeek  = absoluteWeek(state.year, state.week);
+  const marketIndex = state?.fuelPrice?.index ?? FUEL_BASE_INDEX;
+  const live = hedgesLiveAt(contracts, curAbsWeek);
+  const q = hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill: impact.baseBill, hedges: live });
+  if (!q) return null;
+  const cash = Number(state?.cash) || 0;
+  return {
+    ...q,
+    contractId,
+    marketIndex,
+    lockedPrice: contract.lockedPrice,
+    canAfford: cash + q.settlement >= 0,
+    // What the contract has made so far plus what closing it now pays: the
+    // number a player compares against "just let it run".
+    realized: Math.round(Number(contract.realizedSavings) || 0),
+    totalIfUnwound: Math.round((Number(contract.realizedSavings) || 0) + q.settlement),
+  };
+}
+
+/**
+ * The scoreboard: every live contract with what it saved so far and what it
+ * is doing this week, plus the lifetime record. Reads state only.
+ */
+export function hedgeScoreboard(state) {
+  const contracts = state?.hedgeContracts ?? [];
+  const curAbsWeek = absoluteWeek(state?.year ?? 1, state?.week ?? 1);
+  const live = hedgesLiveAt(contracts, curAbsWeek);
+  const impact = fuelImpact(state, { lookbacks: [] });
+  const marketIndex = state?.fuelPrice?.index ?? FUEL_BASE_INDEX;
+  const thisWeek = hedgeWeekSavings(live, marketIndex, impact?.baseBill ?? 0);
+  const stats = state?.hedgeStats ?? emptyHedgeStats();
+  const active = live.map(h => ({
+    ...h,
+    weeksLeft:  h.expiryAbsWeek - curAbsWeek,
+    realized:   Math.round(Number(h.realizedSavings) || 0),
+    perWeekNow: thisWeek.get(h.id) ?? 0,
+  }));
+  const openSavings = active.reduce((s, h) => s + h.realized, 0);
+  return {
+    active,
+    stats,
+    openSavings,
+    // Lifetime = closed contracts' totals + what the open ones have banked so far.
+    lifetimeIncludingOpen: (stats.lifetimeSavings ?? 0) + openSavings,
+    record: `${stats.wins ?? 0}–${stats.losses ?? 0}`,
   };
 }
 

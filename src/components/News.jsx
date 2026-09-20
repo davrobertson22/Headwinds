@@ -251,6 +251,19 @@ export function compose(item, startYear = null) {
           : null,
         standalone: true,
       };
+    case 'fuel_quarter': {
+      // Quarter-end fuel standings (FUEL_OPERATIONS_PLAN.md §5.5): outcomes
+      // only — the average each airline paid — never anyone's contracts.
+      const pct = (v) => `${(Math.abs(v ?? 0) * 100).toFixed(1)}% ${(v ?? 0) < 0 ? 'below' : 'over'} market`;
+      return {
+        icon: '⛽', subject: d.cheapest?.name ?? 'Cheapest fuel',
+        headline: `paid the least for fuel this quarter — ${(d.cheapest?.avgPaid ?? 0).toFixed(2)}× (${pct(d.cheapest?.vsMarket)})`,
+        sub: `World average ${(d.worldAvgPaid ?? 0).toFixed(2)}× against a market of ${(d.avgMarket ?? 0).toFixed(2)}×`
+          + (d.dearest?.name && d.dearest.airlineId !== d.cheapest?.airlineId
+              ? ` · dearest: ${d.dearest.name} at ${(d.dearest.avgPaid ?? 0).toFixed(2)}×` : ''),
+        standalone: true,
+      };
+    }
     case 'alliance_founded':
       return { icon: '🤝', subject: d.alliance, headline: 'alliance founded', standalone: true };
     case 'alliance_joined':

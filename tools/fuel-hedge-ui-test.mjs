@@ -24,6 +24,7 @@ import { renderToString } from 'react-dom/server';
 import {
   HEDGE_DURATIONS, hedgeLockedPrice, expectedMeanIndex,
 } from '../packages/engine/src/utils/fuel.js';
+import { formatMoney } from '../packages/engine/src/utils/simulation.js';
 
 // The index from the bug report. Well away from 1.0 on purpose: at 1.0 spot and
 // the expected path coincide and both formulas agree, so a fixture near the
@@ -206,6 +207,78 @@ test('the desk no longer promises to lock in today\'s price', () => {
     'the blurb still claims the lock is at today\'s price');
   assert.ok(/expected to average/i.test(html),
     'the blurb should say the rate is priced off where fuel is expected to average');
+});
+
+// ── Fuel operations Phase 1+2: the desk repriced, unwind, scoreboard ─────────
+// Verified failing on HEAD (2026-09-19): no 52-week row, no "Saved so far"
+// column, no Unwind control, no scoreboard tiles, no Closed Contracts card.
+
+console.log('\nHedge desk: 52-week, unwind, scoreboard (render)\n');
+
+test('the 52-week product is on the duration list', () => {
+  const year = HEDGE_DURATIONS.find(o => o.id === 'year');
+  assert.ok(year, 'engine has no 52-week product');
+  assert.ok(html.includes('52-week'), 'the 52-week row is missing');
+  assert.ok(html.includes(`+6% → ${hedgeLockedPrice(SPOT, year).toFixed(3)}×`));
+});
+
+test('the blurb tells the player contracts can be unwound', () => {
+  assert.ok(html.includes('unwound early'), 'nothing says a contract can be exited');
+});
+
+// A hedged airline that has flown a week, so there is a bill to score against.
+const flown = {
+  ...save,
+  week: 30,
+  financialHistory: [
+    { label: 'Jan W1 Y1', week: 29, year: 1, fuel: 12_000_000, fuelIndex: SPOT, revenue: 60e6, profit: 4e6, totalCost: 56e6 },
+  ],
+  lastReport: { totalFuel: 12_000_000, fuelMultiplier: SPOT, fuelIndex: SPOT },
+};
+const hedged = gameReducer(flown, { type: 'BUY_HEDGE', durationId: 'long', coverage: 0.5 });
+hedged.hedgeContracts[0].realizedSavings = 750_000;   // as a tick would have written it
+const hedgedHtml = render(hedged);
+
+test('the Active Contracts table shows what each contract has saved so far', () => {
+  assert.ok(hedgedHtml.includes('Saved so far'), 'the column is missing');
+  assert.ok(hedgedHtml.includes(`+${formatMoney(750_000)}`),
+    `the realized figure (+${formatMoney(750_000)}) is not on the row`);
+});
+
+test('the scoreboard tiles render for a hedged airline', () => {
+  assert.ok(hedgedHtml.includes('Open contracts, saved so far'));
+  assert.ok(hedgedHtml.includes('Lifetime hedge P&L'));
+  assert.ok(hedgedHtml.includes('Record (closed)'));
+});
+
+test('every active contract offers an Unwind control', () => {
+  assert.ok(hedgedHtml.includes('>Unwind<'), 'no Unwind button on the row');
+});
+
+test('a 52-week contract expires in the right calendar week', () => {
+  // Week 20 + 52 = absolute 72 → W20 of year 2. The old label clamped to W52.
+  const after = gameReducer(save, { type: 'BUY_HEDGE', durationId: 'year', coverage: 0.25 });
+  const c = after.hedgeContracts.at(-1);
+  assert.equal(c.expiryAbsWeek, 20 + 52);
+  // The preview quotes the selected (8-week) row: week 20 + 8 → W28 of year 1.
+  assert.ok(html.includes('W28, 1'), 'the 8-week expiry should read W28, 1');
+  // And a year-boundary crossing renders as the next year, not a clamped W52:
+  // from week 50, 8 weeks → absolute 58 → W6 of year 2.
+  const late = render({ ...save, week: 50 });
+  assert.ok(late.includes('W6, 2'), 'expiry across the year boundary should read W6, 2');
+  assert.ok(!late.includes('W52, 1'), 'the old clamp is back');
+});
+
+test('an unwound contract moves to Closed Contracts with its settlement', () => {
+  const id = hedged.hedgeContracts[0].id;
+  const after = gameReducer(hedged, { type: 'UNWIND_HEDGE', id });
+  assert.equal(after.hedgeContracts.length, 0, 'the reducer did not unwind');
+  assert.equal(after.hedgeStats.contractsClosed, 1);
+  const afterHtml = render(after);
+  assert.ok(afterHtml.includes('Closed Contracts'), 'the closed card is missing');
+  assert.ok(afterHtml.includes('unwound ('), 'the row should say how it ended');
+  assert.ok(afterHtml.includes('Active Contracts (0)'));
+  assert.ok(afterHtml.includes('1 closed'), 'the record tile should count it');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

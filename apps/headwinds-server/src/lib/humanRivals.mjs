@@ -249,6 +249,36 @@ function designatedHubsOf(s) {
   return out;
 }
 
+export const FUEL_PAID_WEEKS = 13;
+
+/**
+ * `{ weeks, avgPaid, avgMarket, vsMarket }` over the airline's last 13 flown
+ * weeks, or null before it has flown one. `vsMarket` is relative: −0.06 reads
+ * "6% below market". A never-hedged airline reads exactly 0 (paid == market),
+ * which is the honest baseline, not "no data".
+ */
+export function fuelPaidOf(s) {
+  const rows = (s?.financialHistory ?? []).slice(-FUEL_PAID_WEEKS)
+    .map((h) => ({
+      market: Number(h?.fuelIndex),
+      // The projection (projectRivalState / the SQL twin) yields an explicit
+      // null for the key on unhedged weeks, and Number(null) is 0 — so test
+      // presence before parsing, or every unhedged week would read as free.
+      paid: h?.fuelMultiplier != null && Number.isFinite(Number(h.fuelMultiplier))
+        ? Number(h.fuelMultiplier) : Number(h?.fuelIndex),
+    }))
+    .filter((r) => Number.isFinite(r.market) && r.market > 0 && Number.isFinite(r.paid) && r.paid > 0);
+  if (!rows.length) return null;
+  const avgPaid   = rows.reduce((a, r) => a + r.paid, 0) / rows.length;
+  const avgMarket = rows.reduce((a, r) => a + r.market, 0) / rows.length;
+  return {
+    weeks: rows.length,
+    avgPaid:   +avgPaid.toFixed(4),
+    avgMarket: +avgMarket.toFixed(4),
+    vsMarket:  +((avgPaid - avgMarket) / avgMarket).toFixed(4),
+  };
+}
+
 // One competitor-shaped object for a human rival (consumed by the Competition
 // tab, marketing voice, alliances, codeshares — everywhere state.competitors
 // flows in the engine).
@@ -334,6 +364,13 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
       .slice(-26)
       .map((e) => (typeof e.sharePrice === 'number' ? e.sharePrice : null)),
     profitHistory,
+    // What this airline actually paid per unit of fuel over the last 13 weeks
+    // (FUEL_OPERATIONS_PLAN.md §5.4): the blended multiplier when a hedge made
+    // it differ from the market, the market index otherwise. Everyone in a
+    // world shares one fuel walk, so "avg paid vs spot" is the public outcome
+    // of a private decision — the contracts themselves stay private
+    // (Competition's rule: loans, hedges, marketing never appear).
+    fuelPaid: fuelPaidOf(s),
     weeklyStats: lastWeek
       ? {
           weeklyProfit: lastWeek.profit ?? 0,
@@ -581,10 +618,12 @@ export function stripRivals(state) {
 //                            calcReputation (service score, assigned filter)
 //   fleet.ageWeeks           calcReputation fleet-freshness score
 //   fleet.status             fleetAvgUtilization's isOutOfService filter
-//   fin.profit               toHumanCompetitor profitHistory (slice(-12), the
-//                            deepest read), calcReputation slice(-4)
+//   fin.profit               toHumanCompetitor profitHistory (slice(-12)),
+//                            calcReputation slice(-4)
 //   fin.revenue              toHumanCompetitor weeklyStats
 //   fin.passengers           loyaltyPaxBase slice(-8)
+//   fin.fuelIndex            fuelPaidOf (slice(-13), the deepest read)
+//   fin.fuelMultiplier       fuelPaidOf — present only on hedged weeks
 //   stats.sharePrice         toHumanCompetitor sharePriceHistory (slice(-26))
 //   lastReport.reputation    qualityOf's preferred (legacy) shape
 //   lastReport.reputationScore  what the CURRENT engine writes — kept so a
@@ -598,10 +637,10 @@ export function stripRivals(state) {
 // mode: it faithfully ships 291 kB nobody reads. The safety net for both is
 // tools/rival-projection-test.mjs, which proves the derived views are
 // byte-identical with and without the projection, and that each trim has teeth.
-export const RIVAL_FIN_KEEP = 12;    // deepest read: profitHistory slice(-12)
+export const RIVAL_FIN_KEEP = 13;    // deepest read: fuelPaidOf slice(-13) (FUEL_PAID_WEEKS)
 export const RIVAL_STATS_KEEP = 26;  // sharePriceHistory slice(-26)
 export const RIVAL_FLEET_FIELDS = ['id', 'typeId', 'config', 'ageWeeks', 'status'];
-export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers'];
+export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers', 'fuelIndex', 'fuelMultiplier'];
 export const RIVAL_STATS_FIELDS = ['sharePrice'];
 // Keys the rival path provably never reads, removed outright. customLogo is the
 // player's uploaded logo payload — rivals render `logoId`, never this.
@@ -677,7 +716,8 @@ export async function loadRivalRows(prisma, worldId) {
                     CASE WHEN jsonb_typeof(a.state->'financialHistory') = 'array'
                          THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
                                         'profit', e->'profit', 'revenue', e->'revenue',
-                                        'passengers', e->'passengers') ORDER BY ord), '[]'::jsonb)
+                                        'passengers', e->'passengers',
+                                        'fuelIndex', e->'fuelIndex', 'fuelMultiplier', e->'fuelMultiplier') ORDER BY ord), '[]'::jsonb)
                                  FROM jsonb_array_elements(jsonb_path_query_array(a.state, ${'$.financialHistory' + finTail}::jsonpath))
                                       WITH ORDINALITY AS fh(e, ord))
                          ELSE '[]'::jsonb END,

@@ -24,7 +24,7 @@ import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies,
 import {
   fuelIndexStatus, fuelIndexDelta, absoluteWeek,
   HEDGE_DURATIONS, HEDGE_COVERAGES, expectedMeanIndex, hedgeLockedPrice,
-  effectiveFuelMultiplier, totalHedgedCoverage,
+  effectiveFuelMultiplier, totalHedgedCoverage, UNWIND_HAIRCUT,
   FUEL_MIN_INDEX, FUEL_MAX_INDEX,
 } from '../utils/fuel.js';
 import {
@@ -37,7 +37,7 @@ import {
   DEPRECIATION_YEARS,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
-import { fuelImpact, hedgeQuoteDollars } from '../utils/fuelImpact.js';
+import { fuelImpact, hedgeQuoteDollars, hedgeUnwindDollars, hedgeScoreboard } from '../utils/fuelImpact.js';
 import { consumeNavFilter } from '../utils/navIntent.js';
 // pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
@@ -3913,7 +3913,12 @@ function FuelHedging() {
   const nowAbsWeek   = absoluteWeek(state.year, state.week);
   const allContracts = state.hedgeContracts ?? [];
   const active       = allContracts.filter(h => h.expiryAbsWeek > nowAbsWeek);
-  const expired      = allContracts.filter(h => h.expiryAbsWeek <= nowAbsWeek).slice(-5);
+  // The scoreboard: what each live contract has saved so far, and the record
+  // of every one that closed (the tick folds expired contracts into
+  // hedgeStats, so the closed list lives there, not in hedgeContracts).
+  const board        = hedgeScoreboard(state);
+  const closed       = [...(board.stats.recent ?? [])].reverse();
+  const [unwinding, setUnwinding] = useState(null);   // contract id with the unwind panel open
 
   const status      = fuelIndexStatus(fuelIndex);
   const deltaLabel  = fuelIndexDelta(fuelIndex);
@@ -3964,6 +3969,21 @@ function FuelHedging() {
     if (!canBuy) return;
     dispatch({ type: 'BUY_HEDGE', durationId: selDuration, coverage: selCoverage });
   }
+  function handleUnwind(id) {
+    dispatch({ type: 'UNWIND_HEDGE', id });
+    setUnwinding(null);
+  }
+  // Expiry as a calendar week, from the absolute week — the old
+  // `min(52, week + weeks)` clamp printed "W52" for anything that crossed a
+  // year boundary, which every 52-week contract does.
+  const expiryLabel = (weeks) => {
+    const abs  = nowAbsWeek + (weeks ?? 0);
+    const yr   = Math.floor((abs - 1) / 52) + 1;
+    const wk   = ((abs - 1) % 52) + 1;
+    return `W${wk}, ${(state.startYear != null ? state.startYear - 1 : 0) + yr}`;
+  };
+  const signedMoney = (v) => `${v >= 0 ? '+' : '−'}${formatMoney(Math.abs(v))}`;
+  const pnlColor = (v) => v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--muted)';
 
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 };
 
@@ -4061,7 +4081,8 @@ function FuelHedging() {
           Lock a fixed rate for part of your fleet's fuel bill. The rate is priced off where fuel is
           expected to average over the term — not off today's index — plus a small premium for the
           certainty. If the market runs hotter than that, you save. If it doesn't, you pay a little over
-          market — the cost of certainty. Contracts stack up to 100% total coverage.
+          market — the cost of certainty. Contracts stack up to 100% total coverage, and any contract
+          can be unwound early at its market value less a {Math.round(UNWIND_HAIRCUT * 1000) / 10}% haircut.
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -4134,7 +4155,7 @@ function FuelHedging() {
                   `${quote.vsSpot >= 0 ? 'saves' : 'costs'} ${formatMoney(Math.abs(quote.vsSpot))}/wk (${formatMoney(Math.abs(quote.vsSpotTerm))} over the term)`],
                 ['Pays off when the index averages', `above ${quote.breakevenIndex.toFixed(3)}× · each 0.1 above = ${formatMoney(quote.perTenth)}/wk saved`],
               ] : []),
-              ['Expires', `W${Math.min(52, state.week + (selOpt?.weeks ?? 0))}, ${(state.startYear != null ? state.startYear - 1 : 0) + state.year + (state.week + (selOpt?.weeks ?? 0) > 52 ? 1 : 0)}`],
+              ['Expires', expiryLabel(selOpt?.weeks)],
             ].map(([k, v]) => (
               <>
                 <span key={k + '_k'} style={{ color: 'var(--muted)' }}>{k}</span>
@@ -4158,6 +4179,22 @@ function FuelHedging() {
         </button>
       </div>
 
+      {/* ── Scoreboard ───────────────────────────────────────────────── */}
+      {(active.length > 0 || board.stats.contractsClosed > 0) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+          {[
+            ['Open contracts, saved so far', signedMoney(board.openSavings), pnlColor(board.openSavings)],
+            ['Lifetime hedge P&L', signedMoney(board.lifetimeIncludingOpen), pnlColor(board.lifetimeIncludingOpen)],
+            ['Record (closed)', `${board.record} · ${board.stats.contractsClosed} closed`, 'inherit'],
+          ].map(([k, v, color]) => (
+            <div key={k} style={{ ...card, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{k}</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── Active contracts ──────────────────────────────────────────── */}
       <div style={card}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Active Contracts ({active.length})</div>
@@ -4167,33 +4204,90 @@ function FuelHedging() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Duration', 'Coverage', 'Locked', 'vs Market', 'Weeks Left'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
+                {['Duration', 'Coverage', 'Locked', 'vs Market', 'Saved so far', 'Weeks Left', ''].map((h, i) => (
+                  <th key={h || `h${i}`} style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {active.map(h => {
-                const weeksLeft = h.expiryAbsWeek - nowAbsWeek;
+              {board.active.map(h => {
+                const weeksLeft = h.weeksLeft;
                 // Relative to the market, not a subtraction of two index values.
                 // A 0.991 lock against a 0.794 market is 24.8% over it; the gap
                 // between the indices is 0.197, and printing that as "19.7%" was
                 // a percentage of nothing. The ±0.5% threshold below is relative
                 // too, so "≈ at market" means the same thing at any index.
                 const saving    = fuelIndex > 0 ? (fuelIndex - h.lockedPrice) / fuelIndex : 0;  // positive = saving, negative = overpaying
+                const isOpen    = unwinding === h.id;
+                // The engine's own quote — the number UNWIND_HEDGE will settle.
+                const uq        = isOpen ? hedgeUnwindDollars(state, h.id) : null;
                 return (
-                  <tr key={h.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 10px' }}>{h.durationLabel}</td>
-                    <td style={{ padding: '8px 10px' }}>{Math.round(h.coverage * 100)}%</td>
-                    <td style={{ padding: '8px 10px', fontWeight: 600 }}>{h.lockedPrice.toFixed(3)}×</td>
-                    <td style={{ padding: '8px 10px',
-                      color: saving > 0.005 ? 'var(--green)' : saving < -0.005 ? 'var(--red)' : 'var(--muted)' }}>
-                      {saving > 0.005 ? `▼ ${(saving * 100).toFixed(1)}% below market`
-                       : saving < -0.005 ? `▲ ${(Math.abs(saving) * 100).toFixed(1)}% over market`
-                       : '≈ at market'}
-                    </td>
-                    <td style={{ padding: '8px 10px' }}>{weeksLeft}w</td>
-                  </tr>
+                  <Fragment key={h.id}>
+                    <tr style={{ borderBottom: isOpen ? 'none' : '1px solid var(--border)' }}>
+                      <td style={{ padding: '8px 10px' }}>{h.durationLabel}</td>
+                      <td style={{ padding: '8px 10px' }}>{Math.round(h.coverage * 100)}%</td>
+                      <td style={{ padding: '8px 10px', fontWeight: 600 }}>{h.lockedPrice.toFixed(3)}×</td>
+                      <td style={{ padding: '8px 10px',
+                        color: saving > 0.005 ? 'var(--green)' : saving < -0.005 ? 'var(--red)' : 'var(--muted)' }}>
+                        {saving > 0.005 ? `▼ ${(saving * 100).toFixed(1)}% below market`
+                         : saving < -0.005 ? `▲ ${(Math.abs(saving) * 100).toFixed(1)}% over market`
+                         : '≈ at market'}
+                      </td>
+                      <td style={{ padding: '8px 10px', color: pnlColor(h.realized) }}
+                          title={h.perWeekNow ? `${signedMoney(h.perWeekNow)}/wk at this week's index` : undefined}>
+                        {signedMoney(h.realized)}
+                        {h.perWeekNow !== 0 && (
+                          <span style={{ color: 'var(--muted)', fontSize: 11 }}> ({signedMoney(h.perWeekNow)}/wk)</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>{weeksLeft}w</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                        <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }}
+                                onClick={() => setUnwinding(isOpen ? null : h.id)}>
+                          {isOpen ? 'Cancel' : 'Unwind'}
+                        </button>
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td colSpan={7} style={{ padding: '4px 10px 12px' }}>
+                          <div style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 6, padding: '10px 12px', fontSize: 12 }}>
+                            <div style={{ fontWeight: 600, marginBottom: 6 }}>Unwind Preview</div>
+                            {!uq ? (
+                              <div style={{ color: 'var(--muted)' }}>No fuel bill to price against yet — fly a week first.</div>
+                            ) : (
+                              <>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 0' }}>
+                                  {[
+                                    ['Weeks remaining', `${uq.remaining}w`],
+                                    ['Fuel still covered', `${formatMoney(uq.notional)} over the rest of the term`],
+                                    ['Market expects', `${uq.expectedIndex.toFixed(3)}× average vs your ${uq.lockedPrice.toFixed(3)}× lock`],
+                                    ['Market value of the remaining term', signedMoney(uq.mtm)],
+                                    ['Haircut', `−${formatMoney(uq.haircut)} (${Math.round(UNWIND_HAIRCUT * 1000) / 10}%)`],
+                                    [uq.settlement >= 0 ? 'You receive now' : 'You pay to exit', formatMoney(Math.abs(uq.settlement))],
+                                    ['Contract total if unwound', `${signedMoney(uq.totalIfUnwound)} (saved ${signedMoney(uq.realized)} so far)`],
+                                  ].map(([k, v]) => (
+                                    <Fragment key={k}>
+                                      <span style={{ color: 'var(--muted)' }}>{k}</span>
+                                      <span style={{ fontWeight: k.startsWith('You ') ? 600 : 400, color: k.startsWith('You ') ? pnlColor(uq.settlement) : 'inherit' }}>{v}</span>
+                                    </Fragment>
+                                  ))}
+                                </div>
+                                <button className="btn btn-primary" disabled={!uq.canAfford} onClick={() => handleUnwind(h.id)}
+                                        style={{ fontSize: 12, marginTop: 10 }}>
+                                  {uq.canAfford
+                                    ? (uq.settlement >= 0
+                                        ? `Unwind and receive ${formatMoney(uq.settlement)}`
+                                        : `Unwind and pay ${formatMoney(Math.abs(uq.settlement))}`)
+                                    : 'Not enough cash to exit'}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -4201,18 +4295,30 @@ function FuelHedging() {
         )}
       </div>
 
-      {/* ── Recently expired ─────────────────────────────────────────── */}
-      {expired.length > 0 && (
-        <div style={{ ...card, opacity: 0.7 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Recently Expired</div>
+      {/* ── Closed contracts ──────────────────────────────────────────── */}
+      {closed.length > 0 && (
+        <div style={{ ...card, opacity: 0.85 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Closed Contracts</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                {['Duration', 'Coverage', 'Locked', 'How it ended', 'Result'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {expired.map(h => (
+              {closed.map(h => (
                 <tr key={h.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '6px 10px' }}>{h.durationLabel}</td>
-                  <td style={{ padding: '6px 10px' }}>{Math.round(h.coverage * 100)}%</td>
-                  <td style={{ padding: '6px 10px' }}>{h.lockedPrice.toFixed(3)}× locked</td>
-                  <td style={{ padding: '6px 10px', color: 'var(--muted)' }}>expired</td>
+                  <td style={{ padding: '6px 10px' }}>{Math.round((h.coverage ?? 0) * 100)}%</td>
+                  <td style={{ padding: '6px 10px' }}>{(h.lockedPrice ?? 0).toFixed(3)}×</td>
+                  <td style={{ padding: '6px 10px', color: 'var(--muted)' }}>
+                    {h.reason === 'unwound'
+                      ? `unwound (${signedMoney(h.settlement)} settlement)`
+                      : 'ran to expiry'}
+                  </td>
+                  <td style={{ padding: '6px 10px', fontWeight: 600, color: pnlColor(h.total) }}>{signedMoney(h.total)}</td>
                 </tr>
               ))}
             </tbody>

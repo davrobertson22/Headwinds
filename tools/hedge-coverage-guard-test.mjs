@@ -151,6 +151,18 @@ test('a poisoned blob books a positive fuel bill on the next tick', () => {
     `prepareWeek handed the tick a negative fuel multiplier: ${prep.fuelMultiplier}`);
 });
 
+// ── UNWIND_HEDGE at the server door (FUEL_OPERATIONS_PLAN.md §4.2) ──────────
+
+test('UNWIND_HEDGE is on the allow-list and its guard passes a plain id through', () => {
+  assert.deepEqual(guardDecision('UNWIND_HEDGE', { id: 'abc123' }), { id: 'abc123' });
+});
+
+test('UNWIND_HEDGE refuses anything but a short string id', () => {
+  for (const bad of [undefined, null, 42, {}, { id: 'x' }, ['x'], '', 'y'.repeat(65)]) {
+    assert.throws(() => guardDecision('UNWIND_HEDGE', { id: bad }), GuardError, `id ${JSON.stringify(bad)} got through`);
+  }
+});
+
 Math.random = realRandom;
 console.log(`\nhedge coverage guard: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

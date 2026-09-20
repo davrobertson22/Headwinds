@@ -14,7 +14,7 @@ import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js'
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf } from './worldConfig.mjs';
-import { buildWorldRivalViews, withRivals, stripRivals } from './humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf } from './humanRivals.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import {
   isGateScarcity, reconcileForfeitures,
@@ -31,7 +31,7 @@ import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
-  gateForfeitureNewsRows, scheduleTrimNewsRows,
+  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
@@ -508,6 +508,15 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           notices: computed
             .filter((c) => writtenIds.has(c.airline.id))
             .flatMap((c) => (c.trimNotices ?? []).map((n) => ({ ...n, airlineId: c.airline.id }))),
+        }),
+        // Quarter-end fuel standings: who paid least per unit of fuel this
+        // quarter. Outcomes only (the average each airline paid), never the
+        // contracts behind them. Empty on any week that is not a quarter-end.
+        ...fuelQuarterNewsRows({
+          worldId: world.id, week: toIndex,
+          airlines: computed
+            .filter((c) => writtenIds.has(c.airline.id))
+            .map((c) => ({ airlineId: c.airline.id, name: c.airline.name, fuelPaid: fuelPaidOf(c.next) })),
         }),
       ];
       if (newsRows.length > 0) await tx.worldNews.createMany({ data: newsRows });

@@ -1513,6 +1513,17 @@ function RivalDetailView({ carrier, onClose }) {
             <StatTile label="Quality" value={`${carrier.baseQualityScore}/100`} color={qualityColor(carrier.baseQualityScore)} />
             <StatTile label="Routes" value={routeEntries.length} sub={contestedEntries.length ? `${contestedEntries.length} vs you` : undefined} />
             <StatTile label="Fleet" value={fleetTotal == null ? '…' : fleetTotal} sub={seatTotal ? `${seatTotal.toLocaleString()} seats` : undefined} />
+            {/* Avg fuel paid vs the world's spot (FUEL_OPERATIONS_PLAN.md §5.4).
+                The OUTCOME of their hedging, never the contracts. Human rivals
+                only — the server projects it; solo AI carriers never hedge. */}
+            {carrier.fuelPaid && (
+              <StatTile label={`Avg fuel paid (${carrier.fuelPaid.weeks}w)`}
+                value={`${carrier.fuelPaid.avgPaid.toFixed(2)}×`}
+                sub={Math.abs(carrier.fuelPaid.vsMarket) < 0.005
+                  ? 'at market'
+                  : `${(Math.abs(carrier.fuelPaid.vsMarket) * 100).toFixed(1)}% ${carrier.fuelPaid.vsMarket < 0 ? 'below' : 'over'} market`}
+                color={carrier.fuelPaid.vsMarket < -0.005 ? 'var(--green)' : carrier.fuelPaid.vsMarket > 0.005 ? '#f87171' : undefined} />
+            )}
           </div>
 
           {/* Trends */}

@@ -103,7 +103,9 @@ import {
   hedgeLockedPrice,
   absoluteWeek,
   HEDGE_DURATIONS,
+  settleHedgeWeek, hedgeOutcome, foldHedgeOutcome,
 } from './utils/fuel.js';
+import { hedgeUnwindDollars } from './utils/fuelImpact.js';
 import {
   getAlliance,
   CODESHARE_WEEKLY_FEE_BY_TIER,
@@ -3929,6 +3931,22 @@ function reducer(state, action) {
       // the one input a projection is right not to share.
       const report = weeklyTick({ ...prep.tickInput, encroachments: updatedEncroachments });
 
+      // ── Hedge scoreboard: what each live contract saved this week ─────────
+      // report.totalFuel is at the blended multiplier the sims were given, so
+      // dividing it back out gives the exact bill at 1.0× — no estimate. Each
+      // live contract is credited baseBill × effCoverage × (market − locked);
+      // the contracts tickPrep dropped as expired are folded into the lifetime
+      // record. `stats` stays null for a save that has never hedged, so no key
+      // is added to it (see settleHedgeWeek).
+      const hedgeSettlement = settleHedgeWeek({
+        prior:        state.hedgeContracts ?? [],
+        active:       liveHedges,
+        marketIndex:  currentFuelIndex,
+        baseBill:     fuelMultiplier > 0 ? (report.totalFuel ?? 0) / fuelMultiplier : 0,
+        stats:        state.hedgeStats ?? null,
+        closedAbsWeek: curAbsWeek,
+      });
+
       // ── Loyalty program: grow/decay member base + maturity + points debt ──
       // Penetration-based S-curve. Enrollment slows as the base approaches the
       // tier's penetration ceiling (you can't enrol people who already belong).
@@ -4890,6 +4908,12 @@ function reducer(state, action) {
         // profit = actual cash change this week (after tax, matches newCash delta)
         profit:             preTaxProfit - corporateTax,
         fuelIndex:          currentFuelIndex,
+        // The blended multiplier the week was actually charged at, recorded
+        // only when hedges made it differ from the market index (absent means
+        // "equal to fuelIndex"). The rival "avg fuel paid" tile reads
+        // `fuelMultiplier ?? fuelIndex`; keeping the key out of unhedged weeks
+        // keeps a never-hedged save byte-identical for the golden master.
+        ...(fuelMultiplier !== currentFuelIndex ? { fuelMultiplier } : {}),
         // Earned passenger satisfaction (0-100) and this week's reputation score,
         // so the Dashboard can trend them. Older history entries lack these - any
         // consumer must guard for null (the trend simply builds up going forward).
@@ -5538,7 +5562,8 @@ function reducer(state, action) {
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory },
         marketIndex:       nextMarketIndex,
-        hedgeContracts:      liveHedges,
+        hedgeContracts:      hedgeSettlement.contracts,
+        ...(hedgeSettlement.stats ? { hedgeStats: hedgeSettlement.stats } : {}),
         loyalty:             updatedLoyalty,
         codeshareAgreements: tickedCodeshares,
         awareness:           Math.round(newAwareness * 10) / 10,
@@ -5624,6 +5649,44 @@ function reducer(state, action) {
       return {
         ...state,
         hedgeContracts: [...(state.hedgeContracts ?? []), newContract],
+      };
+    }
+
+    case 'UNWIND_HEDGE': {
+      // action: { id }
+      // Close a live contract early at mark-to-market minus the haircut. The
+      // quote is the engine's own (hedgeUnwindDollars → hedgeUnwindQuote), the
+      // same call the Fuel tab previews, so the button and the settlement can
+      // never disagree. In the money (a spike) it pays cash; underwater it
+      // costs cash, and is refused rather than allowed to overdraw — a hedge
+      // is the one product that must never be able to bankrupt you by exit.
+      const quote = hedgeUnwindDollars(state, action.id);
+      if (!quote) return state;                       // unknown, expired, or nothing flown yet
+      const cash = Number(state.cash) || 0;
+      if (cash + quote.settlement < 0) return state;  // can't afford to exit
+      const contract  = (state.hedgeContracts ?? []).find(h => h?.id === action.id);
+      const remaining = (state.hedgeContracts ?? []).filter(h => h?.id !== action.id);
+      const outcome   = hedgeOutcome(contract, {
+        settlement:    quote.settlement,
+        closedAbsWeek: absoluteWeek(state.year, state.week),
+        reason:        'unwound',
+      });
+      return {
+        ...state,
+        cash:           cash + quote.settlement,
+        hedgeContracts: remaining,
+        hedgeStats:     foldHedgeOutcome(state.hedgeStats ?? null, outcome),
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type:  quote.settlement >= 0 ? 'success' : 'warning',
+            icon:  '⛽',
+            title: `${contract.durationLabel} hedge unwound`,
+            message: quote.settlement >= 0
+              ? `Received $${(quote.settlement / 1e6).toFixed(1)}M for the ${quote.remaining} weeks remaining.`
+              : `Paid $${(Math.abs(quote.settlement) / 1e6).toFixed(1)}M to exit ${quote.remaining} weeks early.`,
+          },
+        ],
       };
     }
 
@@ -6366,6 +6429,9 @@ function reconcileState(parsed) {
     gates:            parsed.gates            ?? {},
     loans:            parsed.loans            ?? [],
     hedgeContracts:   parsed.hedgeContracts   ?? [],
+    // Scoreboard is created the first time a contract closes; readers use
+    // `state.hedgeStats ?? emptyHedgeStats()`. Only carried when present.
+    ...(parsed.hedgeStats ? { hedgeStats: parsed.hedgeStats } : {}),
     loyalty:          parsed.loyalty
       ? {
           effInvestment: parsed.loyalty.weeklyInvestment ?? 0,

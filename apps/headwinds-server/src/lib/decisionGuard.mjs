@@ -340,6 +340,20 @@ function guardBuyHedge(payload) {
   return { durationId: opt.id, coverage };
 }
 
+// Early close of a live hedge. The reducer prices the settlement itself from
+// the airline's own state (hedgeUnwindDollars — the desk's curve, the stored
+// lock, this week's bill) and refuses unknown, expired or unaffordable exits;
+// the guard's only job is to make sure the id is a plain string, so a payload
+// object can never reach `.find(h => h.id === action.id)` and match by
+// reference tricks or coerce to something odd.
+function guardUnwindHedge(payload) {
+  const id = payload?.id;
+  if (typeof id !== 'string' || !id || id.length > 64) {
+    throw new GuardError('That hedge contract could not be found.');
+  }
+  return { id };
+}
+
 // ── Freight rates ────────────────────────────────────────────────────────────
 // The cargo yield is a $/tonne-km price the client states, and the reducer used
 // to store `Math.max(0.01, Number(action.yieldPrice))` — which NaN sails
@@ -462,6 +476,7 @@ function guardBranding(payload) {
 export function guardDecision(type, payload, state) {
   switch (type) {
     case 'BUY_HEDGE':          return guardBuyHedge(payload);
+    case 'UNWIND_HEDGE':       return guardUnwindHedge(payload);
     case 'ADD_CARGO_ROUTE':    return guardAddCargoRoute(payload);
     case 'UPDATE_CARGO_YIELD': return guardUpdateCargoYield(payload);
     // Single-aircraft lease extension. EXTEND_LEASES (the batch) has been

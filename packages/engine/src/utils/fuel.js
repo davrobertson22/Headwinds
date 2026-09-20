@@ -61,14 +61,31 @@ export const FUEL_VOLATILITY     = 0.04;  // σ: weekly random shock magnitude
 
 /**
  * Duration options the player can choose when buying a hedge.
- * premium: fraction added on top of the current market index to compute lockedPrice.
- * A shorter hedge is cheaper because the airline bears less counter-party risk.
+ * premium: fraction added on top of the EXPECTED average index over the term
+ * (see hedgeLockedPrice) to compute lockedPrice. A longer hedge costs more
+ * because the desk carries more counter-party and model risk.
+ *
+ * Repriced 2026-09 (FUEL_OPERATIONS_PLAN.md §4). The old 3/6/10% premiums
+ * were roughly 60% of a one-sigma move of the stationary walk (σ ≈ 0.17), so
+ * a 26-week lock at spot 1.38 cost ~1.30 against an expected ~1.18: a coin
+ * toss you paid 10% to enter. Nobody hedged (Heavy Landing, Sep 2026: zero
+ * contracts across the top eight airlines through a 30-week 1.25×+ stretch).
+ * The 52-week product exists because that stretch outlasted the longest
+ * contract on offer.
  */
 export const HEDGE_DURATIONS = [
-  { id: 'short',  label: '8-week',  weeks:  8, premium: 0.03 },
-  { id: 'medium', label: '13-week', weeks: 13, premium: 0.06 },
-  { id: 'long',   label: '26-week', weeks: 26, premium: 0.10 },
+  { id: 'short',  label: '8-week',  weeks:  8, premium: 0.015 },
+  { id: 'medium', label: '13-week', weeks: 13, premium: 0.025 },
+  { id: 'long',   label: '26-week', weeks: 26, premium: 0.04  },
+  { id: 'year',   label: '52-week', weeks: 52, premium: 0.06  },
 ];
+
+/**
+ * Fraction of the remaining notional the desk keeps when a contract is
+ * unwound early (hedgeUnwindQuote). Buying and immediately unwinding costs
+ * exactly premium + haircut, so the round trip is lossy by construction.
+ */
+export const UNWIND_HAIRCUT = 0.015;
 
 /**
  * Coverage options: what fraction of the fleet's total fuel bill is hedged.
@@ -135,28 +152,8 @@ export function expectedMeanIndex(spot, weeks, theta = FUEL_MEAN_REVERSION, base
 export function effectiveFuelMultiplier(marketIndex, activeHedges = []) {
   if (!activeHedges.length) return marketIndex;
 
-  // Only real fractions get a vote.
-  //
-  // The reducer now refuses a BUY_HEDGE whose coverage is not in (0, 1], but a
-  // world that was exploited before that landed still carries the poisoned
-  // contracts in its saved blob — and this function is where they cash out. A
-  // signed sum let a pair of contracts at -1000 and +1000.1 slip past the
-  // `rawCoverage <= 0` guard below and return -68.997, i.e. a large NEGATIVE
-  // fuel bill on every route, every week. Sanitising here means such a blob
-  // heals itself on the next tick instead of minting money until someone
-  // notices.
-  const hedges = (activeHedges ?? []).filter((h) => {
-    const c = Number(h?.coverage);
-    return Number.isFinite(c) && c > 0 && Number.isFinite(Number(h?.lockedPrice));
-  }).map((h) => ({ ...h, coverage: Math.min(1, Number(h.coverage)) }));
-  if (!hedges.length) return marketIndex;
-
-  // rawCoverage may exceed 1.0 when multiple contracts are stacked.
-  // Use it as the denominator for the weighted average so each contract's
-  // contribution is normalised correctly, then cap effective coverage at 1.0.
-  const rawCoverage   = hedges.reduce((s, h) => s + h.coverage, 0);
-  const totalCoverage = Math.min(1.0, rawCoverage);
-  if (rawCoverage <= 0) return marketIndex;
+  const { hedges, rawCoverage, totalCoverage } = hedgeWeights(activeHedges);
+  if (!hedges.length || rawCoverage <= 0) return marketIndex;
 
   // Coverage-weighted average of locked prices (normalised over raw sum)
   const weightedLocked = hedges.reduce((s, h) => s + h.coverage * Number(h.lockedPrice), 0)
@@ -165,6 +162,165 @@ export function effectiveFuelMultiplier(marketIndex, activeHedges = []) {
   return parseFloat(
     ((1 - totalCoverage) * marketIndex + totalCoverage * weightedLocked).toFixed(4)
   );
+}
+
+/**
+ * The sanitised contract list and the coverage normalisation every hedge
+ * calculation shares — the blended multiplier, the weekly realized savings
+ * and the unwind quote. One place, so the three can never disagree about how
+ * much of the bill a contract covers.
+ *
+ * Only real fractions get a vote. The reducer refuses a BUY_HEDGE whose
+ * coverage is not in (0, 1], but a world that was exploited before that
+ * landed still carries the poisoned contracts in its saved blob — and this is
+ * where they cash out. A signed sum let a pair of contracts at -1000 and
+ * +1000.1 slip past a `rawCoverage <= 0` guard and return -68.997, i.e. a
+ * large NEGATIVE fuel bill on every route, every week. Sanitising here means
+ * such a blob heals itself on the next tick instead of minting money until
+ * someone notices.
+ *
+ * rawCoverage may exceed 1.0 when contracts are stacked; totalCoverage is the
+ * capped effective coverage. A contract's effective share of the bill is
+ * coverage × totalCoverage / rawCoverage (`effOf`).
+ */
+export function hedgeWeights(activeHedges = []) {
+  const hedges = (activeHedges ?? []).filter((h) => {
+    const c = Number(h?.coverage);
+    return Number.isFinite(c) && c > 0 && Number.isFinite(Number(h?.lockedPrice));
+  }).map((h) => ({ ...h, coverage: Math.min(1, Number(h.coverage)) }));
+  const rawCoverage   = hedges.reduce((s, h) => s + h.coverage, 0);
+  const totalCoverage = Math.min(1.0, rawCoverage);
+  const scale = rawCoverage > 0 ? totalCoverage / rawCoverage : 0;
+  return {
+    hedges, rawCoverage, totalCoverage,
+    effOf: (h) => Math.min(1, Math.max(0, Number(h?.coverage) || 0)) * scale,
+  };
+}
+
+/**
+ * What each live contract saved (+) or cost (−) this week, in dollars.
+ *
+ *   savings_i = baseBill × effCoverage_i × (marketIndex − lockedPrice_i)
+ *
+ * `baseBill` is the week's fuel spend at 1.0× — the tick's totalFuel divided
+ * by the blended multiplier it actually charged, so this is exact, not an
+ * estimate. Summed over contracts it equals the difference between the
+ * unhedged and the paid bill (the accounting identity the scoreboard test
+ * asserts).
+ *
+ * @returns {Map<string, number>} contract id → savings this week (rounded $)
+ */
+export function hedgeWeekSavings(activeHedges = [], marketIndex, baseBill) {
+  const out = new Map();
+  if (!(baseBill > 0) || !Number.isFinite(marketIndex)) return out;
+  const { hedges, effOf } = hedgeWeights(activeHedges);
+  for (const h of hedges) {
+    out.set(h.id, Math.round(baseBill * effOf(h) * (marketIndex - Number(h.lockedPrice))));
+  }
+  return out;
+}
+
+/**
+ * Mark-to-market quote for closing a contract before expiry.
+ *
+ * The desk buys back on the SAME expected-mean curve it sells on, so the
+ * unwind value of the remaining term is
+ *
+ *   notional   = baseBill × effCoverage × weeksRemaining
+ *   mtm        = notional × (expectedMeanIndex(spot, weeksRemaining) − lockedPrice)
+ *   settlement = mtm − UNWIND_HAIRCUT × notional
+ *
+ * A contract that is in the money during a spike pays out (settlement > 0);
+ * one bought into a glut costs cash to exit. Buy-then-unwind round-trips to
+ * exactly −(premium + haircut) × notional: no arbitrage, in either direction.
+ *
+ * `hedges` is the full live list, so the contract's effective coverage is the
+ * same normalised share effectiveFuelMultiplier charges for it.
+ *
+ * @returns {object|null} null when the contract has no weeks left
+ */
+export function hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill, hedges = [] }) {
+  if (!contract) return null;
+  const remaining = Math.max(0, (Number(contract.expiryAbsWeek) || 0) - (Number(curAbsWeek) || 0));
+  if (remaining <= 0) return null;
+  const { effOf } = hedgeWeights(hedges.length ? hedges : [contract]);
+  const covEff   = effOf(contract);
+  const bill     = Math.max(0, Number(baseBill) || 0);
+  const notional = bill * covEff * remaining;
+  const expected = expectedMeanIndex(marketIndex, remaining);
+  const mtm      = notional * (expected - Number(contract.lockedPrice));
+  const haircut  = notional * UNWIND_HAIRCUT;
+  return {
+    remaining,
+    covEff,
+    baseBill:      Math.round(bill),
+    notional:      Math.round(notional),
+    expectedIndex: parseFloat(expected.toFixed(4)),
+    mtm:           Math.round(mtm),
+    haircut:       Math.round(haircut),
+    settlement:    Math.round(mtm - haircut),
+  };
+}
+
+/** A closed contract's line for the record: what it made or lost over its life. */
+export function hedgeOutcome(contract, { settlement = 0, closedAbsWeek, reason = 'expired' } = {}) {
+  const realized = Math.round(Number(contract?.realizedSavings) || 0);
+  return {
+    id:            contract?.id,
+    durationLabel: contract?.durationLabel ?? null,
+    coverage:      contract?.coverage ?? 0,
+    lockedPrice:   contract?.lockedPrice ?? null,
+    marketAtPurchase: contract?.marketAtPurchase ?? null,
+    startAbsWeek:  contract?.startAbsWeek ?? null,
+    closedAbsWeek: closedAbsWeek ?? contract?.expiryAbsWeek ?? null,
+    reason,                                   // 'expired' | 'unwound'
+    realized,                                 // weekly savings accumulated while live
+    settlement: Math.round(settlement),       // cash on unwind (0 for expiry)
+    total: realized + Math.round(settlement),
+  };
+}
+
+export const HEDGE_RECENT_KEEP = 5;
+
+/** The empty scoreboard. Absent on saves that never held a contract. */
+export function emptyHedgeStats() {
+  return { lifetimeSavings: 0, contractsClosed: 0, wins: 0, losses: 0, recent: [] };
+}
+
+/** Fold a closed contract's outcome into the lifetime record. Pure. */
+export function foldHedgeOutcome(stats, outcome) {
+  const s = stats ?? emptyHedgeStats();
+  return {
+    lifetimeSavings: (s.lifetimeSavings ?? 0) + outcome.total,
+    contractsClosed: (s.contractsClosed ?? 0) + 1,
+    wins:            (s.wins ?? 0) + (outcome.total > 0 ? 1 : 0),
+    losses:          (s.losses ?? 0) + (outcome.total < 0 ? 1 : 0),
+    recent:          [...(s.recent ?? []), outcome].slice(-HEDGE_RECENT_KEEP),
+  };
+}
+
+/**
+ * One week of hedge accounting for ADVANCE_WEEK: credit every live contract
+ * with this week's savings, and fold the contracts that dropped out of the
+ * live list (expired at this tick's prep) into the scoreboard.
+ *
+ * Returns the contracts to write back and the stats to write back — `stats`
+ * is null when nothing closed AND the save had no scoreboard yet, so a save
+ * that has never hedged gains no new key (the golden master hashes the whole
+ * state; a schema change is not a behaviour change and must not read as one).
+ */
+export function settleHedgeWeek({ prior = [], active = [], marketIndex, baseBill, stats = null, closedAbsWeek }) {
+  const savings = hedgeWeekSavings(active, marketIndex, baseBill);
+  const contracts = active.map(h => savings.has(h.id)
+    ? { ...h, realizedSavings: Math.round((Number(h.realizedSavings) || 0) + savings.get(h.id)) }
+    : h);
+  const liveIds = new Set(active.map(h => h.id));
+  const closed  = (prior ?? []).filter(h => h && !liveIds.has(h.id));
+  let next = stats ?? null;
+  for (const h of closed) {
+    next = foldHedgeOutcome(next, hedgeOutcome(h, { closedAbsWeek, reason: 'expired' }));
+  }
+  return { contracts, stats: next, closed };
 }
 
 /**
