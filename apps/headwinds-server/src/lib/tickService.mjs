@@ -14,7 +14,8 @@ import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js'
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf } from './worldConfig.mjs';
-import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf } from './humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
+import { farmFeeOn } from '@tailwinds/engine/data/fuelFarm.js';
 import { splitLogo } from './logoColumn.mjs';
 import {
   isGateScarcity, reconcileForfeitures,
@@ -126,15 +127,28 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // collects next week instead of the money vanishing. See DividendCredit.
   const pendingCredits = await prisma.dividendCredit.findMany({
     where: { worldId: world.id, consumed: false },
-    select: { id: true, airlineId: true, amount: true },
+    select: { id: true, airlineId: true, amount: true, kind: true },
   });
+  // Two kinds ride the same table: dividends (below-the-line investment
+  // income) and fuel-farm throughput fees (operating income, booked inside
+  // the tick — FUEL_OPERATIONS_PLAN.md §8.2). Both consume on a landed write.
   const creditsByAirline = new Map();
   for (const c of pendingCredits) {
-    const entry = creditsByAirline.get(c.airlineId) ?? { total: 0, ids: [] };
-    entry.total += Number(c.amount);
+    const entry = creditsByAirline.get(c.airlineId) ?? { total: 0, farmFees: 0, ids: [] };
+    if (c.kind === 'farm_fee') entry.farmFees += Number(c.amount);
+    else entry.total += Number(c.amount);
     entry.ids.push(c.id);
     creditsByAirline.set(c.airlineId, entry);
   }
+  // Fuel-farm owners by station, from the PRE-tick blobs (one owner per
+  // airport — the reducer enforces it against the injected rival views).
+  const farmOwnerAt = new Map();
+  for (const a of airlines) {
+    for (const [code, f] of Object.entries(a.state?.fuelFarms ?? {})) {
+      if (f?.level === 2 && !farmOwnerAt.has(code)) farmOwnerAt.set(code, a.id);
+    }
+  }
+  const allianceOf = farmOwnerAt.size > 0 ? await loadAllianceMap(prisma, world.id) : new Map();
 
   // Shared world economy for THIS week: one fuel index (seeded from worldSeed) and
   // one event set (aged from the world's own running list, stored in tickConfig).
@@ -186,7 +200,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       withRivals(preState, rivalViews.get(airline.id)),
       { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
         marketIndex: worldMarket,
-        incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0 },
+        incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0,
+        incomingFarmFees:  creditsByAirline.get(airline.id)?.farmFees ?? 0 },
     );
     // ── Toast durability ─────────────────────────────────────────────────
     // ADVANCE_WEEK REPLACES state.pendingToasts (see reducer.mjs). In SOLO that
@@ -229,6 +244,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       next,
       // A dividend this airline just declared, for cross-player settlement below.
       dividend: next.lastReport?.dividend ?? null,
+      // Fuel bought by station this week, for fuel-farm fee settlement below.
+      fuelByStation: next.lastReport?.fuelByStation ?? null,
       consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
       // Aircraft whose schedule this tick trimmed, for the news feed below.
       trimNotices,
@@ -326,6 +343,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         airlineId: c.airline.id, name: c.airline.name,
         marketCap: c.marketCap, svpsScore: c.svpsScore, isPublic: c.isPublic,
         dividend: c.dividend, consumedCreditIds: c.consumedCreditIds,
+        fuelByStation: c.fuelByStation,
       });
 
       const written = [];
@@ -446,6 +464,31 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         // The remainder (`toOutside`) is the slice held by outside investors and by
         // rounding: it leaves the world entirely. Deliberately NOT credited to the
         // pool — a dividend must be able to destroy money, never create it.
+      }
+      // ── Fuel-farm throughput fees ────────────────────────────────────────
+      // For every landed airline, 3% of what it spent on fuel THIS week at a
+      // station whose farm ANOTHER airline owns (half if they share an
+      // alliance) becomes a credit the owner collects next tick — the same
+      // shape as a dividend, so a skipped owner collects the week after and
+      // money is conserved. The payer's own price never moves: the fee is the
+      // consortium margin the owner now keeps (FUEL_OPERATIONS_PLAN.md §8.2).
+      if (farmOwnerAt.size > 0) {
+        for (const r of written) {
+          const by = r.fuelByStation;
+          if (!by) continue;
+          for (const [code, usd] of Object.entries(by)) {
+            const ownerId = farmOwnerAt.get(code);
+            if (!ownerId || ownerId === r.airlineId || !(usd > 0)) continue;
+            const a1 = allianceOf.get(ownerId)?.membership?.allianceId ?? null;
+            const a2 = allianceOf.get(r.airlineId)?.membership?.allianceId ?? null;
+            const fee = farmFeeOn(usd, { allied: a1 != null && a1 === a2 });
+            if (fee <= 0) continue;
+            newCredits.push({
+              worldId: world.id, airlineId: ownerId, fromId: r.airlineId, fromName: r.name ?? null,
+              amount: BigInt(fee), week: toIndex, kind: 'farm_fee',
+            });
+          }
+        }
       }
       if (newCredits.length > 0) await tx.dividendCredit.createMany({ data: newCredits });
 

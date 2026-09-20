@@ -182,10 +182,28 @@ export function stationFuelBand(basis) {
 export const FUEL_OPS_VERSION = 2;
 
 let _enabled = false;
+let _discounts = null;   // { [code]: fraction } — the airline's fuel-farm discounts (data/fuelFarm.js)
 /** Set from state (`state.fuelOpsV >= 2`) by the reducer, the tick, the client provider and the server. */
 export function setFuelStationsEnabled(on) { _enabled = on === true; }
 export function getFuelStationsEnabled() { return _enabled; }
 export function fuelStationsOn(state) { return (Number(state?.fuelOpsV) || 0) >= 2; }
+/**
+ * The airline's per-station discounts (its fuel farms and stakes), set from
+ * state alongside the knob. Null / empty means none. Like the knob it is
+ * per-airline state living at module level, so every site that sets the
+ * knob sets this too and a preview built on a foreign state cannot inherit
+ * another airline's farms.
+ */
+export function setFuelStationDiscounts(map) {
+  _discounts = map && Object.keys(map).length ? map : null;
+}
+export function getFuelStationDiscounts() { return _discounts; }
+/** The basis THIS airline pays at the station: the table's basis less its farm discount there. */
+export function effectiveStationBasis(code) {
+  const b = stationFuelBasis(code);
+  const d = _discounts?.[code];
+  return d > 0 ? parseFloat((b * (1 - d)).toFixed(4)) : b;
+}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -227,7 +245,7 @@ export function routeFuelStations(route, { sectorKm = 0, rangeKm = 0, blockHours
     stops.slice(0, -1).forEach((from, i) => {
       const to = stops[i + 1];
       const w = kms[i] / total;
-      const bf = stationFuelBasis(from), bt = stationFuelBasis(to);
+      const bf = effectiveStationBasis(from), bt = effectiveStationBasis(to);
       stations[from] = (stations[from] ?? 0) + (bf / 2) * w;
       stations[to]   = (stations[to]   ?? 0) + (bt / 2) * w;
       factor += ((bf + bt) / 2) * w;
@@ -237,7 +255,7 @@ export function routeFuelStations(route, { sectorKm = 0, rangeKm = 0, blockHours
   }
 
   const [o, d] = stops;
-  const bO = stationFuelBasis(o), bD = stationFuelBasis(d);
+  const bO = effectiveStationBasis(o), bD = effectiveStationBasis(d);
   const basis = parseFloat(((bO + bD) / 2).toFixed(4));
   let stations = { [o]: bO / 2, [d]: bD / 2 };
   let factor = basis;

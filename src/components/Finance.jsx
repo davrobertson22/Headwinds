@@ -44,6 +44,7 @@ import {
 } from '../../packages/engine/src/data/fuelProgrammes.js';
 import { fuelStationsOn, stationFuelBasis } from '../../packages/engine/src/data/fuelStations.js';
 import FuelBasisChip from './FuelBasisChip.jsx';
+import FuelFarmControls from './FuelFarmControls.jsx';
 import AirportLink from './AirportLink.jsx';
 import { consumeNavFilter } from '../utils/navIntent.js';
 // pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
@@ -906,6 +907,20 @@ function PLStatement({ proj }) {
                   </td>
                   {pw && <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 12 }}>{pw.partnerRevenue ? '+' + formatMoney(pw.partnerRevenue) : '—'}</td>}
                   <td style={{ textAlign: 'right', color: 'var(--green)', fontWeight: 500 }}>+{formatMoney(totPartnerRev)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
+                </tr>
+              )}
+              {/* Fuel-farm throughput fees: what rivals paid to fuel at farms you
+                  own, credited a week in arrears (multiplayer). Never in a
+                  projection, so the projected column reads the prior week. */}
+              {((pw?.farmFees ?? 0) > 0 || (report.totalFarmFeeIncome ?? 0) > 0) && (
+                <tr data-testid="pl-farm-fees">
+                  <td style={{ paddingLeft: 28, color: 'var(--text-muted)', fontSize: 13 }}>
+                    Fuel farm throughput fees
+                    <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-dim)' }}>3% of rivals' uplift at farms you own, half from allies</span>
+                  </td>
+                  {pw && <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 12 }}>{pw.farmFees ? '+' + formatMoney(pw.farmFees) : '—'}</td>}
+                  <td style={{ textAlign: 'right', color: 'var(--green)', fontWeight: 500 }}>{(report.totalFarmFeeIncome ?? 0) > 0 ? '+' + formatMoney(report.totalFarmFeeIncome) : '—'}</td>
                   <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
                 </tr>
               )}
@@ -4061,7 +4076,9 @@ export function FuelStationsCard({ state }) {
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
         Every airport prices fuel as a fixed multiple of the world index — Gulf and US hubs cheap, islands dear.
         A round trip buys half at each end; on short sectors out of a cheap station the engine carries the return
-        fuel instead (tankering) when that beats the cost of hauling it.
+        fuel instead (tankering) when that beats the cost of hauling it. Where you fly enough, buy into the
+        airport's fuel consortium (−4% here) or build the farm outright (−10%, one owner per airport, and every
+        rival fuelling there pays you a throughput fee).
       </div>
       {!by ? (
         <div style={{ color: 'var(--muted)', fontSize: 12 }}>Fly a week to see your uplift by station.</div>
@@ -4070,8 +4087,8 @@ export function FuelStationsCard({ state }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Station', 'Basis', 'Uplift / wk', 'Share'].map(h => (
-                  <th key={h} style={{ textAlign: h === 'Station' ? 'left' : 'right', padding: '6px 10px', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
+                {['Station', 'Basis', 'Uplift / wk', 'Share', 'Fuel farm'].map(h => (
+                  <th key={h} style={{ textAlign: h === 'Station' || h === 'Fuel farm' ? 'left' : 'right', padding: '6px 10px', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -4082,6 +4099,7 @@ export function FuelStationsCard({ state }) {
                   <td style={{ padding: '6px 10px', textAlign: 'right' }}><FuelBasisChip code={r.code} /></td>
                   <td style={{ padding: '6px 10px', textAlign: 'right' }}>{formatMoney(r.usd)}</td>
                   <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--muted)' }}>{total > 0 ? `${Math.round((r.usd / total) * 100)}%` : '—'}</td>
+                  <td style={{ padding: '4px 10px' }}><FuelFarmControls code={r.code} compact /></td>
                 </tr>
               ))}
             </tbody>

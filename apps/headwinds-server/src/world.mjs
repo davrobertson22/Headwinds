@@ -47,6 +47,9 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // §6). Capex comes from data/retrofits.js and data/fuelProgrammes.js inside
   // the reducer; the guards sanitize the id list and the programme id.
   'RETROFIT_WINGTIPS', 'SET_FUEL_PROGRAMME', 'SET_ROUTE_TANKERING',
+  // Fuel farms (§8): capex, thresholds, the ownership race and the close refund
+  // are the reducer's (canTakeFarm); the guard checks the airport code.
+  'BUY_FUEL_STAKE', 'BUILD_FUEL_FARM', 'CLOSE_FUEL_FARM',
   // Routes — passenger, cargo, tag
   'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',
   'TRANSFER_ROUTES', 'REASSIGN_ROUTE',

@@ -18,6 +18,7 @@ import { getAirportRestrictions } from '../data/airportRestrictions.js';
 import { gateDenialFor, lockoutWeeksLeft, idleWarningFor, DisabledHint, GateDenialNote } from './GateDenial.jsx';
 import { Glyph } from './Icons.jsx';
 import FuelBasisChip, { fuelBasisTitle } from './FuelBasisChip.jsx';
+import FuelFarmControls from './FuelFarmControls.jsx';
 import { stationFuelBasis, stationFuelDriver, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 import { useConfirm } from './ConfirmModal.jsx';
 import {
@@ -591,6 +592,12 @@ export default function AirportDetail({ code, onBack }) {
               {(state.lastReport?.fuelByStation?.[code] ?? 0) > 0 && (
                 <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· your uplift {formatMoney(state.lastReport.fuelByStation[code])}/wk</span>
               )}
+            </span>
+          )}
+          {/* Fuel farm at this station: what you or a rival hold, and the buttons. */}
+          {fuelStationsOn(state) && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', fontSize: 12 }}>
+              <FuelFarmControls code={code} />
             </span>
           )}
           {restrictions.map((r, i) => (

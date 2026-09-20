@@ -24,7 +24,8 @@ import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { stateBrandReach, stateLoungeFields, calendarYearFrac } from '@tailwinds/engine/utils/simulation.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
-import { setFuelStationsEnabled, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
+import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
+import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
 
@@ -372,6 +373,10 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // of a private decision — the contracts themselves stay private
     // (Competition's rule: loans, hedges, marketing never appear).
     fuelPaid: fuelPaidOf(s),
+    // Fuel farms this rival holds, { [code]: level } (FUEL_OPERATIONS_PLAN.md
+    // §8). Public like gates: the reducer's one-owner-per-airport rule and the
+    // airport view read it. Only present when they hold any.
+    ...((() => { const f = publicFarmsOf(s); return Object.keys(f).length ? { fuelFarms: f } : {}; })()),
     weeklyStats: lastWeek
       ? {
           weeklyProfit: lastWeek.profit ?? 0,
@@ -856,6 +861,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     setEraStartYear(_st?.startYear ?? null);
     setNwrYieldChoke(_st?.newWorldRestrictions === true);
     setFuelStationsEnabled(fuelStationsOn(_st));
+    setFuelStationDiscounts(null);   // rival views carry no airline's farms
     return buildRivalViews(rows, allianceMap);
   };
 

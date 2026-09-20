@@ -66,7 +66,10 @@ import {
 } from './data/wifi.js';
 import { FUEL_PROGRAMME_MAP, canActivateProgramme, programmeFailureMult } from './data/fuelProgrammes.js';
 import { canRetrofitWingtips, fitWingtips } from './data/retrofits.js';
-import { setFuelStationsEnabled, fuelStationsOn, FUEL_OPS_VERSION } from './data/fuelStations.js';
+import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn, FUEL_OPS_VERSION } from './data/fuelStations.js';
+import {
+  FARM_LEVELS, canTakeFarm, makeFarm, farmCloseRefund, farmDiscountsOf, farmLevelDef,
+} from './data/fuelFarm.js';
 import {
   canBuildLounge, makeLounge, loungeCloseRefund, tickLoungeConstruction,
   normalizeLoungePolicy, isLoungeOpen, LOUNGE_BUILD_COST,
@@ -1405,6 +1408,8 @@ function reducer(state, action) {
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   setFuelStationsEnabled(fuelStationsOn(state));   // station fuel pricing (FUEL_OPERATIONS_PLAN.md §7)
+  setFuelStationDiscounts(fuelStationsOn(state)    // this airline's fuel farms (§8)
+    ? farmDiscountsOf(state, absoluteWeek(state?.year ?? 1, state?.week ?? 1)) : null);
   switch (action.type) {
 
     case 'START_GAME': {
@@ -1934,6 +1939,63 @@ function reducer(state, action) {
     }
 
     // ─── Jet bases (MRO network) ─────────────────────────────────────────────
+    // ─── Fuel farms (FUEL_OPERATIONS_PLAN.md §8) ─────────────────────────────
+    // canTakeFarm() is the check the Stations table and Airport Detail show,
+    // so the button's capex and reasons are the reducer's. A stake upgrades
+    // to a farm for the difference. One owned farm per airport per world:
+    // the reducer sees the world's rivals (state.competitors, injected by the
+    // server before every decision) and refuses if one already owns it.
+    case 'BUY_FUEL_STAKE':
+    case 'BUILD_FUEL_FARM': {
+      const level = action.type === 'BUILD_FUEL_FARM' ? 2 : 1;
+      const code  = action.code;
+      const check = canTakeFarm(state, code, level);
+      if (!check.ok) {
+        return {
+          ...state,
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            { type: 'warning', icon: '⛽', title: `${check.def?.name ?? 'Fuel farm'} at ${code} not taken`, message: check.reasons[0] },
+          ],
+        };
+      }
+      const abs = absoluteWeek(state.year, state.week);
+      const farm = makeFarm(code, level, abs, check.fullCapex);
+      return {
+        ...state,
+        cash: state.cash - check.capex,
+        fuelFarms: { ...(state.fuelFarms ?? {}), [code]: farm },
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'success', icon: '⛽',
+            title: level === 2 ? `You own the fuel farm at ${code}` : `Consortium seat at ${code}`,
+            message: level === 2
+              ? `${formatMoney(check.capex)} spent. Your uplift here is ${Math.round(FARM_LEVELS[2].discount * FARM_LEVELS[2].rampFloor * 100)}% cheaper now, ${Math.round(FARM_LEVELS[2].discount * 100)}% once it beds in; rivals fuelling here pay you a throughput fee.`
+              : `${formatMoney(check.capex)} spent. Your uplift here is ${Math.round(FARM_LEVELS[1].discount * 100)}% cheaper from next week.`,
+            duration: 7000,
+          },
+        ],
+      };
+    }
+
+    case 'CLOSE_FUEL_FARM': {
+      const farms = state.fuelFarms ?? {};
+      const farm  = farms[action.code];
+      if (!farm) return state;
+      const { [action.code]: _gone, ...rest } = farms;
+      return {
+        ...state,
+        cash: state.cash + farmCloseRefund(farm),
+        fuelFarms: rest,
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          { type: 'info', icon: '⛽', title: `${farmLevelDef(farm.level)?.name ?? 'Fuel farm'} at ${action.code} sold`,
+            message: `${formatMoney(farmCloseRefund(farm))} recovered (${Math.round(farmCloseRefund(farm) / Math.max(1, farm.capex) * 100)}% of what you put in).` },
+        ],
+      };
+    }
+
     case 'BUILD_MRO_BASE': {
       // action: { code, level, families: [familyId] }
       const code  = action.code;
@@ -4048,7 +4110,13 @@ function reducer(state, action) {
       // prep.tickInput is the whole pre-tick state. The ONLY thing added here is
       // this week's freshly-rolled AI challengers — a random draw, and therefore
       // the one input a projection is right not to share.
-      const report = weeklyTick({ ...prep.tickInput, encroachments: updatedEncroachments });
+      const report = weeklyTick({
+        ...prep.tickInput, encroachments: updatedEncroachments,
+        // Multiplayer: throughput fees rivals paid last week at fuel farms this
+        // airline owns, credited by the server (the dividend-credit pattern)
+        // and booked as income inside the tick so the P&L reconciles.
+        ...(Number(action.incomingFarmFees) > 0 ? { farmFeeIncome: Number(action.incomingFarmFees) } : {}),
+      });
 
       // ── Hedge scoreboard: what each live contract saved this week ─────────
       // report.totalFuel is at the blended multiplier the sims were given, so
@@ -4988,6 +5056,7 @@ function reducer(state, action) {
         leases:      report.totalLeases,
         maintenance: report.totalMaintenance,
         fuel:        report.totalFuel,
+        ...(report.totalFarmFeeIncome > 0 ? { farmFees: report.totalFarmFeeIncome } : {}),
         crew:        report.totalCrew,
         quality:     report.totalQuality,
         landingFees:     report.totalLandingFees    ?? 0,
@@ -6558,6 +6627,7 @@ function reconcileState(parsed) {
     // Fuel-ops rule version (station pricing at 2). Absent = 1: a save that
     // predates it keeps world-flat fuel until it is explicitly opted in.
     ...(Number.isInteger(parsed.fuelOpsV) ? { fuelOpsV: parsed.fuelOpsV } : {}),
+    ...(parsed.fuelFarms && Object.keys(parsed.fuelFarms).length ? { fuelFarms: parsed.fuelFarms } : {}),
     loyalty:          parsed.loyalty
       ? {
           effInvestment: parsed.loyalty.weeklyInvestment ?? 0,

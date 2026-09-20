@@ -451,6 +451,10 @@ model DividendCredit {
   fromName  String?
   amount    BigInt
   week      Int
+  // 'dividend' (default) or 'farm_fee' — a fuel-farm throughput fee owed to
+  // the owner of a station's farm (FUEL_OPERATIONS_PLAN.md §8.2). Same
+  // settle-next-tick mechanics; booked as operating income, not dividends.
+  kind      String   @default("dividend")
   consumed  Boolean  @default(false)
   createdAt DateTime @default(now())
   world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)

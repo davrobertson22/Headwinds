@@ -37,7 +37,8 @@ import {
   isWifiEquipped, wifiCoverageFor, groupWifiCoverage, fleetWifiCoverage, fleetWifiWeeklyCost,
 } from '../data/wifi.js';
 import { programmeWeeklyCost } from '../data/fuelProgrammes.js';
-import { routeFuelStations, fuelByStationOf, sumFuelByStation, setFuelStationsEnabled, fuelStationsOn } from '../data/fuelStations.js';
+import { routeFuelStations, fuelByStationOf, sumFuelByStation, setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '../data/fuelStations.js';
+import { totalFarmWeeklyCost, farmDiscountsOf } from '../data/fuelFarm.js';
 import {
   isLoungeOpen, totalLoungeWeeklyOpex, routeLoungeAppeal, loungeContractFactor,
   loungeEndpointCoverage, loungeGuestEconomics,
@@ -3661,6 +3662,7 @@ export function weeklyTick(state) {
   // choke, set from the same state the reducer set it from, so a projection
   // built on a foreign state cannot inherit the last caller's setting.
   setFuelStationsEnabled(fuelStationsOn(state));
+  setFuelStationDiscounts(fuelStationsOn(state) ? farmDiscountsOf(state, absWeek) : null);
 
   // Crew pipeline, severe band: tails with nobody to fly them. Transient for this
   // week only (see tickPrep) — an unstaffed aircraft earns nothing but still costs
@@ -4898,6 +4900,13 @@ export function weeklyTick(state) {
   // Fuel-efficiency programme opex (licences, engine washes) — a fleet-wide
   // overhead like Wi-Fi, charged every week the programmes are on.
   const totalFuelProgrammeCosts = programmeWeeklyCost(state, fleet);
+  // Fuel farms and consortium stakes (data/fuelFarm.js): weekly opex on the
+  // capex, and — multiplayer — the throughput fees rivals paid at farms the
+  // airline owns, credited by the server from LAST week's uplift (the
+  // dividend-credit pattern) and handed in as state.farmFeeIncome. Both 0 in
+  // a save with no farms, so the report stays byte-identical.
+  const totalFuelFarmCosts = totalFarmWeeklyCost(state.fuelFarms);
+  const totalFarmFeeIncome = Math.max(0, Math.round(Number(state.farmFeeIncome) || 0));
 
   // 5d. Lounges — the room's own running cost, plus what the free-access
   //     policies cost net of what alliance partners settle for their members.
@@ -5047,8 +5056,8 @@ export function weeklyTick(state) {
     + totalLaborCosts + totalFamilyBaseCosts + totalMroBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
     + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts
-    + totalFuelProgrammeCosts;
-  const cashDelta   = totalRevenue + totalPartnerRevenue - totalCost;
+    + totalFuelProgrammeCosts + totalFuelFarmCosts;
+  const cashDelta   = totalRevenue + totalPartnerRevenue + totalFarmFeeIncome - totalCost;
 
   // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
   // Aircraft sharing one O&D pair pool their demand (see the pre-pass) and must
@@ -5102,7 +5111,7 @@ export function weeklyTick(state) {
     ...(crewGroundedSet.size ? { crewGrounded: [...crewGroundedSet] } : {}),
     poolingAnomalies,
     cashDelta:              Math.round(cashDelta),
-    totalRevenue:           Math.round(totalRevenue + totalPartnerRevenue),
+    totalRevenue:           Math.round(totalRevenue + totalPartnerRevenue + totalFarmFeeIncome),
     totalConnecting:        Math.round(totalConnecting),
     totalLeases:            Math.round(totalLeases),
     totalMaintenance:       Math.round(totalMaintenance),
@@ -5139,6 +5148,8 @@ export function weeklyTick(state) {
     // save that never touched it keeps a byte-identical report (the golden
     // master hashes lastReport). Readers use `?? 0` / `?? 1`.
     ...(totalFuelProgrammeCosts > 0 ? { totalFuelProgrammeCosts: Math.round(totalFuelProgrammeCosts) } : {}),
+    ...(totalFuelFarmCosts > 0 ? { totalFuelFarmCosts: Math.round(totalFuelFarmCosts) } : {}),
+    ...(totalFarmFeeIncome > 0 ? { totalFarmFeeIncome } : {}),
     ...(fuelBurnMod !== 1 ? {
       fuelBurnMod,
       // What the programmes saved this week: fuel at burn 1.0 minus fuel paid.

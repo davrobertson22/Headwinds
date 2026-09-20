@@ -11,6 +11,7 @@
 // and the reducer all call the SAME function, so they cannot drift apart.
 
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { getAirport } from '@tailwinds/engine/data/airports.js';
 import {
   CLASS_SPACE_MULTIPLIERS,
   defaultConfig,
@@ -252,6 +253,13 @@ function guardSetRouteTankering(payload, state) {
   const mode = payload?.mode === 'auto' ? 'auto' : payload?.mode === 'off' ? 'off' : null;
   if (!mode) throw new GuardError('Tankering is either auto or off.');
   return { routeId: id, mode };
+}
+
+// A real airport code; everything else about a fuel farm is the reducer's.
+function guardFarmCode(payload) {
+  const code = payload?.code;
+  if (typeof code !== 'string' || !getAirport(code)) throw new GuardError('Unknown airport.');
+  return { code };
 }
 
 function guardScheduleCheckInner(payload, state) {
@@ -540,6 +548,9 @@ export function guardDecision(type, payload, state) {
     case 'RETROFIT_WINGTIPS':  return { aircraftIds: guardAircraftIds(payload, state) };
     case 'SET_FUEL_PROGRAMME': return guardSetFuelProgramme(payload);
     case 'SET_ROUTE_TANKERING': return guardSetRouteTankering(payload, state);
+    case 'BUY_FUEL_STAKE':
+    case 'BUILD_FUEL_FARM':
+    case 'CLOSE_FUEL_FARM':     return guardFarmCode(payload);
     case 'BUILD_LOUNGE':
     case 'CLOSE_LOUNGE':       return guardLounge(payload);
     case 'SET_LOUNGE_POLICY':  return guardLoungePolicy(payload);
