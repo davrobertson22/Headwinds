@@ -6,6 +6,7 @@ import { setEraCostScale, getEraCostScale } from '../../packages/engine/src/data
 import { setEraPriceYear, getEraPriceYear } from '../../packages/engine/src/data/aircraft.js';
 import { eraFareIndex, eraOverheadScale } from '../../packages/engine/src/data/era.js';
 import { calendarYear, calendarYearFrac } from '../../packages/engine/src/utils/simulation.js';
+import { setFuelStationsEnabled, getFuelStationsEnabled, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -50,6 +51,8 @@ export function syncEngineWorldState(state) {
   const costScale = eraOverheadScale(calendarYearFrac(state)) ?? 1;
   if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
   if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
+  const stationsOn = fuelStationsOn(state);
+  if (getFuelStationsEnabled() !== stationsOn) setFuelStationsEnabled(stationsOn);
   if (getEraStartYear() !== eraStart) setEraStartYear(eraStart);
   if (getEraCostScale() !== costScale) setEraCostScale(costScale);
   const priceYear = calendarYear(state);

@@ -66,6 +66,7 @@ import {
 } from './data/wifi.js';
 import { FUEL_PROGRAMME_MAP, canActivateProgramme, programmeFailureMult } from './data/fuelProgrammes.js';
 import { canRetrofitWingtips, fitWingtips } from './data/retrofits.js';
+import { setFuelStationsEnabled, fuelStationsOn, FUEL_OPS_VERSION } from './data/fuelStations.js';
 import {
   canBuildLounge, makeLounge, loungeCloseRefund, tickLoungeConstruction,
   normalizeLoungePolicy, isLoungeOpen, LOUNGE_BUILD_COST,
@@ -1403,6 +1404,7 @@ function reducer(state, action) {
   setEraCostScale(eraOverheadScale(calendarYearFrac(state)) ?? 1);
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
+  setFuelStationsEnabled(fuelStationsOn(state));   // station fuel pricing (FUEL_OPERATIONS_PLAN.md §7)
   switch (action.type) {
 
     case 'START_GAME': {
@@ -1411,6 +1413,11 @@ function reducer(state, action) {
       // breathing room to reach profitability. Players can borrow from the bank later.
       return {
         ...freshState(),
+        // Fuel-ops rule version (FUEL_OPERATIONS_PLAN.md §7.4): every NEW game
+        // starts on station fuel pricing. Saves that predate this keep no key
+        // (world-flat fuel) until explicitly opted in; the multiplayer join
+        // path overrides this from the world's tickConfig.
+        fuelOpsV: FUEL_OPS_VERSION,
         airlineName: action.airlineName,
         logoId:      action.logoId    ?? 'horizon',
         logoColor:   action.logoColor ?? '#f5a623',
@@ -2624,6 +2631,10 @@ function reducer(state, action) {
         seasonState:     newSeason
           ? (isRouteActive({ season: newSeason }, weekToGameDate(state.week).monthIndex) ? 'active' : 'dormant')
           : 'active',
+        // Station pricing worlds: a new route tankers when it pays, from day
+        // one. Routes that predate the flag stay 'off' until the player says
+        // otherwise, so nothing already flying changes on its own.
+        ...(fuelStationsOn(state) ? { tankering: 'auto' } : {}),
       };
       const updatedFleet = state.fleet.map(a =>
         a.id === action.aircraftId ? withRouteStatus(a, 'assigned', { reserveBase: null }) : a
@@ -3042,6 +3053,7 @@ function reducer(state, action) {
         launchCost,
         hub:             state.hub,
         cargo:           true,
+        ...(fuelStationsOn(state) ? { tankering: 'auto' } : {}),
       };
       const updatedFleet = state.fleet.map(a =>
         a.id === action.aircraftId ? withRouteStatus(a, 'assigned', { reserveBase: null }) : a
@@ -3106,6 +3118,24 @@ function reducer(state, action) {
         cargoRoutes: (state.cargoRoutes ?? []).map(r =>
           r.id === action.routeId ? { ...r, yieldPrice } : r
         ),
+      };
+    }
+
+    // ── Tankering (FUEL_OPERATIONS_PLAN.md §7.2) ─────────────────────────────
+    // action: { routeId, mode: 'auto' | 'off' } — passenger or cargo route.
+    // 'auto' lets the sims carry return fuel out of the cheap end whenever the
+    // spread beats the carrying penalty and the tanks allow; the decision is
+    // re-made every tick. No cash changes hands; the setting is the whole act.
+    case 'SET_ROUTE_TANKERING': {
+      const mode = action.mode === 'auto' ? 'auto' : 'off';
+      const apply = (r) => (r.id === action.routeId ? { ...r, tankering: mode } : r);
+      const inPax   = (state.routes ?? []).some(r => r.id === action.routeId);
+      const inCargo = (state.cargoRoutes ?? []).some(r => r.id === action.routeId);
+      if (!inPax && !inCargo) return state;
+      return {
+        ...state,
+        ...(inPax   ? { routes:      state.routes.map(apply) } : {}),
+        ...(inCargo ? { cargoRoutes: state.cargoRoutes.map(apply) } : {}),
       };
     }
 
@@ -6525,6 +6555,9 @@ function reconcileState(parsed) {
     ...(parsed.hedgeStats ? { hedgeStats: parsed.hedgeStats } : {}),
     // Fuel-efficiency programme toggles, likewise only when the save has any.
     ...(parsed.fuelProgrammes ? { fuelProgrammes: parsed.fuelProgrammes } : {}),
+    // Fuel-ops rule version (station pricing at 2). Absent = 1: a save that
+    // predates it keeps world-flat fuel until it is explicitly opted in.
+    ...(Number.isInteger(parsed.fuelOpsV) ? { fuelOpsV: parsed.fuelOpsV } : {}),
     loyalty:          parsed.loyalty
       ? {
           effInvestment: parsed.loyalty.weeklyInvestment ?? 0,

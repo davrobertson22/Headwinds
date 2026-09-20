@@ -73,6 +73,17 @@ export function worldStageOf(tickConfig) {
 // the middle of — do NOT. So: an explicit `rivalItineraries` on the world wins
 // (createWorld always writes one, the admin toggle rewrites it); a world with
 // no key predates the feature and is on only if it is an alpha.
+// Fuel-ops rule version (FUEL_OPERATIONS_PLAN.md §7.4). 2 = station fuel
+// pricing and tankering. createWorld writes it for every new world; a world
+// with no key predates the feature and stays on world-flat fuel (1) until an
+// admin sets tickConfig.fuelOpsV — the tick reads it LIVE, so the flip lands
+// on every airline at the next tick and persists into their blobs.
+export const FUEL_OPS_VERSION = 2;
+export function fuelOpsVOf(tickConfig) {
+  const v = Number(tickConfig?.fuelOpsV);
+  return Number.isInteger(v) && v >= 1 ? v : 1;
+}
+
 export function rivalItinerariesOf(tickConfig) {
   if (typeof tickConfig?.rivalItineraries === 'boolean') return tickConfig.rivalItineraries;
   return worldStageOf(tickConfig) === 'alpha';
@@ -286,6 +297,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional crew pipeline (A7): hiring has a lead time and understaffing
     // degrades the operation. Opt-in, independent of newWorldRestrictions.
     crewPipeline: world.tickConfig?.crewPipeline === true,
+    // Station fuel pricing + tankering (fuel-ops v2).
+    fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell
     // connections over their hubs in every passenger market. ON for every
     // world — existing ones included — unless an admin has switched it off

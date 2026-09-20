@@ -37,6 +37,7 @@ import {
   isWifiEquipped, wifiCoverageFor, groupWifiCoverage, fleetWifiCoverage, fleetWifiWeeklyCost,
 } from '../data/wifi.js';
 import { programmeWeeklyCost } from '../data/fuelProgrammes.js';
+import { routeFuelStations, fuelByStationOf, sumFuelByStation, setFuelStationsEnabled, fuelStationsOn } from '../data/fuelStations.js';
 import {
   isLoungeOpen, totalLoungeWeeklyOpex, routeLoungeAppeal, loungeContractFactor,
   loungeEndpointCoverage, loungeGuestEconomics,
@@ -2009,7 +2010,13 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // Operating costs
   const flights     = route.weeklyFrequency * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;  // from engine/wingtip config at order time
-  const fuelCost    = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod);
+  // Where the fuel is bought (data/fuelStations.js): the two stations' basis,
+  // and tankering when the route asks for it and the tanks allow. Exactly 1
+  // with the stations knob off, so classic worlds are byte-identical.
+  const stationPlan = routeFuelStations(route, {
+    sectorKm: dist, rangeKm: effectiveRangeKm(aircraft, type), blockHours: blockTimeHours(dist, type),
+  });
+  const fuelCost    = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
   const crewCost    = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
@@ -2075,6 +2082,13 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // Consumed by the Alliances page (eligibility) and available to any UI.
     qualityScore,
     fuelCost,
+    // Station pricing (only while the knob is on, so classic results are unchanged).
+    ...(stationPlan.enabled ? {
+      fuelStationFactor: stationPlan.factor,
+      fuelStationBasis:  stationPlan.basis,
+      fuelByStation:     fuelByStationOf(stationPlan, fuelCost),
+      tankering:         stationPlan.tankering,
+    } : {}),
     crewCost,
     qualityCost,
     cateringCost,
@@ -2488,7 +2502,10 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   // Each leg is flown f×2 sectors/week; total ground covered = Σ leg distances.
   const sectorFactor    = f * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;
-  const fuelCost = Math.round(totalDist * fuelCostPerKm(type) * sectorFactor * fuelMultiplier * aircraftFuelMod);
+  // Station basis averaged over the legs, by leg length; no tankering on a
+  // multi-stop route in v1 (data/fuelStations.js). 1 with the knob off.
+  const stationPlan = routeFuelStations({ ...route, stops }, { legKm: legDistKm });
+  const fuelCost = Math.round(totalDist * fuelCostPerKm(type) * sectorFactor * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
   const crewCost = Math.round(totalDist * type.crewCostPerKm * sectorFactor * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
@@ -2540,6 +2557,13 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       ? Math.round(segData.reduce((s, d) => s + d.quality, 0) / segData.length)
       : null,
     fuelCost,
+    // Station pricing (only while the knob is on, so classic results are unchanged).
+    ...(stationPlan.enabled ? {
+      fuelStationFactor: stationPlan.factor,
+      fuelStationBasis:  stationPlan.basis,
+      fuelByStation:     fuelByStationOf(stationPlan, fuelCost),
+      tankering:         stationPlan.tankering,
+    } : {}),
     crewCost,
     qualityCost,
     cateringCost,
@@ -2706,7 +2730,10 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   // ── Operating costs ──────────────────────────────────────────────────────────
   const flights         = route.weeklyFrequency * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;
-  const fuelCost  = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod);
+  const stationPlan = routeFuelStations(route, {
+    sectorKm: dist, rangeKm: effectiveRangeKm(aircraft, type), blockHours: blockTimeHours(dist, type),
+  });
+  const fuelCost  = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
   const crewCost  = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const groundHandlingCost = Math.round(tonnesOneWay * 2 * CARGO_HANDLING_PER_TONNE);
 
@@ -2717,6 +2744,13 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
     backhaulFactor: backhaul,
     revenue,
     fuelCost,
+    // Station pricing (only while the knob is on, so classic results are unchanged).
+    ...(stationPlan.enabled ? {
+      fuelStationFactor: stationPlan.factor,
+      fuelStationBasis:  stationPlan.basis,
+      fuelByStation:     fuelByStationOf(stationPlan, fuelCost),
+      tankering:         stationPlan.tankering,
+    } : {}),
     crewCost,
     groundHandlingCost,
     totalOpCost,
@@ -3623,6 +3657,10 @@ export function weeklyTick(state) {
   // the reducer / providers — but tools and server paths call weeklyTick
   // directly, so pin it from THIS state to make every tick self-consistent.
   setNwrYieldChoke(state.newWorldRestrictions === true);
+  // Station fuel pricing (data/fuelStations.js): a module knob like the yield
+  // choke, set from the same state the reducer set it from, so a projection
+  // built on a foreign state cannot inherit the last caller's setting.
+  setFuelStationsEnabled(fuelStationsOn(state));
 
   // Crew pipeline, severe band: tails with nobody to fly them. Transient for this
   // week only (see tickPrep) — an unstaffed aircraft earns nothing but still costs
@@ -5173,6 +5211,10 @@ export function weeklyTick(state) {
     totalCost:              Math.round(totalCost),
     routeResults,
     fleetCosts,
+    // Fuel bought by station, $ this week, across passenger, tag and cargo
+    // routes — only while station pricing is on (the golden master hashes
+    // this report). The Stations table and Phase 5's farms read it.
+    ...((() => { const m = sumFuelByStation([...routeResults, ...cargoRouteResults]); return m ? { fuelByStation: m } : {}; })()),
     // Cargo
     cargoRouteResults,
     totalCargoRevenue:      Math.round(totalCargoRevenue),

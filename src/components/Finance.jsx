@@ -42,6 +42,9 @@ import {
   FUEL_PROGRAMMES, fleetBurnMod, programmeWeeklyCost, programmeActivationCost, canActivateProgramme,
   programmeSavingsFromReport,
 } from '../../packages/engine/src/data/fuelProgrammes.js';
+import { fuelStationsOn, stationFuelBasis } from '../../packages/engine/src/data/fuelStations.js';
+import FuelBasisChip from './FuelBasisChip.jsx';
+import AirportLink from './AirportLink.jsx';
 import { consumeNavFilter } from '../utils/navIntent.js';
 // pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
@@ -4020,6 +4023,95 @@ export function FuelProgrammeCard({ state, dispatch }) {
   );
 }
 
+/**
+ * Stations (FUEL_OPERATIONS_PLAN.md §7.3): where last week's fuel was bought,
+ * each station's basis and share, and the tankering verdict per route —
+ * "saves $X/wk from DFW" or why not. Reads the tick's own report, so it can
+ * only ever show what was actually charged.
+ */
+export function FuelStationsCard({ state }) {
+  if (!fuelStationsOn(state)) return null;
+  const rep = state.lastReport;
+  const by  = rep?.fuelByStation ?? null;
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 };
+  const routes = [...(rep?.routeResults ?? []), ...(rep?.cargoRouteResults ?? [])];
+  const routeOf = (id) => [...(state.routes ?? []), ...(state.cargoRoutes ?? [])].find(r => r.id === id);
+  const total = by ? Object.values(by).reduce((s, v) => s + v, 0) : 0;
+  const rows = by ? Object.entries(by).map(([code, usd]) => ({ code, usd, basis: stationFuelBasis(code) })).sort((a, b) => b.usd - a.usd) : [];
+  const tankered = routes.filter(r => r.tankering && r.tankering.saved > 0).map(r => ({
+    r, saved: Math.round((r.fuelCost / (r.fuelStationFactor || 1)) * r.tankering.saved),
+  })).sort((a, b) => b.saved - a.saved);
+  const considered = routes.filter(r => r.tankering && !(r.tankering.saved > 0));
+  const offCount = routes.filter(r => r.fuelStationFactor != null && !r.tankering && (routeOf(r.routeId)?.tankering ?? 'off') !== 'auto').length;
+  const savedTotal = tankered.reduce((s, t) => s + t.saved, 0);
+  // Network basis: the bill divided by what the same flying costs at basis 1.
+  const netBasis = total > 0 && rows.length
+    ? rows.reduce((s, r) => s + r.usd, 0) / rows.reduce((s, r) => s + r.usd / r.basis, 0) : null;
+  return (
+    <div style={card} data-testid="fuel-stations-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Stations — where you buy fuel</div>
+        {total > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            network basis {netBasis.toFixed(2)}× · {rows.length} stations
+            {savedTotal > 0 ? ` · tankering saved ${formatMoney(savedTotal)}/wk` : ''}
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+        Every airport prices fuel as a fixed multiple of the world index — Gulf and US hubs cheap, islands dear.
+        A round trip buys half at each end; on short sectors out of a cheap station the engine carries the return
+        fuel instead (tankering) when that beats the cost of hauling it.
+      </div>
+      {!by ? (
+        <div style={{ color: 'var(--muted)', fontSize: 12 }}>Fly a week to see your uplift by station.</div>
+      ) : (
+        <>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                {['Station', 'Basis', 'Uplift / wk', 'Share'].map(h => (
+                  <th key={h} style={{ textAlign: h === 'Station' ? 'left' : 'right', padding: '6px 10px', color: 'var(--muted)', fontWeight: 500 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 12).map(r => (
+                <tr key={r.code} style={{ borderBottom: '1px solid var(--border)' }} data-testid={`fuel-station-row-${r.code}`}>
+                  <td style={{ padding: '6px 10px' }}><AirportLink code={r.code} style={{ fontFamily: 'monospace', fontWeight: 700 }} /></td>
+                  <td style={{ padding: '6px 10px', textAlign: 'right' }}><FuelBasisChip code={r.code} /></td>
+                  <td style={{ padding: '6px 10px', textAlign: 'right' }}>{formatMoney(r.usd)}</td>
+                  <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--muted)' }}>{total > 0 ? `${Math.round((r.usd / total) * 100)}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length > 12 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>and {rows.length - 12} smaller stations</div>}
+          <div style={{ marginTop: 12, fontSize: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Tankering this week</div>
+            {tankered.length === 0 && considered.length === 0 && (
+              <div style={{ color: 'var(--muted)' }}>
+                No route is set to tanker{offCount > 0 ? ` (${offCount} on Off — switch to Auto on the route page)` : ''}.
+              </div>
+            )}
+            {tankered.map(({ r, saved }) => (
+              <div key={r.routeId} style={{ color: 'var(--green)' }}>
+                {r.origin ?? routeOf(r.routeId)?.origin}–{r.destination ?? routeOf(r.routeId)?.destination}: carrying return fuel from {r.tankering.from}, saves {formatMoney(saved)}/wk
+              </div>
+            ))}
+            {considered.length > 0 && (
+              <div style={{ color: 'var(--muted)', marginTop: 2 }}>
+                {considered.length} route{considered.length === 1 ? '' : 's'} on Auto not worth tankering this week
+                {considered[0]?.tankering?.reason ? ` (e.g. ${considered[0].tankering.reason})` : ''}.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FuelHedging() {
   const { state, dispatch } = useGame();
   const [selDuration, setSelDuration] = useState('short');
@@ -4110,6 +4202,8 @@ function FuelHedging() {
       <FuelImpactCard state={state} />
 
       <FuelProgrammeCard state={state} dispatch={dispatch} />
+
+      <FuelStationsCard state={state} />
 
       {/* ── Gauge + history ──────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

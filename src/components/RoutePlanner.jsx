@@ -32,6 +32,7 @@ import { consumeNavFilter, peekNavFilter, requestNav } from '../utils/navIntent.
 import { navPathFor } from '../navPath.js';
 import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import FuelBasisChip from './FuelBasisChip.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition, playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
 import {
@@ -1156,7 +1157,7 @@ export default function RoutePlanner() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.3 }}>
-                  {origin} → {dest}
+                  {origin} <FuelBasisChip code={origin} /> → {dest} <FuelBasisChip code={dest} />
                   {alreadyActive && (
                     <span style={{ marginLeft: 10, fontSize: 12, background: 'rgba(56,139,253,0.15)', color: 'var(--accent)', borderRadius: 4, padding: '2px 8px', fontWeight: 600, verticalAlign: 'middle' }}>
                       <Glyph e="✈" /> Operating

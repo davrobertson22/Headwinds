@@ -3,6 +3,8 @@ import { AIRPORTS } from '../data/airports.js';
 import { groupAirports, airportOptionLabel } from '../utils/airportGroups.js';
 import { rememberAirport } from '../utils/airportRecents.js';
 import useRecentAirports from '../hooks/useRecentAirports.js';
+import { useGame } from '../store/GameContext.jsx';
+import { fuelBasisText } from './FuelBasisChip.jsx';
 
 /**
  * Grouped airport picker: the player's hubs, focus cities and last few picks
@@ -19,6 +21,9 @@ export default function AirportSelect({
   showGates = true, requireGate = true, remember = true, ...rest
 }) {
   const recent = useRecentAirports();
+  // Station fuel basis in every option row (FUEL_OPERATIONS_PLAN.md §7.3) —
+  // an <option> can't hold a chip, so it is text; empty in a classic world.
+  const { state } = useGame();
   const groups = useMemo(
     () => groupAirports({ airports: AIRPORTS, gates, hubs, recent, exclude, requireGate }),
     [gates, hubs, recent, exclude, requireGate],
@@ -42,7 +47,7 @@ export default function AirportSelect({
         <optgroup key={g.label} label={g.label}>
           {g.airports.map(a => (
             <option key={a.code} value={a.code}>
-              {airportOptionLabel(a, gates, showGates)}
+              {airportOptionLabel(a, gates, showGates)}{fuelBasisText(a.code, state)}
             </option>
           ))}
         </optgroup>

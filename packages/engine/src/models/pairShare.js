@@ -42,6 +42,7 @@ import { memberPairKeysOf } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { fuelSimMultiplierOf } from '../utils/fuelOps.js';
+import { fuelStationsOn } from '../data/fuelStations.js';
 import {
   configBodies,
   defaultConfig,
@@ -770,6 +771,11 @@ export function projectRouteAddition(state, spec) {
     cateringLevel,
     season,
     hub: state.hub,
+    // What ADD_ROUTE will write: a new route tankers on 'auto' in a station-
+    // pricing world (data/fuelStations.js), so the preview must too — or a
+    // repricing preview of an existing route keeps that route's own setting.
+    ...(spec.tankering != null ? { tankering: spec.tankering }
+      : fuelStationsOn(state) ? { tankering: 'auto' } : {}),
   };
 
   // Your OTHER routes on this pair. A route being edited is replaced, not joined —

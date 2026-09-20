@@ -10,6 +10,7 @@ import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
   MAX_SUPPORTER_WORLD_MEMBERSHIPS, validatePassword, joinCodeMatches,
+  FUEL_OPS_VERSION, fuelOpsVOf,
 } from './worldConfig.mjs';
 import { isSupporterWorld, mayUseSupporterWorld } from './access.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
@@ -118,6 +119,9 @@ export async function createWorld(prisma, {
     // unticked it. Worlds without the key predate the feature and resolve via
     // rivalItinerariesOf (alphas on, betas off).
     rivalItineraries: rivalItineraries !== false,
+    // Station fuel pricing + tankering for every world created from now on
+    // (FUEL_OPERATIONS_PLAN.md §7.4). Worlds without the key stay world-flat.
+    fuelOpsV: FUEL_OPS_VERSION,
     // Era world (ERA_MODE_PLAN.md): week 1 of year 1 is January of this real
     // calendar year. Drives aircraft availability, the era demand/fare curves
     // and the historical fuel walk. Fixed at creation — the whole design keys
@@ -209,8 +213,12 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
   // seeds cash=STARTING_CASH with marketCap/sharePrice at fixed multiples of it, so scaling
   // marketCap/sharePrice by the same factor keeps them internally consistent.
   const capitalScale = seeded.cash > 0 ? startingCapital / seeded.cash : 1;
+  // START_GAME stamps the solo fuel-ops version; in a world the WORLD decides
+  // (tickConfig.fuelOpsV, below), so the seeded key is dropped first — a
+  // classic world's airline must carry no key at all.
+  const { fuelOpsV: _seededFuelOpsV, ...seededForWorld } = seeded;
   const state = {
-    ...seeded,
+    ...seededForWorld,
     cash: startingCapital,
     paidInCapital: startingCapital,
     marketCap: (seeded.marketCap ?? 0) * capitalScale,
@@ -233,6 +241,9 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     // Era world: bake the epoch into the blob like every other rule flag, so
     // the engine (display, aircraft gate, era curves) reads it from state.
     ...(Number.isInteger(tc.startYear) ? { startYear: tc.startYear } : {}),
+    // Fuel-ops version, baked at join like the other rule flags (and refreshed
+    // live by the tick, so an admin flip reaches airlines that joined earlier).
+    ...(fuelOpsVOf(tc) >= 2 ? { fuelOpsV: fuelOpsVOf(tc) } : {}),
     ...(tc.newWorldRestrictions === true ? {
       newWorldRestrictions: true,
       // Trims the whole reference-fare ladder (passenger + cargo). Same demand,

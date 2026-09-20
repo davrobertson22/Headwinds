@@ -243,6 +243,17 @@ function guardSetFuelProgramme(payload) {
   return { id, active: payload?.active === true };
 }
 
+// Tankering mode on one of the airline's own routes. Two values; the sims
+// decide week by week whether 'auto' actually carries anything.
+function guardSetRouteTankering(payload, state) {
+  const id = payload?.routeId;
+  const own = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])].some((r) => r?.id === id);
+  if (typeof id !== 'string' || !own) throw new GuardError('Unknown route.');
+  const mode = payload?.mode === 'auto' ? 'auto' : payload?.mode === 'off' ? 'off' : null;
+  if (!mode) throw new GuardError('Tankering is either auto or off.');
+  return { routeId: id, mode };
+}
+
 function guardScheduleCheckInner(payload, state) {
   const a = (state.fleet ?? []).find((x) => x.id === payload.aircraftId);
   if (!a) throw new GuardError('Unknown aircraft.');
@@ -528,6 +539,7 @@ export function guardDecision(type, payload, state) {
     case 'INSTALL_WIFI':       return { aircraftIds: guardAircraftIds(payload, state) };
     case 'RETROFIT_WINGTIPS':  return { aircraftIds: guardAircraftIds(payload, state) };
     case 'SET_FUEL_PROGRAMME': return guardSetFuelProgramme(payload);
+    case 'SET_ROUTE_TANKERING': return guardSetRouteTankering(payload, state);
     case 'BUILD_LOUNGE':
     case 'CLOSE_LOUNGE':       return guardLounge(payload);
     case 'SET_LOUNGE_POLICY':  return guardLoungePolicy(payload);

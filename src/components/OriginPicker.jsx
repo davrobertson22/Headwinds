@@ -4,6 +4,7 @@ import { networkAirports, rankByNetwork } from '../utils/airportGroups.js';
 import { rememberAirport } from '../utils/airportRecents.js';
 import useRecentAirports from '../hooks/useRecentAirports.js';
 import { useGame } from '../store/GameContext.jsx';
+import FuelBasisChip from './FuelBasisChip.jsx';
 
 /**
  * The compact search-and-pick airport control on the two Route Finders.
@@ -54,6 +55,7 @@ function Row({ airport, tag, onPick }) {
     >
       <span style={{ fontWeight: 700, fontSize: 13, width: 34, flexShrink: 0 }}>{airport.code}</span>
       <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{airport.city}</span>
+      <FuelBasisChip code={airport.code} compact />
       {tag && (
         <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 10, color: 'var(--text-dim)' }}>{tag}</span>
       )}

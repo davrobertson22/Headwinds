@@ -13,7 +13,7 @@ import { applyScheduleTrimMigration } from '@tailwinds/engine/utils/simulation.j
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
-import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf } from './humanRivals.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import {
@@ -178,6 +178,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     const preState = {
       ...migrated,
       rivalItineraries: rivalItinerariesOf(world.tickConfig),
+      // Station fuel pricing: read live too, and only ever written when the
+      // world is on it (a classic world's blobs keep no key).
+      ...(fuelOpsVOf(world.tickConfig) >= 2 ? { fuelOpsV: fuelOpsVOf(world.tickConfig) } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

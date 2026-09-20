@@ -5,6 +5,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
 import AirportLink from './AirportLink.jsx';
+import FuelBasisChip from './FuelBasisChip.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { getEraCostScale } from '../data/overhead.js';
 import { absoluteWeek } from '../utils/fuel.js';
@@ -163,6 +164,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <AirportLink code={code} style={{ fontWeight: 700, fontSize: 22, letterSpacing: -0.5 }} />
+            <FuelBasisChip code={code} />
             <TierPill tier={tier} />
             {tier === 0 && isForeign && (
               <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
@@ -330,6 +332,7 @@ function DesignatableCard({ code, gateCount, snap }) {
     }}>
       <div style={{ flex: 1, minWidth: 220 }}>
         <AirportLink code={code} style={{ fontWeight: 700, fontSize: 15, marginRight: 8 }} />
+        <FuelBasisChip code={code} />
         <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{airport?.city}</span>
         {gwScore >= 0.50 && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)' }}>
@@ -449,6 +452,7 @@ export default function HubManagement() {
             <span style={{ fontSize: 20 }}><Glyph e="🏗️" /></span>
             <div style={{ flex: 1 }}>
               <AirportLink code={code} style={{ fontWeight: 700, fontSize: 16, marginRight: 8 }} />
+              <FuelBasisChip code={code} />
               <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                 Building {HUB_TIERS[c.targetTier]?.name} — {c.weeksLeft} {c.weeksLeft === 1 ? 'week' : 'weeks'} remaining
               </span>
@@ -519,6 +523,7 @@ export default function HubManagement() {
                 }}>
                   <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <AirportLink code={code} style={{ fontWeight: 700, marginRight: 8 }} />
+                    <FuelBasisChip code={code} />
                     <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{airport?.city}</span>
                   </div>
                   <div style={{ width: 56, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>

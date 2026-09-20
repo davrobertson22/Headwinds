@@ -57,6 +57,12 @@ function buildScenario() {
   gates.JFK = 24; gates.ORD = 14;
 
   let st = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'BetaAir', hub: 'JFK', enableObjectives: false });
+  // An EXISTING beta world's airline carries no fuel-ops version key: START_GAME
+  // stamps one for new solo games (FUEL_OPERATIONS_PLAN.md §7.4), but the
+  // multiplayer join path drops it and takes the world's tickConfig instead,
+  // and a world that predates the feature has none — so neither does this
+  // fixture. Station pricing must not reach a flag-off world.
+  delete st.fuelOpsV;
   return {
     ...st, cash: 500_000_000, fleet, routes, routePricing, gates,
     hubs: { JFK: { tier: 2, tierSince: 0 }, ORD: { tier: 1, tierSince: 0 } },

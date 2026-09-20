@@ -46,7 +46,7 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Winglet retrofit and the fuel-efficiency programme (FUEL_OPERATIONS_PLAN.md
   // §6). Capex comes from data/retrofits.js and data/fuelProgrammes.js inside
   // the reducer; the guards sanitize the id list and the programme id.
-  'RETROFIT_WINGTIPS', 'SET_FUEL_PROGRAMME',
+  'RETROFIT_WINGTIPS', 'SET_FUEL_PROGRAMME', 'SET_ROUTE_TANKERING',
   // Routes — passenger, cargo, tag
   'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',
   'TRANSFER_ROUTES', 'REASSIGN_ROUTE',

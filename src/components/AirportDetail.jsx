@@ -17,6 +17,8 @@ import { requestDepartureBoard } from './Departures.jsx';
 import { getAirportRestrictions } from '../data/airportRestrictions.js';
 import { gateDenialFor, lockoutWeeksLeft, idleWarningFor, DisabledHint, GateDenialNote } from './GateDenial.jsx';
 import { Glyph } from './Icons.jsx';
+import FuelBasisChip, { fuelBasisTitle } from './FuelBasisChip.jsx';
+import { stationFuelBasis, stationFuelDriver, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 import { useConfirm } from './ConfirmModal.jsx';
 import {
   canBuildLounge, isLoungeOpen, loungeCloseRefund,
@@ -579,6 +581,16 @@ export default function AirportDetail({ code, onBack }) {
           {airport?.runwayFt && (
             <span title="Longest runway — aircraft that need more runway than this cannot operate here" style={{ background: 'var(--surface2)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'help' }}>
               <Glyph e="🛬" /> {airport.runwayFt.toLocaleString()} ft runway
+            </span>
+          )}
+          {/* Station fuel basis, beside gate fee and runway — the player sees it
+              BEFORE committing to a hub or a gate (FUEL_OPERATIONS_PLAN.md §7.3). */}
+          {fuelStationsOn(state) && (
+            <span title={fuelBasisTitle(code, state)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--surface2)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'help' }}>
+              <FuelBasisChip code={code} /> fuel · {stationFuelDriver(code)?.text}
+              {(state.lastReport?.fuelByStation?.[code] ?? 0) > 0 && (
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· your uplift {formatMoney(state.lastReport.fuelByStation[code])}/wk</span>
+              )}
             </span>
           )}
           {restrictions.map((r, i) => (

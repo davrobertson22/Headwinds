@@ -24,6 +24,7 @@ import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { stateBrandReach, stateLoungeFields, calendarYearFrac } from '@tailwinds/engine/utils/simulation.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
+import { setFuelStationsEnabled, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
 
@@ -854,6 +855,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     setFareIndex(_eraFi != null ? _eraFi * (_st?.fareIndex ?? 1) : (_st?.fareIndex ?? 1));
     setEraStartYear(_st?.startYear ?? null);
     setNwrYieldChoke(_st?.newWorldRestrictions === true);
+    setFuelStationsEnabled(fuelStationsOn(_st));
     return buildRivalViews(rows, allianceMap);
   };
 
