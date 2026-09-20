@@ -54,6 +54,18 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">September 19, 2026</p>
+      <h2>The plane finder knows what month it is &mdash; and can rank the whole year</h2>
+      <p>Two requests from the Discord, ported across from Tailwinds. Both are about the &ldquo;Best aircraft for this route&rdquo; panel in the Route Planner.</p>
+      <ul>
+        <li><strong>Pick the season the ranking is for.</strong> Demand on a lane rises and falls with the calendar, so on a ski or beach market the plane that wins in February and the plane that wins in July can be different aircraft. The panel now says which month it is pricing, and a &ldquo;Ranked for&rdquo; picker lets you ask about any other month. Only the season changes &mdash; demand growth is not wound forward, so it is a like-for-like comparison, not a forecast of the future.</li>
+        <li><strong>Profit by month, on every shortlisted row.</strong> Each of the top five candidates now carries a twelve-bar strip showing what it would clear in each month, drawn to one shared scale so the rows compare with each other. A plane that wins the month you are looking at but sits in the red for half the year is a plane you will be parking. Months outside your route&rsquo;s operating window are left blank rather than counted as losses.</li>
+        <li><strong>Average over the year.</strong> The same picker offers an annual ranking: every candidate priced in every month the route flies, sorted by the mean. On a seasonal lane this is often a different winner from the peak month, because the big cabin&rsquo;s peak is bought with a trough the smaller one never sees. The Net column relabels itself so you can tell which view you are in.</li>
+      </ul>
+      <p>The month picker and the strip cost nothing until you use them; the annual ranking is roughly a dozen forecasts per candidate, so it runs only when asked for. See <a href="/route-economics.html">route economics</a> for how seasonality feeds the numbers.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">September 16, 2026</p>
       <h2>A faster Route Planner, and a plane that was never short</h2>
       <p>Two fixes ported across from the Tailwinds bug channel, both of which apply just as much here.</p>

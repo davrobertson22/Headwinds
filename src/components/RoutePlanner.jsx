@@ -34,13 +34,23 @@ import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition, playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
-import { rankAircraftForRoute } from '../models/aircraftRecommender.js';
+import {
+  rankAircraftForRoute, rankAircraftForYear, seasonalProfitByType, gameDateInMonth, ALL_MONTHS,
+} from '../models/aircraftRecommender.js';
 
 
 // How many ranked aircraft the panel shows before you ask for the rest. Five is
 // the shortlist a player actually chooses from; the full list runs to 150+ types
 // on a short sector and reads as a catalogue dump.
 const TOP_RECOMMENDATIONS = 5;
+
+/** `rankMonth` value meaning "rank by the average over the months the route flies". */
+const RANK_YEAR = 'year';
+
+const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_SHORT = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const MONTH_ABBR = ['', 'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const SEASON_PRESETS = [
@@ -440,6 +450,10 @@ export default function RoutePlanner() {
   // so a slot inserted above cabinConfig silently re-points their fixtures at the
   // wrong state. Append new state here, at the end of the block.
   const [showAllRecs, setShowAllRecs] = useState(false);
+  // Which month the recommendation panel prices its candidates at. null = follow
+  // the calendar; RANK_YEAR = the average across the months the route flies.
+  // Appended below showAllRecs for the slot-order reason above.
+  const [rankMonth, setRankMonth] = useState(null);
 
   // A pair handed over by the Route Finder's optional "Plan". Parked rather
   // than passed as a prop, because this component does not exist yet when the
@@ -898,35 +912,136 @@ export default function RoutePlanner() {
   const defFares         = useDeferredValue(effectiveFares);
   const defConfig        = useDeferredValue(effectiveConfig);
   const defSelectedType  = useDeferredValue(selectedTypeId);
+
+  // ── Which season is it ranking? ──────────────────────────────────────────
+  //   ASAS  "for the best plane finder for each route, you should make it so we
+  //          can customize which season the planner is looking at"  (13/9/26)
+  //
+  // The pool this ranking fights over is multiplied by the lane's seasonal
+  // profile at gameDate.month, so on an Alpine or a beach lane the answer in
+  // February and the answer in July are different planes. `rankMonth` lets the
+  // player ask about any month; null means "whatever month the world is in".
+  //
+  // The date is rebuilt from gameDate's FIELDS rather than reused: currentGameDate
+  // returns a fresh object every render, and it sat in this memo's dependency
+  // list, so the whole catalogue was being re-ranked on every render.
+  //
+  //   ASAS  "i like the new route planner's plane finder, although an average
+  //          per year feature would also be nice"  (15/9/26)
+  //
+  // `rankYear` ranks by the MEAN over the months the route flies instead. The
+  // strip already showed each row's year; this is the strip's answer promoted
+  // to the sort key, because on a seasonal lane the plane that wins the peak is
+  // not always the plane that earns the most across the twelve.
+  const calendarMonth = gameDate.month;
+  const rankYear      = rankMonth === RANK_YEAR;
+  const rankingMonth  = rankYear ? calendarMonth : (rankMonth ?? calendarMonth);
+  const rankingDate = useMemo(
+    () => gameDateInMonth(
+      { week: gameDate.week, month: calendarMonth, absWeek: gameDate.absWeek },
+      rankingMonth,
+    ),
+    [gameDate.week, gameDate.absWeek, calendarMonth, rankingMonth],
+  );
+  // A month the route is not scheduled to fly in. The ranking still runs — seeing
+  // what a dormant month WOULD pay is half of why you'd look — but it is labelled
+  // rather than passed off as this route's economics.
+  const rankingOffSeason = !rankYear && (season?.months?.length ?? 0) > 0
+    && !season.months.includes(rankingMonth);
+
+  // Everything the ranking needs except the candidate list and the month. Built
+  // from the DEFERRED inputs (see above) and shared with the seasonal strip
+  // below, so a cell in the strip and the row beside it cannot be computed from
+  // different inputs.
+  const recSpec = useMemo(() => (routeData ? {
+    origin, destination: dest, distKm: routeData.dist,
+    weeklyFrequency: defFrequency,
+    ticketPrice: defPrice,
+    classPrices: defFares ?? defaultClassPrices(defPrice),
+    cateringLevel, season,
+    eventDemandMult: eventDemand.multFor(origin, dest),
+    capHours: bhCap,
+    // Mods count here exactly as the picker quotes them.
+    reachKmFor,
+    // The type on screen is forecast on the cabin the player has dialled in, so
+    // its row and the card cannot print different money for the same plane.
+    configFor: (t) => (t.id === defSelectedType ? defConfig : null),
+    availabilityFor: (id) => {
+      const pool = (deployableByType[id] ?? []).filter(d => d.eligible);
+      return {
+        ready:     pool.filter(d => !d.reserve).length,
+        onReserve: pool.filter(d => d.reserve).length,
+      };
+    },
+  } : null), [routeData, deployableByType, defFrequency, defPrice, defFares,
+      cateringLevel, season, defSelectedType, defConfig, origin, dest,
+      eventDemand, reachByType, bhCap]);
+
+  // The annual ranking is the same pass run once per flying month over the
+  // whole candidate list — roughly twelve times the cost. It only runs when the
+  // player has asked for the year, so the default view pays nothing for the
+  // option.
   const recommendations = useMemo(() => {
-    if (!routeData || reachableTypes.length === 0) return [];
+    if (!recSpec || reachableTypes.length === 0) return [];
     const candidates = reachableTypes.filter(t => !t.freighter);
     if (candidates.length === 0) return [];
+    if (rankYear) {
+      return rankAircraftForYear(state, {
+        ...recSpec,
+        types: candidates,
+        gameDate: rankingDate,
+      });
+    }
     return rankAircraftForRoute(state, {
-      origin, destination: dest, distKm: routeData.dist,
+      ...recSpec,
       types: candidates,
-      weeklyFrequency: defFrequency,
-      ticketPrice: defPrice,
-      classPrices: defFares ?? defaultClassPrices(defPrice),
-      cateringLevel, season, gameDate,
-      eventDemandMult: eventDemand.multFor(origin, dest),
-      capHours: bhCap,
-      // Mods count here exactly as the picker quotes them.
-      reachKmFor,
-      // The type on screen is forecast on the cabin the player has dialled in, so
-      // its row and the card cannot print different money for the same plane.
-      configFor: (t) => (t.id === defSelectedType ? defConfig : null),
-      availabilityFor: (id) => {
-        const pool = (deployableByType[id] ?? []).filter(d => d.eligible);
-        return {
-          ready:     pool.filter(d => !d.reserve).length,
-          onReserve: pool.filter(d => d.reserve).length,
-        };
-      },
+      gameDate: rankingDate,
     });
-  }, [routeData, reachableTypes, deployableByType, defFrequency, defPrice, defFares,
-      cateringLevel, season, defSelectedType, defConfig, state.fleet, state.routes,
-      state.hub, state.hubs, origin, dest, gameDate, reachByType]);
+  }, [recSpec, reachableTypes, state.fleet, state.routes, state.hub, state.hubs, rankingDate, rankYear]);
+
+  // ── The year behind the ranking ──────────────────────────────────────────
+  // A month picker on its own answers "best plane in December" and hides the
+  // thing that decides the purchase: whether that plane also survives May. One
+  // ranking pass per month gives every shortlisted row its whole year.
+  //
+  // Deliberately capped at the shortlist. A pass costs roughly what the ranking
+  // above costs per type, so twelve of them over the full reachable catalogue
+  // would be a quarter of a second of blocking work on every keystroke; over
+  // five rows it is a few milliseconds.
+  const stripTypes = useMemo(
+    () => recommendations.slice(0, TOP_RECOMMENDATIONS).map(r => r.type),
+    [recommendations]);
+
+  // In the annual mode the ranking pass has already priced every month for
+  // every row, so the strip is read straight off it — a second pass would be
+  // the same arithmetic done twice, with a second chance to disagree.
+  const seasonStrip = useMemo(() => {
+    if (!recSpec || stripTypes.length === 0) return null;
+    if (rankYear) {
+      const byType = new Map();
+      for (const r of recommendations.slice(0, TOP_RECOMMENDATIONS)) {
+        byType.set(r.typeId, { typeId: r.typeId, type: r.type, byMonth: r.byMonth, best: r.best, worst: r.worst, swing: r.swing });
+      }
+      return { months: ALL_MONTHS, byType };
+    }
+    return seasonalProfitByType(state, {
+      ...recSpec,
+      types: stripTypes,
+      gameDate: rankingDate,
+    });
+  }, [recSpec, stripTypes, recommendations, rankYear, state.fleet, state.routes, state.hub, state.hubs, rankingDate]);
+
+  // One scale across every row, so the strips compare with each other rather
+  // than each being drawn to its own private maximum.
+  const stripScale = useMemo(() => {
+    let max = 0;
+    for (const row of seasonStrip?.byType?.values() ?? []) {
+      for (const cell of row.byMonth) {
+        if (cell.netProfit != null) max = Math.max(max, Math.abs(cell.netProfit));
+      }
+    }
+    return max;
+  }, [seasonStrip]);
 
   // True while the ranking is still showing the previous inputs. Drives the
   // "catching up" note on the panel, so the player is never left comparing a
@@ -1307,6 +1422,51 @@ export default function RoutePlanner() {
                           : `${origin} → ${dest} · ${frequency}×/wk · your fares`}
                       </span>
                     </div>
+                    {/* Which season these numbers describe. The pool is multiplied
+                        by the lane's seasonal profile, so on a leisure or alpine
+                        market the ranking genuinely changes month to month —
+                        this says which month is on screen and lets you ask about
+                        another one. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Ranked for</span>
+                      <select
+                        className="form-select"
+                        value={rankMonth ?? ''}
+                        onChange={e => setRankMonth(
+                          e.target.value === '' ? null
+                            : e.target.value === RANK_YEAR ? RANK_YEAR
+                            : Number(e.target.value))}
+                        style={{ width: 'auto', fontSize: 11, padding: '3px 6px' }}
+                        title="Price every candidate at this month instead of the month the world is in, or at the average across the months this route flies. Demand growth is not wound forward — only the season changes."
+                      >
+                        <option value="">This month — {MONTH_NAMES[calendarMonth]}</option>
+                        <option value={RANK_YEAR}>Average over the year</option>
+                        {ALL_MONTHS.map(m => <option key={m} value={m}>{MONTH_NAMES[m]}</option>)}
+                      </select>
+                      {rankYear && (
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                          {(() => {
+                            const n = recommendations[0]?.flyingMonths?.length ?? 12;
+                            return n === 12
+                              ? 'Each row is its average week across all twelve months. '
+                              : `Each row is its average week across the ${n} months this route flies. `;
+                          })()}
+                          The card below still quotes {MONTH_NAMES[calendarMonth]}.
+                        </span>
+                      )}
+                      {!rankYear && rankMonth != null && rankMonth !== calendarMonth && (
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                          The card below still quotes {MONTH_NAMES[calendarMonth]}.
+                        </span>
+                      )}
+                      {rankingOffSeason && (
+                        <span style={{ fontSize: 11, color: 'var(--yellow)' }}>
+                          This route is dormant in {MONTH_NAMES[rankingMonth]} — your window is
+                          {' '}{season.months.map(m => MONTH_SHORT[m]).join(', ')}.
+                        </span>
+                      )}
+                    </div>
+
 
                     {/* A ranking of losses is still a ranking, and reading the top of
                         it as a recommendation is how a player talks themselves into
@@ -1315,13 +1475,13 @@ export default function RoutePlanner() {
                       <div style={{ fontSize: 12, color: 'var(--yellow)', marginTop: 8 }}>
                         Nothing reaching {dest} clears a profit at {frequency}×/wk and these fares — the
                         {' '}best of them, the <strong>{bestOverall.type.name}</strong>, still loses
-                        {' '}{formatMoney(Math.abs(bestOverall.projection.netProfit))}/wk. Try fewer flights, higher
+                        {' '}{formatMoney(Math.abs(bestOverall.projection.netProfit))}/wk{rankYear ? ' on average' : ''}. Try fewer flights, higher
                         {' '}fares, or a different market; the ranking below is least-bad, not good.
                       </div>
                     ) : bestReady && bestOverall && bestReady.typeId !== bestOverall.typeId ? (
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
                         Best you can fly today is the <strong style={{ color: 'var(--text)' }}>{bestReady.type.name}</strong>
-                        {' '}at {formatMoney(bestReady.projection.netProfit)}/wk. The {bestOverall.type.name} above it
+                        {' '}at {formatMoney(bestReady.projection.netProfit)}/wk{rankYear ? ' on average' : ''}. The {bestOverall.type.name} above it
                         {' '}would have to be leased first.
                       </div>
                     ) : null}
@@ -1334,7 +1494,11 @@ export default function RoutePlanner() {
                             <th style={{ textAlign: 'left',  padding: '4px 8px', fontWeight: 600 }}>Aircraft</th>
                             <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>Seats</th>
                             <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>Load</th>
-                            <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>Net / wk</th>
+                            <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>{rankYear ? 'Avg net / wk' : 'Net / wk'}</th>
+                            <th style={{ textAlign: 'center', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              Profit by month
+                              <InfoTip text="The same forecast run in all twelve months, January on the left. Bars above the line clear a profit, below it a loss, and every row is drawn to the same scale so they compare with each other. A plane that wins the month you are looking at but sits deep in the red for half the year is a plane you will be parking; months your operating window excludes are left blank because the route is dormant then, not losing money." />
+                            </th>
                             <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}></th>
                           </tr>
                         </thead>
@@ -1342,6 +1506,7 @@ export default function RoutePlanner() {
                           {(showAllRecs ? recommendations : recommendations.slice(0, TOP_RECOMMENDATIONS)).map((r, i) => {
                             const chosen = r.typeId === selectedTypeId;
                             const proj   = r.projection;
+                            const stripRow = seasonStrip?.byType?.get(r.typeId) ?? null;
                             return (
                               <tr key={r.typeId} style={{
                                 borderTop: '1px solid var(--border-subtle)',
@@ -1395,6 +1560,52 @@ export default function RoutePlanner() {
                                         {proj.netProfit >= 0 ? '+' : ''}{formatMoney(proj.netProfit)}
                                       </span>
                                     : <span style={{ color: 'var(--text-dim)', fontWeight: 400 }} title="This market could not be forecast for this type">–</span>}
+                                </td>
+                                <td style={{ padding: '6px 8px' }}>
+                                  {stripRow ? (
+                                    <div
+                                      style={{ display: 'flex', gap: 2, justifyContent: 'center' }}
+                                      title={stripRow.best && stripRow.worst
+                                        ? `Best ${MONTH_NAMES[stripRow.best.month]} ${stripRow.best.netProfit >= 0 ? '+' : ''}${formatMoney(stripRow.best.netProfit)}/wk · worst ${MONTH_NAMES[stripRow.worst.month]} ${stripRow.worst.netProfit >= 0 ? '+' : ''}${formatMoney(stripRow.worst.netProfit)}/wk`
+                                        : 'This route is dormant all year'}
+                                    >
+                                      {stripRow.byMonth.map(cell => {
+                                        const h = (stripScale > 0 && cell.netProfit != null)
+                                          ? Math.max(1, Math.round((Math.abs(cell.netProfit) / stripScale) * 9)) : 0;
+                                        const up = (cell.netProfit ?? 0) >= 0;
+                                        const label = cell.dormant
+                                          ? `${MONTH_NAMES[cell.month]}: dormant`
+                                          : cell.netProfit == null
+                                            ? `${MONTH_NAMES[cell.month]}: not priced`
+                                            : `${MONTH_NAMES[cell.month]}: ${cell.netProfit >= 0 ? '+' : ''}${formatMoney(cell.netProfit)}/wk`;
+                                        return (
+                                          <span key={cell.month} title={label} style={{
+                                            display: 'flex', flexDirection: 'column', width: 6,
+                                            borderBottom: !rankYear && cell.month === rankingMonth
+                                              ? '2px solid var(--accent)' : '2px solid transparent',
+                                            paddingBottom: 2,
+                                          }}>
+                                            <span style={{ height: 10, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                                              {cell.netProfit != null && up && (
+                                                <span style={{ width: 5, height: h, background: 'var(--green)', borderRadius: 1 }} />
+                                              )}
+                                            </span>
+                                            <span style={{ height: 10, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                                              {cell.netProfit != null && !up && (
+                                                <span style={{ width: 5, height: h, background: 'var(--red)', borderRadius: 1 }} />
+                                              )}
+                                              {cell.dormant && (
+                                                <span style={{ width: 5, height: 2, background: 'var(--border)', borderRadius: 1 }} />
+                                              )}
+                                            </span>
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <span style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', textAlign: 'center' }}
+                                          title="Shown for the shortlist — the top five rows">–</span>
+                                  )}
                                 </td>
                                 <td style={{ padding: '6px 8px', textAlign: 'right' }}>
                                   {chosen
