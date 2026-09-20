@@ -58,6 +58,15 @@ test('names the badge as the perk', () => {
   assert.ok(/SUPPORTER badge/i.test(html), 'the badge is the perk — it should be named on the card');
 });
 
+test('names private worlds and the $5 monthly price — the perk that actually sells it', () => {
+  store = new Map();
+  const html = render(React.createElement(SupportCard, { me: me() }));
+  assert.ok(/private worlds?/i.test(html), 'private worlds must be on the lobby card');
+  assert.ok(/\$5 a month/.test(html), 'the price must be on the lobby card');
+  const thanks = render(React.createElement(SupportCard, { me: me({ isSupporter: true }) }));
+  assert.ok(/private world/i.test(thanks), 'the thank-you face should tell a supporter they can open one');
+});
+
 test('promises on the card that nothing bought affects the game', () => {
   store = new Map();
   const html = render(React.createElement(SupportCard, { me: me() }));

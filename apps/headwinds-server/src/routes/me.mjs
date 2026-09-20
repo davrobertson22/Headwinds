@@ -1,7 +1,8 @@
 // /me — the current account and the airlines it controls across all worlds.
 import { requireAuth, isAdmin } from '../auth.mjs';
 import { prisma } from '../db.mjs';
-import { serializeAirline } from '../lib/worldConfig.mjs';
+import { serializeAirline, serializeWorld, MAX_SUPPORTER_WORLD_MEMBERSHIPS } from '../lib/worldConfig.mjs';
+import { supporterWorldMemberships } from '../lib/worldService.mjs';
 import { serializeCareer } from '../lib/career.mjs';
 import { usernameProblem, RENAME_COOLDOWN_DAYS } from '../lib/username.mjs';
 
@@ -46,6 +47,28 @@ export default async function meRoutes(fastify) {
       request.log?.warn?.({ err }, 'unread account-message count unavailable');
     }
 
+    // Supporter worlds: the ones this account OWNS but has not (yet) founded an
+    // airline in — a freshly created world the owner navigated away from would
+    // otherwise vanish from their lobby, password and all. Plus the slot count
+    // the create form shows ("1 of 2"). Both cheap indexed reads; tolerant of a
+    // database that predates the migration, like the unread count above.
+    let ownedWorlds = [];
+    let supporterWorldSlots = { used: 0, max: MAX_SUPPORTER_WORLD_MEMBERSHIPS };
+    try {
+      const memberWorldIds = new Set(airlines.map((a) => a.worldId));
+      const owned = await prisma.world.findMany({
+        where: { ownerAccountId: account.id, status: { in: ['LOBBY', 'RUNNING'] } },
+        include: { _count: { select: { airlines: { where: { status: 'ACTIVE' } } } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      ownedWorlds = owned
+        .filter((w) => !memberWorldIds.has(w.id))
+        .map((w) => serializeWorld(w, { playerCount: w._count.airlines, includeJoinCode: true }));
+      supporterWorldSlots.used = await supporterWorldMemberships(prisma, account.id);
+    } catch (err) {
+      request.log?.warn?.({ err }, 'supporter-world summary unavailable');
+    }
+
     return {
       account: {
         id: account.id,
@@ -72,6 +95,9 @@ export default async function meRoutes(fastify) {
       // Your own worlds include their join code — you're a member.
       airlines: airlines.map((a) =>
         serializeAirline(a, { world: a.world, includeJoinCode: true })),
+      // Supporter worlds you own without an airline in them yet (see above).
+      ownedWorlds,
+      supporterWorldSlots,
     };
   });
 

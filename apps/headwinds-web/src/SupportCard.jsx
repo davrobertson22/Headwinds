@@ -6,7 +6,7 @@
 // airline is not a prospect, and a game that interrupts itself to ask for money
 // reads as a different kind of game than this one.
 import { SupporterBadge } from './OgBadge.jsx';
-import { KOFI_URL, SUPPORT_PITCH, SUPPORT_PERKS } from './support.js';
+import { KOFI_URL, SUPPORT_PITCH, SUPPORT_PERKS, SUPPORTER_PRICE } from './support.js';
 
 // The Ko-fi cup, inlined. A remote image would be a third-party request on the
 // lobby's critical path for a 16px glyph, and it would break the day Ko-fi moves
@@ -55,8 +55,9 @@ export default function SupportCard({ me }) {
         <h3 style={{ marginTop: 0 }}><SupporterBadge /> Thank you</h3>
         <p className="muted small" style={{ marginBottom: 0 }}>
           You've chipped in toward the servers — the badge is on your airline in every
-          world. It genuinely helps. If you ever want to change or cancel a monthly tip,
-          it's all on your{' '}
+          world, and you can open a private world for your own group from "♥ Create a
+          private world" above. It genuinely helps. If you ever want to change or cancel
+          a monthly tip, it's all on your{' '}
           <a href={KOFI_URL} target="_blank" rel="noopener noreferrer">Ko-fi page</a>.
         </p>
       </div>
@@ -65,14 +66,15 @@ export default function SupportCard({ me }) {
 
   return (
     <div className="card">
-      <h3 style={{ marginTop: 0 }}>Support Headwinds</h3>
+      <h3 style={{ marginTop: 0 }}>Support Headwinds — {SUPPORTER_PRICE}</h3>
       <p className="muted small">{SUPPORT_PITCH}</p>
       <ul className="muted small" style={{ margin: '0 0 14px', paddingLeft: 18 }}>
         {SUPPORT_PERKS.map((perk) => <li key={perk}>{perk}</li>)}
       </ul>
       <KofiButton />
       <p className="muted small" style={{ margin: '10px 0 0' }}>
-        One-off or monthly, whatever suits. Ko-fi will ask for a name — leave your
+        {SUPPORTER_PRICE} carries the badge and private worlds; a one-off tip of any size is
+        welcome too and just goes on the bill. Ko-fi will ask for a name — leave your
         Headwinds username in the message and the badge goes on within a day or so.
       </p>
     </div>

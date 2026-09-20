@@ -37,6 +37,52 @@ export function isPrivateWorld(world) {
   return world?.visibility === 'PRIVATE';
 }
 
+// ── Supporter worlds ─────────────────────────────────────────────────────────
+// A world with an owner was created by a ♥ SUPPORTER for their own group, and
+// EVERY member must hold the badge (Dave, 2026-09-19: "supporters only").
+// Membership is still what admits you (the rule above); the badge is what
+// keeps you in. When it lapses the member is locked out of every read and
+// every decision in that world — a 403 with a renew prompt, not the 404 a
+// stranger gets, because a member is entitled to know why — while their
+// airline keeps flying on autopilot exactly like any player who is away.
+// Admin-created worlds (ownerAccountId null) never consult the badge.
+//
+// Deliberately NOT part of mayReadWorld: that answers "may this caller see
+// this world exists?", and a lapsed member may. This answers "may they use it".
+
+/** Was this world created by a supporter for their own group? */
+export function isSupporterWorld(world) {
+  return Boolean(world?.ownerAccountId);
+}
+
+export const SUPPORTER_LAPSED_MESSAGE =
+  'This is a supporter world and your ♥ SUPPORTER badge is no longer active. '
+  + 'Your airline keeps flying — renew your monthly tip on Ko-fi and you are back in as soon as the badge is on.';
+
+/** The 403 a supporter world shows a member whose badge has lapsed. */
+export function supporterLapsedError() {
+  const e = new Error(SUPPORTER_LAPSED_MESSAGE);
+  e.statusCode = 403;
+  e.code = 'SUPPORTER_LAPSED';
+  return e;
+}
+
+/**
+ * Pure decision: may this account USE (read the standings of, act in) this
+ * world as far as the supporter rule is concerned? Membership is checked
+ * elsewhere. `admin` exempts the operator, who moderates every world.
+ */
+export function mayUseSupporterWorld(world, account, { admin = false } = {}) {
+  if (!isSupporterWorld(world)) return true;
+  if (admin) return true;
+  return account?.isSupporter === true;
+}
+
+/** Throws the 403 above when the supporter rule refuses this caller. */
+export function assertSupporterAccess(world, account, { admin = false } = {}) {
+  if (!mayUseSupporterWorld(world, account, { admin })) throw supporterLapsedError();
+}
+
 /**
  * Pure decision. `account` is the resolved Account (or null for an anonymous
  * caller) and `isMember` the answer to "does this account hold an airline row
@@ -45,7 +91,18 @@ export function isPrivateWorld(world) {
 export function mayReadWorld(world, { account = null, isMember = false } = {}) {
   if (!world) return false;
   if (!isPrivateWorld(world)) return true;
-  return Boolean(account) && isMember === true;
+  if (!account) return false;
+  // The OWNER of a supporter world is a member from the moment it exists —
+  // before they have founded an airline in it. Otherwise the create → join
+  // hand-off would show them their own world as a stranger (no password, a
+  // join form asking for it).
+  if (isOwner(world, account)) return true;
+  return isMember === true;
+}
+
+/** Did this account create this (supporter) world? */
+export function isOwner(world, account) {
+  return Boolean(account?.id) && world?.ownerAccountId === account.id;
 }
 
 /**
@@ -78,8 +135,12 @@ export function privateWorldError() {
  * @param {object} world    the already-loaded World row (needs `id`, `visibility`)
  * @param {object|null} account  resolved Account, or null when anonymous
  */
-export async function assertWorldReadable(prisma, world, account) {
+export async function assertWorldReadable(prisma, world, account, { admin = false } = {}) {
   if (!isPrivateWorld(world)) return;
   const isMember = account ? await isWorldMember(prisma, world.id, account.id) : false;
   if (!mayReadWorld(world, { account, isMember })) throw privateWorldError();
+  // A member, but of a supporter world: the badge has to be on too. Supporter
+  // worlds are always PRIVATE (worldService forces it), so this never runs
+  // for a public world and never costs a spectator anything.
+  assertSupporterAccess(world, account, { admin });
 }

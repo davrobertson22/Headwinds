@@ -67,13 +67,15 @@ model Account {
   // admin flips it from the moderation panel), account-wide, and rendered as a
   // chip beside every airline this account flies.
   //
-  // COSMETIC ONLY, AND PERMANENTLY SO. Nothing in packages/engine reads this
-  // column and nothing may ever be added that does. Headwinds' whole premise is
-  // that every rival is a real person on the same terms; the moment money buys
-  // cash, gates, tick speed or any other engine input, the standings stop
-  // meaning anything and no refund undoes that. The badge is the entire perk
-  // surface — not even the ads come off, since they help pay for this — so keep
-  // it that way.
+  // NEVER AN ENGINE INPUT. Nothing in packages/engine reads this column and
+  // nothing may ever be added that does. Headwinds' whole premise is that every
+  // rival is a real person on the same terms; the moment money buys cash,
+  // gates, tick speed or any other engine input, the standings stop meaning
+  // anything and no refund undoes that. The perk surface is the badge plus the
+  // ability to create and join SUPPORTER WORLDS (private worlds for a group of
+  // friends — see World.ownerAccountId), which is a hosting perk, not a
+  // gameplay one: inside any world every airline is still on identical terms.
+  // Not even the ads come off, since they help pay for this.
   isSupporter Boolean @default(false)
   // ── Player-chosen unique username (player profiles, phase 2) ─────────────
   // Nullable: accounts claim one from the lobby; `displayName` stays the
@@ -88,6 +90,8 @@ model Account {
   nameChanges NameChange[]
   reportsMade Report[]  @relation("ReportsMade")
   reportsAgainst Report[] @relation("ReportsAgainst")
+  // Supporter-created private worlds this account owns (World.ownerAccountId).
+  ownedWorlds    World[]  @relation("WorldOwner")
 }
 
 // Username audit trail — the moderation panel shows an account's past names so
@@ -115,7 +119,29 @@ model World {
   currentWeek Int         @default(1)
   currentYear Int         @default(1)
   maxPlayers  Int         @default(50)
-  joinCode    String?     @unique // for PRIVATE worlds
+  // For PRIVATE worlds. Admin-created worlds get a generated 6-char code; a
+  // supporter-created world stores the PASSWORD its owner chose (compared
+  // case-insensitively, trimmed — see joinCodeMatches in worldConfig.mjs).
+  // Plaintext on purpose: members read it back from /me to share with friends.
+  // NOT unique (it was, from the init migration, until supporter worlds): two
+  // groups may well pick the same password, and nothing looks a world up by
+  // its code — entry is always world id + code.
+  joinCode    String?
+  // ── Supporter worlds (private worlds players create themselves) ──────────
+  // Null = operator-created (the admin "+ Create a world" path, unchanged).
+  // Set = a ♥ SUPPORTER account created this world for their own group, and
+  // three rules apply (lib/access.mjs, lib/worldService.mjs):
+  //   • always PRIVATE, and the owner chose the password (joinCode);
+  //   • every member must hold the supporter badge — a member whose badge
+  //     lapses is locked out (403, with a renew prompt) until it is back on,
+  //     while their airline keeps flying on autopilot like any away player;
+  //   • an account may be in at most MAX_SUPPORTER_WORLD_MEMBERSHIPS (2) live
+  //     supporter worlds at once, owning counting as being in.
+  // This is the one thing the badge unlocks beyond the chip. It stays outside
+  // the engine — nothing in the world's simulation reads who owns it — so the
+  // no-pay-to-win invariant on Account.isSupporter is untouched.
+  ownerAccountId String?
+  owner       Account?    @relation("WorldOwner", fields: [ownerAccountId], references: [id], onDelete: SetNull)
   worldSeed   String // deterministic world generation
   tickConfig  Json        @default("{}")
   startedAt   DateTime?
@@ -140,6 +166,7 @@ model World {
   news                 WorldNews[]
 
   @@index([status, visibility])
+  @@index([ownerAccountId, status]) // "how many live supporter worlds does this account own?"
 }
 
 model Airline {

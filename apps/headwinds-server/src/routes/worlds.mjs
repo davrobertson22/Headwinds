@@ -1,5 +1,5 @@
 // /worlds — browse, view, create, join, and leave worlds.
-import { requireAuth, requireAdmin, optionalAccount } from '../auth.mjs';
+import { requireAuth, requireAdmin, optionalAccount, isAdmin } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { restartAirline, MAX_RESTARTS } from '../lib/restartService.mjs';
@@ -8,7 +8,7 @@ import { isDevEmail } from '../lib/humanRivals.mjs';
 // (lib/newsService.mjs) — one definition of "what a rival may see", not two.
 import { publicPayload, isPublicDecision } from '../lib/publicDecisions.mjs';
 // Private worlds are members-only on every per-world READ, not just in the lobby.
-import { assertWorldReadable, mayReadWorld, isWorldMember } from '../lib/access.mjs';
+import { assertWorldReadable, mayReadWorld, isWorldMember, mayUseSupporterWorld, isOwner } from '../lib/access.mjs';
 import { RIVAL_PROFILE_SELECT, loadRivalProfileState } from '../lib/rivalProfile.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { buildNews } from '../lib/newsService.mjs';
@@ -23,6 +23,7 @@ import {
   MIN_LENGTH_YEARS, MAX_LENGTH_YEARS, MIN_WEEKS_PER_DAY, MAX_WEEKS_PER_DAY,
   MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
   WORLD_STAGES, DEFAULT_WORLD_STAGE, MIN_START_YEAR, MAX_START_YEAR,
+  PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword,
 } from '../lib/worldConfig.mjs';
 
 export default async function worldRoutes(fastify) {
@@ -97,12 +98,27 @@ export default async function worldRoutes(fastify) {
     // by anyone who had ever seen the world id. Every other per-world read
     // (rivals, news, feed, gates, used market) is gated outright.
     const viewer = await optionalAccount(request);
-    const viewerIsMember = viewer ? await isWorldMember(prisma, world.id, viewer.id) : false;
+    // The owner of a supporter world counts as a member before their first
+    // join (lib/access.mjs mayReadWorld) — the password shows on their page.
+    const viewerIsMember = viewer
+      ? (isOwner(world, viewer) || await isWorldMember(prisma, world.id, viewer.id))
+      : false;
     if (!mayReadWorld(world, { account: viewer, isMember: viewerIsMember })) {
       return {
         world: serializeWorld(world, { playerCount: world._count.airlines, includeJoinCode: false }),
         standings: [],
         private: true,
+      };
+    }
+    // A member of a supporter world whose badge has lapsed: the card, so they
+    // can see what they are locked out of and why, but no standings and no
+    // password. `supporterLapsed` is what the web client keys its warning on.
+    if (!mayUseSupporterWorld(world, viewer, { admin: isAdmin(viewer) })) {
+      return {
+        world: serializeWorld(world, { playerCount: world._count.airlines, includeJoinCode: false }),
+        standings: [],
+        private: true,
+        supporterLapsed: true,
       };
     }
 
@@ -163,7 +179,10 @@ export default async function worldRoutes(fastify) {
     // creator can re-find it to share); everyone else never sees it. Reuses the
     // account resolved for the visibility gate above rather than verifying the
     // token a second time.
-    const isMember = viewer ? airlines.some((a) => a.accountId === viewer.id) : false;
+    // `airlines` is the ACTIVE list, so a member with a dead airline, and the
+    // owner of a supporter world who has not joined yet, come from the gate's
+    // answer instead — both are entitled to the code.
+    const isMember = viewerIsMember || (viewer ? airlines.some((a) => a.accountId === viewer.id) : false);
 
     // Season honours roll — served alongside the (now final) standings so the
     // end-of-season screen renders from one fetch. Read from the durable
@@ -385,17 +404,31 @@ export default async function worldRoutes(fastify) {
     return { events: items, nextBefore };
   });
 
-  // ── Create a world (ADMIN ONLY) ───────────────────────────────────────────
-  // World supply is operator-controlled: only ADMIN_EMAILS accounts may create
-  // worlds (the auto-spawner was removed 2026-07-19 — admin-created only).
+  // ── Create a world (ADMINS, and SUPPORTERS for their own group) ──────────
+  // Two callers, one form, one code path:
+  //   • an admin creates an operator world exactly as before (any visibility,
+  //     generated join code unless they pass a password);
+  //   • a ♥ SUPPORTER creates a SUPPORTER WORLD: forced PRIVATE, their own
+  //     password, owned by them, capped at MAX_SUPPORTER_WORLD_MEMBERSHIPS
+  //     live ones, and joinable by supporters only (lib/worldService.mjs).
+  // Everyone else gets a 403. The auto-spawner was removed 2026-07-19; this is
+  // the first non-admin create path since, and it is paid for by the badge
+  // because every extra world is extra compute and egress.
+  //
+  // The rule flags and knobs are the same set the admin form offers (Dave,
+  // 2026-09-19: "same form as admin") — a supporter may run a 96-week-a-day
+  // world if they like; the cap on how many they can be in bounds the cost.
   fastify.post('/worlds', {
-    preHandler: requireAdmin,
+    preHandler: requireAuth,
     schema: {
       body: {
         type: 'object',
         required: ['lengthYears', 'weeksPerDay'],
         properties: {
           name: { type: 'string', maxLength: 60 },
+          // The world's password (supporter worlds: required; admin: optional,
+          // replaces the generated join code). Bounds re-checked in worldConfig.
+          password: { type: 'string', maxLength: 200 },
           lengthYears: { type: 'integer', minimum: MIN_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
           weeksPerDay: { type: 'integer', minimum: MIN_WEEKS_PER_DAY, maximum: MAX_WEEKS_PER_DAY },
           visibility: { type: 'string', enum: ['PUBLIC', 'PRIVATE'] },
@@ -419,10 +452,54 @@ export default async function worldRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    const world = await createWorld(prisma, request.body);
+    const admin = isAdmin(request.account);
+    if (!admin && request.account.isSupporter !== true) {
+      return reply.code(403).send({
+        error: 'Creating a world is for ♥ SUPPORTER accounts — support the game on Ko-fi to open one for your group.',
+      });
+    }
+    const world = await createWorld(prisma, {
+      ...request.body,
+      // An admin never becomes an owner: operator worlds stay unowned so the
+      // supporter rules (badge to enter, 2-world cap) never touch them.
+      ownerAccountId: admin ? null : request.account.id,
+    });
     return reply.code(201).send({
       world: serializeWorld(world, { playerCount: 0, includeJoinCode: true }),
     });
+  });
+
+  // ── Change a private world's password (OWNER or admin) ────────────────────
+  // Sets the join code. Members already in the world are unaffected — the code
+  // is only ever checked at join — so this is how an owner shuts the door after
+  // the last friend is in, or re-opens it for a newcomer.
+  fastify.post('/worlds/:id/password', {
+    preHandler: requireAuth,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      body: {
+        type: 'object',
+        required: ['password'],
+        properties: { password: { type: 'string', minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH } },
+      },
+    },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    const admin = isAdmin(request.account);
+    if (!admin && world.ownerAccountId !== request.account.id) {
+      // Same 404 a stranger gets from every other private-world read.
+      return reply.code(404).send({ error: 'No such world' });
+    }
+    if (world.visibility !== 'PRIVATE') {
+      return reply.code(409).send({ error: 'Only a private world has a password' });
+    }
+    if (!admin && !mayUseSupporterWorld(world, request.account)) {
+      return reply.code(403).send({ error: 'Your ♥ SUPPORTER badge is no longer active — renew it to manage this world.' });
+    }
+    const password = validatePassword(request.body.password);
+    const updated = await prisma.world.update({ where: { id: world.id }, data: { joinCode: password } });
+    return { world: serializeWorld(updated, { includeJoinCode: true }) };
   });
 
   // ── Join a world (creates your airline) ───────────────────────────────────

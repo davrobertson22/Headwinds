@@ -9,7 +9,9 @@ import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
+  MAX_SUPPORTER_WORLD_MEMBERSHIPS, validatePassword, joinCodeMatches,
 } from './worldConfig.mjs';
+import { isSupporterWorld, mayUseSupporterWorld } from './access.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import { seedWorldMarket } from './marketService.mjs';
@@ -19,6 +21,30 @@ function httpError(statusCode, message) {
   const e = new Error(message);
   e.statusCode = statusCode;
   return e;
+}
+
+// ── Supporter worlds: the membership cap ─────────────────────────────────────
+// How many LIVE supporter worlds this account is in — owner or member, each
+// world counted once. One indexed count; no blobs. ENDED/ARCHIVED worlds and
+// operator-created private worlds are outside the rule.
+export async function supporterWorldMemberships(prisma, accountId) {
+  if (!accountId) return 0;
+  return prisma.world.count({
+    where: {
+      ownerAccountId: { not: null },
+      status: { in: ['LOBBY', 'RUNNING'] },
+      OR: [
+        { ownerAccountId: accountId },
+        { airlines: { some: { accountId } } },
+      ],
+    },
+  });
+}
+
+// Pure: would taking one more supporter-world slot break the cap?
+export function supporterSlotProblem(memberships, max = MAX_SUPPORTER_WORLD_MEMBERSHIPS) {
+  if (memberships < max) return null;
+  return `You can be in at most ${max} supporter worlds at a time — leave one, or wait for one to end.`;
 }
 
 // Create a world row — parked in LOBBY at Year 1, Week 1. The clock does NOT
@@ -41,8 +67,23 @@ export async function createWorld(prisma, {
   stage,
   startYear,
   rivalItineraries,
+  // ── Supporter world ──────────────────────────────────────────────────────
+  // `ownerAccountId` set = a ♥ SUPPORTER created this for their group. The
+  // route decides WHO may pass it (routes/worlds.mjs: an admin never does,
+  // a supporter always does); this function enforces what it means: the
+  // world is PRIVATE whatever `visibility` said, and the owner's `password`
+  // is the join code. An admin may also pass `password` on an ordinary world
+  // to pick the code instead of taking a generated one.
+  ownerAccountId = null,
+  password,
 } = {}) {
+  if (ownerAccountId) visibility = 'PRIVATE';
   validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage, startYear, rivalItineraries });
+  const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
+  if (ownerAccountId) {
+    const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
+    if (problem) throw httpError(409, problem);
+  }
 
   // Admin-tunable per-world knobs ride in tickConfig (JSON) — no schema change.
   // Read back at join (starting capital) and every tick (demand multiplier, via
@@ -102,7 +143,8 @@ export async function createWorld(prisma, {
       currentYear: 1,
       maxPlayers,
       tickConfig,
-      joinCode: visibility === 'PRIVATE' ? genJoinCode() : null,
+      joinCode: visibility === 'PRIVATE' ? (chosenPassword ?? genJoinCode()) : null,
+      ownerAccountId: ownerAccountId ?? null,
       worldSeed: genWorldSeed(),
       startedAt: null,
       endsAt: null,
@@ -260,8 +302,22 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   if (world.status === 'ENDED' || world.status === 'ARCHIVED') {
     throw httpError(409, 'This world has ended');
   }
-  if (world.visibility === 'PRIVATE' && world.joinCode && joinCode !== world.joinCode) {
-    throw httpError(403, 'Invalid join code for this private world');
+  if (world.visibility === 'PRIVATE' && world.joinCode && !joinCodeMatches(joinCode, world.joinCode)) {
+    throw httpError(403, isSupporterWorld(world)
+      ? 'Wrong password for this world'
+      : 'Invalid join code for this private world');
+  }
+  // Supporter worlds: every member holds the badge, and nobody is in more than
+  // MAX_SUPPORTER_WORLD_MEMBERSHIPS live ones. The owner is already counted
+  // (owning is being in), so their own join takes no new slot.
+  if (isSupporterWorld(world)) {
+    if (!mayUseSupporterWorld(world, account)) {
+      throw httpError(403, 'This is a supporter world — only ♥ SUPPORTER accounts can join it. Support the game on Ko-fi to get the badge.');
+    }
+    if (world.ownerAccountId !== account.id) {
+      const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, account.id));
+      if (problem) throw httpError(409, problem);
+    }
   }
 
   const existing = await prisma.airline.findUnique({

@@ -19,7 +19,10 @@ State lives in **Postgres** (via Prisma); auth is **Supabase**. See
 
 Phase 1 done: accounts, the world data model, the lobby API. (The staggered
 auto-spawner shipped in Phase 1 but was removed 2026-07-19 — worlds are now
-created only by admins, via the lobby's "+ Create a world" or `POST /worlds`.)
+created by admins via the lobby's "+ Create a world" or `POST /worlds` — and,
+since 2026-09-19, by ♥ SUPPORTER accounts as private **supporter worlds** for
+their own group: always private, owner-chosen password, supporters-only entry,
+at most 2 live ones per account; see `World.ownerAccountId` in the schema.)
 Phase 2 done: the authoritative weekly tick — the worker advances every RUNNING
 world on its pace schedule (compare-and-set on the world clock for idempotency,
 capped catch-up after downtime, TickLog + weekly Standing snapshots) — and the
@@ -84,8 +87,10 @@ GET  /health                         → liveness
 GET  /me                      (auth) → account + your airlines across worlds
 GET  /worlds      [?status&length&pace]  → list PUBLIC worlds (with filters)
 GET  /worlds/:id                     → world detail + standings
-POST /worlds                  (auth) → create world { lengthYears, weeksPerDay, name?, visibility?, maxPlayers? }
-POST /worlds/:id/join         (auth) → join → creates your airline { airlineName, hub, joinCode? }
+POST /worlds                  (auth) → create world { lengthYears, weeksPerDay, name?, visibility?, maxPlayers?, password? }
+                                       admin → operator world; supporter → private supporter world (password required); others 403
+POST /worlds/:id/password     (auth) → owner/admin: set a private world's password (= join code)
+POST /worlds/:id/join         (auth) → join → creates your airline { airlineName, hub, joinCode? }  (code/password compared case-insensitively)
 POST /worlds/:id/leave        (auth) → abandon your airline in this world
 ```
 

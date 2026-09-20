@@ -14,6 +14,7 @@ import UsernameCard from './UsernameCard.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import { useVisibleInterval } from './usePoll.js';
+import { KOFI_URL } from './support.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
@@ -254,7 +255,12 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
           hub: hub.toUpperCase(),
           // A join code is never required to re-found: the player is already a
           // member of this world and passed the gate when they first joined.
-          ...(!isRestart && needsCode && joinCode ? { joinCode: joinCode.trim().toUpperCase() } : {}),
+          // When the page already knows the code (the owner of a supporter
+          // world founding their first airline) it is sent for them; otherwise
+          // as typed — the server compares trimmed and case-insensitively
+          // (worldConfig joinCodeMatches), for generated codes and passwords alike.
+          ...(!isRestart && world.visibility === 'PRIVATE' && (needsCode ? joinCode.trim() : world.joinCode)
+            ? { joinCode: needsCode ? joinCode.trim() : world.joinCode } : {}),
         },
       });
       onJoined?.(res.airline);
@@ -285,7 +291,7 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
         </datalist>
         {!isRestart && needsCode && (
           <input
-            required placeholder="Join code" className="hub-input"
+            required placeholder={world.supporterWorld ? 'World password' : 'Join code'} className="hub-input"
             value={joinCode} onChange={(e) => setJoinCode(e.target.value)}
           />
         )}
@@ -321,9 +327,17 @@ const createPaceLabel = (w) => {
   return `1 wk / ${Number.isInteger(d) ? d : d.toFixed(1)} day${d === 1 ? '' : 's'}`;
 };
 
-function CreateWorld({ token, onCreated }) {
+// Shown to admins (operator worlds, any visibility) and to ♥ SUPPORTERS (a
+// private world for their own group, password-protected, at most two live ones
+// per account — see World.ownerAccountId in the server schema). Same knobs for
+// both; the server decides what the caller may do (POST /worlds).
+export function CreateWorld({ token, me, onCreated }) {
+  const admin = me?.account?.isAdmin === true;
+  const slots = me?.supporterWorldSlots ?? { used: 0, max: 2 };
+  const slotsLeft = admin ? Infinity : Math.max(0, slots.max - slots.used);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
   const [lengthSel, setLengthSel] = useState('50');   // preset value or 'custom'
   const [lengthCustom, setLengthCustom] = useState('75');
   const [paceSel, setPaceSel] = useState('24');       // preset value or 'custom'
@@ -362,7 +376,9 @@ function CreateWorld({ token, onCreated }) {
           ...(name.trim() ? { name: name.trim() } : {}),
           lengthYears,
           weeksPerDay,
-          visibility,
+          // A supporter's world is private whatever is sent; the server forces it.
+          visibility: admin ? visibility : 'PRIVATE',
+          ...(password.trim() ? { password: password.trim() } : {}),
           maxPlayers: Number(maxPlayers),
           startingCapital: Math.round(Number(startingCapital)),
           demandMultiplier: Number(demandMultiplier),
@@ -385,14 +401,40 @@ function CreateWorld({ token, onCreated }) {
   };
 
   if (!open) {
-    return <button className="btn" onClick={() => setOpen(true)}>+ Create a world</button>;
+    if (!admin && slotsLeft === 0) {
+      return (
+        <span className="muted small" title="Leave one, or wait for one to end, to open another">
+          ♥ You're in {slots.used} of {slots.max} supporter worlds
+        </span>
+      );
+    }
+    return (
+      <button className="btn" onClick={() => setOpen(true)}>
+        {admin ? '+ Create a world' : '♥ Create a private world'}
+      </button>
+    );
   }
   return (
     <form className="card create-form" onSubmit={create}>
-      <h3>New world</h3>
+      <h3>{admin ? 'New world' : 'New private world for your group'}</h3>
+      {!admin && (
+        <p className="muted small">
+          A world of your own, for the people you give the password to. Everyone who joins needs the
+          ♥ SUPPORTER badge, and each account can be in {slots.max} supporter worlds at a time
+          (you're in {slots.used}). Once it's created you'll found your own airline in it like
+          any other world — your friends join from the world's link with the password.
+        </p>
+      )}
       <div className="row wrap">
         <input maxLength={60} placeholder="Name (optional, we'll invent one)" value={name}
           onChange={(e) => setName(e.target.value)} />
+        {!admin && (
+          <label>Password
+            <input required minLength={4} maxLength={32} placeholder="What your friends type to join"
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+            <span className="muted small">4–32 characters, not case-sensitive. You can change it later from the world page.</span>
+          </label>
+        )}
         <label>Length
           <select value={lengthSel} onChange={(e) => setLengthSel(e.target.value)}>
             {LENGTH_PRESETS.map((y) => <option key={y} value={String(y)}>{y} game-years</option>)}
@@ -438,12 +480,20 @@ function CreateWorld({ token, onCreated }) {
             <span className="muted">{createPaceLabel(Number(paceCustom))}</span>
           </label>
         )}
-        <label>Visibility
-          <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-            <option value="PRIVATE">Private (join code)</option>
-            <option value="PUBLIC">Public</option>
-          </select>
-        </label>
+        {admin && (
+          <label>Visibility
+            <select value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+              <option value="PRIVATE">Private (join code)</option>
+              <option value="PUBLIC">Public</option>
+            </select>
+          </label>
+        )}
+        {admin && visibility === 'PRIVATE' && (
+          <label>Join code
+            <input maxLength={32} placeholder="Leave empty for a generated code"
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+        )}
         <label>Max players
           <input type="number" min={1} max={500} value={maxPlayers}
             onChange={(e) => setMaxPlayers(e.target.value)} />
@@ -806,10 +856,42 @@ function WorldCard({ world: w }) {
 }
 
 // ── One of your airlines ─────────────────────────────────────────────────────
+// ♥ tag on a supporter world (created by a player for their group).
+export function SupporterWorldTag({ lapsed = false }) {
+  return (
+    <span className="wtag" style={{ '--wtag': lapsed ? '245,166,35' : '255,94,145' }}
+      title={lapsed
+        ? 'Your ♥ SUPPORTER badge is no longer active — renew it on Ko-fi to get back into this world'
+        : 'Supporter world: created by a player for their own group. Password to join, and the ♥ SUPPORTER badge to stay in.'}>
+      <span aria-hidden="true">{lapsed ? '⚠' : '♥'}</span>{lapsed ? 'badge lapsed' : 'private'}
+    </span>
+  );
+}
+
+// A supporter world you own but have not founded an airline in yet.
+export function OwnedWorldCard({ world: w }) {
+  const when = whenLabel(w);
+  return (
+    <a className="wcard wcard-air" href={`#/w/${w.id}`}>
+      <div className="wcard-top">
+        <h3 className="wcard-name">{w.name}</h3>
+        <SupporterWorldTag />
+      </div>
+      <p className="wcard-air-id muted small">Your world · no airline yet</p>
+      <p className="wcard-cash">
+        {w.playerCount ?? 0}<span className="muted small"> / {w.maxPlayers} players</span>
+      </p>
+      <div className="wcard-clock"><span className="muted small">{when.line}</span></div>
+      {w.joinCode ? <p className="muted small">Password: <code className="join-code">{w.joinCode}</code></p> : null}
+      <span className="wcard-resume">Found your airline →</span>
+    </a>
+  );
+}
+
 // The world's name leads, not the airline's: four airlines called "Austro" in
 // four worlds are told apart by where they fly, and the old chip buried that in
 // muted grey after an em-dash.
-function AirlineCard({ airline: a }) {
+export function AirlineCard({ airline: a, lapsed = false }) {
   const w = a.world;
   const when = w ? whenLabel(w) : null;
   const broke = a.cash != null && a.cash < 0;
@@ -819,6 +901,7 @@ function AirlineCard({ airline: a }) {
     <a className={`wcard wcard-air${broke ? ' wcard-broke' : ''}`} href={`#/w/${a.worldId}`}>
       <div className="wcard-top">
         <h3 className="wcard-name">{w?.name ?? 'Your airline'}</h3>
+        {w?.supporterWorld ? <SupporterWorldTag lapsed={lapsed} /> : null}
         {w && <StageChip stage={w.stage ?? 'beta'} />}
       </div>
       <p className="wcard-air-id muted small">
@@ -879,17 +962,27 @@ function WorldsScreen({ token, me }) {
   }, [worlds, myWorldIds]);
 
   const airlines = me?.airlines ?? [];
+  // Supporter worlds this account created but has not founded an airline in
+  // yet (navigated away from the join form). Without this they would have no
+  // way back to their own world — or its password.
+  const ownedOnly = me?.ownedWorlds ?? [];
+  const isSupporter = me?.account?.isSupporter === true;
+  const canCreate = token && (me?.account?.isAdmin || isSupporter);
 
   return (
     <>
-      {airlines.length > 0 && (
+      {(airlines.length > 0 || ownedOnly.length > 0) && (
         <section>
           <div className="list-head">
             <h2>Your airlines</h2>
             <span className="muted small">{airlines.length} in play — pick up where you left off</span>
           </div>
           <div className="lobby-grid">
-            {airlines.map((a) => <AirlineCard key={a.id} airline={a} />)}
+            {airlines.map((a) => (
+              <AirlineCard key={a.id} airline={a}
+                lapsed={a.world?.supporterWorld === true && !isSupporter && !me?.account?.isAdmin} />
+            ))}
+            {ownedOnly.map((w) => <OwnedWorldCard key={w.id} world={w} />)}
           </div>
         </section>
       )}
@@ -897,9 +990,9 @@ function WorldsScreen({ token, me }) {
       <section>
         <div className="list-head">
           <h2>{airlines.length > 0 ? 'Start another airline' : 'Open worlds'}</h2>
-          {/* World creation is admin-only — the server enforces it (403), this just
-              hides the button for everyone else. */}
-          {token && me?.account?.isAdmin && <CreateWorld token={token} />}
+          {/* Admins create operator worlds; ♥ SUPPORTERS create private worlds for
+              their group. The server is the real gate (POST /worlds → 403). */}
+          {canCreate && <CreateWorld token={token} me={me} />}
         </div>
         <p className="muted small section-note">
           Every world is a separate game with its own rules, its own clock and its own rivals. Join as
@@ -1091,6 +1184,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [openRival, setOpenRival] = useState(null); // airlineId of expanded row
+  const [pwDraft, setPwDraft] = useState(null);     // owner's new-password draft (null = closed)
 
   const load = useCallback(() => {
     api(`/worlds/${worldId}`, { token }).then((d) => { setData(d); setError(null); }).catch(setError);
@@ -1133,6 +1227,23 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   // counts toward playerCount, so re-founding takes no new seat.
   const canJoin = token && !myAirline && ['LOBBY', 'RUNNING'].includes(world.status)
     && (world.playerCount ?? standings.length) < world.maxPlayers;
+  // Supporter worlds (created by a player for their group): the badge is the
+  // ticket. `supporterLapsed` comes from the server for a MEMBER whose badge has
+  // gone — the card, no standings, no play. A non-member without the badge sees
+  // why they can't join instead of a form that would only ever 403.
+  const isAdminViewer = me?.account?.isAdmin === true;
+  const hasBadge = me?.account?.isSupporter === true || isAdminViewer;
+  const lapsed = data.supporterLapsed === true;
+  const needsBadgeToJoin = canJoin && world.supporterWorld && !hasBadge;
+  const isOwner = Boolean(me?.account?.id) && world.ownerAccountId === me.account.id;
+
+  const changePassword = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api(`/worlds/${world.id}/password`, { method: 'POST', token, body: { password: pwDraft.trim() } });
+      setPwDraft(null); refreshMe(); load();
+    } catch (e) { setError(e); }
+  };
 
   const leave = async () => {
     if (!(await confirm({ title: `Abandon ${mine.name} in ${world.name}?`, body: "This can't be undone.", danger: true, confirmLabel: 'Abandon airline' }))) return;
@@ -1166,6 +1277,12 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           <h2>
             {world.name} <StatusChip status={world.status} />
             <StageChip stage={world.stage ?? 'beta'} size="md" />
+            {world.supporterWorld && (
+              <span title={isOwner ? 'Your supporter world — you chose the password and who gets it' : 'Supporter world: created by a player for their own group. Password to join, and the ♥ SUPPORTER badge to stay in.'}
+                style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(255,94,145,0.15)', color: '#ff5e91', border: '1px solid rgba(255,94,145,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                ♥ {isOwner ? 'YOUR PRIVATE WORLD' : 'PRIVATE WORLD'}
+              </span>
+            )}
             {world.startYear != null && (
               <span title={`Era world: the calendar started in ${world.startYear} and moves through real time — aircraft appear when they entered service, demand, fares and fuel follow history`}
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(169,139,255,0.15)', color: '#a98bff', border: '1px solid rgba(169,139,255,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
@@ -1202,13 +1319,39 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                   : `Year ${world.progress.year} of ${world.progress.totalYears}`)} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.seedCapital != null && <> · start with {fmtMoney(world.seedCapital)}</>}
-            {world.joinCode ? <> · join code: <code className="join-code">{world.joinCode}</code></> : null}
+            {world.joinCode ? <> · {world.supporterWorld ? 'password' : 'join code'}: <code className="join-code">{world.joinCode}</code></> : null}
+            {world.joinCode && (isOwner || isAdminViewer) && pwDraft == null
+              ? <> · <button className="btn small" type="button" onClick={() => setPwDraft(world.joinCode ?? '')}>Change {world.supporterWorld ? 'password' : 'code'}</button></>
+              : null}
           </p>
+          {pwDraft != null && (
+            <form className="row wrap" onSubmit={changePassword}>
+              <input required minLength={4} maxLength={32} autoFocus className="hub-input"
+                placeholder="New password" value={pwDraft} onChange={(e) => setPwDraft(e.target.value)} />
+              <button className="btn primary small" type="submit">Save</button>
+              <button className="btn small" type="button" onClick={() => setPwDraft(null)}>Cancel</button>
+              <span className="muted small">4–32 characters, not case-sensitive. Anyone already in stays in.</span>
+            </form>
+          )}
           {world.status !== 'LOBBY' && (
             <div className="progress"><div style={{ width: `${world.progress.percent}%` }} /></div>
           )}
         </div>
-        {mine && (
+        {lapsed && (
+          <div className="mine" style={{ borderLeft: '3px solid #f5a623', paddingLeft: 12 }}>
+            <p><strong>⚠ Your ♥ SUPPORTER badge is no longer active.</strong></p>
+            <p className="muted small">
+              This is a supporter world, and the badge is what keeps you in it. Your airline
+              {mine ? <> <strong>{mine.name}</strong></> : null} keeps flying on autopilot, exactly as if you
+              were away — nothing is lost. Renew your monthly tip on Ko-fi and you're back in as soon as
+              the badge is on (it's granted by hand, usually within a day — put your username in the Ko-fi message).
+            </p>
+            <div className="row">
+              <a className="btn primary small" href={KOFI_URL} target="_blank" rel="noreferrer">♥ Renew on Ko-fi</a>
+            </div>
+          </div>
+        )}
+        {mine && !lapsed && (
           <div className="mine">
             <p>Flying as <strong>{mine.name}</strong> ({mine.hub}) — {fmtMoney(mine.cash)}</p>
             <div className="row">
@@ -1230,8 +1373,26 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         )}
       </div>
 
-      {canJoin && (
+      {needsBadgeToJoin && (
         <div className="card">
+          <p><strong>♥ This is a supporter world.</strong></p>
+          <p className="muted small">
+            It was created by a player for their own group, and everyone in it carries the
+            ♥ SUPPORTER badge — the monthly tip that helps pay for the servers. Get the badge and
+            come back with the password to join.
+          </p>
+          <a className="btn small" href={KOFI_URL} target="_blank" rel="noreferrer">♥ Support on Ko-fi</a>
+        </div>
+      )}
+      {canJoin && !needsBadgeToJoin && (
+        <div className="card">
+          {world.supporterWorld && isOwner && (
+            <p className="muted small">
+              Your world is ready. Found your own airline below, then send friends the link to this page
+              and the password <code className="join-code">{world.joinCode}</code> — they'll need the
+              ♥ SUPPORTER badge too.
+            </p>
+          )}
           <JoinForm
             world={world} token={token} hubCounts={hubCounts}
             needsCode={world.visibility === 'PRIVATE' && !world.joinCode}

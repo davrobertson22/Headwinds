@@ -178,6 +178,43 @@ function badRequest(message) {
 
 export const genWorldSeed = () => randomUUID();
 
+// ── Supporter worlds ─────────────────────────────────────────────────────────
+// A ♥ SUPPORTER account may create private worlds for its own group (see
+// World.ownerAccountId in schema.prisma). Two dials, both here so the client
+// and the tests read the same numbers.
+//
+// How many LIVE (LOBBY or RUNNING) supporter worlds one account may be in at
+// once — owning one counts as being in it. Dave, 2026-09-19: "max 2 private
+// worlds they can participate in per user". Ended and archived worlds free
+// their slot; operator-created private worlds never count.
+export const MAX_SUPPORTER_WORLD_MEMBERSHIPS = 2;
+
+// The owner's password for the world. Stored in World.joinCode, plaintext,
+// exactly like the generated admin codes (members read it back from /me to
+// pass on). Compared trimmed and case-insensitively — the web client has
+// always upper-cased the typed code before sending it, and a password a group
+// shares over Discord should not fail on someone's phone auto-capitalising.
+export const PASSWORD_MIN_LENGTH = 4;
+export const PASSWORD_MAX_LENGTH = 32;
+
+export function validatePassword(password) {
+  if (typeof password !== 'string') throw badRequest('A password is required for a private world');
+  const p = password.trim();
+  if (p.length < PASSWORD_MIN_LENGTH || p.length > PASSWORD_MAX_LENGTH) {
+    throw badRequest(`The password must be ${PASSWORD_MIN_LENGTH}–${PASSWORD_MAX_LENGTH} characters`);
+  }
+  return p;
+}
+
+// Does a typed join code / password open this world? ONE comparison for both
+// the generated admin codes and owner-chosen passwords (joinWorld and the
+// tests call this — never compare the strings inline).
+export function joinCodeMatches(typed, stored) {
+  if (typeof typed !== 'string' || typeof stored !== 'string') return false;
+  const norm = (v) => v.trim().toUpperCase();
+  return norm(typed).length > 0 && norm(typed) === norm(stored);
+}
+
 // 6-char uppercase join code (no ambiguous chars), e.g. "K7P2QF".
 export function genJoinCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -267,6 +304,12 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.
     joinCode: includeJoinCode && world.visibility === 'PRIVATE' ? world.joinCode : undefined,
+    // Supporter world (created by a ♥ SUPPORTER account for its own group, see
+    // schema.prisma). The owner id is public within the world: the world screen
+    // uses it to show the owner their password controls, and the lobby to say
+    // "your world". It is a cuid, not an email.
+    supporterWorld: Boolean(world.ownerAccountId),
+    ownerAccountId: world.ownerAccountId ?? null,
     startedAt: world.startedAt,
     endsAt: world.endsAt,
     createdAt: world.createdAt,

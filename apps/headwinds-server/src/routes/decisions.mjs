@@ -7,6 +7,9 @@
 // Decision table (audit trail + Phase-3 replay/anti-abuse analysis).
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
+// Supporter worlds: a member whose badge has lapsed can neither read their
+// state nor act until it is back (lib/access.mjs). Their airline keeps flying.
+import { assertSupporterAccess } from '../lib/access.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
@@ -127,6 +130,7 @@ async function loadMyAirline(request) {
     include: { world: true },
   });
   if (!airline) throw httpError(404, 'You have no airline in this world');
+  assertSupporterAccess(airline.world, request.account);
   return airline;
 }
 
@@ -173,6 +177,7 @@ export default async function decisionRoutes(fastify) {
     if (!slim) throw httpError(404, 'You have no airline in this world');
 
     const world = await prisma.world.findUnique({ where: { id: slim.worldId } });
+    assertSupporterAccess(world, request.account);
     const worldStamp = await worldStampOf(slim.worldId);
     const stamp = `${slim.version}:${worldStamp}`;
     const dueAt = nextTickAt(world);
