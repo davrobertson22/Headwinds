@@ -41,6 +41,7 @@ import { getAlliance, allianceMembers } from '../data/alliances.js';
 import { memberPairKeysOf } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { fuelSimMultiplierOf } from '../utils/fuelOps.js';
 import {
   configBodies,
   defaultConfig,
@@ -731,9 +732,14 @@ export function projectRouteAddition(state, spec) {
     // week 1 that alone was a 42% overstatement of passengers (784 previewed
     // against 551 booked); previewing the real month brings it to 1.6%.
     gameDate: gameDateIn = state.gameDate ?? currentGameDate(state),
-    // The world's CURRENT fuel price, not a hardcoded 1.0 — the forms used to
-    // forecast every route at par no matter what fuel was doing.
-    fuelMultiplier = state.fuelMultiplier ?? 1.0,
+    // What the sims will actually multiply fuel by this week: the market
+    // index with the live event shock, blended with the hedges, times the
+    // efficiency programme's burn modifier (utils/fuelOps.js — the tick's own
+    // derivation). This used to read `state.fuelMultiplier ?? 1.0`, and
+    // `state.fuelMultiplier` is never written, so the Route Planner, the
+    // route finder and the aircraft recommender all forecast at par no
+    // matter what fuel was doing.
+    fuelMultiplier = fuelSimMultiplierOf(state),
     // EVENT-ONLY multiplier for this O&D. The per-world multiplier
     // (state.worldDemandMult) is composed on top below, so a caller that already
     // has `eventDemand.multFor(o, d)` in hand — RoutePlanner and Routes both do —

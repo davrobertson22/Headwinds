@@ -110,7 +110,15 @@ function computeProjectWeek(state) {
   // that have not been thrown; the projection does not pretend to know them, and
   // that residual — not the prep — is the honest gap between forecast and result.
   const prep = prepareWeek(state, { rollNewEvents: false });
-  const { gameDate, fuelMultiplier } = prep;
+  const { gameDate, fuelSimMultiplier, fuelBurnMod } = prep;
+  // `fuelMultiplier` on the projection is what the ROUTE SIMS multiply by —
+  // price × burn — because every per-route preview (route map, planner,
+  // fleet detail, dashboard) hands it straight to simulateRoute and must
+  // agree with the tick to the dollar. The price alone, for anything that
+  // talks about the market (the P&L note, the fuel card), is
+  // `fuelPriceMultiplier`. With no programme on, the two are the same number.
+  const fuelMultiplier      = fuelSimMultiplier ?? prep.fuelMultiplier;
+  const fuelPriceMultiplier = prep.fuelMultiplier;
 
   // Demand shock from the events that will still be live this week, for callers
   // that want to show the multiplier. The shock itself is applied INSIDE
@@ -201,6 +209,8 @@ function computeProjectWeek(state) {
     revById,
     gameDate,
     fuelMultiplier,
+    fuelPriceMultiplier,
+    fuelBurnMod: fuelBurnMod ?? 1,
     globalDemandMult,
     eventDemandAdj,
     effectiveRevenue,

@@ -38,6 +38,10 @@ import {
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { fuelImpact, hedgeQuoteDollars, hedgeUnwindDollars, hedgeScoreboard } from '../utils/fuelImpact.js';
+import {
+  FUEL_PROGRAMMES, fleetBurnMod, programmeWeeklyCost, programmeActivationCost, canActivateProgramme,
+  programmeSavingsFromReport,
+} from '../../packages/engine/src/data/fuelProgrammes.js';
 import { consumeNavFilter } from '../utils/navIntent.js';
 // pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
@@ -988,7 +992,9 @@ function PLStatement({ proj }) {
                 the same flying; the remainder is the market. Kept as a note row,
                 not a cost line — it is already inside Fuel & Oil. */}
             {(() => {
-              const mult = proj.fuelMultiplier;
+              // The PRICE multiplier: the note is about the market, and
+              // proj.fuelMultiplier now also carries the burn programme.
+              const mult = proj.fuelPriceMultiplier ?? proj.fuelMultiplier;
               if (!(totFuel > 0) || !(mult > 0) || Math.abs(mult - 1) < 0.02) return null;
               const excess = Math.round(totFuel - totFuel / mult);
               const pwExcess = pw ? (() => {
@@ -1003,6 +1009,24 @@ function PLStatement({ proj }) {
                   </td>
                   {pw && <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>{pwExcess != null ? formatMoney(-pwExcess) : '—'}</td>}
                   <td style={{ textAlign: 'right', fontSize: 12, color: c, fontStyle: 'italic' }}>{formatMoney(-excess)}</td>
+                  <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)' }}>—</td>
+                </tr>
+              );
+            })()}
+            {/* The efficiency programme, likewise a note: what this week's
+                flying would have burned without it. Only while something is on. */}
+            {(() => {
+              const saved = programmeSavingsFromReport(proj.report);
+              if (!(saved > 0)) return null;
+              const pwSaved = pw ? (state.lastReport && Math.round(state.lastReport.totalFuel ?? -1) === Math.round(pw.fuel ?? -2)
+                ? programmeSavingsFromReport(state.lastReport) : null) : null;
+              return (
+                <tr data-testid="pl-fuel-programme-note">
+                  <td style={{ paddingLeft: 28, fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                    of which efficiency programmes saved ({Math.round((1 - (proj.fuelBurnMod ?? 1)) * 1000) / 10}% burn)
+                  </td>
+                  {pw && <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>{pwSaved != null ? `+${formatMoney(pwSaved)}` : '—'}</td>}
+                  <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--green)', fontStyle: 'italic' }}>+{formatMoney(saved)}</td>
                   <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)' }}>—</td>
                 </tr>
               );
@@ -3903,6 +3927,99 @@ export function FuelImpactCard({ state, compact = false }) {
   );
 }
 
+/**
+ * The fuel-efficiency programme (FUEL_OPERATIONS_PLAN.md §6): seven
+ * airline-wide burn levers, each with a cost and a side effect. Eligibility
+ * and capex come from the engine's canActivateProgramme — the same check
+ * SET_FUEL_PROGRAMME runs — so the toggle never promises what the reducer
+ * then refuses. The dollar figures use this week's base bill so "−2% burn"
+ * reads as money.
+ */
+export function FuelProgrammeCard({ state, dispatch }) {
+  const impact   = fuelImpact(state, { lookbacks: [] });
+  const bill     = impact?.bill ?? 0;
+  const burnMod  = fleetBurnMod(state);
+  const active   = state.fuelProgrammes ?? {};
+  const activeCount = FUEL_PROGRAMMES.filter(p => active[p.id]?.active).length;
+  // Fuel at burn 1.0 for this week's flying, so each programme's slice is a
+  // share of the SAME base — what it saves (or would save) per week.
+  const fuelAtFullBurn = burnMod > 0 ? bill / burnMod : bill;
+  const weeklyOpex = programmeWeeklyCost(state);
+  const savedNow   = Math.round(fuelAtFullBurn - bill);
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 };
+  const sideEffect = (p) => {
+    if (p.otpDelta)    return `−${(p.otpDelta * 100).toFixed(1)} pt on-time`;
+    if (p.maintMod)    return `${p.maintMod > 1 ? '+' : '−'}${Math.round(Math.abs(p.maintMod - 1) * 100)}% maintenance`;
+    if (p.failureMult) return `+${Math.round((p.failureMult - 1) * 100)}% breakdown odds`;
+    if (p.requires === 'hub') return 'needs a designated hub';
+    return 'no trade-off';
+  };
+  const costLine = (p) => {
+    const parts = [];
+    const oneOff = programmeActivationCost(p.id, state.fleet ?? []);
+    const wk = (p.weekly?.flat ?? 0) + (p.weekly?.perTail ?? 0) * (state.fleet ?? []).filter(a => a.status !== 'retired').length;
+    if (oneOff > 0) parts.push(`${formatMoney(oneOff)} once`);
+    if (wk > 0)     parts.push(`${formatMoney(wk)}/wk`);
+    return parts.length ? parts.join(' + ') : 'free';
+  };
+  return (
+    <div style={card} data-testid="fuel-programme-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Fuel Efficiency Programme</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {activeCount === 0
+            ? 'Nothing running — burn at 100%'
+            : `${activeCount} running · burn −${Math.round((1 - burnMod) * 1000) / 10}%`
+              + (bill > 0 ? ` · saving ${formatMoney(savedNow)}/wk` : '')
+              + (weeklyOpex > 0 ? ` · costing ${formatMoney(weeklyOpex)}/wk` : '')}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+        Hedges fix the price; these cut the burn. Each one is worth a percent or two and each has a
+        catch — punctuality, maintenance, breakdown odds or a bill — so pick the ones your airline can wear.
+        Savings compound; everything on is about 8% off the fuel bill.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 8 }}>
+        {FUEL_PROGRAMMES.map(p => {
+          const isOn  = active[p.id]?.active === true;
+          const check = isOn ? null : canActivateProgramme(state, p.id);
+          const perWeek = bill > 0 ? Math.round(fuelAtFullBurn * p.burn) : null;
+          return (
+            <div key={p.id} data-testid={`fuel-programme-${p.id}`} style={{
+              display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 6,
+              background: isOn ? 'rgba(56,211,159,0.08)' : 'var(--surface-raised)',
+              border: `1px solid ${isOn ? 'rgba(56,211,159,0.35)' : 'var(--border)'}`,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 12 }}>{p.label}</span>
+                  <span style={{ fontSize: 12, color: 'var(--green)', whiteSpace: 'nowrap' }}>
+                    −{(p.burn * 100).toFixed(1)}% burn{perWeek != null ? ` · ${formatMoney(perWeek)}/wk` : ''}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>{p.description}</div>
+                <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text-dim)' }}>
+                  {costLine(p)} · {sideEffect(p)}
+                  {!isOn && check && !check.ok && <span style={{ color: 'var(--yellow)' }}> · {check.reason}</span>}
+                </div>
+              </div>
+              <button
+                className={isOn ? 'btn btn-ghost' : 'btn btn-primary'}
+                style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                disabled={!isOn && check && !check.ok}
+                title={isOn ? 'Switch off — free, takes effect next week' : (check?.ok ? 'Start this programme' : check?.reason)}
+                onClick={() => dispatch({ type: 'SET_FUEL_PROGRAMME', id: p.id, active: !isOn })}
+              >
+                {isOn ? 'Stop' : 'Start'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function FuelHedging() {
   const { state, dispatch } = useGame();
   const [selDuration, setSelDuration] = useState('short');
@@ -3991,6 +4108,8 @@ function FuelHedging() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       <FuelImpactCard state={state} />
+
+      <FuelProgrammeCard state={state} dispatch={dispatch} />
 
       {/* ── Gauge + history ──────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

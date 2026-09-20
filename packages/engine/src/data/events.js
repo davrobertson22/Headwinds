@@ -731,11 +731,14 @@ export function mechanicalFailureProb(ageWeeks, maintenanceBudget = 1.0) {
  *   { aircraftId, aircraftName, tailNumber, label, icon, severity, weeksGrounded }
  * Only rolls for aircraft that are currently assigned (flying) and not already grounded.
  */
-export function rollMechanicalFailures(fleet, maintenanceBudget = 1.0) {
+export function rollMechanicalFailures(fleet, maintenanceBudget = 1.0, probMult = 1.0) {
+  // `probMult` scales the odds without touching the RNG sequence (one draw
+  // per in-service tail either way) — the statistical contingency-fuel
+  // programme's side effect. 1.0 leaves every world byte-identical.
   const failures = [];
   for (const aircraft of fleet) {
     if (isOutOfService(aircraft)) continue; // grounded or in a heavy check
-    const prob = weeklyWearFailureProb(aircraft, null, maintenanceBudget);
+    const prob = weeklyWearFailureProb(aircraft, null, maintenanceBudget) * probMult;
     if (Math.random() > prob) continue;
 
     // Drawn from what THIS airframe can suffer — a propliner cannot lose a

@@ -45,7 +45,6 @@
 // prep in one place is what stops them disagreeing again.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ERA_FUEL_MIN_INDEX } from '../data/era.js';
 import {
   weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm,
 } from './simulation.js';
@@ -56,7 +55,9 @@ import { rollEvents, tickEvents } from '../data/events.js';
 import { tickBaseConstruction } from '../data/mroBase.js';
 import { tickLoungeConstruction } from '../data/lounges.js';
 import { routeLaunchCost } from '../data/overhead.js';
-import { clampFuelIndex, effectiveFuelMultiplier, absoluteWeek } from './fuel.js';
+import { absoluteWeek } from './fuel.js';
+import { resolveFuelForWeek } from './fuelOps.js';
+import { programmeMaintMod, programmeOtpDelta } from '../data/fuelProgrammes.js';
 
 /**
  * Run every deterministic pre-tick transform ADVANCE_WEEK applies before it
@@ -120,26 +121,31 @@ export function prepareWeek(state, {
     if (fx.otpDelta) eventOtpDelta += fx.otpDelta;
   }
   eventOtpDelta = Math.min(0.25, eventOtpDelta);
+  // The fuel-efficiency programme (data/fuelProgrammes.js) gives up
+  // punctuality for burn. It rides the same transient channel as event
+  // disruption, so nothing on state.labor moves and a switched-off programme
+  // leaves the week exactly as it was.
+  eventOtpDelta += programmeOtpDelta(state);
 
   // ── Fuel price + hedging ───────────────────────────────────────────────────
   // The shock belongs IN the index: a spike and a high index are the same
   // commodity move, so hedges must cover it. Multiplying it on after the hedge
   // blend makes being 100% hedged through a spike do nothing — the one moment
   // hedging exists for.
-  const injectedFuel = (isMultiplayer
-    && typeof worldFuelIndex === 'number' && Number.isFinite(worldFuelIndex))
-    ? worldFuelIndex : null;
-  const baseFuelIndex    = injectedFuel ?? state.fuelPrice?.index ?? 1.0;
-  const currentFuelIndex = fuelMult === 1 ? baseFuelIndex : clampFuelIndex(baseFuelIndex * fuelMult, state.startYear != null ? ERA_FUEL_MIN_INDEX : undefined);
-
-  const curAbsWeek   = absoluteWeek(state.year, state.week);
-  const allHedges    = state.hedgeContracts ?? [];
-  const activeHedges = allHedges.filter(h => h.expiryAbsWeek > curAbsWeek);
-  const liveHedges   = activeHedges;
-  const fuelMultiplier = state.fuelPrice
-    ? effectiveFuelMultiplier(currentFuelIndex, activeHedges)
-    // Pre-fuelPrice saves carry a bare multiplier and no index to shock.
-    : (state.fuelMultiplier ?? 1.0) * fuelMult;
+  //
+  // PRICE (fuelMultiplier, hedges blended) and BURN (fuelBurnMod, the
+  // efficiency programme) are resolved together in utils/fuelOps.js and kept
+  // apart: the sims receive their product (fuelSimMultiplier); the reducer,
+  // the report, history and every hedge calculation keep the price alone, so
+  // the base bill fuelImpact.js reconstructs is "this flying, with these
+  // programmes, at 1.0×" and hedge savings stay exact. Previews that do not
+  // run this prep derive the same product with fuelSimMultiplierOf.
+  const {
+    injectedFuel, baseFuelIndex, currentFuelIndex, curAbsWeek, activeHedges,
+    fuelMultiplier, fuelBurnMod, fuelSimMultiplier,
+  } = resolveFuelForWeek(state, { fuelMult, worldFuelIndex });
+  const liveHedges    = activeHedges;
+  const fleetMaintMod = programmeMaintMod(state);
 
   const fuelPriceHistory = [...(state.fuelPrice?.history ?? []), currentFuelIndex].slice(-52);
 
@@ -256,6 +262,7 @@ export function prepareWeek(state, {
     survivingEvents, expiredEvents, newEvents, allEvents, eventOtpDelta,
     crewShortfall: crewShort, crewUnstaffed, crewGroundedIds,
     baseFuelIndex, currentFuelIndex, fuelMultiplier, fuelPriceHistory, injectedFuel,
+    fuelBurnMod, fuelSimMultiplier, fleetMaintMod,
     activeHedges, liveHedges,
     completedChecks, tickedFleetPre, coverPass,
     seasonalReactivationCost, seasonalReactivations, seasonAdjustedRoutes,
@@ -271,7 +278,11 @@ export function prepareWeek(state, {
       fleet:        coverPass.fleet,
       routes:       seasonAdjustedRoutes,
       cargoRoutes:  coverPass.cargoRoutes,
-      fuelMultiplier,
+      // What the route sims multiply fuelCostPerKm by: price × burn. The
+      // price-only figure is `fuelMultiplier` on the prep result, not here.
+      fuelMultiplier: fuelSimMultiplier,
+      fuelBurnMod,
+      fleetMaintMod,
       loyalty:      state.loyalty,
       gameDate,
       activeEvents: allEvents,

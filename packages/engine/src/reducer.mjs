@@ -64,6 +64,8 @@ import {
 import {
   wifiInstallCost, wifiRetrofitCost, wifiLeaseSurcharge, canRetrofitWifi, isWifiEquipped,
 } from './data/wifi.js';
+import { FUEL_PROGRAMME_MAP, canActivateProgramme, programmeFailureMult } from './data/fuelProgrammes.js';
+import { canRetrofitWingtips, fitWingtips } from './data/retrofits.js';
 import {
   canBuildLounge, makeLounge, loungeCloseRefund, tickLoungeConstruction,
   normalizeLoungePolicy, isLoungeOpen, LOUNGE_BUILD_COST,
@@ -2083,6 +2085,93 @@ function reducer(state, action) {
       };
     }
 
+    // ─── Fuel-efficiency programme (FUEL_OPERATIONS_PLAN.md §6) ──────────────
+    // Airline-wide burn levers. canActivateProgramme() is the same check the
+    // Fuel tab shows, so the capex on the toggle is the capex taken here.
+    // Switching off is free and immediate; switching on again pays the
+    // one-off again (a re-training, a re-fit). The burn itself is applied by
+    // tickPrep through utils/fuelOps.js — nothing here touches fuel numbers.
+    case 'SET_FUEL_PROGRAMME': {
+      const def = FUEL_PROGRAMME_MAP[action.id];
+      if (!def) return state;
+      const current = state.fuelProgrammes ?? {};
+      const wantOn  = action.active === true;
+      const isOn    = current[def.id]?.active === true;
+      if (wantOn === isOn) return state;
+      if (!wantOn) {
+        const { [def.id]: _off, ...rest } = current;
+        return { ...state, fuelProgrammes: rest };
+      }
+      const check = canActivateProgramme(state, def.id);
+      if (!check.ok) {
+        return {
+          ...state,
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            { type: 'warning', icon: '⛽', title: `${def.label} not started`, message: check.reason },
+          ],
+        };
+      }
+      return {
+        ...state,
+        cash: state.cash - check.capex,
+        fuelProgrammes: {
+          ...current,
+          [def.id]: { active: true, sinceAbsWeek: absoluteWeek(state.year, state.week), paid: check.capex },
+        },
+        ...(check.capex > 0 ? {
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            { type: 'success', icon: '⛽', title: `${def.label} started`,
+              message: `${formatMoney(check.capex)} spent. Burn falls ${(def.burn * 100).toFixed(1)}% from next week.`, duration: 6000 },
+          ],
+        } : {}),
+      };
+    }
+
+    // ─── Winglet retrofit (FUEL_OPERATIONS_PLAN.md §6.2) ──────────────────────
+    // The INSTALL_WIFI shape: bulk ids, one quote helper shared with the UI,
+    // capex taken once, the tail's fuelMod/rangeMod folded exactly as an
+    // order-time fit would have folded them.
+    case 'RETROFIT_WINGTIPS': {
+      const ids = [...new Set((action.aircraftIds ?? (action.aircraftId ? [action.aircraftId] : [])).filter(Boolean))];
+      if (ids.length === 0) return state;
+      const targets = (state.fleet ?? []).filter(a => ids.includes(a.id));
+      if (targets.length === 0) return state;
+      const check = canRetrofitWingtips(targets, state.cash);
+      if (!check.ok) {
+        return {
+          ...state,
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            {
+              type: 'warning', icon: '🪽',
+              title: 'Wingtips not fitted',
+              message: check.eligible.length === 0
+                ? check.reasons[0]
+                : `${check.reasons[0]} Fitting ${check.eligible.length} aircraft costs `
+                  + `${formatMoney(check.capex)}; you have ${formatMoney(state.cash)}.`,
+            },
+          ],
+        };
+      }
+      const fitted = new Set(check.eligible.map(a => a.id));
+      return {
+        ...state,
+        cash:  state.cash - check.capex,
+        fleet: state.fleet.map(a => (fitted.has(a.id) ? fitWingtips(a) : a)),
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'success', icon: '🪽',
+            title: fitted.size === 1 ? 'Wingtips fitted' : `Wingtips fitted to ${fitted.size} aircraft`,
+            message: `${formatMoney(check.capex)} spent. Burn on those tails falls from next week.`,
+            duration: 6000,
+          },
+        ],
+      };
+    }
+
     // ─── Airport lounges ─────────────────────────────────────────────────────
     case 'BUILD_LOUNGE': {
       { const refused = refuseEraFeature(state, 'lounges'); if (refused) return refused; }
@@ -4085,8 +4174,10 @@ function reducer(state, action) {
       // tickedFleet (grounded countdown tick) was already applied before weeklyTick.
       const tickedFleet = coverPass.fleet;
 
-      // 2. Roll for new failures on non-grounded aircraft
-      const newFailures = rollMechanicalFailures(tickedFleet, mainBudget);
+      // 2. Roll for new failures on non-grounded aircraft. The statistical
+      //    contingency-fuel programme (data/fuelProgrammes.js) trades a little
+      //    margin for burn: its multiplier on the odds is exactly 1 when off.
+      const newFailures = rollMechanicalFailures(tickedFleet, mainBudget, programmeFailureMult(state));
 
       // ── AOG repair bills ──────────────────────────────────────────────────
       // A breakdown used to be free — the jet just sat there. It now carries a
@@ -6432,6 +6523,8 @@ function reconcileState(parsed) {
     // Scoreboard is created the first time a contract closes; readers use
     // `state.hedgeStats ?? emptyHedgeStats()`. Only carried when present.
     ...(parsed.hedgeStats ? { hedgeStats: parsed.hedgeStats } : {}),
+    // Fuel-efficiency programme toggles, likewise only when the save has any.
+    ...(parsed.fuelProgrammes ? { fuelProgrammes: parsed.fuelProgrammes } : {}),
     loyalty:          parsed.loyalty
       ? {
           effInvestment: parsed.loyalty.weeklyInvestment ?? 0,

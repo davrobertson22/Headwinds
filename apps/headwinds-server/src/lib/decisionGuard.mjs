@@ -23,6 +23,7 @@ import {
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
+import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
 export class GuardError extends Error {
@@ -230,6 +231,16 @@ function guardAircraftIds(payload, state) {
   const clean = [...new Set(ids.map(String))].filter((id) => own.has(id));
   if (clean.length === 0) throw new GuardError('Unknown aircraft.');
   return clean;
+}
+
+// A programme id from the catalogue and a boolean. Eligibility, the one-off
+// cost and the hub requirement are the reducer's (canActivateProgramme).
+function guardSetFuelProgramme(payload) {
+  const id = payload?.id;
+  if (typeof id !== 'string' || !FUEL_PROGRAMME_MAP[id]) {
+    throw new GuardError('That fuel programme is not on offer.');
+  }
+  return { id, active: payload?.active === true };
 }
 
 function guardScheduleCheckInner(payload, state) {
@@ -515,6 +526,8 @@ export function guardDecision(type, payload, state) {
     case 'SET_BASE_PARTS_POOL': return guardPartsPool(payload);
     case 'CLOSE_MRO_BASE':     return guardMroBase(payload);
     case 'INSTALL_WIFI':       return { aircraftIds: guardAircraftIds(payload, state) };
+    case 'RETROFIT_WINGTIPS':  return { aircraftIds: guardAircraftIds(payload, state) };
+    case 'SET_FUEL_PROGRAMME': return guardSetFuelProgramme(payload);
     case 'BUILD_LOUNGE':
     case 'CLOSE_LOUNGE':       return guardLounge(payload);
     case 'SET_LOUNGE_POLICY':  return guardLoungePolicy(payload);

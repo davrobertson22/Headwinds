@@ -36,6 +36,7 @@ import { routeAncillaries, ancillaryQualityBonus } from '../data/ancillaries.js'
 import {
   isWifiEquipped, wifiCoverageFor, groupWifiCoverage, fleetWifiCoverage, fleetWifiWeeklyCost,
 } from '../data/wifi.js';
+import { programmeWeeklyCost } from '../data/fuelProgrammes.js';
 import {
   isLoungeOpen, totalLoungeWeeklyOpex, routeLoungeAppeal, loungeContractFactor,
   loungeEndpointCoverage, loungeGuestEconomics,
@@ -3540,6 +3541,11 @@ export function weeklyTick(state) {
   const {
     fleet, routes: rawRoutes = [], cargoRoutes = [], gameDate = { month: 6 }, gates = {}, labor,
     maintenanceBudget = 1.0, fuelMultiplier = 1.0,
+    // Fuel-efficiency programme (data/fuelProgrammes.js), threaded by tickPrep:
+    // `fuelMultiplier` above already carries the burn modifier for the sims;
+    // these two are its side effects and its bookkeeping. Both exactly 1 when
+    // no programme is on.
+    fuelBurnMod = 1, fleetMaintMod = 1,
     mroBases = {}, absWeek = 0,
     lounges = {}, loungePolicy = null,
     marketingBudget = 0,
@@ -4371,7 +4377,7 @@ export function weeklyTick(state) {
       const weeklyMaintCost = Math.round(
         (type?.baseMaintenancePerWk ?? 0)
         * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft))
-        * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)
+        * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0) * fleetMaintMod
         * (tagHcf?.maint ?? 1.0)
       );
       totalHubCostSavings += result.hubCostSavings ?? 0;
@@ -4603,7 +4609,7 @@ export function weeklyTick(state) {
       * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft))
       * maintenanceBudget
       * maintenanceCostMultiplier
-      * (aircraft.maintMod ?? 1.0)
+      * (aircraft.maintMod ?? 1.0) * fleetMaintMod
       * (hcfRoute?.maint ?? 1.0)
     );
 
@@ -4691,7 +4697,7 @@ export function weeklyTick(state) {
       * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft))
       * maintenanceBudget
       * maintenanceCostMultiplier
-      * (aircraft.maintMod ?? 1.0)
+      * (aircraft.maintMod ?? 1.0) * fleetMaintMod
     );
 
     cargoRouteResults.push({
@@ -4736,7 +4742,7 @@ export function weeklyTick(state) {
     const mroF              = mroFactorsByAircraft[aircraft.id] ?? null;
     const facilityFactor    = Math.min(aircraftMaintFactor[aircraft.id] ?? 1.0, mroF?.lineFactor ?? 1.0);
     const baseMaint         = Math.round(
-      type.baseMaintenancePerWk * maintMult * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0)
+      type.baseMaintenancePerWk * maintMult * maintenanceBudget * maintenanceCostMultiplier * (aircraft.maintMod ?? 1.0) * fleetMaintMod
       * facilityFactor
     );
     // Reserve standby costs (design doc §4.4): a stationed reserve pays a
@@ -4851,6 +4857,9 @@ export function weeklyTick(state) {
   //     exactly why over-fitting a fleet quietly costs money. The traffic-driven
   //     part of the bill is separate and already inside totalAncillaryCost.
   const totalWifiCosts = fleetWifiWeeklyCost(fleet);
+  // Fuel-efficiency programme opex (licences, engine washes) — a fleet-wide
+  // overhead like Wi-Fi, charged every week the programmes are on.
+  const totalFuelProgrammeCosts = programmeWeeklyCost(state, fleet);
 
   // 5d. Lounges — the room's own running cost, plus what the free-access
   //     policies cost net of what alliance partners settle for their members.
@@ -4999,7 +5008,8 @@ export function weeklyTick(state) {
   const totalCost   = totalLeases + totalMaintenance + totalOpCost + totalGateFees
     + totalLaborCosts + totalFamilyBaseCosts + totalMroBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
-    + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts;
+    + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts
+    + totalFuelProgrammeCosts;
   const cashDelta   = totalRevenue + totalPartnerRevenue - totalCost;
 
   // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
@@ -5087,6 +5097,15 @@ export function weeklyTick(state) {
     // Connectivity & lounges. Always present (0 when unused) so the Finance page
     // and the P&L bridge can name them unconditionally.
     totalWifiCosts:         Math.round(totalWifiCosts),
+    // Fuel-efficiency programme: present only while something is on, so a
+    // save that never touched it keeps a byte-identical report (the golden
+    // master hashes lastReport). Readers use `?? 0` / `?? 1`.
+    ...(totalFuelProgrammeCosts > 0 ? { totalFuelProgrammeCosts: Math.round(totalFuelProgrammeCosts) } : {}),
+    ...(fuelBurnMod !== 1 ? {
+      fuelBurnMod,
+      // What the programmes saved this week: fuel at burn 1.0 minus fuel paid.
+      fuelProgrammeSavings: Math.round(totalFuel / fuelBurnMod - totalFuel),
+    } : {}),
     totalLoungeCosts:       Math.round(totalLoungeCosts),
     totalLoungeOpex:        Math.round(totalLoungeOpex),
     loungeGuests:           loungeGuests,

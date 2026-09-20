@@ -6,6 +6,7 @@ import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenance
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { fuelImpact } from '../utils/fuelImpact.js';
+import { programmeSavingsFromReport } from '../../packages/engine/src/data/fuelProgrammes.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
 import { isReserve } from '../data/reserve.js';
@@ -655,9 +656,13 @@ export default function Dashboard({ onNavigate }) {
           const color = lbl === 'Crisis' || lbl === 'Very High' ? 'red'
                       : lbl === 'High' ? 'yellow'
                       : lbl === 'Normal' ? 'blue' : 'green';
-          const sub = flat ? `${formatMoney(fuelKpi.bill)}/wk · at normal price`
+          // The efficiency programme's slice, when one is running (the tick
+          // records fuelBurnMod only then).
+          const progSaved = programmeSavingsFromReport(state.lastReport);
+          const sub = (flat ? `${formatMoney(fuelKpi.bill)}/wk · at normal price`
                     : up ? `+${formatMoney(fuelKpi.excess)}/wk above normal · ${formatMoney(fuelKpi.perTenth)} per 0.1`
-                    : `−${formatMoney(Math.abs(fuelKpi.excess))}/wk below normal · ${formatMoney(fuelKpi.perTenth)} per 0.1`;
+                    : `−${formatMoney(Math.abs(fuelKpi.excess))}/wk below normal · ${formatMoney(fuelKpi.perTenth)} per 0.1`)
+                    + (progSaved > 0 ? ` · programmes −${formatMoney(progSaved)}/wk` : '');
           return (
             <KpiBox
               label="Fuel"
