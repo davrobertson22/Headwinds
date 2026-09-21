@@ -2401,8 +2401,45 @@ export const GATE_COST_ESCALATION = {
 };
 
 /**
+ * Ceiling on the escalation, as a multiple of the tier's base rate.
+ *
+ * Compounding escalation is a gentle nudge at five gates and a brick wall at
+ * sixty: unbounded, a mega airport's 61st gate billed $36.5M/month on its own
+ * and a 61-gate hub cost $100M/week, while the same 61 gates at a regional
+ * airport cost $0.9M/week — a 114x spread created purely by the compounding
+ * rate rather than by any deliberate tier difference. Real airports do charge
+ * a premium as you take more of them, but the premium plateaus; it does not
+ * grow without limit.
+ *
+ * It bites harder here than in solo play: under gate scarcity one airline may
+ * hold GATE_AIRLINE_CAP of a mega airport's 500 gates — 300 of them — and the
+ * uncapped curve prices gate 300 in the hundreds of trillions per month.
+ *
+ * So the marginal multiplier stops at this multiple and every later gate bills
+ * that flat rate. The cap first bites at gate 20 (mega), 38 (major) and 92
+ * (regional), leaving every ordinary holding priced exactly as before.
+ */
+export const GATE_FEE_CAP_MULTIPLE = 6;
+
+/** Escalation multiplier for the Nth gate (1-indexed), ceiling applied. */
+function gateFeeMultiplier(rate, n) {
+  if (rate <= 1) return 1;
+  return Math.min(Math.pow(rate, n - 1), GATE_FEE_CAP_MULTIPLE);
+}
+
+/**
+ * Highest gate number still priced on the escalating curve. Gates above this
+ * all bill base x GATE_FEE_CAP_MULTIPLE.
+ */
+function lastEscalatingGate(rate) {
+  if (rate <= 1) return Infinity;
+  return Math.floor(Math.log(GATE_FEE_CAP_MULTIPLE) / Math.log(rate)) + 1;
+}
+
+/**
  * Monthly fee for the Nth gate at an airport (1-indexed).
- * Gate 1 = base rate; gate 2 = base × escalation; gate N = base × escalation^(N-1).
+ * Gate 1 = base rate; gate 2 = base x escalation; gate N = base x escalation^(N-1),
+ * up to a ceiling of base x GATE_FEE_CAP_MULTIPLE.
  *
  * @param {object} airport  - airport record from AIRPORTS
  * @param {number} [n=1]    - which gate number (1 = first gate)
@@ -2413,13 +2450,16 @@ export const GATE_COST_ESCALATION = {
 export function gateMonthlyFee(airport, n = 1) {
   const base = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
   const rate = GATE_COST_ESCALATION[airport?.tier] ?? 1.05;
-  return Math.round(base * Math.pow(rate, n - 1) * getEraCostScale());
+  return Math.round(base * gateFeeMultiplier(rate, n) * getEraCostScale());
 }
 
 /**
  * Total monthly cost for holding `count` gates at an airport.
  * = sum of gateMonthlyFee(airport, 1..count)
- * = base × (rate^count − 1) / (rate − 1)   when rate ≠ 1
+ *
+ * Below the ceiling that is the geometric sum base x (rate^count - 1)/(rate - 1).
+ * Above it, the escalating head is summed in closed form and the capped tail is
+ * billed flat, so the total stays linear in `count` once the ceiling is reached.
  *
  * @param {object} airport  - airport record from AIRPORTS
  * @param {number} count    - number of gates held
@@ -2428,8 +2468,15 @@ export function totalGateMonthlyFee(airport, count) {
   if (!count || count <= 0) return 0;
   const base = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
   const rate = GATE_COST_ESCALATION[airport?.tier] ?? 1.05;
-  if (rate === 1) return Math.round(base * count * getEraCostScale());
-  return Math.round(base * (Math.pow(rate, count) - 1) / (rate - 1) * getEraCostScale());
+  if (rate <= 1) return Math.round(base * count * getEraCostScale());
+
+  const lastEscalating = lastEscalatingGate(rate);
+  const escalating     = Math.min(count, lastEscalating);
+  let total = base * (Math.pow(rate, escalating) - 1) / (rate - 1);
+  if (count > lastEscalating) {
+    total += (count - lastEscalating) * base * GATE_FEE_CAP_MULTIPLE;
+  }
+  return Math.round(total * getEraCostScale());
 }
 
 // ─── Gate scarcity (Headwinds multiplayer, optional per-world) ─────────────────
