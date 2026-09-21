@@ -457,6 +457,61 @@ export function effectiveRangeKm(aircraft, type) {
   return Math.round(type.range * (aircraft.rangeMod ?? 1.0) * configRangeMod(config, type));
 }
 
+// ── Routes an aircraft can no longer reach ───────────────────────────────────
+// simulateRoute / simulateTagRoute / simulateCargoRoute all return null for a
+// leg beyond effectiveRangeKm, and weeklyTick `continue`s past a null. That is
+// the right physics — the aeroplane cannot make it — but on its own it is a
+// SILENT failure: the route earns nothing, its aircraft keeps billing lease and
+// maintenance, and nothing anywhere says why. Before 2026-09-20 that could only
+// happen through a cabin refit that cost range; the aircraft market audit then
+// corrected ten types whose `range` was a ferry figure rather than a max-payload
+// one, which would have stranded live routes in every save flying them.
+//
+// These two functions are the detector. They measure distance exactly as the
+// tick does (unrounded distanceKm against effectiveRangeKm), so a route is
+// flagged if and only if the tick will refuse to fly it. What to DO about a
+// stranded route is the reducer's business (applyRangeStranding).
+
+/**
+ * The longest leg of `route` that `aircraft` cannot reach, or null when every
+ * leg is in range. Covers single-leg, multi-stop and cargo routes alike.
+ * @returns {{from, to, sectorKm, rangeKm}|null}
+ */
+export function routeRangeShortfall(route, aircraft) {
+  const type = aircraft ? getAircraftType(aircraft.typeId) : null;
+  if (!route || !type) return null;
+  const rangeKm = effectiveRangeKm(aircraft, type);
+  let worst = null;
+  for (const leg of routeLegs(route)) {
+    const a = getAirport(leg.from), b = getAirport(leg.to);
+    if (!a || !b) continue;
+    const km = distanceKm(a, b);
+    if (km > rangeKm && (!worst || km > worst.sectorKm)) {
+      worst = { from: leg.from, to: leg.to, sectorKm: km, rangeKm };
+    }
+  }
+  return worst;
+}
+
+/**
+ * Every passenger and cargo route whose assigned aircraft cannot reach one of
+ * its legs. Pure; reads state only.
+ * @returns {Array<{routeId, cargo, aircraftId, from, to, sectorKm, rangeKm}>}
+ */
+export function rangeStrandedRoutes(state) {
+  const byId = new Map((state?.fleet ?? []).map(a => [a.id, a]));
+  const out = [];
+  for (const [list, cargo] of [[state?.routes ?? [], false], [state?.cargoRoutes ?? [], true]]) {
+    for (const route of list) {
+      const aircraft = byId.get(route.aircraftId);
+      if (!aircraft) continue;
+      const short = routeRangeShortfall(route, aircraft);
+      if (short) out.push({ routeId: route.id, cargo, aircraftId: aircraft.id, ...short });
+    }
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────
 // QUALITY CONSTANTS
 // ─────────────────────────────────────────────

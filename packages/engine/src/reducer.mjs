@@ -21,7 +21,7 @@ import {
   loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
   isRouteActive, routeActiveMonths, aircraftHubMaintFactor, routesCommittedTo,
   blockHourFit, blockTimeHours,
-  applyScheduleTrimMigration,
+  applyScheduleTrimMigration, rangeStrandedRoutes,
   applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
   calcReconfCost, refitWeeks,
 } from './utils/simulation.js';
@@ -1404,6 +1404,98 @@ function nextAircraftNumber(typeId, fleet = [], pendingOrders = []) {
   return max + 1;
 }
 
+/**
+ * The toast for routes that went out of range THIS week, read off the flags
+ * applyRangeStranding stamped (`rangeStranded.since`). Returns [] or [toast].
+ *
+ * Derived from state rather than queued by applyRangeStranding because
+ * ADVANCE_WEEK REPLACES state.pendingToasts with the week's own list: a toast
+ * queued by the pre-tick pass would be discarded by the very tick it announces
+ * (the Comet 1 grounding hit the same wall and preserves pre-tick toasts in
+ * era worlds only). ADVANCE_WEEK spreads this into its own list instead, and
+ * tickService carries undrained toasts forward for players who are away.
+ */
+export function rangeStrandToasts(state, absWeek) {
+  const hits = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]
+    .filter(r => r.rangeStranded && r.rangeStranded.since === absWeek);
+  if (hits.length === 0) return [];
+  const lanes = hits.slice(0, 3).map(r => (Array.isArray(r.stops) && r.stops.length > 2
+    ? r.stops.join('–') : `${r.origin}–${r.destination}`));
+  const more = hits.length > 3 ? ` and ${hits.length - 3} more` : '';
+  const one = hits.length === 1;
+  return [{
+    type: 'warning',
+    title: one ? '📏 A route is out of range' : `📏 ${hits.length} routes are out of range`,
+    message: `${lanes.join(', ')}${more} can no longer be reached by the aircraft flying `
+           + `${one ? 'it' : 'them'} and ${one ? 'has' : 'have'} stopped flying. `
+           + `Reassign to a longer-range aircraft — the route keeps its ramp. `
+           + `${one ? 'It is' : 'They are'} marked Out of range in your route list.`,
+    duration: 12000,
+  }];
+}
+
+/**
+ * Flag every route its aircraft can no longer reach, and clear the flag on
+ * routes that are reachable again. Ported from Tailwinds (2026-09-20 aircraft
+ * audit); see tools/range-stranding-test.mjs.
+ *
+ * WHY: the tick refuses to fly a leg beyond effectiveRangeKm — it has to — but
+ * it did so silently. The route earned nothing, its aircraft kept billing lease
+ * and maintenance, and nothing said why. A cabin refit that costs range could
+ * always cause it; the audit then corrected six aircraft ranges, which would
+ * have stranded live routes in any world flying those types.
+ *
+ * HEADWINDS DIFFERS FROM SOLO: there is no per-airline news log to write to.
+ * The News tab is the WORLD's shared feed, served identically to every viewer,
+ * and a stranded route is private — it would tell rivals about your network. So
+ * the durable record here is the flag itself (the red Out of range badge, and
+ * the Disrupted filter), plus the toast, which tickService carries forward
+ * until the player has seen it.
+ *
+ * Nothing is closed or moved. REASSIGN_ROUTE and TRANSFER_ROUTES already move a
+ * route to a longer-range tail while keeping its ramp and pricing.
+ *
+ * Returns the SAME state object when nothing changed, which is what lets
+ * ADVANCE_WEEK use it as a re-entering pre-tick transform without looping.
+ */
+export function applyRangeStranding(state, { toast = true } = {}) {
+  const stranded = rangeStrandedRoutes(state);
+  const byRoute = new Map(stranded.map(x => [x.routeId, x]));
+  const absWeek = absoluteWeek(state.year ?? 1, state.week ?? 1);
+  let changed = false;
+
+  const fix = (route) => {
+    const hit = byRoute.get(route.id);
+    if (hit) {
+      if (route.rangeStranded) return route;          // already flagged
+      changed = true;
+      return {
+        ...route,
+        rangeStranded: {
+          from: hit.from, to: hit.to,
+          sectorKm: Math.round(hit.sectorKm), rangeKm: Math.round(hit.rangeKm),
+          since: absWeek,
+        },
+      };
+    }
+    if (route.rangeStranded) {                        // reachable again
+      changed = true;
+      const { rangeStranded: _cleared, ...rest } = route;
+      return rest;
+    }
+    return route;
+  };
+
+  const routes      = (state.routes ?? []).map(fix);
+  const cargoRoutes = (state.cargoRoutes ?? []).map(fix);
+  if (!changed) return state;
+  const next = { ...state, routes, cargoRoutes };
+  // Direct callers get the toast here. ADVANCE_WEEK passes toast:false and
+  // takes it from rangeStrandToasts inside its own list (see that function).
+  if (toast) next.pendingToasts = [...(state.pendingToasts ?? []), ...rangeStrandToasts(next, absWeek)];
+  return next;
+}
+
 function reducer(state, action) {
   // World fare index (New World Restrictions). Set on every action, from state, so
   // every referencePrice()/cargoReferenceYield() call downstream — demand model,
@@ -2504,7 +2596,14 @@ function reducer(state, action) {
       // swapping a new delivery in for a leased plane costs nothing but the click.
       const { fromAircraftId, toAircraftId } = action;
       if (!transferCompatibility(state, fromAircraftId, toAircraftId).ok) return state;
-      const move = r => (r.aircraftId === fromAircraftId ? { ...r, aircraftId: toAircraftId } : r);
+      // transferCompatibility has range-checked every leg against the new tail,
+      // so any out-of-range flag on the moved routes is resolved — drop it now
+      // rather than leaving the badge up until the next tick.
+      const move = r => {
+        if (r.aircraftId !== fromAircraftId) return r;
+        const { rangeStranded: _fixed, ...rest } = r;
+        return { ...rest, aircraftId: toAircraftId };
+      };
       return {
         ...state,
         routes:      state.routes.map(move),
@@ -2522,7 +2621,14 @@ function reducer(state, action) {
       // whole point: closing and re-opening cost both.
       const { routeId, toAircraftId } = action;
       if (!reassignCompatibility(state, routeId, toAircraftId).ok) return state;
-      const move = r => (r.id === routeId ? { ...r, aircraftId: toAircraftId } : r);
+      // reassignCompatibility has already refused a tail that cannot reach every
+      // leg, so the destination is known-good: drop any out-of-range flag now
+      // rather than leaving the badge up until the next tick.
+      const move = r => {
+        if (r.id !== routeId) return r;
+        const { rangeStranded: _fixed, ...rest } = r;
+        return { ...rest, aircraftId: toAircraftId };
+      };
       const nextRoutes = (state.routes ?? []).map(move);
       const nextCargo  = (state.cargoRoutes ?? []).map(move);
       const stillFlying = (id) =>
@@ -4126,6 +4232,13 @@ function reducer(state, action) {
           && calendarYear(state) === COMET_GROUNDING.calendarYear
           && state.week === COMET_GROUNDING.week) {
         return reducer(applyCometGrounding(state), action);
+      }
+      // Routes the assigned aircraft can no longer reach are flagged BEFORE the
+      // tick (which will not fly them). Same identity when nothing changed, so
+      // this re-enters at most once per week. Toast comes from newToasts below.
+      {
+        const stranded = applyRangeStranding(state, { toast: false });
+        if (stranded !== state) return reducer(stranded, action);
       } try {
       // ── Deterministic pre-tick prep (utils/tickPrep.js) ────────────────────
       // Events aged and expired, the fuel shock folded into the index so hedges
@@ -4484,6 +4597,9 @@ function reducer(state, action) {
                  + `Until it restarts you are buying every litre on the jet market.`,
           duration: 9000,
         }] : []),
+        // Routes flagged out of range by this week's pre-tick pass. Built here,
+        // not queued pre-tick, because this array REPLACES pendingToasts.
+        ...rangeStrandToasts(state, nowAbsWeek),
         // Era worlds: a toast queued immediately before this tick (the Comet
         // grounding fires pre-tick and recurses into ADVANCE_WEEK) must
         // survive it — this array REPLACES pendingToasts in the return.

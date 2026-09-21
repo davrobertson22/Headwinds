@@ -1,4 +1,5 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import OutOfRangeBadge from './OutOfRangeBadge.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import { useState, useMemo, useEffect } from 'react';
 import { useGame, frequencyChangeBlockReason, peakSlotsUsedAt, slotCapAt } from '../store/GameContext.jsx';
@@ -363,7 +364,8 @@ export default function Routes() {
     // Status + scoping metadata (drives the health chips and the region /
     // aircraft-type / haul filters in the table view).
     const acs = group.routes.map(r => tailsById(fleet).get(r.aircraftId)).filter(Boolean);
-    const hasDisrupted = acs.some(a => a.status === 'grounded');
+    const hasOutOfRange = group.routes.some(r => r.rangeStranded);
+    const hasDisrupted = acs.some(a => a.status === 'grounded') || hasOutOfRange;
     const hasDormant   = group.routes.some(r => r.season && !isRouteActive(r, gd.month));
     const regions = new Set([
       getRegion(getAirport(group.origin)?.country),
@@ -384,7 +386,7 @@ export default function Routes() {
 
     return {
       ...group, totalProfit, totalRevenue, totalPax, avgLoad, distance, classLoads,
-      hasDisrupted, hasDormant, regions, typeIds, margin, totalFreq, quality,
+      hasDisrupted, hasOutOfRange, hasDormant, regions, typeIds, margin, totalFreq, quality,
       totalOpCost, totalFixed, econ,
     };
   }), [routes, fleet, rrById, fixedByRoute, profitBasis]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1534,7 +1536,13 @@ function RouteTableRow({ group: g, zebra, selected, expanded, onToggleSelect, on
           <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>
             {oa?.city} → {da?.city}
           </span>
-          {g.hasDisrupted && (
+          {g.hasOutOfRange && (
+            <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}
+                  title="An aircraft on this route can no longer reach one of its legs. Open the route to reassign it.">
+              <Glyph e="📏" /> Out of range
+            </span>
+          )}
+          {g.hasDisrupted && !g.hasOutOfRange && (
             <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}>
               <Glyph e="🔧" /> Disrupted
             </span>
@@ -2314,18 +2322,20 @@ function AircraftRow({ route, aircraft, type, result, blockHrs, onClose, onPrice
   const seatsPerWk = (type?.seats ?? 0) * route.weeklyFrequency;
 
   const isGrounded = aircraft?.status === 'grounded';
+  const isStranded = !!route?.rangeStranded;   // not flying — out of range
 
   return (
     <>
       <tr style={{
         borderBottom: showPricing ? 'none' : '1px solid var(--border-subtle)',
-        opacity: (isGrounded || isDormant) ? 0.6 : 1,
-        background: isGrounded ? 'rgba(248,81,73,0.04)' : undefined,
+        opacity: (isGrounded || isDormant || isStranded) ? 0.6 : 1,
+        background: (isGrounded || isStranded) ? 'rgba(248,81,73,0.04)' : undefined,
       }}>
         <td style={{ padding: '7px 8px', fontWeight: 600 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {aircraft?.name ?? '—'}
             <SeasonBadge route={route} month={curMonth} />
+            <OutOfRangeBadge route={route} />
             {isGrounded && (
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,

@@ -779,11 +779,20 @@ const ppsK = (t) => t.purchasePrice / t.seats / 1000;   // $K per seat
 function expectedAgeBand(t) {
   const eis = t?.bandEis ?? t?.eis;
   if (eis == null) return null;
-  if (eis <= 1974) return 832;
-  if (eis <= 1984) return 624;
-  if (eis <= 1994) return 520;
-  if (eis <= 2004) return 312;
-  return 0;
+  let band = 0;
+  if (eis <= 1974) band = 832;
+  else if (eis <= 1984) band = 624;
+  else if (eis <= 1994) band = 520;
+  else if (eis <= 2004) band = 312;
+  // A line that closed AFTER 2004 falls off the end of the table and banded to
+  // zero, so a type nine years out of production arrived factory-fresh at a
+  // new-metal lease (2026-09-20 audit: the 747-8I, 777-200LR, A380, E190/E195,
+  // CRJ-1000, SSJ100, An-148 and MA600 all did). The youngest frame anyone can
+  // still sell you is about as old as the line has been shut.
+  if (band === 0 && t?.oop != null && t.oop <= 2026) {
+    band = Math.min(832, Math.max(208, (2026 - t.oop) * 52));
+  }
+  return band;
 }
 
 if (hasEis) {
@@ -791,11 +800,15 @@ if (hasEis) {
     // THE BUG: reducer.mjs stamps `ageWeeks: type?.deliveredAgeWeeks ?? 0` on
     // every acquisition path. With the field absent, a 55-year-old airframe
     // arrived at zero hours with a full 30-year depreciation life ahead of it.
+    // Any closed line, not just pre-2004 ones — the eis <= 2004 filter let every
+    // type whose line shut after 2004 through (2026-09-20 audit). Supersonic is
+    // exempt for the same reason it is exempt from the bands: the Concorde is a
+    // deliberate prestige money-loser and an age penalty makes it unusable.
     const fresh = PAX
-      .filter(t => t.eis <= 2004 && !(t.deliveredAgeWeeks > 0))
-      .map(t => `${t.name} (${t.eis})`);
+      .filter(t => t.oop != null && t.oop <= 2026 && !t.supersonic && !(t.deliveredAgeWeeks > 0))
+      .map(t => `${t.name} (line closed ${t.oop})`);
     assert.deepEqual(fresh, [],
-      'every passenger type out of production since 2004 must arrive already used');
+      'every passenger type whose production line has closed must arrive already used');
   });
 
   test('delivered age matches the published band for its vintage', () => {
