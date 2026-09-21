@@ -2,14 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
-import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, fleetAvgUtilization, isRouteActive, weekToGameDate } from '../utils/simulation.js';
-import { computeQualityScore, cabinQualityPoints } from '../models/demand.js';
+import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, isRouteActive, weekToGameDate, routeQualityBreakdown } from '../utils/simulation.js';
 // The projected-share row asks the demand model itself — never a hand-rolled
 // ratio (models/pairShare.js is the single source of truth for share previews).
 import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, RIVAL_CONN_PREFIX } from '../../packages/engine/src/models/network.js';
 import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js';
-import { laborEffects } from '../data/labor.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
 import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
 import { getAircraftType } from '../data/aircraft.js';
@@ -96,19 +94,6 @@ export function SupporterChip({ size = 10 }) {
   );
 }
 
-/** Compute player's quality score for one route — same inputs the engine uses
- *  (real on-time rate from morale + utilization, seat AND service cabin points). */
-function playerQuality(route, fleet, laborFx) {
-  const aircraft = fleet.find(a => a.id === route.aircraftId);
-  if (!aircraft) return null;
-  return computeQualityScore({
-    onTimeRate:    laborFx.onTimeRate,
-    cabinPoints:   cabinQualityPoints(aircraft.config),
-    fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
-    customerRating: laborFx.customerRating,
-  });
-}
-
 /** Seats on the aircraft flying a route (null when the tail can't be resolved). */
 function seatsOfRoute(route, fleet) {
   const aircraft = fleet.find(a => a.id === route.aircraftId);
@@ -176,19 +161,26 @@ export function buildPlayerPairMap(routes = [], fleet = [], month = null) {
   return map;
 }
 
-/** Quality across every aircraft the player has on a pair, weighted by flights. */
-function playerPairQuality(agg, fleet, laborFx) {
+/** Player quality on a pair — the engine's own per-route figure
+ *  (routeQualityBreakdown().total), the number Route Details shows and the
+ *  weekly tick scores the offer with. It stacks ground handling, cabin space,
+ *  catering, ancillaries and the hub bonus on top of the on-time / cabin /
+ *  age / rating core; rebuilding only that core here showed players a raw
+ *  subtotal (Discord, 2026-09-21: 63 on Rivals vs 100 on Route Details).
+ *
+ *  Several aircraft on the pair are pooled exactly as
+ *  buildPlayerPairOffer pools it for the share fight (plain mean of each
+ *  route's engine total), so the card and the tick cannot disagree. */
+function playerPairQuality(agg, fleet, state) {
   const legs = agg?.legs ?? (agg ? [agg] : []);
-  if (legs.length === 1) return playerQuality(legs[0], fleet, laborFx);
-  let num = 0, den = 0, plain = 0, n = 0;
+  let sum = 0, n = 0;
   for (const leg of legs) {
-    const q = playerQuality(leg, fleet, laborFx);
-    if (q == null) continue;
-    const w = leg.weeklyFrequency ?? 0;
-    num += q * w; den += w; plain += q; n++;
+    const aircraft = fleet.find(a => a.id === leg.aircraftId);
+    const total = aircraft ? routeQualityBreakdown(leg, aircraft, state)?.total : null;
+    if (total == null) continue;
+    sum += total; n++;
   }
-  if (n === 0) return null;
-  return Math.round(den > 0 ? num / den : plain / n);
+  return n === 0 ? null : Math.round(sum / n);
 }
 
 // ─── Root component ───────────────────────────────────────────────────────────
@@ -619,12 +611,8 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
   const oAirport = getAirport(a);
   const dAirport = getAirport(b);
   const refP = referencePrice(a, b);
-  // Same labor + utilization inputs the engine feeds the demand model.
-  const laborFx = laborEffects(state.labor ?? null,
-    fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
-    state.satisfaction ?? null);
   // playerRoute is a pair AGGREGATE (all your aircraft on this city pair).
-  const pQual = playerPairQuality(playerRoute, fleet, laborFx);
+  const pQual = playerPairQuality(playerRoute, fleet, state);
   const pLegs = playerRoute.legs ?? [playerRoute];
 
   // Projected share — the demand model's split for this pair, from the same
@@ -1395,11 +1383,6 @@ function RivalDetailView({ carrier, onClose }) {
     state.routes ?? [], fleet, weekToGameDate(state.week).monthIndex,
   );
   const playerCargoKeys = (state.cargoRoutes ?? []).map(r => [r.origin, r.destination].sort().join('-'));
-  const laborFx = laborEffects(
-    state.labor ?? null,
-    fleetAvgUtilization(fleet, [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
-    state.satisfaction ?? null,
-  );
 
   // ── Rival data (carrier is instant; profile fills in fleet/rank/moves) ────────
   const routeEntries = Object.entries(carrier.routes ?? {}).sort((a, b) => {
@@ -1669,7 +1652,7 @@ function RivalDetailView({ carrier, onClose }) {
                   const pr = playerRouteMap[key];
                   const theirFare = cfg.economyFare ?? Math.round(refP * (cfg.priceMultiplier ?? 1));
                   const yourFare = pr.ticketPrice;
-                  const yourQual = playerPairQuality(pr, fleet, laborFx);
+                  const yourQual = playerPairQuality(pr, fleet, state);
                   const theirQual = carrier.baseQualityScore;
                   // Both sides are pair TOTALS: every aircraft either carrier
                   // has on the pair, folded together.

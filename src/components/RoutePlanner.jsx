@@ -6,22 +6,19 @@ import { isOutOfService } from '../data/maintenance.js';
 import {
   baseCityPairDemand, referencePrice, distanceKm,
   simulateRoute, formatMoney, formatPercent, currentGameDate,
-  hubSpokeCounts, pairConnectivityBonus,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
-  CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, fleetAvgUtilization,
+  CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS,
   buildEventDemandModel, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor,
   maxFrequency, routeActiveMonths, effectiveRangeKm,
-  stateBrandReach, stateSensReduction, calendarYear } from '../utils/simulation.js';
-import { laborEffects } from '../data/labor.js';
+  calendarYear } from '../utils/simulation.js';
 import {
-  buildRouteMarket, computeMarketShare,
-  buildCompetitorOffer, computeQualityScore, cabinQualityPoints,
+  buildRouteMarket,
+  buildCompetitorOffer,
   AIRPORT_GATEWAY_SCORES,
 } from '../models/demand.js';
-import { rivalIndexFor, isLegacy, rivalsOn, rivalOneStopOffersFor } from '../../packages/engine/src/models/network.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
-import { cateringQualityBonus, normalizeCateringLevel } from '../data/catering.js';
+import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import CargoRoutePlanner, { ModeToggle } from './CargoRoutePlanner.jsx';
 import TagRoutePlanner from './TagRoutePlanner.jsx';
@@ -34,7 +31,7 @@ import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FuelBasisChip from './FuelBasisChip.jsx';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
-import { projectRouteAddition, playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
+import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
 import {
   rankAircraftForRoute, rankAircraftForYear, seasonalProfitByType, gameDateInMonth, ALL_MONTHS,
 } from '../models/aircraftRecommender.js';
@@ -770,10 +767,6 @@ export default function RoutePlanner() {
     // ADD_ROUTE will assign when the route is opened.
     const classPrices = effectiveFares ?? defaultClassPrices(effectivePrice);
 
-    // Real operational inputs (morale, fleet utilization, earned satisfaction) so
-    // the forecast quality matches what the engine will actually compute.
-    const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
-    const satisfaction = state.satisfaction ?? null;
 
     // Projection rather than a bare simulateRoute pair: pools with the tails you
     // already fly on this pair (a bare call hands the newcomer the WHOLE pool),
@@ -816,50 +809,32 @@ export default function RoutePlanner() {
     const opCostAllIn  = result.totalOpCost + landingFee;
     const netProfit    = totalRevenue - opCostAllIn - weeklyLease;
 
-    // Market share breakdown: player vs all competitors.
-    // Seat counts and quality reflect the chosen cabin configuration so the
-    // share estimate matches what simulateRoute computes internally.
-    const cfg = effectiveConfig ?? defaultConfig(type.seats);
-    const playerOffer = {
-      airlineId: 'player',
-      origin, destination: dest,
-      economyPrice: effectivePrice,
-      businessPrice: (cfg.businessClass ?? 0) > 0 ? classPrices.businessClass : null,
-      weeklyFrequency: frequency,
-      seatsPerFlight: configBodies(cfg),
-      economySeats: (cfg.economy ?? type.seats) * frequency,
-      businessSeats: (cfg.businessClass ?? 0) * frequency,
-      totalSeats: configBodies(cfg) * frequency,
-      qualityScore: Math.max(0, Math.min(100, (() => {
-        const fx = laborEffects(state.labor ?? null, avgUtil, satisfaction);
-        return computeQualityScore({ onTimeRate: fx.onTimeRate, cabinPoints: cabinQualityPoints(cfg), fleetAgeYears: 0, customerRating: fx.customerRating })
-          + (fx.groundQualityBonus ?? 0);
-      })()
-        + configSpaceQualityBonus(cfg, type)
-        + cateringQualityBonus(cateringLevel, routeData.dist))),
-      connectivityBonus: pairConnectivityBonus(hubSpokeCounts(state.routes ?? []), [state.hub], origin, dest),
-      // Brand reach, resolved through the same helper the tick uses — and the
-      // same one the projection this card is built on already applies. Now that
-      // brand is a demand term rather than a revenue multiplier, an offer that
-      // omits it is scored as an ESTABLISHED carrier at parity, so a week-one
-      // airline was quoted a household name's slice of the pair. The campaign
-      // lift and the loyalty/reputation elasticity blunting are attached for the
-      // same reason: omitting them is not "no opinion", it is "average carrier".
-      priceSensitivityReduction: stateSensReduction(state, 0),
-      marketingBoost: playerCampaignBoost(state, origin, dest),
-      brandReach: stateBrandReach(state, 0, false, [origin, dest]),
-    };
-    const competitorOffers = competitorsOnRoute.map(c => c.offer).filter(Boolean);
-    // Rival one-stops over their hubs sell on this pair too — the tick puts
-    // them in the fight, so the share list here must as well (previews agree
-    // with the tick). Each carries a `via` block naming the rival and hub.
-    const rivalIdx  = rivalIndexFor(state);
-    const viaOffers = rivalsOn(rivalIdx) ? rivalOneStopOffersFor(rivalIdx, routeData.market) : [];
-    const allOffers  = [playerOffer, ...competitorOffers, ...viaOffers];
-    const shareResults = computeMarketShare(routeData.market, allOffers, { legacy: isLegacy(rivalIdx) });
-    const playerShare  = shareResults.find(s => s.airlineId === 'player');
+    // Market share breakdown, read straight off the projection's own share
+    // fight — the one the forecast above is sliced from, which pools with the
+    // tails you already fly here and scores quality exactly as the tick does
+    // (hub, catering, ancillaries, ground). A second, hand-built offer used to
+    // live here; it left out the hub and ancillary bonuses, ignored your other
+    // tails on the pair and divided by the unscaled market, so the panel and the
+    // forecast beside it could disagree (Discord, 2026-09-21).
+    const share = projection.share ?? null;
+    const shareDemand = share?.market
+      ? (share.market.leisureDemand ?? 0) + (share.market.businessDemand ?? 0) : 0;
+    const shareResults = share
+      ? share.results.map((r, i) => ({
+          key: `${share.offers[i]?.airlineId ?? 'offer'}-${i}`,
+          airlineId: share.offers[i]?.airlineId,
+          via: share.offers[i]?.via ?? null,
+          // Position 0 is this pair; later 'player' entries are your services
+          // at a sibling airport of a pooled metro lane.
+          sibling: i > 0 && share.offers[i]?.airlineId === 'player',
+          totalPax: r?.totalPax ?? 0,
+          sharePct: shareDemand > 0 ? Math.round((r?.totalPax ?? 0) / shareDemand * 100) : 0,
+        }))
+      : null;
+    const playerShare = shareResults?.[0]?.airlineId === 'player' ? shareResults[0] : null;
+    const viaOffers = share ? share.offers.filter(o => o.via) : [];
 
-    return { result, resultLaunch, type, netProfit, totalRevenue, connecting, playerOffer, shareResults, playerShare, viaOffers,
+    return { result, resultLaunch, type, netProfit, totalRevenue, connecting, shareResults, playerShare, viaOffers,
              landingFee, opCostAllIn, weeklyLease, leaseNote,
              shared: projection.shared, pairRouteCount: projection.pairRouteCount,
              lanePooled: projection.lanePooled, siblingPairs: projection.siblingPairs ?? [],
@@ -1760,13 +1735,13 @@ export default function RoutePlanner() {
                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>Est. Market Share</div>
                             {simulation.shareResults.map(s => {
                               const isPlayer = s.airlineId === 'player';
-                              const via      = (simulation.viaOffers ?? []).find(o => o.airlineId === s.airlineId)?.via;
-                              const name     = isPlayer ? 'You'
+                              const via      = s.via;
+                              const name     = isPlayer ? (s.sibling ? 'You · sibling airport' : 'You')
                                              : via ? `${via.name ?? 'Rival'} via ${via.hub}`
                                              : (state.competitors ?? []).find(c => c.id === s.airlineId)?.name ?? s.airlineId;
-                              const sharePct = totalDemand > 0 ? Math.round(s.totalPax / totalDemand * 100) : 0;
+                              const sharePct = s.sharePct;
                               return (
-                                <div key={s.airlineId} style={{ marginBottom: 8 }}>
+                                <div key={s.key} style={{ marginBottom: 8 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
                                     <span style={{ color: isPlayer ? 'var(--text)' : 'var(--text-muted)', fontWeight: isPlayer ? 600 : 400 }}>{name}</span>
                                     <span style={{ color: isPlayer ? 'var(--green)' : 'var(--text-dim)' }}>{sharePct}%</span>

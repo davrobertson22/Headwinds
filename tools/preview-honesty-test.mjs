@@ -78,6 +78,7 @@ const { buildRouteMarket, computeMarketShare, routeMaturityFactor } =
 const { projectRouteAddition, pairMarketShare } =
   await import('../packages/engine/src/models/pairShare.js');
 const { projectWeek } = await import('../packages/engine/src/utils/financeProjection.js');
+const { currentGameDate: currentGameDateOf, distanceKm: distanceKmOf } = await import('../packages/engine/src/utils/simulation.js');
 
 const jet = AIRCRAFT_TYPES
   .filter(t => !t.freighter && t.seats >= 150 && t.seats <= 240)
@@ -726,6 +727,42 @@ test('the fleet lease sum bills the signed rate and charges nothing for owned me
   assert.equal(m[1], formatMoney(honest),
     `Dashboard bills ${m[1]}/wk of lease rent for one OWNED airframe and one ` +
     `lease signed at ${formatMoney(honest)}/wk (list is ${formatMoney(list)})`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n── 1c. The planner share panel scores the offer the projection scores ──');
+
+// Discord, 2026-09-21 (djak2103: Rivals showed quality 63, Route Details 100).
+// The same hand-rolled quality lived in RoutePlanner's Est. Market Share panel:
+// computeQualityScore + ground + space + catering, but no ancillary or hub
+// bonus, fed to a second computeMarketShare that also ignored the tails you
+// already fly on the pair. The panel's "You" share must be the projection's.
+test('RoutePlanner\'s Est. Market Share is the projection\'s share (hub + catering in play)', () => {
+  const key = [T1, T3].sort().join('-');
+  const other = AIRCRAFT_TYPES
+    .filter(t => !t.freighter && t.id !== jet.id && t.seats >= 150 && t.seats <= 300
+      && t.range >= 6000 && !t.supersonic && !(t.ticketPremium > 1))
+    .sort((a, b) => b.seats - a.seats)[0];
+  assert.ok(other, 'fixture needs a second passenger type that reaches the pair');
+  const st = baseSave({ awareness: 60, reputation: 60, hubs: { [T1]: { tier: 3 } },
+    defaultCateringLevel: 'basic', worldDemandMult: 0.05 });
+  st.competitors = [{ ...RIVAL, routes: { ...RIVAL.routes,
+    [key]: { frequency: 60, seats: 180, priceMultiplier: 1.0, aircraftType: jet.id } } }];
+  const html = renderPlanner(st, { origin: T1, dest: T3, typeId: other.id, frequency: 60 });
+  const i = html.indexOf('Est. Market Share');
+  assert.ok(i > 0, 'share panel rendered');
+  const m = html.slice(i, i + 600).match(/>You<\/span><span[^>]*>(\d+)%</);
+  assert.ok(m, 'player share rendered');
+  const fare = Math.round(referencePrice(T1, T3));
+  const proj = projectRouteAddition(st, {
+    origin: T1, destination: T3,
+    aircraft: { id: 'p', typeId: other.id, ageWeeks: 0 },
+    weeklyFrequency: 60, ticketPrice: fare, cateringLevel: 'basic',
+    gameDate: currentGameDateOf(st),
+  });
+  const expected = Math.round(proj.pairPassengers / proj.laneDemand * 100);
+  assert.equal(Number(m[1]), expected,
+    `planner shows ${m[1]}% of the pair; the projection it forecasts from says ${expected}%`);
 });
 
 console.log(`\n${'─'.repeat(60)}\n  ${passed} passed, ${failed} failed\n`);

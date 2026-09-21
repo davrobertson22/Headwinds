@@ -954,6 +954,12 @@ export function projectRouteAddition(state, spec) {
     lanePooled: mature.share.lanePooled,
     siblingPairs: mature.share.siblingPairs,
     ceilingApplies: !!state.newWorldRestrictions,
+    // The mature week's share fight itself — offers, results and the market it
+    // was fought over. A planner that shows a market-share breakdown reads it
+    // from here rather than assembling a second offer by hand: the hand-built
+    // one scored quality without the hub or ancillary bonus and ignored the
+    // tails already on the pair (Discord, 2026-09-21).
+    share: mature.share,
   };
 }
 
