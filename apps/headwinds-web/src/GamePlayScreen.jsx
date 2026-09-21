@@ -19,7 +19,9 @@ import { api, isTransientError, readableError } from './api.js';
 import { shouldFastPoll, isStaleContact } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
 import { isHidden } from './usePoll.js';
-import { runDecisionWrite, shouldRollback, isRetryableRollback } from './decisionPolicy.js';
+import {
+  runDecisionWrite, shouldRollback, isRetryableRollback, wantsFullResync, DECISION_TIMEOUT_MS,
+} from './decisionPolicy.js';
 import { supabase } from './supabase.js';
 import { createPortal } from 'react-dom';
 import PlayerProfileScreen from './PlayerProfile.jsx';
@@ -137,12 +139,20 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // wholesale, so hold that off while a decision is still on the wire — its
   // response is about to replace local state anyway.
   const writesInFlight = useRef(0);
+  // A rollback we owe the player but have not managed to deliver: set when a
+  // write fails, cleared only when authoritative state is actually adopted.
+  // Until then every load is a full one (Rule 4, decisionPolicy.js) — the
+  // rollback's own load usually fails for the same reason the write did.
+  const resyncOwed = useRef(false);
 
   // `full` drops the stamp (forcing a complete state fetch) and adopts whatever
   // the server returns, week comparison bypassed. Used after a gap in contact:
   // local state may be arbitrarily stale AND may still hold optimistic edits
   // whose writes never landed, so the server is the only trustworthy version.
-  const load = useCallback(async ({ full = false } = {}) => {
+  const load = useCallback(async ({ full: fullRequested = false } = {}) => {
+    const full = wantsFullResync({
+      requested: fullRequested, pending: resyncOwed.current, writesInFlight: writesInFlight.current,
+    });
     try {
       // `split=1` opts into halved responses: the server sends the state blob
       // only when OUR version moved, and the (small) rival overlay whenever any
@@ -176,6 +186,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       const incoming = d.rivals ? { ...d.state, ...d.rivals } : d.state;
       if (!local || full || absWeekOfState(incoming) > absWeekOfState(local)) {
         setState(withStatsBackfill(incoming));
+        if (full) resyncOwed.current = false;
       }
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);
@@ -435,7 +446,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // timing out a decision the server actually applied is worse than waiting.
     const post = () => authedApi(
       `/worlds/${worldId}/decisions`,
-      { method: 'POST', token, body: { type, payload }, timeoutMs: 25000 },
+      { method: 'POST', token, body: { type, payload }, timeoutMs: DECISION_TIMEOUT_MS },
     );
     writeChain.current = writeChain.current.then(async () => {
       // Retry rule lives in decisionPolicy.js: a lost compare-and-set (almost
@@ -455,6 +466,9 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         // re-downloading the state we're about to render. A stale (out-of-order)
         // response is skipped — the next poll's full fetch reconciles.
         if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
+        // The server's post-write state includes every write that DID land and
+        // none that did not, so adopting it settles any rollback still owed.
+        if (seq === decisionSeq.current && writesInFlight.current <= 0) resyncOwed.current = false;
         setState((cur) => {
           if (seq !== decisionSeq.current) return cur;
           if (res.state?.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
@@ -487,6 +501,13 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
               'That change could not be saved — the world was busy committing a game week. '
               + 'Your screen has been restored to the last saved state; please try again.',
             );
+          } else if (seq === decisionSeq.current) {
+            // Timeout / dropped connection: no answer at all. Say so rather
+            // than let the edit quietly vanish when the rollback lands.
+            showActionNotice(
+              'The server did not answer, so that change may not have saved. '
+              + 'Your screen will show exactly what was saved as soon as the connection is back.',
+            );
           }
         } else {
           showActionNotice(String(e.message || e));
@@ -506,6 +527,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         // Only once the chain has drained: writes are serialized, and adopting
         // the server blob while later decisions are still on the wire would
         // discard THEIR optimistic edits — the same bug in reverse.
+        resyncOwed.current = true;
         if (shouldRollback(writesInFlight.current)) load({ full: true });
       }
     });

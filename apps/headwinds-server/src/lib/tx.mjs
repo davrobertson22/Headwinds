@@ -76,12 +76,45 @@ const CONNECTION_TEXT = /server has closed the connection|can't reach database s
  */
 export function transientKind(err) {
   if (!err) return null;
+  if (err.transient === 'tx' || err.transient === 'connection') return err.transient;
   if (CONNECTION_CODES.has(err.code)) return 'connection';
   if (TRANSIENT_CODES.has(err.code)) return 'tx';
   const msg = typeof err.message === 'string' ? err.message : '';
   if (CONNECTION_TEXT.test(msg)) return 'connection';
   if (TRANSIENT_TEXT.test(msg)) return 'tx';
   return null;
+}
+
+// ── A write must not outlive the client that asked for it ───────────────────
+// Incident 2026-09-21 (Discord, TheCookiesGuy: "It's like the progress doesn't
+// save but the money does"). While Supavisor was wedging, a POST /decisions
+// could spend most of its life waiting for pool connections — up to 20s each
+// for the airline read and the rival view, then the transaction — and commit
+// AFTER the browser had already aborted at its 25s limit. The client treats a
+// timeout as "unknown outcome": it rolls back to the server's state, which it
+// fetched before the late commit landed, and the shallow polls that follow
+// refuse to replace a same-week blob. So the player watched the edit vanish,
+// while the purchase had in fact gone through and the cash was spent — and
+// doing it again paid twice.
+//
+// The cure is to make the outcome KNOWN: past the cutoff, the transaction
+// aborts itself before (and after) its writes, rolls back, and the request
+// answers 503 retryable — nothing was written, which is exactly what the
+// client's rollback shows. The cutoff sits well inside the client timeout so a
+// commit that passes the final check still finishes before the browser gives up.
+export class DeadlineError extends Error {
+  constructor(elapsedMs, limitMs) {
+    super(`Request outlived its ${limitMs}ms commit cutoff (${Math.round(elapsedMs)}ms) — rolled back, nothing written`);
+    this.name = 'DeadlineError';
+    this.transient = 'connection';
+    // Retrying cannot help: the deadline is the request's, not the attempt's.
+    this.noRetry = true;
+  }
+}
+
+/** Throw DeadlineError once `elapsedMs` has reached `limitMs`. Call inside a transaction body. */
+export function assertWithinDeadline(elapsedMs, limitMs) {
+  if (Number.isFinite(elapsedMs) && elapsedMs >= limitMs) throw new DeadlineError(elapsedMs, limitMs);
 }
 
 export function isTransientTxError(err) {
@@ -141,7 +174,7 @@ export async function withTx(prisma, fn, opts = {}) {
     try {
       return await prisma.$transaction(fn, options);
     } catch (err) {
-      if (attempt >= retries || !isTransientTxError(err)) throw err;
+      if (attempt >= retries || err?.noRetry || !isTransientTxError(err)) throw err;
 
       // Exponential backoff with jitter: two players blocked behind the same tick
       // must not retry in lockstep and deadlock each other all over again.

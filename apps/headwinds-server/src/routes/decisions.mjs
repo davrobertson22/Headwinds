@@ -22,7 +22,7 @@ import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
-import { withTx } from '../lib/tx.mjs';
+import { withTx, assertWithinDeadline } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
 import { splitLogo, injectLogo } from '../lib/logoColumn.mjs';
 import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
@@ -30,6 +30,15 @@ import {
   ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
   MarketError,
 } from '../lib/marketService.mjs';
+
+// A decision may only commit while the browser is still waiting for it. The
+// client aborts POST /decisions at 25s (DECISION_TIMEOUT_MS in
+// apps/headwinds-web/src/decisionPolicy.js); past this cutoff — measured from
+// when the request ARRIVED, so the pre-transaction reads that wait on the pool
+// count — the transaction rolls itself back and answers 503 retryable. See
+// DeadlineError in lib/tx.mjs for the incident. tools/late-commit-test.mjs
+// holds the margin between the two numbers.
+export const DECISION_COMMIT_CUTOFF_MS = 20_000;
 
 // Per-account decision throttle. Generous enough that no human bursting through
 // the UI is ever affected (60 in 10s ≈ 6/s), but a scripted flood hits 429 fast,
@@ -544,6 +553,8 @@ export default async function decisionRoutes(fastify) {
       // timeoutMs: 25000) — not api.js's 15s default, so 22s fits with headroom.
       // Do NOT copy these numbers to other routes; their clients abort at 15s.
       await withTx(prisma, async (tx) => {
+        // Don't start writing for a client that has (nearly) given up.
+        assertWithinDeadline(reply.elapsedTime, DECISION_COMMIT_CUTOFF_MS);
         // Gate scarcity: the world's gate ledger is the arbiter of availability.
         // Same transaction as the blob write, version-guarded — two airlines can
         // never both take the last gate. Throws GateError (400/409) on violation.
@@ -654,6 +665,9 @@ export default async function decisionRoutes(fastify) {
             });
           }
         }
+        // Last statement before COMMIT: the writes above can themselves sit on
+        // row locks, so check again. Throwing here rolls every one of them back.
+        assertWithinDeadline(reply.elapsedTime, DECISION_COMMIT_CUTOFF_MS);
       }, {
         timeout: 20_000,
         maxWait: 5_000,

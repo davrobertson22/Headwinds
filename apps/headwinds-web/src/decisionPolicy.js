@@ -217,3 +217,37 @@ export async function runDecisionWrite({ post, errorBefore = null, sleep = defau
     return { ok: true, res, rejection: freshDecisionError(res?.error, errorBefore) };
   }
 }
+
+// ── Rule 4 (2026-09-21): a rollback that could not load must keep trying ─────
+// Rule 2 rolls back by adopting the server blob with `load({ full: true })`.
+// But the failures that trigger a rollback are, overwhelmingly, the database
+// not answering — and then that load fails too. Nothing remembered that it had
+// been owed: the next poll was a shallow one, came back `unchanged` (or with a
+// same-week blob that the newer-week guard refused), and the phantom edit sat
+// on screen looking saved. That is half of "It's like the progress doesn't
+// save but the money does" (Discord, 2026-09-21, during a Supavisor wedge); the
+// other half — a save that committed after the browser had given up on it —
+// is closed server-side by DECISION_COMMIT_CUTOFF_MS in routes/decisions.mjs.
+//
+// So a rollback is a debt, not a one-shot: it stays pending until a full load
+// SUCCEEDS (or a later write lands and hands back authoritative state), and
+// every load in between is upgraded to a full one — once the write chain has
+// drained, for the same reason as shouldRollback.
+
+/**
+ * The browser's patience for POST /decisions. The server refuses to commit past
+ * DECISION_COMMIT_CUTOFF_MS (apps/headwinds-server/src/routes/decisions.mjs),
+ * which must stay comfortably below this — tools/late-commit-test.mjs checks it.
+ */
+export const DECISION_TIMEOUT_MS = 25_000;
+
+/**
+ * Should this load adopt the server blob wholesale?
+ *   requested      — the caller asked for a full load (rollback / stale resync)
+ *   pending        — an earlier rollback has not yet succeeded
+ *   writesInFlight — decisions still on the wire
+ */
+export function wantsFullResync({ requested = false, pending = false, writesInFlight = 0 } = {}) {
+  if (requested) return true;
+  return Boolean(pending) && shouldRollback(writesInFlight);
+}
