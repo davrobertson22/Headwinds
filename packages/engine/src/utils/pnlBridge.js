@@ -104,7 +104,8 @@ export function costBridge(proj, state = {}) {
   const overhead     = n(r.totalHQCost) + n(r.totalInsurance)
                      + n(r.totalFamilyBaseCosts) + n(r.totalMroBaseCosts)
                      + n(r.totalWifiCosts) + n(r.totalLoungeCosts)
-                     + n(r.totalFuelProgrammeCosts) + n(r.totalFuelFarmCosts);
+                     + n(r.totalFuelProgrammeCosts) + n(r.totalFuelFarmCosts)
+                     + n(r.totalRefineryCosts);
   const brand        = n(r.totalMarketingSpend) + n(r.totalLoyaltyCost) + n(r.totalHubInvestment);
   const distribution = n(r.totalDistributionCost) + n(r.totalPartnerFees);
   // A strike forfeits revenue but SAVES the variable cost of the flights it

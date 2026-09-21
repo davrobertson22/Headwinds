@@ -39,6 +39,7 @@ import {
 import { programmeWeeklyCost } from '../data/fuelProgrammes.js';
 import { routeFuelStations, fuelByStationOf, sumFuelByStation, setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '../data/fuelStations.js';
 import { totalFarmWeeklyCost, farmDiscountsOf } from '../data/fuelFarm.js';
+import { refineryWeeklyOpex } from '../data/refinery.js';
 import {
   isLoungeOpen, totalLoungeWeeklyOpex, routeLoungeAppeal, loungeContractFactor,
   loungeEndpointCoverage, loungeGuestEconomics,
@@ -3581,6 +3582,10 @@ export function weeklyTick(state) {
     // these two are its side effects and its bookkeeping. Both exactly 1 when
     // no programme is on.
     fuelBurnMod = 1, fleetMaintMod = 1,
+    // Refinery (data/refinery.js), threaded by tickPrep: the share of this
+    // week's litres it covered and the index points it beat the market by.
+    // Both 0 without one, so the report keeps no refinery keys.
+    refineryShare = 0, refineryEdge = 0, crackIndex = null,
     mroBases = {}, absWeek = 0,
     lounges = {}, loungePolicy = null,
     marketingBudget = 0,
@@ -4906,6 +4911,10 @@ export function weeklyTick(state) {
   // dividend-credit pattern) and handed in as state.farmFeeIncome. Both 0 in
   // a save with no farms, so the report stays byte-identical.
   const totalFuelFarmCosts = totalFarmWeeklyCost(state.fuelFarms);
+  // A refinery costs its opex every week from the day it is ordered — through
+  // the build, through an outage, and through every week the crack spread is
+  // against you. That is the deal.
+  const totalRefineryCosts = refineryWeeklyOpex(state);
   const totalFarmFeeIncome = Math.max(0, Math.round(Number(state.farmFeeIncome) || 0));
 
   // 5d. Lounges — the room's own running cost, plus what the free-access
@@ -5056,7 +5065,7 @@ export function weeklyTick(state) {
     + totalLaborCosts + totalFamilyBaseCosts + totalMroBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
     + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts
-    + totalFuelProgrammeCosts + totalFuelFarmCosts;
+    + totalFuelProgrammeCosts + totalFuelFarmCosts + totalRefineryCosts;
   const cashDelta   = totalRevenue + totalPartnerRevenue + totalFarmFeeIncome - totalCost;
 
   // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
@@ -5149,6 +5158,14 @@ export function weeklyTick(state) {
     // master hashes lastReport). Readers use `?? 0` / `?? 1`.
     ...(totalFuelProgrammeCosts > 0 ? { totalFuelProgrammeCosts: Math.round(totalFuelProgrammeCosts) } : {}),
     ...(totalFuelFarmCosts > 0 ? { totalFuelFarmCosts: Math.round(totalFuelFarmCosts) } : {}),
+    ...(totalRefineryCosts > 0 ? { totalRefineryCosts: Math.round(totalRefineryCosts) } : {}),
+    ...(refineryShare > 0 ? {
+      refineryShare, refineryEdge,
+      ...(crackIndex != null ? { crackIndex } : {}),
+      // What the refinery made (+) or lost (−) this week on the litres it
+      // covered, against buying them on the jet market.
+      refinerySavings: Math.round((totalFuel / (fuelMultiplier || 1)) * refineryShare * refineryEdge),
+    } : {}),
     ...(totalFarmFeeIncome > 0 ? { totalFarmFeeIncome } : {}),
     ...(fuelBurnMod !== 1 ? {
       fuelBurnMod,

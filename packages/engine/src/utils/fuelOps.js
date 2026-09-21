@@ -23,6 +23,7 @@ import { ERA_FUEL_MIN_INDEX } from '../data/era.js';
 import { tickEvents } from '../data/events.js';
 import { clampFuelIndex, effectiveFuelMultiplier, absoluteWeek } from './fuel.js';
 import { fleetBurnMod } from '../data/fuelProgrammes.js';
+import { refineryStatus, tickCrackIndex, CRACK_BASE_INDEX } from '../data/refinery.js';
 
 /** The combined fuel shock of a set of live events (1 when none). */
 export function eventFuelMult(events = []) {
@@ -41,7 +42,7 @@ export function eventFuelMult(events = []) {
  * @param {number|null} [opts.worldFuelIndex] multiplayer: the world's shared
  *   index for this week; ignored outside multiplayer
  */
-export function resolveFuelForWeek(state, { fuelMult = 1.0, worldFuelIndex = null } = {}) {
+export function resolveFuelForWeek(state, { fuelMult = 1.0, worldFuelIndex = null, worldCrackIndex = null } = {}) {
   const isMultiplayer = state?.multiplayer === true;
   const injectedFuel = (isMultiplayer
     && typeof worldFuelIndex === 'number' && Number.isFinite(worldFuelIndex))
@@ -57,12 +58,36 @@ export function resolveFuelForWeek(state, { fuelMult = 1.0, worldFuelIndex = nul
     // Pre-fuelPrice saves carry a bare multiplier and no index to shock.
     : (state.fuelMultiplier ?? 1.0) * fuelMult;
 
+  // ── Refinery (data/refinery.js) ──────────────────────────────────────────
+  // A refinery swaps a fixed slice of the week's litres off the jet index and
+  // onto crude + a refining cost. Hedges cover only what it does NOT: you
+  // cannot hedge the crack spread away, which is the exposure you bought.
+  // `hedgeableShare` is what the hedge scoreboard must charge its contracts
+  // against, or a hedged refinery owner would be credited twice for the same
+  // litres. Every field is inert for a save with no refinery.
+  const crackIndex = (isMultiplayer
+    && typeof worldCrackIndex === 'number' && Number.isFinite(worldCrackIndex))
+    ? worldCrackIndex
+    : (state.fuelPrice?.crack ?? CRACK_BASE_INDEX);
+  const refinery = refineryStatus(state, { absWeek: curAbsWeek, jetIndex: currentFuelIndex, crackIndex });
+  const hedgeableShare = 1 - refinery.share;
+  const pricedMultiplier = refinery.share > 0
+    ? parseFloat((refinery.share * refinery.price + hedgeableShare * fuelMultiplier).toFixed(6))
+    : fuelMultiplier;
+
   const fuelBurnMod       = fleetBurnMod(state);
-  const fuelSimMultiplier = fuelBurnMod === 1 ? fuelMultiplier : parseFloat((fuelMultiplier * fuelBurnMod).toFixed(6));
+  const fuelSimMultiplier = fuelBurnMod === 1 ? pricedMultiplier : parseFloat((pricedMultiplier * fuelBurnMod).toFixed(6));
 
   return {
     injectedFuel, baseFuelIndex, currentFuelIndex, curAbsWeek, activeHedges,
-    fuelMultiplier, fuelBurnMod, fuelSimMultiplier,
+    // `fuelMultiplier` is what the airline actually pays per unit of fuel:
+    // hedges blended, and the refinery's slice priced off crude. The
+    // hedges-only figure stays available as `hedgedMarketMultiplier` for the
+    // hedge accounting and the market-facing notes.
+    fuelMultiplier: pricedMultiplier,
+    hedgedMarketMultiplier: fuelMultiplier,
+    crackIndex, refinery, hedgeableShare,
+    fuelBurnMod, fuelSimMultiplier,
   };
 }
 

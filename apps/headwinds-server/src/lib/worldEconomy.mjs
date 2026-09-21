@@ -9,6 +9,7 @@
 import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js';
 import { eraFuelMean, ERA_FUEL_MIN_INDEX } from '@tailwinds/engine/data/era.js';
 import { tickMarketIndex, MARKET_BASE_INDEX } from '@tailwinds/engine/utils/market.js';
+import { tickCrackIndex, CRACK_BASE_INDEX } from '@tailwinds/engine/data/refinery.js';
 
 // The reducer keeps at most 52 weeks of fuel history (see ADVANCE_WEEK); the
 // backfill must honour the same cap or a late joiner's blob would carry more
@@ -85,6 +86,26 @@ export function worldMarketIndex(seed, weekIndex) {
   let mkt = MARKET_BASE_INDEX;
   for (let w = 1; w <= weekIndex; w++) mkt = tickMarketIndex(mkt, seededRand(seed, `mkt:${w}`));
   return mkt;
+}
+
+// The world-shared jet-over-crude CRACK index (FUEL_OPERATIONS_PLAN.md §9),
+// replayed from the world seed exactly like the fuel and market walks and on
+// its own salt, so the jet walk is bit-for-bit what it always was and no
+// world's fuel history is rewritten by this existing at all.
+//
+// Only refinery owners ever read it — the tick injects it regardless (it is a
+// handful of arithmetic per week) and the reducer stores it only on an airline
+// that owns a refinery, so nobody else's blob gains a key. Memoised on the
+// same delta-walk pattern as the fuel index.
+const _crackWalkMemo = new Map();
+
+export function worldCrackIndex(seed, weekIndex) {
+  let m = _crackWalkMemo.get(seed);
+  if (!m || m.week > weekIndex) m = { week: 0, idx: CRACK_BASE_INDEX };
+  let { week, idx } = m;
+  for (let w = week + 1; w <= weekIndex; w++) idx = tickCrackIndex(idx, seededRand(seed, `crack:${w}`));
+  _crackWalkMemo.set(seed, { week: Math.max(week, weekIndex), idx });
+  return idx;
 }
 
 // The economy exactly as a founding member's blob would carry it at world week

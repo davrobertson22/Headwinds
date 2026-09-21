@@ -29,7 +29,7 @@ import { fireSaleAirline } from './fireSaleService.mjs';
 import { tombstoneAirline } from './tombstone.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
-import { seededRand, worldFuelIndex, worldMarketIndex } from './worldEconomy.mjs';
+import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
   gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows,
@@ -157,6 +157,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const eraStartYear = Number.isInteger(world.tickConfig?.startYear) ? world.tickConfig.startYear : null;
   const worldFuel = worldFuelIndex(world.worldSeed ?? world.id, fromIndex, eraStartYear);
   const worldMarket = worldMarketIndex(world.worldSeed ?? world.id, fromIndex);
+  // The jet-over-crude crack index for this week. Read only by refinery
+  // owners (FUEL_OPERATIONS_PLAN.md §9); injected for everyone so the walk is
+  // the world's, not the owner's.
+  const worldCrack = worldCrackIndex(world.worldSeed ?? world.id, fromIndex);
   const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
     ? world.tickConfig.runtimeEvents : [];
   const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
@@ -198,7 +202,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),
-      { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldEvents, valuationNoise,
+      { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldCrackIndex: worldCrack, worldEvents, valuationNoise,
         marketIndex: worldMarket,
         incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0,
         incomingFarmFees:  creditsByAirline.get(airline.id)?.farmFees ?? 0 },

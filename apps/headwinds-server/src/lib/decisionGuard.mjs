@@ -551,6 +551,10 @@ export function guardDecision(type, payload, state) {
     case 'BUY_FUEL_STAKE':
     case 'BUILD_FUEL_FARM':
     case 'CLOSE_FUEL_FARM':     return guardFarmCode(payload);
+    // The refinery carries no client-supplied anything: capex, capacity and
+    // eligibility are all the reducer's, from the airline's own state.
+    case 'BUY_REFINERY':
+    case 'SELL_REFINERY':       return {};
     case 'BUILD_LOUNGE':
     case 'CLOSE_LOUNGE':       return guardLounge(payload);
     case 'SET_LOUNGE_POLICY':  return guardLoungePolicy(payload);

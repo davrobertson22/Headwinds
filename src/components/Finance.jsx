@@ -45,6 +45,7 @@ import {
 import { fuelStationsOn, stationFuelBasis } from '../../packages/engine/src/data/fuelStations.js';
 import FuelBasisChip from './FuelBasisChip.jsx';
 import FuelFarmControls from './FuelFarmControls.jsx';
+import FuelRefineryCard from './FuelRefineryCard.jsx';
 import AirportLink from './AirportLink.jsx';
 import { consumeNavFilter } from '../utils/navIntent.js';
 // pairShare has no src/models shim; Routes.jsx imports the engine path directly too.
@@ -921,6 +922,26 @@ function PLStatement({ proj }) {
                   </td>
                   {pw && <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 12 }}>{pw.farmFees ? '+' + formatMoney(pw.farmFees) : '—'}</td>}
                   <td style={{ textAlign: 'right', color: 'var(--green)', fontWeight: 500 }}>{(report.totalFarmFeeIncome ?? 0) > 0 ? '+' + formatMoney(report.totalFarmFeeIncome) : '—'}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
+                </tr>
+              )}
+              {/* What the refinery made (or lost) on the litres it covered,
+                  against buying them on the jet market. A note, not a cost
+                  line — it is already inside Fuel & Oil. */}
+              {((pw?.refinerySavings ?? 0) !== 0 || (report.refinerySavings ?? 0) !== 0) && (
+                <tr data-testid="pl-refinery">
+                  <td style={{ paddingLeft: 28, color: 'var(--text-muted)', fontSize: 13 }}>
+                    Refinery vs the jet market
+                    <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-dim)' }}>
+                      {Math.round((report.refineryShare ?? pw?.refineryShare ?? 0) * 100)}% of your litres priced off crude
+                    </span>
+                  </td>
+                  {pw && <td style={{ textAlign: 'right', fontSize: 12, color: (pw.refinerySavings ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {pw.refinerySavings ? ((pw.refinerySavings >= 0 ? '+' : '−') + formatMoney(Math.abs(pw.refinerySavings))) : '—'}
+                  </td>}
+                  <td style={{ textAlign: 'right', fontWeight: 500, color: (report.refinerySavings ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {report.refinerySavings ? ((report.refinerySavings >= 0 ? '+' : '−') + formatMoney(Math.abs(report.refinerySavings))) : '—'}
+                  </td>
                   <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
                 </tr>
               )}
@@ -4222,6 +4243,8 @@ function FuelHedging() {
       <FuelProgrammeCard state={state} dispatch={dispatch} />
 
       <FuelStationsCard state={state} />
+
+      <FuelRefineryCard state={state} dispatch={dispatch} />
 
       {/* ── Gauge + history ──────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

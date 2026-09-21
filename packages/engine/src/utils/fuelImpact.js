@@ -51,6 +51,15 @@ export function decomposeWeek(entry, contracts = [], { effMult: effOverride = nu
   const bill  = Number(entry.fuel) || 0;
   const index = Number.isFinite(entry.fuelIndex) ? entry.fuelIndex : FUEL_BASE_INDEX;
   let effMult = effOverride;
+  // The week's OWN recorded multiplier wins when it has one. Rebuilding it
+  // from the hedge contracts is only an approximation of what the tick
+  // charged, and since the refinery (data/refinery.js) prices a slice of the
+  // litres off crude entirely, a rebuild would understate the base bill of
+  // every past week an owner flew. Entries have carried this since the hedge
+  // scoreboard shipped; this is where it is finally read.
+  if ((!Number.isFinite(effMult) || effMult <= 0) && Number.isFinite(entry.fuelMultiplier) && entry.fuelMultiplier > 0) {
+    effMult = entry.fuelMultiplier;
+  }
   if (!Number.isFinite(effMult) || effMult <= 0) {
     const abs = Number.isFinite(entry.year) && Number.isFinite(entry.week)
       ? absoluteWeek(entry.year, entry.week) : null;

@@ -50,6 +50,9 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Fuel farms (§8): capex, thresholds, the ownership race and the close refund
   // are the reducer's (canTakeFarm); the guard checks the airport code.
   'BUY_FUEL_STAKE', 'BUILD_FUEL_FARM', 'CLOSE_FUEL_FARM',
+  // The refinery (§9). No payload at all — the reducer prices it, sizes it
+  // from the airline's own consumption and refuses it (canBuyRefinery).
+  'BUY_REFINERY', 'SELL_REFINERY',
   // Routes — passenger, cargo, tag
   'ADD_ROUTE', 'CLOSE_ROUTE', 'CLOSE_ROUTES', 'ADD_CARGO_ROUTE', 'CLOSE_CARGO_ROUTE', 'ADD_TAG_ROUTE',
   'TRANSFER_ROUTES', 'REASSIGN_ROUTE',

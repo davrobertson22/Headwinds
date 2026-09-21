@@ -71,6 +71,9 @@ import { programmeMaintMod, programmeOtpDelta } from '../data/fuelProgrammes.js'
  *   event set for this week (action.worldEvents). Ignored outside multiplayer.
  * @param {number|null}   [opts.worldFuelIndex]  multiplayer: the world's shared
  *   fuel index for this week (action.worldFuelIndex). Ignored outside multiplayer.
+ * @param {number|null}   [opts.worldCrackIndex] multiplayer: the world's shared
+ *   jet-over-crude crack index (action.worldCrackIndex), read only by refinery
+ *   owners. Ignored outside multiplayer.
  * @param {boolean} [opts.rollNewEvents=true]  roll NEW events. The reducer does;
  *   a projection must not — a forecast has to be reproducible, and nobody can
  *   predict a die that has not been thrown. This is the ONLY random draw in this
@@ -83,6 +86,7 @@ import { programmeMaintMod, programmeOtpDelta } from '../data/fuelProgrammes.js'
 export function prepareWeek(state, {
   worldEvents = null,
   worldFuelIndex = null,
+  worldCrackIndex = null,
   rollNewEvents = true,
 } = {}) {
   const isMultiplayer = state?.multiplayer === true;
@@ -142,8 +146,9 @@ export function prepareWeek(state, {
   // run this prep derive the same product with fuelSimMultiplierOf.
   const {
     injectedFuel, baseFuelIndex, currentFuelIndex, curAbsWeek, activeHedges,
-    fuelMultiplier, fuelBurnMod, fuelSimMultiplier,
-  } = resolveFuelForWeek(state, { fuelMult, worldFuelIndex });
+    fuelMultiplier, hedgedMarketMultiplier, crackIndex, refinery, hedgeableShare,
+    fuelBurnMod, fuelSimMultiplier,
+  } = resolveFuelForWeek(state, { fuelMult, worldFuelIndex, worldCrackIndex });
   const liveHedges    = activeHedges;
   const fleetMaintMod = programmeMaintMod(state);
 
@@ -263,6 +268,7 @@ export function prepareWeek(state, {
     crewShortfall: crewShort, crewUnstaffed, crewGroundedIds,
     baseFuelIndex, currentFuelIndex, fuelMultiplier, fuelPriceHistory, injectedFuel,
     fuelBurnMod, fuelSimMultiplier, fleetMaintMod,
+    hedgedMarketMultiplier, crackIndex, refinery, hedgeableShare,
     activeHedges, liveHedges,
     completedChecks, tickedFleetPre, coverPass,
     seasonalReactivationCost, seasonalReactivations, seasonAdjustedRoutes,
@@ -283,6 +289,11 @@ export function prepareWeek(state, {
       fuelMultiplier: fuelSimMultiplier,
       fuelBurnMod,
       fleetMaintMod,
+      // Refinery bookkeeping for the report (data/refinery.js). Both 0 for an
+      // airline without one, so the report keeps no refinery keys.
+      refineryShare: refinery.share,
+      refineryEdge:  refinery.share > 0 ? refinery.edge : 0,
+      crackIndex,
       loyalty:      state.loyalty,
       gameDate,
       activeEvents: allEvents,

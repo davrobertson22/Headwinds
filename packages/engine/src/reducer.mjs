@@ -66,6 +66,11 @@ import {
 } from './data/wifi.js';
 import { FUEL_PROGRAMME_MAP, canActivateProgramme, programmeFailureMult } from './data/fuelProgrammes.js';
 import { canRetrofitWingtips, fitWingtips } from './data/retrofits.js';
+import {
+  canBuyRefinery, makeRefinery, refinerySaleValue, refineryWeeklyOpex, rollRefineryOutage,
+  tickCrackIndex, CRACK_BASE_INDEX, REFINERY_BUILD_WEEKS, REFINERY_CAPACITY_SHARE,
+  weeklyLitresOf, isCommissioned, isOnOutage,
+} from './data/refinery.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn, FUEL_OPS_VERSION } from './data/fuelStations.js';
 import {
   FARM_LEVELS, canTakeFarm, makeFarm, farmCloseRefund, farmDiscountsOf, farmLevelDef,
@@ -1992,6 +1997,60 @@ function reducer(state, action) {
           ...(state.pendingToasts ?? []),
           { type: 'info', icon: '⛽', title: `${farmLevelDef(farm.level)?.name ?? 'Fuel farm'} at ${action.code} sold`,
             message: `${formatMoney(farmCloseRefund(farm))} recovered (${Math.round(farmCloseRefund(farm) / Math.max(1, farm.capex) * 100)}% of what you put in).` },
+        ],
+      };
+    }
+
+    // ─── Refinery (FUEL_OPERATIONS_PLAN.md §9) ───────────────────────────────
+    // The endgame tier: a slice of the fuel bill moves off the jet index and
+    // onto crude plus a refining cost. canBuyRefinery() is the check the Fuel
+    // tab shows. Capacity is fixed in litres at purchase and never grows, so
+    // the share it covers falls as the airline does — and the crack walk is
+    // seeded here, which is why an airline that never buys one carries no
+    // crack index at all.
+    case 'BUY_REFINERY': {
+      const check = canBuyRefinery(state);
+      if (!check.ok) {
+        return {
+          ...state,
+          pendingToasts: [
+            ...(state.pendingToasts ?? []),
+            { type: 'warning', icon: '🛢', title: 'Refinery not bought', message: check.reasons[0] },
+          ],
+        };
+      }
+      const abs = absoluteWeek(state.year, state.week);
+      return {
+        ...state,
+        cash: state.cash - check.capex,
+        refinery: makeRefinery(abs, weeklyLitresOf(state) * REFINERY_CAPACITY_SHARE),
+        fuelPrice: { ...(state.fuelPrice ?? { index: 1.0, history: [] }), crack: state.fuelPrice?.crack ?? CRACK_BASE_INDEX },
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          {
+            type: 'success', icon: '🛢',
+            title: 'Refinery bought',
+            message: `${formatMoney(check.capex)} spent. It commissions in ${REFINERY_BUILD_WEEKS} weeks and will refine about `
+                   + `${Math.round(REFINERY_CAPACITY_SHARE * 100)}% of the fuel you burn today — priced off crude, not jet, `
+                   + `so it wins when the crack spread is wide and loses when it collapses.`,
+            duration: 9000,
+          },
+        ],
+      };
+    }
+
+    case 'SELL_REFINERY': {
+      const r = state.refinery;
+      if (!r) return state;
+      const proceeds = refinerySaleValue(r);
+      const { refinery: _gone, ...rest } = state;
+      return {
+        ...rest,
+        cash: state.cash + proceeds,
+        pendingToasts: [
+          ...(state.pendingToasts ?? []),
+          { type: 'info', icon: '🛢', title: 'Refinery sold',
+            message: `${formatMoney(proceeds)} recovered of the ${formatMoney(r.capex)} you put in. Your whole fuel bill is back on the jet market.` },
         ],
       };
     }
@@ -4029,10 +4088,12 @@ function reducer(state, action) {
       const prep = prepareWeek(state, {
         worldEvents:    action.worldEvents,
         worldFuelIndex: action.worldFuelIndex,
+        worldCrackIndex: action.worldCrackIndex,
       });
       const {
         survivingEvents, expiredEvents, newEvents, allEvents, eventOtpDelta,
         injectedFuel, baseFuelIndex, currentFuelIndex, fuelMultiplier, fuelPriceHistory,
+        hedgedMarketMultiplier, crackIndex, refinery: refineryWeek, hedgeableShare,
         activeHedges, liveHedges,
         gameMonth, gameDate, curAbsWeek,
         completedChecks, tickedFleetPre, coverPass,
@@ -4070,6 +4131,17 @@ function reducer(state, action) {
         : _fuelCy == null ? tickFuelPrice(baseFuelIndex)
         : tickFuelPrice(baseFuelIndex, undefined,
             eraFuelMean(_fuelCy) ?? FUEL_BASE_INDEX, ERA_FUEL_MIN_INDEX);
+
+      // The crack walk (data/refinery.js). Only an airline that owns a refinery
+      // has one — it is seeded when the refinery is ordered and walks from
+      // there — so a save that never buys one gains no key and every existing
+      // world's fuel history is untouched. Multiplayer replays one shared walk
+      // per world-week, like the fuel and market indices.
+      const injectedCrack = (state.multiplayer === true
+        && typeof action.worldCrackIndex === 'number' && Number.isFinite(action.worldCrackIndex))
+        ? action.worldCrackIndex : null;
+      const nextCrackIndex = !state.refinery ? null
+        : (injectedCrack ?? tickCrackIndex(state.fuelPrice?.crack ?? CRACK_BASE_INDEX));
 
       // Age + mechanical tick must run BEFORE weeklyTick so that aircraft recovering
       // from grounding this week can actually fly and earn revenue.
@@ -4129,7 +4201,10 @@ function reducer(state, action) {
         prior:        state.hedgeContracts ?? [],
         active:       liveHedges,
         marketIndex:  currentFuelIndex,
-        baseBill:     fuelMultiplier > 0 ? (report.totalFuel ?? 0) / fuelMultiplier : 0,
+        // Scaled by the share the hedges actually cover: a refinery takes its
+        // slice of the litres off the jet index entirely, so crediting the
+        // contracts against the whole bill would pay them twice for it.
+        baseBill:     fuelMultiplier > 0 ? ((report.totalFuel ?? 0) / fuelMultiplier) * hedgeableShare : 0,
         stats:        state.hedgeStats ?? null,
         closedAbsWeek: curAbsWeek,
       });
@@ -4277,6 +4352,19 @@ function reducer(state, action) {
       //    margin for burn: its multiplier on the odds is exactly 1 when off.
       const newFailures = rollMechanicalFailures(tickedFleet, mainBudget, programmeFailureMult(state));
 
+      // Refinery outage: only drawn while one is actually running, so a save
+      // without a refinery consumes no random numbers and the walk — and the
+      // golden master — is unmoved. A shutdown sends the covered litres back
+      // to the market price for its duration.
+      let tickedRefinery = state.refinery ?? null;
+      let refineryOutageWeeks = 0;
+      if (tickedRefinery && isCommissioned(tickedRefinery, curAbsWeek) && !isOnOutage(tickedRefinery, curAbsWeek)) {
+        refineryOutageWeeks = rollRefineryOutage();
+        if (refineryOutageWeeks > 0) {
+          tickedRefinery = { ...tickedRefinery, outageUntilAbsWeek: curAbsWeek + refineryOutageWeeks };
+        }
+      }
+
       // ── AOG repair bills ──────────────────────────────────────────────────
       // A breakdown used to be free — the jet just sat there. It now carries a
       // repair bill scaled to the airframe's value and the severity of the
@@ -4333,6 +4421,14 @@ function reducer(state, action) {
       // NOTE: leaseWarningToasts is populated inside the agedFleet.map() below,
       // so it must be pushed in AFTER that loop (not spread here at construction time).
       const newToasts = [
+        // Unplanned refinery shutdown: the covered litres go back to the jet
+        // market until it is back on line.
+        ...(refineryOutageWeeks > 0 ? [{
+          type: 'warning', icon: '🛢', title: 'Refinery shutdown',
+          message: `An unplanned outage takes your refinery off line for ${refineryOutageWeeks} weeks. `
+                 + `Until it restarts you are buying every litre on the jet market.`,
+          duration: 9000,
+        }] : []),
         // Era worlds: a toast queued immediately before this tick (the Comet
         // grounding fires pre-tick and recurses into ADVANCE_WEEK) must
         // survive it — this array REPLACES pendingToasts in the return.
@@ -5057,6 +5153,7 @@ function reducer(state, action) {
         maintenance: report.totalMaintenance,
         fuel:        report.totalFuel,
         ...(report.totalFarmFeeIncome > 0 ? { farmFees: report.totalFarmFeeIncome } : {}),
+        ...(report.refineryShare > 0 ? { refineryShare: report.refineryShare, refinerySavings: report.refinerySavings ?? 0 } : {}),
         crew:        report.totalCrew,
         quality:     report.totalQuality,
         landingFees:     report.totalLandingFees    ?? 0,
@@ -5750,7 +5847,9 @@ function reducer(state, action) {
         mroBases:          tickedBases,
         lounges:           tickedLounges,
         activeEvents:      allEvents,
-        fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory },
+        fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory,
+                             ...(nextCrackIndex != null ? { crack: nextCrackIndex } : {}) },
+        ...(tickedRefinery ? { refinery: tickedRefinery } : {}),
         marketIndex:       nextMarketIndex,
         hedgeContracts:      hedgeSettlement.contracts,
         ...(hedgeSettlement.stats ? { hedgeStats: hedgeSettlement.stats } : {}),
@@ -6628,6 +6727,7 @@ function reconcileState(parsed) {
     // predates it keeps world-flat fuel until it is explicitly opted in.
     ...(Number.isInteger(parsed.fuelOpsV) ? { fuelOpsV: parsed.fuelOpsV } : {}),
     ...(parsed.fuelFarms && Object.keys(parsed.fuelFarms).length ? { fuelFarms: parsed.fuelFarms } : {}),
+    ...(parsed.refinery ? { refinery: parsed.refinery } : {}),
     loyalty:          parsed.loyalty
       ? {
           effInvestment: parsed.loyalty.weeklyInvestment ?? 0,
