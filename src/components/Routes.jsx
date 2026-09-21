@@ -38,7 +38,7 @@ import {
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
   buildEventDemandModel, committedPeakBlockHours, routesCommittedTo, blockHourFit,
-  stateLoungeFields,
+  stateLoungeFields, stateGroundHandlingFields,
 } from '../utils/simulation.js';
 import { rivalIndexFor } from '../models/network.js';
 
@@ -47,6 +47,20 @@ const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 
 // Stable empty-hub reference so the airport-filter memo doesn't re-run every
 // render on saves that predate hubs.
 const EMPTY_HUBS = {};
+
+// ── Tail lookup ──────────────────────────────────────────────────────────────
+// `fleet.find(a => a.id === route.aircraftId)` is O(fleet), and this page ran it
+// once per route inside groupsWithStats AND again inside every card and expanded
+// row — ~60,000 linear scans per render at 250 routes, repeated on every poll.
+// Keyed on the fleet array's identity, the same WeakMap contract rivalIndexFor
+// and the projection cache already run on: a new fleet array rebuilds it, an
+// unchanged one is free.
+const FLEET_INDEX = new WeakMap();
+function tailsById(fleet = []) {
+  let m = FLEET_INDEX.get(fleet);
+  if (!m) { m = new Map(fleet.map(a => [a.id, a])); FLEET_INDEX.set(fleet, m); }
+  return m;
+}
 
 const SEASON_PRESETS = [
   { id: 'year',   label: 'Year-round', months: null },
@@ -213,6 +227,14 @@ export default function Routes() {
     catch { return 'table'; }
   });
 
+  // How many CARDS are on screen. The table has always paged (TABLE_PAGE_SIZE);
+  // the card branch rendered every group, and phones are the ones that get the
+  // card branch — so the smallest device was handed the only unbounded list on
+  // the page. At 246 routes that was 2.6 MB of DOM and, on a phone, enough
+  // memory pressure for WebKit to discard the tab and reload it (reported as
+  // "the routes page is triggering a constant page refresh", Discord 2026-09-13).
+  const [shownCards, setShownCards] = useState(CARD_PAGE_SIZE);
+
   // Hours committed to a tail at its BUSIEST month — the quantity the cap
   // governs — including any routes a reserve is currently covering for it.
   // Counting only what it flies today made an out-of-service tail read as free.
@@ -253,14 +275,29 @@ export default function Routes() {
   // encroachment, marketing/loyalty lifts, landing fees). Routes the engine skips
   // (grounded or dormant-seasonal) aren't in the report, so fall back to a
   // standalone sim run with the same labor + fuel the engine used.
+  //
+  // Both fallback inputs below describe the WHOLE NETWORK, not the route being
+  // priced, so they are the same answer for every route on the page. They used
+  // to be rebuilt INSIDE engineResultFor, which meant a fresh whole-fleet
+  // utilisation scan (and a fresh event model) for every dormant or grounded
+  // route — 27 ms per pass at 246 routes, paid again on every render, and every
+  // rival-overlay poll causes a render.
+  const fallbackAvgUtil = useMemo(
+    () => fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
+    [state.fleet, state.routes, state.cargoRoutes],
+  );
+  const fallbackEventMult = useMemo(
+    () => buildEventDemandModel(state.activeEvents).multFor,
+    [state.activeEvents],
+  );
   const engineResultFor = (route, aircraft) => {
     if (!aircraft) return null;
     const rr = rrById[route.id];
     if (rr) return rr;
-    const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
-    const evMult  = buildEventDemandModel(state.activeEvents).multFor(route.origin, route.destination);
+    const avgUtil = fallbackAvgUtil;
+    const evMult  = fallbackEventMult(route.origin, route.destination);
     return simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
       aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
   };
 
@@ -282,7 +319,7 @@ export default function Routes() {
   // Per-group stats for filtering + sorting
   const groupsWithStats = useMemo(() => routeGroups.map(group => {
     const sims = group.routes.map(route => {
-      const ac     = fleet.find(a => a.id === route.aircraftId);
+      const ac     = tailsById(fleet).get(route.aircraftId);
       const result = engineResultFor(route, ac);
       return { route, result };
     });
@@ -325,7 +362,7 @@ export default function Routes() {
 
     // Status + scoping metadata (drives the health chips and the region /
     // aircraft-type / haul filters in the table view).
-    const acs = group.routes.map(r => fleet.find(a => a.id === r.aircraftId)).filter(Boolean);
+    const acs = group.routes.map(r => tailsById(fleet).get(r.aircraftId)).filter(Boolean);
     const hasDisrupted = acs.some(a => a.status === 'grounded');
     const hasDormant   = group.routes.some(r => r.season && !isRouteActive(r, gd.month));
     const regions = new Set([
@@ -1007,20 +1044,34 @@ export default function Routes() {
           onViewDetail={(g) => setDetailPair({ origin: g.origin, destination: g.destination })}
         />
       ) : (
-        visibleGroups.map(group => (
-          <RouteGroupCard
-            key={group.key}
-            group={group}
-            basis={profitBasis}
-            getResult={engineResultFor}
-            selected={selectedKeys.has(group.key)}
-            onToggleSelect={() => toggleSelect(group.key)}
-            onClose={handleClose}
-            onPriceChange={handlePriceChange}
-            onAddFlights={() => addFlightsTo(group.origin, group.destination)}
-            onViewDetail={() => setDetailPair({ origin: group.origin, destination: group.destination })}
-          />
-        ))
+        <>
+          {visibleGroups.slice(0, shownCards).map(group => (
+            <RouteGroupCard
+              key={group.key}
+              group={group}
+              basis={profitBasis}
+              getResult={engineResultFor}
+              selected={selectedKeys.has(group.key)}
+              onToggleSelect={() => toggleSelect(group.key)}
+              onClose={handleClose}
+              onPriceChange={handlePriceChange}
+              onAddFlights={() => addFlightsTo(group.origin, group.destination)}
+              onViewDetail={() => setDetailPair({ origin: group.origin, destination: group.destination })}
+            />
+          ))}
+
+          {/* Same incremental paging the table uses, in smaller bites — a card
+              costs roughly ten rows of DOM. Selection, filters and the bulk bar
+              all work off the full list, so paging changes what is DRAWN and
+              nothing about what is acted on. */}
+          {visibleGroups.length > shownCards && (
+            <div style={{ padding: '10px 14px', textAlign: 'center' }}>
+              <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setShownCards(n => n + CARD_PAGE_SIZE)}>
+                Show {Math.min(CARD_PAGE_SIZE, visibleGroups.length - shownCards)} more ({shownCards} of {visibleGroups.length})
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Multi-stop (tag) routes — own section, since they span several airports */}
@@ -1120,7 +1171,7 @@ function TagRouteCard({ route, onClose, onAddAircraft, siblingCount = 1 }) {
   // attaches. Without them this card understated a two-lounge rotation's weekly
   // profit by the whole premium ground discount.
   const sim      = aircraft ? simulateTagRoute(
-    { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+    { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
     aircraft, gd, state.labor ?? null, 1.0,
     fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
     state.satisfaction ?? null, buildEventDemandModel(state.activeEvents).multFor,
@@ -1268,6 +1319,11 @@ function NetworkHealthStrip({ groups, activeTab, onSelectTab, basis = BASIS_FULL
 // click a column header to sort, tick rows for bulk pricing, click a row to
 // expand its per-aircraft detail inline (pricing, catering, actions).
 const TABLE_PAGE_SIZE = 100;
+
+// Cards carry roughly ten times the DOM of a table row — a per-aircraft table,
+// class-load bars and the fare controls each — so the card view pages in much
+// smaller bites than the table. See CARD view note at the render site.
+const CARD_PAGE_SIZE = 25;
 
 const TABLE_COLUMNS = [
   { id: 'route',  label: 'Route',        align: 'left'  },
@@ -1540,7 +1596,7 @@ function ExpandedGroupPanel({ group, getResult, onClose, onPriceChange, onAddFli
   const { fleet } = state;
 
   const sims = group.routes.map(route => {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
+    const aircraft = tailsById(fleet).get(route.aircraftId);
     const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
     const result   = aircraft ? getResult(route, aircraft) : null;
     const bh       = type && result ? weeklyBlockHours(result.distance, route.weeklyFrequency, type) : 0;
@@ -1617,7 +1673,7 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
   // Pull each aircraft's authoritative result from the engine projection (same
   // source as the Finance tab) so this card never disagrees with it.
   const sims = routes.map(route => {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
+    const aircraft = tailsById(fleet).get(route.aircraftId);
     const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
     const result   = aircraft ? getResult(route, aircraft) : null;
     const bh       = type && result ? weeklyBlockHours(result.distance, route.weeklyFrequency, type) : 0;

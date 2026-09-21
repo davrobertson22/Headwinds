@@ -80,6 +80,10 @@ import {
   normalizeLoungePolicy, isLoungeOpen, LOUNGE_BUILD_COST,
 } from './data/lounges.js';
 import {
+  canBuildStation, makeStation, stationCloseRefund, stationLevelDef,
+  GROUND_STATION_MAX_LEVEL,
+} from './data/groundStation.js';
+import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
   MAX_PAY_MULTIPLIER,
@@ -1247,6 +1251,12 @@ function freshState() {
     maintenanceBudget: DEFAULT_MAINTENANCE_BUDGET,
     mroBases:          {},    // { [code]: { level, families[], openedWeek, buildWeeksLeft, partsPool } }
     lounges:           {},    // { [code]: { code, openedWeek, buildWeeksLeft, capex } } — built airport lounges
+    // groundStations — { [code]: { code, level, openedWeek, buildWeeksLeft,
+    // upgradeTo, upgradeWeeksLeft } }, self-handling ground stations. NOT seeded
+    // here, and written back below and loaded only when non-empty: an always-
+    // present empty container would change the serialized state of every
+    // station-less world and cost the golden master a re-baseline for a change
+    // that alters no behaviour. Every reader takes `?? {}`.
     loungePolicy:      null,  // { loyaltyAccess, allianceAccess } — null until the first lounge is built
     marketingBudget:   0,          // weekly BRAND marketing spend ($) — builds awareness (adstock), no instant boost
     targetedMarketing: {},         // { [airportCode]: weeklySpend } — tactical campaigns per airport
@@ -2325,6 +2335,50 @@ function reducer(state, action) {
       const rest = { ...lounges };
       delete rest[action.code];
       return { ...state, cash: state.cash + loungeCloseRefund(lounge), lounges: rest };
+    }
+
+    // ─── Ground handling stations ───────────────────────────────────────────
+    // Self-handling at ONE airport (data/groundStation.js). No era lock: airlines
+    // have loaded their own bags since the first DC-3.
+    case 'BUILD_GROUND_STATION': {
+      // action: { code, level }
+      const code     = action.code;
+      const level    = Math.max(1, Math.min(GROUND_STATION_MAX_LEVEL, Math.round(Number(action.level) || 1)));
+      const stations = state.groundStations ?? {};
+      if (!code || stations[code]) return state;
+      const check = canBuildStation(code, level, { stations, gates: state.gates ?? {}, cash: state.cash });
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      return {
+        ...state,
+        cash:           state.cash - check.capex,
+        groundStations: { ...stations, [code]: makeStation(code, level, absoluteWeek(state.year, state.week)) },
+      };
+    }
+
+    case 'UPGRADE_GROUND_STATION': {
+      // Upgrades build IN PLACE — the existing level keeps handling throughout.
+      const code     = action.code;
+      const stations = state.groundStations ?? {};
+      const existing = stations[code];
+      if (!existing) return state;
+      const level = Math.max(1, Math.min(GROUND_STATION_MAX_LEVEL, Math.round(Number(action.level) || existing.level + 1)));
+      const check = canBuildStation(code, level, { stations, gates: state.gates ?? {}, cash: state.cash });
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      const def = stationLevelDef(level);
+      return {
+        ...state,
+        cash:           state.cash - check.capex,
+        groundStations: { ...stations, [code]: { ...existing, upgradeTo: level, upgradeWeeksLeft: def.buildWeeks } },
+      };
+    }
+
+    case 'CLOSE_GROUND_STATION': {
+      const stations = state.groundStations ?? {};
+      const station  = stations[action.code];
+      if (!station) return state;
+      const rest = { ...stations };
+      delete rest[action.code];
+      return { ...state, cash: state.cash + stationCloseRefund(station), groundStations: rest };
     }
 
     case 'SET_LOUNGE_POLICY': {
@@ -4100,6 +4154,7 @@ function reducer(state, action) {
         seasonalReactivationCost: seasonalReactivationCostPrep,
         seasonalReactivations, seasonAdjustedRoutes,
         baseBuild, tickedBases, loungeBuild, tickedLounges,
+        stationBuild, tickedStations,
         laborThisWeek,
       } = prep;
       let seasonalReactivationCost = seasonalReactivationCostPrep;
@@ -4641,6 +4696,17 @@ function reducer(state, action) {
                  + `${code} now rate you higher, premium ground costs there have dropped, and you `
                  + `can sell day passes on the Ancillaries tab.`,
         })),
+        ...stationBuild.opened.map(st => ({
+          type: 'success', icon: '\uD83D\uDEEB', duration: 9000,
+          title: `\uD83D\uDEEB ${stationLevelDef(st.level)?.name ?? 'Ground station'} open — ${st.code}`,
+          message: `Your own ramp crews are handling ${st.code}. Ground handling there is cheaper from this `
+                 + `week and your on-time rate gets a lift; both reach full effect over the next three months.`,
+        })),
+        ...stationBuild.upgraded.map(st => ({
+          type: 'success', icon: '\uD83D\uDEEB', duration: 9000,
+          title: `\uD83D\uDEEB ${st.code} upgraded to ${stationLevelDef(st.level)?.name ?? 'a bigger station'}`,
+          message: `${st.code} can now self-handle more of your departures.`,
+        })),
       ];
 
       // 5. Build recovery toasts (aircraft that just came back from grounding).
@@ -5162,6 +5228,7 @@ function reducer(state, action) {
         ancillaryRevenue: report.totalAncillaryRevenue ?? 0,
         ancillaryCost:    report.totalAncillaryCost    ?? 0,
         groundHandling:  report.totalGroundHandling    ?? 0,
+        ...(report.totalGroundStationCosts != null ? { groundStations: report.totalGroundStationCosts } : {}),
         distribution:    report.totalDistributionCost  ?? 0,
         layover:         report.totalLayover           ?? 0,
         compensation:    report.totalCompensation   ?? 0,
@@ -5846,6 +5913,7 @@ function reducer(state, action) {
         maintenanceBudget: mainBudget,
         mroBases:          tickedBases,
         lounges:           tickedLounges,
+        ...(Object.keys(tickedStations).length > 0 ? { groundStations: tickedStations } : {}),
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory,
                              ...(nextCrackIndex != null ? { crack: nextCrackIndex } : {}) },
@@ -6752,6 +6820,11 @@ function reconcileState(parsed) {
     // lounges and no policy, which is exactly the neutral state: appeal 1, no
     // day passes, full third-party premium ground contract.
     lounges:                  parsed.lounges                  ?? {},
+    // Ground handling stations — old saves have none, which is the neutral
+    // state: every passenger pays the contract rate, no on-time bonus. Carried
+    // only when the save actually has one (see freshState).
+    ...(parsed.groundStations && Object.keys(parsed.groundStations).length > 0
+      ? { groundStations: parsed.groundStations } : {}),
     loungePolicy:             parsed.loungePolicy ? normalizeLoungePolicy(parsed.loungePolicy) : null,
     awareness:                parsed.awareness                ?? 5,
     // Labor relations (unrest / strikes / negotiations) — added later; old saves

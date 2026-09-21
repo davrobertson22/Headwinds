@@ -67,6 +67,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // re-validated by the reducer through canBuildLounge/loungeCloseRefund; the
   // guard only checks the airport code and the two access booleans.
   'BUILD_LOUNGE', 'CLOSE_LOUNGE', 'SET_LOUNGE_POLICY',
+  // Ground handling stations. Same contract as lounges: the capex, the gate
+  // requirement and the refund are all re-validated by the reducer through
+  // canBuildStation/stationCloseRefund; the guard only checks code and level.
+  'BUILD_GROUND_STATION', 'UPGRADE_GROUND_STATION', 'CLOSE_GROUND_STATION',
   // Money & market
   'TAKE_LOAN', 'REPAY_LOAN', 'BUY_HEDGE', 'UNWIND_HEDGE', 'ACQUIRE_COMPETITOR',
   // Stock market — the reducer prices trades from the server-injected rival

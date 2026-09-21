@@ -7,7 +7,7 @@ import {
   breakEvenLoadFactor,
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
   buildEventDemandModel,
-  stateLoungeFields,
+  stateLoungeFields, stateGroundHandlingFields,
 } from '../utils/simulation.js';
 import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
@@ -52,6 +52,7 @@ import { consumeNavFilter } from '../utils/navIntent.js';
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
+import { isStationOpen, stationLevelDef } from '../data/groundStation.js';
 import {
   LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, LEGACY_STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
   creditRating, creditFactors, loanRate, borrowingCapacity, amortizedWeeklyPayment,
@@ -411,7 +412,7 @@ function PLStatement({ proj }) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) return null;
     const result = rrById[route.id] ?? simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
       aircraft, gd, labor, proj.fuelMultiplier, null,
       rivalSpecsFor(state, route.origin, route.destination), avgUtilization, state.satisfaction ?? null,
       evDemand.multFor(route.origin, route.destination),
@@ -529,6 +530,14 @@ function PLStatement({ proj }) {
 
   const totGroundHandling = report.totalGroundHandling;
   const ytdGroundHandling = ytd(financialHistory, 'groundHandling');
+  // Self-handling stations: what they cost to run and what they saved vs the
+  // contract rate (the saving is already inside totGroundHandling — the route
+  // line was charged at the discounted rate — so it is shown, not subtracted).
+  const totStationOpex    = report.totalGroundStationCosts   ?? 0;
+  const totStationSavings = report.totalGroundStationSavings ?? 0;
+  const ytdStationOpex    = ytd(financialHistory, 'groundStations');
+  const stationCodes      = Object.keys(state.groundStations ?? {})
+    .filter(c => isStationOpen(state.groundStations[c])).sort();
 
   // Distribution: GDS fees, OTA commissions, credit-card processing
   const totDistribution = report.totalDistributionCost;
@@ -539,7 +548,7 @@ function PLStatement({ proj }) {
 
   // ── Grouping for display ───────────────────────────────────────────────────
   const totFlightOps  = totCrew + totLandingFees + totQual;
-  const totPassengerServices = totCatering + totGroundHandling;
+  const totPassengerServices = totCatering + totGroundHandling + totStationOpex;
   const totOtherCosts = totLayover + totCompensation;
   const totAircraftCosts = totFleet + totInsurance;
   const totPeopleLabor = totalLaborWeekly + totalFamilyCosts;
@@ -1092,7 +1101,7 @@ function PLStatement({ proj }) {
                 colSpan={pw ? 4 : 3}
                 expanded={sections.passengerServices ?? true}
                 onToggle={() => toggleSection('passengerServices')}
-                summary={<TotalRow label="Passenger Services (collapsed)" prior={pw ? -((pw.catering ?? 0) + (pw.groundHandling ?? 0)) : undefined} weekly={-totPassengerServices} ytd={-(ytdCatering + ytdGroundHandling)} />}
+                summary={<TotalRow label="Passenger Services (collapsed)" prior={pw ? -((pw.catering ?? 0) + (pw.groundHandling ?? 0) + (pw.groundStations ?? 0)) : undefined} weekly={-totPassengerServices} ytd={-(ytdCatering + ytdGroundHandling + ytdStationOpex)} />}
               >
                 {(totCatering > 0 || totCateringRev > 0) && (
                   <>
@@ -1138,10 +1147,39 @@ function PLStatement({ proj }) {
                         </tr>
                       );
                     })}
+                    {totStationSavings > 0 && (
+                      <tr>
+                        <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
+                          Self-handled at {stationCodes.join(', ')}
+                          <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--green)' }}>
+                            saved {formatMoney(totStationSavings)} vs the contract rate (already netted above)
+                          </span>
+                        </td>
+                        {pw && <td />}
+                        <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>—</td>
+                        <td />
+                      </tr>
+                    )}
                     <LineItem label="  Total ground handling" prior={pw ? -(pw.groundHandling ?? 0) : undefined} weekly={-totGroundHandling} ytd={-ytdGroundHandling} />
                   </>
                 )}
-                <TotalRow label="Total Passenger Services" prior={pw ? -((pw.catering ?? 0) + (pw.groundHandling ?? 0)) : undefined} weekly={-totPassengerServices} ytd={-(ytdCatering + ytdGroundHandling)} />
+                {totStationOpex > 0 && (
+                  <>
+                    <SubSectionHeader label="Ground Handling Stations" />
+                    <tr>
+                      <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
+                        Station payroll &amp; equipment
+                        <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-dim)' }}>
+                          {stationCodes.map(c => `${c} ${stationLevelDef(state.groundStations[c].level)?.name ?? ''}`).join(' · ')}
+                        </span>
+                      </td>
+                      {pw && <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 12 }}>{formatMoney(-(pw.groundStations ?? 0))}</td>}
+                      <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 12 }}>{formatMoney(-totStationOpex)}</td>
+                      <td style={{ textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }}>{ytdStationOpex > 0 ? formatMoney(-ytdStationOpex) : '—'}</td>
+                    </tr>
+                  </>
+                )}
+                <TotalRow label="Total Passenger Services" prior={pw ? -((pw.catering ?? 0) + (pw.groundHandling ?? 0) + (pw.groundStations ?? 0)) : undefined} weekly={-totPassengerServices} ytd={-(ytdCatering + ytdGroundHandling + ytdStationOpex)} />
               </CollapsibleSection>
             )}
 
@@ -2387,7 +2425,7 @@ function UnitEconomics({ proj }) {
     // (grounded tail, dormant seasonal, opened since the last tick) — and even
     // then contest the same rivals and carry the same ancillaries the tick does.
     const raw = rrById[route.id] ?? simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination) },
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
       a, gd, labor, proj.fuelMultiplier, null,
       rivalSpecsFor(state, route.origin, route.destination), avgUtil, state.satisfaction ?? null,
       evDemand.multFor(route.origin, route.destination),
@@ -2564,7 +2602,7 @@ function Forecast({ proj }) {
     const a = fleet.find(x => x.id === r.aircraftId);
     if (!a) return null;
     const result = fcRrById[r.id] ?? simulateRoute(
-      { ...r, ...stateLoungeFields(state, r.origin, r.destination) },
+      { ...r, ...stateLoungeFields(state, r.origin, r.destination), ...stateGroundHandlingFields(state, r.origin, r.destination) },
       a, gd, fcLaborState, proj.fuelMultiplier, null,
       rivalSpecsFor(state, r.origin, r.destination), fcAvgUtil, state.satisfaction ?? null,
       1.0, state.ancillaries ?? null, state.competitors ?? [], rivalIndexFor(state));

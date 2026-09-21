@@ -22,6 +22,7 @@ import {
   borrowingCapacity, unencumberedOwnedFleet,
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
+import { GROUND_STATION_MAX_LEVEL } from '@tailwinds/engine/data/groundStation.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
@@ -329,6 +330,25 @@ function guardLounge(payload) {
   return { code, airportCode: code };
 }
 
+// ── Ground handling stations ─────────────────────────────────────────────────
+// Payload hygiene only: a plausible airport code and a legal level. The capex,
+// the gate requirement and the close refund all live in the engine and are
+// re-checked by the reducer through canBuildStation/stationCloseRefund, so
+// nothing here is priceable by the client.
+function guardGroundStation(payload, { needLevel = false } = {}) {
+  const code = String(payload.code ?? payload.airportCode ?? '').toUpperCase();
+  if (code.length < 3 || code.length > 4) throw new GuardError('Invalid airport code.');
+  const out = { code };
+  if (needLevel) {
+    const lvl = Number(payload.level);
+    if (!Number.isInteger(lvl) || lvl < 1 || lvl > GROUND_STATION_MAX_LEVEL) {
+      throw new GuardError('Invalid station level.');
+    }
+    out.level = lvl;
+  }
+  return out;
+}
+
 function guardLoungePolicy(payload) {
   const out = {};
   if (payload.loyaltyAccess  !== undefined) out.loyaltyAccess  = !!payload.loyaltyAccess;
@@ -558,6 +578,9 @@ export function guardDecision(type, payload, state) {
     case 'BUILD_LOUNGE':
     case 'CLOSE_LOUNGE':       return guardLounge(payload);
     case 'SET_LOUNGE_POLICY':  return guardLoungePolicy(payload);
+    case 'BUILD_GROUND_STATION':   return guardGroundStation(payload, { needLevel: true });
+    case 'UPGRADE_GROUND_STATION': return guardGroundStation(payload, { needLevel: true });
+    case 'CLOSE_GROUND_STATION':   return guardGroundStation(payload);
     case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);

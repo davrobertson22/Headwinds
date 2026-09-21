@@ -61,6 +61,7 @@ import {
   hubCostFactorsAt,
   CLASS_FARE_MULTIPLIERS,
   stateLoungeFields,
+  stateGroundHandlingFields,
 } from '../utils/simulation.js';
 
 
@@ -876,6 +877,9 @@ export function projectRouteAddition(state, spec) {
       // Hub station / layover / maintenance discounts, exactly as the tick
       // attaches them (hubCostFactorsAt). Spread conditionally like the tick.
       ...(hcf ? { hubCostFactors: hcf } : {}),
+      // Self-handling factor, with the route being launched counted against the
+      // station's capacity — the tick will see it in the schedule next week.
+      ...stateGroundHandlingFields(state, origin, destination, [previewRoute]),
       ...nwrFields,
     };
     const result = simulateRoute(

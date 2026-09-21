@@ -46,7 +46,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
-  weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm,
+  weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm, routeStops,
 } from './simulation.js';
 import { completeCheck } from '../data/maintenance.js';
 import { crewShortfall, unstaffedCrewScale, unstaffedAircraftIds } from '../data/labor.js';
@@ -54,6 +54,9 @@ import { getAircraftType } from '../data/aircraft.js';
 import { rollEvents, tickEvents } from '../data/events.js';
 import { tickBaseConstruction } from '../data/mroBase.js';
 import { tickLoungeConstruction } from '../data/lounges.js';
+import {
+  tickStationConstruction, hasOpenStation, airportDeparturesMap, stationOtpBonus,
+} from '../data/groundStation.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import { absoluteWeek } from './fuel.js';
 import { resolveFuelForWeek } from './fuelOps.js';
@@ -233,6 +236,18 @@ export function prepareWeek(state, {
   const tickedBases  = baseBuild.bases;
   const loungeBuild  = tickLoungeConstruction(state.lounges ?? {}, curAbsWeek);
   const tickedLounges = loungeBuild.lounges;
+  // Ground handling stations follow the same rule as the hangar and the lounge:
+  // one that finishes this week self-handles this week.
+  const stationBuild   = tickStationConstruction(state.groundStations ?? {}, curAbsWeek);
+  const tickedStations = stationBuild.stations;
+  // Self-handling on-time bonus: share of this week's SCHEDULED departures a
+  // station covers, efficiency-weighted. Read off the season-adjusted routes so
+  // a dormant seasonal route neither fills a station nor dilutes the share.
+  // Zero — and no field attached — unless a station is actually open, so a
+  // station-less airline's labor object is byte-identical to before.
+  const stationOtp = hasOpenStation(tickedStations)
+    ? stationOtpBonus(tickedStations, airportDeparturesMap(seasonAdjustedRoutes, routeStops), curAbsWeek)
+    : 0;
 
   // Crew pipeline (A7): how far short of the crew this fleet needs the airline
   // is, this week. Travels down the SAME transient channel as eventOtpDelta —
@@ -254,11 +269,12 @@ export function prepareWeek(state, {
 
   // Disruption reaches the schedule through a transient field on the labor
   // object the tick hands down (see laborEffects). state.labor is untouched.
-  const laborThisWeek = (eventOtpDelta > 0 || crewShort)
+  const laborThisWeek = (eventOtpDelta > 0 || crewShort || stationOtp > 0)
     ? {
         ...(state.labor ?? {}),
         ...(eventOtpDelta > 0 ? { eventOtpDelta } : {}),
         ...(crewShort ? { crewShortfall: crewShort } : {}),
+        ...(stationOtp > 0 ? { stationOtpBonus: stationOtp } : {}),
       }
     : state.labor;
 
@@ -272,7 +288,8 @@ export function prepareWeek(state, {
     activeHedges, liveHedges,
     completedChecks, tickedFleetPre, coverPass,
     seasonalReactivationCost, seasonalReactivations, seasonAdjustedRoutes,
-    baseBuild, tickedBases, loungeBuild, tickedLounges,
+    baseBuild, tickedBases, loungeBuild, tickedLounges, stationBuild, tickedStations,
+    stationOtpBonus: stationOtp,
     laborThisWeek,
     // The exact object weeklyTick should be run over. The reducer overrides
     // `encroachments` with this week's freshly-rolled challengers; a projection
@@ -299,6 +316,7 @@ export function prepareWeek(state, {
       activeEvents: allEvents,
       mroBases:     tickedBases,
       lounges:      tickedLounges,
+      groundStations: tickedStations,
       loungePolicy: state.loungePolicy ?? null,
       absWeek:      curAbsWeek,
     },

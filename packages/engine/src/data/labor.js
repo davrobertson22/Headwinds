@@ -813,6 +813,11 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   // pipeline is active. Never persisted, never set by the player. Absent (every
   // classic world, every preview caller) → zero, so nothing moves.
   const crewDelta = crewOtpPenalty(labor?.crewShortfall);
+  // `stationOtpBonus` is the third TRANSIENT field: the weekly tick attaches
+  // the self-handling bonus (data/groundStation.js) when the airline runs a
+  // ground station. Your own ramp crews turn your own aircraft first. Absent
+  // (no stations, every preview caller, every old save) → zero, nothing moves.
+  const stationBonus = Math.max(0, Number(labor?.stationOtpBonus) || 0);
   const pilots  = labor?.pilots?.morale          ?? 80;
   const cabin   = labor?.cabinCrew?.morale        ?? 80;
   const ground  = labor?.groundStaff?.morale      ?? 80;
@@ -822,7 +827,7 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   return {
     // 0.55 at zero blended morale → 1.00 at full, minus schedule pressure
     onTimeRate: Math.max(0.35, Math.min(1,
-      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta)),
+      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta + stationBonus)),
     // 0–5 stars: earned from the satisfaction track record when available,
     // otherwise (legacy) directly from cabin crew morale
     customerRating:           satisfaction != null

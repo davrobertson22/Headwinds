@@ -45,6 +45,10 @@ import {
   loungeEndpointCoverage, loungeGuestEconomics,
 } from '../data/lounges.js';
 import {
+  hasOpenStation, airportDeparturesMap, groundHandlingFactorAt, totalStationWeeklyCost,
+} from '../data/groundStation.js';
+import { absoluteWeek as _absoluteWeek } from './fuel.js';
+import {
   buildRouteMarket,
   computeMarketShare,
   computeQualityScore,
@@ -605,6 +609,28 @@ export function stateLoungeFields(state, origin, destination) {
     loungeCoverage:       loungeEndpointCoverage(lounges, origin, destination),
     loungeContractFactor: loungeContractFactor(lounges, origin, destination),
   };
+}
+
+/**
+ * The ground handling factor a route would get from the airline's self-handling
+ * stations, resolved from STATE — the same call the tick makes, so a preview
+ * (route planner, Finance fallback sim, pair-share projection) is costed the
+ * way the tick will cost it. Returns {} when no open station touches the pair,
+ * so spreading it into a route object changes nothing for a station-less
+ * airline. `extraRoutes` lets a projection count the route it is about to add
+ * against station capacity.
+ *
+ * Spread it into the route: `{ ...route, ...stateGroundHandlingFields(state, o, d) }`.
+ */
+export function stateGroundHandlingFields(state, origin, destination, extraRoutes = []) {
+  const stations = state?.groundStations ?? {};
+  if (!hasOpenStation(stations)) return {};
+  const routes = [...(state?.routes ?? []), ...(extraRoutes ?? [])];
+  const departures = airportDeparturesMap(routes, routeStops);
+  const absWeek = state?.absWeek ?? (state?.year != null && state?.week != null
+    ? _absoluteWeek(state.year, state.week) : 0);
+  const f = groundHandlingFactorAt(HUB_TIERS, state?.hubs ?? {}, stations, [origin, destination], departures, absWeek);
+  return f != null ? { groundHandlingFactor: f } : {};
 }
 
 /**
@@ -2048,7 +2074,19 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   totalRevenue += ancillaryRevenue;
 
   // Ground handling — ramp, baggage, gate agents, pushback; per boarded passenger
-  const groundHandlingCost = Math.round(weeklyGroundHandlingCost(classSummary) * stationF);
+  // A self-handling station at either end (attached by weeklyTick as
+  // `groundHandlingFactor`, the BEST of the hub station discount and the
+  // station's own — see data/groundStation.js) cuts this line and nothing else:
+  // catering keeps the plain hub factor. Absent → the hub factor, byte-identical
+  // to before stations existed.
+  const groundHandlingBase = weeklyGroundHandlingCost(classSummary);
+  const handlingF = route.groundHandlingFactor != null
+    ? Math.max(0, Math.min(stationF, route.groundHandlingFactor)) : stationF;
+  const groundHandlingCost = Math.round(groundHandlingBase * handlingF);
+  // What self-handling saved this week over the contract (or hub) rate —
+  // surfaced for the airport page and the Finance line. Zero without a station.
+  const groundStationSavings = handlingF < stationF
+    ? Math.round(groundHandlingBase * (stationF - handlingF)) : 0;
 
   // Crew layover — when one-way block time > 4 hours
   const blockTimeOneWay = blockTimeHours(dist, type);
@@ -2103,6 +2141,9 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     ancillaryQuality,
     ancillaryByItem: ancillary.byItem,
     groundHandlingCost,
+    // Only when a station actually saved something, so a station-less route
+    // result is byte-identical to before (the golden master depends on it).
+    ...(groundStationSavings > 0 ? { groundStationSavings } : {}),
     loungeCost,
     layoverCost,
     compensationCost,
@@ -2530,7 +2571,14 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const ancillaryCost    = ancillary.cost;
   totalRevenue += ancillaryRevenue;
 
-  const groundHandlingCost = Math.round(weeklyGroundHandlingCost(classSummary) * stationFT);
+  // Ground handling with the self-handling factor over every stop (see
+  // simulateRoute); absent → the hub factor, unchanged.
+  const groundHandlingBase = weeklyGroundHandlingCost(classSummary);
+  const handlingFT = route.groundHandlingFactor != null
+    ? Math.max(0, Math.min(stationFT, route.groundHandlingFactor)) : stationFT;
+  const groundHandlingCost = Math.round(groundHandlingBase * handlingFT);
+  const groundStationSavings = handlingFT < stationFT
+    ? Math.round(groundHandlingBase * (stationFT - handlingFT)) : 0;
   const loungeCost         = weeklyLoungeCost(classSummary, route.loungeContractFactor ?? 1);
   // Layover cost accrues per leg whose one-way block time clears the threshold.
   const layoverCostRaw = legDistKm.reduce(
@@ -2575,6 +2623,9 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     ancillaryCost,
     ancillaryByItem: ancillary.byItem,
     groundHandlingCost,
+    // Only when a station actually saved something, so a station-less route
+    // result is byte-identical to before (the golden master depends on it).
+    ...(groundStationSavings > 0 ? { groundStationSavings } : {}),
     loungeCost,
     layoverCost,
     compensationCost,
@@ -3588,6 +3639,7 @@ export function weeklyTick(state) {
     refineryShare = 0, refineryEdge = 0, crackIndex = null,
     mroBases = {}, absWeek = 0,
     lounges = {}, loungePolicy = null,
+    groundStations = {},
     marketingBudget = 0,
     targetedMarketing = {},
     campaignStrength = {},
@@ -3903,6 +3955,17 @@ export function weeklyTick(state) {
   // maint:   best (lowest) factor among T2+ hubs touched.
   const hubCostFactorsFor = (codes) => hubCostFactorsAt(hubs, codes);
 
+  // Self-handling ground stations (data/groundStation.js). One departures map
+  // for the whole tick — station coverage is a property of the airport's
+  // schedule, not of any one route — and the factor is only attached when an
+  // open station touches the route, so a station-less airline's route objects
+  // are byte-identical to before.
+  const anyStation = hasOpenStation(groundStations);
+  const stationDepartures = anyStation ? airportDeparturesMap(routes, routeStops) : null;
+  const handlingFactorFor = (codes) => anyStation
+    ? groundHandlingFactorAt(HUB_TIERS, hubs, groundStations, codes, stationDepartures, absWeek)
+    : null;
+
   // Pre-build set of route-keys where an alliance/codeshare partner also operates
   const partnerContestedKeys = new Set();
   for (const comp of competitors) {
@@ -4009,6 +4072,7 @@ export function weeklyTick(state) {
   let totalAncillaryRevenue = 0; // à la carte ancillary REVENUE (bags/seats/wifi/…)
   let totalAncillaryCost    = 0; // à la carte ancillary provisioning COST
   let totalGroundHandling = 0;
+  let totalGroundStationSavings = 0;   // what self-handling saved vs the contract rate
   let totalLounge         = 0;
   let totalLayover        = 0;
   let totalCompensation   = 0;
@@ -4380,6 +4444,7 @@ export function weeklyTick(state) {
         // not what sold them the ticket.
         ...loungeFieldsFor(route.origin, route.destination),
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
+        ...(() => { const g = handlingFactorFor(stopsList); return g != null ? { groundHandlingFactor: g } : {}; })(),
         ...nwrLoadFieldsFor(route),
       };
       const result = simulateTagRoute(tagRoute, aircraft, gameDate, laborWithSeniority, fuelMultiplier, avgUtilization, satisfaction, eventDemandMultFor, ancillaries, competitors, encroachByPair,
@@ -4408,6 +4473,7 @@ export function weeklyTick(state) {
       totalAncillaryRevenue += ancillaryRev;
       totalAncillaryCost    += result.ancillaryCost    ?? 0;
       totalGroundHandling += result.groundHandlingCost ?? 0;
+      totalGroundStationSavings += result.groundStationSavings ?? 0;
       totalLounge         += result.loungeCost         ?? 0;
       totalLayover        += result.layoverCost        ?? 0;
       totalCompensation   += result.compensationCost   ?? 0;
@@ -4479,6 +4545,7 @@ export function weeklyTick(state) {
       // produces a byte-identical route object and the golden master is unmoved.
       ...loungeFieldsFor(route.origin, route.destination),
       ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
+      ...(() => { const g = handlingFactorFor([route.origin, route.destination]); return g != null ? { groundHandlingFactor: g } : {}; })(),
       ...nwrLoadFieldsFor(route),
     };
 
@@ -4633,6 +4700,7 @@ export function weeklyTick(state) {
     totalAncillaryRevenue += ancillaryRev;
     totalAncillaryCost    += result.ancillaryCost     ?? 0;
     totalGroundHandling += result.groundHandlingCost  ?? 0;
+    totalGroundStationSavings += result.groundStationSavings ?? 0;
     totalLounge         += result.loungeCost          ?? 0;
     totalLayover        += result.layoverCost         ?? 0;
     totalCompensation   += result.compensationCost    ?? 0;
@@ -4944,6 +5012,12 @@ export function weeklyTick(state) {
   // and breaks the bridge's residual check.
   const totalLoungeCosts = totalLoungeOpex + loungeGuests.netCost;
 
+  // 5e. Ground handling stations — payroll and GSE for every OPEN station,
+  //     whatever it handled. The saving it earned is already inside
+  //     totalGroundHandling (the route line was charged at the discounted rate);
+  //     totalGroundStationSavings is the same number surfaced for display.
+  const totalGroundStationCosts = totalStationWeeklyCost(groundStations);
+
   // 6. Hub investment costs — higher tiers require ongoing weekly spend
   let totalHubInvestment = 0;
   for (const [, hubData] of Object.entries(hubs)) {
@@ -5065,6 +5139,7 @@ export function weeklyTick(state) {
     + totalLaborCosts + totalFamilyBaseCosts + totalMroBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
     + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts
+    + totalGroundStationCosts
     + totalFuelProgrammeCosts + totalFuelFarmCosts + totalRefineryCosts;
   const cashDelta   = totalRevenue + totalPartnerRevenue + totalFarmFeeIncome - totalCost;
 
@@ -5174,6 +5249,15 @@ export function weeklyTick(state) {
     } : {}),
     totalLoungeCosts:       Math.round(totalLoungeCosts),
     totalLoungeOpex:        Math.round(totalLoungeOpex),
+    // Ground handling stations. Spread ONLY when the airline runs one, exactly
+    // like the alliance slot-pool keys above: an always-present key would move
+    // the golden-master hash for every station-less world and cost a
+    // re-baseline for a change that alters no behaviour. Every reader takes
+    // `?? 0`, so absent and zero mean the same thing downstream.
+    ...(anyStation
+      ? { totalGroundStationCosts:   Math.round(totalGroundStationCosts),
+          totalGroundStationSavings: Math.round(totalGroundStationSavings) }
+      : {}),
     loungeGuests:           loungeGuests,
     wifiEquippedCount:      fleet.filter(a => isWifiEquipped(a) && a.status !== 'retired').length,
     wifiFleetCoverage:      fleetWifiCoverage(fleet, a => getAircraftType(a.typeId)?.seats ?? 0),

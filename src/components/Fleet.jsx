@@ -13,7 +13,7 @@ import {
   fleetAvgUtilization, buildEventDemandModel,
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
   freighterLandingCategory, aircraftUtilization,
-  stateLoungeFields, coverOutlookByAircraft,
+  stateLoungeFields, stateGroundHandlingFields, coverOutlookByAircraft,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { ReserveBadge } from './ReserveNotice.jsx';
@@ -675,7 +675,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
       } else {
         const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...cargoRoutes]);
         result = simulateRoute(
-          { ...r, ...stateLoungeFields(state, r.origin, r.destination) },
+          { ...r, ...stateLoungeFields(state, r.origin, r.destination), ...stateGroundHandlingFields(state, r.origin, r.destination) },
           aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
       }
     }

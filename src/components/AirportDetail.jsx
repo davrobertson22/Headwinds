@@ -26,6 +26,14 @@ import {
   LOUNGE_BUILD_COST, LOUNGE_BUILD_WEEKS, LOUNGE_WEEKLY_OPEX,
   LOUNGE_APPEAL_PER_END, LOUNGE_OWNED_COST_FACTOR,
 } from '../data/lounges.js';
+import {
+  GROUND_STATION_LEVELS, GROUND_STATION_MAX_LEVEL, GROUND_STATION_DISCOUNT,
+  GROUND_STATION_RAMP_WEEKS, GROUND_STATION_OTP_BONUS,
+  canBuildStation, isStationOpen, stationCloseRefund, stationLevelDef, stationCoverage,
+  stationUpgradeCapex, airportDeparturesMap,
+} from '../data/groundStation.js';
+import { routeStops } from '../../packages/engine/src/utils/simulation.js';
+import { absoluteWeek } from '../../packages/engine/src/utils/fuel.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,6 +191,192 @@ function GateLeaseCard({ code, onBack }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Build / manage the ground handling station at ONE airport.
+ *
+ * Same contract as LoungeCard: every price and every reason comes from
+ * canBuildStation, which is what the reducer enforces with. The one number the
+ * card works out for itself — this week's handling bill at this airport, for
+ * the payback line — is read off the last tick's route results, so it is what
+ * the player was actually charged, not a second estimate.
+ */
+function GroundStationCard({ code }) {
+  const { state, dispatch } = useGame();
+  const confirm  = useConfirm();
+  const stations = state.groundStations ?? {};
+  const station  = stations[code];
+  const absWeek  = absoluteWeek(state.year, state.week);
+  const gatesHeld = state.gates?.[code] ?? 0;
+  const departures = airportDeparturesMap(state.routes ?? [], routeStops)[code] ?? 0;
+  const discountPct = Math.round(GROUND_STATION_DISCOUNT * 100);
+  const otpPts = (GROUND_STATION_OTP_BONUS * 100).toFixed(0);
+
+  // What the contract handling at THIS airport cost last week: half of every
+  // touching route's bill (a route boards at both ends) — the pool the discount
+  // works on. Zero before the first tick.
+  const handlingHere = (state.lastReport?.routeResults ?? []).reduce((sum, rr) => {
+    const rt = (state.routes ?? []).find(r => r.id === rr.routeId);
+    if (!rt) return sum;
+    const stops = routeStops(rt);
+    if (!stops.includes(code)) return sum;
+    return sum + ((rr.groundHandlingCost ?? 0) + (rr.groundStationSavings ?? 0)) / stops.length;
+  }, 0);
+
+  const levels = Object.values(GROUND_STATION_LEVELS);
+  const fmtCap = (n) => (Number.isFinite(n) ? `${n}/wk` : 'unlimited');
+
+  const buildLevel = (level) => canBuildStation(code, level, { stations, gates: state.gates ?? {}, cash: state.cash });
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 16 }}><Glyph e="🛫" size={16} /></span>
+        <div style={{ fontWeight: 600 }}>Ground Handling</div>
+        {station && (
+          <span className="badge" style={isStationOpen(station)
+            ? { background: 'rgba(63,185,80,.12)', color: 'var(--green)', border: '1px solid rgba(63,185,80,.35)' }
+            : { background: 'rgba(210,153,34,.14)', color: 'var(--yellow)', border: '1px solid rgba(210,153,34,.4)' }}>
+            {isStationOpen(station)
+              ? `${stationLevelDef(station.level)?.name ?? 'Open'}${station.upgradeTo ? ` · upgrading, ${station.upgradeWeeksLeft}w left` : ''}`
+              : `Building ${stationLevelDef(station.level)?.name ?? ''} — ${station.buildWeeksLeft}w left`}
+          </span>
+        )}
+      </div>
+
+      {!station && (
+        <>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+            Every passenger you board here pays a handling contractor. A station of your own turns that per-head
+            bill into payroll: departures it covers cost <strong>{discountPct}% less</strong> to handle (best-of
+            with any hub discount, not on top of it), and your own ramp crews turn your own aircraft first, so
+            your on-time rate rises by up to {otpPts} points as more of your network is self-handled.
+            It only pays at an airport with real volume — you fly <strong>{departures}</strong> departures a week
+            from {code}{handlingHere > 0 ? ` and paid about ${formatMoney(Math.round(handlingHere))} to handle them last week` : ''}.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 4 }}>
+            {levels.map(def => {
+              const check = buildLevel(def.level);
+              const covered = Math.min(departures, def.weeklyDepartures);
+              const saving = handlingHere > 0 && departures > 0
+                ? Math.round(handlingHere * (covered / departures) * GROUND_STATION_DISCOUNT) : null;
+              return (
+                <div key={def.level} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6 }}>
+                  <div style={{ flex: '1 1 200px' }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{def.name} <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>· up to {fmtCap(def.weeklyDepartures)}</span></div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{def.blurb}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {formatMoney(def.capex)} · {def.buildWeeks} weeks · {formatMoney(def.weeklyOpex)}/wk · {def.gatesRequired} gates
+                      {saving != null && (
+                        <span style={{ color: saving >= def.weeklyOpex ? 'var(--green)' : 'var(--yellow)' }}>
+                          {' '}· saves ≈{formatMoney(saving)}/wk at full efficiency
+                        </span>
+                      )}
+                    </div>
+                    {!check.ok && <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2 }}>{check.reasons[0]}</div>}
+                  </div>
+                  <button
+                    className={check.ok ? 'btn btn-primary' : 'btn'}
+                    style={{ fontSize: 12, cursor: check.ok ? 'pointer' : 'not-allowed' }}
+                    disabled={!check.ok}
+                    onClick={async () => {
+                      if (!check.ok) return;
+                      if (await confirm({
+                        title: `Build a ${def.name} at ${code}?`,
+                        body: `${formatMoney(check.capex)} now, then ${formatMoney(def.weeklyOpex)}/wk once it opens in `
+                            + `${def.buildWeeks} weeks. It handles up to ${fmtCap(def.weeklyDepartures)} departures here at `
+                            + `${discountPct}% below the contract rate, reaching full efficiency over `
+                            + `${GROUND_STATION_RAMP_WEEKS} weeks. It uses ${def.gatesRequired} of your ${gatesHeld} gates' apron.`,
+                        confirmLabel: `Build for ${formatMoney(check.capex)}`,
+                      })) {
+                        dispatch({ type: 'BUILD_GROUND_STATION', code, level: def.level });
+                      }
+                    }}
+                  >
+                    Build — {formatMoney(def.capex)}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {station && (() => {
+        const def = stationLevelDef(station.level);
+        const cov = stationCoverage(station, departures, absWeek);
+        const open = isStationOpen(station);
+        const nextLevel = station.level + 1;
+        const upCheck = !station.upgradeTo && nextLevel <= GROUND_STATION_MAX_LEVEL ? buildLevel(nextLevel) : null;
+        const savedLastWeek = (state.lastReport?.routeResults ?? []).reduce((sum, rr) => {
+          const rt = (state.routes ?? []).find(r => r.id === rr.routeId);
+          if (!rt || !routeStops(rt).includes(code)) return sum;
+          return sum + (rr.groundStationSavings ?? 0) / routeStops(rt).length;
+        }, 0);
+        return (
+          <>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
+              {open
+                ? `Your crews handle ${Math.round(cov.share * 100)}% of your ${departures} weekly departures here `
+                  + `(capacity ${fmtCap(cov.capacity)}) at ${Math.round(cov.efficiency * 100)}% efficiency`
+                  + (cov.share < 1 ? ` — the rest go to the contractor at the full rate.` : `.`)
+                  + (departures > 0 && Number.isFinite(cov.capacity) && departures > cov.capacity
+                      ? ` You have outgrown this station; upgrading raises the ceiling without taking it offline.` : '')
+                : `Under construction. It costs nothing to run and does nothing for you until it opens.`}
+            </div>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
+              <Stat label="Running cost" value={open ? `${formatMoney(def?.weeklyOpex ?? 0)}/wk` : '—'} color="var(--red)" />
+              <Stat label="Saved last week" value={open && savedLastWeek > 0 ? formatMoney(Math.round(savedLastWeek)) : '—'} color="var(--green)" sub="vs the contract rate" />
+              <Stat label="Close refund" value={formatMoney(stationCloseRefund(station))} sub="if you shut it" />
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {upCheck && (
+                <button
+                  className={upCheck.ok ? 'btn btn-sm' : 'btn btn-sm'}
+                  style={{ fontSize: 12, cursor: upCheck.ok ? 'pointer' : 'not-allowed' }}
+                  disabled={!upCheck.ok}
+                  title={!upCheck.ok ? upCheck.reasons[0] : undefined}
+                  onClick={async () => {
+                    if (!upCheck.ok) return;
+                    const nd = stationLevelDef(nextLevel);
+                    if (await confirm({
+                      title: `Upgrade ${code} to a ${nd.name}?`,
+                      body: `${formatMoney(upCheck.capex)} now. The upgrade builds in place over ${nd.buildWeeks} weeks — `
+                          + `your current station keeps working throughout — and then handles up to `
+                          + `${fmtCap(nd.weeklyDepartures)} departures for ${formatMoney(nd.weeklyOpex)}/wk. Needs ${nd.gatesRequired} gates.`,
+                      confirmLabel: `Upgrade for ${formatMoney(upCheck.capex)}`,
+                    })) {
+                      dispatch({ type: 'UPGRADE_GROUND_STATION', code, level: nextLevel });
+                    }
+                  }}
+                >
+                  Upgrade to {stationLevelDef(nextLevel)?.name} — {formatMoney(stationUpgradeCapex(station.level, nextLevel))}
+                </button>
+              )}
+              <button
+                className="btn btn-sm"
+                style={{ fontSize: 12, background: 'rgba(248,81,73,0.08)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)' }}
+                onClick={async () => {
+                  if (await confirm({
+                    title: `Close the ${code} station?`,
+                    body: `You get ${formatMoney(stationCloseRefund(station))} back for the equipment — far less than you put in.\n\n`
+                        + `Handling at ${code} goes back to the contract rate and your on-time rate loses the self-handling lift.`,
+                    danger: true,
+                    confirmLabel: 'Close station',
+                  })) {
+                    dispatch({ type: 'CLOSE_GROUND_STATION', code });
+                  }
+                }}
+              >
+                Close station
+              </button>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -750,6 +944,7 @@ export default function AirportDetail({ code, onBack }) {
         <GateLeaseCard code={code} onBack={onBack} />
 
         <LoungeCard code={code} />
+        <GroundStationCard code={code} />
 
         {/* Your presence */}
         <div className="card">

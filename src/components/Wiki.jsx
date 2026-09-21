@@ -262,6 +262,26 @@ const WIKI = [
     ],
   },
   {
+    id: 'groundstations',
+    icon: '\uD83D\uDEEB',
+    title: 'Ground Handling Stations',
+    blurb: 'Self-handle the airports where you have the volume',
+    blocks: [
+      { p: 'Every passenger you board pays a ground handling contractor \u2014 ramp agents, baggage, pushback, check-in \u2014 by cabin class, wherever they board. A **ground handling station** turns that per-head bill into your own payroll at **one airport**. Build it from the airport\u2019s detail page.' },
+      { h: 'Three levels' },
+      { ul: [
+        'A **Ramp Station** ($8M, 8 weeks, $60K/wk, 2 gates) handles up to 250 departures a week; a **Handling Base** ($18M, 12 weeks, $130K/wk, 3 gates) up to 600; a **Hub Operation** ($40M, 16 weeks, $260K/wk, 4 gates) has no ceiling.',
+        'Departures the station covers cost **30% less** to handle. Beyond its capacity the overflow goes to the contractor at the full rate, pro-rata \u2014 so a station you have outgrown quietly earns less each week you grow.',
+        'Upgrades build **in place**: the existing station keeps working while the bigger one is fitted out.',
+        'A new station opens at 60% efficiency and reaches full effect over 12 weeks. Closing one refunds 25% of what you sank into it (half that if it is still being built).',
+      ] },
+      { h: 'On-time performance' },
+      { p: 'Your own crews turn your own aircraft first. Self-handling lifts your airline-wide on-time rate by up to **3 points**, weighted by the share of your weekly departures that leave from a station you run \u2014 one station at a 40-route hub moves the number; a station at a two-route outstation does not.' },
+      { p: 'A station\u2019s discount is taken as the **best of** the station and any hub discount at that airport, never both, and it applies to ground handling only \u2014 a hub\u2019s flight-kitchen saving on catering is unchanged. Cargo is handled per tonne on its own line and is not affected.' },
+      { tip: 'The break-even for a Ramp Station is roughly 20 daily narrowbody departures. It is a hub decision, not a spoke one \u2014 the airport page shows what handling there cost you last week and what each level would save.' },
+    ],
+  },
+  {
     id: 'operations',
     icon: '⚙️',
     title: 'Operations',
