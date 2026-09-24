@@ -4254,6 +4254,23 @@ export const LESSOR_BLOCK = new Set([
 ]);
 
 /**
+ * Era worlds: lessors only take a type once it has been in service this many
+ * years (Dave, 2026-09-24). New metal is bought; the lease market is the
+ * previous generation. Classic worlds keep LESSOR_EIS_CUTOFF instead.
+ */
+export const LESSOR_MIN_AGE_YEARS = 10;
+
+/**
+ * First calendar year an era lessor carries this type: EIS + LESSOR_MIN_AGE_YEARS,
+ * or EIS itself for war-surplus types (`surplus: true`) — postwar lessors were
+ * stocked with exactly those airframes.
+ */
+export function lessorFirstYear(type) {
+  const eis = type?.eis ?? 9999;
+  return type?.surplus ? eis : eis + LESSOR_MIN_AGE_YEARS;
+}
+
+/**
  * Does the lease market stock this type at all?
  * Double-deckers are excluded outright — 747/A380 leasing is a thin specialist
  * corner in reality precisely because those airframes are near-impossible to
@@ -4268,14 +4285,15 @@ export function lessorSupplies(type, calYear = null) {
   // era year or the whole lease market silently vanishes.
   if (Number.isInteger(calYear) && calYear >= 1900) {
     // Era world (ERA_MODE_PLAN.md): the calendar itself is the vintage rule.
-    // Lessors carry anything already in service — a 1950s lease market has no
-    // "previous generation" to stop at, and the ALLOW/BLOCK sets encode the
-    // 2026 lease market specifically. NWR's real protection (the order-book
+    // Lessors carry a type once it has been in service LESSOR_MIN_AGE_YEARS
+    // (surplus types from day one) — see lessorFirstYear. The ALLOW/BLOCK sets
+    // encode the 2026 lease market specifically and don't apply here. NWR's real protection (the order-book
     // cap and the double-deck exclusion) is era-independent and still applies.
     // Expired lines (30y+ out of production) are off the books like everything
     // else — see AIRFRAME_MARKET_LIFETIME_YEARS.
     const a = aircraftAvailability(type, calYear);
-    return a === 'new' || a === 'used';
+    if (a !== 'new' && a !== 'used') return false;
+    return calYear >= lessorFirstYear(type);
   }
   if (isVintage(type)) return false;   // classic world: no lessor stocks a 50-year-old line — buy it outright
   if (LESSOR_BLOCK.has(type.id)) return false;

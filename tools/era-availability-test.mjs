@@ -252,17 +252,18 @@ test('classic worlds are untouched: orderDenial is always null', () => {
 
 // ── Lessor books ─────────────────────────────────────────────────────────────
 
-test('era lessors carry anything in service; classic keeps the 2000 cutoff', () => {
+test('era lessors carry types 10+ years in service; classic keeps the 2000 cutoff', () => {
   const dc6era = getAircraftType('l188');             // eis 1959
-  assert.equal(lessorSupplies(dc6era, 1965), true, 'a 1965 lessor carries the Electra');
+  assert.equal(lessorSupplies(dc6era, 1969), true, 'a 1969 lessor carries the Electra (eis+10)');
+  assert.equal(lessorSupplies(dc6era, 1965), false, 'too new for a 1965 lessor');
   assert.equal(lessorSupplies(dc6era, 1955), false, 'not before it flies');
   const neo = getAircraftType('a320neo');             // eis 2016 — blocked classically
   assert.equal(lessorSupplies(neo), false, 'classic: books stop at 2000');
-  assert.equal(lessorSupplies(neo, 2020), true, 'era 2020: in service, leasable');
+  assert.equal(lessorSupplies(neo, 2026), true, 'era 2026: ten years in service, leasable');
   const a380 = getAircraftType('a380');
   assert.equal(lessorSupplies(a380, 2015), false, 'double-deck exclusion survives the era rule');
   // NWR-flavoured leaseDenial agrees end to end.
   const st = { newWorldRestrictions: true, startYear: 1950, year: 1, week: 1, fleet: [], pendingOrders: [] };
   assert.equal(leaseDenial(st, 'a320ceo')?.code, 'not_stocked');
-  assert.equal(leaseDenial({ ...st, year: 11 }, 'cv580'), null, '1960: the Convair is on the books');
+  assert.equal(leaseDenial({ ...st, year: 21 }, 'cv580'), null, '1970: the Convair is on the books');
 });

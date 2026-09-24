@@ -15,6 +15,8 @@ import {
   seatEfficiency,
   fuelCostPerKm,
   lessorSupplies,
+  lessorFirstYear,
+  LESSOR_MIN_AGE_YEARS,
   leaseOrderBookCap,
 } from '../data/aircraft.js';
 import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh } from '../utils/simulation.js';
@@ -691,7 +693,9 @@ export default function Marketplace() {
     if (!lessorSupplies(type, calYear)) {
       return type.doubleDeck
         ? 'Lessors don\u2019t carry double-deck aircraft \u2014 buy it outright'
-        : `Not on lessor books (in service ${type.eis}) \u2014 buy new or used`;
+        : calYear != null
+          ? `Lessors take it from ${lessorFirstYear(type)} \u2014 buy new or used until then`
+          : `Not on lessor books (in service ${type.eis}) \u2014 buy new or used`;
     }
     if (orderBookFree <= 0) {
       return `Lease order book full (${leaseOnOrder}/${orderBookCap})`;
@@ -815,7 +819,9 @@ export default function Marketplace() {
               <Glyph e="🔒" /> New world restrictions
             </span>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Lessors carry single-deck, previous-generation aircraft only. Anything bigger or newer, you buy.
+              {calYear != null
+                ? `Lessors carry single-deck aircraft ${LESSOR_MIN_AGE_YEARS}+ years into service (war-surplus types from day one). Anything bigger or newer, you buy.`
+                : 'Lessors carry single-deck, previous-generation aircraft only. Anything bigger or newer, you buy.'}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>

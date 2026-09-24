@@ -38,7 +38,7 @@ import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
 import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
-         lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF, isVintage,
+         lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF, isVintage, lessorFirstYear, LESSOR_MIN_AGE_YEARS,
          canFitWifi } from './data/aircraft.js';
 import {
   getAirport, gateCapacityOf, gateAirlineCapOf, gateAllianceCapOf,
@@ -1136,7 +1136,9 @@ export function leaseDenial(state, typeId, quantity = 1) {
       ? `Lessors don't carry double-deck aircraft — the ${type.name} must be bought outright.`
       : (calendarYear(state) == null && isVintage(type))
         ? `No lessor stocks the ${type.name} — the line closed in ${type.oop}. Vintage metal is bought outright.`
-        : `Lessors don't carry the ${type.name} (${type.eis}). Their books stop at ${LESSOR_EIS_CUTOFF}; newer aircraft must be bought new or used.`;
+        : calendarYear(state) != null && ['new', 'used'].includes(aircraftAvailability(type, calendarYear(state)))
+          ? `Lessors take the ${type.name} from ${lessorFirstYear(type)}, ${LESSOR_MIN_AGE_YEARS} years after it enters service. Until then, buy it new or used.`
+          : `Lessors don't carry the ${type.name} (${type.eis}). Their books stop at ${LESSOR_EIS_CUTOFF}; newer aircraft must be bought new or used.`;
     return { code: 'not_stocked', typeId: type.id, message: why };
   }
 
