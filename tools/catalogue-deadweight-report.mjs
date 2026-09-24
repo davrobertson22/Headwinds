@@ -41,7 +41,7 @@
 // prints the worst disagreement; if that number is not near zero, the model has
 // drifted from the tick and nothing below it can be trusted.
 
-import { AIRCRAFT_TYPES, getAircraftType } from '../packages/engine/src/data/aircraft.js';
+import { AIRCRAFT_TYPES, getAircraftType, eraDeliveredAgeWeeks, isVintage } from '../packages/engine/src/data/aircraft.js';
 import { getAirport, AIRPORTS } from '../packages/engine/src/data/airports.js';
 import {
   calcHQCost, hqScaleFor, weeklyInsuranceCost, weeklyLandingFee,
@@ -49,7 +49,7 @@ import {
 import { LABOR_GROUPS, crewScaleFor } from '../packages/engine/src/data/labor.js';
 import { fuelCostPerKm } from '../packages/engine/src/utils/fuel.js';
 import {
-  weeklyTick, routeDistanceKm, maxFrequency, MAX_WEEKLY_BLOCK_HOURS,
+  weeklyTick, routeDistanceKm, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, maintenanceMultiplier,
 } from '../packages/engine/src/utils/simulation.js';
 import { referencePrice, expectedCarried } from '../packages/engine/src/utils/market.js';
 import { pathToFileURL } from 'node:url';
@@ -94,11 +94,52 @@ for (let x = 60; x <= 60000; x = Math.round(x * 1.35)) DEMANDS.push(x);
 const PAX = AIRCRAFT_TYPES.filter(t => !t.freighter && t.seats > 0);
 
 // ── One airframe, one route, one week ────────────────────────────────────────
-export function fixedWeekly(t) {
+// ── Fixed cost of holding one airframe for a week ────────────────────────────
+// FIXED 2026-09-23 (aircraft market audit). This used to charge every type its
+// age-0 maintenance and a nominal 260-week insurance age, and to put every type
+// on its weekly lease. The tick does none of that for an old airframe:
+//
+//   • a frame arrives at eraDeliveredAgeWeeks(type) — its published band, lifted
+//     by the vintage rule for lines closed long ago — and pays
+//     baseMaintenancePerWk × maintenanceMultiplier(that age): 2.28x at 16 years,
+//     5.5x at 30;
+//   • a VINTAGE type cannot be leased at all (leaseDenial): it is bought, so it
+//     carries hull insurance on its book value and ties up its purchase price.
+//
+// Leaving those out made old metal look far cheaper to run than it is — 19.3% of
+// the mission sweep's wins went to vintage types, against 3.9% once the tick's
+// own costs are charged — which is exactly the reading this report exists to
+// prevent. The parts are exported so tools/deadweight-model-test.mjs can hold
+// them against weeklyTick.
+
+/** Median lease yield (annual lease / purchase price) across leasable types —
+ *  the capital charge imputed to a buy-only vintage frame. */
+export const VINTAGE_CAPITAL_YIELD = (() => {
+  const ys = AIRCRAFT_TYPES
+    .filter(t => t.purchasePrice > 0 && t.weeklyLease > 0 && !isVintage(t))
+    .map(t => (t.weeklyLease * 52) / t.purchasePrice)
+    .sort((a, b) => a - b);
+  return ys[Math.floor(ys.length / 2)];
+})();
+
+export function fixedWeeklyParts(t) {
   let labour = 0;
   for (const g of LABOR_GROUPS) labour += g.baseWeeklyPerAircraft * crewScaleFor(g.id, t);
-  const insurance = weeklyInsuranceCost({ ownershipType: 'leased', ageWeeks: 260 }, t);
-  return t.weeklyLease + t.baseMaintenancePerWk + insurance + labour + calcHQCost(hqScaleFor(t));
+  const ageWeeks = eraDeliveredAgeWeeks(t, null);
+  const vintage = isVintage(t);
+  return {
+    ageWeeks,
+    ownership:   vintage ? Math.round((t.purchasePrice * VINTAGE_CAPITAL_YIELD) / 52) : t.weeklyLease,
+    maintenance: Math.round(t.baseMaintenancePerWk * maintenanceMultiplier(ageWeeks)),
+    insurance:   weeklyInsuranceCost({ ownershipType: vintage ? 'owned' : 'leased', ageWeeks }, t),
+    labour,
+    hq:          calcHQCost(hqScaleFor(t)),
+  };
+}
+
+export function fixedWeekly(t) {
+  const p = fixedWeeklyParts(t);
+  return p.ownership + p.maintenance + p.insurance + p.labour + p.hq;
 }
 const FIXED = new Map(PAX.map(t => [t.id, fixedWeekly(t)]));
 

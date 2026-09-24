@@ -77,7 +77,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2016,
     seats: 135,
     range: 6_700,
-    runwayFt: 4800,
+    runwayFt: 4650,
     steepApproach: true,
     weeklyLease:       75_000,
     purchasePrice: 38000000,
@@ -232,7 +232,7 @@ export const AIRCRAFT_TYPES = [
     seats: 220,
     deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 5_930,
-    runwayFt: 5700,
+    runwayFt: 6000,
     weeklyLease:       83_000,
     purchasePrice: 34000000,
     fuelBurnPer100km: 462.25,
@@ -256,7 +256,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2017,
     seats: 244,
     range: 7_400,
-    runwayFt: 5700,
+    runwayFt: 5950,
     weeklyLease:       123_000,
     purchasePrice: 58000000,
     fuelBurnPer100km: 397.5,
@@ -305,8 +305,8 @@ export const AIRCRAFT_TYPES = [
     deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 9_600,
     runwayFt: 7500,
-    weeklyLease:      27_000,
-    purchasePrice: 11000000,
+    weeklyLease:      43_000,
+    purchasePrice: 18000000,   // was cheaper than the older, shorter-ranged A310-200 (    5M) — the best return on capital in the game by a distance
     fuelBurnPer100km: 746.25,
     crewCostPerKm: 3.15,
     baseMaintenancePerWk: 120_000,
@@ -342,7 +342,7 @@ export const AIRCRAFT_TYPES = [
     seats: 406,
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 13_400,
-    runwayFt: 8000,
+    runwayFt: 8100,
     weeklyLease:      134_000,
     purchasePrice: 55000000,
     fuelBurnPer100km: 745.75,
@@ -499,6 +499,7 @@ export const AIRCRAFT_TYPES = [
     oop: 2021,   // year the production line closed (era worlds: second-hand only after this)
     doubleDeck: true,
     seats: 853,
+    pricedAsNew: true,   // catalogue price is held at new-metal level on purpose (see aircraft-market-audit Addendum 7) — era worlds add no new-build premium on top
     deliveredAgeWeeks: 260,   // line closed 2021 — youngest frame left is ~5y old
     range: 15_200,
     runwayFt: 9800,
@@ -610,7 +611,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4200,
     weeklyLease:       44_000,
     purchasePrice:  22000000,
-    fuelBurnPer100km: 176,
+    fuelBurnPer100km: 177.46,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 14_000,
     description: 'Workhorse turboprop. Excellent economics on short regional routes.',
@@ -632,7 +633,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3800,
     weeklyLease:        10_000,
     purchasePrice:  5000000,
-    fuelBurnPer100km: 87.19,
+    fuelBurnPer100km: 80.18,
     crewCostPerKm: 1.01,
     baseMaintenancePerWk: 4_800,
     description: 'Reliable 19-seat commuter with stand-up cabin. Popular in the US regionals.',
@@ -650,7 +651,7 @@ export const AIRCRAFT_TYPES = [
     seats: 136,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 3_800,
-    runwayFt: 5000,
+    runwayFt: 6150,
     weeklyLease:       14_500,
     purchasePrice: 6_000_000,
     fuelBurnPer100km: 431,
@@ -669,7 +670,7 @@ export const AIRCRAFT_TYPES = [
     seats: 134,
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_645,
-    runwayFt: 5600,
+    runwayFt: 5300,
     weeklyLease:       31_000,
     purchasePrice: 13000000,
     fuelBurnPer100km: 300,
@@ -688,7 +689,7 @@ export const AIRCRAFT_TYPES = [
     seats: 131,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 4_100,
-    runwayFt: 5800,
+    runwayFt: 6000,
     weeklyLease:       19_500,
     purchasePrice: 8_000_000,
     fuelBurnPer100km: 510,
@@ -764,7 +765,7 @@ export const AIRCRAFT_TYPES = [
     seats: 149,
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 6_370,
-    runwayFt: 5500,
+    runwayFt: 5150,
     weeklyLease:       40_000,
     purchasePrice: 16000000,
     fuelBurnPer100km: 341,
@@ -801,7 +802,7 @@ export const AIRCRAFT_TYPES = [
     oop: 1978,   // year the production line closed (era worlds: second-hand only after this)
     seats: 189,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
-    range: 10_650,
+    range: 9_260,
     runwayFt: 8900,
     weeklyLease:       30_000,
     purchasePrice: 12_000_000,
@@ -878,7 +879,7 @@ export const AIRCRAFT_TYPES = [
     deliveredAgeWeeks: 312,   // arrives 6y old - NG line, out of production since 2019
     bandEis: 1998,            // band with the 737NG cohort it was built alongside, not its own 2007 EIS
     range: 5_925,
-    runwayFt: 5700,
+    runwayFt: 7100,
     weeklyLease:       79_000,
     purchasePrice: 33000000,
     fuelBurnPer100km: 426.25,
@@ -1138,11 +1139,12 @@ export const AIRCRAFT_TYPES = [
     eis: 2006,
     oop: 2013,   // year the production line closed (era worlds: second-hand only after this)
     seats: 440,
-    deliveredAgeWeeks: 676,   // line closed 2013 — youngest frame left is ~13y old
+    bandEis: 1997,   // band with the 777-200ER cohort, not its own 2006 EIS (737-900ER precedent)
+    deliveredAgeWeeks: 312,   // arrives 6y old — banded with the 777-200ER it was built alongside (same line, closed 2013)
     range: 15_843,
     runwayFt: 9800,
-    weeklyLease:      207_000,
-    purchasePrice: 85000000,
+    weeklyLease:      152_000,
+    purchasePrice: 62000000,   // 777-200ER sibling $48M at the same age, +30% (real list-price ratio) for 2,800 km more range
     fuelBurnPer100km: 872.25,
     crewCostPerKm: 3.6,
     baseMaintenancePerWk: 215_000,
@@ -1200,6 +1202,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2004,
     oop: 2022,   // year the production line closed (era worlds: second-hand only after this)
     seats: 550,
+    pricedAsNew: true,   // catalogue price is held at new-metal level on purpose (see aircraft-market-audit Addendum 7) — era worlds add no new-build premium on top
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 13_650,
     runwayFt: 9800,
@@ -1242,7 +1245,7 @@ export const AIRCRAFT_TYPES = [
     seats: 660,
     deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 3_700,
-    runwayFt: 9800,
+    runwayFt: 7500,
     weeklyLease:      109_000,
     purchasePrice: 55000000,
     fuelBurnPer100km: 1608.25,
@@ -1260,8 +1263,8 @@ export const AIRCRAFT_TYPES = [
     seats: 445,
     range: 16_090,
     runwayFt: 9500,
-    weeklyLease:      471_000,
-    purchasePrice: 195000000,
+    weeklyLease:      435_000,
+    purchasePrice: 180000000,   // 0.84x the 777-9: the ULR shrink sells at a discount per frame; replaces the 777-200LR at parity all-in, 12% better fuel/seat
     fuelBurnPer100km: 777,
     crewCostPerKm: 3.87,
     baseMaintenancePerWk: 275_000,
@@ -1297,8 +1300,8 @@ export const AIRCRAFT_TYPES = [
     deliveredAgeWeeks: 468,   // line closed 2017 — youngest frame left is ~9y old
     range: 14_816,
     runwayFt: 9800,
-    weeklyLease:      463_000,
-    purchasePrice: 190000000,
+    weeklyLease:      186_000,
+    purchasePrice: 80000000,   // used-market price for a 9y frame (was a new-build figure) — 747-400 sibling $55M at 10y, +45% for 13% less fuel/seat and 1,400 km more range
     fuelBurnPer100km: 1400,
     crewCostPerKm: 4.14,
     baseMaintenancePerWk: 340_000,
@@ -1336,7 +1339,7 @@ export const AIRCRAFT_TYPES = [
     seats: 78,
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 3_716,
-    runwayFt: 5300,
+    runwayFt: 4850,
     weeklyLease:       29_000,
     purchasePrice:  12000000,
     fuelBurnPer100km: 219.75,
@@ -1355,7 +1358,7 @@ export const AIRCRAFT_TYPES = [
     seats: 90,
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
     range: 2_876,
-    runwayFt: 5900,
+    runwayFt: 5600,
     weeklyLease:       43_000,
     purchasePrice:  18000000,
     fuelBurnPer100km: 250,
@@ -1374,7 +1377,7 @@ export const AIRCRAFT_TYPES = [
     seats: 104,
     deliveredAgeWeeks: 312,   // line closed 2020 — youngest frame left is ~6y old
     range: 3_004,
-    runwayFt: 6200,
+    runwayFt: 6000,
     weeklyLease:       51_000,
     purchasePrice: 22000000,
     fuelBurnPer100km: 281.25,
@@ -1439,7 +1442,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 1200,
     weeklyLease:        4_000,
     purchasePrice:   2000000,
-    fuelBurnPer100km: 46.25,
+    fuelBurnPer100km: 34.67,
     crewCostPerKm: 0.63,
     baseMaintenancePerWk: 1_600,
     description: 'Tiny island-hopper. Operates from grass strips and short runways.',
@@ -1475,7 +1478,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2016,
     seats: 97,
     range: 3_700,
-    runwayFt: 5600,
+    runwayFt: 5450,
     weeklyLease:       43_500,
     purchasePrice:  22000000,
     fuelBurnPer100km: 255.75,
@@ -1516,7 +1519,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3500,
     weeklyLease:       17_000,
     purchasePrice:  7000000,
-    fuelBurnPer100km: 170.5,
+    fuelBurnPer100km: 162.83,
     crewCostPerKm: 1.33,
     baseMaintenancePerWk: 11_200,
     description: 'The classic Dash 8 in its most popular variant. Cheap, reliable, and widely supported. A workhorse of thin short-haul routes worldwide.',
@@ -1535,7 +1538,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4300,
     weeklyLease:       43_000,
     purchasePrice:  22000000,
-    fuelBurnPer100km: 233,
+    fuelBurnPer100km: 190.48,
     crewCostPerKm: 1.46,
     baseMaintenancePerWk: 16_800,
     description: 'Fast turboprop with longer range than ATR. Popular for inter-city routes.',
@@ -1768,8 +1771,8 @@ export const AIRCRAFT_TYPES = [
     deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
     range: 11_000,
     runwayFt: 8500,
-    weeklyLease:      109_000,
-    purchasePrice: 50000000,
+    weeklyLease:      65_000,
+    purchasePrice: 30000000,   // cohort price: A340-300 is $91k/seat at the same 10y age; the Il-96 burns 80% more per seat
     fuelBurnPer100km: 1150.25,
     crewCostPerKm: 3.6,
     baseMaintenancePerWk: 150_000,
@@ -1961,7 +1964,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2026,
     seats: 92,
     range: 3_770,
-    runwayFt: 6300,
+    runwayFt: 5550,
     weeklyLease:       80_000,
     purchasePrice:  40000000,
     fuelBurnPer100km: 234.5,
@@ -1984,7 +1987,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 2600,
     weeklyLease:        10_000,
     purchasePrice:   5000000,
-    fuelBurnPer100km: 48.44,
+    fuelBurnPer100km: 42.65,
     crewCostPerKm: 0.63,
     baseMaintenancePerWk: 2_200,
     description: 'Premium Swiss single-engine turboprop. Excellent short-field performance.',
@@ -2005,7 +2008,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4300,
     weeklyLease:        11_000,
     purchasePrice:  5000000,
-    fuelBurnPer100km: 107.34,
+    fuelBurnPer100km: 118.18,
     crewCostPerKm: 1.13,
     baseMaintenancePerWk: 7_000,
     description: 'Dependable Swedish regional. Widely used in North America and Scandinavia.',
@@ -2024,7 +2027,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4200,
     weeklyLease:       15_000,
     purchasePrice:  7000000,
-    fuelBurnPer100km: 152.29,
+    fuelBurnPer100km: 182.78,
     crewCostPerKm: 1.33,
     baseMaintenancePerWk: 9_600,
     description: 'Fast 50-seat turboprop, nearly jet speed. Competes on thin short-haul routes.',
@@ -2046,7 +2049,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4300,
     weeklyLease:        8_000,
     purchasePrice:  4000000,
-    fuelBurnPer100km: 99.2,
+    fuelBurnPer100km: 119.23,
     crewCostPerKm: 1.08,
     baseMaintenancePerWk: 6_200,
     description: 'Boxy but effective 36-seater. Low acquisition cost for thin UK/Irish routes.',
@@ -2084,8 +2087,8 @@ export const AIRCRAFT_TYPES = [
     oop: 2017,   // year the production line closed (era worlds: second-hand only after this)
     seats: 210,
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
-    range: 6_500,
-    runwayFt: 7200,
+    range: 4_600,
+    runwayFt: 5700,
     weeklyLease:       73_000,
     purchasePrice: 30000000,
     fuelBurnPer100km: 540,
@@ -2108,7 +2111,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 1200,
     weeklyLease:        14_000,
     purchasePrice:  7000000,
-    fuelBurnPer100km: 77.5,
+    fuelBurnPer100km: 93.29,
     crewCostPerKm: 0.95,
     baseMaintenancePerWk: 4_000,
     description: 'STOL legend. Operates from water, ice, grass, and gravel runways worldwide.',
@@ -2147,7 +2150,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3600,
     weeklyLease: 3500,
     purchasePrice: 1400000,
-    fuelBurnPer100km: 115,
+    fuelBurnPer100km: 189.87,
     crewCostPerKm: 0.95,
     baseMaintenancePerWk: 7_000,
     deliveredAgeWeeks: 832,   // arrives 16y old — war-surplus metal, not a new build
@@ -2168,7 +2171,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4400,
     weeklyLease: 32000,
     purchasePrice: 16000000,
-    fuelBurnPer100km: 118.75,
+    fuelBurnPer100km: 171.68,
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 14_000,
     description: 'Purpose-built regional freighter. The only freighter that can work a 4,400 ft strip, and the most fuel-efficient per tonne of any small freighter — built to fill on thin lanes where a converted jet would fly a third full.',
@@ -2364,7 +2367,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3000,
     weeklyLease:    4_000,
     purchasePrice: 1500000,
-    fuelBurnPer100km: 173.44,
+    fuelBurnPer100km: 116.28,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 6_000,
     description: 'The aircraft that made air travel mainstream. A 1930s piston legend still flying today on bush and heritage routes.',
@@ -2391,7 +2394,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3000,
     weeklyLease:    2_900,
     purchasePrice: 1150000,   // sits on the $40K/seat small-type floor (aircraft-consistency-test)
-    fuelBurnPer100km: 173.44,
+    fuelBurnPer100km: 116.28,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 6_800,
     description: 'The surplus DC-3. Military cargo door, bare cabin, bargain price — the airframe most postwar start-ups actually began with.',
@@ -2483,7 +2486,7 @@ export const AIRCRAFT_TYPES = [
     seats: 149,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 6_100,
-    runwayFt: 9800,
+    runwayFt: 9550,
     weeklyLease:    20_000,
     purchasePrice: 8_000_000,
     fuelBurnPer100km: 850,
@@ -2635,7 +2638,7 @@ export const AIRCRAFT_TYPES = [
     seats: 85,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 2_700,
-    runwayFt: 5500,
+    runwayFt: 5350,
     weeklyLease:    12_000,
     purchasePrice: 5000000,
     fuelBurnPer100km: 388.75,
@@ -2654,7 +2657,7 @@ export const AIRCRAFT_TYPES = [
     seats: 165,
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
     range: 6_700,
-    runwayFt: 6800,
+    runwayFt: 6050,
     weeklyLease:    20_000,
     purchasePrice: 8_000_000,
     fuelBurnPer100km: 813.75,
@@ -2713,7 +2716,7 @@ export const AIRCRAFT_TYPES = [
     seats: 345,
     deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
     range: 5_400,
-    runwayFt: 8900,
+    runwayFt: 8650,
     weeklyLease:    38_000,
     purchasePrice: 16_000_000,
     fuelBurnPer100km: 947,
@@ -2754,7 +2757,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5500,
     weeklyLease:    20_000,
     purchasePrice: 8_000_000,
-    fuelBurnPer100km: 489.79,
+    fuelBurnPer100km: 370.5,
     crewCostPerKm: 1.53,
     baseMaintenancePerWk: 16_000,
     description: 'Fast American four-engine turboprop; airframe later spawned the P-3 Orion.',
@@ -2792,7 +2795,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5000,
     weeklyLease:    7_000,
     purchasePrice: 3000000,
-    fuelBurnPer100km: 203.5,
+    fuelBurnPer100km: 201.69,
     crewCostPerKm: 1.26,
     baseMaintenancePerWk: 8_500,
     description: 'Turboprop conversion of the Convair 340/440 piston twins. A durable regional hauler.',
@@ -2896,7 +2899,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3400,
     weeklyLease:    12_000,
     purchasePrice: 6000000,
-    fuelBurnPer100km: 147.25,
+    fuelBurnPer100km: 133.38,
     crewCostPerKm: 1.12,
     baseMaintenancePerWk: 8_000,
     description: 'Fast, quiet German regional turboprop with a wide stand-up cabin for its size.',
@@ -2935,7 +2938,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 2600,
     weeklyLease:    17_000,
     purchasePrice: 8000000,
-    fuelBurnPer100km: 65.1,
+    fuelBurnPer100km: 112.2,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 3_600,
     description: 'Rugged STOL commuter with a boxy fuselage. Popular for island and bush work.',
@@ -2954,7 +2957,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5200,
     weeklyLease:    8_000,
     purchasePrice: 4000000,
-    fuelBurnPer100km: 108.5,
+    fuelBurnPer100km: 100.99,
     crewCostPerKm: 1.08,
     baseMaintenancePerWk: 6_000,
     description: 'Sleek Brazilian 30-seat turboprop that built Embraer\'s regional reputation.',
@@ -2974,7 +2977,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4600,
     weeklyLease:    6_000,
     purchasePrice: 3000000,
-    fuelBurnPer100km: 62,
+    fuelBurnPer100km: 77.99,
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 3_400,
     description: '19-seat British commuter twin, a fixture of 1980s feeder networks.',
@@ -3012,7 +3015,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4300,
     weeklyLease:    10_000,
     purchasePrice: 5000000,
-    fuelBurnPer100km: 102.3,
+    fuelBurnPer100km: 118.18,
     crewCostPerKm: 1.12,
     baseMaintenancePerWk: 6_400,
     description: 'Early-build Saab 340. An affordable 34-seat regional twin for thin routes.',
@@ -3031,7 +3034,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3100,
     weeklyLease:    10_000,
     purchasePrice: 4000000,
-    fuelBurnPer100km: 140.66,
+    fuelBurnPer100km: 135.28,
     crewCostPerKm: 1.26,
     baseMaintenancePerWk: 9_000,
     description: 'The original Dash 8, a STOL-capable 39-seat regional turboprop.',
@@ -3050,7 +3053,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 3300,
     weeklyLease:    12_000,
     purchasePrice: 5000000,
-    fuelBurnPer100km: 143.76,
+    fuelBurnPer100km: 149.34,
     crewCostPerKm: 1.26,
     baseMaintenancePerWk: 9_500,
     description: 'Higher-powered Dash 8-100 with better speed and hot-and-high performance.',
@@ -3069,7 +3072,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 2300,
     weeklyLease:    30_000,
     purchasePrice: 15000000,
-    fuelBurnPer100km: 222.04,
+    fuelBurnPer100km: 232.66,
     crewCostPerKm: 1.4,
     baseMaintenancePerWk: 11_000,
     description: 'Four-engine STOL airliner able to use very short city-centre and mountain strips.',
@@ -3144,7 +3147,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4300,
     weeklyLease:    9_000,
     purchasePrice: 4000000,
-    fuelBurnPer100km: 243.28,
+    fuelBurnPer100km: 196.46,
     crewCostPerKm: 1.26,
     baseMaintenancePerWk: 8_500,
     description: 'Tough Soviet high-wing turboprop built to operate from gravel and ice strips.',
@@ -3351,7 +3354,7 @@ export const AIRCRAFT_TYPES = [
     oop: 1984,   // year the production line closed (era worlds: second-hand only after this)
     seats: 0,
     range: 3_500,
-    runwayFt: 6800,
+    runwayFt: 7300,
     weeklyLease: 19000,
     purchasePrice: 7500000,
     fuelBurnPer100km: 600,
@@ -3500,7 +3503,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4500,
     weeklyLease:      4_900,
     purchasePrice: 1900000,
-    fuelBurnPer100km: 218.3,
+    fuelBurnPer100km: 223.16,
     crewCostPerKm: 1.05,
     baseMaintenancePerWk: 9_000,
     cruiseKmh: 365,
@@ -3569,7 +3572,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4500,
     weeklyLease:      4_900,
     purchasePrice: 1900000,
-    fuelBurnPer100km: 175.75,
+    fuelBurnPer100km: 156.85,
     crewCostPerKm: 1,
     baseMaintenancePerWk: 7_500,
     cruiseKmh: 435,
@@ -3697,7 +3700,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4800,
     weeklyLease:      9_300,
     purchasePrice: 3600000,
-    fuelBurnPer100km: 222,
+    fuelBurnPer100km: 262.3,
     crewCostPerKm: 1.17,
     baseMaintenancePerWk: 10_500,
     cruiseKmh: 520,
@@ -3758,7 +3761,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 4600,
     weeklyLease:      6_800,
     purchasePrice: 2600000,
-    fuelBurnPer100km: 194.25,
+    fuelBurnPer100km: 162.83,
     crewCostPerKm: 1.08,
     baseMaintenancePerWk: 8_500,
     cruiseKmh: 465,
@@ -4336,22 +4339,42 @@ export function aircraftOrderable(type, calYear = null) {
 // the vintage rule). Types delivered factory-fresh in classic (no band — the
 // Concorde conceit) are untouched. Frames already in a fleet keep the age they
 // were delivered at.
-export const VINTAGE_AFTER_YEARS = 50;   // line closed this long ago → vintage
-export const VINTAGE_AGE_FLOOR   = 20;   // delivered age (years) at the threshold
-export const VINTAGE_AGE_CAP     = 30;   // and the ceiling it climbs to
+//
+// THE RAMP (2026-09-23 audit). The rule used to be a cliff: a line closed 49
+// years delivered at its published band (at most 16y, 2.28× maintenance) and a
+// line closed 50 years delivered at 20y. Nothing about the aircraft changed in
+// that year. The Il-18 (closed 1978) sat two years short of the edge and was the
+// second-biggest winner in the mission sweep because of it. The delivered AGE
+// now ramps linearly from the published band at VINTAGE_RAMP_FROM_YEARS closed
+// to VINTAGE_AGE_FLOOR at VINTAGE_AFTER_YEARS, then on to the cap as before.
+// The LEASE rule is deliberately still a line at VINTAGE_AFTER_YEARS — that is
+// lessor behaviour (nobody keeps a book of 1970s metal), not wear, so it
+// is allowed to be discrete.
+export const VINTAGE_AFTER_YEARS     = 50;   // line closed this long ago → vintage (buy-only)
+export const VINTAGE_RAMP_FROM_YEARS = 35;   // the delivered age starts climbing here
+export const VINTAGE_AGE_FLOOR       = 20;   // delivered age (years) at the vintage threshold
+export const VINTAGE_AGE_CAP         = 30;   // and the ceiling it climbs to
 
-/** Delivered age (weeks) the vintage rule imposes in a 2026 world; 0 if the type isn't vintage. */
+/** Delivered age (weeks) the vintage ramp imposes in a 2026 world; 0 if it does not apply. */
 export function vintageDeliveredAgeWeeks(type) {
   if (!type || !(type.deliveredAgeWeeks > 0) || type.oop == null) return 0;
   const closed = 2026 - type.oop;
-  if (closed < VINTAGE_AFTER_YEARS) return 0;
-  const years = Math.min(VINTAGE_AGE_CAP, VINTAGE_AGE_FLOOR + (closed - VINTAGE_AFTER_YEARS));
-  return years * 52;
+  if (closed < VINTAGE_RAMP_FROM_YEARS) return 0;
+  const band = type.deliveredAgeWeeks / 52;
+  let years;
+  if (closed < VINTAGE_AFTER_YEARS) {
+    const f = (closed - VINTAGE_RAMP_FROM_YEARS) / (VINTAGE_AFTER_YEARS - VINTAGE_RAMP_FROM_YEARS);
+    years = band + f * Math.max(0, VINTAGE_AGE_FLOOR - band);
+  } else {
+    years = Math.min(VINTAGE_AGE_CAP, VINTAGE_AGE_FLOOR + (closed - VINTAGE_AFTER_YEARS));
+  }
+  return Math.round(years * 52);
 }
 
-/** Vintage on the 2026 market: the line closed VINTAGE_AFTER_YEARS+ ago and it arrives older than its published band. */
+/** Vintage on the 2026 market: the line closed VINTAGE_AFTER_YEARS+ ago, so it is buy-only. */
 export function isVintage(type) {
-  return vintageDeliveredAgeWeeks(type) > (type?.deliveredAgeWeeks ?? 0);
+  return !!type && type.deliveredAgeWeeks > 0 && type.oop != null
+    && 2026 - type.oop >= VINTAGE_AFTER_YEARS;
 }
 
 /**
@@ -4402,6 +4425,11 @@ export function eraDeliveredAgeWeeks(type, calYear = null) {
 // over ERA_PRICE_DECAY_YEARS. Lines still open in 2026 are untouched (their
 // catalogue price already IS the new-build price), and so are `surplus` types —
 // the war-glut C-47 and DC-4 that were never sold as new metal to airlines.
+// `pricedAsNew` types (A380, 777-300ER) are closed lines whose catalogue price
+// is deliberately held at new-metal level rather than cut to a used value —
+// cheaper, they would take every long-haul trunk (aircraft-market-audit,
+// Addendum 7). Their catalogue figure is already a new-build price, so the era
+// market must not multiply it again: a 2010 A380 was $762M before this.
 // Classic worlds (calYear null) return exactly 1 — the parity invariant.
 //
 // The reducer sets the module year on every action (like setEraCostScale), so
@@ -4419,7 +4447,7 @@ export function getEraPriceYear() { return _eraPriceYear; }
 /** Multiplier on the catalogue price/lease for this type at `calYear` (1 in classic). */
 export function eraPriceScale(type, calYear = _eraPriceYear) {
   if (calYear == null || !type) return 1;
-  if (type.surplus) return 1;
+  if (type.surplus || type.pricedAsNew) return 1;
   if (type.oop == null || type.oop > 2026) return 1;
   const fresh = 1 - Math.min(1, Math.max(0, calYear - type.oop) / ERA_PRICE_DECAY_YEARS);
   return 1 + (ERA_NEW_BUILD_PREMIUM - 1) * fresh;

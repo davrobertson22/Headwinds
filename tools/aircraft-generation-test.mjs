@@ -76,7 +76,8 @@ const LADDER = [
   ['a321ceo', 'a321neo'], ['b737700', 'b737max7'], ['b737900er', 'b737max9'],
   ['e190', 'e190e2'], ['e195', 'e195e2'], ['e175', 'e175e2'],
   ['b767300', 'b7878'], ['a330300', 'a330neo'], ['a330200', 'a330800'],
-  ['b777200er', 'b7778x'], ['b777300er', 'b7779x'], ['a340300', 'a350900'],
+  ['b777200er', 'b7778x'], ['b777200lr', 'b7778x'],   // the 777-8 is the ULR shrink: the -200LR is what it replaces
+  ['b777300er', 'b7779x'], ['a340300', 'a350900'],
   ['b747400', 'b7478i'], ['a340600', 'a3501000'],
 ];
 
@@ -90,28 +91,27 @@ test('every replacement type beats the frame it replaces on fuel per seat', () =
     'a new generation must buy at least 5% per seat — anything less is a reskin');
 });
 
-// ── 3. NOT YET A TEST: all-in cost across a generation ───────────────────────
+// ── 3. All-in cost across a generation: deliberately not asserted ───────────
 //
 // The invariant this file would most like to assert is that a replacement beats
-// the frame it replaces on ALL-IN cost per seat-km, not just on fuel — that is
-// what a player actually pays. It is deliberately NOT asserted here, because
-// there is no sound way to compare the two sides yet:
+// the frame it replaces on ALL-IN cost per seat-km, not just on fuel. There is
+// no sound way to compare the two sides: a closed line's catalogue price is its
+// SECOND-HAND 2026 value and an open line's is new metal, so a used 767-300 is
+// cheaper to hold than a new 787-8 — true, intended, not a defect. Lifting the
+// older frame to "new" via ERA_NEW_BUILD_PREMIUM swings the verdict by tens of
+// percent depending on which frame you lift.
 //
-//   A closed line's catalogue price is its SECOND-HAND 2026 value; an open
-//   line's is new metal. Comparing them directly says a used 767-300 is cheaper
-//   to hold than a new 787-8 — true, intended, and not a defect. Reconstructing
-//   a "new" price for the older frame via ERA_NEW_BUILD_PREMIUM does not fix it
-//   either: one global 2.5x multiplier cannot stand in for the very different
-//   real depreciation of a 1989 747-400 and a 2012 747-8I, and the comparison
-//   swings by tens of percent depending on which frame you lift.
+// What the audit found underneath instead (Addendum 7, 2026-09-23) was four
+// closed widebodies carrying NEW-BUILD prices — the convention broken, not the
+// ladder — plus one within-family inversion. Those are guarded directly, and
+// without a cost model, in aircraft-pricing-guard-test.mjs.
 //
-// The 2026-09-20 audit measured the underlying seam directly instead: passenger
-// widebody capital cost spans 15.2x per seat while operating cost spans 2.5x —
-// the same shape as the freighter pricing bug already guarded in
-// aircraft-consistency-test.mjs ("freighter $M-per-tonne spread stays under
-// 10x"), which was 21.6x against 2.7x. The passenger mirror of that guard is
-// the test to add here, and it needs the widebody capital band compressed
-// first — otherwise it fails on day one. See docs/aircraft-market-audit.md.
+// The widebody capital band (15x per seat, cheapest vintage 747 to dearest
+// A350) was measured and left alone: real lease rates span more than the game's
+// do (a new A350 against a 25-year-old 767), and the mission sweep shows cheap
+// old widebodies winning nothing per airframe — they win on return on capital,
+// which is the used market doing its job, with age-driven maintenance already
+// charged.
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

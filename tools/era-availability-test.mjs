@@ -9,7 +9,8 @@ import { strict as assert } from 'node:assert';
 import test from 'node:test';
 import {
   AIRCRAFT_TYPES, getAircraftType, aircraftAvailability, aircraftOrderable, eraDeliveredAgeWeeks, lessorSupplies,
-  isVintage, VINTAGE_AFTER_YEARS, VINTAGE_AGE_FLOOR, VINTAGE_AGE_CAP,
+  isVintage, VINTAGE_AFTER_YEARS, VINTAGE_AGE_FLOOR, VINTAGE_AGE_CAP, VINTAGE_RAMP_FROM_YEARS,
+  vintageDeliveredAgeWeeks,
 } from '../packages/engine/src/data/aircraft.js';
 import { gameReducer, freshState, orderDenial, leaseDenial } from '../packages/engine/src/reducer.mjs';
 
@@ -38,9 +39,10 @@ test('every banded passenger type has a real production-line closure', () => {
 
 // ── Delivered age generalisation ─────────────────────────────────────────────
 
-test('classic worlds reproduce the published table exactly (parity) — except vintage lines', () => {
+test('classic worlds reproduce the published table exactly (parity) — except lines closed long enough to ramp', () => {
+  const ramped = t => (t.deliveredAgeWeeks ?? 0) > 0 && t.oop != null && 2026 - t.oop >= VINTAGE_RAMP_FROM_YEARS;
   for (const t of AIRCRAFT_TYPES) {
-    if (isVintage(t)) continue;   // covered below
+    if (ramped(t)) continue;   // covered below
     assert.equal(eraDeliveredAgeWeeks(t, null), t.deliveredAgeWeeks ?? 0, t.id);
   }
 });
@@ -52,7 +54,7 @@ test('classic worlds reproduce the published table exactly (parity) — except v
 // 2026 market. So instead: a line closed VINTAGE_AFTER_YEARS+ delivers old
 // (VINTAGE_AGE_FLOOR → VINTAGE_AGE_CAP, i.e. 5.5× maintenance) and is buy-only.
 
-test('vintage rule: lines closed 50+ years deliver 20–30 years old and are buy-only; everything younger is untouched', () => {
+test('vintage rule: lines closed 50+ years deliver 20–30 years old and are buy-only; 35–49 ramp; younger untouched', () => {
   const dc3 = getAircraftType('dc3'), van = getAircraftType('vanguard'), dc863 = getAircraftType('dc863');
   const b732 = getAircraftType('b737200'), il18 = getAircraftType('il18'), hs748 = getAircraftType('hs748');
   const conc = getAircraftType('concorde');
@@ -60,9 +62,13 @@ test('vintage rule: lines closed 50+ years deliver 20–30 years old and are buy
   assert.equal(isVintage(dc3), true);   assert.equal(eraDeliveredAgeWeeks(dc3, null), 30 * 52, '1946 line: capped at 30y');
   assert.equal(isVintage(van), true);   assert.equal(eraDeliveredAgeWeeks(van, null), 30 * 52, '1964 line: 62y closed → cap');
   assert.equal(isVintage(dc863), true); assert.equal(eraDeliveredAgeWeeks(dc863, null), 24 * 52, '1972 line: 54y closed → 20 + 4');
-  assert.equal(isVintage(b732), false); assert.equal(eraDeliveredAgeWeeks(b732, null), b732.deliveredAgeWeeks, '1988 line: published band');
-  assert.equal(isVintage(il18), false,  '1978 line (48y): not yet vintage — the June-block rule applies');
-  assert.equal(isVintage(hs748), false, '1988 line: published band');
+  // 2026-09-23: 35–49 years closed now RAMPS from the band toward the floor
+  // instead of sitting on the band until a cliff at 50.
+  assert.equal(isVintage(b732), false, '1988 line (38y): leasable');
+  assert.ok(eraDeliveredAgeWeeks(b732, null) > b732.deliveredAgeWeeks, '1988 line (38y): on the ramp, older than its band');
+  assert.equal(isVintage(il18), false,  '1978 line (48y): not yet vintage — still leasable');
+  assert.ok(eraDeliveredAgeWeeks(il18, null) / 52 > 19, '1978 line (48y): nearly at the 20y floor, not 4 years short of it');
+  assert.equal(isVintage(hs748), false, '1988 line (38y): leasable');
   assert.equal(isVintage(conc), false); assert.equal(eraDeliveredAgeWeeks(conc, null), 0, 'band-less classic conceit untouched');
   for (const t of AIRCRAFT_TYPES) {
     const v = isVintage(t);
@@ -72,12 +78,33 @@ test('vintage rule: lines closed 50+ years deliver 20–30 years old and are buy
       assert.ok(y >= VINTAGE_AGE_FLOOR && y <= VINTAGE_AGE_CAP && y > (t.deliveredAgeWeeks ?? 0) / 52, `${t.id} ${y}y`);
       assert.equal(lessorSupplies(t, null), false, `${t.id} leasable in classic`);
       assert.equal(aircraftOrderable(t, null), t.withdrawnYear == null, `${t.id} orderable in classic`);
+    } else if ((t.deliveredAgeWeeks ?? 0) > 0 && t.oop != null && 2026 - t.oop >= VINTAGE_RAMP_FROM_YEARS) {
+      const y = eraDeliveredAgeWeeks(t, null) / 52, band = t.deliveredAgeWeeks / 52;
+      assert.ok(y >= band && y <= Math.max(band, VINTAGE_AGE_FLOOR), `${t.id} ramped to ${y}y, outside [band ${band}y, floor ${VINTAGE_AGE_FLOOR}y]`);
     }
     // Era worlds are untouched by the rule — their calendar IS the vintage rule.
     assert.equal(eraDeliveredAgeWeeks(t, 2026), t.deliveredAgeWeeks ?? 0, `${t.id} era@2026`);
   }
   const vintage = AIRCRAFT_TYPES.filter(isVintage).map(t => t.id);
   assert.ok(vintage.includes('c47') && vintage.includes('dc4') && vintage.includes('l188') && vintage.includes('cv580'), vintage.join(','));
+});
+
+test('no cliff: delivered age rises smoothly with years closed, by no more than a year per year', () => {
+  // THE BUG THIS LOCKS OUT: a line closed 49 years delivered at its band (≤16y)
+  // and one closed 50 years at 20y — the Il-18 sat two years short of it and
+  // was the second-biggest winner in the 2026-09-20 mission sweep.
+  for (const bandYears of [6, 10, 12, 16]) {
+    let prev = null;
+    for (let closed = VINTAGE_RAMP_FROM_YEARS - 5; closed <= VINTAGE_AFTER_YEARS + 15; closed++) {
+      const t = { deliveredAgeWeeks: bandYears * 52, oop: 2026 - closed };
+      const y = Math.max(bandYears, vintageDeliveredAgeWeeks(t) / 52);
+      if (prev != null) {
+        assert.ok(y >= prev - 1e-9, `band ${bandYears}y: age fell at ${closed}y closed`);
+        assert.ok(y - prev <= 1.01, `band ${bandYears}y: jumped ${(y - prev).toFixed(2)}y at ${closed}y closed`);
+      }
+      prev = y;
+    }
+  }
 });
 
 test('vintage rule in the reducer: a classic world buys a DC-4 at 30y old, cannot lease it, and never sees the Comet 1', () => {

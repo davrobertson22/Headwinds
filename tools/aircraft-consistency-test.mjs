@@ -58,6 +58,9 @@ const TWINS = [
   ['b767200er', 'b767200sf'],
   ['a300600r', 'a300600f'],
   ['b757200', 'b757200pf'],
+  // Added 2026-09-23: the propeller recalibration raised the ATR 72-600 and left
+  // its freighter conversion ~30% below it — the one propeller twin this list missed.
+  ['atr72',   'atr72f'],
 ];
 
 for (const [pax, frt] of TWINS) {
@@ -842,9 +845,17 @@ if (hasEis) {
       { maxEis: 1989, floorK: 36 }, { maxEis: 1999, floorK: 65 },
       { maxEis: 2009, floorK: 90 }, { maxEis: 9999, floorK: 180 },
     ];
+    // The 2010+ floor is a NEW-metal floor. A closed line of that generation
+    // sells used (deliveredAgeWeeks > 0) — the 747-8I arrives 9y old at a
+    // used-market price (aircraft-market-audit Addendum 7) — so it answers to
+    // the band below, the floor every other used widebody already clears.
+    const floorFor = (t) => {
+      const i = FLOOR.findIndex(b => t.eis <= b.maxEis);
+      return FLOOR[i === FLOOR.length - 1 && t.deliveredAgeWeeks > 0 ? i - 1 : i].floorK;
+    };
     const under = PAX
       .filter(t => t.seats >= 80)
-      .filter(t => ppsK(t) < FLOOR.find(b => t.eis <= b.maxEis).floorK)
+      .filter(t => ppsK(t) < floorFor(t))
       .map(t => `${t.name} (${t.eis}) $${ppsK(t).toFixed(0)}K/seat`);
     assert.deepEqual(under, []);
   });
