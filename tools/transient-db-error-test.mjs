@@ -67,6 +67,20 @@ await t('the pre-existing transaction cases still classify as tx, not connection
   assert.equal(transientKind(new Error('deadlock detected')), 'tx');
 });
 
+// node-postgres shapes, since the move to the Rust-free client (lib/pgPool.mjs).
+// Captured 2026-09-23 against the real database: a pool of 1 held by a
+// transaction, a second query, connectionTimeoutMillis 2000 → the first; the
+// others are node-postgres's own wording for a dropped / never-opened socket.
+// Verified failing on HEAD: transientKind() returned null for all three.
+await t('pg pool wait expiry ("timeout exceeded when trying to connect", no code) is transient', () => {
+  assert.equal(transientKind(new Error('timeout exceeded when trying to connect')), 'tx');
+});
+
+await t('pg dropped / never-opened sockets are connection failures', () => {
+  assert.equal(transientKind(new Error('Connection terminated unexpectedly')), 'connection');
+  assert.equal(transientKind(new Error('Connection terminated due to connection timeout')), 'connection');
+});
+
 await t('a real error is still a real error', () => {
   assert.equal(transientKind(null), null);
   assert.equal(transientKind(new Error('Unique constraint failed on the fields: (`code`)')), null);

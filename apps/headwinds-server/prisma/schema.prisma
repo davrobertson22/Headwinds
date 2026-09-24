@@ -7,7 +7,11 @@
 // sorting and leaderboards.
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  // Rust-free: no native query engine (it held GBs of memory it never freed —
+  // see src/lib/pgPool.mjs). Queries run through @prisma/adapter-pg in db.mjs.
+  // `prisma migrate` still uses url/directUrl below, unchanged.
+  engineType = "client"
 }
 
 datasource db {

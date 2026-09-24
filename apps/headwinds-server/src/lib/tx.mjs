@@ -43,7 +43,11 @@ const TRANSIENT_CODES = new Set(['P2028', 'P2034', 'P2024']);
 
 // Some of these arrive as a raw driver error without a Prisma code attached
 // (notably through pgBouncer), so match the wording too.
-const TRANSIENT_TEXT = /transaction already closed|transaction api error|transaction not found|write conflict|deadlock detected|unable to start a transaction|timed out fetching a new connection/i;
+//
+// Since the move to the Rust-free client over node-postgres (lib/pgPool.mjs),
+// waiting too long for a pool connection is no longer P2024: it arrives as a
+// plain Error with no code, "timeout exceeded when trying to connect".
+const TRANSIENT_TEXT = /transaction already closed|transaction api error|transaction not found|write conflict|deadlock detected|unable to start a transaction|timed out fetching a new connection|timeout exceeded when trying to connect/i;
 
 // Connection-level failures: the pooler dropped our socket, or never handed us
 // one. Nothing about the request was wrong — the database was simply not
@@ -65,7 +69,12 @@ const TRANSIENT_TEXT = /transaction already closed|transaction api error|transac
 // already treats 503 as transient (apps/headwinds-web/src/api.js); the server
 // just never said 503. See OUTAGE notes in the Headwinds project.
 const CONNECTION_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017']);
-const CONNECTION_TEXT = /server has closed the connection|can't reach database server|unable to check out connection from the pool|ECHECKOUTTIMEOUT|connection reset by peer|connection refused|broken pipe/i;
+//
+// node-postgres words the same failures its own way (no Prisma code attached):
+//   "Connection terminated unexpectedly"            — socket dropped mid-query
+//   "Connection terminated due to connection timeout" — new socket never opened
+//   "Client has encountered a connection error and is not queryable"
+const CONNECTION_TEXT = /server has closed the connection|can't reach database server|unable to check out connection from the pool|ECHECKOUTTIMEOUT|connection reset by peer|connection refused|broken pipe|connection terminated unexpectedly|connection terminated due to connection timeout|encountered a connection error and is not queryable/i;
 
 /**
  * Why a request failed through no fault of its own, or null if it is a real error.

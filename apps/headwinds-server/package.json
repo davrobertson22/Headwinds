@@ -21,13 +21,14 @@
   "dependencies": {
     "@fastify/compress": "^9.1.0",
     "@fastify/cors": "^10.0.1",
-    "@prisma/client": "^6.1.0",
+    "@prisma/adapter-pg": "^6.19.3",
+    "@prisma/client": "^6.19.3",
     "@supabase/supabase-js": "^2.47.10",
     "@tailwinds/engine": "*",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.0"
   },
   "devDependencies": {
-    "prisma": "^6.1.0"
+    "prisma": "^6.19.3"
   }
 }
