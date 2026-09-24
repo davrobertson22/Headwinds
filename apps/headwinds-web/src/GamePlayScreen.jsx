@@ -29,33 +29,8 @@ import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
+import TickCountdown from './TickCountdown.jsx';
 import '../../../src/index.css';
-
-// Live countdown to the server's next weekly tick. Derived from worldClock
-// .nextTickAt; when it crosses zero we show "landing…" and the poller (below)
-// tightens up so the new week arrives promptly instead of "within 15s, maybe".
-// Rendered inside the game topbar's DATE tile (via remoteChrome).
-function TickCountdown({ nextTickAt, paceLabel, stale }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  if (!nextTickAt) return null;
-  const ms = new Date(nextTickAt).getTime() - now;
-  // Overdue AND out of contact is not "landing" — it's us, not the world.
-  if (ms <= 0) return <span>{stale ? 'waiting for the server…' : 'next week landing…'}</span>;
-  const totalSec = Math.ceil(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const label = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
-  return (
-    <span title={paceLabel ? `World pace: ${paceLabel}` : undefined}>
-      next week in <strong>{label}</strong>
-    </span>
-  );
-}
 
 // ── Statistics backfill ─────────────────────────────────────────────────────
 // Finance ▸ Statistics is driven by state.statsHistory, a compact per-week KPI
@@ -540,8 +515,11 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // Maturity label for the shared top bar: alpha | beta | live (live shows
     // no chip at all). Defaults to beta until the first state read lands.
     stage: meta?.worldStage ?? 'beta',
-    clock: meta?.worldStatus === 'RUNNING'
-      ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost} />
+    // A scheduled world in LOBBY is playable before its start; its clock counts
+    // down to week 1 instead of reading "world lobby".
+    clock: (meta?.worldStatus === 'RUNNING' || (meta?.worldStatus === 'LOBBY' && meta?.worldClock?.nextTickAt))
+      ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost}
+          preStart={meta?.worldStatus === 'LOBBY'} startsAt={meta?.worldClock?.startsAt} />
       : (meta?.worldStatus ? <span>world {String(meta.worldStatus).toLowerCase()}</span> : null),
     right: (
       <>

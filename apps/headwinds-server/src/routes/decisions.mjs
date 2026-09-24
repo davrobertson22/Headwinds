@@ -15,7 +15,7 @@ import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/red
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
 import { journalledPayload } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
-import { paceLabel, worldStageOf, MAX_RESTARTS } from '../lib/worldConfig.mjs';
+import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor } from '../lib/worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
          RIVAL_VIEW_POLL_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
@@ -211,6 +211,9 @@ export default async function decisionRoutes(fastify) {
         // for LOBBY/ENDED worlds) and the world's human-readable pace.
         nextTickAt: dueAt ? dueAt.toISOString() : null,
         paceLabel: paceLabel(world.weeksPerDay),
+        // Scheduled worlds: when the clock starts (null otherwise). The game bar
+        // shows "first week in …" against it while the world is still in LOBBY.
+        startsAt: world.tickConfig?.scheduledStartAt ?? null,
       },
       stamp,
     };
@@ -321,7 +324,10 @@ export default async function decisionRoutes(fastify) {
 
     const airline = await loadMyAirline(request);
     if (airline.status !== 'ACTIVE') throw httpError(409, `Your airline is ${airline.status}`);
-    if (airline.world.status !== 'RUNNING') throw httpError(409, `This world is ${airline.world.status}`);
+    // RUNNING worlds, and scheduled worlds before their start (set up routes and
+    // fleet ahead of the gun — the clock waits, the airline doesn't).
+    const denial = decisionDenialFor(airline.world, type);
+    if (denial) throw httpError(409, denial);
 
     // Server-authoritative validation of economic values the solo client would
     // normally clamp in its UI (loan terms, cabin layout, reconfigure cost). The

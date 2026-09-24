@@ -1359,6 +1359,12 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         {mine && !lapsed && (
           <div className="mine">
             <p>Flying as <strong>{mine.name}</strong> ({mine.hub}) — {fmtMoney(mine.cash)}</p>
+            {world.status === 'LOBBY' && world.scheduledStartAt && (
+              <p className="muted small">
+                The world starts {fmtStartTime(world.scheduledStartAt)}. Open routes, lease aircraft and set
+                fares now — nothing flies until the first week ticks.
+              </p>
+            )}
             <div className="row">
               <button className="btn primary" onClick={() => goTo(`/w/${world.id}/play`)}>▶ Open the game</button>
               <button className="btn danger small" onClick={leave}>Abandon airline</button>

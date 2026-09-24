@@ -102,6 +102,34 @@ export const MAX_DEMAND_MULT = 3;
 // out as a typo guard.
 export const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 
+// Pre-start setup. Between joining a scheduled world and its start, the airline
+// is fully playable — open routes, lease aircraft, set fares — and only the clock
+// waits: nothing ticks until the worker flips the world to RUNNING, and week 1
+// flies one interval after the scheduled instant. A classic lobby never holds an
+// airline (the first join starts the clock), so it isn't pre-start.
+export const isPreStart = (world) =>
+  world?.status === 'LOBBY' && Boolean(world?.tickConfig?.scheduledStartAt);
+
+// Share trading and capital actions settle against the world's float pool, which
+// is seeded lazily from the ACTIVE player count on first touch. Seeding it from a
+// handful of early joiners would starve the whole season of liquidity, so these
+// wait for the start.
+export const PRE_START_BLOCKED_ACTIONS = new Set([
+  'BUY_STOCK', 'SELL_STOCK', 'GO_PUBLIC', 'ISSUE_SHARES', 'BUY_BACK_SHARES',
+]);
+
+// Why a player decision of `type` is refused in this world right now, or null
+// when it may run. The single gate for POST /decisions.
+export function decisionDenialFor(world, type) {
+  if (world?.status === 'RUNNING') return null;
+  if (isPreStart(world)) {
+    return PRE_START_BLOCKED_ACTIONS.has(type)
+      ? 'The share market opens when the world starts.'
+      : null;
+  }
+  return `This world is ${world?.status}`;
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Total game-weeks in a world of this length.

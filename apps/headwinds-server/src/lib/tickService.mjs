@@ -13,7 +13,7 @@ import { applyScheduleTrimMigration } from '@tailwinds/engine/utils/simulation.j
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
-import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
 import { farmFeeOn } from '@tailwinds/engine/data/fuelFarm.js';
 import { splitLogo } from './logoColumn.mjs';
@@ -77,12 +77,17 @@ export const completeIndex = (world) => totalWeeks(world.lengthYears) + 1;
 // When the NEXT week lands for this world (null when not RUNNING or complete).
 // Week toIndex = weekIndex+1 becomes due once elapsed ≥ weekIndex × interval —
 // the same derived schedule ticksDue() uses, exposed for client countdowns.
+// A scheduled world still in LOBBY counts down to its FIRST week: the worker will
+// set startedAt to the scheduled instant, so this is exactly the time the running
+// world will report. ticksDue() stays 0 until then — the clock is parked.
 export function nextTickAt(world) {
-  if (world.status !== 'RUNNING' || !world.startedAt) return null;
+  let base;
+  if (world.status === 'RUNNING' && world.startedAt) base = new Date(world.startedAt).getTime();
+  else if (isPreStart(world)) base = new Date(world.tickConfig.scheduledStartAt).getTime();
+  else return null;
+  if (!Number.isFinite(base)) return null;
   if (weekIndex(world) >= completeIndex(world)) return null;
-  return new Date(
-    new Date(world.startedAt).getTime() + weekIndex(world) * tickIntervalMs(world.weeksPerDay),
-  );
+  return new Date(base + weekIndex(world) * tickIntervalMs(world.weeksPerDay));
 }
 
 // How many ticks this world owes right now (0 for non-RUNNING worlds).

@@ -11,6 +11,7 @@ import {
   buildOfferView,
 } from '../lib/codeshareService.mjs';
 import { injectLogo } from '../lib/logoColumn.mjs';
+import { isPreStart } from '../lib/worldConfig.mjs';
 
 /** Linear week index — same arithmetic gateService uses. */
 const worldWeekIndex = (world) => (world.currentYear - 1) * 52 + world.currentWeek;
@@ -24,7 +25,7 @@ function httpError(statusCode, message) {
 async function loadWorld(request) {
   const world = await prisma.world.findUnique({ where: { id: request.params.id } });
   if (!world) throw httpError(404, 'No such world');
-  if (world.status !== 'RUNNING') throw httpError(409, 'This world is not running');
+  if (world.status !== 'RUNNING' && !isPreStart(world)) throw httpError(409, 'This world is not running');
   return world;
 }
 
