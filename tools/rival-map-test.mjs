@@ -31,7 +31,10 @@ function test(name, fn) {
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const freighters = AIRCRAFT_TYPES.filter((t) => t.freighter && (t.payloadTonnes ?? 0) > 0);
+// Freighters that can actually fly the fixture lane (JFK–LHR, ~5,540 km): rival
+// capacity only counts lanes that fly (tools/rival-capacity-flying-test.mjs), so
+// a lane its freighter cannot reach is — correctly — not published at all.
+const freighters = AIRCRAFT_TYPES.filter((t) => t.freighter && (t.payloadTonnes ?? 0) > 0 && t.range >= 6000);
 assert.ok(freighters.length >= 2, 'engine data has at least two freighter types');
 // Two DIFFERENT payloads, so a lane flown by both proves capacity is summed per
 // aircraft rather than payload × total frequency.

@@ -22,7 +22,8 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, calendarYearFrac } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall } from '@tailwinds/engine/utils/simulation.js';
+import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
@@ -77,6 +78,36 @@ export const isDevEmail = (email) => devEmails().includes((email ?? '').trim().t
 const DEFAULT_QUALITY = 62;
 const DEFAULT_SEATS = 170;
 
+// ── Only what flies counts ───────────────────────────────────────────────────
+// A rival's routes become capacity on every other player's pairs (the specs
+// below, and competitor.routes / .cargoRoutes, which the tick also reads). A
+// route that will not fly in the week about to be ticked must not be in either:
+// otherwise a rival whose only jet is in a four-week AOG repair, whose seasonal
+// route is dormant, or whose aircraft can no longer reach the route still takes
+// its full share of your passengers and freight for seats that never leave the
+// ground (tools/rival-capacity-flying-test.mjs).
+//
+// The rule mirrors the tick's own. The month is the rival's own calendar, as
+// tickPrep derives it. An aircraft whose downtime ends this week DOES fly this
+// week — tickPrep runs the grounding and heavy-check countdowns before the
+// revenue sim — so it counts. A route covered by a reserve already names the
+// reserve as its aircraft, so it is judged on the tail actually flying it.
+function flyingThisWeek(state) {
+  const month = weekToGameDate(state.week ?? 1).monthIndex;
+  const fleet = new Map((state.fleet ?? []).map((a) => [a.id, a]));
+  const backThisWeek = (a) =>
+    (a.status === 'grounded' && (a.groundedWeeksLeft ?? 1) <= 1)
+    || (a.status === 'maintenance' && (a.checkWeeksLeft ?? 1) <= 1);
+  return (route) => {
+    if (!((route?.weeklyFrequency ?? 0) > 0)) return false;
+    if (!isRouteActive(route, month)) return false;
+    const aircraft = fleet.get(route.aircraftId);
+    if (!aircraft || aircraft.status === 'retired') return false;
+    if (isOutOfService(aircraft) && !backThisWeek(aircraft)) return false;
+    return !routeRangeShortfall(route, aircraft);
+  };
+}
+
 // Seats on the specific tail assigned to a route; falls back to a sane default.
 // NOTE: a city pair can be flown by several aircraft of different sizes, so
 // callers must weight this by each route's frequency rather than applying one
@@ -127,8 +158,10 @@ function businessFareFor(state, key, route) {
 // rival touch the pair I fly?" with one key format across both networks.
 function cargoRoutesOf(state) {
   const out = {};
+  const flies = flyingThisWeek(state);
   for (const r of state.cargoRoutes ?? []) {
     if (!r?.origin || !r?.destination) continue;
+    if (!flies(r)) continue;
     const key = pairKeyOf(r.origin, r.destination);
     const freq = r.weeklyFrequency ?? 0;
     const typeId = (state.fleet ?? []).find((a) => a.id === r.aircraftId)?.typeId ?? null;
@@ -287,7 +320,9 @@ export function fuelPaidOf(s) {
 export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName = null } = {}) {
   const s = airlineRow.state ?? {};
   const routes = {};
+  const flies = flyingThisWeek(s);
   for (const r of s.routes ?? []) {
+    if (!flies(r)) continue;
     const key = pairKeyOf(r.origin, r.destination);
     const econ = s.routePricing?.[key]?.economy ?? r.ticketPrice ?? null;
     const ref = referencePrice(r.origin, r.destination);
@@ -427,7 +462,9 @@ export function toRivalSpecs(airlineRow) {
   const reachOnHub  = stateBrandReach(s, 1, false);
   const reachOffHub = stateBrandReach(s, 0, false);
   const byPair = {};
+  const flies = flyingThisWeek(s);
   for (const r of s.routes ?? []) {
+    if (!flies(r)) continue;
     const key = pairKeyOf(r.origin, r.destination);
     const econ = s.routePricing?.[key]?.economy ?? r.ticketPrice ?? null;
     const ref = referencePrice(r.origin, r.destination);
