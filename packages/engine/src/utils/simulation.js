@@ -55,7 +55,7 @@ import { absoluteWeek as _absoluteWeek } from './fuel.js';
 import {
   buildRouteMarket,
   computeMarketShare,
-  computeQualityScore,
+  computeQualityScore, designAgeQualityPts,
   cabinQualityPoints,
   buildCompetitorOffer,
   routeMaturityFactor,
@@ -851,11 +851,13 @@ export function routeQualityBreakdown(route, aircraft, state) {
     return t != null ? (HUB_TIERS[t]?.qualityBonus ?? 0) : 0;
   }));
 
-  const raw   = computeQualityScore({ onTimeRate, cabinPoints: cabinPts, fleetAgeYears, customerRating });
+  const designAgePts = designAgeQualityPts(type);
+  const raw   = computeQualityScore({ onTimeRate, cabinPoints: cabinPts, fleetAgeYears, customerRating, designAgePts });
   const total = Math.max(0, Math.min(100, raw + groundQualityBonus + spacePts + cateringPts + ancillaryPts + hubPts));
 
   return {
-    onTimePts, cabinPts, agePts, ratingPts,
+    onTimePts, cabinPts, agePts, designAgePts, ratingPts,
+    designEis: type.eis ?? null, designName: type.name,
     groundPts: groundQualityBonus, spacePts, cateringPts, ancillaryPts, hubPts,
     raw, total,
     onTimeRate, customerRating, satisfaction, avgUtilization,
@@ -1895,6 +1897,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     cabinPoints:    cabinQualityPoints(config),   // seat (hard) + service (soft) product
     fleetAgeYears:  (aircraft.ageWeeks ?? 0) / 52,
     customerRating,
+    designAgePts:   designAgeQualityPts(type),   // era worlds: the TYPE's vintage
   });
   // Space bonus: floor left empty (lower density) gives passengers more room.
   const spaceQualityBonus = configSpaceQualityBonus(config, type);
@@ -2514,6 +2517,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     cabinPoints:   cabinQualityPoints(config),   // seat (hard) + service (soft) product
     fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
     customerRating,
+    designAgePts:  designAgeQualityPts(type),    // era worlds: the TYPE's vintage
   });
   const spaceBonus    = configSpaceQualityBonus(config, type);
   const cateringLevel = normalizeCateringLevel(route.cateringLevel);
@@ -4359,6 +4363,7 @@ export function weeklyTick(state) {
             cabinPoints:   cabinQualityPoints(cfg),
             fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
             customerRating: fx.customerRating,
+            designAgePts:  designAgeQualityPts(type),
           });
           // Full per-aircraft quality with every bonus simulateRoute applies —
           // including this tail's OWN Wi-Fi equipage. Averaging the per-aircraft

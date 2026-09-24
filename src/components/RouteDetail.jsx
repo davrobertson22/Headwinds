@@ -9,7 +9,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { canFitWifiTo } from '../data/wifi.js';
 import {
   buildRouteMarket, computeMarketShare, buildCompetitorOffer,
-  computeQualityScore, computeConnectingDemand, routeMaturityFactor, HUB_TIERS,
+  computeQualityScore, designAgeQualityPts, computeConnectingDemand, routeMaturityFactor, HUB_TIERS,
 } from '../models/demand.js';
 // pairShare has no src/models shim; RoutePlanner/Routes import the engine path
 // directly too.
@@ -70,6 +70,10 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
         : `${bd.customerRating.toFixed(1)}★ · from cabin crew morale` },
     { label: 'Cabin product',       pts: bd.cabinPts,    sub: 'seat + service quality settings' },
     { label: 'Fleet age',           pts: bd.agePts,      sub: 'newer aircraft score higher' },
+    // Era worlds only: the design's own vintage (0 in classic, so filtered out).
+    { label: 'Design age',          pts: bd.designAgePts ?? 0, sub: bd.designEis != null
+        ? `${bd.designName} entered service ${bd.designEis} — passengers want a newer generation`
+        : 'an older design than passengers now expect' },
     { label: 'Cabin space',         pts: bd.spacePts,    sub: 'floor left unfilled = more room' },
     { label: 'Catering',            pts: bd.cateringPts, sub: 'matters more on long flights' },
     // Don't send the player to buy something that isn't for sale: an airframe
@@ -308,7 +312,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           // Same quality the engine computes for this route (morale, utilization,
           // satisfaction, cabin product), incl. the hub bonus via the breakdown.
           qualityScore:      routeQualityBreakdown(route, aircraft, state)?.total
-            ?? Math.min(100, computeQualityScore({ onTimeRate: 0.85, serviceLevel: 'economy', fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52, customerRating: 3.5 }) + maxHubBonus),
+            ?? Math.min(100, computeQualityScore({ onTimeRate: 0.85, serviceLevel: 'economy', fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52, customerRating: 3.5, designAgePts: designAgeQualityPts(type) }) + maxHubBonus),
           connectivityBonus: pairConnectivityBonus(hubSpokeCounts(state.routes ?? []), [state.hub], origin, dest),
           // Lounges. This panel is where a player comes to ask why their
           // BUSINESS share looks the way it does, so scoring their own offer at

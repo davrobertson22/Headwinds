@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
+import { designAgeQualityPts } from '../models/demand.js';
 import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType, LEASE_TERM_OPTIONS, LEASE_BUYOUT_PREMIUM } from '../data/aircraft.js';
 import { leaseBuyoutQuote } from '../models/leaseBuyout.js';
@@ -915,6 +916,16 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
               +{((maintMlt - 1) * 100).toFixed(0)}% maint penalty
             </div>
           )}
+          {(() => {
+            // Era worlds: the DESIGN's vintage costs quality on top of airframe wear.
+            const dPts = designAgeQualityPts(type, eraCalendarYear(state));
+            return dPts < 0 && (
+              <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}
+                   title={`A ${type.eis} design — passengers mark it down as newer generations arrive`}>
+                {Math.round(dPts)} quality · {type.eis} design
+              </div>
+            );
+          })()}
         </div>
 
         {/* Lease / ownership */}

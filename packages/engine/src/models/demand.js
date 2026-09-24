@@ -722,7 +722,43 @@ export function businessFareTolerance(qualityScore) {
   return Math.max(0.9, Math.min(1.1, 1 + (q - 65) * 0.002));
 }
 
-export function computeQualityScore({ onTimeRate, cabinPoints, serviceLevel, fleetAgeYears, customerRating }) {
+// ─── Design age (era games only) ─────────────────────────────────────────────
+// fleetAgeYears above is AIRFRAME wear: it bottoms out at ~13 years and knows
+// nothing about the design. So a 707 delivered in 2000 as a 7-year-old used
+// frame scored nearly like a new A320 — and a 1950s propliner kept flying
+// into the jet age cost the player nothing in the cabin. Passengers notice
+// the generation of what they're sitting in (noise, cabin width, bins, pressurisation),
+// so in an era world the TYPE's age — calendar year minus EIS — is its own
+// quality term: nothing for DESIGN_AGE_GRACE_YEARS, then −1 point a year to
+// −DESIGN_AGE_MAX_PENALTY at DESIGN_AGE_CAP_YEARS. Every era year has a
+// zero-penalty type in every category (checked 1950–2030), so the push is
+// always towards something you can actually buy. Pure years since EIS: a
+// long-running line (A320ceo, 737 Classic) ages like any other design — that
+// is the nudge towards the next generation.
+//
+// Classic worlds (calYear null) are frozen at 2026 and untouched: parity
+// invariant, same as every other era branch. A type without an eis scores 0.
+export const DESIGN_AGE_GRACE_YEARS  = 15;
+export const DESIGN_AGE_CAP_YEARS    = 35;
+export const DESIGN_AGE_MAX_PENALTY  = 20;
+
+/**
+ * Quality points (≤ 0) for flying a type whose design is `calYear − eis` years
+ * old. Defaults to the era calendar the reducer publishes; null → 0.
+ */
+export function designAgeQualityPts(type, calYear = getEraCalendarYear()) {
+  if (calYear == null || type?.eis == null) return 0;
+  // Supersonic is exempt, as it is from the delivered-age bands in aircraft.js:
+  // Concorde is the only type in its class (nothing newer to move to) and a
+  // deliberate prestige money-loser — a vintage penalty would just retire it.
+  if (type.category === 'Supersonic') return 0;
+  const years = calYear - type.eis;
+  if (years <= DESIGN_AGE_GRACE_YEARS) return 0;
+  const slope = DESIGN_AGE_MAX_PENALTY / (DESIGN_AGE_CAP_YEARS - DESIGN_AGE_GRACE_YEARS);
+  return -Math.min(DESIGN_AGE_MAX_PENALTY, (years - DESIGN_AGE_GRACE_YEARS) * slope);
+}
+
+export function computeQualityScore({ onTimeRate, cabinPoints, serviceLevel, fleetAgeYears, customerRating, designAgePts = 0 }) {
   const onTimePoints    = onTimeRate * 30;          // max 30
   // Prefer explicit cabin points (seat + service); legacy serviceLevel fallback.
   const productPts      = cabinPoints
@@ -730,7 +766,7 @@ export function computeQualityScore({ onTimeRate, cabinPoints, serviceLevel, fle
   const agePts          = Math.max(0, 20 - fleetAgeYears * 1.5); // max 20 (new a/c), 0 at ~13yr
   const ratingPts       = (customerRating / 5) * 28; // max 28
 
-  return Math.max(0, Math.min(100, Math.round(onTimePoints + productPts + agePts + ratingPts)));
+  return Math.max(0, Math.min(100, Math.round(onTimePoints + productPts + agePts + ratingPts + (designAgePts ?? 0))));
 }
 
 /**

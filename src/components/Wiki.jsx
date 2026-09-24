@@ -357,7 +357,7 @@ const WIKI = [
     blocks: [
       { p: 'Three scores describe how travellers see your airline, each answering one question and pulling one lever:' },
       { ul: [
-        '**Quality (0–100)**: how good is the product on the plane? Built from on-time performance, cabin product, fleet age and your earned customer rating, plus catering, space and hub bonuses per route. Wins market share against competitors and captures business travelers. See the breakdown on any route\'s detail page.',
+        '**Quality (0–100)**: how good is the product on the plane? Built from on-time performance, cabin product, fleet age (and, in era games, design age: a type loses a point a year once it has been in service 15 years, up to 20) and your earned customer rating, plus catering, space and hub bonuses per route. Wins market share against competitors and captures business travelers. See the breakdown on any route\'s detail page.',
         '**Reputation (0–100)**: how much do travellers trust the brand? Built from service, fleet freshness, network reach, staff morale and loyalty. Nudges demand on every route (±7.5%) and makes your passengers less price-sensitive.',
         '**Awareness (0–100)**: how many travellers know you exist? Built by marketing spend and passengers flown, with a lag. Gates how much of potential demand you can reach at all (40%–112%). It levels off rather than climbing forever: ~1% of your awareness above 5 fades each week, so flying alone settles you near 52 and sustained heavy brand spend settles near 83. Brand spend is judged against your size, roughly 4% of weekly revenue buys most of the gain available, so a budget that moved the needle as a startup does very little at national scale.',
       ] },

@@ -22,6 +22,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import InfoTip from './InfoTip.jsx';
+import { designAgeQualityPts, DESIGN_AGE_GRACE_YEARS, DESIGN_AGE_CAP_YEARS, DESIGN_AGE_MAX_PENALTY } from '../models/demand.js';
 import { LABOR_GROUPS, CREW_LEAD_WEEKS, crewBodiesForAircraft } from '../data/labor.js';
 import { Glyph } from './Icons.jsx';
 
@@ -49,6 +50,24 @@ function deliveredMaint(type, calYear = null) {
 }
 
 /** Whole years old this type arrives at, or 0 for anything still in production. */
+// Design-age badge for the market card (era worlds only; classic → null).
+// Warns DESIGN_AGE_WARN_YEARS ahead so a buyer knows when the type starts to date.
+const DESIGN_AGE_WARN_YEARS = 5;
+function designAgeBadge(type, calYear) {
+  if (calYear == null || type?.eis == null || type.category === 'Supersonic') return null;
+  const pts = designAgeQualityPts(type, calYear);
+  const datesFrom = type.eis + DESIGN_AGE_GRACE_YEARS;
+  if (pts < 0) {
+    return { pts, label: `Dated design \u00b7 ${Math.round(pts)} quality`,
+      title: `A ${type.eis} design. Passengers mark it down ${Math.round(-pts)} quality points today, rising to ${DESIGN_AGE_MAX_PENALTY} by ${type.eis + DESIGN_AGE_CAP_YEARS}.` };
+  }
+  if (calYear >= datesFrom - DESIGN_AGE_WARN_YEARS) {
+    return { pts: 0, label: `Dates from ${datesFrom}`,
+      title: `Passengers start marking this ${type.eis} design down in ${datesFrom} \u2014 1 quality point a year, up to ${DESIGN_AGE_MAX_PENALTY} by ${type.eis + DESIGN_AGE_CAP_YEARS}.` };
+  }
+  return null;
+}
+
 function deliveredAgeYears(type, calYear = null) {
   return Math.round(eraDeliveredAgeWeeks(type, calYear) / 52);
 }
@@ -1027,6 +1046,19 @@ export default function Marketplace() {
                       <Glyph e="🔒" /> {type.eis > calYear ? `Not yet in service · ${type.eis}` : 'No frames left'}
                     </span>
                   )}
+                  {!eraLock && (() => {
+                    // Era worlds: passengers mark down an old DESIGN (years since
+                    // EIS), not just an old airframe — flag it before the purchase.
+                    const d = designAgeBadge(type, calYear);
+                    return d && (
+                      <span className="badge" title={d.title} style={{
+                        marginLeft: 6,
+                        background: d.pts < 0 ? 'rgba(248,81,73,0.15)' : 'rgba(210,153,34,0.15)',
+                        color: d.pts < 0 ? 'var(--red)' : 'var(--yellow)',
+                        border: `1px solid ${d.pts < 0 ? 'rgba(248,81,73,0.4)' : 'rgba(210,153,34,0.4)'}`,
+                      }}>{d.label}</span>
+                    );
+                  })()}
                   {alreadyOwned > 0 && (
                     <span className="badge badge-blue" style={{ marginLeft: 6 }}>{alreadyOwned} in fleet</span>
                   )}

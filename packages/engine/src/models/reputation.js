@@ -22,7 +22,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { laborEffects } from '../data/labor.js';
-import { computeQualityScore, cabinQualityPoints } from './demand.js';
+import { computeQualityScore, cabinQualityPoints, designAgeQualityPts } from './demand.js';
+import { getAircraftType } from '../data/aircraft.js';
 
 const QUALITY_SCORE = { basic: 15, standard: 45, premium: 72, luxury: 100 };
 
@@ -95,11 +96,16 @@ export function calcReputation(state, loyaltyBonus = 0, avgUtilization = null) {
     : 0;
   // Ground staff bonus is quality POINTS added after scoring (as the engine
   // does), not stars — adding it to the 0–5 rating inflated this by up to ~11.
+  // Era worlds: the design-age term, averaged the same way (0 in classic).
+  const avgDesignAgePts = assignedFleet.length > 0
+    ? assignedFleet.reduce((s, a) => s + designAgeQualityPts(getAircraftType(a.typeId)), 0) / assignedFleet.length
+    : 0;
   const qualityDemandScore = Math.max(0, Math.min(100, computeQualityScore({
     onTimeRate:     effects.onTimeRate,
     cabinPoints:    avgCabinPoints,
     fleetAgeYears:  avgAgeYears,
     customerRating: effects.customerRating,
+    designAgePts:   avgDesignAgePts,
   }) + effects.groundQualityBonus));
 
   return { overall, service: serviceScore, fleet: fleetScore, network: networkScore, morale: moraleScore, qualityDemandScore, avgAgeYears, loyaltyBonus };
