@@ -3632,6 +3632,38 @@ function reducer(state, action) {
       return { ...state, routePricing: nextPricing };
     }
 
+    // Reset fares to the market reference on many routes at once — the undo for
+    // a bulk change that went wrong. action: { routeIds: [...], classes?: [...] }
+    // Like BULK_ADJUST_PRICING it resolves route ids to O&D pairs and writes each
+    // pair's price set once. `classes` limits the reset to those cabins; omitted,
+    // every cabin goes back to reference. Reference is read NOW (era worlds move
+    // it with the calendar), so this also re-bases fares that drifted over years.
+    case 'RESET_ROUTE_PRICING': {
+      const resetIds = new Set(action.routeIds ?? []);
+      if (resetIds.size === 0) return state;
+      const validCls = new Set(Object.keys(defaultClassPrices(1)));
+      const resetCls = Array.isArray(action.classes)
+        ? action.classes.filter(c => validCls.has(c))
+        : [...validCls];
+      if (resetCls.length === 0) return state;
+      const nextPricing = { ...(state.routePricing ?? {}) };
+      let changed = false;
+      const seen = new Set();
+      for (const r of state.routes) {
+        if (!resetIds.has(r.id)) continue;
+        const key = routePairKey(r.origin, r.destination);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const ref  = defaultClassPrices(mktReferencePrice(r.origin, r.destination));
+        const prev = nextPricing[key] ?? ref;
+        const updated = { ...prev };
+        for (const cls of resetCls) updated[cls] = ref[cls];
+        if (resetCls.some(cls => prev[cls] !== updated[cls]) || !state.routePricing?.[key]) changed = true;
+        nextPricing[key] = updated;
+      }
+      return changed ? { ...state, routePricing: nextPricing } : state;
+    }
+
     case 'UPDATE_FREQUENCY': {
       const targetRoute = state.routes.find(r => r.id === action.routeId);
       if (!targetRoute) return state;

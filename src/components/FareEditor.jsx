@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   referencePrice, maxClassPrice, CLASS_FARE_MULTIPLIERS,
 } from '../utils/simulation.js';
+import { fareCliffActive, fareCliffRatio } from '../models/fareCliff.js';
 
 // ─── Cabin-class metadata (single source for every pricing surface) ───────────
 
@@ -136,6 +137,10 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, onCo
   const anyOffRef = activeClasses.some(cls =>
     (parseInt(draft[cls], 10) || refPrices[cls]) !== refPrices[cls]);
 
+  // Restricted worlds only: the NWR yield choke (see models/fareCliff.js).
+  const cliffOn    = fareCliffActive();
+  const cliffRatio = fareCliffRatio();
+
   const pct1 = (v) => `${Math.round((v ?? 0) * 1000) / 10}%`;
 
   return (
@@ -172,6 +177,14 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, onCo
             <div style={{ fontSize: 10, color: pct > 0 ? 'var(--red)' : pct < 0 ? 'var(--green)' : 'var(--text-dim)', marginTop: 2 }}>
               ref ${refPrices[cls]} {pct !== 0 && `(${pct > 0 ? '+' : ''}${pct}%)`}
             </div>
+            {cliffOn && current / refPrices[cls] > cliffRatio && (
+              <div
+                style={{ fontSize: 10, color: 'var(--red)', fontWeight: 600, marginTop: 1 }}
+                title={`In this world demand collapses once a fare is more than ${Math.round((cliffRatio - 1) * 100)}% above reference — at +50% a route keeps about 0.1% of its passengers.`}
+              >
+                ⚠ past the demand cliff
+              </div>
+            )}
           </div>
         );
       })}

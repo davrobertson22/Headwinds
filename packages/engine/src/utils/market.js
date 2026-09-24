@@ -925,10 +925,20 @@ export function getNwrYieldChoke() { return _nwrYieldChoke; }
  */
 export function nwrYieldChokeFactor(ratio, quality = 50) {
   if (!_nwrYieldChoke) return 1;
-  const q   = Math.max(0, Math.min(100, Number(quality) || 50));
-  const thr = NWR_CHOKE_THRESHOLD_BASE +
-    (NWR_CHOKE_THRESHOLD_MAX - NWR_CHOKE_THRESHOLD_BASE) * Math.max(0, (q - 50) / 50);
+  const thr = nwrChokeThreshold(quality);
   return ratio > thr ? Math.exp(-NWR_CHOKE_STEEPNESS * (ratio - thr)) : 1;
+}
+
+/**
+ * The price/reference ratio above which the NWR choke starts biting, for an
+ * offer of the given quality (1.10x at quality ≤ 50, rising to 1.25x at 100).
+ * Exported so pricing screens can warn BEFORE a fare lands past it — the choke
+ * is exp(-15·overage), so +50% on a reference fare keeps ~0.25% of demand.
+ */
+export function nwrChokeThreshold(quality = 50) {
+  const q = Math.max(0, Math.min(100, Number(quality) || 50));
+  return NWR_CHOKE_THRESHOLD_BASE +
+    (NWR_CHOKE_THRESHOLD_MAX - NWR_CHOKE_THRESHOLD_BASE) * Math.max(0, (q - 50) / 50);
 }
 
 // ─── NWR load-factor realism (spill + weekly variance) ────────────────────────
