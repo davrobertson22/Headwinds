@@ -49,14 +49,30 @@ for (const [o, d] of WATER_HOPS) {
   truthy(baseCityPairDemand(o, d) > 0, `water-hop demand preserved ${o}-${d}`);
 }
 
-// ── Allow-list hygiene: every entry is two real airports, in the 35–65 km band ─
+// ── Irish regional fields (Sep 2026): Aran Islands hops sit INSIDE the 35 km
+//    same-metro backstop and must still carry demand; Belfast's two airports
+//    are one metro; road-linked neighbours stay suppressed ─────────────────────
+for (const [o, d] of [['NNR','IOR'], ['NNR','INQ'], ['NNR','IIA'], ['IIA','IOR'], ['INQ','IOR'], ['IIA','INQ'], ['GWY','IOR']]) {
+  eq(isSameMetro(getAirport(o), getAirport(d)), false, `${o}-${d} water hop is not same-metro`);
+  truthy(baseCityPairDemand(o, d) > 0, `Aran Islands hop carries demand ${o}-${d}`);
+}
+eq(isSameMetro(getAirport('BFS'), getAirport('BHD')), true, 'BFS/BHD are one Belfast metro');
+eq(baseCityPairDemand('BFS', 'BHD'), 0, 'no BFS-BHD demand');
+eq(baseCityPairDemand('BHD', 'MAN'), baseCityPairDemand('BFS', 'MAN'), 'BHD and BFS price the same Belfast-Manchester market');
+for (const [o, d] of [['GWY','NNR'], ['SXL','NOC'], ['BYT','KIR']]) {
+  eq(baseCityPairDemand(o, d), 0, `road-linked pair suppressed ${o}-${d}`);
+}
+eq(isSameMetro(getAirport('ACK'), getAirport('MVY')), false, 'non-registry pair outside the backstop unaffected');
+eq(isSameMetro(getAirport('LHR'), getAirport('LCY')), true, 'registry metros still same-metro');
+
+// ── Allow-list hygiene: every entry is two real airports, in the 2–65 km band (sub-35 km entries are spared from the same-metro backstop too) ─
 for (const key of WATER_HOP_PAIRS) {
   const [x, y] = key.split('|');
   const ax = getAirport(x), ay = getAirport(y);
   if (!ax || !ay) { bad(`allow-list entry ${key} references an unknown airport`); continue; }
   const km = distanceKm(ax, ay);
-  truthy(km >= SAME_METRO_MAX_KM && km < SURFACE_CONNECTED_MAX_KM,
-    `allow-list ${key} is in the ${SAME_METRO_MAX_KM}-${SURFACE_CONNECTED_MAX_KM} km band (${km.toFixed(1)} km)`);
+  truthy(km >= SAME_LOCATION_MAX_KM && km < SURFACE_CONNECTED_MAX_KM,
+    `allow-list ${key} is in the ${SAME_LOCATION_MAX_KM}-${SURFACE_CONNECTED_MAX_KM} km band (${km.toFixed(1)} km)`);
 }
 
 // ── Coverage canary: the in-band split is pinned, so a NEW short different-city
@@ -70,8 +86,8 @@ for (let i = 0; i < AIRPORTS.length; i++) for (let j = i + 1; j < AIRPORTS.lengt
   if (a.city === b.city || isSameMetro(a, b, km)) continue;
   if (isSurfaceConnected(a, b, km)) suppressed++; else spared++;
 }
-eq(suppressed, 126, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
-eq(spared, 28, 'in-band spared (water-hop) pair count');
+eq(suppressed, 131, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
+eq(spared, 31, 'in-band spared (water-hop) pair count');
 
 console.log(`\ndata-integrity: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

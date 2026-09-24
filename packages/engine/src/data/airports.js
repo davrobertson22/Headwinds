@@ -2358,6 +2358,22 @@ export const AIRPORTS = [
   { code: 'YQI', name: 'Yarmouth Airport', city: 'Yarmouth', country: 'CA', lat: 43.8269, lon: -66.0881, population: 0.02, tier: 'regional', runwayFt: 6000 },
   { code: 'YZP', name: "Sandspit (K'il Kun Xidgwang Daanaay)", city: 'Sandspit', country: 'CA', lat: 53.2542, lon: -131.8138, population: 0.002, tier: 'regional', visitors: 0.05, runwayFt: 5112 },
   { code: 'YYG', name: 'Charlottetown Alexander B. Campbell', city: 'Charlottetown', country: 'CA', lat: 46.2900, lon: -63.1211, population: 0.08, tier: 'regional', visitors: 0.4, runwayFt: 7000 },
+  // ── Ireland & Northern Ireland regional fields (Discord request, Sep 2026) ──
+  // GWY, SXL, BYT and WAT have no scheduled service today (Galway and Sligo
+  // closed to airlines in 2011; Waterford since 2016, runway extension under
+  // way) — they're here as open markets for players to revive. The Aran Islands
+  // strips (IOR/IIA/INQ) and Connemara are Islander/Twin Otter country only.
+  { code: 'LDY', name: 'City of Derry Airport',          city: 'Derry',          country: 'GB', lat: 55.0428, lon: -7.1619, population: 0.2,    tier: 'regional', runwayFt: 6460 },
+  { code: 'BHD', name: 'George Best Belfast City',       city: 'Belfast',        country: 'GB', lat: 54.6181, lon: -5.8725, population: 0.34,   tier: 'regional', runwayFt: 6000 },
+  { code: 'GWY', name: 'Galway Airport',                 city: 'Galway',         country: 'IE', lat: 53.3003, lon: -8.9411, population: 0.1,    tier: 'regional', visitors: 0.15, runwayFt: 4230 },
+  { code: 'NNR', name: 'Connemara Airport',              city: 'Inverin',        country: 'IE', lat: 53.2306, lon: -9.4678, population: 0.02,   tier: 'regional', visitors: 0.1,  runwayFt: 1969 },
+  { code: 'INQ', name: 'Inisheer Aerodrome',             city: 'Inisheer',       country: 'IE', lat: 53.0644, lon: -9.5111, population: 0.0003, tier: 'regional', visitors: 0.08, runwayFt: 1706 },
+  { code: 'IOR', name: 'Inishmore Aerodrome',            city: 'Inishmore',      country: 'IE', lat: 53.1069, lon: -9.6539, population: 0.0008, tier: 'regional', visitors: 0.25, runwayFt: 1608 },
+  { code: 'IIA', name: 'Inishmaan Aerodrome',            city: 'Inishmaan',      country: 'IE', lat: 53.0919, lon: -9.5700, population: 0.0002, tier: 'regional', visitors: 0.03, runwayFt: 1752 },
+  { code: 'SXL', name: 'Sligo Airport',                  city: 'Sligo',          country: 'IE', lat: 54.2803, lon: -8.5992, population: 0.07,   tier: 'regional', visitors: 0.05, runwayFt: 3933 },
+  { code: 'BYT', name: 'Bantry Aerodrome',               city: 'Bantry',         country: 'IE', lat: 51.6689, lon: -9.4844, population: 0.01,   tier: 'regional', visitors: 0.05, runwayFt: 1280 },
+  { code: 'WAT', name: 'Waterford Airport',              city: 'Waterford',      country: 'IE', lat: 52.1872, lon: -7.0869, population: 0.13,   tier: 'regional', runwayFt: 4701 },
+  { code: 'CFN', name: 'Donegal Airport',                city: 'Carrickfinn',    country: 'IE', lat: 55.0442, lon: -8.3411, population: 0.08,   tier: 'regional', visitors: 0.05, runwayFt: 4905 },
 ];
 
 // Code -> record index, built once on first lookup.

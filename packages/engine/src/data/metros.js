@@ -338,6 +338,16 @@ export const METROS = [
       ARK: { dom: 0.60, intl: 0.30 },
     },
   },
+  {
+    // BHD is the downtown field: UK domestic shuttles (London, Manchester,
+    // Scotland) under a 4M-seat planning cap; BFS carries the leisure and
+    // European flying. Real split ~2.4M BHD vs ~6M BFS.
+    id: 'belfast', name: 'Belfast', primary: 'BFS',
+    members: {
+      BFS: { dom: 1.0,  intl: 1.0 },
+      BHD: { dom: 0.85, intl: 0.30 },
+    },
+  },
 ];
 
 // ─── Lookup tables (built once) ───────────────────────────────────────────────

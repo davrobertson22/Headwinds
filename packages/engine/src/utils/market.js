@@ -511,7 +511,11 @@ export function isSameMetro(o, d, dist) {
   if (!o || !d) return false;
   if (o.code && d.code && sameMetroCodes(o.code, d.code)) return true;
   const km = dist != null ? dist : distanceKm(o, d);
-  return km < SAME_METRO_MAX_KM;
+  if (km >= SAME_METRO_MAX_KM) return false;
+  // A water hop on the allow-list below is a real flight even inside the
+  // backstop — Connemara to the Aran Islands is 17-19 km of Atlantic, and the
+  // islands are 5-11 km apart. Registry metros above are never spared.
+  return !(o.code && d.code && WATER_HOP_PAIRS.has(pairKey2(o.code, d.code)));
 }
 
 // ─── Surface-connected city pairs (H18) ───────────────────────────────────────
@@ -557,11 +561,17 @@ export const WATER_HOP_PAIRS = new Set([
   pairKey2('ACE', 'FUE'),                                                 // Lanzarote / Fuerteventura (Canaries)
   pairKey2('GIB', 'TTU'),                                                 // Gibraltar / Tetouan across the Strait
   pairKey2('CAB', 'SZA'),                                                 // Cabinda exclave / Soyo (Congo river mouth)
+  // Aran Islands (Galway Bay). NNR/inter-island hops sit INSIDE the 35 km
+  // same-metro backstop, which isSameMetro also waives for pairs listed here.
+  pairKey2('NNR', 'IOR'), pairKey2('NNR', 'IIA'), pairKey2('NNR', 'INQ'), // Connemara / Inishmore / Inishmaan / Inisheer
+  pairKey2('IIA', 'IOR'), pairKey2('IIA', 'INQ'), pairKey2('INQ', 'IOR'), //   inter-island
+  pairKey2('GWY', 'IOR'), pairKey2('GWY', 'IIA'), pairKey2('GWY', 'INQ'), // Galway / Aran Islands (Aer Arann's 1970 route)
 ]);
 
 // True when o and d are different-city airports whose real link is surface
 // transport (see the note above). Same-airport-complex and same-metro-registry
-// pairs are handled by isSameMetro; this covers only the 35–65 km band.
+// pairs are handled by isSameMetro; this covers only the 35–65 km band
+// (sub-35 km allow-listed hops are spared inside isSameMetro instead).
 export function isSurfaceConnected(o, d, dist) {
   if (!o || !d || !o.code || !d.code || o.code === d.code) return false;
   const km = dist != null ? dist : distanceKm(o, d);
