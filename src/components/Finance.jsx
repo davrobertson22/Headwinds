@@ -7,7 +7,7 @@ import {
   breakEvenLoadFactor,
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
   buildEventDemandModel,
-  stateLoungeFields, stateGroundHandlingFields,
+  stateLoungeFields, stateGroundHandlingFields, stateCateringFields,
 } from '../utils/simulation.js';
 import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
@@ -412,7 +412,7 @@ function PLStatement({ proj }) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     if (!aircraft) return null;
     const result = rrById[route.id] ?? simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
       aircraft, gd, labor, proj.fuelMultiplier, null,
       rivalSpecsFor(state, route.origin, route.destination), avgUtilization, state.satisfaction ?? null,
       evDemand.multFor(route.origin, route.destination),
@@ -2425,7 +2425,7 @@ function UnitEconomics({ proj }) {
     // (grounded tail, dormant seasonal, opened since the last tick) — and even
     // then contest the same rivals and carry the same ancillaries the tick does.
     const raw = rrById[route.id] ?? simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
       a, gd, labor, proj.fuelMultiplier, null,
       rivalSpecsFor(state, route.origin, route.destination), avgUtil, state.satisfaction ?? null,
       evDemand.multFor(route.origin, route.destination),
@@ -2602,7 +2602,7 @@ function Forecast({ proj }) {
     const a = fleet.find(x => x.id === r.aircraftId);
     if (!a) return null;
     const result = fcRrById[r.id] ?? simulateRoute(
-      { ...r, ...stateLoungeFields(state, r.origin, r.destination), ...stateGroundHandlingFields(state, r.origin, r.destination) },
+      { ...r, ...stateLoungeFields(state, r.origin, r.destination), ...stateGroundHandlingFields(state, r.origin, r.destination), ...stateCateringFields(state, r) },
       a, gd, fcLaborState, proj.fuelMultiplier, null,
       rivalSpecsFor(state, r.origin, r.destination), fcAvgUtil, state.satisfaction ?? null,
       1.0, state.ancillaries ?? null, state.competitors ?? [], rivalIndexFor(state));

@@ -487,5 +487,36 @@ test('ADVANCE_WEEK advances construction and persists the ticked stations', () =
   assert.equal(s1.financialHistory.at(-1).groundStations ?? 0, 0, 'no opex while building');
 });
 
+test('an outgrown station is flagged ONCE when it crosses capacity, and the flag clears when it falls back', () => {
+  const cap = stationLevelDef(1).weeklyDepartures;
+  const mk = (freq, st) => ({
+    ...baseState({ fleet: [tail('a1'), tail('a2')], routes: [route('r1', 'a1', freq), route('r2', 'a2', freq, O, X)],
+      groundStations: { [O]: st } }),
+    week: 1, year: 2, labor: DEFAULT_LABOR_STATE, fuelPrice: { index: 1, history: [] },
+  });
+  const open = { ...openStation(O, 1), openedWeek: 0 };
+  const over = prepareWeek(mk(cap, open), { rollNewEvents: false });   // 2 × cap departures from O
+  assert.equal(over.stationOverflowNew.length, 1, 'crossing capacity is reported');
+  assert.equal(over.stationOverflowNew[0].code, O);
+  assert.equal(over.tickedStations[O].overflowWarned, true);
+  const again = prepareWeek(mk(cap, over.tickedStations[O]), { rollNewEvents: false });
+  assert.equal(again.stationOverflowNew.length, 0, 'staying over does not repeat the warning');
+  const under = prepareWeek(mk(10, again.tickedStations[O]), { rollNewEvents: false });
+  assert.ok(!('overflowWarned' in under.tickedStations[O]), 'falling back clears the flag, so the next crossing warns again');
+  const top = prepareWeek(mk(cap, { ...openStation(O, 3), openedWeek: 0 }), { rollNewEvents: false });
+  assert.equal(top.stationOverflowNew.length, 0, 'an unlimited Hub Operation never overflows');
+});
+
+test('ADVANCE_WEEK toasts the overflow', () => {
+  const cap = stationLevelDef(1).weeklyDepartures;
+  const n = Math.ceil((cap + 1) / 14);
+  const fleet = [], routes = [];
+  for (let i = 1; i <= n; i++) { fleet.push(tail(`t${i}`)); routes.push(route(`r${i}`, `t${i}`, 14)); }
+  const s0 = { ...playing({ fleet, routes, gates: { [O]: 60, [D]: 60 } }),
+    groundStations: { [O]: { ...openStation(O, 1), openedWeek: 0 } } };
+  const s1 = gameReducer(s0, { type: 'ADVANCE_WEEK' });
+  assert.ok((s1.pendingToasts ?? []).some(t => /over capacity/.test(t.title)), 'the player is told');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

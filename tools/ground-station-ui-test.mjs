@@ -215,5 +215,25 @@ test('no screen simulates a route with stateLoungeFields but without stateGround
     + offenders.join('\n      '));
 });
 
+console.log('\n── Hubs page and the MRO close ─────────────────────────');
+
+const HubManagement = (await import('../src/components/HubManagement.jsx')).default;
+
+test('each hub card says whether the hub is self-handled, and how full the station is', () => {
+  seed({ hubs: { [P]: { tier: 1 } } });
+  assert.ok(render(React.createElement(HubManagement)).includes('No ground station'), 'unhandled hub says so');
+  seed({ hubs: { [P]: { tier: 1 } }, groundStations: { [P]: OPEN(P, 1) } });
+  const html = render(React.createElement(HubManagement));
+  assert.ok(html.includes(`7 of ${stationLevelDef(1).weeklyDepartures} departures/wk`), 'station load on the hub card');
+});
+
+test('closing an MRO base asks first', () => {
+  const src = fs.readFileSync(fileURLToPath(new URL('../src/components/Maintenance.jsx', import.meta.url)), 'utf8');
+  const i = src.indexOf("type: 'CLOSE_MRO_BASE'");
+  assert.ok(i > 0);
+  assert.ok(/await confirm\(\{[\s\S]{0,900}$/.test(src.slice(Math.max(0, i - 900), i)),
+    'CLOSE_MRO_BASE is dispatched only after a confirm, like the lounge and the station');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

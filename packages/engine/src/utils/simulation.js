@@ -47,6 +47,10 @@ import {
 import {
   hasOpenStation, airportDeparturesMap, groundHandlingFactorAt, totalStationWeeklyCost,
 } from '../data/groundStation.js';
+import {
+  hasCateringContracts, airportSeatsMap, resolveCateringContracts, applyCateringContractFields,
+  cateringCapReport,
+} from '../data/cateringContracts.js';
 import { absoluteWeek as _absoluteWeek } from './fuel.js';
 import {
   buildRouteMarket,
@@ -689,6 +693,50 @@ export function stateGroundHandlingFields(state, origin, destination, extraRoute
 }
 
 /**
+ * The catering-contract fields a route would get, resolved from STATE — the same
+ * resolution weeklyTick applies at hydration, so a preview is costed and scored
+ * the way the tick will cost and score it (and sees the caterer's cap). Returns
+ * {} with no contract. `extraRoutes` counts a route about to be launched against
+ * the suppliers' volume thresholds.
+ *
+ * Spread it LAST into the route: `{ ...route, ...stateCateringFields(state, route) }`
+ * — it may overwrite cateringLevel with the delivered (capped) level.
+ */
+export function stateCateringFields(state, route, extraRoutes = []) {
+  const contracts = state?.cateringContracts ?? null;
+  if (!route || !hasCateringContracts(contracts)) return {};
+  const h = hydrateRoute(route, state?.routePricing ?? {}, state?.routeCatering ?? {});
+  const seats = airportSeatsMap([...(state?.routes ?? []), ...(extraRoutes ?? [])], state?.fleet ?? [], routeStops);
+  const hubs = state?.hubs ?? (state?.hub ? { [state.hub]: { tier: 1 } } : {});
+  const resolved = resolveCateringContracts(HUB_TIERS, hubs, contracts, routeStops(h), seats);
+  if (!resolved) return {};
+  const applied = applyCateringContractFields(h, resolved);
+  const out = {
+    cateringCostFactor:   applied.cateringCostFactor,
+    cateringQualityDelta: applied.cateringQualityDelta,
+    cateringCooks:        applied.cateringCooks,
+  };
+  if (applied.cateringCapped) {
+    out.cateringLevel = applied.cateringLevel;
+    out.cateringLevelChosen = applied.cateringLevelChosen;
+    out.cateringCapped = true;
+  }
+  return out;
+}
+
+/**
+ * Which caterer caps a route set to `chosenLevel`, resolved from STATE — for the
+ * warning under every catering picker. Null when nothing caps it.
+ */
+export function stateCateringCapReport(state, origin, destination, chosenLevel, stops = null) {
+  const contracts = state?.cateringContracts ?? null;
+  if (!hasCateringContracts(contracts)) return null;
+  const seats = airportSeatsMap(state?.routes ?? [], state?.fleet ?? [], routeStops);
+  const hubs = state?.hubs ?? (state?.hub ? { [state.hub]: { tier: 1 } } : {});
+  return cateringCapReport(HUB_TIERS, hubs, contracts, stops ?? [origin, destination], seats, chosenLevel);
+}
+
+/**
  * The experience delivered this week, 0–100. Inputs are what passengers
  * actually encountered: punctuality, crew service, the cabin product +
  * catering, and fleet age. Deliberately EXCLUDES customerRating itself so the
@@ -714,7 +762,7 @@ export function deliveredExperience({ fleet = [], routes = [], labor = null, anc
   const avgCatering = routes.length > 0
     ? routes.reduce((s, r) => s + cateringQualityBonus(
         normalizeCateringLevel(r.cateringLevel),
-        routeDistanceKm(r.origin, r.destination)), 0) / routes.length
+        routeDistanceKm(r.origin, r.destination)) + (r.cateringQualityDelta ?? 0), 0) / routes.length
     : 0;
   const cabinMorale = labor?.cabinCrew?.morale ?? 80;
   // Airline-wide ancillary generosity lifts (or dents) the delivered experience.
@@ -774,7 +822,7 @@ export function routeQualityBreakdown(route, aircraft, state) {
   const ratingPts   = (customerRating / 5) * 28;
   const spacePts    = configSpaceQualityBonus(config, type);
   const dist        = isMultiStop(r) ? routeMaxLegKm(r) : routeDistanceKm(r.origin, r.destination);
-  const cateringPts = cateringQualityBonus(normalizeCateringLevel(r.cateringLevel), dist);
+  const cateringPts = cateringQualityBonus(normalizeCateringLevel(r.cateringLevel), dist) + (r.cateringQualityDelta ?? 0);
   // Same two capability gates the tick applies, so this breakdown cannot claim
   // quality points for a Wi-Fi kit that isn't fitted or a lounge that isn't
   // built. A preview that disagrees with weeklyTick is a bug in one of them.
@@ -1854,7 +1902,9 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // down, amplified by distance (food matters more on long flights). Stacks with
   // the per-aircraft service quality already baked into rawQualityScore.
   const cateringLevel    = normalizeCateringLevel(route.cateringLevel);
-  const cateringQuality  = cateringQualityBonus(cateringLevel, dist);
+  // A catering contract's quality delta (data/cateringContracts.js) rides on the
+  // route copy the tick hands down; absent → 0, identical to before.
+  const cateringQuality  = cateringQualityBonus(cateringLevel, dist) + (route.cateringQualityDelta ?? 0);
   // Provisioned-amenity capability for THIS route. Policy says what you want to
   // offer; these say what you can actually deliver here. Wi-Fi is read straight
   // off the metal flying the route — simulateRoute already has the aircraft, so
@@ -2116,7 +2166,9 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // revenue both scale with distance; revenue only on the paid/hybrid levels.
   // (Hub flight kitchens discount the COST; ancillary revenue is untouched.)
   const catering        = routeCatering(cateringLevel, classSummary, dist);
-  const cateringCost    = Math.round(catering.cost * stationF);
+  // A catering contract replaces the hub factor on THIS line only: the tick's
+  // cateringCostFactor is already best-of hub kitchen vs contract per endpoint.
+  const cateringCost    = Math.round(catering.cost * (route.cateringCostFactor ?? stationF));
   const cateringRevenue = catering.revenue;
   // Ancillary catering income folds straight into route revenue.
   totalRevenue += cateringRevenue;
@@ -2505,7 +2557,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     const biz    = Math.max(1, sp?.businessClass ?? eco * CLASS_FARE_MULTIPLIERS.businessClass);
     const quality = Math.max(0, Math.min(100,
       baseQuality + groundQualityBonus + spaceBonus
-      + cateringQualityBonus(cateringLevel, dist) + ancillaryQualityBonus(ancillaries, dist, ancCoverage) + (route.hubQualityBonus ?? 0)));
+      + cateringQualityBonus(cateringLevel, dist) + (route.cateringQualityDelta ?? 0)
+      + ancillaryQualityBonus(ancillaries, dist, ancCoverage) + (route.hubQualityBonus ?? 0)));
     const connectivityBonus = computeConnectivityBonus(
       route.hub, seg.from, seg.to, route.hubSpokes ?? CONNECTIVITY_LEGACY_SPOKES);
     const offer = {
@@ -2616,7 +2669,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const layoverFT = hcfTag ? Math.max(0, 1 - (hcfTag.layover ?? 0)) : 1;
 
   const catering        = routeCatering(cateringLevel, classSummary, totalDist);
-  const cateringCost    = Math.round(catering.cost * stationFT);
+  const cateringCost    = Math.round(catering.cost * (route.cateringCostFactor ?? stationFT));
   const cateringRevenue = catering.revenue;
   totalRevenue += cateringRevenue;
 
@@ -3800,7 +3853,29 @@ export function weeklyTick(state) {
   const routeCatering = state.routeCatering ?? {};
   // Airline-wide ancillary policy (null = inactive → zero revenue/cost/quality).
   const ancillaries   = state.ancillaries   ?? null;
-  const routes = rawRoutes.map(r => hydrateRoute(r, routePricing, routeCatering));
+  // Catering contracts (data/cateringContracts.js) resolve HERE, on the hydrated
+  // copy, so every reader below — cost, route quality, pooled-pair quality and
+  // delivered experience — sees the DELIVERED level (capped by the caterer) and
+  // the contract factors. With no contract nothing is attached and the route
+  // copies are byte-identical to before.
+  const cateringContracts   = state.cateringContracts ?? null;
+  const anyCateringContract = hasCateringContracts(cateringContracts);
+  const cateringSeats       = anyCateringContract ? airportSeatsMap(rawRoutes, fleet, routeStops) : null;
+  const hubsForCatering     = state.hubs ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
+  const routes = rawRoutes.map(r => {
+    const h = hydrateRoute(r, routePricing, routeCatering);
+    if (!anyCateringContract) return h;
+    return applyCateringContractFields(h,
+      resolveCateringContracts(HUB_TIERS, hubsForCatering, cateringContracts, routeStops(h), cateringSeats));
+  });
+  // Weekly catering spend attributed to each contract (a route's catering cost
+  // split evenly over its endpoints, credited to whichever contract cooks at
+  // each). The break penalty reads this off the last report.
+  const cateringContractSpend = {};
+  const attributeCateringSpend = (cooks, cost) => {
+    if (!cooks?.length || !cost) return;
+    for (const id of cooks) if (id) cateringContractSpend[id] = (cateringContractSpend[id] ?? 0) + cost / cooks.length;
+  };
   // Routes operating THIS month. Dormant seasonal routes must not provide network
   // feed, interline adjacency, or cannibalization while they're out of season.
   const activeRoutes = routes.filter(r => isRouteActive(r, gameDate.month));
@@ -4293,7 +4368,7 @@ export function weeklyTick(state) {
           totalQuality += Math.max(0, Math.min(100,
             raw + fx.groundQualityBonus
             + configSpaceQualityBonus(cfg, type)
-            + cateringQualityBonus(normalizeCateringLevel(route.cateringLevel), groupDist)
+            + cateringQualityBonus(normalizeCateringLevel(route.cateringLevel), groupDist) + (route.cateringQualityDelta ?? 0)
             + ancillaryQualityBonus(ancillaries, 0, {
                 wifi:   wifiCoverageFor(aircraft),
                 lounge: groupLounge.loungeCoverage,
@@ -4524,6 +4599,7 @@ export function weeklyTick(state) {
       totalCrew           += result.crewCost;
       totalQuality        += result.qualityCost;
       totalCatering        += result.cateringCost      ?? 0;
+      attributeCateringSpend(route.cateringCooks, result.cateringCost ?? 0);
       totalCateringRevenue += cateringRev;
       totalAncillaryRevenue += ancillaryRev;
       totalAncillaryCost    += result.ancillaryCost    ?? 0;
@@ -4751,6 +4827,7 @@ export function weeklyTick(state) {
     totalCrew           += result.crewCost;
     totalQuality        += result.qualityCost;
     totalCatering        += result.cateringCost       ?? 0;
+    attributeCateringSpend(route.cateringCooks, result.cateringCost ?? 0);
     totalCateringRevenue += cateringRev;
     totalAncillaryRevenue += ancillaryRev;
     totalAncillaryCost    += result.ancillaryCost     ?? 0;
@@ -5312,6 +5389,12 @@ export function weeklyTick(state) {
     ...(anyStation
       ? { totalGroundStationCosts:   Math.round(totalGroundStationCosts),
           totalGroundStationSavings: Math.round(totalGroundStationSavings) }
+      : {}),
+    // Catering contracts: last week's spend under each, for the break penalty
+    // and the contracts card. Conditional for the same golden-parity reason.
+    ...(anyCateringContract
+      ? { cateringContractSpend: Object.fromEntries(
+            Object.entries(cateringContractSpend).map(([k, v]) => [k, Math.round(v)])) }
       : {}),
     loungeGuests:           loungeGuests,
     wifiEquippedCount:      fleet.filter(a => isWifiEquipped(a) && a.status !== 'retired').length,

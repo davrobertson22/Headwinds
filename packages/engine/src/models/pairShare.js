@@ -62,6 +62,7 @@ import {
   CLASS_FARE_MULTIPLIERS,
   stateLoungeFields,
   stateGroundHandlingFields,
+  stateCateringFields,
 } from '../utils/simulation.js';
 
 
@@ -880,6 +881,9 @@ export function projectRouteAddition(state, spec) {
       // Self-handling factor, with the route being launched counted against the
       // station's capacity — the tick will see it in the schedule next week.
       ...stateGroundHandlingFields(state, origin, destination, [previewRoute]),
+      // Catering contract rate, quality and cap — spread after the rest because it
+      // may lower cateringLevel to what the caterer can actually deliver.
+      ...stateCateringFields(state, previewRoute, [previewRoute]),
       ...nwrFields,
     };
     const result = simulateRoute(

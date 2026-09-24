@@ -27,6 +27,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { formatMoney } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { Glyph } from './Icons.jsx';
+import { useConfirm } from './ConfirmModal.jsx';
 
 const sliderStyle = { width: '100%' };
 
@@ -193,6 +194,7 @@ function levelChip(level) {
 }
 
 function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = [], cash = 0, reliance = {}, dispatch, onUpgrade }) {
+  const confirm = useConfirm();
   // Which certification the player has asked to drop, if any. A drop cannot be
   // undone for free — the capex is sunk — so it confirms rather than firing off
   // a bare × next to the chip.
@@ -426,7 +428,26 @@ function BaseCard({ code, base, absWeek, jobsHere, hostingHere, fleetFamilies = 
             Upgrade to {mroLevelDef(base.level + 1)?.name} · {formatMoney(upgradeCapex(base.level, base.level + 1))}
           </button>
         )}
-        <button className="btn btn-sm btn-ghost" onClick={() => dispatch({ type: 'CLOSE_MRO_BASE', code })}>
+        <button
+          className="btn btn-sm btn-ghost"
+          onClick={async () => {
+            // A Heavy MRO is the most expensive thing in the game, and closing
+            // it keeps a quarter of what went in. It used to go on one click —
+            // the lounge and the ground station both confirm; so does this now.
+            const def = mroLevelDef(base.level);
+            if (await confirm({
+              title: `Close the ${code} ${def?.name ?? 'base'}?`,
+              body: `You get ${formatMoney(closeRefund(base))} back — a quarter of everything sunk into this `
+                  + `hangar, its certifications and any upgrade under way.\n\n`
+                  + `Aircraft that relied on ${code} go back to outsourced maintenance: breakdowns and checks `
+                  + `there cost more and take longer, and the families it certified lose their contract offset.`,
+              danger: true,
+              confirmLabel: 'Close base',
+            })) {
+              dispatch({ type: 'CLOSE_MRO_BASE', code });
+            }
+          }}
+        >
           Close base (refund {formatMoney(closeRefund(base))})
         </button>
       </div>

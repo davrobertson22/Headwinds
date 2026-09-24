@@ -2,7 +2,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { sharesOf } from '../utils/market.js';
 import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenanceMultiplier, weeklyBlockHours, maxWeeklyBlockHoursFor, routeDistanceKm, routeBlockHours, weekToGameDate, formatGameDate, fleetAvgUtilization,
-  stateLoungeFields, stateGroundHandlingFields,
+  stateLoungeFields, stateGroundHandlingFields, stateCateringFields,
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { fuelImpact } from '../utils/fuelImpact.js';
@@ -112,7 +112,7 @@ export default function Dashboard({ onNavigate }) {
         : (rrById[route.id] ?? simulateRoute(
             // Lounge fields — without them this fallback quotes the full
             // third-party premium ground rate on a route the tick discounts.
-            { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
+            { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
             aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null));
       return { route, result };
     });

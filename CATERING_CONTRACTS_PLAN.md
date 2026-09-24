@@ -1,6 +1,7 @@
 # Catering Contracts — Design Plan
 
-**Status:** PROPOSED — 2026-09-20. Nothing built.
+**Status:** BUILT in Headwinds 2026-09-21 — engine, UI, MP guards and tests (23 engine + 8 UI),
+both golden masters PARITY OK with no re-baseline. Tailwinds port pending (see §6).
 **Scope:** Tailwinds **and** Headwinds. Engine work shared; Headwinds adds a guard and an allow-list entry.
 **Origin:** Dave, 2026-09-20 — "give people a list of catering contracts they can choose from, some
 higher quality and some cheaper, different geography coverage, and choose a contract length with
@@ -86,23 +87,18 @@ Mirror the ground-station resolution exactly — it is the pattern that now has 
 - Renewal at expiry should be offered at the *then-current* book, which is how a supplier market
   actually punishes a carrier that has become dependent.
 
-## 4. Open questions for Dave
+## 4. Decisions (locked with Dave, 2026-09-21)
 
-1. **Per airport or per contract?** Above assumes one contract covers a *set* of airports by coverage
-   region. The alternative — one contract per airport — is more granular but becomes admin at 40
-   stations. Recommend coverage-region.
-2. **Does a hub flight kitchen still apply?** Today a T1+ hub discounts catering cost. Best-of with the
-   contract (like the station/hub rule), or should owning a hub kitchen mean you *are* your own
-   supplier at that airport and no contract applies there?
-3. **Can a bad contract cap a route's chosen level?** The `qualityCap` field assumes yes — picking
-   "full" on a route whose caterer tops out at "partial" should deliver partial and, ideally, *say so*
-   on the route screen rather than silently underdelivering.
-4. **Should suppliers refuse you?** A minimum volume or a credit-rating gate would make the premium
-   book something you grow into. `credit.js` already publishes a grade.
-5. **World-shared or per-airline?** In Headwinds, is the offer book the same for everyone (a market)
-   or rolled per airline? Shared is more interesting and matches the gate market, but needs the offers
-   to live in world state rather than the airline blob.
-6. **Freighters** — cargo has no catering. Confirm contracts ignore cargo entirely.
+| Question | Decision |
+|---|---|
+| Contract ↔ airports | **Coverage region.** One contract covers every airport in the supplier's region (country, continent, or global). A handful of contracts, not one per station. |
+| Hub flight kitchen | **Best-of with the contract**, never stacked — per airport you pay the cheaper of the hub kitchen rate and the contract rate. Same rule as ground stations. |
+| Quality cap | **Cap it, and say so.** A route delivers the lower of its chosen level and the caterer's `qualityCap`, and the route screen warns when the cap bites. You pay for what is delivered. |
+| Headwinds market | **Shared book, no contention.** Every airline in a world sees the same suppliers at the same prices, refreshed on a world schedule; signing does not take a supplier from anyone. No cross-airline money moves. Tailwinds rolls the same book per save. |
+| Gating | **Volume surcharge only.** Nobody is refused. Below a supplier's `minVolume` (weekly pax in its region) the rate carries a surcharge, so small carriers pay more rather than being locked out. No credit-grade gate. |
+| Early exit | **35% of remaining spend.** One-off penalty = weeks left × current weekly spend under the contract × 0.35. Terms of 1 / 3 / 5 years, longer terms cheaper. |
+
+Defaulted without asking (flag if wrong): **cargo is ignored entirely** — freighters carry no catering, so contracts neither cover nor bill cargo routes.
 
 ## 5. What NOT to do
 
@@ -112,3 +108,28 @@ Mirror the ground-station resolution exactly — it is the pattern that now has 
 - Do not let it silently change existing worlds' route economics. Uncovered = today's numbers, and the
   first contract is opt-in.
 - Do not use real supplier names.
+
+## 6. As built (2026-09-21)
+
+- `data/cateringContracts.js` — 14 invented suppliers (3 global, 7 continental on airports.js `getRegion`,
+  4 single-country budget). Book rate drifts ±8% per 26-week window, hashed from supplier + window, so the
+  book is the same for every airline in a world with no server state. Terms 1/3/5y at ×1.00/0.94/0.88,
+  locked at signing. Volume = weekly seats departing covered airports (knowable before the tick, so previews
+  and the tick agree); surcharge up to +20% below `minVolume`. Break = weeks left × last week's spend × 0.35.
+- **Resolution happens once, at route hydration in `weeklyTick`.** The simulated copy gets
+  `cateringCostFactor` (per endpoint best-of hub kitchen vs contract, averaged), `cateringQualityDelta`,
+  `cateringCooks` and — when the cap bites — the delivered `cateringLevel` (with `cateringLevelChosen`).
+  Every downstream reader (cost, route quality, pooled-pair quality, delivered experience) therefore sees
+  the delivered level with no further wiring. State keeps the player's choice.
+- **Interpretation to confirm:** "best-of with the hub kitchen" is implemented as *whoever is cheaper at
+  that endpoint cooks*, and the cap and quality delta travel with the cook. So a premium caterer adds
+  nothing at a hub whose own kitchen is cheaper. The alternative (pay the cheaper rate but keep the
+  premium quality) would make premium contracts free at hubs.
+- `stateCateringFields(state, route)` / `stateCateringCapReport(...)` for previews and the picker warning;
+  spread into every component `simulateRoute` call site and `projectRouteAddition`. UI suite guards both
+  the preview call sites and that every route-level `<CateringSelector>` gets `capNote`.
+- Everything conditional (freshState, write-back, load, report `cateringContractSpend`) for golden parity;
+  when the last contract expires the key is cleared explicitly rather than left to `...state`.
+- Operations page: "Catering Contracts" card under Default Catering. Toasts 8 weeks before and at expiry.
+- Verified failing on HEAD via a probe against `git archive HEAD` — $122,779 catering and Full Service
+  with or without a contract; $44,243 and Partial on the working tree.

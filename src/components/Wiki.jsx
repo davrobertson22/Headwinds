@@ -282,6 +282,30 @@ const WIKI = [
     ],
   },
   {
+    id: 'cateringcontracts',
+    icon: '\uD83C\uDF7D',
+    title: 'Catering Contracts',
+    blurb: 'Who cooks, at what rate, and for how long',
+    blocks: [
+      { p: 'Each route picks a catering **level** (none to full service). A **catering contract** decides what that level costs you and how good it can actually be, across a whole **region** \u2014 one country, one continent, or the world. Sign them on the Operations page.' },
+      { h: 'Choosing a caterer' },
+      { ul: [
+        'Budget caterers are cheap but have a **quality cap**: a route set to Full Service under a caterer that tops out at Partial is served \u2014 and charged \u2014 as Partial, and the route screen says so.',
+        'Premium caterers cost more than the standard rate but add catering quality where they cook.',
+        'The **most specific** contract wins at each airport: a country deal beats a continental one beats a global one. Holding a cheap home-country deal alongside a global one is normal.',
+        'At a hub, your own flight kitchen cooks whenever it is cheaper than the contract \u2014 and then the contract\u2019s cap and quality don\u2019t apply there either.',
+        'Every supplier will sign anyone, but below their minimum volume (weekly seats departing the airports they cover) you pay a surcharge of up to 20%.',
+      ] },
+      { h: 'Terms and leaving' },
+      { ul: [
+        'Contracts run **1, 3 or 5 years**; longer terms lock a lower rate. The rate you sign at is fixed for the term.',
+        'The supplier book re-prices every six months, and it is the same book for every airline in a world.',
+        'Breaking early costs **35% of the remaining spend** \u2014 weeks left times last week\u2019s spend under the contract. You are warned eight weeks before a contract lapses; after that those airports pay the standard rate until you sign again.',
+      ] },
+      { tip: 'A five-year deal is the cheapest per meal and the most dangerous commitment: it bets that you will still be flying that region, at that size, in five years. Sign long where your network is settled and short where it is still moving.' },
+    ],
+  },
+  {
     id: 'operations',
     icon: '⚙️',
     title: 'Operations',

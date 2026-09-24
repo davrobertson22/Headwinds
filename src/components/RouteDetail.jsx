@@ -21,7 +21,7 @@ import {
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
-  stateLoungeFields, stateGroundHandlingFields, stateBrandReach, stateSensReduction,
+  stateLoungeFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import { normalizeCateringLevel } from '../data/catering.js';
@@ -428,7 +428,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       // Fallback for routes the engine skipped (grounded / dormant-seasonal) —
       // same labor / utilization / satisfaction inputs the engine uses.
       const result = simulateRoute(
-        { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
+        { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
         // The live fuel multiplier (price × burn), never a bare 1.0: the
         // fallback preview must agree with the tick like every other one.
         aircraft, gameDate, state.labor ?? null, fuelSimMultiplierOf(state),
@@ -749,6 +749,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
               value={catLevel ?? 'full'}
               onChange={setRouteCatering}
               distKm={dist}
+              capNote={stateCateringCapReport(state, origin, dest, catLevel ?? 'full')}
               label={catLevel ? 'Catering service' : 'Catering service · mixed across aircraft'}
             />
           </div>

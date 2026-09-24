@@ -56,7 +56,9 @@ import { tickBaseConstruction } from '../data/mroBase.js';
 import { tickLoungeConstruction } from '../data/lounges.js';
 import {
   tickStationConstruction, hasOpenStation, airportDeparturesMap, stationOtpBonus,
+  isStationOpen, stationCapacity,
 } from '../data/groundStation.js';
+import { tickCateringContracts, hasCateringContracts } from '../data/cateringContracts.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import { absoluteWeek } from './fuel.js';
 import { resolveFuelForWeek } from './fuelOps.js';
@@ -239,7 +241,37 @@ export function prepareWeek(state, {
   // Ground handling stations follow the same rule as the hangar and the lounge:
   // one that finishes this week self-handles this week.
   const stationBuild   = tickStationConstruction(state.groundStations ?? {}, curAbsWeek);
-  const tickedStations = stationBuild.stations;
+  // Outgrown stations. Growth past a station's capacity silently erodes its
+  // discount (the overflow goes to the contractor pro-rata), and nothing on the
+  // weekly path used to say so. Flag a station the week its departures cross
+  // its capacity and clear the flag when they fall back, so the player is told
+  // ONCE per crossing rather than every week they stay over.
+  const stationOverflowNew = [];
+  const tickedStations = (() => {
+    if (!hasOpenStation(stationBuild.stations)) return stationBuild.stations;
+    const dep = airportDeparturesMap(seasonAdjustedRoutes, routeStops);
+    const out = {};
+    for (const [code, st] of Object.entries(stationBuild.stations)) {
+      const cap = stationCapacity(st);
+      const over = isStationOpen(st) && Number.isFinite(cap) && (dep[code] ?? 0) > cap;
+      if (over && !st.overflowWarned) {
+        stationOverflowNew.push({ code, level: st.level, departures: dep[code], capacity: cap });
+        out[code] = { ...st, overflowWarned: true };
+      } else if (!over && st.overflowWarned) {
+        const { overflowWarned: _cleared, ...rest } = st;
+        out[code] = rest;
+      } else {
+        out[code] = st;
+      }
+    }
+    return out;
+  })();
+  // Catering contracts whose term has run out lapse THIS week, before the
+  // economics — an expired deal must not cater the week after it ended. The
+  // airports it covered fall back to the contract rate (today's numbers).
+  const cateringTick = hasCateringContracts(state.cateringContracts)
+    ? tickCateringContracts(state.cateringContracts, curAbsWeek)
+    : { contracts: state.cateringContracts, expired: [], expiringSoon: [] };
   // Self-handling on-time bonus: share of this week's SCHEDULED departures a
   // station covers, efficiency-weighted. Read off the season-adjusted routes so
   // a dormant seasonal route neither fills a station nor dilutes the share.
@@ -290,6 +322,7 @@ export function prepareWeek(state, {
     seasonalReactivationCost, seasonalReactivations, seasonAdjustedRoutes,
     baseBuild, tickedBases, loungeBuild, tickedLounges, stationBuild, tickedStations,
     stationOtpBonus: stationOtp,
+    cateringTick, stationOverflowNew,
     laborThisWeek,
     // The exact object weeklyTick should be run over. The reducer overrides
     // `encroachments` with this week's freshly-rolled challengers; a projection
@@ -317,6 +350,7 @@ export function prepareWeek(state, {
       mroBases:     tickedBases,
       lounges:      tickedLounges,
       groundStations: tickedStations,
+      ...(cateringTick.contracts ? { cateringContracts: cateringTick.contracts } : {}),
       loungePolicy: state.loungePolicy ?? null,
       absWeek:      curAbsWeek,
     },

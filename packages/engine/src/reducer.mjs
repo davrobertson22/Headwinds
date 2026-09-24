@@ -84,6 +84,10 @@ import {
   GROUND_STATION_MAX_LEVEL,
 } from './data/groundStation.js';
 import {
+  canSignCatering, makeCateringContract, cateringBreakCost, CATERING_SUPPLIER_MAP,
+  coverageLabel, contractWeeksLeft,
+} from './data/cateringContracts.js';
+import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
   MAX_PAY_MULTIPLIER,
@@ -2473,6 +2477,37 @@ function reducer(state, action) {
       return { ...state, cash: state.cash + stationCloseRefund(station), groundStations: rest };
     }
 
+    // ─── Catering contracts ─────────────────────────────────────────────────
+    // A commitment, not a building: no capex, no construction. Signing locks
+    // this week's book rate for the term; breaking early costs 35% of the
+    // remaining spend (data/cateringContracts.js). The state key is written
+    // only when non-empty, like groundStations, for golden parity.
+    case 'SIGN_CATERING_CONTRACT': {
+      // action: { supplierId, years }
+      const contracts = state.cateringContracts ?? {};
+      const years = Math.round(Number(action.years) || 0);
+      const check = canSignCatering(action.supplierId, years, contracts);
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      const c = makeCateringContract(action.supplierId, years, absoluteWeek(state.year, state.week));
+      if (!c) return state;
+      return { ...state, cateringContracts: { ...contracts, [c.id]: c } };
+    }
+
+    case 'BREAK_CATERING_CONTRACT': {
+      const contracts = state.cateringContracts ?? {};
+      const c = contracts[action.id];
+      if (!c) return state;
+      const spend = state.lastReport?.cateringContractSpend?.[c.id] ?? 0;
+      const penalty = cateringBreakCost(c, absoluteWeek(state.year, state.week), spend);
+      const rest = { ...contracts };
+      delete rest[c.id];
+      const { cateringContracts: _drop, ...without } = state;
+      return {
+        ...(Object.keys(rest).length > 0 ? { ...state, cateringContracts: rest } : without),
+        cash: state.cash - penalty,
+      };
+    }
+
     case 'SET_LOUNGE_POLICY': {
       // Partial updates: the UI toggles one switch at a time.
       const current = normalizeLoungePolicy(state.loungePolicy);
@@ -4268,6 +4303,7 @@ function reducer(state, action) {
         seasonalReactivations, seasonAdjustedRoutes,
         baseBuild, tickedBases, loungeBuild, tickedLounges,
         stationBuild, tickedStations,
+        cateringTick, stationOverflowNew,
         laborThisWeek,
       } = prep;
       let seasonalReactivationCost = seasonalReactivationCostPrep;
@@ -4822,6 +4858,26 @@ function reducer(state, action) {
           type: 'success', icon: '\uD83D\uDEEB', duration: 9000,
           title: `\uD83D\uDEEB ${st.code} upgraded to ${stationLevelDef(st.level)?.name ?? 'a bigger station'}`,
           message: `${st.code} can now self-handle more of your departures.`,
+        })),
+        ...(stationOverflowNew ?? []).map(o => ({
+          type: 'warning', icon: '\uD83D\uDEEB', duration: 10000,
+          title: `\uD83D\uDEEB ${o.code} ground station is over capacity`,
+          message: `You now fly ${o.departures} departures a week from ${o.code}; your `
+                 + `${stationLevelDef(o.level)?.name ?? 'station'} handles ${o.capacity}. The rest go to the `
+                 + `contractor at the full rate, so the station saves less every week you grow. Upgrading `
+                 + `builds in place without taking it offline.`,
+        })),
+        ...(cateringTick?.expiringSoon ?? []).map(c => ({
+          type: 'warning', icon: '\uD83C\uDF7D', duration: 10000,
+          title: `\uD83C\uDF7D ${CATERING_SUPPLIER_MAP[c.supplierId]?.name ?? 'Catering'} contract ends in ${contractWeeksLeft(c, curAbsWeek)} weeks`,
+          message: `Your ${coverageLabel(c.coverage)} catering contract lapses soon. After that those airports pay the `
+                 + `standard rate until you sign again — at whatever the book is offering then.`,
+        })),
+        ...(cateringTick?.expired ?? []).map(c => ({
+          type: 'info', icon: '\uD83C\uDF7D', duration: 9000,
+          title: `\uD83C\uDF7D ${CATERING_SUPPLIER_MAP[c.supplierId]?.name ?? 'Catering'} contract ended`,
+          message: `Your ${coverageLabel(c.coverage)} contract has run its term. Those airports are back on the `
+                 + `standard catering rate. Sign a new one on the Operations page.`,
         })),
       ];
 
@@ -6030,6 +6086,13 @@ function reducer(state, action) {
         mroBases:          tickedBases,
         lounges:           tickedLounges,
         ...(Object.keys(tickedStations).length > 0 ? { groundStations: tickedStations } : {}),
+        // Written only when non-empty (golden parity). If the last contract
+        // expired this week the key must be CLEARED, not left to `...state`
+        // above, or the lapsed deal would keep cooking. undefined serialises to
+        // nothing, so the saved state is the same as never having signed.
+        ...(cateringTick?.contracts && Object.keys(cateringTick.contracts).length > 0
+          ? { cateringContracts: cateringTick.contracts }
+          : (state.cateringContracts ? { cateringContracts: undefined } : {})),
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory,
                              ...(nextCrackIndex != null ? { crack: nextCrackIndex } : {}) },
@@ -6941,6 +7004,9 @@ function reconcileState(parsed) {
     // only when the save actually has one (see freshState).
     ...(parsed.groundStations && Object.keys(parsed.groundStations).length > 0
       ? { groundStations: parsed.groundStations } : {}),
+    // Catering contracts — carried only when the save has one (golden parity).
+    ...(parsed.cateringContracts && Object.keys(parsed.cateringContracts).length > 0
+      ? { cateringContracts: parsed.cateringContracts } : {}),
     loungePolicy:             parsed.loungePolicy ? normalizeLoungePolicy(parsed.loungePolicy) : null,
     awareness:                parsed.awareness                ?? 5,
     // Labor relations (unrest / strikes / negotiations) — added later; old saves

@@ -39,7 +39,7 @@ import {
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
   buildEventDemandModel, committedPeakBlockHours, routesCommittedTo, blockHourFit,
-  stateLoungeFields, stateGroundHandlingFields,
+  stateLoungeFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport,
 } from '../utils/simulation.js';
 import { rivalIndexFor } from '../models/network.js';
 
@@ -298,7 +298,7 @@ export default function Routes() {
     const avgUtil = fallbackAvgUtil;
     const evMult  = fallbackEventMult(route.origin, route.destination);
     return simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
+      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
       aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
   };
 
@@ -1173,7 +1173,7 @@ function TagRouteCard({ route, onClose, onAddAircraft, siblingCount = 1 }) {
   // attaches. Without them this card understated a two-lounge rotation's weekly
   // profit by the whole premium ground discount.
   const sim      = aircraft ? simulateTagRoute(
-    { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination) },
+    { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
     aircraft, gd, state.labor ?? null, 1.0,
     fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
     state.satisfaction ?? null, buildEventDemandModel(state.activeEvents).multFor,
@@ -1651,6 +1651,8 @@ function ExpandedGroupPanel({ group, getResult, onClose, onPriceChange, onAddFli
             onChange={(level) => dispatch({ type: 'SET_ROUTE_CATERING', routeIds: group.routes.map(r => r.id), level })}
             distKm={dist}
             compact
+            capNote={group.routes[0] ? stateCateringCapReport(state, group.routes[0].origin, group.routes[0].destination,
+              groupCatLevel ?? 'full', routeStops(group.routes[0])) : null}
             label={groupCatLevel ? 'Catering service' : 'Catering service · mixed across aircraft'}
           />
         </div>
@@ -1840,6 +1842,7 @@ function RouteGroupCard({ group, getResult, selected, onToggleSelect, onClose, o
             onChange={setGroupCatering}
             distKm={dist}
             compact
+            capNote={routes[0] ? stateCateringCapReport(state, origin, destination, groupCatLevel ?? 'full', routeStops(routes[0])) : null}
             label={groupCatLevel ? 'Catering service' : 'Catering service · mixed across aircraft'}
           />
         </div>

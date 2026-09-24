@@ -9,6 +9,10 @@ import FuelBasisChip from './FuelBasisChip.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { getEraCostScale } from '../data/overhead.js';
 import { absoluteWeek } from '../utils/fuel.js';
+import { routeStops } from '../utils/simulation.js';
+import {
+  isStationOpen, stationLevelDef, stationCoverage, airportDeparturesMap,
+} from '../data/groundStation.js';
 import {
   HUB_TIERS, HUB_MIN_GATES, HUB_TIER_COUNT, FOCUS_MIN_GATES,
   AIRPORT_GATEWAY_SCORES, hubUpgradeChecklist, hubCongestionFactor,
@@ -127,6 +131,33 @@ function CongestionMeter({ slotsAt, gatesAt, tier }) {
 
 // ─── Hub card ─────────────────────────────────────────────────────────────────
 
+/**
+ * One line on each hub card: is this hub self-handled, and how full is the
+ * station? A hub is where a ground station earns its keep, so this is where a
+ * player judging the hub should see it — and see it outgrown.
+ */
+function HubStationLine({ code, state }) {
+  const st  = state.groundStations?.[code];
+  const dep = airportDeparturesMap(state.routes ?? [], routeStops)[code] ?? 0;
+  let body, color = 'var(--text-muted)';
+  if (!st) {
+    body = `No ground station — handling here is contracted per passenger. Build one from the ${code} airport page.`;
+    color = 'var(--text-dim)';
+  } else if (!isStationOpen(st)) {
+    body = `${stationLevelDef(st.level)?.name ?? 'Ground station'} under construction — ${st.buildWeeksLeft} weeks left.`;
+  } else {
+    const cov = stationCoverage(st, dep, absoluteWeek(state.year, state.week));
+    const cap = Number.isFinite(cov.capacity) ? `${dep} of ${cov.capacity} departures/wk` : `${dep} departures/wk, no ceiling`;
+    body = `${stationLevelDef(st.level)?.name ?? 'Ground station'} · ${cap} · ${Math.round(cov.discount * 100)}% off handling here`;
+    if (cov.share < 1) { body += ' — over capacity, upgrade from the airport page'; color = 'var(--yellow)'; }
+  }
+  return (
+    <div style={{ fontSize: 12, color, margin: '8px 0 12px' }}>
+      🛫 {body}
+    </div>
+  );
+}
+
 function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastReport }) {
   const { dispatch, state } = useGame();
   const confirm = useConfirm();
@@ -224,6 +255,7 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
       {/* Congestion + contest */}
       <CongestionMeter slotsAt={slotCount} gatesAt={gateCount} tier={tier} />
       <ContestBar contest={contest} tier={tier} />
+      <HubStationLine code={code} state={state} />
 
       {/* Top connecting markets over this hub */}
       {hubMarkets.length > 0 && (

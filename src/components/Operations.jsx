@@ -34,6 +34,7 @@ import { getAirport } from '../data/airports.js';
 import { useState, useEffect } from 'react';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
+import CateringContracts from './CateringContracts.jsx';
 import Departures, { takeDepartureBoardRequest } from './Departures.jsx';
 import { Glyph } from './Icons.jsx';
 
@@ -1173,6 +1174,14 @@ export default function Operations() {
           label={null}
         />
       </div>
+
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
+      }}>
+        Catering Contracts
+      </div>
+      <CateringContracts />
 
       {/* HQ & Corporate overhead section */}
       {fleet.length > 0 && (() => {

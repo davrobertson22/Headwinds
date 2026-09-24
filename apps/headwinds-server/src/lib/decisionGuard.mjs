@@ -23,6 +23,7 @@ import {
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
 import { GROUND_STATION_MAX_LEVEL } from '@tailwinds/engine/data/groundStation.js';
+import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data/cateringContracts.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
@@ -349,6 +350,24 @@ function guardGroundStation(payload, { needLevel = false } = {}) {
   return out;
 }
 
+// ── Catering contracts ───────────────────────────────────────────────────────
+// A contract costs no cash to sign, and the rate comes from the world book the
+// reducer reads off the calendar — never from the payload. The guard checks the
+// supplier and term exist; the reducer enforces the one-per-coverage rule.
+function guardSignCatering(payload) {
+  const supplierId = String(payload.supplierId ?? '');
+  if (!CATERING_SUPPLIER_MAP[supplierId]) throw new GuardError('Unknown catering supplier.');
+  const years = Number(payload.years);
+  if (!CATERING_TERM_MAP[years]) throw new GuardError('Pick a 1, 3 or 5 year term.');
+  return { supplierId, years };
+}
+
+function guardBreakCatering(payload) {
+  const id = String(payload.id ?? '');
+  if (!id || id.length > 80) throw new GuardError('Invalid contract.');
+  return { id };
+}
+
 function guardLoungePolicy(payload) {
   const out = {};
   if (payload.loyaltyAccess  !== undefined) out.loyaltyAccess  = !!payload.loyaltyAccess;
@@ -581,6 +600,8 @@ export function guardDecision(type, payload, state) {
     case 'BUILD_GROUND_STATION':   return guardGroundStation(payload, { needLevel: true });
     case 'UPGRADE_GROUND_STATION': return guardGroundStation(payload, { needLevel: true });
     case 'CLOSE_GROUND_STATION':   return guardGroundStation(payload);
+    case 'SIGN_CATERING_CONTRACT':  return guardSignCatering(payload);
+    case 'BREAK_CATERING_CONTRACT': return guardBreakCatering(payload);
     case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
