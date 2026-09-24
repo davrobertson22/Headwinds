@@ -619,7 +619,7 @@ function AllianceCard({
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {memberComps.map(c => (
             <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <AirlineLogo id={c.logoId} size={18} radius={4} />
+              <AirlineLogo id={c.logoId} accentColor={c.logoColor} customSrc={c.customLogo} size={18} radius={4} />
               <span style={{ fontSize: 11 }}>{c.name}</span>
             </div>
           ))}
@@ -740,7 +740,7 @@ function ActiveCodeshareRow({ agreement, comp, weeklyRevenue, dispatch, remote, 
 
   return (
     <div className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-      {comp && <AirlineLogo id={comp.logoId} size={32} radius={6} />}
+      {comp && <AirlineLogo id={comp.logoId} accentColor={comp.logoColor} customSrc={comp.customLogo} size={32} radius={6} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 13 }}>{agreement.competitorName}</div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Hub: {comp?.homeHub ?? '—'}</div>
@@ -872,7 +872,7 @@ function AvailableCodeshares({ competitors, codeshareAgreements, servedAirports,
                 className="card"
                 style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}
               >
-                <AirlineLogo id={comp.logoId} size={30} radius={6} />
+                <AirlineLogo id={comp.logoId} accentColor={comp.logoColor} customSrc={comp.customLogo} size={30} radius={6} />
 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{comp.name}</div>

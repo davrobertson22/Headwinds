@@ -25,6 +25,7 @@ import codeshareRoutes from './routes/codeshares.mjs';
 import messageRoutes from './routes/messages.mjs';
 import reportRoutes from './routes/reports.mjs';
 import adminRoutes from './routes/admin.mjs';
+import logoRoutes from './routes/logos.mjs';
 
 export function buildServer() {
   const app = Fastify({
@@ -112,6 +113,7 @@ export function buildServer() {
   app.register(messageRoutes);
   app.register(reportRoutes);
   app.register(adminRoutes);
+  app.register(logoRoutes);
 
   return app;
 }

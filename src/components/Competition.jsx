@@ -249,6 +249,8 @@ export default function Competition() {
         playerLastWeek={playerLastWeek}
         playerName={state.airlineName}
         playerLogoId={state.logoId}
+        playerLogoColor={state.logoColor}
+        playerCustomLogo={state.customLogo ?? null}
         playerHub={state.hub}
         playerCash={state.cash}
         playerMarketCap={state.marketCap ?? null}
@@ -311,7 +313,7 @@ export default function Competition() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerHub, playerCash,
+function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerLogoColor, playerCustomLogo, playerHub, playerCash,
                         playerMarketCap, playerSharePrice, playerProfitHistory = [], playerOG = false,
                         playerDev = false, playerSupporter = false, remote = false, onSelect = null }) {
   // Build unified list with player + competitors
@@ -320,6 +322,8 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       id:          '__player__',
       name:        playerName,
       logoId:      playerLogoId,
+      logoColor:   playerLogoColor,
+      customLogo:  playerCustomLogo,
       hub:         playerHub,
       cash:        playerCash,
       tier:        null,
@@ -337,6 +341,8 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       id:          c.id,
       name:        c.name,
       logoId:      c.logoId,
+      logoColor:   c.logoColor,
+      customLogo:  c.customLogo ?? null,
       hub:         c.homeHub,
       cash:        c.cash ?? null,
       // Humans don't have AI tiers — every rival is just an airline.
@@ -422,7 +428,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
               </div>
 
               {/* Logo */}
-              <AirlineLogo id={entry.logoId} size={32} />
+              <AirlineLogo id={entry.logoId} accentColor={entry.logoColor} customSrc={entry.customLogo} size={32} />
 
               {/* Name + hub */}
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -533,7 +539,7 @@ function CompetitorCard({ carrier, playerRouteMap }) {
     <div className="card" style={{ padding: '14px 16px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <AirlineLogo id={carrier.logoId} size={36} />
+        <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} customSrc={carrier.customLogo} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>{carrier.name}</div>
           <span style={{
@@ -1436,7 +1442,7 @@ function RivalDetailView({ carrier, onClose }) {
           display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px',
           borderBottom: '1px solid var(--border)', flexShrink: 0,
         }}>
-          <AirlineLogo id={carrier.logoId} size={44} />
+          <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} customSrc={carrier.customLogo} size={44} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 800, fontSize: 18 }}>{carrier.name}</span>
@@ -1760,7 +1766,7 @@ function AcquisitionModal({ target, playerCash, onConfirm, onCancel }) {
       <div className="card" style={{ width: '100%', maxWidth: 420, padding: '24px 24px 20px' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-          <AirlineLogo id={target.logoId} size={44} />
+          <AirlineLogo id={target.logoId} accentColor={target.logoColor} customSrc={target.customLogo} size={44} />
           <div>
             <div style={{ fontWeight: 800, fontSize: 17 }}>{target.name}</div>
             <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, background: 'var(--surface2)', color: tier.color, fontWeight: 600 }}>

@@ -113,7 +113,7 @@ export default function AllianceDashboard({ alliance, members, state, roster }) 
                 <tr key={m.id}>
                   <td>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      {m.logoId && <AirlineLogo id={m.logoId} size={16} />}
+                      {(m.logoId || m.customLogo) && <AirlineLogo id={m.logoId} accentColor={m.logoColor} customSrc={m.customLogo} size={16} />}
                       {remoteApi?.onViewPlayer && accountIdOf(m.id) ? (
                         <span
                           role="link" tabIndex={0} title="View player profile"

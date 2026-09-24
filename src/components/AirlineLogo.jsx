@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 
 // ── Neutral background ────────────────────────────────────────────────────────
 // Every preset shares the same greyscale base so the user-chosen accent colour
@@ -345,6 +345,21 @@ export const LOGO_MAP = Object.fromEntries(AIRLINE_LOGOS.map(l => [l.id, l]));
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 
+// ── Server-hosted logos (Headwinds) ──────────────────────────────────────────
+// A rival's uploaded logo arrives as a ROOT-RELATIVE path on the API
+// ('/logos/<airlineId>?v=<hash>' — see the server's lib/logoColumn.mjs), not as
+// a data URL. The API lives on a different origin from the web app, so the
+// multiplayer client registers that origin once at boot. Solo never calls
+// this and only ever has data URLs, which pass through untouched.
+let logoOrigin = '';
+export function setLogoOrigin(origin) {
+  logoOrigin = String(origin ?? '').replace(/\/+$/, '');
+}
+export function resolveLogoSrc(src) {
+  if (typeof src !== 'string' || !src) return null;
+  return src.startsWith('/') && !src.startsWith('//') ? `${logoOrigin}${src}` : src;
+}
+
 /**
  * Renders an airline logo by ID.
  *   id          — one of the AIRLINE_LOGOS ids
@@ -356,7 +371,13 @@ export const LOGO_MAP = Object.fromEntries(AIRLINE_LOGOS.map(l => [l.id, l]));
  *                 square (so it matches the look of the built-in logos)
  *   style       — extra inline styles on the wrapping <svg>
  */
-export default function AirlineLogo({ id, size = 40, radius, accentColor, customSrc, style, className }) {
+export default function AirlineLogo({ id, size = 40, radius, accentColor, customSrc: rawSrc, style, className }) {
+  // A hosted logo that fails to load (deleted, offline) falls back to the
+  // preset rather than leaving an empty square. Keyed on the src, so a new
+  // upload gets a fresh attempt.
+  const [brokenSrc, setBrokenSrc] = useState(null);
+  const resolved  = resolveLogoSrc(rawSrc);
+  const customSrc = resolved && resolved !== brokenSrc ? resolved : null;
   const uid  = useId().replace(/:/g, '');
   const gid  = `lg-${id}-${uid}`;
   const logo = LOGO_MAP[id];
@@ -385,6 +406,7 @@ export default function AirlineLogo({ id, size = 40, radius, accentColor, custom
           height="40"
           preserveAspectRatio="xMidYMid slice"
           clipPath={`url(#${cid})`}
+          onError={() => setBrokenSrc(customSrc)}
         />
       </svg>
     );

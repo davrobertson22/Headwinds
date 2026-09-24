@@ -145,7 +145,7 @@ function TradeModal({ carrier, side, state, onSubmit, onClose }) {
     }} onClick={onClose}>
       <div className="card" style={{ width: 'min(440px, 92vw)', padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <AirlineLogo id={carrier.logoId} size={32} />
+          <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} customSrc={carrier.customLogo} size={32} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 15 }}>
               {isBuy ? 'Buy' : 'Sell'} {carrier.name}
@@ -704,7 +704,7 @@ export default function StockMarket() {
             <tr style={{ borderTop: '1px solid var(--border)', background: 'rgba(56,201,180,0.05)' }}>
               <td style={{ padding: '9px 14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <AirlineLogo id={state.logoId} size={24} />
+                  <AirlineLogo id={state.logoId} accentColor={state.logoColor} customSrc={state.customLogo} size={24} />
                   <span style={{ fontWeight: 700 }}>{state.airlineName ?? 'Your airline'}</span>
                   <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>YOU</span>
                 </div>
@@ -738,7 +738,7 @@ export default function StockMarket() {
                 <tr key={c.id} style={{ borderTop: '1px solid var(--border)' }}>
                   <td style={{ padding: '9px 14px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <AirlineLogo id={c.logoId} size={24} />
+                      <AirlineLogo id={c.logoId} accentColor={c.logoColor} customSrc={c.customLogo} size={24} />
                       <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
                       {c.og && <OgChip size={9} />}
                       {c.dev && <DevChip size={9} />}

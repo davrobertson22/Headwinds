@@ -11,6 +11,7 @@
 // so the poller can notice, tell the player, and retry on a fresh connection.
 
 const BASE = import.meta.env?.VITE_API_URL || 'http://localhost:8787';
+export const API_BASE = BASE;
 
 // Generous enough for a cold Railway container and the full state blob, short
 // enough that a wedged request can't outlive the poll interval that issued it.

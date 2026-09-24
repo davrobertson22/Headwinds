@@ -3,12 +3,18 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import { ConfirmProvider } from '../../../src/components/ConfirmModal.jsx';
 import UpdatePrompt from '../../../src/components/UpdatePrompt.jsx';
+import { setLogoOrigin } from '../../../src/components/AirlineLogo.jsx';
+import { API_BASE } from './api.js';
 import './styles.css';
 
 // Brand switch: the shared game UI reads its palette from CSS variables on
 // :root. Marking the document as Headwinds lets styles.css re-accent the whole
 // game (teal instead of Tailwinds gold) without touching the shared code.
 document.documentElement.dataset.brand = 'headwinds';
+
+// Rivals' uploaded logos arrive as '/logos/<id>?v=…' paths on the API, which
+// is a different origin from this page — tell AirlineLogo where that is.
+setLogoOrigin(API_BASE);
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

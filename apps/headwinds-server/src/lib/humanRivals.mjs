@@ -28,6 +28,7 @@ import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
+import { logoHashOf, logoPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
 
 // ── Rival-facing identity, per GENERATION ────────────────────────────────────
@@ -381,6 +382,16 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     hubs: designatedHubsOf(s),
     tier: 'legacy',                  // humans set real prices; tier only styles fallbacks
     logoId: s.logoId ?? 'compass',
+    // Accent colour of a preset mark — without it every rival's preset
+    // rendered in the default blue, whatever they picked.
+    ...(typeof s.logoColor === 'string' ? { logoColor: s.logoColor } : {}),
+    // Uploaded logo, as a URL to routes/logos.mjs — never the bytes (see
+    // lib/logoColumn.mjs RIVALS). `logoHash` comes from the SQL projection;
+    // a full row (worker, tests) hashes its column here. Same value either way.
+    ...((() => {
+      const path = logoPathOf(airlineRow.id, airlineRow.logoHash ?? logoHashOf(airlineRow.customLogo));
+      return path ? { customLogo: path } : {};
+    })()),
     baseQualityScore: qualityOf(s),
     cash: Math.round(s.cash ?? 0),
     marketCap: Math.round(s.marketCap ?? 0),
@@ -686,7 +697,8 @@ export const RIVAL_FLEET_FIELDS = ['id', 'typeId', 'config', 'ageWeeks', 'status
 export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers', 'fuelIndex', 'fuelMultiplier'];
 export const RIVAL_STATS_FIELDS = ['sharePrice'];
 // Keys the rival path provably never reads, removed outright. customLogo is the
-// player's uploaded logo payload — rivals render `logoId`, never this.
+// player's uploaded logo payload — rivals get a URL to it (logoHash below,
+// lib/logoColumn.mjs RIVALS), never the bytes.
 export const RIVAL_DROPPED_KEYS = ['customLogo'];
 
 // Element projector shared by the twin's three array trims. Mirrors the SQL's
@@ -737,7 +749,9 @@ export async function loadRivalRows(prisma, worldId) {
       // against ADMIN_EMAILS here; payloads carry booleans.
       include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
     });
-    return rows.map((r) => ({ ...r, state: projectRivalState(r.state) }));
+    return rows.map(({ customLogo, ...r }) => ({
+      ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(r.state),
+    }));
   }
   // `last-N to last` is clamped by Postgres on short arrays (a 3-entry series
   // returns all 3, not an error), and lax mode means a missing key yields no
@@ -753,6 +767,7 @@ export async function loadRivalRows(prisma, worldId) {
     SELECT a.id, a."worldId", a.name, a.hub, a.status, a.restarts, a.version,
            acc."isOG" AS "accountIsOG", acc."isSupporter" AS "accountIsSupporter",
            acc.email AS "accountEmail",
+           left(md5(a."customLogo"), 12) AS "logoHash",  -- = LOGO_HASH_LEN (lib/logoColumn.mjs); a literal, since a bound JS number may arrive as int8 and left() takes int4
            (a.state - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo')
              || jsonb_build_object(
                   'financialHistory',
@@ -799,6 +814,7 @@ export async function loadRivalRows(prisma, worldId) {
     status: r.status,
     restarts: r.restarts,
     version: r.version,
+    logoHash: r.logoHash ?? null,
     state: r.state,
     account: { isOG: r.accountIsOG === true, isSupporter: r.accountIsSupporter === true,
                email: r.accountEmail },
