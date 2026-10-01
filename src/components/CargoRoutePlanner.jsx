@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn } from '../store/GameContext.jsx';
+import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn, addCargoRouteBlockReason } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
@@ -497,7 +497,15 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                   const short     = deploymentShortfall(pool);
                   const lCost     = routeLaunchCost(routeData.dist);
                   const canAfford = state.cash >= lCost;
-                  const blocked   = !canAfford || !slotsOk;
+                  // The engine's own verdict on this exact launch (the same gate
+                  // the server pre-flights). Gates, slots and cash have their own
+                  // lines below; anything else — runway, perimeter, curfew — is
+                  // spelled out here instead of a live button that bounces.
+                  const blockReason = target
+                    ? addCargoRouteBlockReason(state, { origin, destination: dest, aircraftId: target.aircraft.id, weeklyFrequency: Math.min(frequency, freqCap), yieldPrice: effectiveYield })
+                    : null;
+                  const blocked   = !canAfford || !slotsOk || !!blockReason;
+                  const blockMsg  = blockReason && slotsOk && canAfford ? blockReason : null;
                   // Airports missing a gate, and airports out of free slots.
                   const noGate    = [!originGate.hasGate && origin, !destGate.hasGate && dest].filter(Boolean);
                   const noSlot    = [
@@ -547,6 +555,11 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                           action="Opening this lane"
                           typeName={simulation.type.name}
                         />
+                      )}
+                      {blockMsg && (
+                        <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 4 }}>
+                          <Glyph e="⛔" size={12} /> Can't open this lane: {blockMsg.split(': ').slice(1).join(': ') || blockMsg}
+                        </div>
                       )}
                       {/* Gate requirement */}
                       {noGate.length > 0 && (

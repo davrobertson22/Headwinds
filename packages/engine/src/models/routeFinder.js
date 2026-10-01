@@ -45,6 +45,8 @@ import {
   effectiveRangeKm, maxFrequency, defaultConfig, defaultClassPrices,
 } from '../utils/simulation.js';
 import { metroPairKeyOf, memberPairKeysOf, airportAppeal, regionOf } from '../utils/market.js';
+import { pairDemandNow } from './demand.js';
+import { currentGameDate } from '../utils/simulation.js';
 import { projectRouteAddition } from './pairShare.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 
@@ -231,11 +233,20 @@ export function findCandidates(state, {
   const rivals    = rivalPairIndex(state);
   const servedLanes = servedLaneIndex(state);
   const rows = [];
+  // The demand a row prints is the demand the Route Planner prints for the same
+  // pair this week: the base pool × this month's seasonality × the world's demand
+  // growth — buildRouteMarket's own formula, rounded the same way. The bare base
+  // pool is TODAY's traffic; in a 1950 era world the market is ~5% of it, which
+  // is how a row came to say 6,000 a week for a pair the planner then priced at
+  // 300 (Dunno23, Discord 2026-09-29). Only a world event's transient demand
+  // shock is left out — the finder is a market list, not this week's forecast.
+  const gameDate = state?.week != null ? currentGameDate(state) : null;
 
   for (const a of airports) {
     if (a.code === origin) continue;
-    const demand = baseCityPairDemand(origin, a.code);
-    if (demand <= 0) continue;                 // same metro, or an unpriced pair
+    const baseDemand = baseCityPairDemand(origin, a.code);
+    if (baseDemand <= 0) continue;             // same metro, or an unpriced pair
+    const demand = pairDemandNow(origin, a.code, gameDate, baseDemand);
     const distKm = Math.round(distanceKm(from, a));
     if (distKm < minDistKm || distKm > maxDistKm) continue;
     const destRegion = regionOf(a);
@@ -269,6 +280,7 @@ export function findCandidates(state, {
       code: a.code,
       distKm,
       demand,
+      baseDemand,
       // null when the destination's country is missing from COUNTRY_REGION —
       // rendered as "Unlisted" rather than guessed at. See regionOf().
       region: destRegion,

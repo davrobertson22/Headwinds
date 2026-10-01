@@ -1,6 +1,6 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { calendarYear } from '../utils/simulation.js';
-import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
+import { featureLive, ERA_FEATURE_MESSAGE, ERA_FEATURE_FROM } from '../data/eraFeatures.js';
 import { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, routeQualityBreakdown } from '../utils/simulation.js';
@@ -698,6 +698,11 @@ function AllianceCard({
               ))}
             </div>
           )}
+          {eraLocked && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+              <Glyph e="🕰" /> {ERA_FEATURE_MESSAGE.globalAlliances}
+            </div>
+          )}
           {eligible && !canAfford && (
             <div style={{ fontSize: 11, color: '#f87171', marginBottom: 8 }}>
               <Glyph e="✗" /> Need {formatMoney(alliance.initiationFee)} to join
@@ -714,7 +719,8 @@ function AllianceCard({
             disabled={!canJoin}
             onClick={handleJoin}
           >
-            {canJoin ? `Join · ${formatMoney(alliance.initiationFee)}` : 'Unavailable'}
+            {canJoin ? `Join · ${formatMoney(alliance.initiationFee)}`
+              : eraLocked ? `🕰 Opens ${ERA_FEATURE_FROM.globalAlliances}` : 'Unavailable'}
           </button>
         </div>
       )}

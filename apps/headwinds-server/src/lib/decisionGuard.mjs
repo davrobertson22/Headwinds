@@ -481,6 +481,15 @@ function guardUpdateCargoYield(payload) {
 // 192 kB of data-URL is ~144 kB of image: several times the largest legitimate
 // 128×128 PNG, so a real upload is never rejected.
 const LOGO_DATAURL_MAX_CHARS = 196_608;
+function guardAutoReplace(payload) {
+  // "Replace leavers automatically" toggle. The rehiring itself runs in the
+  // engine after each tick through HIRE_CREW's own cost and cash checks, so the
+  // payload is only a real group id and a boolean.
+  const group = String(payload.group ?? '');
+  if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  return { group, enabled: payload.enabled === true };
+}
+
 function guardHireCrew(payload) {
   // Crew pipeline (A7). The reducer re-derives the training cost itself and
   // refuses an unaffordable or unknown-group hire, so this is a boundary bound:
@@ -616,6 +625,7 @@ export function guardDecision(type, payload, state) {
     case 'ADD_GATE':
     case 'REMOVE_GATE':        return guardGate(payload);
     case 'HIRE_CREW':         return guardHireCrew(payload);
+    case 'SET_AUTO_REPLACE':  return guardAutoReplace(payload);
     case 'SET_BRANDING':       return guardBranding(payload);
     default:                   return payload;
   }

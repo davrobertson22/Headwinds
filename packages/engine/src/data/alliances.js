@@ -16,6 +16,8 @@
  * (how many of their routes touch airports you serve).
  */
 
+import { featureLive } from './eraFeatures.js';
+
 // ─── Alliance definitions ─────────────────────────────────────────────────────
 
 export const ALLIANCES = [
@@ -200,6 +202,38 @@ export function effectiveAllianceId(competitor) {
   if (!competitor) return null;
   if (competitor.allianceId !== undefined) return competitor.allianceId;
   return ALLIANCES.find(a => a.memberIds.includes(competitor.id))?.id ?? null;
+}
+
+/**
+ * Era worlds: global alliances don't exist before ERA_FEATURE_FROM.globalAlliances
+ * (1997). The player was already barred from joining, but AI carriers kept
+ * their founding memberships and kept joining blocs — so a 1955 player saw
+ * five full alliances they could never enter (Discord 2026-09-29).
+ *
+ * Before the year: every carrier is unallied and flagged _preAlliance.
+ * In the year it opens: flagged carriers on a founding list take their
+ * founding seat, the rest start unallied and may join through the AI.
+ * Classic worlds (calYear null) are untouched.
+ *
+ * @returns {{ competitors: object[], founded: object[] }} founded = carriers
+ *          that just took a founding seat (for news).
+ */
+export function applyAllianceEra(competitors = [], calYear) {
+  if (calYear == null) return { competitors, founded: [] };
+  const live = featureLive('globalAlliances', calYear);
+  const founded = [];
+  const out = competitors.map(c => {
+    if (!live) {
+      return (c.allianceId === null && c._preAlliance) ? c
+        : { ...c, allianceId: null, _preAlliance: true };
+    }
+    if (!c._preAlliance) return c;
+    const { _preAlliance, ...rest } = c;
+    const foundingId = ALLIANCES.find(a => a.memberIds.includes(c.id))?.id ?? null;
+    if (foundingId) founded.push({ ...rest, allianceId: foundingId });
+    return { ...rest, allianceId: foundingId };
+  });
+  return { competitors: out, founded };
 }
 
 /**

@@ -3,8 +3,8 @@ import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { referencePrice } from '../utils/simulation.js';
 import {
-  segmentsForRoute, loadLeaflet, createDarkMap,
-  HUB_COLOR, CARGO_COLOR, RIVAL_COLOR, CONTESTED_COLOR,
+  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap,
+  HUB_COLOR, CARGO_COLOR, RIVAL_COLOR, CONTESTED_COLOR, TAG_COLOR,
 } from './mapCore.js';
 
 // Rival route map — a competitor's published network drawn on the same basemap
@@ -22,6 +22,41 @@ import {
 /** Pair key used by every rival-facing surface: sorted IATA codes, hyphenated.
  *  Matches the server's pairKeyOf() and buildPlayerPairMap(). */
 export const pairKey = (a, b) => [a, b].sort().join('-');
+
+/**
+ * The shapes one published pair is actually flown as.
+ *
+ * A rival's routes are keyed by origin–destination pair, so a tag rotation
+ * JFK–KEF–LHR arrives keyed "JFK-LHR". The server publishes the rotations
+ * themselves in `cfg.rotations` ([{ stops, frequency }]); without reading them
+ * every rival stopover route drew as a nonstop (Discord, 2026-09-26).
+ *
+ * Returns one entry per distinct way the pair is flown — each tag rotation, and
+ * a nonstop if any of the pair's frequency is left over after the rotations (a
+ * rival can fly a pair both nonstop and via a stop). Entries are arrays of
+ * airport objects in flying order; any stop the client cannot resolve drops
+ * that rotation back to nothing rather than drawing a line to 0,0.
+ *
+ * Pure, and shared with the main route map's partner overlay.
+ */
+export function pairShapes(key, cfg) {
+  const [a, b] = String(key).split('-');
+  const origin = getAirport(a);
+  const dest = getAirport(b);
+  const shapes = [];
+  let viaFreq = 0;
+  for (const rot of cfg?.rotations ?? []) {
+    const pts = (rot?.stops ?? []).map(getAirport);
+    if (pts.length < 3 || pts.some((p) => !p)) continue;
+    shapes.push({ airports: pts, multiStop: true, frequency: rot.frequency ?? 0 });
+    viaFreq += rot.frequency ?? 0;
+  }
+  const nonstopFreq = (cfg?.frequency ?? 0) - viaFreq;
+  if ((shapes.length === 0 || nonstopFreq > 0) && origin && dest) {
+    shapes.push({ airports: [origin, dest], multiStop: false, frequency: Math.max(0, nonstopFreq) });
+  }
+  return shapes;
+}
 
 /**
  * Fold a rival's published passenger + freight networks into drawable links and
@@ -50,8 +85,11 @@ export function buildRivalNetwork({
     if (!origin || !dest) return;
     codes.add(origin.code);
     codes.add(dest.code);
+    const shapes = cargo ? [{ airports: [origin, dest], multiStop: false }] : pairShapes(key, cfg);
+    for (const sh of shapes) for (const ap of sh.airports) codes.add(ap.code);
     links.push({
-      key, cfg, cargo, origin, dest,
+      key, cfg, cargo, origin, dest, shapes,
+      multiStop: shapes.some((sh) => sh.multiStop),
       contested: cargo ? cargoKeys.has(key) : key in playerRouteMap,
     });
   };
@@ -74,6 +112,7 @@ export function buildRivalNetwork({
     passengerCount: links.filter((l) => !l.cargo).length,
     cargoCount: links.filter((l) => l.cargo).length,
     contestedCount: links.filter((l) => l.contested).length,
+    multiStopCount: links.filter((l) => l.multiStop).length,
   };
 }
 
@@ -102,6 +141,8 @@ export function networkSignature(links = [], airports = []) {
       // freight tooltip
       c.yieldPrice ?? '', c.tonnesPerWeek ?? '',
       ac,
+      // tag rotations change the geometry and the tooltip's "via"
+      (c.rotations ?? []).map((r) => `${(r.stops ?? []).join('>')}x${r.frequency ?? ''}`).join(','),
     ].join('|');
   }).join('~');
   const extent = airports.map((a) => `${a.code}${a.isHub ? '*' : ''}`).join(',');
@@ -143,9 +184,18 @@ function tooltipFor(link, rivalName) {
     `;
   }
 
+  const via = (link.shapes ?? []).filter((sh) => sh.multiStop).map((sh) => {
+    const mid = sh.airports.slice(1, -1).map((a) => a.code).join(', ');
+    return `via ${esc(mid)}${sh.frequency ? ` · ${sh.frequency}×/wk` : ''}`;
+  });
+  const hasNonstop = (link.shapes ?? []).some((sh) => !sh.multiStop);
+  const viaHtml = via.length
+    ? `<div class="map-tip-sub" style="margin-top:4px;color:${TAG_COLOR}">${via.join('<br/>')}${hasNonstop ? '<br/>plus nonstop' : ''}</div>`
+    : '';
+
   return `
     <div class="map-tip">
-      <div class="map-tip-title" style="color:${color}">${origin.code} <span class="map-tip-arrow">→</span> ${dest.code}${cargo ? ' <span style="font-size:10px">FREIGHT</span>' : ''}</div>
+      <div class="map-tip-title" style="color:${color}">${origin.code} <span class="map-tip-arrow">→</span> ${dest.code}${cargo ? ' <span style="font-size:10px">FREIGHT</span>' : ''}</div>${viaHtml}
       <div class="map-tip-sub">${esc(origin.city)} → ${esc(dest.city)} · ${esc(rivalName)}</div>
       <div class="map-tip-stats">${stats}</div>
       <div class="map-tip-sub" style="margin-top:4px">${esc(ac)}</div>
@@ -189,7 +239,7 @@ export default function RivalRouteMap({
   // hit — and worse, the redraw effect below would fire on every parent render
   // and rebuild every Leaflet layer. Instead the derivation is cheap and the
   // expensive part (layer sync) keys off a content signature.
-  const { links, airports, cargoCount, contestedCount } =
+  const { links, airports, cargoCount, contestedCount, multiStopCount } =
     buildRivalNetwork({ routes, cargoRoutes, hubs, playerRouteMap, playerCargoKeys });
   const isEmpty = links.length === 0;
 
@@ -238,12 +288,20 @@ export default function RivalRouteMap({
     layersRef.current = [];
 
     for (const link of links) {
-      const { origin, dest, cargo, contested } = link;
-      const color = contested ? CONTESTED_COLOR : cargo ? CARGO_COLOR : RIVAL_COLOR;
-      const segments = segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
+      const { cargo, contested } = link;
       const tip = tooltipFor(link, name);
+      // Each way the pair is flown — a tag rotation draws through its stops.
+      const segments = [];
+      for (const sh of link.shapes) {
+        const pts = sh.airports;
+        const segs = pts.length > 2
+          ? segmentsForChain(pts.map((p) => [p.lat, p.lon]))
+          : segmentsForRoute(pts[0].lat, pts[0].lon, pts[1].lat, pts[1].lon);
+        for (const seg of segs) segments.push({ pts: seg, multiStop: sh.multiStop });
+      }
 
-      for (const pts of segments) {
+      for (const { pts, multiStop } of segments) {
+        const color = contested ? CONTESTED_COLOR : cargo ? CARGO_COLOR : multiStop ? TAG_COLOR : RIVAL_COLOR;
         if (contested) {
           // Contested pairs get the glow your own map gives a live route — this
           // is the one thing a player opens a rival's map to find.
@@ -368,6 +426,7 @@ export default function RivalRouteMap({
           color={CONTESTED_COLOR}
           label={contestedCount ? `Contested with you (${contestedCount})` : 'Contested with you'}
         />
+        {multiStopCount > 0 && <LegendChip color={TAG_COLOR} label={`Multi-stop (${multiStopCount})`} />}
         {cargoCount > 0 && <LegendChip color={CARGO_COLOR} label={`Freight (${cargoCount})`} dashed />}
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           <span style={{ color: HUB_COLOR }}>●</span> hub

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import {
-  buildDepartureBoard, DAY_NAMES,
+  buildDepartureBoard, DAY_NAMES, departuresFromStops, competitorDepartureLegs,
 } from '../models/departureBoard.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
-import { routeLegs, fleetAvgUtilization } from '../utils/simulation.js';
+import { routeLegs, routeStops, fleetAvgUtilization } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import { isOutOfService, groundedKind } from '../data/maintenance.js';
 import AirportSelect from './AirportSelect.jsx';
@@ -95,8 +95,10 @@ export default function Departures({ initialAirport = null }) {
   }, [state.labor, state.satisfaction, fleet, routes, state.cargoRoutes]);
 
   const rows = useMemo(() => {
-    // The player's own departures, including every leg of a tag flight that
-    // leaves this airport — a rotation stopping here departs here.
+    // The player's own departures, in BOTH directions — every route is a round
+    // trip, so it departs its destination as often as its origin — including
+    // every leg of a tag flight that leaves this airport (a rotation stopping
+    // here departs here, once each way).
     const myLegs = [];
     for (const r of routes) {
       const ac   = fleet.find(a => a.id === r.aircraftId);
@@ -109,10 +111,9 @@ export default function Departures({ initialAirport = null }) {
       const cancelReason = !cancelled ? null
         : ac.status === 'maintenance' ? `Aircraft in ${ac.checkType ?? 'heavy'} check`
         : `Aircraft grounded — ${groundedKind(ac).toLowerCase()}`;
-      for (const leg of routeLegs(r)) {
-        if (leg.from !== airport) continue;
+      for (const to of departuresFromStops(routeStops(r), airport)) {
         myLegs.push({
-          to: leg.to,
+          to,
           weeklyFrequency: r.weeklyFrequency ?? 0,
           typeId: type?.id,
           typeName: type?.name ?? '—',
@@ -138,18 +139,12 @@ export default function Departures({ initialAirport = null }) {
 
     if (!mineOnly) {
       for (const c of state.competitors ?? []) {
-        const legs = [];
-        for (const [key, cfg] of Object.entries(c.routes ?? {})) {
-          const [a, b] = key.split('-');
-          if (a !== airport && b !== airport) continue;
-          const type = cfg?.aircraftType ? getAircraftType(cfg.aircraftType) : null;
-          legs.push({
-            to: a === airport ? b : a,
-            weeklyFrequency: cfg?.frequency ?? 0,
-            typeId: type?.id,
-            typeName: type?.name ?? '—',
-          });
-        }
+        // A rival's tag rotation departs each of its stops (cfg.rotations);
+        // read off the pair key alone it looked like a nonstop.
+        const legs = competitorDepartureLegs(c.routes, airport).map((leg) => {
+          const type = leg.typeId ? getAircraftType(leg.typeId) : null;
+          return { ...leg, typeId: type?.id, typeName: type?.name ?? '—' };
+        });
         if (!legs.length) continue;
         carriers.push({
           id: c.id ?? c.name,

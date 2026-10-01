@@ -127,5 +127,45 @@ test('a covered route (reserve flying it) is NOT cancelled', () => {
   assert.ok(!html.includes('Aircraft grounded'), 'the reserve is flying these');
 });
 
+// Discord 2026-09-24: "You're not able to see departures from airports which
+// aren't your hub … only happens with your own airline". Every route is a round
+// trip, but the board read only the outbound direction of the player's routes.
+const destCellsOf = (html) => [...html.matchAll(/>([A-Z]{3})<\/span><\/td>/g)].map(m => m[1]);
+
+test('your return flights show at the outstation, not just at the airport the route opened from', () => {
+  seed();
+  const html = render(React.createElement(Departures, { initialAirport: 'LAX' }));
+  assert.ok(html.includes('Southern Cross'), 'the player flies LAX–JFK, so it departs LAX too');
+  assert.ok(destCellsOf(html).includes('JFK'), 'the LAX→JFK return flight is missing');
+  assert.ok(!html.includes('Nothing departs LAX'), 'LAX is not empty — the player flies out of it');
+});
+
+test('a tag rotation departs its intermediate stop in both directions', () => {
+  seed({ routes: [{ id: 'r3', origin: 'JFK', destination: 'LAX', stops: ['JFK', 'ORD', 'LAX'],
+                    aircraftId: 'ac1', weeklyFrequency: 7, active: true }] });
+  const html = render(React.createElement(Departures, { initialAirport: 'ORD' }));
+  const dests = destCellsOf(html);
+  assert.ok(dests.includes('LAX'), 'outbound ORD→LAX missing');
+  assert.ok(dests.includes('JFK'), 'return ORD→JFK missing');
+});
+
+// Discord 2026-09-26: "I can't see rival stopover routes, they just show up as
+// a direct route". A Headwinds rival's tag rotation is keyed by its endpoints;
+// the stops travel in cfg.rotations.
+test('a rival tag rotation departs its stop, and leaves its origin for the stop — not the endpoint', () => {
+  const rival = { id: 'hopper', name: 'Hopper Air', logoId: 'bolt', homeHub: 'JFK', baseQualityScore: 50,
+    routes: { 'JFK-LHR': { frequency: 7, aircraftType: 'b737800',
+                           rotations: [{ stops: ['JFK', 'KEF', 'LHR'], frequency: 7 }] } } };
+  seed({ competitors: [rival, COMPETITORS[1]] });
+  const atKef = render(React.createElement(Departures, { initialAirport: 'KEF' }));
+  assert.ok(atKef.includes('Hopper Air'), 'the rival stops at KEF, so it departs KEF');
+  assert.ok(destCellsOf(atKef).includes('LHR') && destCellsOf(atKef).includes('JFK'), 'KEF→LHR and KEF→JFK both fly');
+  const atJfk = render(React.createElement(Departures, { initialAirport: 'JFK' }));
+  const jfkRival = atJfk.split('Hopper Air').length - 1;
+  assert.ok(jfkRival > 0, 'the rival departs JFK');
+  assert.ok(destCellsOf(atJfk).includes('KEF'), 'JFK departure goes to the first stop, KEF');
+  assert.ok(!destCellsOf(atJfk).includes('LHR'), 'JFK does not fly nonstop to LHR — the rotation stops at KEF');
+});
+
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

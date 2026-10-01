@@ -273,5 +273,45 @@ test('opening a new route DOES move the extent (viewport refits)', () => {
   assert.notEqual(sigOf(base).extent, sigOf({ ...base, 'JFK-NRT': { frequency: 3 } }).extent);
 });
 
+console.log('\n── rival stopover routes (Discord 2026-09-26) ───────────');
+// "I can't see rival stopover routes, they just show up as a direct route."
+
+const NB = AIRCRAFT_TYPES.find((t) => !t.freighter && t.range >= 7000 && (t.seats ?? 0) > 100);
+const paxFleet = [{ id: 'p1', typeId: NB.id, status: 'assigned', config: { economy: NB.seats } }];
+const tagLeg = { origin: 'JFK', destination: 'LHR', stops: ['JFK', 'KEF', 'LHR'], aircraftId: 'p1', weeklyFrequency: 5 };
+
+test('server publishes a tag route\'s stops on the pair', () => {
+  const c = toHumanCompetitor(rivalRow({ fleet: paxFleet, routes: [tagLeg] }));
+  assert.deepEqual(c.routes['JFK-LHR'].rotations, [{ stops: ['JFK', 'KEF', 'LHR'], frequency: 5 }]);
+});
+
+test('a nonstop-only pair carries no rotations (payload unchanged)', () => {
+  const c = toHumanCompetitor(rivalRow({ fleet: paxFleet, routes: [{ ...tagLeg, stops: ['JFK', 'LHR'] }] }));
+  assert.ok(!('rotations' in c.routes['JFK-LHR']));
+});
+
+test('the map draws a tag rotation through its stop, not as a nonstop', () => {
+  const c = toHumanCompetitor(rivalRow({ fleet: paxFleet, routes: [tagLeg] }));
+  const n = buildRivalNetwork({ routes: c.routes });
+  const link = n.links.find((l) => l.key === 'JFK-LHR');
+  assert.equal(link.shapes.length, 1, 'one shape — no phantom nonstop line alongside it');
+  assert.deepEqual(link.shapes[0].airports.map((a) => a.code), ['JFK', 'KEF', 'LHR']);
+  assert.ok(link.multiStop);
+  assert.ok(n.airports.some((a) => a.code === 'KEF'), 'the stop gets a marker');
+  assert.equal(n.multiStopCount, 1);
+});
+
+test('a pair flown both via a stop and nonstop draws both', () => {
+  const c = toHumanCompetitor(rivalRow({ fleet: paxFleet, routes: [tagLeg, { ...tagLeg, stops: ['JFK', 'LHR'], weeklyFrequency: 3 }] }));
+  const link = buildRivalNetwork({ routes: c.routes }).links[0];
+  assert.deepEqual(link.shapes.map((sh) => sh.airports.length).sort(), [2, 3]);
+});
+
+test('changing a stop changes the redraw signature', () => {
+  const a = buildRivalNetwork({ routes: { 'JFK-LHR': { frequency: 5, rotations: [{ stops: ['JFK', 'KEF', 'LHR'], frequency: 5 }] } } });
+  const b = buildRivalNetwork({ routes: { 'JFK-LHR': { frequency: 5, rotations: [{ stops: ['JFK', 'DUB', 'LHR'], frequency: 5 }] } } });
+  assert.notEqual(networkSignature(a.links, a.airports).content, networkSignature(b.links, b.airports).content);
+});
+
 console.log(`\n${failed === 0 ? '✅' : '❌'} rival map: ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

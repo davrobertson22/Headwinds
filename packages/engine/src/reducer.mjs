@@ -50,7 +50,7 @@ import { sovereignCountry } from './data/territories.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects,
          CREW_LEAD_WEEKS, crewHireCost, crewAttritionRate, crewRequired,
          seedCrewFor, ensureCrewSeeded, splitStarterHire, absorbCrewFor,
-         crewUnitsForBodies } from './data/labor.js';
+         crewUnitsForBodies, erodePayPremium, autoReplacePlan } from './data/labor.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
@@ -89,7 +89,7 @@ import {
 } from './data/cateringContracts.js';
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
-  scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
+  scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand, demandIsNoOp,
   MAX_PAY_MULTIPLIER,
   counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
   tickGrievance, grievedMoraleTarget,
@@ -736,9 +736,12 @@ export function addCargoRouteBlockReason(state, action) {
   const existingPairFreq = allOps
     .filter(r => [r.origin, r.destination].sort().join('-') === pairKey)
     .reduce((s, r) => s + r.weeklyFrequency, 0);
-  if (checkRouteRestrictions(action.origin, action.destination, dist, existingPairFreq + weeklyFrequency,
-        freighterBodyClass(type), { routes: allOps, excludeKey: pairKey, aircraftType: type })) {
-    return `Regulation blocks this lane at ${weeklyFrequency} flights/wk`;
+  const regHit = checkRouteRestrictions(action.origin, action.destination, dist, existingPairFreq + weeklyFrequency,
+        freighterBodyClass(type), { routes: allOps, excludeKey: pairKey, aircraftType: type });
+  if (regHit) {
+    // Name the rule — a runway too short for the freighter reads very
+    // differently from a perimeter cap (Discord 2026-09-29, Bazooka).
+    return regHit.reason ?? `Regulation blocks this lane at ${weeklyFrequency} flights/wk`;
   }
 
   // ── Block hours on this freighter, across everything committed to it ───────
@@ -3784,6 +3787,23 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_AUTO_REPLACE': {
+      // action: { group, enabled } — rehire this group's leavers every week.
+      if (!LABOR_GROUP_MAP[action.group]) return state;
+      const current = state.labor ?? DEFAULT_LABOR_STATE;
+      return {
+        ...state,
+        labor: {
+          ...current,
+          [action.group]: {
+            ...(current[action.group] ?? { payMultiplier: 1.0, morale: 80 }),
+            autoReplace: !!action.enabled,
+            replaceOwed: 0,
+          },
+        },
+      };
+    }
+
     case 'SET_LABOR_PAY': {
       // action: { group: 'pilots' | 'cabinCrew' | 'groundStaff' | 'maintenanceTeam', payMultiplier: number }
       const current = state.labor ?? DEFAULT_LABOR_STATE;
@@ -5015,7 +5035,9 @@ function reducer(state, action) {
       // Crew pipeline (A7): the week we are advancing INTO — batches whose
       // training finishes by then join the line.
       const crewAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + 1;
-      for (const [id, g] of Object.entries(currentLabor)) {
+      for (const [id, g0] of Object.entries(currentLabor)) {
+        // The market catches up: a premium over 1.0× erodes ~6%/yr (labor.js).
+        const g = { ...g0, payMultiplier: erodePayPremium(g0.payMultiplier) };
         const target   = grievedMoraleTarget(moraleTarget(g.payMultiplier), grievancePrev?.[id]);
         const newMorale = g.morale + (target - g.morale) * 0.12;
         const morale = Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10));
@@ -5041,6 +5063,7 @@ function reducer(state, action) {
           morale,
           headcount: Math.max(0, Math.round((onLine - left) * 100) / 100),
           pipeline: stillTraining,
+          lastLeavers: left,   // read by withAutoReplace after the week
         };
       }
 
@@ -5091,8 +5114,8 @@ function reducer(state, action) {
 
       // 3. Contract negotiations — tick the open one, or table a new demand.
       if (updatedRelations.negotiation
-          && updatedRelations.negotiation.demandMultiplier
-             <= (updatedLabor[updatedRelations.negotiation.group]?.payMultiplier ?? 1.0) + 1e-9) {
+          && demandIsNoOp(updatedLabor[updatedRelations.negotiation.group]?.payMultiplier ?? 1.0,
+                          updatedRelations.negotiation.demandMultiplier)) {
         // Save written before the ceiling fix: an open demand for the pay the
         // player is already on. There is no honest answer to it, so close it
         // quietly — no morale hit, no unrest, no lapse-into-refusal.
@@ -5248,6 +5271,7 @@ function reducer(state, action) {
           playerHubs:      Object.keys(state.hubs ?? {}),
           playerMarketCap: state.marketCap ?? 0,
           playerCampaignSpend: state.targetedMarketing ?? {},
+          calendarYear:    calendarYear(state),
         });
 
       // Simulate competitor networks, accumulate cash, and track profit history
@@ -6843,7 +6867,35 @@ function reducer(state, action) {
 }
 
 // Exported for headless simulation/testing harnesses (no React required to use it).
-export { reducer as gameReducer, freshState, reconcileState };
+// Groups with "replace leavers automatically" on rehire the week's leavers as
+// an ordinary HIRE_CREW right after the tick — same cost, same training wait,
+// same accounting as the player clicking Hire (inside the tick it would need its
+// own P&L row; outside it, it is simply a hire). See autoReplacePlan. Runs on
+// the server's scheduler tick too: it ticks through this export.
+function withAutoReplace(prev, next) {
+  if (!next || next === prev || !next.crewPipeline || !next.labor) return next;
+  const plan = autoReplacePlan(next.labor, next.fleet ?? [], (a) => getAircraftType(a.typeId));
+  if (plan.length === 0) return next;
+  let s = next;
+  for (const { group, bodies, owedAfter } of plan) {
+    let owed = owedAfter;
+    if (bodies >= 1) {
+      const hired = reducer(s, { type: 'HIRE_CREW', group, bodies });
+      // Couldn't afford it: keep owing the whole amount, try again next week.
+      if (hired === s) owed += crewUnitsForBodies(group, bodies);
+      else s = hired;
+    }
+    s = { ...s, labor: { ...s.labor, [group]: { ...s.labor[group], replaceOwed: owed } } };
+  }
+  return s;
+}
+
+function rootReducer(state, action) {
+  const next = reducer(state, action);
+  return action?.type === 'ADVANCE_WEEK' ? withAutoReplace(state, next) : next;
+}
+
+export { rootReducer as gameReducer, freshState, reconcileState };
 
 /**
  * Reconcile a loaded save to fix any ID-collision corruption.

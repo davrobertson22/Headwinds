@@ -231,7 +231,7 @@ export function scheduleNextNegotiation(absWeek, soured, rng = Math.random) {
 /**
  * The pay multiplier the union demands, or `null` when it has nothing to ask
  * for. Paying below market → they demand a return to ~market rate. Otherwise
- * → a 10–18% raise, +5% more if the airline just had a good year.
+ * → a raise of 0.10–0.18× market rate, +0.05× more after a good year.
  *
  * A group already on MAX_PAY_MULTIPLIER is at the top of the pay slider, so a
  * demand could only ever be the rate the player is already paying. That made
@@ -246,7 +246,12 @@ export function negotiationDemand(payMultiplier, profitable, rng = Math.random) 
   if (payMultiplier < 0.95) {
     demand = Math.min(1.05, payMultiplier * (1.25 + rng() * 0.10));
   } else {
-    demand = payMultiplier * (1 + 0.10 + rng() * 0.08 + (profitable ? 0.05 : 0));
+    // The raise is measured against MARKET rate, not compounded on current
+    // pay: +19% of 1.8× is a far bigger ask than +19% of 1.0×, and with the
+    // market catching up (labor.js erodePayPremium) a compounding ask still
+    // ratcheted to the cap over a long era game. Additive asks against ~6%/yr
+    // erosion settle around 1.1-1.3× (Discord, 2026-09-30).
+    demand = payMultiplier + (0.10 + rng() * 0.08 + (profitable ? 0.05 : 0));
   }
   demand = Math.min(MAX_PAY_MULTIPLIER, Math.round(demand * 20) / 20);
   // Rounding down can land the demand on current pay — nudge it one slider
@@ -254,7 +259,14 @@ export function negotiationDemand(payMultiplier, profitable, rng = Math.random) 
   if (demand <= payMultiplier) {
     demand = Math.min(MAX_PAY_MULTIPLIER, Math.round((payMultiplier + 0.05) * 20) / 20);
   }
-  return demand;
+  // Pay erodes continuously now (erodePayPremium), so a group sitting just
+  // under the cap (1.998×) would "demand" the cap — a raise of nothing.
+  return demandIsNoOp(payMultiplier, demand) ? null : demand;
+}
+
+/** A demand worth less than one pay-slider step (0.05×) is no demand at all. */
+export function demandIsNoOp(payMultiplier, demandMultiplier) {
+  return demandMultiplier - payMultiplier < 0.05 - 1e-9;
 }
 
 /**

@@ -23,7 +23,8 @@
 
 import { baseCityPairDemand, routeDistance, referencePrice, metroPairKeyOf } from '../utils/market.js';
 import { getAircraftType } from '../data/aircraft.js';
-import { ALLIANCES } from '../data/alliances.js';
+import { ALLIANCES, applyAllianceEra } from '../data/alliances.js';
+import { featureLive } from '../data/eraFeatures.js';
 import {
   pickCompetitorAircraftType,
   tailsForRoute,
@@ -316,9 +317,21 @@ export function tickCompetitorAI(competitors, ctx) {
     playerHubs = [],
     playerMarketCap = 0,
     playerCampaignSpend = {},   // { [airportCode]: $/wk } — player's targeted marketing
+    calendarYear = null,        // era worlds: real year (null = classic)
   } = ctx ?? {};
 
   const events = [];
+
+  // Era worlds: no alliances before 1997; founding members take their seats
+  // the year they open. Classic worlds pass through untouched.
+  const allianceEra = applyAllianceEra(competitors, calendarYear);
+  competitors = allianceEra.competitors;
+  const alliancesLive = featureLive('globalAlliances', calendarYear);
+  for (const c of allianceEra.founded) {
+    const aName = ALLIANCES.find(a => a.id === c.allianceId)?.name ?? c.allianceId;
+    events.push({ type: 'allianceJoin', airlineId: c.id, name: c.name, allianceId: c.allianceId,
+      description: `${c.name} is a founding member of the new ${aName}.` });
+  }
 
   // ── Player market snapshot ─────────────────────────────────────────────────
   const playerPairs = new Map();   // pairKey → { freq, price }
@@ -651,7 +664,7 @@ export function tickCompetitorAI(competitors, ctx) {
     c.baseQualityScore = quality;
 
     // 4. Alliance diplomacy: healthy loners join blocs; broke members get expelled.
-    if (!c.allianceId && (lastProfit > 0 || cash > reserve * 2)
+    if (alliancesLive && !c.allianceId && (lastProfit > 0 || cash > reserve * 2)
         && weekNumber >= 13 && Math.random() < (ALLIANCE_JOIN_PROB[c.tier] ?? 0.05)) {
       const counts = {};
       for (const other of competitors) {

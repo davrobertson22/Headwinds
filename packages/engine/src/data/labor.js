@@ -848,3 +848,111 @@ export function moraleColor(morale) {
   if (morale >= 45) return 'var(--yellow)';
   return 'var(--red)';
 }
+
+// ─── Crew status for the UI (Discord, 2026-09-29) ───────────────────────────
+//
+// "Why am I not getting the full revenue from my routes?" — the answer was crew,
+// and nothing outside the Operations page said so. In the severe band the tick
+// parks whole aircraft (unstaffedAircraftIds); their routes earn nothing while
+// lease and maintenance still bill, and the only clue was a P&L that did not add
+// up. This is the one summary every surface reads — the dashboard alert, the
+// fleet row badge, the Operations banner — built from EXACTLY the inputs
+// tickPrep hands the tick, so the screen and the week can never disagree about
+// which tails are parked.
+//
+// Returns null when the save/world does not run the crew pipeline.
+export function crewStatus(state, typeOf) {
+  if (state?.crewPipeline !== true) return null;
+  const fleet = state.fleet ?? [];
+  const short = crewShortfall(state.labor, fleet, typeOf);
+  const assigned = new Set([...(state.routes ?? []), ...(state.cargoRoutes ?? [])].map(r => r.aircraftId));
+  const parkedIds = unstaffedAircraftIds(state.labor, fleet, typeOf, assigned);
+  const groups = [];
+  for (const g of LABOR_GROUPS) {
+    if (!(short.byGroup[g.id] > 0)) continue;
+    const need = crewRequired(g.id, fleet, typeOf);
+    const have = crewAvailable(state.labor, g.id);
+    groups.push({
+      id: g.id, name: g.name,
+      missing: crewBodies(g.id, Math.max(0, need - have)),
+      inTraining: crewBodies(g.id, crewInTraining(state.labor, g.id)),
+      shortPct: short.byGroup[g.id],
+    });
+  }
+  return {
+    worst: short.worst,
+    severe: short.severe,
+    parkedIds,
+    // Parked tails that were actually flying routes — the revenue that is lost.
+    parkedOnRoutes: parkedIds.filter(id => assigned.has(id)).length,
+    groups,
+    level: parkedIds.length > 0 ? 'grounding' : short.worst > 0 ? 'short' : 'ok',
+  };
+}
+
+/**
+ * One line for the dashboard, or null when there is nothing to say. Exported so
+ * the wording is tested once and every surface says the same thing.
+ */
+export function crewParkedAlertText(status) {
+  if (!status || status.level === 'ok' || status.groups.length === 0) return null;
+  const list = status.groups.map(g => `${g.name} ${g.missing.toLocaleString()} short`).join(', ');
+  if (status.level === 'grounding') {
+    const n = status.parkedIds.length;
+    return `${n} aircraft can't fly this week — not enough crew (${list}). `
+      + `Their routes earn nothing while lease and maintenance still bill · hire crew`;
+  }
+  const covered = status.groups.every(g => g.inTraining >= g.missing);
+  return covered
+    ? `Crew in training (${list} until they qualify) — on-time and satisfaction suffer meanwhile`
+    : `Short-handed (${list}) — on-time and satisfaction suffer; at ${Math.round(CREW_SEVERE_SHORTFALL * 100)}% short, aircraft are parked · hire crew`;
+}
+
+// ─── The market catches up (Discord, 2026-09-30) ────────────────────────────
+//
+// 1.0× is always TODAY's market rate. Union rounds raise pay 10-23% every two
+// to three years, but nothing ever brought it back down, so over a long era
+// game every group compounded to the 2.0× cap and stayed there — maximum cost,
+// and the union with nothing left to ask for (VodkaOnFire: "now they've gone to
+// 2x again and don't reset"). Real raises are eaten by wage growth everywhere
+// else: a premium over market erodes ~6%/yr, roughly what a union round wins
+// back, so pay hovers around 1.0-1.3× instead of ratcheting to the ceiling.
+// Never erodes below 1.0× — under-market pay is the union's problem, not the
+// market's.
+export const PAY_MARKET_CATCHUP_PER_YEAR = 0.06;
+
+export function erodePayPremium(payMultiplier, weeks = 1) {
+  const pay = Number(payMultiplier);
+  if (!(pay > 1)) return payMultiplier;
+  const eroded = pay * Math.pow(1 - PAY_MARKET_CATCHUP_PER_YEAR / 52, weeks);
+  return Math.max(1, Math.round(eroded * 10000) / 10000);
+}
+
+// ─── Replace leavers automatically ──────────────────────────────────────────
+//
+// Even at top pay a few people leave every week (retirement, relocation) —
+// CREW_ATTRITION_BASE is floored, not zero. With the crew pipeline that meant
+// rehiring by hand every week forever. A group with `autoReplace` on rehires
+// its leavers at the normal training cost and lead time, but only up to what
+// the fleet (incl. aircraft already training crew) needs — a shrinking airline
+// is not made to replace people it no longer needs.
+//
+// Leavers arrive in fractions of a person (the engine works in narrowbody
+// units), so they accumulate in `replaceOwed` until at least one whole person
+// is owed.
+//
+// @returns {{ group: string, bodies: number, owedAfter: number }[]} hires to make
+export function autoReplacePlan(labor, fleet, typeOf) {
+  const out = [];
+  for (const g of LABOR_GROUPS) {
+    const s = labor?.[g.id];
+    if (!s?.autoReplace) continue;
+    const per = CREW_PER_UNIT[g.id] ?? 1;
+    const deficit = Math.max(0,
+      crewRequired(g.id, fleet, typeOf) - crewAvailable(labor, g.id) - crewInTraining(labor, g.id));
+    const owed = Math.min(deficit, (Number(s.replaceOwed) || 0) + (Number(s.lastLeavers) || 0));
+    const bodies = Math.floor(owed * per + 1e-9);
+    out.push({ group: g.id, bodies, owedAfter: Math.max(0, owed - bodies / per) });
+  }
+  return out;
+}

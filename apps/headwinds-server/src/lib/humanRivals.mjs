@@ -22,7 +22,7 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
@@ -339,6 +339,19 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     const bizFare = businessFareFor(s, key, r);
     const aircraftTypes = prev?.aircraftTypes ? [...prev.aircraftTypes] : [];
     if (typeId && !aircraftTypes.includes(typeId)) aircraftTypes.push(typeId);
+    // Tag (multi-stop) rotations flown on this pair, in flying order. The pair
+    // key is origin–destination only, so without this a rival's JFK–KEF–LHR
+    // reached every client as a JFK–LHR nonstop: drawn as a direct line on the
+    // map and missing from KEF's departure board (Discord, 2026-09-26). Absent
+    // when the pair is flown nonstop only, so the payload is unchanged for the
+    // common case. Display only — nothing in the sim reads it.
+    const stops = routeStops(r);
+    const rotations = prev?.rotations ? prev.rotations.map((x) => ({ ...x })) : [];
+    if (stops.length > 2) {
+      const same = rotations.find((x) => x.stops.join('-') === stops.join('-'));
+      if (same) same.frequency += freq;
+      else rotations.push({ stops, frequency: freq });
+    }
     routes[key] = {
       frequency,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : (prev?.priceMultiplier ?? 1),
@@ -355,6 +368,7 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
       businessFare: bizFare != null ? Math.round(bizFare) : (prev?.businessFare ?? null),
       aircraftTypes,
       aircraftType: aircraftTypes[0] ?? null,
+      ...(rotations.length ? { rotations } : {}),
     };
   }
   const history = (s.financialHistory ?? []).slice(-12);

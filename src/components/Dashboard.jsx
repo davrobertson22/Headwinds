@@ -8,6 +8,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import { fuelImpact } from '../utils/fuelImpact.js';
 import { programmeSavingsFromReport } from '../../packages/engine/src/data/fuelProgrammes.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { crewStatus, crewParkedAlertText } from '../data/labor.js';
 import { isOutOfService } from '../data/maintenance.js';
 import { isReserve } from '../data/reserve.js';
 import { getAirport } from '../data/airports.js';
@@ -414,6 +415,13 @@ export default function Dashboard({ onNavigate }) {
   // directly above KPI boxes that were all clickable — the player was told
   // exactly what was wrong and then left to rebuild the query by hand.
   const alerts = [];
+  // Crew FIRST. A parked aircraft is the one problem whose symptom (routes earning
+  // less than the planner said) points everywhere except at its cause — "Why am I
+  // not getting the full revenue from my routes?" was this (Discord 2026-09-29).
+  const crewSt = crewStatus(state, (a) => getAircraftType(a.typeId));
+  const crewAlert = crewParkedAlertText(crewSt);
+  if (crewAlert)
+    alerts.push({ color: crewSt.level === 'grounding' ? 'var(--red)' : 'var(--yellow)', icon: AlertIcon, text: crewAlert, to: 'operations' });
   if (idleAircraft > 0)
     alerts.push({ color: 'var(--yellow)', icon: AlertIcon, text: idleFleetAlertText(idleFleet), to: 'fleet', filter: { filterChip: 'idle' } });
   if (isFinite(weeksOfCash) && weeksOfCash < 4)

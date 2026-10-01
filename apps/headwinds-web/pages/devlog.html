@@ -54,6 +54,32 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">September 30, 2026</p>
+      <h2>Fixes from Discord: stopover routes, departure boards, crew warnings and Route Finder demand</h2>
+      <p>Four fixes from reports in the Discord. Thanks to everyone who sent screenshots.</p>
+      <ul>
+        <li><strong>Rival stopover routes are drawn through their stops.</strong> A rival flying New York&ndash;Reykjavik&ndash;London used to appear as a nonstop New York&ndash;London line. Their route map now draws the real rotation in purple and lists the stop in the hover card. Their route table shows &ldquo;via KEF&rdquo;, and alliance and codeshare partners&rsquo; stopover routes on your own map are drawn the same way.</li>
+        <li><strong>Departure boards show your flights everywhere you fly.</strong> The board only listed your flights from the airport each route started at, usually your hub, so your return flights were missing at every other airport. Every route now departs both ends, and a stopover route departs its middle stop in both directions. Rivals&rsquo; stopover routes now show at their stops as well.</li>
+        <li><strong>You&rsquo;ll be told when crew shortages park your aircraft.</strong> At 15% or more short on pilots or cabin crew, aircraft are parked. Their routes earn nothing while lease and maintenance still bill. Until now the only place that said so was Operations. The Dashboard now shows a warning that names the short group and links to Operations. Parked aircraft are marked <em>No crew</em> on the Fleet page, and the Operations banner says how many are parked. There is a new &#9432; on Labor Groups that explains how crew works, and a new Crew section in the in-game guide.</li>
+        <li><strong>Route Finder demand matches the Route Planner.</strong> The finder showed today&rsquo;s traffic, while the planner showed this world&rsquo;s. In a 1950s world that made a pair look 20&times; bigger in the finder than it really is. Both now show the same weekly demand, including the season and the world&rsquo;s growth, and so do the top city pairs on the airport screen. See <a href="/route-economics.html">route economics</a>.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">September 24, 2026</p>
+      <h2>Era worlds: passengers notice when your aircraft are out of date</h2>
+      <p>In a world that runs through history, nobody in 2000 wants to fly on a design from the 1950s. Until now only the age of the individual airframe counted, and that stops growing after about 13 years. So a fleet of first-generation jets flown into the 1990s cost nothing extra, and a young second-hand 707 scored almost as well as a brand-new A320. Now the age of the <em>design</em> counts too. The change comes across from Tailwinds.</p>
+      <ul>
+        <li><strong>Design age is a new part of the quality score.</strong> For the first 15 years after a type enters service, nothing changes. After that it loses 1 quality point a year, up to 20 points once the design is 35 years old. A 707 (in service 1958) is fine through 1973, loses 10 points by 1983 and the full 20 by 1993. This is on top of the fleet-age score, so an old airframe of an old design is hit twice.</li>
+        <li><strong>It works on the calendar, not on when you bought the aircraft.</strong> A 707 delivered new in 1978 is still a 1958 design. Moving to a newer generation is what fixes it.</li>
+        <li><strong>It matters most where you compete.</strong> Quality decides how the market splits between you and the other airlines on a route, human or AI, and how many business travellers you attract even where you fly alone. A rival who re-equips first will take share from you.</li>
+        <li><strong>You can see it before you buy.</strong> The aircraft market shows a red <em>Dated design</em> badge with the current penalty, and a warning when a type is within five years of dating. Route Detail&rsquo;s quality breakdown has a new <em>Design age</em> line, and the Fleet page shows the penalty on each aircraft.</li>
+        <li><strong>There is always an up-to-date option.</strong> In every era from 1950 onwards, each aircraft category has at least one type on sale with no penalty. Concorde is the one exception: nothing replaced it, so it is never marked down.</li>
+        <li><strong>Classic worlds are unchanged.</strong> They are set in a fixed 2026, so this only applies to worlds that move through the years.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
       <p class="date">September 23, 2026</p>
       <h2>Eleven new airports across Ireland and Northern Ireland</h2>
       <p>A request from the Discord: the island of Ireland was missing a string of its smaller fields. They&rsquo;re all in now (ported to Tailwinds too).</p>

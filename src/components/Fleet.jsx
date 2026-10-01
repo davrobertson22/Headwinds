@@ -5,7 +5,7 @@ import { designAgeQualityPts } from '../models/demand.js';
 import { useGame, transferCompatibility } from '../store/GameContext.jsx';
 import { getAircraftType, LEASE_TERM_OPTIONS, LEASE_BUYOUT_PREMIUM } from '../data/aircraft.js';
 import { leaseBuyoutQuote } from '../models/leaseBuyout.js';
-import { laborEffects } from '../data/labor.js';
+import { laborEffects, crewStatus } from '../data/labor.js';
 import { getAirport } from '../data/airports.js';
 import {
   formatMoney, formatPercent,
@@ -1586,6 +1586,9 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
 
 export default function Fleet() {
   const { state, dispatch } = useGame();
+  // Tails the crew pipeline parks this week (severe band) — same set the tick
+  // grounds, so the row can say why its routes earned nothing.
+  const crewParked = new Set(crewStatus(state, (a) => getAircraftType(a.typeId))?.parkedIds ?? []);
   const confirm = useConfirm();
   const { fleet, routes, cargoRoutes = [], pendingOrders = [], year, week, cash } = state;
   const bhCap = maxWeeklyBlockHoursFor(state);
@@ -2763,6 +2766,12 @@ export default function Fleet() {
                         <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}><Glyph e="🛡️" /> Reserve @ {aircraft.reserveBase}</span>
                       ) : (
                         <span className="badge badge-yellow">Idle</span>
+                      )}
+                      {crewParked.has(aircraft.id) && (
+                        <span className="badge badge-red"
+                              title="Not enough pilots or cabin crew to fly this aircraft this week. Its routes earn nothing while lease and maintenance still bill. Hire crew under Company ▸ Operations — it flies again the week they qualify.">
+                          <Glyph e="⚠" size={10} /> No crew
+                        </span>
                       )}
                       {assignedRoutes.some(r => r.coverForAircraftId) && (
                         <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}><Glyph e="🛡️" size={10} /> covering{aircraft.reserveBase ? ` from ${aircraft.reserveBase}` : ''}</span>

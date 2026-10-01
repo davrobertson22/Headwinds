@@ -197,6 +197,65 @@ export function flightStatus(onTimeRate, seed) {
   return { key: 'delayed', label: `Delayed ${delay}m`, delayMins: delay };
 }
 
+// ─── Which flights leave this airport ───────────────────────────────────────
+
+/**
+ * Destinations a rotation departs `airport` for, in BOTH directions.
+ *
+ * Every route in the game is a round trip — `weeklyFrequency` rotations out and
+ * the same rotations back — but routeLegs() lists only the outbound direction.
+ * Reading that alone, the board showed your flights only at the airport each
+ * route was opened FROM (usually your hub): at an outstation your return flights
+ * were missing, while every rival's showed, because their pair-keyed routes were
+ * already read both ways (Discord, 2026-09-24: "not able to see departures from
+ * airports which aren't your hub … only happens with your own airline").
+ *
+ * A tag rotation A–B–C departs A for B and B for C outbound, then C for B and B
+ * for A on the way home, so B has two departures per rotation.
+ *
+ * @param {string[]} stops  visiting order, origin first (2+ codes)
+ * @returns {string[]} one destination per departure from `airport` per rotation
+ */
+export function departuresFromStops(stops, airport) {
+  const s = (stops ?? []).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < s.length - 1; i++) if (s[i] === airport) out.push(s[i + 1]);
+  for (let i = s.length - 1; i > 0; i--) if (s[i] === airport) out.push(s[i - 1]);
+  return out;
+}
+
+/**
+ * A competitor's published routes (keyed "AAA-BBB") as board legs from `airport`.
+ *
+ * A Headwinds rival's tag rotation arrives keyed by its endpoints with the real
+ * stop list in `cfg.rotations` ([{ stops, frequency }]). Each rotation departs
+ * its intermediate stops too; whatever frequency is left after the rotations is
+ * nonstop. Solo-AI routes carry no rotations and read exactly as before.
+ *
+ * @returns {{ to: string, weeklyFrequency: number, typeId?: string }[]}
+ */
+export function competitorDepartureLegs(routes, airport) {
+  const legs = [];
+  for (const [key, cfg] of Object.entries(routes ?? {})) {
+    const [a, b] = key.split('-');
+    let viaFreq = 0;
+    for (const rot of cfg?.rotations ?? []) {
+      const f = rot?.frequency ?? 0;
+      viaFreq += f;
+      for (const to of departuresFromStops(rot?.stops, airport)) {
+        legs.push({ to, weeklyFrequency: f, typeId: cfg?.aircraftType ?? null });
+      }
+    }
+    const nonstop = (cfg?.frequency ?? 0) - viaFreq;
+    if (nonstop > 0 || !(cfg?.rotations?.length)) {
+      for (const to of departuresFromStops([a, b], airport)) {
+        legs.push({ to, weeklyFrequency: Math.max(0, nonstop), typeId: cfg?.aircraftType ?? null });
+      }
+    }
+  }
+  return legs;
+}
+
 // ─── Board ───────────────────────────────────────────────────────────────────
 
 /**

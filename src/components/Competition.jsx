@@ -1110,6 +1110,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCas
                   }}>
                     <td style={{ padding: '7px 14px' }}>
                       <span style={{ fontWeight: 600 }}><AirportLink code={a} />–<AirportLink code={b} /></span>
+                      {viaLabel(cfg)}
                       <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>
                         {oCity}–{dCity}
                       </span>
@@ -1178,6 +1179,20 @@ function describeMove(m) {
 // airline has been re-founded (see humanRivals.rivalIdOf). Slicing only the
 // prefix would send `<dbId>~g2` to /worlds/:id/rivals/:airlineId and 404 every
 // profile lookup for a restarted rival.
+// A rival's tag rotations on a pair, as a small "via KEF" under the route.
+// Published by the server in cfg.rotations; absent for a nonstop-only pair.
+function viaLabel(cfg) {
+  const vias = (cfg?.rotations ?? [])
+    .map((r) => (r?.stops ?? []).slice(1, -1).join(', '))
+    .filter(Boolean);
+  if (!vias.length) return null;
+  return (
+    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--purple, #a371f7)', fontWeight: 600 }}>
+      via {[...new Set(vias)].join(' / ')}
+    </span>
+  );
+}
+
 function rivalAirlineId(id) {
   return String(id ?? '').replace(/^human:/, '').replace(/~g\d+$/, '');
 }
@@ -1624,6 +1639,7 @@ function RivalDetailView({ carrier, onClose }) {
                         <tr key={key} style={{ borderTop: '1px solid var(--border)', background: isShared ? 'rgba(251,191,36,0.06)' : 'transparent' }}>
                           <td style={{ padding: '7px 12px' }}>
                             <span style={{ fontWeight: 600 }}><AirportLink code={a} />–<AirportLink code={b} /></span>
+                      {viaLabel(cfg)}
                             {isShared && (
                               <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--yellow)', fontWeight: 700 }}>
                                 <Glyph e="⚔" /> contested

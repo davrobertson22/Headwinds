@@ -7,6 +7,7 @@ import {
   CREW_PER_UNIT, crewBodies, crewRequiredAhead, deliveriesWithinLeadTime,
   crewRequiredForOrderBook, weeksUntilHiringDue,
   crewHiresNeeded, crewExpectedLeavers, weeksToOrderBookComplete,
+  crewStatus,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -35,6 +36,7 @@ import { useState, useEffect } from 'react';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import CateringContracts from './CateringContracts.jsx';
+import InfoTip from './InfoTip.jsx';
 import Departures, { takeDepartureBoardRequest } from './Departures.jsx';
 import { Glyph } from './Icons.jsx';
 
@@ -430,6 +432,15 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 {crew.onOrder > 0 ? ' — the hire figures above already cover those lost before delivery.' : ' — pay above market to slow it.'}
               </div>
             )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!groupState.autoReplace}
+                onChange={e => dispatch({ type: 'SET_AUTO_REPLACE', group: group.id, enabled: e.target.checked })}
+              />
+              Replace leavers automatically
+              <span style={{ color: 'var(--text-dim)' }}>· normal training cost &amp; wait, only up to what the fleet needs</span>
+            </label>
             {crew.instantRoom > 0 && (
               <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>
                 ⚡ Starter crew — your first {CREW_INSTANT_AIRCRAFT} aircraft crew up instantly, no training wait
@@ -530,6 +541,11 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
           <span style={{ color: 'var(--text-muted)' }}>1.0× market</span>
           <span>2.0× premium</span>
         </div>
+        {payMultiplier > 1.0005 && (
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
+            Market wages keep rising, so pay above 1.0× slips back toward market (~6% a year) unless the next contract round restores it.
+          </div>
+        )}
       </div>
 
       {/* Morale */}
@@ -836,6 +852,17 @@ function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMa
 
 // ─── Main Operations page ─────────────────────────────────────────────────────
 
+// One tooltip that explains the whole crew pipeline. It trips people up because
+// nothing about it is visible on a route: crew shortfall shows up as late flights,
+// unhappy passengers and — past the severe line — aircraft quietly parked
+// (Discord 2026-09-29).
+const CREW_HOW_IT_WORKS =
+  'Every aircraft needs pilots, cabin crew, ground staff and maintenance staff — bigger aircraft need more. '
+  + 'New hires train before they can work (pilots ~10 weeks, cabin crew ~5), and a few leave every week, more if pay or morale is low. '
+  + 'A little short: on-time performance and passenger satisfaction drop. '
+  + `${Math.round(CREW_SEVERE_SHORTFALL * 100)}% or more short on pilots or cabin crew: aircraft are parked — their routes earn nothing while lease and maintenance still bill. `
+  + 'Hire ahead of new deliveries; the hire buttons already allow for training time and attrition.';
+
 export default function Operations() {
   const { state, dispatch } = useGame();
   const {
@@ -1014,6 +1041,12 @@ export default function Operations() {
         textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10,
       }}>
         Labor Groups
+        {crewOn && (
+          <InfoTip
+            style={{ marginLeft: 6, textTransform: 'none', letterSpacing: 0 }}
+            text={CREW_HOW_IT_WORKS}
+          />
+        )}
       </div>
 
       {/* Severity here means "you still have something to DO", not "you are
@@ -1025,6 +1058,9 @@ export default function Operations() {
           still cannot fly and the on-time penalty still bites, which is why the
           banner keeps saying so rather than going quiet. */}
       {crewGap && crewGap.worst > 0 && (() => {
+        const crewSt = crewStatus(state, typeOfAircraft);
+        const parkedCount = crewSt?.parkedIds.length ?? 0;
+        const parkedOnRoutes = crewSt?.parkedOnRoutes ?? 0;
         const shortGroups = LABOR_GROUPS.filter(g => (crew?.[g.id]?.short ?? 0) > 0);
         // Covered = the engine's own attrition-aware recommendation for this
         // group is zero. Same number the card's hire buttons read, so the banner
@@ -1052,6 +1088,13 @@ export default function Operations() {
             <strong>{title}</strong>
             {' — '}
             {shortGroups.map(describe).join(' · ')}
+            {parkedCount > 0 && (
+              <div style={{ margin: '4px 0', fontWeight: 600 }}>
+                {parkedCount} aircraft {parkedCount === 1 ? 'is' : 'are'} parked this week for lack of crew
+                {parkedOnRoutes > 0 ? ` — ${parkedOnRoutes} of them fly routes, which earn nothing until crew qualify` : ''}.
+                {' '}They still cost their lease and maintenance (marked "No crew" on the Fleet page).
+              </div>
+            )}
             {needHiring.length === 0
               ? '. Flying short-handed costs on-time performance and passenger satisfaction until they qualify — but everyone you need is already in training, so no further hiring needed.'
               : <>. Flying short-handed costs on-time performance and passenger satisfaction; crew take

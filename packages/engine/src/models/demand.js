@@ -615,6 +615,24 @@ export function getRouteClassDemandShares(origin, destination) {
   };
 }
 
+/**
+ * A pair's weekly passenger market this week, as the Route Planner shows it:
+ * base pool × the month's seasonality × the world's demand growth (the era
+ * traffic index in an era world). buildRouteMarket's own formula with no
+ * maturity ramp and no world-event shock — the number for LISTS of markets
+ * (Route Finder, the airport screen's top pairs), which used to print the bare
+ * modern-day base pool and so disagreed with the planner by up to 20× in a 1950
+ * world (Discord, 2026-09-29). tools/route-finder-demand-test.mjs pins it to
+ * buildRouteMarket. A gameDate without absWeek gets no growth, as there.
+ */
+export function pairDemandNow(origin, destination, gameDate, base = baseCityPairDemand(origin, destination)) {
+  if (!(base > 0) || !gameDate) return base;
+  const seasonal = getSeasonalProfile(origin, destination)[gameDate.month] ?? 1;
+  const growth   = gameDate.absWeek != null
+    ? pairDemandGrowth(origin, destination, gameDate.absWeek) : 1;
+  return Math.round(base * seasonal * 1 * 1 * growth);
+}
+
 // ─── Core calculations ────────────────────────────────────────────────────────
 
 /**

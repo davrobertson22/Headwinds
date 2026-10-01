@@ -11,6 +11,7 @@ import { projectWeek } from '../utils/financeProjection.js';
 import { getAlliance } from '../data/alliances.js';
 import { HUB_TIERS } from '../models/demand.js';
 import { Glyph } from './Icons.jsx';
+import { pairShapes } from './RivalRouteMap.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
@@ -422,12 +423,15 @@ export default function RouteMap() {
       if (!isAllianceMember && !isCodesharePartner) continue;
       const type  = isAllianceMember ? 'alliance' : 'codeshare';
       const color = isAllianceMember ? ALLIANCE_COLOR : CODESHARE_COLOR;
-      for (const routeKey of Object.keys(comp.routes ?? {})) {
+      for (const [routeKey, cfg] of Object.entries(comp.routes ?? {})) {
         const [a, b] = routeKey.split('-');
         const origin = getAirport(a);
         const dest   = getAirport(b);
         if (!origin || !dest) continue;
-        result.push({ comp, type, color, origin, dest, routeKey });
+        // A partner's tag rotation draws through its stops, not as a nonstop.
+        for (const sh of pairShapes(routeKey, cfg)) {
+          result.push({ comp, type, color, origin, dest, routeKey, chain: sh.airports });
+        }
       }
     }
     return result;
@@ -444,18 +448,21 @@ export default function RouteMap() {
     partnerLayersRef.current.forEach(l => map.removeLayer(l));
     partnerLayersRef.current = [];
 
-    for (const { comp, type, color, origin, dest } of partnerRouteData) {
+    for (const { comp, type, color, origin, dest, chain = [origin, dest] } of partnerRouteData) {
       const show = type === 'alliance' ? showAlliance : showCodeshare;
       if (!show) continue;
       // The airport filter applies to partner overlays too, so "show me JFK"
       // really means only lines touching JFK. (The aircraft-type filter is
       // ours-only — we don't know what partners fly.)
-      if (airportFilter !== 'all' && origin.code !== airportFilter && dest.code !== airportFilter) continue;
+      if (airportFilter !== 'all' && !chain.some(ap => ap.code === airportFilter)) continue;
 
-      const segments = segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
+      const segments = chain.length > 2
+        ? segmentsForChain(chain.map(ap => [ap.lat, ap.lon]))
+        : segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
+      const via = chain.length > 2 ? ` <span style="font-size:10px">via ${chain.slice(1, -1).map(ap => ap.code).join(', ')}</span>` : '';
       const tipHtml = `
         <div class="map-tip">
-          <div class="map-tip-title" style="color:${color}">${origin.code} → ${dest.code}</div>
+          <div class="map-tip-title" style="color:${color}">${origin.code} → ${dest.code}${via}</div>
           <div class="map-tip-sub">${origin.city} → ${dest.city}</div>
           <div class="map-tip-sub" style="margin-top:4px">${comp.name} · ${type === 'alliance' ? 'Alliance' : 'Codeshare'}</div>
         </div>
@@ -476,8 +483,8 @@ export default function RouteMap() {
         partnerLayersRef.current.push(line);
       }
 
-      // Small dot at each endpoint (only if not already in our own airportSet)
-      for (const airport of [origin, dest]) {
+      // Small dot at each endpoint and stop (only if not already in our own airportSet)
+      for (const airport of chain) {
         const dot = L.circleMarker([airport.lat, airport.lon], {
           radius: 3,
           fillColor: color,
