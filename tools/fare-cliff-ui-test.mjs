@@ -71,30 +71,30 @@ const strip = (h) => h.replace(/<!-- -->/g, '');
 console.log('\n── Routes page banner ──────────────────');
 test('NWR world, fares +50%: banner names both routes and offers the reset', () => {
   const html = strip(renderRoutes(save({ nwr: true, mult: 1.5 })));
-  assert.match(html, /2 routes are priced past the demand cliff/);
+  assert.match(html, /2 routes are losing passengers to the fare cliff/);
   assert.match(html, /Reset all 2 to reference/);
 });
 test('NWR world, fares at reference: no banner', () => {
   const html = strip(renderRoutes(save({ nwr: true, mult: 1.0 })));
-  assert.doesNotMatch(html, /past the demand cliff/);
+  assert.doesNotMatch(html, /fare cliff/);
 });
 test('classic world, fares +50%: no banner (no choke there)', () => {
   const html = strip(renderRoutes(save({ nwr: false, mult: 1.5 })));
-  assert.doesNotMatch(html, /past the demand cliff/);
+  assert.doesNotMatch(html, /fare cliff/);
 });
 
 console.log('\n── Fare editor ─────────────────────────');
 test('NWR world: a cabin +50% over reference is flagged', () => {
   const html = strip(renderEditor(save({ nwr: true, mult: 1 }), hike('SFO', 'LAX', 1.5)));
-  assert.match(html, /past the demand cliff/);
+  assert.match(html, /past the cliff \(\$\d+\)/);
 });
 test('NWR world: a cabin +5% is not', () => {
   const html = strip(renderEditor(save({ nwr: true, mult: 1 }), hike('SFO', 'LAX', 1.05)));
-  assert.doesNotMatch(html, /past the demand cliff/);
+  assert.doesNotMatch(html, /past the cliff \(/);
 });
 test('classic world: never flagged', () => {
   const html = strip(renderEditor(save({ nwr: false, mult: 1 }), hike('SFO', 'LAX', 1.5)));
-  assert.doesNotMatch(html, /past the demand cliff/);
+  assert.doesNotMatch(html, /past the cliff \(/);
 });
 
 console.log(`\n  ${passed} passed, ${failed} failed`);

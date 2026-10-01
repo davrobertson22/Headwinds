@@ -10,7 +10,7 @@ export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          cargoBackhaulFactor, cargoSeasonalFactor,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
-         setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf } from './market.js';
+         setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor } from './market.js';
 import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
@@ -2083,10 +2083,37 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     const seatsThisClass = config[cls] ?? 0;
     const capOneWay      = seatsThisClass * route.weeklyFrequency;
 
-    const preferredDemand = Math.round(
+    let preferredDemand = Math.round(
       businessPax * (cabinPrefs.business[cls] ?? 0) +
       leisurePax  * (cabinPrefs.leisure[cls]  ?? 0)
     );
+
+    // Restricted worlds: the fare cliff, per premium cabin. Economy already meets
+    // it inside the demand model (the pool is sized on the economy fare), but a
+    // premium cabin's own fare never reached demand — its passengers were carved
+    // off the pool by preference and charged whatever the player set, so first
+    // at 1.5× reference sold exactly as many seats as first at reference ("does
+    // fare cliff apply to non economy passengers", Discord 2026-09-24). Each
+    // premium cabin now meets the same quality-scaled cliff against its OWN
+    // reference fare — the one the fare editor shows — and the passengers it
+    // prices out trade down to economy rather than vanishing. Exactly 1 in
+    // classic worlds, so this block is inert there.
+    // `cliffLost` is what the cliff actually cost this cabin in seats sold at its
+    // own fare — zero while the cabin is still oversubscribed after the cut. The
+    // fare-cliff warning reads it so it can tell "past the cliff but still full"
+    // from "past the cliff and emptying".
+    let cliffLost = 0;
+    if (cls !== 'economy' && cp[cls] != null && preferredDemand > 0) {
+      const cabinRef = Math.max(1, market.referencePrice * (CLASS_FARE_MULTIPLIERS[cls] ?? 1));
+      const cliff = nwrYieldChokeFactor(cp[cls] / cabinRef, qualityScore);
+      if (cliff < 1) {
+        const kept = Math.round(preferredDemand * cliff);
+        const capHere = (config[cls] ?? 0) * route.weeklyFrequency;
+        cliffLost = Math.max(0, Math.min(preferredDemand, capHere) - Math.min(kept, capHere));
+        spilledToEconomy += preferredDemand - kept;
+        preferredDemand = kept;
+      }
+    }
 
     // Economy also absorbs spill from premium classes that had no seats
     const effectiveDemand = cls === 'economy'
@@ -2113,6 +2140,8 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
       passengers: paxOneWay,   // one-way pax (per direction); multiply ×2 for total boarded
       revenue:    Math.round(clsRevenue),
       loadFactor: capOneWay > 0 ? paxOneWay / capOneWay : 0,
+      // Restricted worlds only, and only when it bit — classic results are unchanged.
+      ...(cliffLost > 0 ? { cliffLostPax: cliffLost } : {}),
     };
   }
 

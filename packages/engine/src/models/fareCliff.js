@@ -18,16 +18,69 @@
 import { referencePrice, getNwrYieldChoke, nwrChokeThreshold } from '../utils/market.js';
 import {
   CLASS_FARE_MULTIPLIERS, routePairKey, defaultClassPrices, clampClassPrice,
+  routeQualityBreakdown, isMultiStop,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { COMPETITIVE_FARE_COMPRESSION_PER_RIVAL, COMPETITIVE_FARE_COMPRESSION_FLOOR } from './demand.js';
+
+// ─── Where the cliff really is (Discord, 2026-09-24) ─────────────────────────
+//
+// "it warns when prices are over the cliff, but the projected load of routes
+// stays the same" — the warning fired at a flat 1.10× for every cabin while the
+// engine's cliff starts at 1.10–1.25× by quality, and (until the same fix) never
+// reached premium cabins at all. The warning now asks the questions the engine
+// asks:
+//   - the route's own quality score (routeQualityBreakdown — the number Route
+//     Details shows, built from the inputs the tick uses), averaged over the
+//     aircraft on the pair exactly as the pooled tick averages it;
+//   - for ECONOMY only, the pair's competitive fare compression: with rivals on
+//     the pair the economy pool is priced against a reference 5% lower per extra
+//     carrier (floor 90%), so the cliff arrives sooner there. Premium cabins meet
+//     the cliff against their own uncompressed reference (utils/simulation.js).
+// A fare is "over" only when it exceeds the threshold by more than rounding — a
+// fare typed as exactly +10% is not a cliff.
+
+/** Mean route quality per flown nonstop pair, as the tick's pooled offer sees it. */
+export function pairQualities(state) {
+  const fleetById = new Map((state?.fleet ?? []).map(a => [a.id, a]));
+  const acc = new Map();
+  for (const r of state?.routes ?? []) {
+    if (isMultiStop(r)) continue;
+    const a = fleetById.get(r.aircraftId);
+    const q = a ? routeQualityBreakdown(r, a, state)?.total : null;
+    if (q == null) continue;
+    const key = routePairKey(r.origin, r.destination);
+    const e = acc.get(key) ?? { sum: 0, n: 0 };
+    e.sum += q; e.n += 1;
+    acc.set(key, e);
+  }
+  return new Map([...acc].map(([k, e]) => [k, Math.round(e.sum / e.n)]));
+}
+
+/** Economy fare compression on a pair: 1 alone, −5% per extra nonstop carrier, floor 0.90. */
+export function pairFareCompression(state, origin, destination) {
+  const key = routePairKey(origin, destination);
+  const ids = new Set();
+  for (const c of state?.competitors ?? []) if (c?.routes?.[key]) ids.add(c.id ?? c.name);
+  for (const spec of state?.humanRivals?.[key] ?? []) ids.add(spec?.competitorId ?? spec?.name);
+  if (state?.encroachments?.[key]) ids.add(`enc:${state.encroachments[key].competitorId ?? key}`);
+  return Math.max(COMPETITIVE_FARE_COMPRESSION_FLOOR, 1 - COMPETITIVE_FARE_COMPRESSION_PER_RIVAL * ids.size);
+}
+
+/** Context for one pair — what faresOverCliff needs to place the cliff. */
+function pairContext(state, key, origin, destination, qualities) {
+  return { quality: qualities.get(key) ?? 50, economyCompression: pairFareCompression(state, origin, destination) };
+}
 
 /** True when the world has a fare cliff at all (restricted worlds). */
 export function fareCliffActive() { return getNwrYieldChoke(); }
 
 /**
- * The price/reference ratio where demand starts collapsing. Warnings use the
- * quality-50 floor (1.10x): a premium product earns headroom to 1.25x, but a
- * warning that fires a little early is cheap and one that fires late is not.
+ * The price/reference ratio where demand starts collapsing for a route of the
+ * given quality: 1.10x at quality ≤ 50, rising to 1.25x at 100. Called without
+ * a quality it returns the 1.10x floor — the "anywhere from" figure for copy.
+ * Warnings pass the route's real quality: a flat 1.10x fired on fares the
+ * engine never punished (Discord, 2026-09-24).
  */
 export function fareCliffRatio(quality = 50) { return nwrChokeThreshold(quality); }
 
@@ -53,7 +106,31 @@ export function faresOverCliff(fares, origin, destination, opts = {}) {
     if (!(fare > 0)) continue;
     const ref = refP * (CLASS_FARE_MULTIPLIERS[cls] ?? 1);
     const ratio = fare / Math.max(1, ref);
-    if (ratio > thr + 1e-9) out.push({ cls, ratio, fare, ref: Math.round(ref) });
+    // The fare at which the cliff starts, for this cabin on this pair.
+    const cliffFare = ref * thr * (cls === 'economy' ? (opts.economyCompression ?? 1) : 1);
+    // +1: fares and the reference shown beside them are whole dollars, so a fare
+    // typed as exactly +10% of the displayed reference can land up to ~$0.55
+    // over the unrounded threshold. That is not a cliff (a $1 overage cuts
+    // demand by well under 1% on any cabin worth warning about).
+    if (fare > cliffFare + 1) out.push({ cls, ratio, fare, ref: Math.round(ref), cliffFare: Math.floor(cliffFare) });
+  }
+  return out;
+}
+
+/**
+ * The fare per cabin at which the cliff starts on this pair, for the fare
+ * editor: { economy: 412, businessClass: 1100, … }. Empty in classic worlds.
+ */
+export function cliffFaresFor(state, origin, destination, opts = {}) {
+  if (!(opts.force ?? getNwrYieldChoke())) return {};
+  const key = routePairKey(origin, destination);
+  const ctx = pairContext(state, key, origin, destination, pairQualities(state));
+  const quality = opts.quality ?? ctx.quality;
+  const refP = referencePrice(origin, destination);
+  const out = {};
+  for (const cls of Object.keys(CLASS_FARE_MULTIPLIERS)) {
+    out[cls] = Math.floor(refP * CLASS_FARE_MULTIPLIERS[cls] * fareCliffRatio(quality)
+      * (cls === 'economy' ? ctx.economyCompression : 1));
   }
   return out;
 }
@@ -114,25 +191,49 @@ export function bulkAdjustedFares(prevFares, origin, destination, pct) {
 export function bulkFareCliffPreview(state, routeIds, pct, opts = {}) {
   const seated = seatedClassesByPair(state);
   const pairs  = pairsFor(state, routeIds);
+  const qualities = pairQualities(state);
   const over = [];
   let newlyOver = 0;
   for (const p of pairs) {
     const prev    = state.routePricing?.[p.key];
     const next    = bulkAdjustedFares(prev, p.origin, p.destination, pct);
     const classes = [...(seated.get(p.key) ?? [])];
-    const cabins  = faresOverCliff(next, p.origin, p.destination, { ...opts, classes });
+    const ctx     = { ...pairContext(state, p.key, p.origin, p.destination, qualities), ...opts, classes };
+    const cabins  = faresOverCliff(next, p.origin, p.destination, ctx);
     if (cabins.length === 0) continue;
     over.push({ ...p, cabins });
-    const before = faresOverCliff(prev ?? referenceFaresFor(p.origin, p.destination), p.origin, p.destination, { ...opts, classes });
+    const before = faresOverCliff(prev ?? referenceFaresFor(p.origin, p.destination), p.origin, p.destination, ctx);
     if (before.length < cabins.length) newlyOver++;
   }
   return { pairs: pairs.length, over, newlyOver };
 }
 
 /**
+ * Is being past the cliff actually COSTING this pair passengers this week?
+ *
+ * A cliff cuts demand exponentially, but a route whose demand is many times its
+ * seats can lose most of its market and still fill every seat — so "past the
+ * cliff" and "losing passengers" are different statements, and only the second
+ * is worth a red banner ("all my routes are above the fare cliff but still have
+ * a 90%+ projected load", Discord 2026-09-24). Read off the projection:
+ *   economy  — the pair's demand no longer covers its seats (capacityCapped false)
+ *   premium  — the cabin's own cliffLostPax from the route sim
+ * Returns null per cabin when no results are supplied (unknown, not "fine").
+ */
+function cabinCosting(cls, results) {
+  if (!results || results.length === 0) return null;
+  if (cls === 'economy') return results.some(r => r && r.capacityCapped === false);
+  return results.some(r => (r?.classSummary?.[cls]?.cliffLostPax ?? 0) > 0);
+}
+
+/**
  * Every flown pair currently priced past the cliff (seated cabins only).
  * Drives the Routes-page banner that offers the one-click reset.
- * @returns {Array<{key, origin, destination, cabins, routeIds}>}
+ *
+ * Pass `opts.routeResults` (projectWeek's report.routeResults) to have each
+ * cabin — and the pair — marked `costing`: whether the cliff is actually
+ * costing it passengers this week. Without them `costing` is null.
+ * @returns {Array<{key, origin, destination, cabins, routeIds, costing}>}
  */
 export function networkFareCliff(state, opts = {}) {
   const seated = seatedClassesByPair(state);
@@ -142,11 +243,21 @@ export function networkFareCliff(state, opts = {}) {
     routeIdsByKey.set(key, [...(routeIdsByKey.get(key) ?? []), r.id]);
   }
   const out = [];
+  const qualities = pairQualities(state);
   for (const p of pairsFor(state, null)) {
     const fares  = state.routePricing?.[p.key];
     if (!fares) continue;
-    const cabins = faresOverCliff(fares, p.origin, p.destination, { ...opts, classes: [...(seated.get(p.key) ?? [])] });
-    if (cabins.length) out.push({ ...p, cabins, routeIds: routeIdsByKey.get(p.key) ?? [] });
+    const { routeResults, ...cliffOpts } = opts;
+    const cabins = faresOverCliff(fares, p.origin, p.destination,
+      { ...pairContext(state, p.key, p.origin, p.destination, qualities), ...cliffOpts, classes: [...(seated.get(p.key) ?? [])] });
+    if (!cabins.length) continue;
+    const routeIds = routeIdsByKey.get(p.key) ?? [];
+    const results = routeResults
+      ? routeResults.filter(rr => routeIds.includes(rr.routeId))
+      : null;
+    for (const c of cabins) c.costing = cabinCosting(c.cls, results);
+    const costing = results ? cabins.some(c => c.costing) : null;
+    out.push({ ...p, cabins, routeIds, costing });
   }
   return out;
 }

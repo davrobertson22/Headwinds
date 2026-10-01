@@ -59,7 +59,11 @@ export function referenceClassPrices(origin, dest) {
  *   project(fares)            optional; returns { loadFactor, breakEven, profit, basisLabel }
  *   showSeats      show "(N seats)" next to each cabin label (default true)
  */
-export default function FareEditor({ origin, dest, config, fares, onCommit, onCommitMany, project, showSeats = true }) {
+// `cliffFares` (optional): the fare per cabin where this route's cliff starts,
+// from cliffFaresFor() — quality- and competition-aware. Without it (a route not
+// open yet) the editor falls back to the 1.10× floor, the earliest any route's
+// cliff can start.
+export default function FareEditor({ origin, dest, config, fares, onCommit, onCommitMany, project, showSeats = true, cliffFares = null }) {
   const batched = typeof onCommitMany === 'function';
   const refP      = referencePrice(origin, dest);
   const refPrices = referenceClassPrices(origin, dest);
@@ -177,14 +181,18 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, onCo
             <div style={{ fontSize: 10, color: pct > 0 ? 'var(--red)' : pct < 0 ? 'var(--green)' : 'var(--text-dim)', marginTop: 2 }}>
               ref ${refPrices[cls]} {pct !== 0 && `(${pct > 0 ? '+' : ''}${pct}%)`}
             </div>
-            {cliffOn && current / refPrices[cls] > cliffRatio && (
-              <div
-                style={{ fontSize: 10, color: 'var(--red)', fontWeight: 600, marginTop: 1 }}
-                title={`In this world demand collapses once a fare is more than ${Math.round((cliffRatio - 1) * 100)}% above reference — at +50% a route keeps about 0.1% of its passengers.`}
-              >
-                ⚠ past the demand cliff
-              </div>
-            )}
+            {cliffOn && (() => {
+              const cliffAt = cliffFares?.[cls] ?? Math.floor(refPrices[cls] * cliffRatio);
+              if (!(current > cliffAt + 1)) return null;
+              return (
+                <div
+                  style={{ fontSize: 10, color: 'var(--yellow)', fontWeight: 600, marginTop: 1 }}
+                  title={`On this route the fare cliff starts at $${cliffAt}. Past it, every extra 1% cuts ${cls === 'economy' ? 'demand' : 'demand for this cabin'} by about 14%${cls === 'economy' ? '' : ' (those passengers trade down to economy)'}. A route with far more demand than seats can stay full for a while — check the projected load below.`}
+                >
+                  ⚠ past the cliff (${cliffAt})
+                </div>
+              );
+            })()}
           </div>
         );
       })}

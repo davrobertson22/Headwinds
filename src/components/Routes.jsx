@@ -42,7 +42,7 @@ import {
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport,
 } from '../utils/simulation.js';
 import { rivalIndexFor } from '../models/network.js';
-import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio } from '../models/fareCliff.js';
+import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio, cliffFaresFor } from '../models/fareCliff.js';
 
 const SEASON_MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -435,7 +435,11 @@ export default function Routes() {
 
   // Pairs priced past the demand cliff right now (restricted worlds only).
   // Above the detail early-return: hooks must run on every render.
-  const overCliff = useMemo(() => networkFareCliff(state), [state.routes, state.routePricing, state.fleet]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Each flagged cabin carries `costing` — whether the cliff is actually costing
+  // it passengers this week, read off the same projection the route table shows.
+  const overCliff = useMemo(
+    () => networkFareCliff(state, { routeResults: proj.report?.routeResults ?? [] }),
+    [state.routes, state.routePricing, state.fleet, proj]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // If a route detail is selected, render that instead of the list
   if (detailPair) {
@@ -884,7 +888,7 @@ export default function Routes() {
       {overCliff.length > 0 && (
         <FareCliffBanner
           pairs={overCliff}
-          onReset={() => resetRouteIdsToReference(overCliff.flatMap(p => p.routeIds), overCliff.length)}
+          onReset={(pairs) => resetRouteIdsToReference(pairs.flatMap(p => p.routeIds), pairs.length)}
         />
       )}
 
@@ -2013,6 +2017,9 @@ function PerClassPercentRow({ classes, values, onChange }) {
 // warning about and no quick way to undo (see models/fareCliff.js).
 
 const cliffPct = () => Math.round((fareCliffRatio() - 1) * 100);
+const cliffPctMax = () => Math.round((fareCliffRatio(100) - 1) * 100);
+
+const CABIN_SHORT = { economy: 'Economy', premiumEconomy: 'Prem Eco', businessClass: 'Business', firstClass: 'First' };
 
 function FareCliffWarning({ preview }) {
   if (!preview || preview.over.length === 0) return null;
@@ -2023,35 +2030,68 @@ function FareCliffWarning({ preview }) {
       background: 'rgba(248,81,73,0.10)', border: '1px solid rgba(248,81,73,0.4)', color: 'var(--text)',
     }}>
       <Glyph e="⚠" /> <b>{n} of {preview.pairs} route{preview.pairs !== 1 ? 's' : ''}</b> would be priced
-      more than {cliffPct()}% above the reference fare. In this world demand falls off a cliff past
-      that point: at +50% a route keeps about 0.1% of its passengers.
+      past the fare cliff ({cliffPct()}–{cliffPctMax()}% above reference, higher for better-rated routes,
+      lower where rivals fly). Past it, every extra 1% on the fare cuts demand by about 14%: a route with far
+      more demand than seats can stay full for a while, but at +50% most routes keep almost nobody.
     </div>
   );
 }
 
+// Two different statements, kept apart on purpose ("all my routes are above the
+// fare cliff but still have a 90%+ projected load", Discord 2026-09-24):
+//   red   — the cliff is COSTING these routes passengers this week;
+//   amber — past the cliff, but demand still covers the seats, so they are full.
 function FareCliffBanner({ pairs, onReset }) {
-  const n = pairs.length;
-  const sample = pairs.slice(0, 4).map(p => `${p.origin}–${p.destination}`).join(', ');
+  const costing = pairs.filter(p => p.costing !== false);
+  const full    = pairs.filter(p => p.costing === false);
+  const list = (ps) => ps.slice(0, 4).map(p => {
+    const cab = p.cabins.filter(c => c.costing !== false).map(c => CABIN_SHORT[c.cls] ?? c.cls);
+    return `${p.origin}–${p.destination}${cab.length && cab.join() !== 'Economy' ? ` (${cab.join(', ')})` : ''}`;
+  }).join(', ') + (ps.length > 4 ? `, +${ps.length - 4} more` : '');
   return (
-    <div role="alert" style={{
-      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-      padding: '10px 12px', marginBottom: 12, borderRadius: 'var(--radius)',
-      background: 'rgba(248,81,73,0.10)', border: '1px solid rgba(248,81,73,0.4)',
-      borderLeft: '3px solid var(--red)', fontSize: 12.5, lineHeight: 1.5,
-    }}>
-      <div style={{ flex: 1, minWidth: 220 }}>
-        <div style={{ fontWeight: 700 }}>
-          <Glyph e="⚠" /> {n} route{n !== 1 ? 's are' : ' is'} priced past the demand cliff
+    <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {costing.length > 0 && (
+        <div role="alert" style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          padding: '10px 12px', borderRadius: 'var(--radius)',
+          background: 'rgba(248,81,73,0.10)', border: '1px solid rgba(248,81,73,0.4)',
+          borderLeft: '3px solid var(--red)', fontSize: 12.5, lineHeight: 1.5,
+        }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontWeight: 700 }}>
+              <Glyph e="⚠" /> {costing.length} route{costing.length !== 1 ? 's are' : ' is'} losing passengers to the fare cliff
+            </div>
+            <div style={{ color: 'var(--text-muted)' }}>
+              Priced past the point where demand collapses, and it is costing seats this week ({list(costing)}).
+              In premium cabins the passengers you price out trade down to economy.
+            </div>
+          </div>
+          <button className="btn btn-primary" style={{ fontSize: 12.5 }} onClick={() => onReset(costing)}
+            title="Put every cabin on these routes back to its market reference fare">
+            Reset {costing.length === 1 ? 'it' : `all ${costing.length}`} to reference
+          </button>
         </div>
-        <div style={{ color: 'var(--text-muted)' }}>
-          Fares more than {cliffPct()}% above reference carry almost no passengers in this world
-          ({sample}{n > 4 ? `, +${n - 4} more` : ''}).
+      )}
+      {full.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          padding: '8px 12px', borderRadius: 'var(--radius)',
+          background: 'rgba(210,153,34,0.08)', border: '1px solid rgba(210,153,34,0.35)',
+          borderLeft: '3px solid var(--yellow)', fontSize: 12.5, lineHeight: 1.5,
+        }}>
+          <div style={{ flex: 1, minWidth: 220, color: 'var(--text-muted)' }}>
+            <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+              {full.length} route{full.length !== 1 ? 's are' : ' is'} past the fare cliff but still full
+            </span>
+            {' '}({list(full)}). Demand there is far above your seats, so you are not losing passengers yet — but
+            each extra 1% on the fare now cuts demand by about 14%, and a rival or a quiet season can tip it over.
+          </div>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => onReset(full)}
+            title="Put every cabin on these routes back to its market reference fare">
+            Reset {full.length === 1 ? 'it' : 'these'}
+          </button>
         </div>
-      </div>
-      <button className="btn btn-primary" style={{ fontSize: 12.5 }} onClick={onReset}
-        title="Put every cabin on these routes back to its market reference fare">
-        Reset {n === 1 ? 'it' : `all ${n}`} to reference
-      </button>
+      )}
     </div>
   );
 }
@@ -2097,7 +2137,7 @@ function BulkPricingModal({ allGroups, onApplyToGroups, previewCliff, onResetGro
   async function apply() {
     if (cliff?.newlyOver > 0 && !(await confirm({
       title: `Price ${cliff.newlyOver} route${cliff.newlyOver !== 1 ? 's' : ''} past the demand cliff?`,
-      body: `These fares end up more than ${cliffPct()}% above reference, where demand in this world collapses toward zero. You can undo it with “Reset to reference”.`,
+      body: `These fares end up past the fare cliff (${cliffPct()}–${cliffPctMax()}% above reference, depending on the route), where each extra 1% cuts demand by about 14%. Full routes can absorb some of that; thinner ones empty fast. You can undo it with “Reset to reference”.`,
       danger: true, confirmLabel: 'Apply anyway',
     }))) return;
     onApplyToGroups(matching, pct);
@@ -2241,7 +2281,7 @@ function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGrou
   const apply = async () => {
     if (cliff?.newlyOver > 0 && !(await confirm({
       title: `Price ${cliff.newlyOver} route${cliff.newlyOver !== 1 ? 's' : ''} past the demand cliff?`,
-      body: `These fares end up more than ${cliffPct()}% above reference, where demand in this world collapses toward zero. You can undo it with “Reset to ref”.`,
+      body: `These fares end up past the fare cliff (${cliffPct()}–${cliffPctMax()}% above reference, depending on the route), where each extra 1% cuts demand by about 14%. Full routes can absorb some of that; thinner ones empty fast. You can undo it with “Reset to ref”.`,
       danger: true, confirmLabel: 'Apply anyway',
     }))) return;
     onApplyToGroups(groups, pct);
@@ -2383,6 +2423,7 @@ function PricingPanel({ route, aircraft, type }) {
         config={config}
         fares={route.classPrices}
         project={project}
+        cliffFares={cliffFaresFor(state, route.origin, route.destination)}
         onCommitMany={(updates) =>
           dispatch({ type: 'UPDATE_CLASS_PRICES', routeId: route.id, updates })}
       />
