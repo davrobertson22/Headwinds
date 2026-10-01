@@ -8,6 +8,7 @@ import {
   crewRequiredForOrderBook, weeksUntilHiringDue,
   crewHiresNeeded, crewExpectedLeavers, weeksToOrderBookComplete,
   crewStatus,
+  erodePayPremium, PAY_MARKET_CATCHUP_PER_YEAR,
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
@@ -541,11 +542,23 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
           <span style={{ color: 'var(--text-muted)' }}>1.0× market</span>
           <span>2.0× premium</span>
         </div>
-        {payMultiplier > 1.0005 && (
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
-            Market wages keep rising, so pay above 1.0× slips back toward market (~6% a year) unless the next contract round restores it.
-          </div>
-        )}
+        {committedPay > 1.0005 && (() => {
+          // Where the drift takes this group's pay in a year if nothing changes —
+          // the same function the weekly tick applies, so the number is exact.
+          const inAYear = erodePayPremium(committedPay, 52);
+          return (
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
+              <span style={{ color: 'var(--yellow)', fontWeight: 600 }}>
+                ↘ Market catching up: {committedPay.toFixed(2)}× → about {inAYear.toFixed(2)}× in a year
+              </span>
+              <span style={{ color: 'var(--text-dim)' }}>
+                {' '}· Wages across the industry keep rising, so any pay above 1.0× — including a rate you set yourself —
+                slips back toward market by about {Math.round(PAY_MARKET_CATCHUP_PER_YEAR * 100)}% a year, and morale
+                follows it. Nudge the slider back up to keep the premium, or let the next contract round restore it.
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Morale */}
