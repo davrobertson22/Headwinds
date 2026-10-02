@@ -600,8 +600,10 @@ export default function RoutePlanner() {
   const freqCap = useMemo(() => {
     const t = getAircraftType(selectedTypeId);
     if (!routeData || !t) return 14;
-    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, t, bhCap)));
-  }, [routeData, selectedTypeId]);
+    // No fixed 14/wk ceiling — the engine has none, so the launch form must not
+    // invent one that UPDATE_FREQUENCY then lets you walk past.
+    return Math.max(1, maxFrequency(routeData.dist, t, bhCap));
+  }, [routeData, selectedTypeId, bhCap]);
 
   useEffect(() => {
     if (frequency > freqCap) setFrequency(freqCap);

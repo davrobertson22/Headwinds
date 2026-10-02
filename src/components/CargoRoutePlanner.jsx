@@ -290,8 +290,11 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     if (!routeData || !selectedTypeId) return 14;
     const type = getAircraftType(selectedTypeId);
     if (!type) return 14;
-    return Math.max(1, Math.min(14, maxFrequency(routeData.dist, type, bhCap)));
-  }, [routeData, selectedTypeId]);
+    // No fixed 14/wk ceiling: the engine has none (only block hours and gate
+    // slots), so a short lane could take 20+ flights once opened but not at
+    // launch (Barca, Discord 2026-09-30).
+    return Math.max(1, maxFrequency(routeData.dist, type, bhCap));
+  }, [routeData, selectedTypeId, bhCap]);
 
   // Clamp the chosen frequency down when a longer lane / different freighter
   // lowers the ceiling (mirrors this file's existing useMemo-as-effect pattern).
@@ -422,7 +425,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                       <input type="range" className="hw-range" min="1" max={freqCap} step="1" value={Math.min(frequency, freqCap)} onChange={e => setFrequency(Number(e.target.value))} draggable={false} onDragStart={e => e.preventDefault()} style={{ width: 110, accentColor: ACCENT }} />
                       <span style={{ fontWeight: 700, minWidth: 22 }}>{Math.min(frequency, freqCap)}×</span>
                     </div>
-                    {freqCap < 14 && (
+                    {routeData && selectedTypeId && (
                       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5, maxWidth: 190, lineHeight: 1.4 }}>
                         Max <strong style={{ color: ACCENT }}>{freqCap}/wk</strong> for one {simulation?.type?.name ?? 'freighter'} on {routeData.dist.toLocaleString()} km — weekly block-hour limit. Add another freighter for more.
                       </div>
