@@ -220,7 +220,10 @@ test('an event in its FINAL week is not in the projected week', () => {
 
 test('an event with weeks still to run IS in the projected week', () => {
   const base = startedAirline();
-  const slump = { id: 'test-slump', name: 'Demand slump', weeksLeft: 3, effects: { globalDemandMult: 0.7 } };
+  // Deep enough to bind on a full aircraft. At 0.7 this only showed while one of
+  // the probe routes happened to have empty seats; which ones do depends on the
+  // rival mix, and that moved when airport tiers went to real traffic (2026-10).
+  const slump = { id: 'test-slump', name: 'Demand slump', weeksLeft: 3, effects: { globalDemandMult: 0.3 } };
   const clean = withNoRolls(() => projectWeek(base));
   const live  = withNoRolls(() => projectWeek({ ...base, activeEvents: [slump] }));
   assert.ok(routeOp(live.report) < routeOp(clean.report),
