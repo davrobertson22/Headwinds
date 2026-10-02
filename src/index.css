@@ -1199,6 +1199,64 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 }
 .map-clear-btn:hover { background: var(--accent); color: #fff; }
 
+/* Flat map / globe switch in the Route Network header */
+.map-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.map-view-toggle button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.map-view-toggle button + button { border-left: 1px solid var(--border-strong); }
+.map-view-toggle button.active { background: var(--accent-dim); color: #cfe2ff; }
+.map-view-toggle button:not(.active):hover { color: var(--text); }
+
+/* Globe tooltip — the flat map's .game-tooltip look on a MapLibre popup.
+   pointer-events: none, or the popup would sit under the cursor and swallow
+   the mousemove that keeps it tracking the line. */
+.maplibregl-popup.globe-tip { pointer-events: none; }
+.maplibregl-popup.globe-tip .maplibregl-popup-tip { display: none; }
+.maplibregl-popup.globe-tip .maplibregl-popup-content {
+  background: var(--glass);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 0;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.globe-label { pointer-events: none; }
+
+/* Globe controls, matched to the flat map's dark zoom + attribution */
+.maplibregl-ctrl-attrib.maplibregl-compact,
+.maplibregl-ctrl-attrib {
+  background: rgba(6,11,24,.75) !important;
+  color: #4d5c70;
+  font-size: 10px;
+}
+.maplibregl-ctrl-attrib a { color: #6b7f95; }
+.maplibregl-ctrl-attrib-button { filter: invert(1) opacity(.5); }
+.maplibregl-ctrl-group {
+  background: rgba(14,22,35,.92);
+  border: 1px solid var(--border);
+  box-shadow: none !important;
+}
+.maplibregl-ctrl-group button + button { border-top: 1px solid var(--border); }
+.maplibregl-ctrl-group button:hover { background: var(--surface2) !important; }
+.maplibregl-ctrl-group .maplibregl-ctrl-icon { filter: invert(1) opacity(.8); }
+
 /* Respect reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

@@ -13,6 +13,8 @@ import { HUB_TIERS } from '../models/demand.js';
 import { Glyph } from './Icons.jsx';
 import { pairShapes } from './RivalRouteMap.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
+import GlobeMap from './GlobeMap.jsx';
+import { buildGlobeData } from './globeCore.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
@@ -93,10 +95,82 @@ export function mapHubs(state = {}) {
   return out;
 }
 
+// localStorage key for the flat-map / globe choice.
+export const MAP_VIEW_KEY = 'headwinds.mapView';
+
 /** Marker geometry for a hub tier — bigger pin the higher the tier. */
 export function hubMarkerSize(tier) {
   const core = 9 + 2 * Math.max(0, Math.min(3, tier ?? 1));
   return { core, ring: core + 3 };
+}
+
+// ── Tooltip HTML ──────────────────────────────────────────────────────────────
+// One builder per line kind, shared by the flat map and the globe so the two
+// views can never disagree about what a route is earning.
+export function routeTipHtml(g) {
+  const { origin, dest } = g;
+  const chain = g.chain?.length >= 2 ? g.chain : [origin, dest];
+  const profit = g.hasResult ? g.profit : 0;
+  const profitColor = profit >= 0 ? PROFIT_COLOR : LOSS_COLOR;
+  const lf      = g.hasResult ? `${(g.loadFactor * 100).toFixed(0)}%` : '—';
+  const pax     = g.hasResult ? Math.round(g.passengers).toLocaleString() : '—';
+  const profStr = g.hasResult ? `<span style="color:${profitColor}">${profit >= 0 ? '+' : ''}${formatMoney(profit)}/wk</span>` : '—';
+  const rev     = g.hasResult ? `+${formatMoney(g.revenue)}` : '—';
+  const acText  = `${g.aircraftCount} aircraft`;
+  const titleHtml = chain.map(a => a.code).join(' <span class="map-tip-arrow">→</span> ');
+  const subHtml = g.multi
+    ? `${chain.length - 1} legs · ${origin.city} → ${dest.city} · ${acText}`
+    : `${origin.city} → ${dest.city} · ${acText}`;
+  return `
+    <div class="map-tip">
+      <div class="map-tip-title">${titleHtml}</div>
+      <div class="map-tip-sub">${subHtml}</div>
+      <div class="map-tip-stats">
+        <div><span class="map-tip-lbl">Load</span><span class="map-tip-val">${lf}</span></div>
+        <div><span class="map-tip-lbl">Pax/wk</span><span class="map-tip-val">${pax}</span></div>
+        <div><span class="map-tip-lbl">Revenue</span><span class="map-tip-val" style="color:${PROFIT_COLOR}">${rev}</span></div>
+        <div><span class="map-tip-lbl">Profit</span><span class="map-tip-val">${profStr}</span></div>
+      </div>
+      <div class="map-tip-hint">Click to focus this route</div>
+    </div>
+  `;
+}
+
+export function cargoTipHtml(g) {
+  const { origin, dest } = g;
+  const lf      = g.hasResult ? `${(g.loadFactor * 100).toFixed(0)}%` : '—';
+  const tonnes  = g.hasResult ? `${Math.round(g.tonnes).toLocaleString()} t` : '—';
+  const profit  = g.hasResult ? g.profit : 0;
+  const profStr = g.hasResult ? `${profit >= 0 ? '+' : ''}${formatMoney(profit)}/wk` : '—';
+  const rev     = g.hasResult ? `+${formatMoney(g.revenue)}` : '—';
+  return `
+    <div class="map-tip">
+      <div class="map-tip-title" style="color:${CARGO_COLOR}">${origin.code} <span class="map-tip-arrow">→</span> ${dest.code}</div>
+      <div class="map-tip-sub">${origin.city} → ${dest.city} · ${g.aircraftCount} freighter${g.aircraftCount !== 1 ? 's' : ''}</div>
+      <div class="map-tip-stats">
+        <div><span class="map-tip-lbl">Tonnes/wk</span><span class="map-tip-val" style="color:${CARGO_COLOR}">${tonnes}</span></div>
+        <div><span class="map-tip-lbl">Load</span><span class="map-tip-val">${lf}</span></div>
+        <div><span class="map-tip-lbl">Revenue</span><span class="map-tip-val" style="color:${PROFIT_COLOR}">${rev}</span></div>
+        <div><span class="map-tip-lbl">Profit</span><span class="map-tip-val">${profStr}</span></div>
+      </div>
+    </div>
+  `;
+}
+
+export function airportTipHtml(airport, hubInfo) {
+  const badge = hubInfo ? ` <span style="color:${HUB_COLOR}">● ${hubInfo.name.toUpperCase()}</span>` : '';
+  return `<div class="map-tip"><div class="map-tip-title">${airport.code}</div><div class="map-tip-sub">${airport.city}, ${airport.country}${badge}</div></div>`;
+}
+
+export function partnerTipHtml({ comp, type, color, origin, dest, chain }) {
+  const via = chain.length > 2 ? ` <span style="font-size:10px">via ${chain.slice(1, -1).map(ap => ap.code).join(', ')}</span>` : '';
+  return `
+    <div class="map-tip">
+      <div class="map-tip-title" style="color:${color}">${origin.code} → ${dest.code}${via}</div>
+      <div class="map-tip-sub">${origin.city} → ${dest.city}</div>
+      <div class="map-tip-sub" style="margin-top:4px">${comp.name} · ${type === 'alliance' ? 'Alliance' : 'Codeshare'}</div>
+    </div>
+  `;
 }
 
 /** Airports the map pins: every station you've designated (even one you have no
@@ -144,6 +218,16 @@ export default function RouteMap() {
   const [acTypeFilter,  setAcTypeFilter]  = useState('all');  // 'all' | aircraft typeId
   const [airportFilter, setAirportFilter] = useState('all');  // 'all' | IATA code
   const cargoLayersRef = useRef([]);   // amber cargo route overlay layers
+
+  // Flat map or 3D globe. Remembered per browser; the flat map stays the
+  // default. The Leaflet map stays mounted (hidden) under the globe, so
+  // switching back is instant and keeps the player's zoom.
+  const [mapView, setMapView] = useState(() => {
+    try { return localStorage.getItem(MAP_VIEW_KEY) === 'globe' ? 'globe' : 'flat'; }
+    catch { return 'flat'; }
+  });
+  const frameRef = useRef(null);         // last fitBounds target, for a re-fit after being hidden
+  const fitHiddenRef = useRef(false);    // true when that fit ran while the flat map was hidden
 
   // Keep refs of current interaction state so the (rarely-rebuilt) layer effect
   // can apply correct styling without being a dependency.
@@ -196,6 +280,17 @@ export default function RouteMap() {
   useEffect(() => {
     if (mapRef.current) mapRef.current.invalidateSize();
   }, [mapHeight]);
+
+  useEffect(() => {
+    try { localStorage.setItem(MAP_VIEW_KEY, mapView); } catch { /* private mode */ }
+    const map = mapRef.current;
+    if (mapView !== 'flat' || !map) return;
+    map.invalidateSize();
+    if (fitHiddenRef.current && frameRef.current) {
+      map.fitBounds(frameRef.current, { padding: [50, 50], maxZoom: 5 });
+      fitHiddenRef.current = false;
+    }
+  }, [mapView]);
 
   // 3. Derive route data
   //
@@ -459,14 +554,7 @@ export default function RouteMap() {
       const segments = chain.length > 2
         ? segmentsForChain(chain.map(ap => [ap.lat, ap.lon]))
         : segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
-      const via = chain.length > 2 ? ` <span style="font-size:10px">via ${chain.slice(1, -1).map(ap => ap.code).join(', ')}</span>` : '';
-      const tipHtml = `
-        <div class="map-tip">
-          <div class="map-tip-title" style="color:${color}">${origin.code} → ${dest.code}${via}</div>
-          <div class="map-tip-sub">${origin.city} → ${dest.city}</div>
-          <div class="map-tip-sub" style="margin-top:4px">${comp.name} · ${type === 'alliance' ? 'Alliance' : 'Codeshare'}</div>
-        </div>
-      `;
+      const tipHtml = partnerTipHtml({ comp, type, color, origin, dest, chain });
 
       for (const pts of segments) {
         const line = L.polyline(pts, {
@@ -513,23 +601,7 @@ export default function RouteMap() {
     for (const g of cargoGroups) {
       const { origin, dest } = g;
       const segments = segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
-      const lf      = g.hasResult ? `${(g.loadFactor * 100).toFixed(0)}%` : '—';
-      const tonnes  = g.hasResult ? `${Math.round(g.tonnes).toLocaleString()} t` : '—';
-      const profit  = g.hasResult ? g.profit : 0;
-      const profStr = g.hasResult ? `${profit >= 0 ? '+' : ''}${formatMoney(profit)}/wk` : '—';
-      const rev     = g.hasResult ? `+${formatMoney(g.revenue)}` : '—';
-      const tipHtml = `
-        <div class="map-tip">
-          <div class="map-tip-title" style="color:${CARGO_COLOR}">${origin.code} <span class="map-tip-arrow">→</span> ${dest.code}</div>
-          <div class="map-tip-sub">${origin.city} → ${dest.city} · ${g.aircraftCount} freighter${g.aircraftCount !== 1 ? 's' : ''}</div>
-          <div class="map-tip-stats">
-            <div><span class="map-tip-lbl">Tonnes/wk</span><span class="map-tip-val" style="color:${CARGO_COLOR}">${tonnes}</span></div>
-            <div><span class="map-tip-lbl">Load</span><span class="map-tip-val">${lf}</span></div>
-            <div><span class="map-tip-lbl">Revenue</span><span class="map-tip-val" style="color:${PROFIT_COLOR}">${rev}</span></div>
-            <div><span class="map-tip-lbl">Profit</span><span class="map-tip-val">${profStr}</span></div>
-          </div>
-        </div>
-      `;
+      const tipHtml = cargoTipHtml(g);
 
       for (const pts of segments) {
         const glow = L.polyline(pts, {
@@ -581,28 +653,7 @@ export default function RouteMap() {
         : segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
       framePaths.push(segments[0]);
 
-      const lf      = g.hasResult ? `${(g.loadFactor * 100).toFixed(0)}%` : '—';
-      const pax     = g.hasResult ? Math.round(g.passengers).toLocaleString() : '—';
-      const profStr = g.hasResult ? `<span style="color:${profitColor}">${profit >= 0 ? '+' : ''}${formatMoney(profit)}/wk</span>` : '—';
-      const rev     = g.hasResult ? `+${formatMoney(g.revenue)}` : '—';
-      const acText  = `${g.aircraftCount} aircraft`;
-      const titleHtml = chain.map(a => a.code).join(' <span class="map-tip-arrow">→</span> ');
-      const subHtml = g.multi
-        ? `${chain.length - 1} legs · ${origin.city} → ${dest.city} · ${acText}`
-        : `${origin.city} → ${dest.city} · ${acText}`;
-      const tipHtml = `
-        <div class="map-tip">
-          <div class="map-tip-title">${titleHtml}</div>
-          <div class="map-tip-sub">${subHtml}</div>
-          <div class="map-tip-stats">
-            <div><span class="map-tip-lbl">Load</span><span class="map-tip-val">${lf}</span></div>
-            <div><span class="map-tip-lbl">Pax/wk</span><span class="map-tip-val">${pax}</span></div>
-            <div><span class="map-tip-lbl">Revenue</span><span class="map-tip-val" style="color:${PROFIT_COLOR}">${rev}</span></div>
-            <div><span class="map-tip-lbl">Profit</span><span class="map-tip-val">${profStr}</span></div>
-          </div>
-          <div class="map-tip-hint">Click to focus this route</div>
-        </div>
-      `;
+      const tipHtml = routeTipHtml(g);
 
       const halo = [];
       const main = [];
@@ -685,7 +736,7 @@ export default function RouteMap() {
           zIndexOffset: 1000,
         });
         hubMarker.bindTooltip(
-          `<div class="map-tip"><div class="map-tip-title">${airport.code}</div><div class="map-tip-sub">${airport.city}, ${airport.country} <span style="color:${HUB_COLOR}">● ${hubInfo.name.toUpperCase()}</span></div></div>`,
+          airportTipHtml(airport, hubInfo),
           { className: 'game-tooltip', offset: [12, 0] },
         );
         hubMarker.addTo(map);
@@ -711,7 +762,7 @@ export default function RouteMap() {
           fillOpacity: 1,
         });
         marker.bindTooltip(
-          `<div class="map-tip"><div class="map-tip-title">${airport.code}</div><div class="map-tip-sub">${airport.city}, ${airport.country}</div></div>`,
+          airportTipHtml(airport, null),
           { className: 'game-tooltip', offset: [10, 0] },
         );
         marker.addTo(map);
@@ -737,6 +788,10 @@ export default function RouteMap() {
       // Airports AND the arcs between them — see frameLatLngs in mapCore.
       const bounds = L.latLngBounds(frameLatLngs(airportSet, framePaths));
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 5 });
+      frameRef.current = bounds;
+      // A hidden container measures 0×0, so a fit made under the globe lands
+      // on a meaningless zoom; redo it when the flat map is shown again.
+      fitHiddenRef.current = map.getSize().x === 0;
     }
 
     applyStyles();
@@ -766,6 +821,41 @@ export default function RouteMap() {
       (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]).map(a => [a.lat, a.lon]));
     map.flyToBounds(bounds, { padding: [90, 90], maxZoom: 6, duration: 0.8 });
   }, [selectedId, routeGroups, applyStyles]);
+
+  // Globe input — the same groups, colours and tooltips the flat map draws,
+  // with the overlay toggles and airport filter already applied. Only built
+  // while the globe is showing.
+  const globeData = useMemo(() => {
+    if (mapView !== 'globe') return null;
+    const showPartner = (p) => (p.type === 'alliance' ? showAlliance : showCodeshare)
+      && (airportFilter === 'all' || p.chain.some(a => a.code === airportFilter));
+    return buildGlobeData({
+      routes: routeGroups.map(g => ({
+        id: g.key,
+        chain: g.chain?.length >= 2 ? g.chain : [g.origin, g.dest],
+        color: g.multi ? TAG_COLOR : ((g.hasResult ? g.profit : 0) >= 0 ? PROFIT_COLOR : LOSS_COLOR),
+        tip: routeTipHtml(g),
+      })),
+      cargo: showCargo ? cargoGroups.map(g => ({
+        id: `cargo:${g.key}`, chain: [g.origin, g.dest], color: CARGO_COLOR, tip: cargoTipHtml(g),
+      })) : [],
+      partners: partnerRouteData.filter(showPartner).map((p, i) => ({
+        id: `partner:${i}`, chain: p.chain, color: p.color, tip: partnerTipHtml(p),
+      })),
+      airports: airportSet.map(a => {
+        const h = hubs[a.code];
+        return { code: a.code, lat: a.lat, lon: a.lon, hub: !!h,
+                 core: h ? hubMarkerSize(h.tier).core : 5, tip: airportTipHtml(a, h ?? null) };
+      }),
+    });
+  }, [mapView, routeGroups, cargoGroups, showCargo, partnerRouteData, showAlliance, showCodeshare,
+      airportFilter, airportSet, hubs]);
+
+  const globeHome = useMemo(() => getAirport(hub) ?? airportSet[0] ?? null, [hub, airportSet]);
+  const globeFocus = useMemo(() => {
+    const g = selectedId != null ? routeGroups.find(x => x.key === selectedId) : null;
+    return g ? (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]) : null;
+  }, [selectedId, routeGroups]);
 
   if (routes.length === 0 && cargoRoutes.length === 0) {
     return (
@@ -798,6 +888,18 @@ export default function RouteMap() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Flat map / globe */}
+            <div className="map-view-toggle" role="group" aria-label="Map view">
+              {[['flat', 'Map'], ['globe', 'Globe']].map(([v, label]) => (
+                <button
+                  key={v}
+                  className={mapView === v ? 'active' : ''}
+                  aria-pressed={mapView === v}
+                  onClick={() => setMapView(v)}
+                  title={v === 'globe' ? 'Show your network on a 3D globe' : 'Show the flat map'}
+                >{label}</button>
+              ))}
+            </div>
             {/* Filters: aircraft type + airport */}
             {typesInUse.length > 1 && (
               <select
@@ -925,21 +1027,37 @@ export default function RouteMap() {
           </div>
         </div>
 
-        {/* Map container */}
-        {error ? (
-          <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--red)', fontSize: 13 }}>
-            <Glyph e="⚠" /> Could not load map: {error}
-          </div>
-        ) : !ready ? (
-          <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--text-muted)', fontSize: 13, gap: 10 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-            </svg>
-            Loading map tiles…
-          </div>
-        ) : (
-          <div ref={mapElRef} style={{ height: mapHeight }} />
+        {/* Map container — the globe sits in front; the flat map stays mounted
+            underneath so switching back keeps its zoom. */}
+        {mapView === 'globe' && (
+          <GlobeMap
+            data={globeData}
+            height={mapHeight}
+            home={globeHome}
+            selectedId={selectedId}
+            hoveredId={hoveredId}
+            focusChain={globeFocus}
+            onHover={setHoveredId}
+            onSelect={setSelectedId}
+            onFallback={() => setMapView('flat')}
+          />
         )}
+        <div style={{ display: mapView === 'globe' ? 'none' : 'block' }}>
+          {error ? (
+            <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--red)', fontSize: 13 }}>
+              <Glyph e="⚠" /> Could not load map: {error}
+            </div>
+          ) : !ready ? (
+            <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--text-muted)', fontSize: 13, gap: 10 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+              </svg>
+              Loading map tiles…
+            </div>
+          ) : (
+            <div ref={mapElRef} style={{ height: mapHeight }} />
+          )}
+        </div>
       </div>
 
       {/* Route summary table */}

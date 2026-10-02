@@ -60,7 +60,7 @@ for (const f of ['RouteMap.jsx', 'RivalRouteMap.jsx']) {
   assert.ok(fits.length > 0, `${f}: no fitBounds found`);
   for (const call of fits) {
     const prior = src.slice(Math.max(0, src.indexOf(call) - 300), src.indexOf(call) + call.length);
-    assert.ok(/frameLatLngs\(/.test(prior), `${f}: fitBounds not framed via frameLatLngs:\n${call}`);
+    assert.ok(/frameLatLngs\(|frameRef\.current/.test(prior), `${f}: fitBounds not framed via frameLatLngs:\n${call}`);
   }
 }
 
