@@ -30,6 +30,7 @@ import { navPathFor } from '../navPath.js';
 import { useToast } from './ToastSystem.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FuelBasisChip from './FuelBasisChip.jsx';
+import { frequencySliderWidth } from '../utils/frequencySlider.js';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
 import {
@@ -1316,7 +1317,7 @@ export default function RoutePlanner() {
                         className="hw-range"
                         value={Math.min(frequency, freqCap)}
                         onChange={e => setFrequency(Number(e.target.value))}
-                        style={{ width: 110 }}
+                        style={{ width: frequencySliderWidth(freqCap), maxWidth: '62vw' }}
                       />
                       <span style={{ fontWeight: 700, minWidth: 22 }}>{frequency}×</span>
                     </div>

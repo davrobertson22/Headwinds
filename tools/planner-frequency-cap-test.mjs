@@ -33,6 +33,7 @@ function test(name, fn) {
 const { GameProvider, freshState, gameReducer } = await import('../src/store/GameContext.jsx');
 const { maxFrequency, maxWeeklyBlockHoursFor, distanceKm } = await import('../src/utils/simulation.js');
 const { getAirport } = await import('../src/data/airports.js');
+const { frequencySliderWidth } = await import('../src/utils/frequencySlider.js');
 const CargoRoutePlanner = (await import('../src/components/CargoRoutePlanner.jsx')).default;
 
 // A short lane: well over 14 round trips fit in one freighter's week.
@@ -58,6 +59,20 @@ test('the freight planner slider goes past 14 on a short lane', () => {
   const m = h.match(/type="range"[^>]*max="(\d+)"/) ?? h.match(/max="(\d+)"[^>]*type="range"/);
   assert.ok(m, 'no frequency slider rendered');
   assert.ok(Number(m[1]) > 14, `slider max is ${m[1]} — still capped at 14`);
+});
+
+test('the freight slider widens with a long range (VodkaOnFire, Discord 2026-10-02)', () => {
+  const h = render(React.createElement(CargoRoutePlanner, { embedded: true, initialOrigin: O, initialDest: D, onOpened: () => {} }));
+  const tag = (h.match(/<input[^>]*type="range"[^>]*>/) ?? [''])[0];
+  const w = Number((tag.match(/width:(\d+)px/) ?? [])[1]);
+  assert.ok(w > 110, `slider is ${w}px for ${cap} steps — still the fixed 110px`);
+});
+
+test('slider width: short ranges stay compact, long ones are capped', () => {
+  assert.equal(frequencySliderWidth(7), 110);
+  assert.equal(frequencySliderWidth(14), 110);
+  assert.ok(frequencySliderWidth(40) > 180);
+  assert.equal(frequencySliderWidth(200), 280);
 });
 
 test('the engine accepts a freight launch above 14/wk (so the planner may offer it)', () => {

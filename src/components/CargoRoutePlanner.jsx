@@ -12,6 +12,7 @@ import { Glyph } from './Icons.jsx';
 import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
 import ReserveNotice from './ReserveNotice.jsx';
+import { frequencySliderWidth } from '../utils/frequencySlider.js';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
 
@@ -422,7 +423,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                   <div>
                     <div className="form-label" style={{ marginBottom: 6 }}>Flights / week</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="range" className="hw-range" min="1" max={freqCap} step="1" value={Math.min(frequency, freqCap)} onChange={e => setFrequency(Number(e.target.value))} draggable={false} onDragStart={e => e.preventDefault()} style={{ width: 110, accentColor: ACCENT }} />
+                      <input type="range" className="hw-range" min="1" max={freqCap} step="1" value={Math.min(frequency, freqCap)} onChange={e => setFrequency(Number(e.target.value))} draggable={false} onDragStart={e => e.preventDefault()} style={{ width: frequencySliderWidth(freqCap), maxWidth: '62vw', accentColor: ACCENT }} />
                       <span style={{ fontWeight: 700, minWidth: 22 }}>{Math.min(frequency, freqCap)}×</span>
                     </div>
                     {routeData && selectedTypeId && (
