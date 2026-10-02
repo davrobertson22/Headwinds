@@ -18,7 +18,7 @@ import BoardObjectives from './BoardObjectives.jsx';
 import InfoTip from './InfoTip.jsx';
 import { requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
-import { leasesExpiringSoon, idleFleetAlertText, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
+import { leasesAtRisk, idleFleetAlertText, leaseWarnPhrase, leaseAutoRenewSetting } from '../utils/leaseAlerts.js';
 import {
   allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
   PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
@@ -261,12 +261,16 @@ export default function Dashboard({ onNavigate }) {
       const routeOp  = (r.routeResults ?? []).reduce((s, rr) => s + (rr.profit ?? 0), 0)
                      + (r.totalCargoProfit ?? 0);
       const otherRev = (r.totalPartnerRevenue ?? 0) + (r.eventDemandAdj ?? 0);
+      // What rivals paid to fuel at farms this airline owns (multiplayer). Real
+      // cash inside totalRevenue and cashDelta, but no route earned it, so the
+      // routeOp sum cannot see it. Without its own row it surfaced as "Other".
+      const farmFees = r.totalFarmFeeIncome ?? 0;
       const fixed    = Math.max(0, (r.totalCost ?? 0) - (r.totalOpCost ?? 0));
       // A strike costs revenue but SAVES the variable cost of the flights it
       // cancelled, and the reducer credits that saving back. Showing only the
       // gross revenue loss overstates the damage and breaks the walk down.
       const strike   = (r.strikeLoss ?? 0) - (r.strikeVariableSaved ?? 0);
-      const operating = routeOp + otherRev - fixed - strike;               // EBITDA
+      const operating = routeOp + otherRev + farmFees - fixed - strike;    // EBITDA
       const loans     = r.loanPayments ?? 0;
       const oneOff    = (r.leaseRedelivery ?? 0) + (r.seasonalReactivation ?? 0);
       // Heavy checks (C/D) and AOG repairs net of insurance. Real cash, charged
@@ -275,9 +279,13 @@ export default function Dashboard({ onNavigate }) {
       const unplanned = (r.maintenanceChecks?.spend ?? 0)
                       + (r.mro?.aogSpend ?? 0) - (r.mro?.aogInsurance ?? 0);
       const tax       = r.corporateTax ?? 0;
+      // Security deposits refunded in a lease's final week. Untaxed return of
+      // capital, credited by the reducer below EBITDA alongside the redelivery
+      // charge — so a final week showed the 4x-rent cost with no matching inflow.
+      const deposits  = r.leaseDepositReturned ?? 0;
       return {
-        routeOp, otherRev, fixed, strike, operating, loans, oneOff, unplanned, tax,
-        net: operating - loans - oneOff - unplanned - tax,
+        routeOp, otherRev, farmFees, fixed, strike, operating, loans, oneOff, unplanned, tax, deposits,
+        net: operating - loans - oneOff - unplanned - tax + deposits,
         breakdown: {
           leases:       r.totalLeases ?? 0,
           maintenance:  r.totalMaintenance ?? 0,
@@ -300,6 +308,8 @@ export default function Dashboard({ onNavigate }) {
       // week — the rows said one thing and the total said another.
       projected.oneOff    = proj.seasonalReactivation + proj.leaseRedelivery;
       projected.tax       = proj.corporateTax;
+      // projectWeek adds the refunded deposits back into netCash.
+      projected.deposits  = proj.leaseDepositRefund ?? 0;
       projected.net       = proj.netCash;
       // projectWeek has no concept of heavy checks or AOG — they are lumpy,
       // event-driven and genuinely unforecastable. `null` (not 0) so the card
@@ -457,12 +467,12 @@ export default function Dashboard({ onNavigate }) {
   // entire warning was a toast at 8 and 4 weeks — which nobody who was away
   // has ever seen, and in a world that ticks whether you are watching or not,
   // "away" is the normal state.
-  const expiringLeases = leasesExpiringSoon(fleet);
+  const expiringLeases = leasesAtRisk(state, fleet);
   if (expiringLeases.length > 0) {
     const soonest = expiringLeases[0];
     alerts.push({
       color: 'var(--yellow)', icon: AlertIcon,
-      text: `${expiringLeases.length} lease${expiringLeases.length !== 1 ? 's' : ''} expiring within ${LEASE_EXPIRY_WARN_WEEKS} weeks (soonest ${soonest.name}, ${soonest.leaseRemainingWeeks}w) · extend, buy out, or their routes close`,
+      text: `${expiringLeases.length} lease${expiringLeases.length !== 1 ? 's' : ''} expiring within ${leaseWarnPhrase(state)} (soonest ${soonest.name}, ${soonest.leaseRemainingWeeks}w) · ${leaseAutoRenewSetting(state).enabled ? 'marked let-expire — extend or buy out to keep them' : 'extend, buy out, turn on auto-renew, or their routes close'}`,
       to: 'fleet', filter: { filterChip: 'expiring' },
     });
   }
@@ -1249,6 +1259,15 @@ function WeeklyPnL({ lastWeek, projected, depreciation, costBreakdown, collapsed
     tip: 'Alliance and codeshare revenue not tied to a single route.',
     lw: lastWeek?.otherRev, pj: projected.otherRev,
   });
+  if ((lastWeek?.farmFees ?? 0) !== 0 || (projected.farmFees ?? 0) !== 0) rows.push({
+    key: 'farmFees', kind: 'line',
+    label: 'Fuel farm throughput fees',
+    tip: 'What rivals paid to fuel at farms you own — 3% of their uplift there, '
+       + 'half that from alliance partners. Settled between airlines when the week '
+       + 'runs, so the projection cannot know it yet.',
+    lw: lastWeek?.farmFees, pj: projected.farmFees ? projected.farmFees : null,
+    pjNote: 'Not forecast — settled from rivals’ fuelling when the week runs.',
+  });
   rows.push({
     key: 'fixed', kind: 'line',
     label: 'Fixed & overhead costs',
@@ -1290,6 +1309,14 @@ function WeeklyPnL({ lastWeek, projected, depreciation, costBreakdown, collapsed
     label: 'One-time charges',
     tip: 'Lease redelivery and seasonal route reactivation fees.',
     lw: lastWeek ? -lastWeek.oneOff : null, pj: -projected.oneOff,
+  });
+  if ((lastWeek?.deposits ?? 0) !== 0 || (projected.deposits ?? 0) !== 0) rows.push({
+    key: 'deposits', kind: 'line',
+    label: 'Lease deposits returned',
+    tip: 'Security deposits refunded when leased aircraft go back to the lessor. '
+       + 'You paid these when the lease was signed; this is your money coming '
+       + 'home, so it is not taxed.',
+    lw: lastWeek?.deposits, pj: projected.deposits,
   });
   if ((lastWeek?.unplanned ?? 0) !== 0 || (projected.unplanned ?? 0) !== 0) rows.push({
     key: 'unplanned', kind: 'line',

@@ -34,9 +34,52 @@ export function greatCirclePoints(lat1, lon1, lat2, lon2, n = 80) {
   });
 }
 
+// ── Polar softening ──────────────────────────────────────────────────────────
+// Reported on Discord 2026-10-02 (Matthijs, Gulf hub, 500+ routes): the true
+// great circle from the Gulf to the US West Coast tops out at 85–89°N. Web
+// Mercator stretches that band without limit and Leaflet clamps it at 85.05°,
+// so every such route shot off the top of the map, ran along the edge and came
+// back down — a fan of lines leaving the frame.
+//
+// Interior points above POLAR_SOFT_LAT are squashed toward it. The path keeps
+// its shape and its endpoints (the threshold never sits below either airport,
+// so Svalbard or Utqiaġvik still meet their markers), and both maps call this
+// one helper, so your line and a rival's on the same pair still coincide.
+export const POLAR_SOFT_LAT = 70;
+const POLAR_SQUASH = 0.35;
+
+export function softenPolar(path, lat1, lat2) {
+  const north = Math.max(POLAR_SOFT_LAT, lat1, lat2);
+  const south = Math.min(-POLAR_SOFT_LAT, lat1, lat2);
+  return path.map(([lat, lon]) => [
+    lat > north ? north + (lat - north) * POLAR_SQUASH
+      : lat < south ? south + (lat - south) * POLAR_SQUASH
+      : lat,
+    lon,
+  ]);
+}
+
+// ── World copies ─────────────────────────────────────────────────────────────
+// An unwrapped path that crosses the antimeridian ends in the NEXT world copy:
+// DXB→HNL ends at 202°E, HNL→DXB at −305°. Airport markers are drawn once, in
+// [−180, 180], so at the world view the line left its hub and stopped in empty
+// space off the edge, and the airport at the far end had no line at all. A
+// shifted second copy puts a line on both markers; each copy is still one
+// smooth arc, so panning across the date line keeps working.
+export function withWorldCopy(path) {
+  if (path.length < 2) return [path];
+  let min = Infinity, max = -Infinity;
+  for (const [, lon] of path) { if (lon < min) min = lon; if (lon > max) max = lon; }
+  if (max > 180)  return [path, path.map(([lat, lon]) => [lat, lon - 360])];
+  if (min < -180) return [path, path.map(([lat, lon]) => [lat, lon + 360])];
+  return [path];
+}
+
 // ── Great-circle path as a single continuous segment ─────────────────────────
 // Keeps longitudes unwrapped (may exceed ±180) so Leaflet draws one smooth arc
-// across world copies instead of splitting at the antimeridian edge.
+// across world copies instead of splitting at the antimeridian edge. The FIRST
+// segment is always the canonical path starting at the origin; a second, shifted
+// copy follows only when the path crosses the antimeridian (see withWorldCopy).
 export function segmentsForRoute(lat1, lon1, lat2, lon2, n = 80) {
   const raw = greatCirclePoints(lat1, lon1, lat2, lon2, n);
   if (raw.length === 0) return [raw];
@@ -51,7 +94,7 @@ export function segmentsForRoute(lat1, lon1, lat2, lon2, n = 80) {
     norm.push([raw[i][0], lon]);
   }
 
-  return [norm];
+  return withWorldCopy(softenPolar(norm, lat1, lat2));
 }
 
 // ── Great-circle path through a CHAIN of airports ────────────────────────────
@@ -85,7 +128,7 @@ export function segmentsForChain(points, n = 80) {
       chain.push([leg[j][0], leg[j][1] + shift]);
     }
   }
-  return [chain];
+  return withWorldCopy(chain);
 }
 
 // ── Leaflet CDN loader ────────────────────────────────────────────────────────

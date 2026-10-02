@@ -460,5 +460,70 @@ test('THIS WEEK: the Net profit printed IS the canonical projection', () => {
     'it must equal the "Projected Profit / wk" KPI exactly');
 });
 
+console.log('\n── Rivals paid fuel farm fees (multiplayer) ──────────────────────────────');
+
+// Reported on Discord 2026-10-02 (Barca): LAST WEEK showed "Other +$55.9K".
+// In a multiplayer world the server credits what rivals paid to fuel at your
+// farms into the tick (action.incomingFarmFees → report.totalFarmFeeIncome).
+// It is real cash inside report.totalRevenue and cashDelta, but it is not a
+// route's profit and it is not partner revenue, so the card had no row for it
+// and it fell straight into the residual.
+const FARM_FEES = 55_900;
+const farmState = gameReducer(startedAirline({ seed: 4242 }),
+  { type: 'ADVANCE_WEEK', incomingFarmFees: FARM_FEES });
+const farmPnl = readWeeklyPnl(render(farmState));
+
+test('the fixture actually booked farm fee income', () => {
+  assert.equal(farmState.lastReport?.totalFarmFeeIncome, FARM_FEES,
+    'the reducer did not credit the farm fees — this case would pass vacuously');
+});
+
+test('LAST WEEK: farm fees do not land in "Other"', () => {
+  const other = farmPnl.rows.find(r => r.key === 'residual' || r.label === 'Other');
+  assert.ok(!other, `"Other ${other?.lwText}" on screen — the farm fees have no row of their own`);
+});
+
+test('LAST WEEK: farm fees have their own row, at the engine’s figure', () => {
+  const row = farmPnl.rows.find(r => r.key === 'farmFees');
+  assert.ok(row, 'no fuel farm fee row');
+  closeTo(row.lw, FARM_FEES, row.lwTol, 'the row must be what rivals actually paid');
+});
+
+test('LAST WEEK (farm fees): every row adds up to the Net profit', () => {
+  const w = walkColumn(farmPnl, 'lw');
+  assert.ok(Math.abs(w.gap) <= w.tol, reportColumn(farmPnl, 'lw', 'LAST WEEK'));
+});
+
+console.log('\n── A lease ending returns its security deposit ───────────────────────────');
+
+// The reducer and projectWeek both book the deposit coming back in a lease's
+// final week as untaxed cash (leaseDepositReturned / leaseDepositRefund). The
+// card had no row for it: LAST WEEK pushed it into "Other", THIS WEEK printed
+// a Net that its own rows did not add up to.
+const DEPOSIT = 1_250_000;
+const depositState = { ...leaseState,
+  fleet: leaseState.fleet.map(a => ({ ...a, leaseDeposit: DEPOSIT })) };
+const depositProj = projectWeek(depositState);
+const depositPjPnl = readWeeklyPnl(render(depositState));
+const depositDone = gameReducer(depositState, { type: 'ADVANCE_WEEK' });
+const depositLwPnl = readWeeklyPnl(render(depositDone));
+
+test('the fixture actually returns deposits, in both the projection and the tick', () => {
+  assert.ok(depositProj.leaseDepositRefund > 0, 'projectWeek refunded nothing — vacuous');
+  assert.ok((depositDone.lastReport?.leaseDepositReturned ?? 0) > 0, 'the reducer refunded nothing — vacuous');
+});
+
+test('THIS WEEK (deposits): the rows add up to the projected Net profit', () => {
+  const w = walkColumn(depositPjPnl, 'pj');
+  assert.ok(Math.abs(w.gap) <= w.tol, reportColumn(depositPjPnl, 'pj', 'THIS WEEK (proj.)'));
+});
+
+test('LAST WEEK (deposits): no "Other" row, and the rows add up', () => {
+  const other = depositLwPnl.rows.find(r => r.key === 'residual' || r.label === 'Other');
+  assert.ok(!other, `"Other ${other?.lwText}" on screen — the returned deposit has no row`);
+  const w = walkColumn(depositLwPnl, 'lw');
+  assert.ok(Math.abs(w.gap) <= w.tol, reportColumn(depositLwPnl, 'lw', 'LAST WEEK'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);
