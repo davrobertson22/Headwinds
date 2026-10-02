@@ -32,12 +32,85 @@ export function PassengerBadge() {
   );
 }
 
+// ─── Lane grouping ─────────────────────────────────────────────────────────────
+
+/**
+ * Group freight rows by city pair, direction-agnostic — the same rule the
+ * passenger page uses (groupRoutes in Routes.jsx). NRT→SZX and SZX→NRT are one
+ * service; the lane displays in the direction of its first route.
+ *
+ * Each group carries an aggregate `route` / `sim` in the SAME shape as a single
+ * row, so the table's sorters work on lanes and freighters alike. The numbers
+ * are plain sums of each freighter's own sim, and each sim already carries its
+ * pooled slice (cargoLaneAllocations), so the lane total is what the tick books.
+ *
+ * Exported for tests.
+ */
+export function groupCargoRows(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const [a, b] = [r.route.origin, r.route.destination].sort();
+    const key = `${a}-${b}`;
+    if (!map.has(key)) map.set(key, { key, origin: r.route.origin, destination: r.route.destination, rows: [] });
+    map.get(key).rows.push(r);
+  }
+  return [...map.values()].map(g => {
+    const sims = g.rows.map(r => r.sim).filter(Boolean);
+    const sum  = (f) => sims.reduce((s, x) => s + (x[f] ?? 0), 0);
+    const tonnes = sum('tonnes');
+    const cap    = sum('capacityTonnes');
+    const freq   = g.rows.reduce((s, r) => s + (r.route.weeklyFrequency ?? 0), 0);
+    // Capacity-weighted yield: what a tonne on this lane actually pays on average.
+    const capW   = g.rows.reduce((s, r) => s + (r.sim?.capacityTonnes ?? 0), 0);
+    const yieldAvg = capW > 0
+      ? g.rows.reduce((s, r) => s + r.route.yieldPrice * (r.sim?.capacityTonnes ?? 0), 0) / capW
+      : g.rows.reduce((s, r) => s + r.route.yieldPrice, 0) / g.rows.length;
+    const yields = g.rows.map(r => r.route.yieldPrice);
+    return {
+      ...g,
+      route: { origin: g.origin, destination: g.destination, weeklyFrequency: freq, yieldPrice: yieldAvg },
+      sim: sims.length ? {
+        distance:   sims[0].distance,
+        tonnes,
+        capacityTonnes: cap,
+        loadFactor: cap > 0 ? tonnes / cap : 0,
+        revenue:    sum('revenue'),
+        profit:     sum('profit'),
+      } : null,
+      yieldMin: Math.min(...yields),
+      yieldMax: Math.max(...yields),
+      pooled:   g.rows.some(r => r.pooled),
+    };
+  });
+}
+
+const SHARED_LANE_TITLE = 'This lane has one demand pool. Every freighter on it (yours, and any rival’s) carries a share sized by its capacity, so adding a freighter splits the market rather than adding a new one';
+
+function SharedLaneBadge({ count, style }) {
+  return (
+    <span
+      style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: `${ACCENT}18`, color: ACCENT, border: `1px solid ${ACCENT}44`, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap', ...style }}
+      title={SHARED_LANE_TITLE}
+    >
+      <Glyph e="⚖" /> Shared lane{count > 1 ? ` · ${count} freighters` : ''}
+    </span>
+  );
+}
+
+function yieldLabel(g) {
+  return g.yieldMax - g.yieldMin < 0.0005
+    ? `$${g.yieldMin.toFixed(3)}`
+    : `$${g.yieldMin.toFixed(3)}–${g.yieldMax.toFixed(3)}`;
+}
+
 // ─── Cargo routes list ──────────────────────────────────────────────────────────
 
 /**
- * Freight routes, as either a compact sortable table (default on desktop) or the
- * roomier cards (default on phones). Table rows expand to reveal the same
- * frequency / yield / close-route controls the cards show inline.
+ * Freight routes, grouped by city pair like the passenger page, as either a
+ * compact sortable table (default on desktop) or the roomier cards (default on
+ * phones). A lane flown by one freighter looks exactly as it always has; a lane
+ * flown by several is one row that expands to lane-wide controls and the
+ * individual freighters.
  *
  * @param {string}   airportFilter  'all' | airport code — only routes touching this airport
  * @param {boolean}  hideViewToggle suppress the Table/Cards switch (when the parent owns it)
@@ -72,13 +145,19 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
     });
   }, [cargoRoutes, fleet, gd, state.competitors]);
 
-  // Scope to the airport filter, then sort by profit descending (the old card order).
-  const rows = useMemo(() => {
-    const scoped = airportFilter === 'all'
+  // Scope to the airport filter, then group into lanes, profit descending.
+  const rows = useMemo(() => (
+    airportFilter === 'all'
       ? allRows
-      : allRows.filter(({ route }) => route.origin === airportFilter || route.destination === airportFilter);
-    return [...scoped].sort((a, b) => (b.sim?.profit ?? -Infinity) - (a.sim?.profit ?? -Infinity));
-  }, [allRows, airportFilter]);
+      : allRows.filter(({ route }) => route.origin === airportFilter || route.destination === airportFilter)
+  ), [allRows, airportFilter]);
+
+  const groups = useMemo(() => {
+    const g = groupCargoRows(rows);
+    for (const x of g) x.rows.sort((a, b) => (b.sim?.profit ?? -Infinity) - (a.sim?.profit ?? -Infinity));
+    return g.sort((a, b) => (b.sim?.profit ?? -Infinity) - (a.sim?.profit ?? -Infinity));
+  }, [rows]);
+  const totalLanes = useMemo(() => groupCargoRows(allRows).length, [allRows]);
 
   if (cargoRoutes.length === 0) {
     return (
@@ -116,13 +195,32 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
   function adjYield(route, delta) {
     dispatch({ type: 'UPDATE_CARGO_YIELD', routeId: route.id, yieldPrice: Math.max(0.01, +(route.yieldPrice + delta).toFixed(3)) });
   }
+  // Lane-wide yield: every freighter on the lane moves together. Each one's
+  // yield only prices ITS slice of the pool, so a lane priced unevenly is
+  // usually an accident, not a strategy.
+  function adjLaneYield(group, delta) {
+    for (const { route } of group.rows) adjYield(route, delta);
+  }
+  function alignLaneYield(group) {
+    const y = Math.max(0.01, +group.route.yieldPrice.toFixed(3));
+    for (const { route } of group.rows) {
+      dispatch({ type: 'UPDATE_CARGO_YIELD', routeId: route.id, yieldPrice: y });
+    }
+    addToast({ type: 'success', title: 'Lane yield aligned', message: `${group.rows.length} freighters on ${group.origin} ↔ ${group.destination} now at $${y.toFixed(3)}/t-km` });
+  }
   async function close(route) {
     if (await confirm({ title: `Close cargo route ${route.origin} → ${route.destination}?`, body: 'The freighter returns to idle.', danger: true, confirmLabel: 'Close route' })) {
       dispatch({ type: 'CLOSE_CARGO_ROUTE', routeId: route.id });
     }
   }
+  async function closeLane(group) {
+    const n = group.rows.length;
+    if (await confirm({ title: `Close ${group.origin} ↔ ${group.destination}?`, body: `All ${n} freighters on this lane return to idle.`, danger: true, confirmLabel: `Close ${n} routes` })) {
+      for (const { route } of group.rows) dispatch({ type: 'CLOSE_CARGO_ROUTE', routeId: route.id });
+    }
+  }
 
-  const controls = { adjFreq, adjYield, close, state, onAddFreighter };
+  const controls = { adjFreq, adjYield, adjLaneYield, alignLaneYield, close, closeLane, state, onAddFreighter };
 
   const totalRev    = rows.reduce((s, r) => s + (r.sim?.revenue ?? 0), 0);
   const totalProfit = rows.reduce((s, r) => s + (r.sim?.profit ?? 0), 0);
@@ -133,12 +231,13 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
       {/* Summary bar */}
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 14, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 'var(--radius)', border: `1px solid ${ACCENT}33`, alignItems: 'center' }}>
         <div>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Cargo routes</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Freight lanes</span>
           <div style={{ fontWeight: 700, fontSize: 15 }}>
-            {rows.length}
-            {rows.length !== cargoRoutes.length && (
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}> of {cargoRoutes.length}</span>
+            {groups.length}
+            {groups.length !== totalLanes && (
+              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}> of {totalLanes}</span>
             )}
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}> · {rows.length} freighter route{rows.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
         <div><span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Tonnes / wk</span><div style={{ fontWeight: 700, fontSize: 15, color: ACCENT }}>{totalTonnes.toLocaleString()}</div></div>
@@ -161,8 +260,10 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
       </div>
 
       {viewMode === 'table'
-        ? <CargoTable rows={rows} controls={controls} />
-        : rows.map(r => <CargoRouteCard key={r.route.id} {...r} controls={controls} />)}
+        ? <CargoTable groups={groups} controls={controls} />
+        : groups.map(g => g.rows.length === 1
+            ? <CargoRouteCard key={g.key} {...g.rows[0]} controls={controls} />
+            : <CargoLaneCard key={g.key} group={g} controls={controls} />)}
     </div>
   );
 }
@@ -180,6 +281,7 @@ const CARGO_COLUMNS = [
   { id: 'profit', label: 'Var. profit',  align: 'right' },
 ];
 
+// Work on single rows AND lane groups — groups carry the same route/sim shape.
 const CARGO_SORTERS = {
   route:  (a, b) => `${a.route.origin}${a.route.destination}`.localeCompare(`${b.route.origin}${b.route.destination}`),
   dist:   (a, b) => (a.sim?.distance ?? 0)         - (b.sim?.distance ?? 0),
@@ -191,7 +293,7 @@ const CARGO_SORTERS = {
   profit: (a, b) => (a.sim?.profit ?? 0)           - (b.sim?.profit ?? 0),
 };
 
-function CargoTable({ rows, controls }) {
+function CargoTable({ groups, controls }) {
   const [sortCol, setSortCol] = useState('profit');
   const [sortDir, setSortDir] = useState('desc');   // 'asc' | 'desc'
   const [shown,   setShown]   = useState(CARGO_PAGE_SIZE);
@@ -199,10 +301,10 @@ function CargoTable({ rows, controls }) {
 
   const sorted = useMemo(() => {
     const cmp = CARGO_SORTERS[sortCol] ?? CARGO_SORTERS.profit;
-    const s = [...rows].sort(cmp);
+    const s = [...groups].sort(cmp);
     if (sortDir === 'desc') s.reverse();
     return s;
-  }, [rows, sortCol, sortDir]);
+  }, [groups, sortCol, sortDir]);
 
   const visible = sorted.slice(0, shown);
 
@@ -248,13 +350,24 @@ function CargoTable({ rows, controls }) {
             </tr>
           </thead>
           <tbody>
-            {visible.map((r, i) => (
+            {visible.map((g, i) => g.rows.length === 1 ? (
               <CargoTableRow
-                key={r.route.id}
-                row={r}
+                key={g.key}
+                row={g.rows[0]}
                 zebra={i % 2 === 1}
-                expanded={expandedIds.has(r.route.id)}
-                onToggleExpand={() => toggleExpand(r.route.id)}
+                expanded={expandedIds.has(g.rows[0].route.id)}
+                onToggleExpand={() => toggleExpand(g.rows[0].route.id)}
+                controls={controls}
+              />
+            ) : (
+              <CargoLaneRows
+                key={g.key}
+                group={g}
+                zebra={i % 2 === 1}
+                expanded={expandedIds.has(g.key)}
+                onToggleExpand={() => toggleExpand(g.key)}
+                expandedIds={expandedIds}
+                toggleExpand={toggleExpand}
                 controls={controls}
               />
             ))}
@@ -274,17 +387,17 @@ function CargoTable({ rows, controls }) {
   );
 }
 
-function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls }) {
-  const { route, aircraft, type, sim, pooled } = row;
+const lfColorOf = (lf) => lf >= 0.75 ? 'var(--green)' : lf >= 0.45 ? 'var(--yellow)' : 'var(--red)';
+
+/** A lane flown by several freighters: one aggregate row, expanding to the lane
+ *  controls and one nested row per freighter (each expandable to its own). */
+function CargoLaneRows({ group, zebra, expanded, onToggleExpand, expandedIds, toggleExpand, controls }) {
+  const { route, sim, rows } = group;
   const oa = getAirport(route.origin);
   const da = getAirport(route.destination);
-
-  const lf = sim?.loadFactor ?? 0;
-  const lfColor   = lf >= 0.75 ? 'var(--green)' : lf >= 0.45 ? 'var(--yellow)' : 'var(--red)';
-  const profColor = (sim?.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)';
-
   const CELL  = { padding: '7px 10px' };
   const RIGHT = { ...CELL, textAlign: 'right' };
+  const grounded = rows.filter(r => r.aircraft?.status === 'grounded').length;
 
   return (
     <>
@@ -303,6 +416,97 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls }) {
           <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>
             {oa?.city} → {da?.city}
           </span>
+          <SharedLaneBadge count={rows.length} style={{ marginLeft: 6 }} />
+          {grounded > 0 && (
+            <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}>
+              <Glyph e="🔧" /> {grounded} grounded
+            </span>
+          )}
+        </td>
+        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{sim ? `${sim.distance.toLocaleString()} km` : '—'}</td>
+        <td style={RIGHT}>{route.weeklyFrequency}×</td>
+        <td style={{ ...RIGHT, fontWeight: 700, color: lfColorOf(sim?.loadFactor ?? 0) }}>{sim ? formatPercent(sim.loadFactor) : '—'}</td>
+        <td style={{ ...RIGHT, fontWeight: 700, color: ACCENT }}>{sim ? sim.tonnes.toLocaleString() : '—'}</td>
+        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{yieldLabel(group)}</td>
+        <td style={{ ...RIGHT, fontWeight: 600, color: 'var(--green)' }}>{sim ? `+${formatMoney(sim.revenue)}` : '—'}</td>
+        <td style={{ ...RIGHT, fontWeight: 700, color: (sim?.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+          {sim ? `${sim.profit >= 0 ? '+' : ''}${formatMoney(sim.profit)}` : '—'}
+        </td>
+        <td style={{ ...CELL, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+          {expanded ? '▴' : '▾'}
+        </td>
+      </tr>
+      {expanded && (
+        <>
+          <tr style={{ background: 'var(--surface2)' }}>
+            <td colSpan={CARGO_COLUMNS.length + 1} style={{ padding: '0 14px 10px' }}>
+              <CargoLaneControls group={group} controls={controls} />
+            </td>
+          </tr>
+          {rows.map(r => (
+            <CargoTableRow
+              key={r.route.id}
+              row={r}
+              nested
+              laneOrigin={route.origin}
+              expanded={expandedIds.has(r.route.id)}
+              onToggleExpand={() => toggleExpand(r.route.id)}
+              controls={{ ...controls, onAddFreighter: null }}
+            />
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
+function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls, nested = false, laneOrigin = null }) {
+  const { route, aircraft, type, sim, pooled } = row;
+  const oa = getAirport(route.origin);
+  const da = getAirport(route.destination);
+
+  const lf = sim?.loadFactor ?? 0;
+  const lfColor   = lfColorOf(lf);
+  const profColor = (sim?.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)';
+
+  const CELL  = { padding: nested ? '5px 10px' : '7px 10px' };
+  const RIGHT = { ...CELL, textAlign: 'right' };
+  const bg = nested ? 'var(--surface)' : expanded ? 'var(--surface2)' : zebra ? 'var(--surface2)' : undefined;
+
+  return (
+    <>
+      <tr
+        style={{
+          borderBottom: expanded ? 'none' : '1px solid var(--border-subtle)',
+          background: bg,
+          cursor: 'pointer',
+        }}
+        onClick={onToggleExpand}
+      >
+        <td style={{ ...CELL, whiteSpace: 'nowrap', ...(nested ? { paddingLeft: 28 } : null) }}>
+          {nested ? (
+            <>
+              <span style={{ color: 'var(--text-dim)', marginRight: 6 }}>↳</span>
+              <span style={{ fontWeight: 600 }}>
+                {aircraft ? `${aircraft.name}${aircraft.tailNumber ? ` · ${aircraft.tailNumber}` : ''}` : 'No freighter'}
+              </span>
+              {type && <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>{type.payloadTonnes}t</span>}
+              {laneOrigin && route.origin !== laneOrigin && (
+                <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11, fontFamily: 'monospace' }}>
+                  {route.origin} → {route.destination}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 13, color: ACCENT }}>
+                {route.origin} → {route.destination}
+              </span>
+              <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>
+                {oa?.city} → {da?.city}
+              </span>
+            </>
+          )}
           {aircraft?.status === 'grounded' && (
             <span
               style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}
@@ -312,21 +516,14 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls }) {
             </span>
           )}
           <OutOfRangeBadge route={route} style={{ marginLeft: 6 }} />
-          {!aircraft && (
+          {!aircraft && !nested && (
             <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: 'rgba(248,81,73,0.15)', color: 'var(--red)', border: '1px solid rgba(248,81,73,0.3)', textTransform: 'uppercase' }}>
               No freighter
             </span>
           )}
-          {pooled && (
-            <span
-              style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: `${ACCENT}18`, color: ACCENT, border: `1px solid ${ACCENT}44`, textTransform: 'uppercase' }}
-              title="Several of your freighters fly this lane — they share one demand pool, so this route's tonnage is its share of the market, not the full market"
-            >
-              <Glyph e="⚖" /> Shared lane
-            </span>
-          )}
+          {pooled && !nested && <SharedLaneBadge style={{ marginLeft: 6 }} />}
         </td>
-        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{sim ? `${sim.distance.toLocaleString()} km` : '—'}</td>
+        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{nested ? '' : sim ? `${sim.distance.toLocaleString()} km` : '—'}</td>
         <td style={RIGHT}>{route.weeklyFrequency}×</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: lfColor }}>{sim ? formatPercent(lf) : '—'}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: ACCENT }}>{sim ? sim.tonnes.toLocaleString() : '—'}</td>
@@ -340,17 +537,56 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls }) {
         </td>
       </tr>
       {expanded && (
-        <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-          <td colSpan={CARGO_COLUMNS.length + 1} style={{ padding: '0 14px 12px' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 10px' }}>
-              {aircraft ? `${aircraft.name}${aircraft.tailNumber ? ` · ${aircraft.tailNumber}` : ''}` : <GlyphLabel size={12} text="⚠ no freighter assigned" />}
-              {type && ` · ${type.payloadTonnes}t payload`}
-            </div>
+        <tr style={{ borderBottom: '1px solid var(--border)', background: nested ? 'var(--surface)' : 'var(--surface2)' }}>
+          <td colSpan={CARGO_COLUMNS.length + 1} style={{ padding: nested ? '0 14px 10px 28px' : '0 14px 12px' }}>
+            {!nested && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 10px' }}>
+                {aircraft ? `${aircraft.name}${aircraft.tailNumber ? ` · ${aircraft.tailNumber}` : ''}` : <GlyphLabel size={12} text="⚠ no freighter assigned" />}
+                {type && ` · ${type.payloadTonnes}t payload`}
+              </div>
+            )}
             <CargoRouteControls route={route} sim={sim} controls={controls} />
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+// ─── Lane-wide controls (lanes with more than one freighter) ────────────────────
+
+function CargoLaneControls({ group, controls }) {
+  const { adjLaneYield, alignLaneYield, closeLane, onAddFreighter } = controls;
+  const uneven = group.yieldMax - group.yieldMin >= 0.0005;
+  return (
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', paddingTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Lane yield $/t-km</span>
+        <button className="btn btn-ghost" style={{ padding: '2px 9px' }} title="Lower every freighter on this lane by $0.02" onClick={() => adjLaneYield(group, -0.02)}>−</button>
+        <span style={{ fontWeight: 700, minWidth: 48, textAlign: 'center' }}>{yieldLabel(group)}</span>
+        <button className="btn btn-ghost" style={{ padding: '2px 9px' }} title="Raise every freighter on this lane by $0.02" onClick={() => adjLaneYield(group, +0.02)}>+</button>
+        {uneven && (
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 12, color: ACCENT }}
+            title={`Set every freighter on this lane to the capacity-weighted average, $${group.route.yieldPrice.toFixed(3)}`}
+            onClick={() => alignLaneYield(group)}
+          >Align all to ${group.route.yieldPrice.toFixed(3)}</button>
+        )}
+      </div>
+      <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+        {group.rows.length} freighters · open one below to change its own flights or yield
+      </span>
+      {onAddFreighter && (
+        <button
+          className="btn btn-ghost"
+          style={{ marginLeft: 'auto', fontSize: 12, color: ACCENT }}
+          title={`Open the freight planner on ${group.origin} → ${group.destination}`}
+          onClick={() => onAddFreighter(group.origin, group.destination)}
+        >+ Add Freighter</button>
+      )}
+      <button className="btn btn-ghost" style={{ marginLeft: onAddFreighter ? 0 : 'auto', color: 'var(--red)', fontSize: 12 }} onClick={() => closeLane(group)}>Close lane</button>
+    </div>
   );
 }
 
@@ -441,14 +677,7 @@ function CargoRouteCard({ route, aircraft, type, sim, pooled, controls }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700 }}>
             <AirportLink code={route.origin} /> <span style={{ color: ACCENT }}>→</span> <AirportLink code={route.destination} />
             <FreightBadge />
-            {pooled && (
-              <span
-                style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: `${ACCENT}18`, color: ACCENT, border: `1px solid ${ACCENT}44`, textTransform: 'uppercase', letterSpacing: '.04em' }}
-                title="Several of your freighters fly this lane — they share one demand pool, so this route's tonnage is its share of the market, not the full market"
-              >
-                <Glyph e="⚖" /> Shared lane
-              </span>
-            )}
+            {pooled && <SharedLaneBadge />}
             {aircraft?.status === 'grounded' && (
               <span style={{
                 fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
@@ -483,6 +712,94 @@ function CargoRouteCard({ route, aircraft, type, sim, pooled, controls }) {
       <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
         <CargoRouteControls route={route} sim={sim} controls={controls} />
       </div>
+    </div>
+  );
+}
+
+// ─── Lane card (cards view, lanes with more than one freighter) ─────────────────
+
+function CargoLaneCard({ group, controls }) {
+  const [open, setOpen] = useState(false);
+  const [openId, setOpenId] = useState(null);
+  const { route, sim, rows } = group;
+  const lf = sim?.loadFactor ?? 0;
+  const subControls = { ...controls, onAddFreighter: null };
+
+  return (
+    <div className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${ACCENT}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ minWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700, flexWrap: 'wrap' }}>
+            <AirportLink code={route.origin} /> <span style={{ color: ACCENT }}>→</span> <AirportLink code={route.destination} />
+            <FreightBadge />
+            <SharedLaneBadge count={rows.length} />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+            {route.weeklyFrequency} flights/wk
+            {sim && ` · ${sim.distance.toLocaleString()} km`}
+            {` · ${yieldLabel(group)}/t-km`}
+          </div>
+        </div>
+        {sim && (
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tonnes/wk</div><div style={{ fontWeight: 700, color: ACCENT }}>{sim.tonnes.toLocaleString()}</div></div>
+            <div><div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Load</div><div style={{ fontWeight: 700, color: lfColorOf(lf) }}>{formatPercent(lf)}</div></div>
+            <div><div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Revenue</div><div style={{ fontWeight: 700, color: 'var(--green)' }}>{formatMoney(sim.revenue)}</div></div>
+            <div><div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Var. profit</div><div style={{ fontWeight: 700, color: sim.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{(sim.profit >= 0 ? '+' : '') + formatMoney(sim.profit)}</div></div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+        <CargoLaneControls group={group} controls={controls} />
+      </div>
+
+      <button
+        className="btn btn-ghost"
+        style={{ marginTop: 10, fontSize: 12, padding: '4px 0', color: 'var(--text-muted)' }}
+        onClick={() => setOpen(v => !v)}
+      >
+        {open ? '▴ Hide' : '▾ Show'} {rows.length} freighters
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {rows.map(r => {
+            const rlf = r.sim?.loadFactor ?? 0;
+            const isOpen = openId === r.route.id;
+            return (
+              <div key={r.route.id} style={{ borderTop: '1px solid var(--border-subtle)', padding: '8px 0' }}>
+                <div
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', cursor: 'pointer', fontSize: 12 }}
+                  onClick={() => setOpenId(isOpen ? null : r.route.id)}
+                >
+                  <span style={{ fontWeight: 600 }}>
+                    {r.aircraft ? `${r.aircraft.name}${r.aircraft.tailNumber ? ` · ${r.aircraft.tailNumber}` : ''}` : 'No freighter'}
+                    {r.route.origin !== route.origin && (
+                      <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontFamily: 'monospace', fontWeight: 400 }}>{r.route.origin} → {r.route.destination}</span>
+                    )}
+                    {r.aircraft?.status === 'grounded' && (
+                      <span style={{ marginLeft: 6, color: 'var(--red)' }} title={groundedTitle(r.aircraft)}><Glyph e="🔧" /> {r.aircraft.groundedWeeksLeft}w</span>
+                    )}
+                    <OutOfRangeBadge route={r.route} style={{ marginLeft: 6 }} />
+                  </span>
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {r.route.weeklyFrequency}× · <span style={{ color: lfColorOf(rlf), fontWeight: 700 }}>{r.sim ? formatPercent(rlf) : '—'}</span>
+                    {' · '}${r.route.yieldPrice.toFixed(3)}
+                    {' · '}<span style={{ color: (r.sim?.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{r.sim ? `${r.sim.profit >= 0 ? '+' : ''}${formatMoney(r.sim.profit)}` : '—'}</span>
+                    {' '}{isOpen ? '▴' : '▾'}
+                  </span>
+                </div>
+                {isOpen && (
+                  <div style={{ marginTop: 8 }}>
+                    <CargoRouteControls route={r.route} sim={r.sim} controls={subControls} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
