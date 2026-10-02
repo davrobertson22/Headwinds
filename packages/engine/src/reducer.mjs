@@ -115,6 +115,7 @@ import { tickCompetitorAI, retainedProfit, FIRE_SALE_PREMIUM, competitorMarketin
 import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
 import { tickEncroachment } from './models/encroachment.js';
 import { leaseBuyoutQuote } from './models/leaseBuyout.js';
+import { leaseAutoRenewSetting, leaseWillAutoRenew, leaseWarnWeeks, LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from './models/leaseRenewal.js';
 import {
   tickFuelPrice,
   clampFuelIndex, FUEL_BASE_INDEX,
@@ -4002,6 +4003,34 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_LEASE_AUTO_RENEW': {
+      // action: { enabled, addWeeks } — airline-wide standing order: the tick
+      // renews every leased tail (bar opted-out ones) when it reaches
+      // LEASE_AUTO_RENEW_AT_WEEKS left, by addWeeks at the signed rate.
+      // See models/leaseRenewal.js. An off-menu term falls back to a year.
+      const addWeeks = LEASE_AUTO_RENEW_TERMS.includes(action.addWeeks)
+        ? action.addWeeks : leaseAutoRenewSetting(state).addWeeks;
+      return { ...state, leaseAutoRenew: { enabled: !!action.enabled, addWeeks } };
+    }
+
+    case 'SET_LEASE_AUTO_RENEW_OPT_OUT': {
+      // action: { aircraftIds, optOut } — mark tails "let it expire" (or clear
+      // the mark). Batch-shaped so the Fleet bar does it in one decision.
+      if (!Array.isArray(action.aircraftIds) || action.aircraftIds.length === 0) return state;
+      const ids = new Set(action.aircraftIds);
+      const optOut = !!action.optOut;
+      let changed = false;
+      const fleet = state.fleet.map(a => {
+        if (!ids.has(a.id) || a.ownershipType !== 'lease') return a;
+        if (!!a.leaseAutoRenewOff === optOut) return a;
+        changed = true;
+        if (optOut) return { ...a, leaseAutoRenewOff: true };
+        const { leaseAutoRenewOff, ...rest } = a;
+        return rest;
+      });
+      return changed ? { ...state, fleet } : state;
+    }
+
     case 'BUY_OUT_LEASE': {
       // action: { aircraftId } — purchase a leased aircraft outright. Price is the
       // current depreciated market value (NAV) plus an early-buyout premium, minus
@@ -4674,6 +4703,7 @@ function reducer(state, action) {
       let leaseDepositRefund  = 0;
       const removedAircraftIds   = new Set(writeOffIds);   // lease expiries + AOG write-offs
       const leaseWarningToasts = [];
+      const leaseAutoRenewed   = [];   // tail names renewed by the standing order this week
 
       // ── Toast configs for new / expired events ─────────────────────────
       // NOTE: leaseWarningToasts is populated inside the agedFleet.map() below,
@@ -4767,9 +4797,22 @@ function reducer(state, action) {
         }
         // Tick lease countdown for leased aircraft
         if (a.ownershipType === 'lease' && (a.leaseRemainingWeeks ?? 0) > 0) {
-          const remaining = (a.leaseRemainingWeeks ?? 0) - 1;
-          // Warn at 8 and 4 weeks remaining
-          if (remaining === 8 || remaining === 4) {
+          let remaining = (a.leaseRemainingWeeks ?? 0) - 1;
+          // Auto-renew (models/leaseRenewal.js): a standing order the tick
+          // carries out, so a lease never runs out while the player sleeps.
+          // `<=` not `===`: a tail already inside the window when the rule is
+          // switched on is renewed on the next tick rather than missed.
+          const autoRenew = leaseWillAutoRenew(state, a);
+          if (autoRenew && remaining <= LEASE_AUTO_RENEW_AT_WEEKS) {
+            const addWeeks = leaseAutoRenewSetting(state).addWeeks;
+            remaining += addWeeks;
+            leaseAutoRenewed.push(a.name);
+            aged = { ...aged, leaseTermWeeks: Math.max(a.leaseTermWeeks ?? 0, remaining) };
+          }
+          // Warn when the lease enters the warning window (8 weeks solo; one
+          // real day of game time in multiplayer) and again at 4. Nothing to
+          // warn about on a tail auto-renew is going to cover.
+          if (!autoRenew && (remaining === leaseWarnWeeks(state) || remaining === 4)) {
             // Name all three ways out, in the order a player would want them.
             // Discord (Lancelotbronner, 2026-08-18): "I had a stressful 2
             // in-game years replacing end-of-lease with newly built planes as
@@ -4986,6 +5029,18 @@ function reducer(state, action) {
             : 'your matching reserve is out of weekly block hours'}.`,
         })),
       ];
+      if (leaseAutoRenewed.length > 0) {
+        const n = leaseAutoRenewed.length;
+        const yrs = leaseAutoRenewSetting(state).addWeeks / 52;
+        leaseWarningToasts.push({
+          type:     'info',
+          icon:     '🔁',
+          title:    `🔁 ${n} lease${n !== 1 ? 's' : ''} auto-renewed`,
+          message:  `${leaseAutoRenewed.slice(0, 6).join(', ')}${n > 6 ? `, +${n - 6} more` : ''} — `
+                  + `+${yrs} year${yrs !== 1 ? 's' : ''} each at the rate signed. Change the rule or mark tails "let expire" in Fleet.`,
+          duration: 7000,
+        });
+      }
       newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts, ...coverToasts);
 
       // Encroachment notifications — a rival entering or leaving one of your routes.

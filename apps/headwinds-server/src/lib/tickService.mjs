@@ -201,6 +201,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     const preState = {
       ...migrated,
       rivalItineraries: rivalItinerariesOf(world.tickConfig),
+      // World pace, so the engine can size the lease warning window in real
+      // time (one real day ahead — models/leaseRenewal.js). Solo has no key.
+      ...(world.weeksPerDay > 0 ? { weeksPerDay: world.weeksPerDay } : {}),
       // Station fuel pricing: read live too, and only ever written when the
       // world is on it (a classic world's blobs keep no key).
       ...(fuelOpsVOf(world.tickConfig) >= 2 ? { fuelOpsV: fuelOpsVOf(world.tickConfig) } : {}),

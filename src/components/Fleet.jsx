@@ -24,7 +24,8 @@ import { airframeNAV, dueInfo, checkCost, checkDurationWeeks, isOutOfService, gr
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
 import { consumeNavFilter } from '../utils/navIntent.js';
-import { isLeaseExpiring, leaseRemainingWeeks, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
+import { isLeaseAtRisk, leaseRemainingWeeks, leaseWarnWeeks, leaseWarnPhrase, leaseAutoRenewSetting, leaseWillAutoRenew } from '../utils/leaseAlerts.js';
+import { LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from '../models/leaseRenewal.js';
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -1235,6 +1236,24 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
             Buy Out Lease
           </button>
         )}
+        {aircraft.ownershipType === 'lease' && (() => {
+          // Per-tail opt-out of the airline-wide auto-renew rule.
+          const ar = leaseAutoRenewSetting(state);
+          return (
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: ar.enabled ? 'var(--text)' : 'var(--text-dim)' }}
+              title={ar.enabled ? 'Untick to let this lease run out and the aircraft go back' : 'Turn on auto-renew in Fleet first'}
+            >
+              <input
+                type="checkbox"
+                disabled={!ar.enabled}
+                checked={ar.enabled && !aircraft.leaseAutoRenewOff}
+                onChange={e => dispatch({ type: 'SET_LEASE_AUTO_RENEW_OPT_OUT', aircraftIds: [aircraft.id], optOut: !e.target.checked })}
+              />
+              <Glyph e="🔁" /> {ar.enabled ? 'Auto-renew' : 'Auto-renew (off airline-wide)'}
+            </label>
+          );
+        })()}
         <button
           className="btn"
           style={{ background: 'rgba(248,81,73,.1)', color: 'var(--red)', border: '1px solid rgba(248,81,73,.3)' }}
@@ -1751,7 +1770,7 @@ export default function Fleet() {
     if (filterChip === 'idle')     return a.status === 'idle' && !isReserve(a);
     if (filterChip === 'reserve')  return isReserve(a);
     if (filterChip === 'grounded') return a.status === 'grounded';
-    if (filterChip === 'expiring') return isLeaseExpiring(a);
+    if (filterChip === 'expiring') return isLeaseAtRisk(state, a);
     if (filterChip === 'leased')   return a.ownershipType !== 'owned';
     if (filterChip === 'owned')    return a.ownershipType === 'owned';
     return true;
@@ -1905,13 +1924,20 @@ export default function Fleet() {
     }
   }
 
+  // Airline-wide lease auto-renew (models/leaseRenewal.js) — the tick renews
+  // every leased tail not marked "let expire" when it reaches 4 weeks left.
+  const autoRenew      = leaseAutoRenewSetting(state);
+  const leasedTails    = fleet.filter(a => a.ownershipType === 'lease');
+  const optedOutTails  = leasedTails.filter(a => a.leaseAutoRenewOff);
+  const atRiskLeases   = fleet.filter(a => isLeaseAtRisk(state, a));
+
   const chipCounts = {
     all:      fleet.length,
     idle:     fleet.filter(a => a.status === 'idle' && !isReserve(a)).length,
     reserve:  fleet.filter(a => isReserve(a)).length,
     grounded: fleet.filter(a => a.status === 'grounded').length,
     leased:   fleet.filter(a => a.ownershipType !== 'owned').length,
-    expiring: fleet.filter(a => isLeaseExpiring(a)).length,
+    expiring: fleet.filter(a => isLeaseAtRisk(state, a)).length,
     owned:    fleet.filter(a => a.ownershipType === 'owned').length,
   };
 
@@ -1942,7 +1968,7 @@ export default function Fleet() {
   // the list P1's Dashboard alert and the "⏳ Expiring" chip point at. Renewing
   // them was one +1yr click per aircraft, which for a fleet of twenty leases is
   // twenty clicks to avoid twenty route closures.
-  const checkedExpiring = checkedAircraft.filter(a => isLeaseExpiring(a));
+  const checkedExpiring = checkedAircraft.filter(a => isLeaseAtRisk(state, a));
 
   // Every leased tail in the selection can be bought out, not just the expiring
   // ones — but the button only earns its place in the bar when a lease is
@@ -2245,6 +2271,20 @@ export default function Fleet() {
                       )}
                     </button>
                   ))}
+                  {atRiskLeases.length > 0 && (
+                    <button
+                      className="btn"
+                      style={{
+                        fontSize: 12, padding: '4px 10px',
+                        background: 'rgba(210,153,34,0.14)', color: 'var(--yellow)',
+                        border: '1px solid rgba(210,153,34,0.4)',
+                      }}
+                      title={`Add a year to every lease ending within ${leaseWarnPhrase(state)} — no selecting needed`}
+                      onClick={() => handleBulkExtend(atRiskLeases)}
+                    >
+                      <Glyph e="⏳" /> Extend all {atRiskLeases.length} expiring
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -2267,6 +2307,39 @@ export default function Fleet() {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Lease auto-renew ──────────────────────────────────────────────── */}
+      {leasedTails.length > 0 && (
+        <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={autoRenew.enabled}
+              onChange={e => dispatch({ type: 'SET_LEASE_AUTO_RENEW', enabled: e.target.checked, addWeeks: autoRenew.addWeeks })}
+            />
+            <Glyph e="🔁" /> Auto-renew leases
+          </label>
+          <select
+            className="form-input"
+            style={{ width: 'auto', fontSize: 12, padding: '3px 8px' }}
+            value={autoRenew.addWeeks}
+            disabled={!autoRenew.enabled}
+            onChange={e => dispatch({ type: 'SET_LEASE_AUTO_RENEW', enabled: true, addWeeks: Number(e.target.value) })}
+          >
+            {LEASE_AUTO_RENEW_TERMS.map(w => (
+              <option key={w} value={w}>+{w / 52} year{w !== 52 ? 's' : ''}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: 12, color: 'var(--text-dim)', flex: '1 1 260px' }}>
+            {autoRenew.enabled
+              ? `Every lease is renewed when it has ${LEASE_AUTO_RENEW_AT_WEEKS} weeks left, at the rate it was signed at — even while you're offline.`
+                + (optedOutTails.length > 0
+                    ? ` ${optedOutTails.length} tail${optedOutTails.length !== 1 ? 's' : ''} marked “let expire”.`
+                    : ' Select tails and choose “Let expire” to hand specific ones back.')
+              : `Off — ${leasedTails.length} lease${leasedTails.length !== 1 ? 's' : ''} will go back (and their routes close) unless extended by hand.`}
+          </span>
         </div>
       )}
 
@@ -2490,7 +2563,7 @@ export default function Fleet() {
             >
               <Glyph e="🔧" /> C check ({checkedServiceable.length})
             </button>
-            {checkedExpiring.length > 0 && (
+            {checkedLeased.length > 0 && (
               <button
                 className="btn"
                 style={{
@@ -2498,12 +2571,33 @@ export default function Fleet() {
                   background: 'rgba(210,153,34,0.14)', color: 'var(--yellow)',
                   border: '1px solid rgba(210,153,34,0.4)', cursor: 'pointer',
                 }}
-                title="Add a year to every selected lease that is about to expire"
-                onClick={() => handleBulkExtend(checkedExpiring)}
+                title="Add a year to every selected lease — expiring or not"
+                onClick={() => handleBulkExtend(checkedLeased)}
               >
-                <Glyph e="⏳" /> Extend leases ({checkedExpiring.length})
+                <Glyph e="⏳" /> Extend leases ({checkedLeased.length})
               </button>
             )}
+            {checkedLeased.length > 0 && autoRenew.enabled && (() => {
+              const willRenew = checkedLeased.filter(a => !a.leaseAutoRenewOff);
+              const optOut    = willRenew.length > 0;
+              return (
+                <button
+                  className="btn"
+                  style={{ fontSize: 12, padding: '5px 12px' }}
+                  title={optOut
+                    ? 'Auto-renew will skip these tails: they go back when their lease ends'
+                    : 'Put these tails back under the auto-renew rule'}
+                  onClick={() => {
+                    dispatch({ type: 'SET_LEASE_AUTO_RENEW_OPT_OUT', aircraftIds: (optOut ? willRenew : checkedLeased).map(a => a.id), optOut });
+                    setCheckedIds([]);
+                  }}
+                >
+                  {optOut
+                    ? <><Glyph e="🚫" /> Let expire ({willRenew.length})</>
+                    : <><Glyph e="🔁" /> Auto-renew ({checkedLeased.length})</>}
+                </button>
+              );
+            })()}
             {checkedExpiring.length > 0 && checkedLeased.length > 0 && (
               <button
                 className="btn"
@@ -2680,8 +2774,9 @@ export default function Fleet() {
               const isSelected      = selectedId === aircraft.id;
               const leaseRemaining  = aircraft.ownershipType === 'lease' ? (aircraft.leaseRemainingWeeks ?? null) : null;
               const leaseTerm       = aircraft.leaseTermWeeks ?? null;
-              const leaseUrgent     = leaseRemaining !== null && leaseRemaining <= 4;
-              const leaseWarning    = leaseRemaining !== null && leaseRemaining <= 8 && leaseRemaining > 4;
+              const leaseUrgent     = leaseRemaining !== null && leaseRemaining <= 4 && !leaseWillAutoRenew(state, aircraft);
+              const leaseAuto       = leaseWillAutoRenew(state, aircraft);
+              const leaseWarning    = !leaseAuto && leaseRemaining !== null && leaseRemaining <= leaseWarnWeeks(state) && leaseRemaining > 4;
               const leaseRowBg      = leaseUrgent   ? 'rgba(248,81,73,0.06)'
                                     : leaseWarning  ? 'rgba(210,153,34,0.06)'
                                     : undefined;
@@ -2815,6 +2910,8 @@ export default function Fleet() {
                             color: leaseUrgent ? 'var(--red)' : leaseWarning ? 'var(--yellow)' : 'var(--text-dim)',
                           }}>
                             {leaseUrgent && <><Glyph e="⚠" size={10} /> </>}{leaseRemaining}w lease
+                            {leaseAuto && <span title="Auto-renews at 4 weeks left"> <Glyph e="🔁" size={10} /></span>}
+                            {autoRenew.enabled && aircraft.leaseAutoRenewOff && <span title="Marked let expire — auto-renew skips this tail"> <Glyph e="🚫" size={10} /></span>}
                           </span>
                           <button
                             className="btn btn-ghost"

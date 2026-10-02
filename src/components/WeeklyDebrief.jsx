@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, yearLabel } from '../utils/simulation.js';
 import { AlertIcon, HeartIcon } from './Icons.jsx';
-import { leasesExpiringSoon, LEASE_EXPIRY_WARN_WEEKS } from '../utils/leaseAlerts.js';
+import { leasesAtRisk, leaseWarnPhrase } from '../utils/leaseAlerts.js';
 import { subscribeAwayDigest, pendingAwayWeeks } from '../utils/awayDigest.js';
 
 export default function WeeklyDebrief() {
@@ -69,7 +69,7 @@ export default function WeeklyDebrief() {
   // nothing to say about the only event that closes routes on its own. Say it
   // here, while there is still time to renew, instead of reporting the
   // redelivery fee in the cost table after the aircraft has already gone.
-  const expiringLeases = leasesExpiringSoon(fleet);
+  const expiringLeases = leasesAtRisk(state, fleet);
 
   const loyaltyMembers      = lastReport.loyaltyMembersTotal ?? 0;
   const loyaltyMemberDelta  = lastReport.loyaltyMemberDelta  ?? 0;
@@ -258,7 +258,7 @@ export default function WeeklyDebrief() {
               })}
               {expiringLeases.length > 5 && (
                 <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                  +{expiringLeases.length - 5} more within {LEASE_EXPIRY_WARN_WEEKS} weeks — see Fleet
+                  +{expiringLeases.length - 5} more within {leaseWarnPhrase(state)} — see Fleet
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>

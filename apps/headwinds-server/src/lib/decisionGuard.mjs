@@ -229,7 +229,9 @@ function guardScheduleCheck(payload, state) {
 function guardAircraftIds(payload, state) {
   const ids = Array.isArray(payload.aircraftIds) ? payload.aircraftIds : [];
   if (ids.length === 0) throw new GuardError('No aircraft selected.');
-  if (ids.length > 200) throw new GuardError('Too many aircraft in one batch.');
+  // 500, not 200: fleets of 180+ leased tails exist (Discord, 2026-10-01), and
+  // "extend every expiring lease" must fit one decision.
+  if (ids.length > 500) throw new GuardError('Too many aircraft in one batch.');
   const own = new Set((state.fleet ?? []).map((a) => a.id));
   const clean = [...new Set(ids.map(String))].filter((id) => own.has(id));
   if (clean.length === 0) throw new GuardError('Unknown aircraft.');
@@ -579,6 +581,15 @@ export function guardDecision(type, payload, state) {
       aircraftIds: guardAircraftIds(payload, state),
       // The reducer clamps, but keep a forged 10,000-year lease out of the blob.
       addWeeks: Math.max(1, Math.min(520, Math.round(Number(payload.addWeeks) || 52))),
+    };
+    case 'SET_LEASE_AUTO_RENEW': return {
+      enabled: !!payload.enabled,
+      // 1, 2 or 5 years — anything else is a year (models/leaseRenewal.js).
+      addWeeks: [52, 104, 260].includes(Number(payload.addWeeks)) ? Number(payload.addWeeks) : 52,
+    };
+    case 'SET_LEASE_AUTO_RENEW_OPT_OUT': return {
+      aircraftIds: guardAircraftIds(payload, state),
+      optOut: !!payload.optOut,
     };
     case 'REASSIGN_ROUTE':     return {
       routeId: String(payload.routeId ?? ''),

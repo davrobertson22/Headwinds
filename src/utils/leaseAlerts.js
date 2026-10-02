@@ -18,6 +18,12 @@
 /** How far ahead we call a lease "expiring". The engine toasts at 8 and 4. */
 export const LEASE_EXPIRY_WARN_WEEKS = 8;
 
+// The window is world-paced in multiplayer (one real day of game weeks, floor
+// 8) and auto-renew covers tails the player has not opted out — both live in
+// the engine so the tick's toasts and these surfaces cannot disagree.
+import { leaseWarnWeeks, leaseWillAutoRenew } from '../models/leaseRenewal.js';
+export { leaseWarnWeeks, leaseWarnPhrase, leaseWillAutoRenew, leaseAutoRenewSetting } from '../models/leaseRenewal.js';
+
 /**
  * Weeks left on this aircraft's lease, or null if it is owned (or the field has
  * never been set — an old save, or a tail the tick has not touched yet).
@@ -70,4 +76,19 @@ export function idleFleetAlertText(idleFleet) {
   return allLeased
     ? `${noun}, paying lease with no revenue`
     : `${noun}, paying fixed costs with no revenue`;
+}
+
+/**
+ * Leases that will actually be lost: inside this world's warning window and
+ * not covered by auto-renew. What the Dashboard alert, the debrief and the
+ * Fleet "Expiring" chip count — a tail the standing order will renew is not
+ * something the player needs to act on.
+ */
+export function leasesAtRisk(state, fleet = state?.fleet) {
+  return leasesExpiringSoon(fleet, leaseWarnWeeks(state)).filter(a => !leaseWillAutoRenew(state, a));
+}
+
+/** Single-tail form of leasesAtRisk, for filters. */
+export function isLeaseAtRisk(state, a) {
+  return isLeaseExpiring(a, leaseWarnWeeks(state)) && !leaseWillAutoRenew(state, a);
 }
