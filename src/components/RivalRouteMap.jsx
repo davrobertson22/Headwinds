@@ -3,7 +3,7 @@ import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { referencePrice } from '../utils/simulation.js';
 import {
-  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap,
+  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap, frameLatLngs,
   HUB_COLOR, CARGO_COLOR, RIVAL_COLOR, CONTESTED_COLOR, TAG_COLOR,
 } from './mapCore.js';
 
@@ -286,6 +286,7 @@ export default function RivalRouteMap({
 
     layersRef.current.forEach((l) => map.removeLayer(l));
     layersRef.current = [];
+    const framePaths = [];   // canonical arc of every line, for the viewport fit
 
     for (const link of links) {
       const { cargo, contested } = link;
@@ -297,6 +298,7 @@ export default function RivalRouteMap({
         const segs = pts.length > 2
           ? segmentsForChain(pts.map((p) => [p.lat, p.lon]))
           : segmentsForRoute(pts[0].lat, pts[0].lon, pts[1].lat, pts[1].lon);
+        framePaths.push(segs[0]);
         for (const seg of segs) segments.push({ pts: seg, multiStop: sh.multiStop });
       }
 
@@ -383,7 +385,7 @@ export default function RivalRouteMap({
     // zoomed into the two lanes they came here to read.
     if (airports.length > 0 && fittedExtentRef.current !== extent) {
       fittedExtentRef.current = extent;
-      map.fitBounds(L.latLngBounds(airports.map((a) => [a.lat, a.lon])), {
+      map.fitBounds(L.latLngBounds(frameLatLngs(airports, framePaths)), {
         padding: [30, 30], maxZoom: 5,
       });
     }

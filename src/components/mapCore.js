@@ -97,6 +97,28 @@ export function segmentsForRoute(lat1, lon1, lat2, lon2, n = 80) {
   return withWorldCopy(softenPolar(norm, lat1, lat2));
 }
 
+// ── Framing the network ──────────────────────────────────────────────────────
+// Reported on Discord 2026-10-02 (TheCookiesGuy / Matthijs): the map opened on a
+// frame fitted to the AIRPORTS, but a long-haul arc bulges well past its two
+// ends — a Gulf hub's West Coast lines peak near 77°N even after polar
+// softening, far above the northernmost airport. The opening view therefore
+// clipped every one of them at the top edge, and it read as "the lines run off
+// the map" until the player zoomed out by hand.
+//
+// The frame is the airports PLUS the drawn lines. Pass each route's canonical
+// path (segments[0] — the origin-anchored copy); the shifted world copy would
+// widen the frame by a whole world for nothing. Latitudes are clamped to the
+// Web Mercator limit so a near-polar point can't ask for an infinite frame.
+export const MERCATOR_MAX_LAT = 85;
+
+export function frameLatLngs(airports = [], paths = []) {
+  const clamp = (lat) => Math.max(-MERCATOR_MAX_LAT, Math.min(MERCATOR_MAX_LAT, lat));
+  const out = [];
+  for (const a of airports) if (a) out.push([clamp(a.lat), a.lon]);
+  for (const path of paths) for (const pt of path ?? []) out.push([clamp(pt[0]), pt[1]]);
+  return out;
+}
+
 // ── Great-circle path through a CHAIN of airports ────────────────────────────
 // A multi-stop rotation is not one arc — MCI–JFK–ORY bends at JFK, and drawing
 // MCI→ORY instead puts the line hundreds of km from the airport the aeroplane
@@ -204,6 +226,12 @@ export function createDarkMap(el, opts = {}) {
     zoomControl: false,
     attributionControl: true,
     worldCopyJump: true,
+    // Fractional fits. With whole-number zoom, a network a few pixels too tall
+    // for zoom 2 drops to zoom 1 and shows three and a half copies of the
+    // world; quarter steps let fitBounds land on the frame that actually fits.
+    // The +/− buttons still step a whole level.
+    zoomSnap: 0.25,
+    zoomDelta: 1,
     ...opts,
   });
   L.tileLayer(TILE_URL, TILE_OPTS).addTo(map);

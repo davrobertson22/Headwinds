@@ -16,7 +16,7 @@ import useIsMobile from '../hooks/useIsMobile.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
-  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap,
+  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap, frameLatLngs,
   PROFIT_COLOR, LOSS_COLOR, HUB_COLOR, SPOKE_COLOR,
   ALLIANCE_COLOR, CODESHARE_COLOR, CARGO_COLOR, TAG_COLOR,
 } from './mapCore.js';
@@ -565,6 +565,8 @@ export default function RouteMap() {
 
     // Route polylines (glow halo underneath + crisp main line on top).
     // One line per city pair — all aircraft on the pair are aggregated into the group.
+    // Canonical path of every drawn line — the viewport frames these too.
+    const framePaths = [];
     for (const g of routeGroups) {
       const { origin, dest } = g;
       const chain    = g.chain?.length >= 2 ? g.chain : [origin, dest];
@@ -577,6 +579,7 @@ export default function RouteMap() {
       const segments = g.multi
         ? segmentsForChain(chain.map(a => [a.lat, a.lon]))
         : segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
+      framePaths.push(segments[0]);
 
       const lf      = g.hasResult ? `${(g.loadFactor * 100).toFixed(0)}%` : '—';
       const pax     = g.hasResult ? Math.round(g.passengers).toLocaleString() : '—';
@@ -731,7 +734,8 @@ export default function RouteMap() {
 
     // Frame the network — only when its extent actually changed.
     if (claimViewportFit(fittedExtentRef, airportSet)) {
-      const bounds = L.latLngBounds(airportSet.map(a => [a.lat, a.lon]));
+      // Airports AND the arcs between them — see frameLatLngs in mapCore.
+      const bounds = L.latLngBounds(frameLatLngs(airportSet, framePaths));
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 5 });
     }
 
