@@ -108,6 +108,28 @@ await t('credentials and database survive the rewrite', () => {
   assert.equal(c.database, 'postgres');
 });
 
+// ── Dead-peer detection (outage 2026-10-03) ──────────────────────────────────
+// Postgres restarted at 6:40 AM PT. Queries the API had in flight sat on sockets
+// whose peer was gone without a FIN, so nothing ever answered them. pg sets
+// keepAlive with keepAliveInitialDelayMillis defaulting to 0, and 0 means "leave
+// the OS value", which on Linux is tcp_keepalive_time = 7200s (+9×75s probes).
+// The five stuck queries held the API's whole pool for 2h11m; every other
+// request waited out pool_timeout (20s) and failed, while the worker, whose
+// idle sockets had aged out, ticked normally. Measured with `ss -tno` on a live
+// pool: timer:(keepalive,119min) before, 9.3s with the delay set.
+// Verified failing on HEAD: keepAliveInitialDelayMillis was undefined → 0.
+
+await t('dead peers are noticed in seconds, not the 2-hour Linux default', () => {
+  for (const url of [API_URL, WORKER_URL]) {
+    const { pool } = pgPoolConfig(url);
+    assert.equal(pool.keepAlive, true);
+    const c = new pg.Client(pool);
+    const delay = c.connection._keepAliveInitialDelayMillis;
+    assert.ok(delay > 0, `keepAliveInitialDelayMillis is ${delay}: 0 leaves the OS 7200s default`);
+    assert.ok(delay <= 30_000, `keepAliveInitialDelayMillis ${delay} is too slow to notice a dead peer`);
+  }
+});
+
 await t('a missing URL is a clear error', () => {
   assert.throws(() => pgPoolConfig(undefined), /DATABASE_URL is not set/);
 });

@@ -38,6 +38,15 @@ const DEFAULT_MAX = 10;
 // Prisma kept idle connections for 300s; node-postgres drops them after 10s by
 // default, which would add a TLS handshake to most requests on a quiet server.
 const IDLE_TIMEOUT_MS = 300_000;
+// TCP keepalive starts probing after this much silence. pg's default of 0 means
+// "leave the OS value" — 7200s on Linux — so a query in flight when Postgres
+// vanished without a FIN waited 2h11m for an answer that never came. On
+// 2026-10-03 five such queries held the API's whole pool from 6:40 to 8:51 AM PT
+// while every other request timed out at pool_timeout. 10s idle, then Node 22's
+// probes (1s apart, 10 of them) give up on a dead peer in ~20s; at worst, on
+// the OS probe defaults, ~11 min. A healthy socket answers probes, so a long
+// tick query is never cut off by this.
+const KEEPALIVE_INITIAL_DELAY_MS = 10_000;
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -80,6 +89,7 @@ export function pgPoolConfig(databaseUrl) {
       connectionTimeoutMillis: (poolTimeoutS ?? DEFAULT_POOL_TIMEOUT_S) * 1000,
       idleTimeoutMillis: IDLE_TIMEOUT_MS,
       keepAlive: true,
+      keepAliveInitialDelayMillis: KEEPALIVE_INITIAL_DELAY_MS,
     },
     schema,
   };
