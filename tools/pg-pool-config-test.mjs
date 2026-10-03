@@ -130,6 +130,29 @@ await t('dead peers are noticed in seconds, not the 2-hour Linux default', () =>
   }
 });
 
+// ── Connection recycling (same outage) ───────────────────────────────────────
+// Before the 6:40 restart Postgres sat at 2.3–2.7 GB committed against a ~2.0 GB
+// limit on Small compute, 0.5–0.9 GB in swap; after it, ~300 MB used. A backend
+// keeps the memory its largest query needed (our state reads are ~93 MB), and a
+// busy pool never idles a connection out, so backends only ever grew. Recycling
+// hands that memory back. pg-pool ends an expired client on release, never mid-
+// query, so a long tick transaction is not cut off.
+// Verified failing on HEAD: maxLifetimeSeconds was undefined → 0 (never).
+
+await t('connections are recycled every 30 minutes by default', () => {
+  for (const url of [API_URL, WORKER_URL]) {
+    const { pool } = pgPoolConfig(url);
+    assert.equal(pool.maxLifetimeSeconds, 1800);
+    assert.equal(new pg.Pool(pool).options.maxLifetimeSeconds, 1800);
+  }
+});
+
+await t('Prisma\'s max_connection_lifetime overrides it, and is stripped from the URL', () => {
+  const { pool } = pgPoolConfig(`${API_URL}&max_connection_lifetime=600`);
+  assert.equal(pool.maxLifetimeSeconds, 600);
+  assert.doesNotMatch(pool.connectionString, /max_connection_lifetime/);
+});
+
 await t('a missing URL is a clear error', () => {
   assert.throws(() => pgPoolConfig(undefined), /DATABASE_URL is not set/);
 });

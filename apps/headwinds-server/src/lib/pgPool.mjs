@@ -47,6 +47,13 @@ const IDLE_TIMEOUT_MS = 300_000;
 // the OS probe defaults, ~11 min. A healthy socket answers probes, so a long
 // tick query is never cut off by this.
 const KEEPALIVE_INITIAL_DELAY_MS = 10_000;
+// Replace every connection after this long. A Postgres backend keeps the memory
+// its largest query needed (state reads run ~93 MB) and a busy pool never lets
+// a connection go idle long enough to close, so backends only grew: on
+// 2026-10-03 Postgres was 0.5–0.9 GB into swap on a 2 GB box when it was
+// killed. pg-pool ends an expired client when it is released, never mid-query.
+// Prisma's max_connection_lifetime (seconds) overrides it.
+const DEFAULT_MAX_LIFETIME_S = 1800;
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -67,6 +74,7 @@ export function pgPoolConfig(databaseUrl) {
 
   const max = num(q.get('connection_limit'));
   const poolTimeoutS = num(q.get('pool_timeout'));
+  const lifetimeS = num(q.get('max_connection_lifetime'));
   const sslmode = (q.get('sslmode') ?? '').toLowerCase();
   const strict = (q.get('sslaccept') ?? '').toLowerCase() === 'strict'
     || sslmode === 'verify-full' || sslmode === 'verify-ca';
@@ -90,6 +98,7 @@ export function pgPoolConfig(databaseUrl) {
       idleTimeoutMillis: IDLE_TIMEOUT_MS,
       keepAlive: true,
       keepAliveInitialDelayMillis: KEEPALIVE_INITIAL_DELAY_MS,
+      maxLifetimeSeconds: lifetimeS ?? DEFAULT_MAX_LIFETIME_S,
     },
     schema,
   };
