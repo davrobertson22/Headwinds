@@ -65,6 +65,18 @@ for (const [o, d] of [['GWY','NNR'], ['SXL','NOC'], ['BYT','KIR']]) {
 eq(isSameMetro(getAirport('ACK'), getAirport('MVY')), false, 'non-registry pair outside the backstop unaffected');
 eq(isSameMetro(getAirport('LHR'), getAirport('LCY')), true, 'registry metros still same-metro');
 
+// ── London Southend + southern Italy (Oct 2026): SEN is a London metro member
+//    pricing the shared London market; Salerno-Naples and Taranto-Brindisi are
+//    road/rail neighbours in the surface-connected band ─────────────────────────
+eq(isSameMetro(getAirport('SEN'), getAirport('LHR')), true, 'SEN is in the London metro');
+eq(baseCityPairDemand('SEN', 'AMS'), baseCityPairDemand('LGW', 'AMS'), 'SEN and LGW price the same London-Amsterdam market');
+for (const [o, d] of [['QSR','NAP'], ['TAR','BDS']]) {
+  eq(baseCityPairDemand(o, d), 0, `road-linked pair suppressed ${o}-${d}`);
+}
+for (const [o, d] of [['CRV','BGY'], ['TAR','MXP'], ['FOG','LIN'], ['QSR','BGY']]) {
+  truthy(baseCityPairDemand(o, d) > 0, `new southern Italian field carries demand ${o}-${d}`);
+}
+
 // ── Allow-list hygiene: every entry is two real airports, in the 2–65 km band (sub-35 km entries are spared from the same-metro backstop too) ─
 for (const key of WATER_HOP_PAIRS) {
   const [x, y] = key.split('|');
@@ -86,7 +98,7 @@ for (let i = 0; i < AIRPORTS.length; i++) for (let j = i + 1; j < AIRPORTS.lengt
   if (a.city === b.city || isSameMetro(a, b, km)) continue;
   if (isSurfaceConnected(a, b, km)) suppressed++; else spared++;
 }
-eq(suppressed, 131, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
+eq(suppressed, 133, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
 eq(spared, 31, 'in-band spared (water-hop) pair count');
 
 console.log(`\ndata-integrity: ${passed} passed, ${failed} failed`);

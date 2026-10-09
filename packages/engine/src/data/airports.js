@@ -2380,6 +2380,17 @@ export const AIRPORTS = [
   { code: 'BYT', name: 'Bantry Aerodrome',               city: 'Bantry',         country: 'IE', lat: 51.6689, lon: -9.4844, population: 0.01,   tier: 'regional', visitors: 0.05, runwayFt: 1280 },
   { code: 'WAT', name: 'Waterford Airport',              city: 'Waterford',      country: 'IE', lat: 52.1872, lon: -7.0869, population: 0.13,   tier: 'regional', runwayFt: 4701 },
   { code: 'CFN', name: 'Donegal Airport',                city: 'Carrickfinn',    country: 'IE', lat: 55.0442, lon: -8.3411, population: 0.08,   tier: 'regional', visitors: 0.05, runwayFt: 4905 },
+  // ── London Southend + southern Italy (Discord request, Oct 2026) ────────────
+  // SEN joins the London metro registry (already listed in metros.js). Taranto-
+  // Grottaglie has no airline service today (~1k pax in 2024; Boeing 787 parts
+  // and spaceport work) — an open market for players. Salerno reopened to
+  // airlines in July 2024 after a runway extension and sells the Amalfi Coast.
+  // NAP-QSR and BDS-TAR fall in the surface-connected band and carry no demand.
+  { code: 'SEN', name: 'London Southend Airport',        city: 'London',         country: 'GB', lat: 51.5703, lon: 0.6933,  population: 9.3,    tier: 'regional', runwayFt: 6089 },
+  { code: 'CRV', name: "Crotone Sant'Anna",              city: 'Crotone',        country: 'IT', lat: 38.9972, lon: 17.0803, population: 0.15,   tier: 'regional', runwayFt: 6562 },
+  { code: 'TAR', name: 'Taranto-Grottaglie Marcello Arlotta', city: 'Taranto',   country: 'IT', lat: 40.5175, lon: 17.4031, population: 0.4,    tier: 'regional', runwayFt: 10499 },
+  { code: 'FOG', name: 'Foggia Gino Lisa',               city: 'Foggia',         country: 'IT', lat: 41.4328, lon: 15.5350, population: 0.3,    tier: 'regional', visitors: 0.1,  runwayFt: 5890 },
+  { code: 'QSR', name: "Salerno Costa d'Amalfi",         city: 'Salerno',        country: 'IT', lat: 40.6200, lon: 14.9125, population: 0.5,    tier: 'regional', visitors: 0.5,  runwayFt: 6567 },
 ];
 
 // Code -> record index, built once on first lookup.
