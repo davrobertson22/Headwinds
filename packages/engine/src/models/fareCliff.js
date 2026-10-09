@@ -135,6 +135,55 @@ export function cliffFaresFor(state, origin, destination, opts = {}) {
   return out;
 }
 
+/**
+ * cliffFaresFor, for a route that is not open yet — the new-route form's fare
+ * editor.
+ *
+ * The planner used to pass nothing, so its warning fell back to the 1.10x floor
+ * — the cliff of a quality-50 route — while the same route, once open, was
+ * warned at its real quality (up to 1.25x) on the Routes page. "When creating a
+ * new route it says the prices are past the demand cliff at more than 10% above
+ * reference, but when you edit an existing route you can raise it by up to 25%"
+ * (Dunno23, Discord 2026-10-05). The engine prices the cliff on the pair's pooled
+ * offer: the mean routeQualityBreakdown total over every tail on the pair
+ * (buildPlayerPairOffer). So this scores the planned route the same way, pooled
+ * with the tails already flying the pair, in a state that already contains it.
+ *
+ * @param {object} planned   { origin, destination, weeklyFrequency, cateringLevel? }
+ * @param {object} aircraft  the airframe the forecast runs on ({ typeId, ageWeeks,
+ *                           config, ... }). When its id is a tail you own, that
+ *                           tail is the one put on the route — it is NOT counted
+ *                           twice: a duplicate idle copy halves fleet utilisation,
+ *                           lifts on-time and so the quality, and moved the cliff
+ *                           ~$10 above the one the Routes page shows after opening.
+ * @returns {{ quality:number, fares:object }} fares is {} in classic worlds.
+ */
+export function plannedCliffFares(state, planned, aircraft, opts = {}) {
+  const PLAN_ID = '__planned__';
+  const fleet = state?.fleet ?? [];
+  const owned = aircraft?.id != null && fleet.some(a => a.id === aircraft.id);
+  const acId  = owned ? aircraft.id : PLAN_ID;
+  const ac    = { ...aircraft, status: 'assigned', id: acId };
+  const route = { id: PLAN_ID, season: null, seasonState: 'active', ...planned, aircraftId: acId };
+  const withPlan = {
+    ...state,
+    routes: [...(state?.routes ?? []), route],
+    fleet:  owned ? fleet.map(a => (a.id === acId ? ac : a)) : [...fleet, ac],
+  };
+  const key = routePairKey(route.origin, route.destination);
+  const fleetById = new Map(withPlan.fleet.map(a => [a.id, a]));
+  let sum = 0, n = 0;
+  for (const r of withPlan.routes) {
+    if (isMultiStop(r) || routePairKey(r.origin, r.destination) !== key) continue;
+    const a = fleetById.get(r.aircraftId);
+    const q = a ? routeQualityBreakdown(r, a, withPlan)?.total : null;
+    if (q == null) continue;
+    sum += q; n += 1;
+  }
+  const quality = n > 0 ? Math.round(sum / n) : 50;
+  return { quality, fares: cliffFaresFor(state, route.origin, route.destination, { ...opts, quality }) };
+}
+
 // Cabins that actually carry seats on at least one aircraft flying the pair —
 // an unsold cabin priced high is not a problem worth warning about.
 function seatedClassesByPair(state) {

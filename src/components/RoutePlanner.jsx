@@ -17,7 +17,7 @@ import {
   AIRPORT_GATEWAY_SCORES,
 } from '../models/demand.js';
 import { routeLaunchCost } from '../data/overhead.js';
-import { checkRouteRestrictions } from '../data/airportRestrictions.js';
+import { checkRouteRestrictions, runwayShortfall } from '../data/airportRestrictions.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import CargoRoutePlanner, { ModeToggle } from './CargoRoutePlanner.jsx';
@@ -33,6 +33,7 @@ import FuelBasisChip from './FuelBasisChip.jsx';
 import { frequencySliderWidth } from '../utils/frequencySlider.js';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
+import { plannedCliffFares } from '../models/fareCliff.js';
 import {
   rankAircraftForRoute, rankAircraftForYear, seasonalProfitByType, gameDateInMonth, ALL_MONTHS,
 } from '../models/aircraftRecommender.js';
@@ -588,11 +589,21 @@ export default function RoutePlanner() {
   const reachKmFor = (t) =>
     t ? (reachByType.get(t.id) ?? effectiveRangeKm({ typeId: t.id }, t)) : 0;
 
-  // Aircraft types that can reach this route
-  const reachableTypes = useMemo(() => {
-    if (!routeData) return [];
-    return AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
-  }, [routeData, reachByType]);
+  // Aircraft types that can fly this route: in range, and with enough runway at
+  // both ends — ADD_ROUTE's own first restriction test (runwayShortfall ↔
+  // runwayViolation). Offering a type and then printing "offers only N ft"
+  // beneath it is the freight planner's bug from Matthijs's report (Discord
+  // 2026-10-04); this list had the same hole. `runwayBarred` feeds the empty state.
+  const { reachableTypes, runwayBarred } = useMemo(() => {
+    if (!routeData) return { reachableTypes: [], runwayBarred: [] };
+    const inRange = AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
+    const ok = [], barred = [];
+    for (const t of inRange) {
+      const short = runwayShortfall([origin, dest], t);
+      if (short) barred.push({ type: t, ...short }); else ok.push(t);
+    }
+    return { reachableTypes: ok, runwayBarred: barred };
+  }, [routeData, reachByType, origin, dest]);
 
   // Hard ceiling on flights/week for this aircraft on this route: one airframe
   // has MAX_WEEKLY_BLOCK_HOURS flying hours a week, so longer sectors fit fewer
@@ -845,6 +856,23 @@ export default function RoutePlanner() {
              pairPassengers: projection.pairPassengers, lanePassengers: projection.lanePassengers,
              laneDemand: projection.laneDemand };
   }, [routeData, selectedTypeId, frequency, effectiveFares, effectivePrice, cateringLevel, effectiveConfig, competitorsOnRoute, state.hub, state.hubs, state.gates, state.routes, fleetOfType, origin, dest, gameDate, reachByType]);
+
+  // Where the fare cliff starts on THIS route once it opens — the figure the
+  // Routes page will warn at. Without it the fare editor fell back to the 1.10x
+  // floor (a quality-50 route's cliff), so the new-route form cried "past the
+  // cliff" at +10% on a route the edit screen later let sit at +25% (Dunno23,
+  // Discord 2026-10-05). Scored on the tail Open Route would assign, pooled with
+  // the tails already on the pair, as the tick pools it. {} in classic worlds.
+  const plannedCliff = useMemo(() => {
+    if (!routeData || !selectedTypeId) return null;
+    const tail = fleetOfType[0] ?? null;
+    return plannedCliffFares(state, {
+      origin, destination: dest, weeklyFrequency: frequency, cateringLevel, hub: state.hub,
+    }, {
+      ...(tail ?? {}), typeId: selectedTypeId, ageWeeks: tail?.ageWeeks ?? 0,
+      config: effectiveConfig ?? tail?.config ?? undefined,
+    });
+  }, [routeData, selectedTypeId, fleetOfType, effectiveConfig, frequency, cateringLevel, origin, dest, state]);
 
   // ── "or like aircraft recommendations to route planner too" (ASAS, 9/11/26) ──
   //
@@ -1258,9 +1286,16 @@ export default function RoutePlanner() {
 
             {reachableTypes.length === 0 ? (
               <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                Nothing that can reach {origin} → {dest} ({routeData.dist.toLocaleString()} km) is
-                available — not in your fleet, and not in the catalogue. Range modifications on
-                your own airframes are already counted here.
+                {runwayBarred.length > 0 ? (() => {
+                  const minNeed = Math.min(...runwayBarred.map(b => b.needFt));
+                  const at = runwayBarred[0];
+                  return <>Every aircraft that reaches {origin} → {dest} needs more runway than {at.code}'s {at.haveFt.toLocaleString()} ft —
+                    the shortest requirement among them is {minNeed.toLocaleString()} ft.</>;
+                })() : (
+                  <>Nothing that can reach {origin} → {dest} ({routeData.dist.toLocaleString()} km) is
+                  available — not in your fleet, and not in the catalogue. Range modifications on
+                  your own airframes are already counted here.</>
+                )}
               </div>
             ) : (
               <>
@@ -1271,7 +1306,7 @@ export default function RoutePlanner() {
                   <div style={{ flex: '1 1 200px', maxWidth: 320 }}>
                     <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Aircraft type
-                      <InfoTip text="Only aircraft that can reach this route are listed, measured on the range your airframes actually have — engine and wingtip modifications count, so a jet whose book range falls short of the lane still appears if a tail you own is modded past it. The ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open." />
+                      <InfoTip text="Only aircraft that can fly this route are listed — in range, and with enough runway at both ends. Range is what your airframes actually have — engine and wingtip modifications count, so a jet whose book range falls short of the lane still appears if a tail you own is modded past it. The ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open." />
                     </div>
                     <select
                       className="form-select"
@@ -1363,6 +1398,7 @@ export default function RoutePlanner() {
                         dest={dest}
                         config={effectiveConfig ?? { economy: getAircraftType(selectedTypeId)?.seats ?? 0 }}
                         fares={fares}
+                        cliffFares={plannedCliff?.fares ?? null}
                         onCommit={(cls, value) => setFares(f => ({ ...f, [cls]: value }))}
                       />
                     )}

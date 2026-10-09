@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
+import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, addTagRouteBlockReason } from '../store/GameContext.jsx';
+import { runwayShortfall } from '../data/airportRestrictions.js';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType, AIRCRAFT_TYPES } from '../data/aircraft.js';
 import { routeLaunchCost } from '../data/overhead.js';
@@ -120,6 +121,8 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
     return fleet.filter(a => {
       const t = getAircraftType(a.typeId);
       if (!t || t.freighter || effectiveRangeKm(a, t) < maxLeg) return false;
+      // Every stop must take the type's runway — ADD_TAG_ROUTE checks each leg.
+      if (runwayShortfall([...stopSet], t)) return false;
       // Everything this tail is on the hook for — its cargo network too, and any
       // rotation a reserve is covering for it (those come home). Filtering on
       // aircraftId alone showed a covered tail as free metal.
@@ -196,7 +199,17 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
   const launchCost = route ? routeLaunchCost(totalDist) : 0;
   const canAfford  = cash >= launchCost;
 
-  const canOpen = ready && aircraft && inRange && blockOk && !gateProblem && !slotProblem && connectivityOk && canAfford;
+  // The engine's own verdict on this exact launch — what the server will run.
+  // The checks above explain the common cases in place; anything only the guard
+  // knows (an airport rule on one leg, a perimeter or slot cap that the added
+  // frequency trips) is spelled out instead of a live button whose dispatch is
+  // refused while the planner closes underneath it.
+  const engineBlock = ready && aircraft
+    ? addTagRouteBlockReason(state, { aircraftId: aircraft.id, stops: validStops, weeklyFrequency: frequency, cateringLevel })
+    : null;
+  const localBlock = !inRange || !blockOk || gateProblem || slotProblem || !connectivityOk || !canAfford;
+
+  const canOpen = ready && aircraft && inRange && blockOk && !gateProblem && !slotProblem && connectivityOk && canAfford && !engineBlock;
 
   function handleOpen() {
     if (!canOpen) return;
@@ -325,6 +338,7 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
               {gateProblem && <span style={{ color: 'var(--red)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}><Glyph e="⚠" /> No gate at {gateProblem}<AddGateButton code={gateProblem} /></span>}
               {slotProblem && <span style={{ color: 'var(--yellow)', display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}><Glyph e="⚠" /> Not enough slots at {slotProblem}<AddGateButton code={slotProblem} /></span>}
               {!connectivityOk && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> {aircraft?.name} can only extend from an airport it already serves.</span>}
+              {engineBlock && !localBlock && <span style={{ color: 'var(--red)' }}><Glyph e="⚠" /> {engineBlock}</span>}
             </div>
           </div>
 

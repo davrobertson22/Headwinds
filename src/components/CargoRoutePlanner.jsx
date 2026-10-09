@@ -6,6 +6,7 @@ import { isOutOfService } from '../data/maintenance.js';
 import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm, calendarYear } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { cargoPriceChokeFactor, CARGO_PRICE_CAP_MULTIPLE } from '../models/demand.js';
+import { runwayShortfall } from '../data/airportRestrictions.js';
 import { routeLaunchCost } from '../data/overhead.js';
 import AddGateButton from './AddGateButton.jsx';
 import { Glyph } from './Icons.jsx';
@@ -152,6 +153,9 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     if (!nav || nav.mode !== 'freight') return;
     if (nav.origin) setOrigin(nav.origin);
     if (nav.dest) setDest(nav.dest);
+    // The freighter the finder searched with rides along, so Plan lands on the
+    // type whose range and runway the row was filtered for.
+    if (nav.typeId) setSelectedTypeId(nav.typeId);
     setYieldPrice(null);
   }, []);
 
@@ -219,11 +223,22 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   const reachKmFor = (t) =>
     t ? (reachByType.get(t.id) ?? effectiveRangeKm({ typeId: t.id }, t)) : 0;
 
-  // Freighter types that can reach this route
-  const reachableTypes = useMemo(() => {
-    if (!routeData) return [];
-    return AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
-  }, [routeData, reachByType]);
+  // Freighter types that can fly this lane: in range, and with enough runway at
+  // both ends. The runway half is ADD_CARGO_ROUTE's own first test
+  // (runwayShortfall ↔ runwayViolation); without it the picker offered an MD-11F
+  // for PNQ and then printed "PNQ offers only 10,000 ft" under it (Matthijs,
+  // Discord 2026-10-04). `runwayBarred` keeps the ones it dropped so the empty
+  // state can say why.
+  const { reachableTypes, runwayBarred } = useMemo(() => {
+    if (!routeData) return { reachableTypes: [], runwayBarred: [] };
+    const inRange = AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
+    const ok = [], barred = [];
+    for (const t of inRange) {
+      const short = runwayShortfall([origin, dest], t);
+      if (short) barred.push({ type: t, ...short }); else ok.push(t);
+    }
+    return { reachableTypes: ok, runwayBarred: barred };
+  }, [routeData, reachByType, origin, dest]);
 
   useMemo(() => {
     if (reachableTypes.length && !reachableTypes.find(t => t.id === selectedTypeId)) {
@@ -401,7 +416,15 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
             <div style={{ fontWeight: 600, marginBottom: 14 }}>Your estimated freight economics</div>
             {reachableTypes.length === 0 ? (
               <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                No freighter can reach {origin} → {dest} ({routeData.dist.toLocaleString()} km). Lease a longer-range freighter from the Market first.
+                {runwayBarred.length > 0 ? (() => {
+                  // Name the binding end and the shortest field any in-range
+                  // freighter needs, so "how short is too short" is answered.
+                  const minNeed = Math.min(...runwayBarred.map(b => b.needFt));
+                  const at = runwayBarred[0];
+                  return <>Every freighter that reaches {origin} → {dest} needs more runway than {at.code}'s {at.haveFt.toLocaleString()} ft — the shortest requirement among them is {minNeed.toLocaleString()} ft.</>;
+                })() : (
+                  <>No freighter can reach {origin} → {dest} ({routeData.dist.toLocaleString()} km). Lease a longer-range freighter from the Market first.</>
+                )}
               </div>
             ) : (
               <>

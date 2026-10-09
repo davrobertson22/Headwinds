@@ -42,7 +42,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
 import {
   baseCityPairDemand, distanceKm, referencePrice,
-  effectiveRangeKm, maxFrequency, defaultConfig, defaultClassPrices,
+  effectiveRangeKm, maxFrequency, defaultConfig, defaultClassPrices, freighterBodyClass,
 } from '../utils/simulation.js';
 import { metroPairKeyOf, memberPairKeysOf, airportAppeal, regionOf } from '../utils/market.js';
 import { pairDemandNow } from './demand.js';
@@ -180,8 +180,11 @@ export function laneBlockFor({
   const existingFreq = (routes ?? [])
     .filter((r) => pairKey(r.origin, r.destination) === key)
     .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0);
+  // Body class the way the reducer's guards read it: a freighter's comes from its
+  // payload (ADD_CARGO_ROUTE), anything else is its catalogue category — so the
+  // cargo finder can ask this too. For passenger types this is type.category.
   const hit = checkRouteRestrictions(
-    origin, destination, distKm, existingFreq + weeklyFrequency, type.category ?? null,
+    origin, destination, distKm, existingFreq + weeklyFrequency, freighterBodyClass(type),
     { routes, excludeKey: key, aircraftType: type });
   if (!hit) return null;
   return {

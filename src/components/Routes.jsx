@@ -1,7 +1,7 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import OutOfRangeBadge from './OutOfRangeBadge.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useGame, frequencyChangeBlockReason, peakSlotsUsedAt, slotCapAt } from '../store/GameContext.jsx';
 import RouteDetail from './RouteDetail.jsx';
 import AirportLink from './AirportLink.jsx';
@@ -1003,14 +1003,21 @@ export default function Routes() {
         </div>
       )}
 
-      {/* Form (new route or add-flights, keyed so it resets on mode change) */}
+      {/* Form (new route or add-flights, keyed so it resets on mode change).
+          "+ Add Flights" is pressed on a card that may be far down the list, and
+          the form renders up here — so it is scrolled to, not left above the
+          fold where scroll anchoring keeps it out of sight. */}
       {showForm && (
-        <AddRouteForm
+        <RevealOnMount
           key={isAddingFlights ? `${formMode.origin}→${formMode.destination}` : 'new'}
-          onClose={closeForm}
-          initialOrigin={formInitialOrigin}
-          initialDest={formInitialDest}
-        />
+          enabled={isAddingFlights}
+        >
+          <AddRouteForm
+            onClose={closeForm}
+            initialOrigin={formInitialOrigin}
+            initialDest={formInitialDest}
+          />
+        </RevealOnMount>
       )}
 
       {/* Bulk-edit selection bar — appears when one or more cards are ticked */}
@@ -1128,37 +1135,38 @@ export default function Routes() {
               </span>
             )}
           </div>
-          {tagAddStops && (
-            <div style={{ marginBottom: 16 }}>
-              <TagRoutePlanner
-                key={tagAddStops.chain.join('-')}
-                embedded
-                initialStops={tagAddStops.chain}
-                initialFares={tagAddStops.fares}
-                onOpened={() => setTagAddStops(null)}
-              />
-              <div style={{ textAlign: 'right', marginTop: 6 }}>
-                <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setTagAddStops(null)}>
-                  ✕ Cancel
-                </button>
-              </div>
-            </div>
+          {/* "Add planes button doesnt work for multi stop routes" (Barca, Discord
+              2026-10-05/06; "it does" — TheCookiesGuy). Both were right. The
+              planner used to open ABOVE every multi-stop card, which sit below
+              the whole passenger list; press + Add Aircraft on any card but the
+              top one and the browser's scroll anchoring held the clicked card
+              still while the planner appeared off-screen above it — nothing
+              seemed to happen. It now opens directly under the card that was
+              pressed, and is scrolled into view. A rotation filtered out of view
+              since the click falls back to the top of the section. */}
+          {tagAddStops && !visibleTagRoutes.some(r => r.id === tagAddStops.routeId) && (
+            <TagAddPanel add={tagAddStops} onDone={() => setTagAddStops(null)} />
           )}
           {visibleTagRoutes.map(route => (
-            <TagRouteCard
-              key={route.id}
-              route={route}
-              siblingCount={tagRoutes.filter(r => routeStops(r).join('-') === routeStops(route).join('-')).length}
-              onClose={handleClose}
-              onAddAircraft={() => setTagAddStops({
-                chain: routeStops(route),
-                // Start from the fares this rotation already sells rather than
-                // reference price — two of your own tails on one rotation
-                // undercutting each other is nobody's intent.
-                fares: Object.fromEntries(Object.entries(route.segmentPrices ?? {})
-                  .map(([k, v]) => [k, v?.economy]).filter(([, v]) => v > 0)),
-              })}
-            />
+            <Fragment key={route.id}>
+              <TagRouteCard
+                route={route}
+                siblingCount={tagRoutes.filter(r => routeStops(r).join('-') === routeStops(route).join('-')).length}
+                onClose={handleClose}
+                onAddAircraft={() => setTagAddStops({
+                  routeId: route.id,
+                  chain: routeStops(route),
+                  // Start from the fares this rotation already sells rather than
+                  // reference price — two of your own tails on one rotation
+                  // undercutting each other is nobody's intent.
+                  fares: Object.fromEntries(Object.entries(route.segmentPrices ?? {})
+                    .map(([k, v]) => [k, v?.economy]).filter(([, v]) => v > 0)),
+                })}
+              />
+              {tagAddStops?.routeId === route.id && (
+                <TagAddPanel add={tagAddStops} onDone={() => setTagAddStops(null)} />
+              )}
+            </Fragment>
           ))}
         </div>
       )}
@@ -1199,6 +1207,41 @@ export default function Routes() {
         />
       )}
     </div>
+  );
+}
+
+// ─── Reveal a panel the player just asked for ────────────────────────────────
+//
+// Scrolls its child into view once, on mount, when `enabled`. For panels opened
+// from a button somewhere else on a long page: without it the panel can render
+// out of sight and the button reads as broken.
+function RevealOnMount({ enabled = true, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!enabled) return;
+    ref.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <div ref={ref} data-reveal-on-mount="" style={{ scrollMarginTop: 12 }}>{children}</div>;
+}
+
+// The locked-chain planner for "+ Add Aircraft" on one multi-stop rotation.
+function TagAddPanel({ add, onDone }) {
+  return (
+    <RevealOnMount key={add.chain.join('-')}>
+      <div style={{ marginBottom: 16 }} data-tag-add-for={add.routeId ?? ''}>
+        <TagRoutePlanner
+          embedded
+          initialStops={add.chain}
+          initialFares={add.fares}
+          onOpened={onDone}
+        />
+        <div style={{ textAlign: 'right', marginTop: 6 }}>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onDone}>
+            ✕ Cancel
+          </button>
+        </div>
+      </div>
+    </RevealOnMount>
   );
 }
 
