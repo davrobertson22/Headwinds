@@ -14,7 +14,7 @@ import { gateDenialFor, DisabledHint } from './GateDenial.jsx';
  * did nothing whatsoever, with no error and no explanation. It now asks the
  * same helper the Airports tab and the server ask, and disables + explains.
  */
-export default function AddGateButton({ code, style }) {
+export default function AddGateButton({ code, style, compact = false }) {
   const { state, dispatch } = useGame();
   const count = (state.gates ?? {})[code] ?? 0;
   const fee = gateMonthlyFee(getAirport(code), count + 1);
@@ -34,11 +34,21 @@ export default function AddGateButton({ code, style }) {
       title={denial ? undefined : `Lease one more gate at ${code} (+${SLOTS_PER_GATE} slots) for ${formatMoney(fee)}/mo`}
       onClick={() => dispatch({ type: 'ADD_GATE', airportCode: code })}
     >
-      + Add gate ({formatMoney(fee)}/mo)
+      {compact ? `+ Gate ${formatMoney(fee)}/mo` : `+ Add gate (${formatMoney(fee)}/mo)`}
     </button>
   );
 
   if (!denial) return button;
+  // Compact (a table cell, e.g. the Route Finder): the reason rides on a short
+  // red note under the button rather than a paragraph that would blow the row up.
+  if (compact) {
+    return (
+      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+        <DisabledHint title={denial}>{button}</DisabledHint>
+        <span title={denial} style={{ fontSize: 10, color: 'var(--red)', whiteSpace: 'nowrap' }}>⛔ can't lease here</span>
+      </span>
+    );
+  }
 
   // The reason goes on screen, not in a tooltip — a `disabled` button fires no
   // pointer events, so Chrome and Safari never show its title at all.

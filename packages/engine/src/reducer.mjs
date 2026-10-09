@@ -51,6 +51,7 @@ import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEff
          CREW_LEAD_WEEKS, crewHireCost, crewAttritionRate, crewRequired,
          seedCrewFor, ensureCrewSeeded, splitStarterHire, absorbCrewFor,
          crewUnitsForBodies, erodePayPremium, autoReplacePlan } from './data/labor.js';
+import { relativePay, weeklyIntakeUnits, intakeUsed } from './models/talentMarket.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
@@ -89,15 +90,16 @@ import {
 } from './data/cateringContracts.js';
 import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
-  scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand, demandIsNoOp,
+  scheduleNextNegotiation,
   MAX_PAY_MULTIPLIER,
   counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
   tickGrievance, grievedMoraleTarget,
   GRIEVANCE_REFUSE, GRIEVANCE_COUNTER_REJECTED, GRIEVANCE_SETTLED,
-  NEGOTIATION_RESPONSE_WEEKS, STRIKE_COOLDOWN_WEEKS,
+  STRIKE_COOLDOWN_WEEKS,
 } from './data/laborRelations.js';
 import { LABOR_GROUP_MAP } from './data/labor.js';
 import { checkRouteRestrictions } from './data/airportRestrictions.js';
+import { deliverySchedule } from './data/delivery.js';
 import {
   COMPETITOR_AIRLINES,
   initializeCompetitorRoutes,
@@ -1632,12 +1634,9 @@ function reducer(state, action) {
     }
 
     // ─── Ordered aircraft with staggered delivery ────────────────────────────────
-    // Lead times by category (weeks). The FIRST delivery of a type takes 2× the lead.
-    // Subsequent deliveries in the same queue stack at +lead intervals after the last.
-    //   Wide Body    → first 8w, then every 4w
-    //   Narrow Body  → first 6w, then every 3w
-    //   Regional Jet → first 4w, then every 2w
-    //   Turboprop    → first 2w, then every 1w
+    // Lead times live in data/delivery.js (one table for the reducer AND every
+    // screen that quotes a date). The FIRST delivery of a type takes 2× the lead;
+    // subsequent deliveries in the same queue stack at +lead after the last.
     case 'ORDER_AIRCRAFT': {
       const type = getAircraftType(action.typeId);
       if (!type) return state;
@@ -1645,8 +1644,6 @@ function reducer(state, action) {
       // shows the same denial; this is the authoritative check.
       if (orderDenial(state, action.typeId)) return state;
 
-      const DELIVERY_LEAD = { 'Wide Body': 4, 'Narrow Body': 3, 'Regional Jet': 2, 'Turboprop': 1 };
-      const lead     = DELIVERY_LEAD[type.category] ?? 2;
       const quantity = Math.max(1, Math.min(100, action.quantity ?? 1));
 
       const currentAbsWeek = absoluteWeek(state.year, state.week);
@@ -1778,15 +1775,7 @@ function reducer(state, action) {
       }
 
       for (let i = 0; i < orderQty; i++) {
-        const pendingOfType = runningPending.filter(o => o.typeId === action.typeId);
-
-        // First-ever order of this type takes 2× lead; subsequent stack at +lead
-        const maxExistingDelivery = pendingOfType.length > 0
-          ? Math.max(...pendingOfType.map(o => o.deliverAbsWeek))
-          : null;
-        const deliverAbsWeek = maxExistingDelivery === null
-          ? currentAbsWeek + 2 * lead          // first in queue → 2× lead
-          : maxExistingDelivery + lead;         // subsequent → +lead after last
+        const [deliverAbsWeek] = deliverySchedule(type, runningPending, currentAbsWeek, 1);
 
         // Price: uniform bulk-order discount (orderDisc) applied to every frame in
         // this order. Leases carry no purchase price.
@@ -3771,7 +3760,22 @@ function reducer(state, action) {
       // Fleet perk that delivers those aircraft instantly. The training cost is
       // charged either way; only the wait is waived.
       const { instant, trained } = splitStarterHire(group, count, have, state.fleet ?? [], (a) => getAircraftType(a.typeId));
-      const readyAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + (CREW_LEAD_WEEKS[group] ?? 1);
+      const nowAbsWeek   = absoluteWeek(state.year ?? 1, state.week ?? 1);
+      const readyAbsWeek = nowAbsWeek + (CREW_LEAD_WEEKS[group] ?? 1);
+      // Talent market (models/talentMarket.js): a group can only take on so many
+      // recruits a week, and how many depends on pay RELATIVE to the going rate.
+      // This week's remaining intake starts training now, exactly as before;
+      // anything beyond it is paid for and waits in the recruiting queue, which
+      // the tick feeds into training week by week. A queue already waiting goes
+      // first — a new hire cannot jump the line by arriving later.
+      const intakeCap  = weeklyIntakeUnits(
+        crewRequired(group, state.fleet ?? [], (a) => getAircraftType(a.typeId)),
+        relativePay(state, group, g.payMultiplier));
+      const usedSoFar  = intakeUsed(g, nowAbsWeek);
+      const waiting    = Math.max(0, Number(g.recruiting) || 0);
+      const room       = waiting > 1e-9 ? 0 : Math.max(0, intakeCap - usedSoFar);
+      const startNow   = Math.min(trained, room);
+      const toQueue    = trained - startNow;
       return {
         ...state,
         cash: state.cash - cost,
@@ -3780,9 +3784,45 @@ function reducer(state, action) {
           [group]: {
             ...g,
             headcount: have + instant,
-            pipeline: trained > 0
-              ? [...(g.pipeline ?? []), { count: trained, readyAbsWeek }]
+            pipeline: startNow > 0
+              ? [...(g.pipeline ?? []), { count: startNow, readyAbsWeek }]
               : (g.pipeline ?? []),
+            ...(startNow > 0 ? { intake: { absWeek: nowAbsWeek, used: usedSoFar + startNow } } : {}),
+            ...(toQueue > 1e-9 ? { recruiting: Math.round((waiting + toQueue) * 10000) / 10000 } : {}),
+          },
+        },
+      };
+    }
+
+    case 'CANCEL_RECRUITING': {
+      // action: { group } — stop recruiting the people still waiting in the queue
+      // and get their training money back. Anyone already in training stays.
+      if (!LABOR_GROUP_MAP[action.group]) return state;
+      const current = state.labor ?? DEFAULT_LABOR_STATE;
+      const g = current[action.group];
+      const waiting = Math.max(0, Number(g?.recruiting) || 0);
+      if (!g || waiting <= 1e-9) return state;
+      return {
+        ...state,
+        cash: state.cash + crewHireCost(action.group, waiting),
+        labor: { ...current, [action.group]: { ...g, recruiting: 0 } },
+      };
+    }
+
+    case 'SET_PAY_INDEXED': {
+      // action: { group, indexed } — hold this group's pay multiplier where it is
+      // instead of letting the premium drift back toward market (~6%/yr,
+      // labor.js erodePayPremium). The bill keeps its premium; the slider stops
+      // moving on its own. Discord, 2026-10-04: "being able to lock it at x%".
+      if (!LABOR_GROUP_MAP[action.group]) return state;
+      const current = state.labor ?? DEFAULT_LABOR_STATE;
+      return {
+        ...state,
+        labor: {
+          ...current,
+          [action.group]: {
+            ...(current[action.group] ?? { payMultiplier: 1.0, morale: 80 }),
+            indexed: action.indexed === true,
           },
         },
       };
@@ -5091,8 +5131,9 @@ function reducer(state, action) {
       // training finishes by then join the line.
       const crewAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + 1;
       for (const [id, g0] of Object.entries(currentLabor)) {
-        // The market catches up: a premium over 1.0× erodes ~6%/yr (labor.js).
-        const g = { ...g0, payMultiplier: erodePayPremium(g0.payMultiplier) };
+        // The market catches up: a premium over 1.0× erodes ~6%/yr (labor.js) —
+        // unless the player has locked this group's rate (SET_PAY_INDEXED).
+        const g = g0.indexed ? g0 : { ...g0, payMultiplier: erodePayPremium(g0.payMultiplier) };
         const target   = grievedMoraleTarget(moraleTarget(g.payMultiplier), grievancePrev?.[id]);
         const newMorale = g.morale + (target - g.morale) * 0.12;
         const morale = Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10));
@@ -5100,8 +5141,24 @@ function reducer(state, action) {
           updatedLabor[id] = { ...g, morale };
           continue;
         }
+        // Talent market: the recruiting queue fills at this week's intake, and
+        // those recruits start training now (models/talentMarket.js).
+        const relPay = relativePay(state, id, g.payMultiplier);
+        let pipeline = g.pipeline ?? [];
+        let recruitFields = {};
+        const waiting = Math.max(0, Number(g.recruiting) || 0);
+        if (waiting > 1e-9) {
+          const cap = weeklyIntakeUnits(
+            crewRequired(id, state.fleet ?? [], (a) => getAircraftType(a.typeId)), relPay);
+          const release = Math.min(waiting, cap);
+          const left = waiting - release;
+          pipeline = [...pipeline, { count: release, readyAbsWeek: crewAbsWeek + (CREW_LEAD_WEEKS[id] ?? 1) }];
+          recruitFields = {
+            recruiting: left > 1e-6 ? Math.round(left * 10000) / 10000 : 0,
+            intake: { absWeek: crewAbsWeek, used: release },
+          };
+        }
         // Graduating classes join; the rest keep training.
-        const pipeline = g.pipeline ?? [];
         let joined = 0;
         const stillTraining = [];
         for (const batch of pipeline) {
@@ -5110,11 +5167,13 @@ function reducer(state, action) {
         }
         // Attrition is applied to the people already on the line, at a rate set
         // by pay and morale — this is what makes payMultiplier a retention
-        // decision and not just a cost dial.
+        // decision and not just a cost dial. Pay is read RELATIVE to the going
+        // rate: a rival out-paying you takes your people (1.0× in solo).
         const onLine = (Number(g.headcount) || 0) + joined;
-        const left = onLine * crewAttritionRate(g.payMultiplier, morale);
+        const left = onLine * crewAttritionRate(relPay, morale);
         updatedLabor[id] = {
           ...g,
+          ...recruitFields,
           morale,
           headcount: Math.max(0, Math.round((onLine - left) * 100) / 100),
           pipeline: stillTraining,
@@ -5129,9 +5188,6 @@ function reducer(state, action) {
         ...relationsPrev,
         unrest: tickUnrest(updatedLabor, relationsPrev.unrest, grievancePrev),
         grievance: tickGrievance(grievancePrev),
-        // Old saves: stagger each union's first contract demand.
-        nextNegotiationAbsWeek: relationsPrev.nextNegotiationAbsWeek
-          ?? scheduleFirstNegotiations(relAbsWeek),
       };
 
       // 1. Tick down an active strike; announce the end of the walkout.
@@ -5167,84 +5223,16 @@ function reducer(state, action) {
         }
       }
 
-      // 3. Contract negotiations — tick the open one, or table a new demand.
-      if (updatedRelations.negotiation
-          && demandIsNoOp(updatedLabor[updatedRelations.negotiation.group]?.payMultiplier ?? 1.0,
-                          updatedRelations.negotiation.demandMultiplier)) {
-        // Save written before the ceiling fix: an open demand for the pay the
-        // player is already on. There is no honest answer to it, so close it
-        // quietly — no morale hit, no unrest, no lapse-into-refusal.
-        const group = updatedRelations.negotiation.group;
-        updatedRelations.negotiation = null;
-        updatedRelations.nextNegotiationAbsWeek = {
-          ...updatedRelations.nextNegotiationAbsWeek,
-          [group]: scheduleNextNegotiation(relAbsWeek, false),
-        };
-      } else if (updatedRelations.negotiation) {
-        const weeksLeft = updatedRelations.negotiation.weeksLeft - 1;
-        if (weeksLeft <= 0) {
-          // Ignored until it lapsed → counts as a refusal.
-          const group = updatedRelations.negotiation.group;
-          const gName = LABOR_GROUP_MAP[group]?.name ?? group;
-          const fx    = NEGOTIATION_EFFECTS.refuse;
-          updatedLabor[group] = {
-            ...updatedLabor[group],
-            morale: Math.max(5, Math.min(100, (updatedLabor[group]?.morale ?? 80) + fx.morale)),
-          };
-          updatedRelations.negotiation = null;
-          updatedRelations.unrest = {
-            ...updatedRelations.unrest,
-            [group]: Math.max(0, Math.min(100, (updatedRelations.unrest[group] ?? 0) + fx.unrest)),
-          };
-          updatedRelations.nextNegotiationAbsWeek = {
-            ...updatedRelations.nextNegotiationAbsWeek,
-            [group]: scheduleNextNegotiation(relAbsWeek, true),
-          };
-          newToasts.push({
-            type: 'danger', icon: '🚫',
-            title: `${gName} pay demand ignored`,
-            message: `The ${gName.toLowerCase()} contract demand lapsed without an answer. The union takes it as a refusal — morale has dropped and unrest is building.`,
-            duration: 10000,
-          });
-        } else {
-          updatedRelations.negotiation = { ...updatedRelations.negotiation, weeksLeft };
-        }
-      } else if (!updatedRelations.strike) {
-        // Only one open demand at a time; unions hold off during a walkout.
-        const due = Object.entries(updatedRelations.nextNegotiationAbsWeek)
-          .filter(([, wk]) => relAbsWeek >= wk)
-          .sort((a, b) => a[1] - b[1])[0];
-        if (due) {
-          const group      = due[0];
-          const gName      = LABOR_GROUP_MAP[group]?.name ?? group;
-          const currentPay = updatedLabor[group]?.payMultiplier ?? 1.0;
-          const profitable = (state.financialHistory ?? []).slice(-12)
-            .reduce((s, h) => s + (h.profit ?? 0), 0) > 0;
-          const demand = negotiationDemand(currentPay, profitable);
-          if (demand === null) {
-            // Already paying the ceiling — the union has nothing to table, so
-            // don't open a round of talks over the rate they're already on.
-            // Quietly look in again later (pay may have been cut by then).
-            updatedRelations.nextNegotiationAbsWeek = {
-              ...updatedRelations.nextNegotiationAbsWeek,
-              [group]: scheduleNextNegotiation(relAbsWeek, false),
-            };
-          } else {
-            updatedRelations.negotiation = {
-              group,
-              demandMultiplier: demand,
-              weeksLeft:  NEGOTIATION_RESPONSE_WEEKS,
-              totalWeeks: NEGOTIATION_RESPONSE_WEEKS,
-            };
-            newToasts.push({
-              type: 'warning', icon: '📜',
-              title: `Contract talks — ${gName} table a pay demand`,
-              message: `The ${gName.toLowerCase()} union demands ${demand.toFixed(2)}× market rate (currently ${currentPay.toFixed(2)}×). Respond in Operations → Labor within ${NEGOTIATION_RESPONSE_WEEKS} weeks — silence counts as a refusal.`,
-              duration: 12000,
-            });
-          }
-        }
-      }
+      // 3. Contract negotiations are gone (Discord, 2026-10-04). Unions used to
+      //    table a pay demand every two or three years with a 4-game-week reply
+      //    window — four real hours in a 24-weeks-a-day world, so a demand that
+      //    landed overnight lapsed into a refusal before the player woke up
+      //    (Dunno23), and the asks ratcheted pay toward the cap over a long game.
+      //    Pay is now the player's call alone; unrest still builds from low pay
+      //    and morale, and strikes still follow it. A demand left open on an old
+      //    save closes here with no penalty — nobody is punished for a question
+      //    the game stopped asking.
+      if (updatedRelations.negotiation) updatedRelations.negotiation = null;
 
       // ── Loan repayments ──────────────────────────────────────────────────
       const currentLoans = state.loans ?? [];

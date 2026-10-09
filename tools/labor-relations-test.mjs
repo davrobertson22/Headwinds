@@ -18,7 +18,7 @@ import {
   tickUnrest, strikeProbability, rollStrike, settlementPayMultiplier,
   scheduleFirstNegotiations, scheduleNextNegotiation, negotiationDemand,
   counterOfferMultiplier, counterAccepted, NEGOTIATION_EFFECTS,
-  NEGOTIATION_RESPONSE_WEEKS, MAX_PAY_MULTIPLIER,
+  MAX_PAY_MULTIPLIER,
 } from '../src/data/laborRelations.js';
 import { LABOR_GROUPS } from '../src/data/labor.js';
 
@@ -300,7 +300,10 @@ try {
     assert.ok(s1.pendingToasts.some(t => (t.title ?? '').includes('Strike over')), 'end-of-strike toast');
   });
 
-  test('a due negotiation opens with a demand above current pay', () => {
+  // Contract negotiations were removed (Discord, 2026-10-04 — see
+  // tools/labor-rework-test.mjs). A due union tables nothing, and a demand left
+  // open on an old save closes with no refusal penalty.
+  test('a due union tables nothing — negotiations are gone', () => {
     const s0 = playState({
       week: 10, year: 2,
       laborRelations: {
@@ -309,33 +312,11 @@ try {
       },
     });
     const s1 = reducer(s0, { type: 'ADVANCE_WEEK' });
-    const nego = s1.laborRelations.negotiation;
-    assert.ok(nego, 'negotiation opened');
-    assert.equal(nego.group, 'pilots');
-    assert.ok(nego.demandMultiplier > 1.0);
-    assert.equal(nego.weeksLeft, NEGOTIATION_RESPONSE_WEEKS);
-    assert.ok(s1.pendingToasts.some(t => (t.title ?? '').includes('Contract talks')), 'talks toast');
+    assert.equal(s1.laborRelations.negotiation, null);
+    assert.ok(!s1.pendingToasts.some(t => (t.title ?? '').includes('Contract talks')), 'no talks toast');
   });
 
-  test('a union already at the pay ceiling tables nothing and reschedules', () => {
-    const maxLabor = Object.fromEntries(LABOR_GROUPS.map(g =>
-      [g.id, { payMultiplier: MAX_PAY_MULTIPLIER, morale: 100 }]));
-    const s0 = playState({
-      week: 10, year: 2, labor: maxLabor,
-      laborRelations: {
-        ...DEFAULT_LABOR_RELATIONS,
-        nextNegotiationAbsWeek: { pilots: 1, cabinCrew: 9999, groundStaff: 9999, maintenanceTeam: 9999 },
-      },
-    });
-    const s1 = reducer(s0, { type: 'ADVANCE_WEEK' });
-    assert.equal(s1.laborRelations.negotiation, null,
-      'no demand for the pay the player is already paying');
-    assert.ok(s1.laborRelations.nextNegotiationAbsWeek.pilots > 1, 'talks pushed out instead');
-    assert.ok(!s1.pendingToasts.some(t => (t.title ?? '').includes('Contract talks')),
-      'and no toast about a demand that was never tabled');
-  });
-
-  test('an ignored negotiation lapses into a refusal (morale hit + unrest)', () => {
+  test('an open demand on an old save closes with no refusal penalty', () => {
     let s = playState({
       laborRelations: {
         ...DEFAULT_LABOR_RELATIONS,
@@ -343,12 +324,10 @@ try {
         nextNegotiationAbsWeek: { pilots: 9999, cabinCrew: 9999, groundStaff: 9999, maintenanceTeam: 9999 },
       },
     });
-    const moraleBefore = s.labor.groundStaff.morale;
     s = reducer(s, { type: 'ADVANCE_WEEK' });
-    assert.equal(s.laborRelations.negotiation, null, 'demand lapsed');
-    assert.ok(s.labor.groundStaff.morale < moraleBefore, 'morale dropped');
-    assert.ok(s.laborRelations.unrest.groundStaff >= 25, 'unrest spiked');
-    assert.ok(s.laborRelations.nextNegotiationAbsWeek.groundStaff < 9999, 'union re-tables sooner');
+    assert.equal(s.laborRelations.negotiation, null, 'demand closed');
+    assert.ok(s.laborRelations.unrest.groundStaff < 25, 'no refusal unrest');
+    assert.ok(!s.pendingToasts.some(t => (t.title ?? '').includes('ignored')), 'not treated as a refusal');
   });
 
   test('a no-op demand left in an old save is closed quietly on the next tick', () => {
@@ -371,15 +350,12 @@ try {
     assert.ok(!s1.pendingToasts.some(t => (t.title ?? '').includes('ignored')), 'not treated as a refusal');
   });
 
-  test('old saves get first negotiations scheduled on the next tick', () => {
+  test('old saves without laborRelations tick cleanly', () => {
     const s0 = playState();
     delete s0.laborRelations;             // simulate a pre-feature save
     const s1 = reducer(s0, { type: 'ADVANCE_WEEK' });
-    const sched = s1.laborRelations.nextNegotiationAbsWeek;
-    for (const g of LABOR_GROUPS) {
-      assert.ok(sched[g.id] >= 65, `${g.id} first talks scheduled`);
-    }
     assert.equal(s1.laborRelations.strike, null);
+    assert.equal(s1.laborRelations.negotiation, null);
   });
 
   test('reconcileState fills laborRelations on old saves', () => {

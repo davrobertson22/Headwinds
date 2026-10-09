@@ -146,7 +146,7 @@ test('one covered group does not mute a genuinely short one', () => {
     'the banner must stay red while any group still needs hiring');
   const banner = html.slice(html.indexOf('Labor Groups'), html.indexOf('≈9 per narrowbody'));
   assert.ok(/Cabin Crew/.test(banner), 'the banner must name the group that needs hiring');
-  assert.ok(/in training/.test(banner),
+  assert.ok(/on the way/.test(banner),
     'and must show that the other group is already covered rather than listing it as a demand');
 });
 

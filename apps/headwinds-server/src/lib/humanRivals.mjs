@@ -27,6 +27,7 @@ import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
+import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
@@ -554,14 +555,22 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
     }),
   ]));
   const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a)]));
+  // Talent market (models/talentMarket.js): what each rival pays per crew
+  // group, weighted by its fleet. Only the two fields the going rate reads.
+  const payrolls = new Map(active.map((a) => [a.id, {
+    fleetSize: Array.isArray(a.state?.fleet) ? a.state.fleet.length : 0,
+    labor: a.state?.labor ?? null,
+  }]));
 
   const views = new Map();
   for (const me of airlines) {
     const competitors = [];
     const humanRivals = {};
+    const rivalPayrolls = [];
     for (const other of active) {
       if (other.id === me.id) continue;
       competitors.push(comps.get(other.id));
+      rivalPayrolls.push(payrolls.get(other.id));
       for (const [key, spec] of Object.entries(specs.get(other.id))) {
         (humanRivals[key] ??= []).push(spec);
       }
@@ -570,6 +579,9 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
       competitors,
       humanRivals,
       alliance: allianceMap.get(me.id) ?? null,
+      // The going rate per crew group, from everyone ELSE's payroll. Crew-
+      // pipeline worlds only — nothing else reads it.
+      laborMarket: me.state?.crewPipeline === true ? goingRateFromRivals(rivalPayrolls) : null,
       stockPool: null,   // filled in by attachStockPool (worlds with a float pool)
       // The player's OWN badges (shown on their leaderboard row in-game).
       selfOG: me.account?.isOG === true,
@@ -626,6 +638,8 @@ export function rivalOverlay(view) {
     // how a departed member's grants read as withdrawn, which starts the
     // engine's wind-down countdown.
     ...(view?.gateMarket ? { allianceSlotPool: view.gateMarket.slotPool ?? {} } : {}),
+    // Talent market: the going rate per crew group (crew-pipeline worlds).
+    ...(view?.laborMarket ? { laborMarket: view.laborMarket } : {}),
     competitors: view?.competitors ?? [],
     humanRivals: view?.humanRivals ?? {},
     encroachments: {},               // AI encroachment never exists in Headwinds
@@ -652,7 +666,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev, accountSupporter,
-    gateMarket, worldMarket, stockPool, allianceSlotPool,
+    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket,
     ...rest
   } = state;
   return rest;

@@ -345,6 +345,17 @@ export function crewInTraining(labor, groupId) {
   return (labor?.[groupId]?.pipeline ?? []).reduce((s, b) => s + (Number(b?.count) || 0), 0);
 }
 
+/** Crew hired and paid for but still waiting to be recruited (talent market,
+ *  models/talentMarket.js) — they have not started training yet. */
+export function crewRecruiting(labor, groupId) {
+  return Math.max(0, Number(labor?.[groupId]?.recruiting) || 0);
+}
+
+/** Everyone already on the way: in training plus the recruiting queue. */
+export function crewOnTheWay(labor, groupId) {
+  return crewInTraining(labor, groupId) + crewRecruiting(labor, groupId);
+}
+
 /**
  * Shortfall per group and overall, as a FRACTION of the requirement (0 = fully
  * staffed, 1 = nobody). A group needing nobody is never short.
@@ -875,7 +886,8 @@ export function crewStatus(state, typeOf) {
     groups.push({
       id: g.id, name: g.name,
       missing: crewBodies(g.id, Math.max(0, need - have)),
-      inTraining: crewBodies(g.id, crewInTraining(state.labor, g.id)),
+      // Training AND the recruiting queue: both are hires already made.
+      inTraining: crewBodies(g.id, crewOnTheWay(state.labor, g.id)),
       shortPct: short.byGroup[g.id],
     });
   }
@@ -904,7 +916,7 @@ export function crewParkedAlertText(status) {
   }
   const covered = status.groups.every(g => g.inTraining >= g.missing);
   return covered
-    ? `Crew in training (${list} until they qualify) — on-time and satisfaction suffer meanwhile`
+    ? `Crew on the way (${list} until they are recruited and qualify) — on-time and satisfaction suffer meanwhile`
     : `Short-handed (${list}) — on-time and satisfaction suffer; at ${Math.round(CREW_SEVERE_SHORTFALL * 100)}% short, aircraft are parked · hire crew`;
 }
 
@@ -948,8 +960,10 @@ export function autoReplacePlan(labor, fleet, typeOf) {
     const s = labor?.[g.id];
     if (!s?.autoReplace) continue;
     const per = CREW_PER_UNIT[g.id] ?? 1;
+    // The recruiting queue is a hire already made — replacing it again would
+    // pay for the same people twice.
     const deficit = Math.max(0,
-      crewRequired(g.id, fleet, typeOf) - crewAvailable(labor, g.id) - crewInTraining(labor, g.id));
+      crewRequired(g.id, fleet, typeOf) - crewAvailable(labor, g.id) - crewOnTheWay(labor, g.id));
     const owed = Math.min(deficit, (Number(s.replaceOwed) || 0) + (Number(s.lastLeavers) || 0));
     const bodies = Math.floor(owed * per + 1e-9);
     out.push({ group: g.id, bodies, owedAfter: Math.max(0, owed - bodies / per) });

@@ -3,7 +3,7 @@ import {
   LABOR_GROUPS, LABOR_GROUP_MAP, DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET,
   moraleTarget, moraleColor,
   CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, CREW_INSTANT_AIRCRAFT, crewRequired,
-  crewAvailable, crewInTraining, crewShortfall, crewHireCost, splitStarterHire,
+  crewAvailable, crewInTraining, crewRecruiting, crewShortfall, crewHireCost, splitStarterHire,
   CREW_PER_UNIT, crewBodies, crewRequiredAhead, deliveriesWithinLeadTime,
   crewRequiredForOrderBook, weeksUntilHiringDue,
   crewHiresNeeded, crewExpectedLeavers, weeksToOrderBookComplete,
@@ -12,8 +12,9 @@ import {
 } from '../data/labor.js';
 import {
   DEFAULT_LABOR_RELATIONS, unrestBand, strikeProbability,
-  counterOfferMultiplier, settlementPayMultiplier, UNREST_STRIKE_THRESHOLD,
+  settlementPayMultiplier, UNREST_STRIKE_THRESHOLD,
 } from '../data/laborRelations.js';
+import { goingRate, relativePay, weeklyIntakeUnits, intakeUsed, weeksToRecruit } from '../models/talentMarket.js';
 import {
   AIRCRAFT_FAMILY, FAMILY_INFO, FAMILY_CATEGORY_LABEL,
   activeFamilies as getActiveFamilies, weeklyFamilyBaseCost,
@@ -160,99 +161,6 @@ function StrikeBanner({ strike, labor, dispatch }) {
   );
 }
 
-// ─── Contract negotiation banner ──────────────────────────────────────────────
-
-function NegotiationBanner({ negotiation, labor, fleetSize, complexityMult, dispatch }) {
-  const group   = LABOR_GROUP_MAP[negotiation.group];
-  const gs      = labor[negotiation.group] ?? { payMultiplier: 1.0, morale: 80 };
-  const demand  = negotiation.demandMultiplier;
-  const counter = counterOfferMultiplier(gs.payMultiplier, demand);
-  // The midpoint can round up to the full demand (1.95× vs a 2.00× demand).
-  // That's not a counter — it's the union's own number — so drop the button
-  // rather than offering an identical option that reads as a gamble.
-  const canCounter = counter < demand - 1e-9;
-  const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(negotiation.group) ? complexityMult : 1.0;
-  const weeklyDelta = (mult) =>
-    Math.round(group.baseWeeklyPerAircraft * (mult - gs.payMultiplier) * fleetSize * famMult * getEraCostScale());
-
-  const btn = {
-    padding: '7px 14px', borderRadius: 6, border: '1px solid var(--border)',
-    background: 'var(--surface2)', color: 'var(--text)', cursor: 'pointer',
-    fontSize: 12, fontWeight: 600, textAlign: 'center', flex: 1, minWidth: 150,
-  };
-
-  return (
-    <div className="card" style={{
-      marginBottom: 14, padding: '14px 18px',
-      border: '1px solid var(--yellow)', background: 'rgba(245,166,35,0.06)',
-    }}>
-      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--yellow)' }}>
-        📜 Contract talks — {group?.name ?? negotiation.group}
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 5, marginBottom: 12 }}>
-        The union demands <b>{demand.toFixed(2)}× market rate</b> (currently {gs.payMultiplier.toFixed(2)}×).
-        You have <b>{negotiation.weeksLeft} week{negotiation.weeksLeft !== 1 ? 's' : ''}</b> to respond —
-        letting the demand lapse counts as a refusal. Refusals and rejected counters build union
-        unrest; enough unrest and they walk.
-      </div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button
-          style={{ ...btn, borderColor: 'var(--green)' }}
-          onClick={() => dispatch({ type: 'RESOLVE_NEGOTIATION', response: 'accept' })}
-        >
-          <div style={{ color: 'var(--green)' }}>Accept {demand.toFixed(2)}×</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>
-            {fleetSize > 0 ? `${formatMoney(weeklyDelta(demand))}/wk extra` : 'Costs rise'} · morale +8 · union satisfied
-          </div>
-        </button>
-        {canCounter && (
-        <button
-          style={{ ...btn, borderColor: 'var(--yellow)' }}
-          onClick={() => dispatch({ type: 'RESOLVE_NEGOTIATION', response: 'counter' })}
-        >
-          <div style={{ color: 'var(--yellow)' }}>Counter at {counter.toFixed(2)}×</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>
-            {fleetSize > 0 ? `${formatMoney(weeklyDelta(counter))}/wk extra` : 'Half the raise'} · union may accept — or stay angry
-          </div>
-        </button>
-        )}
-        <button
-          style={{ ...btn, borderColor: 'var(--red)' }}
-          onClick={() => dispatch({ type: 'RESOLVE_NEGOTIATION', response: 'refuse' })}
-        >
-          <div style={{ color: 'var(--red)' }}>Refuse</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2 }}>
-            No cost now · morale −10 · unrest +30 — strike territory
-          </div>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Negotiation outcome note (shown for a few weeks after resolving) ─────────
-
-function NegotiationOutcomeNote({ outcome }) {
-  const group = LABOR_GROUP_MAP[outcome.group];
-  const text = {
-    accepted:        `accepted their demand. Pay is now ${outcome.newPay.toFixed(2)}× and the union is satisfied.`,
-    counterAccepted: `took your counter-offer of ${outcome.newPay.toFixed(2)}× · a fair deal, relations intact.`,
-    counterRejected: `pocketed your ${outcome.newPay.toFixed(2)}× counter but rejected the deal. They wanted ${outcome.demand.toFixed(2)}× and will be back sooner, angrier.`,
-    refused:         `were refused outright, morale took a hit and unrest is building.`,
-  }[outcome.outcome];
-  const color = outcome.outcome === 'accepted' || outcome.outcome === 'counterAccepted'
-    ? 'var(--green)' : 'var(--red)';
-  return (
-    <div style={{
-      fontSize: 12, color: 'var(--text-muted)', marginBottom: 14,
-      padding: '8px 12px', background: 'var(--surface2)', borderRadius: 6,
-      borderLeft: `3px solid ${color}`,
-    }}>
-      Last contract round: {group?.name ?? outcome.group} {text}
-    </div>
-  );
-}
-
 // ─── Labor group card ─────────────────────────────────────────────────────────
 
 function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexityMult = 1.0, familyCount = 1, unrest = 0, onStrike = false, crew = null, cash = 0 }) {
@@ -342,6 +250,9 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         // Severity now means "you still have to act", never "you are behind".
         const covered = short > 0 && gapBodies <= 0;
         const severe = !covered && short >= CREW_SEVERE_SHORTFALL;
+        const hireTitle = (n) => n <= startNowBodies
+          ? `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`
+          : `${startNowBodies.toLocaleString()} start training now; the rest are recruited at ≈${Math.max(1, crewBodies(group.id, crew.intakePerWeek)).toLocaleString()} a week, then train for ${CREW_LEAD_WEEKS[group.id]} weeks. Paid for up front.`;
         const tone = short <= 0 ? 'var(--green)' : severe ? 'var(--red)' : 'var(--yellow)';
         // Everything below this line is in PEOPLE. The engine works in
         // narrowbody-equivalents (1.0 = one 160-seat narrowbody's full crew
@@ -353,6 +264,11 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
         const aheadBodies = crewBodies(group.id, crew.requiredAhead);
         const bookBodies  = crewBodies(group.id, crew.orderBookRequired);
         const trainBodies = crewBodies(group.id, crew.training);
+        const recruitBodies = crewBodies(group.id, crew.recruiting);
+        const intakeBodies  = Math.max(1, crewBodies(group.id, crew.intakePerWeek));
+        // People this week's intake can still start training straight away; a
+        // hire beyond it goes into the recruiting queue.
+        const startNowBodies = crewBodies(group.id, crew.intakeLeft);
         // Size the gap off the forward requirement: the point of showing it is
         // that you can hire for a delivery before it lands, not after.
         // Missing PEOPLE, not a percentage. A percentage rounds to "0% short"
@@ -453,10 +369,30 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 {crew.nextReady != null && crew.nextReady > 0 ? ` · next ready in ${crew.nextReady} wk${crew.nextReady === 1 ? '' : 's'}` : ' · ready next week'}
               </div>
             )}
+            {/* Talent market: the recruiting queue and how fast this pay fills it. */}
+            {crew.recruiting > 1e-9 ? (
+              <div style={{ fontSize: 11, color: 'var(--yellow)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>
+                  🧲 {recruitBodies.toLocaleString()} still being recruited · ≈{intakeBodies.toLocaleString()} a week at {payMultiplier.toFixed(2)}×
+                  {' '}— about {crew.recruitWeeks} wk{crew.recruitWeeks === 1 ? '' : 's'} to fill, then {CREW_LEAD_WEEKS[group.id]} weeks' training.
+                  {' '}Pay more to recruit faster.
+                </span>
+                <button className="btn-small" onClick={() => dispatch({ type: 'CANCEL_RECRUITING', group: group.id })}
+                  title="Stop recruiting the people still in the queue and get their training cost back. Anyone already in training stays.">
+                  Cancel · refund {formatMoney(crewHireCost(group.id, crew.recruiting))}
+                </button>
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4 }}>
+                🧲 Can recruit ≈{intakeBodies.toLocaleString()} {group.name.toLowerCase()} a week at {payMultiplier.toFixed(2)}×
+                {crew.relPay < 0.995 ? ' — under the going rate, so recruits are scarce' : crew.relPay > 1.005 ? ' — above the going rate, so recruits come faster' : ''}.
+                {' '}Bigger hires queue and fill week by week.
+              </div>
+            )}
             {short > 0 && (
               <div style={{ fontSize: 11, color: tone, marginBottom: 6 }}>
                 {covered
-                  ? `⏳ Short-handed until training finishes — on-time performance is suffering until then, but ${trainBodies.toLocaleString()} are on the way: no further hiring needed.`
+                  ? `⏳ Short-handed until training finishes — on-time performance is suffering until then, but ${crewBodies(group.id, crew.onTheWay).toLocaleString()} are on the way: no further hiring needed.`
                   : severe
                   ? '⚠ Severely short — on-time performance and satisfaction are taking the maximum hit.'
                   : '⚠ Short-handed — on-time performance is suffering. Hire before it gets worse.'}
@@ -472,7 +408,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                     title={cost > cash ? 'Not enough cash to train this many'
                       : nothingNeeded ? `You already have enough ${group.name.toLowerCase()} for your fleet and everything on order — this hires ${n.toLocaleString()} more for growth`
                       : instant ? 'Starter crew — starts work immediately'
-                      : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
+                      : hireTitle(n)}>
                     Hire {n.toLocaleString()} · {formatMoney(cost)}{instant ? ' · instant' : ''}
                   </button>
                 );
@@ -492,7 +428,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 onClick={() => { hireBodies(customN); setCustomHire(''); }}
                 title={customN <= 0 ? 'Enter how many people to hire'
                   : customCost > cash ? 'Not enough cash to train this many'
-                  : `Trains in ${CREW_LEAD_WEEKS[group.id]} weeks`}>
+                  : hireTitle(customN)}>
                 Hire{customN > 0 ? ` ${customN.toLocaleString()} · ${formatMoney(customCost)}` : ''}
               </button>
               <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
@@ -509,6 +445,12 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
           <span style={{ color: 'var(--text-muted)' }}>Pay rate</span>
           <span style={{ fontWeight: 600, color: payMultiplier > 1.05 ? 'var(--green)' : payMultiplier < 0.95 ? 'var(--red)' : 'var(--text)' }}>
             {payMultiplier.toFixed(2)}× market rate
+            {crew && Math.abs((crew.market ?? 1) - 1) >= 0.005 && (
+              <span style={{ fontWeight: 400, color: payMultiplier >= crew.market ? 'var(--green)' : 'var(--yellow)' }}
+                    title="What rival airlines in this world pay this group, weighted by fleet size and damped by the rest of the industry at 1.0×. Recruiting speed and resignations follow your pay against this figure.">
+                {' '}· rivals pay {crew.market.toFixed(2)}×
+              </span>
+            )}
           </span>
         </div>
         <div style={{ position: 'relative' }}>
@@ -542,7 +484,20 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
           <span style={{ color: 'var(--text-muted)' }}>1.0× market</span>
           <span>2.0× premium</span>
         </div>
-        {committedPay > 1.0005 && (() => {
+        {/* Wage lock (Discord, 2026-10-04: "being able to lock it at x% would be
+            nice"). Locked, the multiplier stays where the player set it and the
+            premium is paid in full every week; unlocked, a premium drifts back
+            toward market ~6%/yr as it always has. */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', marginTop: 6, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={!!groupState.indexed}
+            onChange={e => dispatch({ type: 'SET_PAY_INDEXED', group: group.id, indexed: e.target.checked })}
+          />
+          🔒 Hold this rate
+          <span style={{ color: 'var(--text-dim)' }}>· keep {committedPay.toFixed(2)}× as market wages rise, instead of letting it slip back</span>
+        </label>
+        {committedPay > 1.0005 && !groupState.indexed && (() => {
           // Where the drift takes this group's pay in a year if nothing changes —
           // the same function the weekly tick applies, so the number is exact.
           const inAYear = erodePayPremium(committedPay, 52);
@@ -552,9 +507,9 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 ↘ Market catching up: {committedPay.toFixed(2)}× → about {inAYear.toFixed(2)}× in a year
               </span>
               <span style={{ color: 'var(--text-dim)' }}>
-                {' '}· Wages across the industry keep rising, so any pay above 1.0× — including a rate you set yourself —
-                slips back toward market by about {Math.round(PAY_MARKET_CATCHUP_PER_YEAR * 100)}% a year, and morale
-                follows it. Nudge the slider back up to keep the premium, or let the next contract round restore it.
+                {' '}· Wages across the industry keep rising, so a premium you don't hold slips back toward market by
+                about {Math.round(PAY_MARKET_CATCHUP_PER_YEAR * 100)}% a year, and morale follows it. Tick
+                “Hold this rate” to keep it — you pay the full premium every week.
               </span>
             </div>
           );
@@ -872,6 +827,8 @@ function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMa
 const CREW_HOW_IT_WORKS =
   'Every aircraft needs pilots, cabin crew, ground staff and maintenance staff — bigger aircraft need more. '
   + 'New hires train before they can work (pilots ~10 weeks, cabin crew ~5), and a few leave every week, more if pay or morale is low. '
+  + 'You can only recruit so many a week: a big hire is paid for up front and fills week by week, faster the better you pay against the going rate. '
+  + 'Where other airlines compete for the same people, the going rate follows what they pay — out-pay them to recruit faster and keep your staff. '
   + 'A little short: on-time performance and passenger satisfaction drop. '
   + `${Math.round(CREW_SEVERE_SHORTFALL * 100)}% or more short on pilots or cabin crew: aircraft are parked — their routes earn nothing while lease and maintenance still bill. `
   + 'Hire ahead of new deliveries; the hire buttons already allow for training time and attrition.';
@@ -904,6 +861,12 @@ export default function Operations() {
     const required  = crewRequired(g.id, fleet, typeOfAircraft);
     const available = crewAvailable(labor, g.id);
     const training  = crewInTraining(labor, g.id);
+    // Talent market (models/talentMarket.js): hires beyond this week's intake
+    // wait in a recruiting queue, and how fast it fills depends on pay against
+    // the going rate. The queue is a hire already made, so every "how many to
+    // hire" figure below counts it as on the way.
+    const recruiting = crewRecruiting(labor, g.id);
+    const onTheWay  = training + recruiting;
     const batches   = labor?.[g.id]?.pipeline ?? [];
     const nextReady = batches.length
       ? Math.min(...batches.map(b => (b?.readyAbsWeek ?? 0))) - currentAbsWeek
@@ -927,20 +890,28 @@ export default function Operations() {
     // and it ends up needing more by the time my order finishes" describes.
     const pay = labor?.[g.id]?.payMultiplier ?? 1.0;
     const mor = labor?.[g.id]?.morale ?? 80;
+    // Retention and recruiting both read pay RELATIVE to the going rate (1.0×
+    // in solo), exactly as the tick does.
+    const market = goingRate(state, g.id);
+    const relPay = relativePay(state, g.id, pay);
+    const intakePerWeek = weeklyIntakeUnits(required, relPay);
+    const intakeLeft = recruiting > 1e-9 ? 0 : Math.max(0, intakePerWeek - intakeUsed(labor?.[g.id], currentAbsWeek));
+    const recruitWeeks = weeksToRecruit(recruiting, intakePerWeek);
     const weeksToBook = weeksToOrderBookComplete(state.pendingOrders, currentAbsWeek);
     const weeksToArriving = arriving.length
       ? Math.max(...arriving.map(o => (Number(o?.deliverAbsWeek) || 0) - currentAbsWeek))
       : 0;
     const hireAhead = crewHiresNeeded(g.id, {
-      need: requiredAhead, onLine: available, inTraining: training,
-      payMultiplier: pay, morale: mor, weeksToTarget: weeksToArriving,
+      need: requiredAhead, onLine: available, inTraining: onTheWay,
+      payMultiplier: relPay, morale: mor, weeksToTarget: weeksToArriving,
     });
     const hireBook = crewHiresNeeded(g.id, {
-      need: orderBookRequired, onLine: available, inTraining: training,
-      payMultiplier: pay, morale: mor, weeksToTarget: weeksToBook,
+      need: orderBookRequired, onLine: available, inTraining: onTheWay,
+      payMultiplier: relPay, morale: mor, weeksToTarget: weeksToBook,
     });
-    const leaversPerWeek = crewExpectedLeavers(available, pay, mor, 1);
-    return [g.id, { required, available, training, nextReady, instantRoom,
+    const leaversPerWeek = crewExpectedLeavers(available, relPay, mor, 1);
+    return [g.id, { required, available, training, recruiting, onTheWay, nextReady, instantRoom,
+                    market, relPay, intakePerWeek, intakeLeft, recruitWeeks,
                     requiredAhead, arriving, orderBookRequired, hiringDueIn,
                     hireAhead, hireBook, leaversPerWeek, weeksToBook,
                     onOrder: (state.pendingOrders ?? []).length,
@@ -1030,22 +1001,10 @@ export default function Operations() {
         </div>
       </div>
 
-      {/* Active strike / open contract negotiation */}
+      {/* Active strike. (Union pay demands were removed 2026-10-04 — pay is
+          the player's call; unrest still builds from low pay and morale.) */}
       {laborRelations.strike && (
         <StrikeBanner strike={laborRelations.strike} labor={labor} dispatch={dispatch} />
-      )}
-      {laborRelations.negotiation && (
-        <NegotiationBanner
-          negotiation={laborRelations.negotiation}
-          labor={labor}
-          fleetSize={fleetSize}
-          complexityMult={complexityMult}
-          dispatch={dispatch}
-        />
-      )}
-      {!laborRelations.negotiation && laborRelations.lastOutcome
-        && (currentAbsWeek - laborRelations.lastOutcome.absWeek) <= 4 && (
-        <NegotiationOutcomeNote outcome={laborRelations.lastOutcome} />
       )}
 
       {/* Labor section */}
@@ -1087,9 +1046,9 @@ export default function Operations() {
                     : severe ? 'Severely understaffed' : 'Short-handed';
         const describe = (g) => {
           const missing = Math.max(0, crewBodies(g.id, crew[g.id].required) - crewBodies(g.id, crew[g.id].available));
-          const training = crewBodies(g.id, crew[g.id].training);
+          const training = crewBodies(g.id, crew[g.id].onTheWay);
           return isCovered(g)
-            ? `${g.name} ${missing.toLocaleString()} short · ${training.toLocaleString()} in training`
+            ? `${g.name} ${missing.toLocaleString()} short · ${training.toLocaleString()} on the way`
             : `${g.name} ${missing.toLocaleString()} short`;
         };
         return (

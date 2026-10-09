@@ -12,6 +12,7 @@ import { REGION_LABELS, REGION_ORDER, regionLabel } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
 import OriginPicker from './OriginPicker.jsx';
+import { useSlotPosition, SlotCell, OriginSlotsLine } from './FinderSlots.jsx';
 
 const PAGE_SIZE = 25;
 
@@ -36,6 +37,8 @@ const PAGE_SIZE = 25;
  */
 export default function RouteFinder({ onPick, standalone = false }) {
   const { state } = useGame();
+  // Free gate slots per airport, counted the way the engine's guards count them.
+  const slotPosition = useSlotPosition();
 
   const [open, setOpen]         = useState(!!standalone);
   const [origin, setOrigin]     = useState(state.hub || '');
@@ -326,6 +329,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                 {results.length.toLocaleString()} market{results.length !== 1 ? 's' : ''} from {originAirport.code}{region ? ` in ${REGION_LABELS[region]}` : ''} · showing {shown.length}
                 {forecastReady && <> · forecast on {selectedType.name} at 7 flights/wk, reference fares</>}
               </div>
+              <OriginSlotsLine code={originAirport.code} freq={7} position={slotPosition} />
               <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
@@ -338,6 +342,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                         { h: 'Rivals',      right: false, tip: 'Carriers flying this market from any airport in either city.' },
                         { h: 'Est. load',   right: true, tip: 'Projected mature load factor for the selected aircraft at 7 flights a week — the same projection the Route Planner runs.' },
                         { h: 'Est. profit', right: true, tip: 'Weekly net after operating cost, landing fees and the lease on the aircraft flying it.' },
+                        { h: 'Your slots',  right: true, tip: 'Weekly gate slots you have free at the destination. A route at 7 flights a week needs 7 at each end — lease a gate here without leaving the finder.' },
                         { h: '',            right: true  },
                       ].map((c, i) => (
                         <th key={i} style={{ padding: '7px 12px', textAlign: c.right ? 'right' : 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -407,6 +412,9 @@ export default function RouteFinder({ onPick, standalone = false }) {
                                   {proj.netProfit >= 0 ? '+' : ''}{formatMoney(proj.netProfit)}
                                 </span>
                               : <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>–</span>}
+                          </td>
+                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                            <SlotCell code={a.code} freq={7} position={slotPosition} />
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right' }}>
                             {onPick && !r.block && (

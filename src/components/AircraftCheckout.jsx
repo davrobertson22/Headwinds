@@ -17,6 +17,7 @@ import {
 } from '../data/wifi.js';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { absoluteWeek } from '../utils/fuel.js';
+import { deliverySchedule, deliveryLead } from '../data/delivery.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import CabinTemplatePicker from './CabinTemplatePicker.jsx';
 
@@ -25,13 +26,6 @@ const CAT_COLORS = {
   'Regional Jet': '#38d39f',
   'Narrow Body':  '#3ea6ff',
   'Wide Body':    '#a98bff',
-};
-
-const DELIVERY_LEAD = {
-  'Wide Body':    4,
-  'Narrow Body':  3,
-  'Regional Jet': 2,
-  'Turboprop':    1,
 };
 
 const QUALITY_OPTIONS = [
@@ -286,19 +280,18 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
   const isSparse           = eco < maxEco || (first + biz + prem + eco) < maxSeats;
 
   // ── Delivery schedule ─────────────────────────────────────────────────────
-  const lead           = DELIVERY_LEAD[type.category] ?? 2;
+  const lead           = deliveryLead(type);
   const currentAbsWeek = absoluteWeek(year, week);
   const pendingOfType  = pendingOrders.filter(o => o.typeId === typeId);
 
-  const deliveryWeeks = [];
-  let runningMax = pendingOfType.length > 0
-    ? Math.max(...pendingOfType.map(o => o.deliverAbsWeek))
-    : null;
-  for (let i = 0; i < quantity; i++) {
-    const w = runningMax === null ? currentAbsWeek + 2 * lead : runningMax + lead;
-    deliveryWeeks.push(w);
-    runningMax = w;
-  }
+  // Starter Fleet frames skip the queue and never join it (the reducer puts
+  // them straight into the fleet), so only the rest are scheduled — otherwise
+  // "last in Nw" counted the instant frames as if they had queued too.
+  const instantCount  = Math.min(quantity, starterDeliveriesRemaining);
+  const deliveryWeeks = [
+    ...Array(instantCount).fill(currentAbsWeek),
+    ...deliverySchedule(type, pendingOrders, currentAbsWeek, quantity - instantCount),
+  ];
   const firstDelivery = deliveryWeeks[0];
   const lastDelivery  = deliveryWeeks[deliveryWeeks.length - 1];
   const { displayYear: firstYear, monthName: firstMon, weekInMonth: firstWIM } = absWeekToDisplay(firstDelivery);

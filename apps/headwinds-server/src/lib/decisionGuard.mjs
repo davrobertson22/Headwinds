@@ -492,6 +492,21 @@ function guardAutoReplace(payload) {
   return { group, enabled: payload.enabled === true };
 }
 
+function guardPayIndexed(payload) {
+  // Wage lock: a real group id and a boolean. Anything but literal true unlocks.
+  const group = String(payload.group ?? '');
+  if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  return { group, indexed: payload.indexed === true };
+}
+
+function guardCancelRecruiting(payload) {
+  // Refund the recruiting queue. The reducer computes the refund from the queue
+  // it holds, so the payload is only the group id.
+  const group = String(payload.group ?? '');
+  if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  return { group };
+}
+
 function guardHireCrew(payload) {
   // Crew pipeline (A7). The reducer re-derives the training cost itself and
   // refuses an unaffordable or unknown-group hire, so this is a boundary bound:
@@ -637,6 +652,8 @@ export function guardDecision(type, payload, state) {
     case 'REMOVE_GATE':        return guardGate(payload);
     case 'HIRE_CREW':         return guardHireCrew(payload);
     case 'SET_AUTO_REPLACE':  return guardAutoReplace(payload);
+    case 'SET_PAY_INDEXED':   return guardPayIndexed(payload);
+    case 'CANCEL_RECRUITING': return guardCancelRecruiting(payload);
     case 'SET_BRANDING':       return guardBranding(payload);
     default:                   return payload;
   }

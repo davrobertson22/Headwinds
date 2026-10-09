@@ -29,8 +29,8 @@ const { getAircraftType } = await import('../src/data/aircraft.js');
 const render = (el) => renderToString(React.createElement(GameProvider, null, el)).replaceAll('<!-- -->', '');
 
 const NB = getAircraftType('b737800');
-function seed(pilotPay) {
-  const labor = { ...DEFAULT_LABOR_STATE, pilots: { ...DEFAULT_LABOR_STATE.pilots, payMultiplier: pilotPay } };
+function seed(pilotPay, extra = {}) {
+  const labor = { ...DEFAULT_LABOR_STATE, pilots: { ...DEFAULT_LABOR_STATE.pilots, payMultiplier: pilotPay, ...extra } };
   store.set('bbae_save_v2', JSON.stringify({
     ...freshState(), phase: 'playing', week: 20, year: 2, hub: 'JFK', cash: 4e8, gates: { JFK: 8 },
     fleet: [{ id: 'a1', typeId: NB.id, status: 'idle', ageWeeks: 52, ownershipType: 'owned', config: { economy: NB.seats } }],
@@ -45,7 +45,17 @@ test('pay above market shows where it will be in a year — the tick\'s own numb
   const html = render(React.createElement(Operations));
   const expected = erodePayPremium(1.5, 52).toFixed(2);
   assert.ok(html.includes(`1.50× → about ${expected}× in a year`), `expected "1.50× → about ${expected}× in a year"`);
-  assert.ok(html.includes('including a rate you set yourself'), 'must say it applies to player-set pay');
+  assert.ok(html.includes('Hold this rate'), 'must offer the lock that stops it');
+});
+
+test('a held (indexed) group shows the lock ticked and no drift note', () => {
+  seed(1.5, { indexed: true });
+  const html = render(React.createElement(Operations));
+  assert.ok(!html.includes('Market catching up'), 'no drift note for a held rate');
+  // The pilots card comes first; its lock is the first one on the page.
+  assert.ok(/<input type="checkbox" checked=""\/>🔒 Hold this rate/.test(html), 'pilot lock shows as ticked');
+  seed(1.5);
+  assert.ok(!/<input type="checkbox" checked=""\/>🔒 Hold this rate/.test(render(React.createElement(Operations))), 'and unticked when not held');
 });
 
 test('a year of weekly ticks lands where the card said', () => {

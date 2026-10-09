@@ -197,10 +197,12 @@ t('HIRE_CREW is inert without the world/save flag', () => {
 t('HIRE_CREW charges training up front and adds to the pipeline, NOT to headcount', () => {
   const s0 = withCrew();
   const before = s0.labor.pilots.headcount;
-  const s1 = gameReducer(s0, { type: 'HIRE_CREW', group: 'pilots', count: 4 });
-  assert.equal(s0.cash - s1.cash, crewHireCost('pilots', 4), 'training must be paid at hire');
+  // 2 units: inside one week's recruiting intake (talent market floor), so the
+  // whole batch starts training now — big hires queue (labor-rework-test.mjs).
+  const s1 = gameReducer(s0, { type: 'HIRE_CREW', group: 'pilots', count: 2 });
+  assert.equal(s0.cash - s1.cash, crewHireCost('pilots', 2), 'training must be paid at hire');
   assert.equal(s1.labor.pilots.headcount, before, 'headcount must NOT jump on hire');
-  assert.equal(crewInTraining(s1.labor, 'pilots'), 4, 'the batch must be in training');
+  assert.equal(crewInTraining(s1.labor, 'pilots'), 2, 'the batch must be in training');
   assert.equal(s1.labor.pilots.pipeline[0].readyAbsWeek, 10 + CREW_LEAD_WEEKS.pilots);
 });
 
@@ -215,10 +217,10 @@ t('an unknown group, a zero hire, or an unaffordable one are refused', () => {
 t('a batch joins the line only after its lead time, then counts as available', () => {
   let s = withCrew();
   const start = s.labor.pilots.headcount;
-  s = gameReducer(s, { type: 'HIRE_CREW', group: 'pilots', count: 4 });
+  s = gameReducer(s, { type: 'HIRE_CREW', group: 'pilots', count: 2 });
   for (let i = 0; i < CREW_LEAD_WEEKS.pilots - 1; i++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
-  assert.equal(crewInTraining(s.labor, 'pilots'), 4, 'still training just before the lead time');
-  assert.ok(crewAvailable(s.labor, 'pilots') < start + 4, 'must not have joined early');
+  assert.equal(crewInTraining(s.labor, 'pilots'), 2, 'still training just before the lead time');
+  assert.ok(crewAvailable(s.labor, 'pilots') < start + 2, 'must not have joined early');
   s = gameReducer(s, { type: 'ADVANCE_WEEK' });
   assert.equal(crewInTraining(s.labor, 'pilots'), 0, 'batch should have graduated');
   assert.ok(crewAvailable(s.labor, 'pilots') > start, 'graduates must reach the line');

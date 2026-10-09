@@ -9,7 +9,11 @@
  *    a revenue line-item loss in the weekly tick) for 1–2 weeks. The player
  *    can end a strike immediately by settling (SETTLE_STRIKE: a 15% raise).
  *
- * 2. CONTRACT NEGOTIATIONS — every ~2–3 game years each group's union tables
+ * 2. CONTRACT NEGOTIATIONS — REMOVED 2026-10-04 (Discord: Dunno23, VodkaOnFire).
+ *    The tick no longer tables demands and closes any open one with no penalty
+ *    (reducer.mjs ADVANCE_WEEK). The helpers below are kept so RESOLVE_NEGOTIATION
+ *    from an older client stays a harmless no-op and old tests still read. The
+ *    original design, for the record: every ~2–3 game years each group's union tables
  *    a pay demand (unless they are already on MAX_PAY_MULTIPLIER, in which case
  *    there is nothing to ask for and the round is quietly rescheduled). The
  *    player has NEGOTIATION_RESPONSE_WEEKS to respond:
