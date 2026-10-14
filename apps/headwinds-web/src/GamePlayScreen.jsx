@@ -30,6 +30,7 @@ import FeedWidget from './Feed.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import TickCountdown from './TickCountdown.jsx';
+import InviteButton from './InviteButton.jsx';
 import '../../../src/index.css';
 
 // ── Statistics backfill ─────────────────────────────────────────────────────
@@ -566,6 +567,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
           >🏁 <span className="hw-btn-label">Results</span></button>
         )}
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
+        {meta?.worldStatus !== 'ENDED' && <InviteButton worldId={worldId} token={token} variant="topbar" />}
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
         <MessagesWidget worldId={worldId} token={token} onViewPlayer={openProfile} />
         {/* Account-level DMs (cross-world). The widget was lobby-only, so a DM to

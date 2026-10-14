@@ -417,12 +417,25 @@ ${rulesList(w)}
       : `<a class="cta" href="/play#/w/${esc(w.id)}">Found an airline in ${esc(w.name)} →</a>`}
     <p class="muted">${w.status === 'ENDED'
       ? 'Concluded seasons stay readable as a record of who built what; the live worlds are where seats are open.'
-      : `Free, in the browser, no download. Sign in with Google or a one-time email link, pick a hub, and your first week flies on the next tick. Joining a running world is normal — a new airline starts with the same founding capital as everyone else did, and the incumbents above are exactly the rivals you will be pricing against.`}</p>`;
+      : `Free, in the browser, no download. Sign in with Google, Discord or a one-time email link, pick a hub, and your first week flies on the next tick. Joining a running world is normal — a new airline starts with the same founding capital as everyone else did, and the incumbents above are exactly the rivals you will be pricing against.`}</p>`;
 
   const top = rows.slice(0, 3).map((a) => a.name).join(', ');
+  // This page is what a player's invite link points at, so the title and
+  // description are what Discord / WhatsApp show in the preview card. While
+  // seats are open they read as an invitation; a full or finished world keeps
+  // the standings framing.
+  const airlines = w.playerCount ?? rows.length;
+  const seatsOpen = ['LOBBY', 'RUNNING'].includes(w.status) && Number.isFinite(w.maxPlayers) ? Math.max(0, w.maxPlayers - airlines) : 0;
+  const era = Number.isInteger(w.startYear) ? `started in ${w.startYear}` : 'modern fleet';
+  const title = seatsOpen > 0
+    ? `${w.name} — ${fmtInt(seatsOpen)} of ${fmtInt(w.maxPlayers)} airline seats open · Headwinds`
+    : `${w.name} — ${w.status === 'ENDED' ? 'Final Standings' : 'Live Standings'} · Headwinds`;
+  const description = seatsOpen > 0
+    ? `Found an airline in ${w.name}, a free ${w.lengthYears}-year multiplayer airline world: ${w.paceLabel ?? ''}, ${era}, ${plural(airlines, 'player-run airline', 'player-run airlines')} so far${rows[0] ? `, led by ${rows[0].name}` : ''}. Every rival is a real person.`
+    : `${w.status === 'ENDED' ? 'Final' : 'Live'} standings for ${w.name}, a ${w.lengthYears}-year multiplayer airline world with ${fmtInt(airlines)} player-run airlines${top ? `. Leading: ${top}` : ''}.`;
   return layout({
-    title: `${w.name} — ${w.status === 'ENDED' ? 'Final Standings' : 'Live Standings'} · Headwinds`,
-    description: `${w.status === 'ENDED' ? 'Final' : 'Live'} standings for ${w.name}, a ${w.lengthYears}-year multiplayer airline world with ${fmtInt(w.playerCount ?? rows.length)} player-run airlines${top ? `. Leading: ${top}` : ''}.`,
+    title,
+    description,
     path: `/worlds/${w.id}`,
     body,
   });

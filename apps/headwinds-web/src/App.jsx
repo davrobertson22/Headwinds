@@ -15,6 +15,8 @@ import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { KOFI_URL } from './support.js';
+import InviteButton from './InviteButton.jsx';
+import { rememberReturnRoute, resumeAfterSignIn, safeLocalStorage } from './invite.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
@@ -174,8 +176,11 @@ function SignIn() {
   // Google and Discord share the same redirect flow. Back to /play, not the
   // origin — the static landing page at '/' has no Supabase client, so tokens
   // landing there would never be exchanged.
+  // An invite link (#/w/<id>) has to survive the round trip through the
+  // provider, which always comes back to bare /play — see invite.js.
   const oauth = async (provider) => {
     setError(null);
+    rememberReturnRoute(window.location.hash, safeLocalStorage());
     const { error: e } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: `${window.location.origin}/play` },
@@ -186,6 +191,7 @@ function SignIn() {
   const magicLink = async (ev) => {
     ev.preventDefault();
     setError(null);
+    rememberReturnRoute(window.location.hash, safeLocalStorage());
     const { error: e } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: `${window.location.origin}/play` },
@@ -1329,6 +1335,9 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
               ? <> · <button className="btn small" type="button" onClick={() => setPwDraft(world.joinCode ?? '')}>Change {world.supporterWorld ? 'password' : 'code'}</button></>
               : null}
           </p>
+          {['LOBBY', 'RUNNING'].includes(world.status) && (world.visibility !== 'PRIVATE' || myAirline || isOwner) && (
+            <div className="row" style={{ marginBottom: 8 }}><InviteButton world={world} /></div>
+          )}
           {pwDraft != null && (
             <form className="row wrap" onSubmit={changePassword}>
               <input required minLength={4} maxLength={32} autoFocus className="hub-input"
@@ -1970,6 +1979,12 @@ export default function App() {
   const [messageTo, setMessageTo] = useState(null);
 
   const signOut = () => supabase?.auth.signOut();
+
+  // Back from sign-in on the world list with an invite parked? Go to that world.
+  useEffect(() => {
+    const target = resumeAfterSignIn({ signedIn: Boolean(session), screen: route.screen, storage: safeLocalStorage() });
+    if (target) goTo(target);
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps -- once per session change, not per navigation
 
   // The game owns the whole viewport — no lobby shell around it.
   if (route.screen === 'play') {

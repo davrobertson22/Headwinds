@@ -141,7 +141,7 @@ if (R) {
 
   console.log('\n4. Renderer: world page');
   const page = R.renderWorldPage({ detail, news, typeName: (id) => ({ b737800: 'Boeing 737-800' })[id] ?? id });
-  check(page.includes('<title>Scarce Assets — Live Standings · Headwinds</title>'), 'title names the world');
+  check(page.includes('<title>Scarce Assets — 47 of 50 airline seats open · Headwinds</title>'), 'title names the world (and, while seats are open, reads as an invite — world-invite-test)');
   check(page.includes('<link rel="canonical" href="https://www.headwindsairlinegame.com/worlds/cmrx2f2m4000eo1158zc52qfr" />'), 'self-canonical');
   check((page.match(/<tr>\s*<td class="num">\d+<\/td>/g) ?? []).length === 3, 'one standings row per airline');
   check(page.includes('$226.19B'), 'market cap formatted like the lobby ($226.19B)');
