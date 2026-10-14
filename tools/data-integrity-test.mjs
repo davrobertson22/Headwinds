@@ -77,6 +77,18 @@ for (const [o, d] of [['CRV','BGY'], ['TAR','MXP'], ['FOG','LIN'], ['QSR','BGY']
   truthy(baseCityPairDemand(o, d) > 0, `new southern Italian field carries demand ${o}-${d}`);
 }
 
+// ── Niigata, Noida, Yorkshire (Oct 2026): DXN is a Delhi metro member pricing
+//    the shared Delhi market; Doncaster's road neighbours carry no demand ──────
+eq(isSameMetro(getAirport('DXN'), getAirport('DEL')), true, 'DXN is in the Delhi metro');
+eq(baseCityPairDemand('DXN', 'DEL'), 0, 'no DXN-DEL demand');
+eq(baseCityPairDemand('DXN', 'BLR'), baseCityPairDemand('DEL', 'BLR'), 'DXN and DEL price the same Delhi-Bengaluru market');
+for (const [o, d] of [['DSA','LBA'], ['DSA','HUY']]) {
+  eq(baseCityPairDemand(o, d), 0, `road-linked pair suppressed ${o}-${d}`);
+}
+for (const [o, d] of [['KIJ','CTS'], ['KIJ','ICN'], ['DSA','AMS'], ['LBA','DUB'], ['LBA','STN']]) {
+  truthy(baseCityPairDemand(o, d) > 0, `new field carries demand ${o}-${d}`);
+}
+
 // ── Allow-list hygiene: every entry is two real airports, in the 2–65 km band (sub-35 km entries are spared from the same-metro backstop too) ─
 for (const key of WATER_HOP_PAIRS) {
   const [x, y] = key.split('|');
@@ -98,7 +110,7 @@ for (let i = 0; i < AIRPORTS.length; i++) for (let j = i + 1; j < AIRPORTS.lengt
   if (a.city === b.city || isSameMetro(a, b, km)) continue;
   if (isSurfaceConnected(a, b, km)) suppressed++; else spared++;
 }
-eq(suppressed, 133, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
+eq(suppressed, 135, 'in-band suppressed pair count (re-pin after a reviewed airport-data change)');
 eq(spared, 31, 'in-band spared (water-hop) pair count');
 
 console.log(`\ndata-integrity: ${passed} passed, ${failed} failed`);

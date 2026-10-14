@@ -2391,6 +2391,16 @@ export const AIRPORTS = [
   { code: 'TAR', name: 'Taranto-Grottaglie Marcello Arlotta', city: 'Taranto',   country: 'IT', lat: 40.5175, lon: 17.4031, population: 0.4,    tier: 'regional', runwayFt: 10499 },
   { code: 'FOG', name: 'Foggia Gino Lisa',               city: 'Foggia',         country: 'IT', lat: 41.4328, lon: 15.5350, population: 0.3,    tier: 'regional', visitors: 0.1,  runwayFt: 5890 },
   { code: 'QSR', name: "Salerno Costa d'Amalfi",         city: 'Salerno',        country: 'IT', lat: 40.6200, lon: 14.9125, population: 0.5,    tier: 'regional', visitors: 0.5,  runwayFt: 6567 },
+  // ── Niigata, Noida, Yorkshire (Discord request, Oct 2026) ───────────────────
+  // DXN (Noida International, Jewar) opened to airlines on 15 June 2026 and
+  // joins the Delhi metro registry with DEL, so it shares Delhi's market rather
+  // than doubling it. DSA (Doncaster Sheffield) has had no airline service
+  // since November 2022 — an open market for players. DSA-LBA and DSA-HUY fall
+  // in the surface-connected band and carry no demand.
+  { code: 'KIJ', name: 'Niigata Airport',                city: 'Niigata',        country: 'JP', lat: 37.9558, lon: 139.1117, population: 0.8,    tier: 'regional', runwayFt: 8202 },
+  { code: 'DXN', name: 'Noida International',            city: 'Delhi',          country: 'IN', lat: 28.1700, lon: 77.6100,  population: 32.9,   tier: 'regional', runwayFt: 12795 },
+  { code: 'DSA', name: 'Doncaster Sheffield',            city: 'Doncaster',      country: 'GB', lat: 53.4753, lon: -1.0042, population: 1.0,    tier: 'regional', runwayFt: 9491 },
+  { code: 'LBA', name: 'Leeds Bradford Airport',         city: 'Leeds',          country: 'GB', lat: 53.8661, lon: -1.6608, population: 1.8,    tier: 'regional', annualPaxM: 4.2, runwayFt: 7382 },
 ];
 
 // Code -> record index, built once on first lookup.

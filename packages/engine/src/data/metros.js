@@ -348,6 +348,15 @@ export const METROS = [
       BHD: { dom: 0.85, intl: 0.30 },
     },
   },
+  {
+    // DXN (Jewar) opened June 2026, ~70 km south of Connaught Place: a
+    // domestic-led second airport with international flying still to come.
+    id: 'delhi', name: 'Delhi', primary: 'DEL',
+    members: {
+      DEL: { dom: 1.0,  intl: 1.0 },
+      DXN: { dom: 0.45, intl: 0.25 },
+    },
+  },
 ];
 
 // ─── Lookup tables (built once) ───────────────────────────────────────────────

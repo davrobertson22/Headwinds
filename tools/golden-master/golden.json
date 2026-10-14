@@ -1,10 +1,10 @@
 {
-  "fullHash": "e0471746da8b29cf0ec4de9bf7b41257afd015bdc4f42492b15ddb2322ab2d3f",
+  "fullHash": "9b6e511e2bb0cca8848039babc666dc4ee83d3d469606804e373558a03286c08",
   "projection": {
     "week": 9,
     "year": 2,
     "phase": "bankrupt",
-    "cash": -47458812,
+    "cash": -47436926,
     "marketCap": 507153,
     "sharePrice": 0.0051,
     "awareness": 37.9,
