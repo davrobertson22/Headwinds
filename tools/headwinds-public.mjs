@@ -94,7 +94,7 @@ const META = {
   },
   'aircraft-freighters.html': {
     title: 'Freighter Guide — Cargo Has No Fare War | Headwinds',
-    description: 'Every freighter in Headwinds with payload, range, lease and fuel figures — plus why cargo income is immune to the passenger demand split, and how it funds the week-40 gate auctions.',
+    description: 'Every freighter in Headwinds with payload, range, lease and fuel figures — plus why cargo is a simpler fight than passengers, and how it funds the week-40 gate auctions.',
   },
   'aircraft-flagships.html': {
     title: 'Flagship Guide — Double-Deckers, Concorde &amp; Contested Gates | Headwinds',
