@@ -27,6 +27,10 @@ Any screen that forecasts a route or a market share must route through the share
 - `node tools/golden-master/run.mjs` must print `PARITY OK` for any change meant to be behaviour-preserving. Re-baseline with `--update` only when a balance change is intended and stated.
 - SSR-render the real component when testing UI agreement. A helper tested in isolation can pass while the component that calls it fails — that is exactly how the hydrated-`stops` bug was caught.
 
+## Generated data
+
+`packages/engine/src/data/airportMarkets.js` (the Airports → All airports market columns) is **generated** — do not hand-edit. Regenerate with `node tools/generate-airport-markets.mjs` whenever airports, metros or the demand model change; `tools/airport-markets-test.mjs` fails when it is stale. Tailwinds has the same file and generator; with matching demand models the two tables are byte-identical.
+
 ## Working with git here
 
 The desktop bridge cannot unlink files, so it leaves stale `.git/index.lock` files and locked worktree registrations behind. If git behaves strangely, check for `.git/index.lock` first. Never `git add -A` — both repos keep untracked scratch under `_to_delete/`.

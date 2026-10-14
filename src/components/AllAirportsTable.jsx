@@ -1,0 +1,330 @@
+// Airports → All airports: every airport in the game, sortable and paged.
+// Ported from Tailwinds; Headwinds adds the gate-scarcity column and denials.
+//
+// Discord, 2026-10-12 (VodkaOnFire): "In gates, you can only see your own gates
+// and/or search for any airport, name or country. But you can't sort ALL
+// airports by PAX or anything like that, which is what I'd like." Runway,
+// airlines operating there, and the passenger and freight markets each airport
+// sits in, for every airport at once.
+//
+// The market columns read packages/engine/src/data/airportMarkets.js (generated
+// — see packages/engine/src/utils/airportMarket.js). It is ~200 KB, so it is loaded on demand when this
+// table first opens rather than shipped in the main bundle.
+
+import { useEffect, useMemo, useState } from 'react';
+import { useGame } from '../store/GameContext.jsx';
+import { AIRPORTS, REGIONS, getRegion, getCountryName, gateMonthlyFee } from '../data/airports.js';
+import { formatMoney, routeLegs } from '../utils/simulation.js';
+import { absoluteWeek } from '../utils/fuel.js';
+import { airportMarketNow, computeAirportMarkets } from '../utils/airportMarket.js';
+import { stationFuelBasis, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
+import FuelBasisChip from './FuelBasisChip.jsx';
+import { DisabledHint } from './GateDenial.jsx';
+import TierBadge from './TierBadge.jsx';
+import InfoTip from './InfoTip.jsx';
+
+export const ALL_AIRPORTS_PAGE_SIZE = 50;
+
+// ── Market table, loaded once per page load ─────────────────────────────────
+let MARKET_TABLE = null;
+let MARKET_PROMISE = null;
+/** Load the generated market table (resolves to { AIRPORT_MARKETS, GROWTH_BUCKETS }). */
+export function loadAirportMarkets() {
+  if (MARKET_TABLE) return Promise.resolve(MARKET_TABLE);
+  MARKET_PROMISE ??= import('../data/airportMarkets.js').then(m => (MARKET_TABLE = m));
+  return MARKET_PROMISE;
+}
+
+/**
+ * Who flies where: { [code]: [{ id, name, isPlayer }] } for every airport any
+ * airline serves. A route counts at every airport it calls at, so a multi-stop
+ * rotation is listed at its stops, as on the airport screen.
+ */
+export function airlinesByAirport(state) {
+  const out = new Map();
+  const add = (code, airline) => {
+    if (!code) return;
+    let list = out.get(code);
+    if (!list) out.set(code, list = []);
+    if (!list.some(a => a.id === airline.id)) list.push(airline);
+  };
+  const me = { id: 'player', name: state.airlineName || 'You', isPlayer: true };
+  for (const r of state.routes ?? []) for (const l of routeLegs(r)) { add(l.from, me); add(l.to, me); }
+  for (const r of state.cargoRoutes ?? []) { add(r.origin, me); add(r.destination, me); }
+  for (const c of state.competitors ?? []) {
+    const airline = { id: c.id, name: c.name, isPlayer: false };
+    for (const key of Object.keys(c.routes ?? {})) {
+      const [a, b] = key.split('-');
+      add(a, airline); add(b, airline);
+    }
+  }
+  return out;
+}
+
+const COLUMNS = [
+  { id: 'airport', label: 'Airport',   align: 'left',  first: 'asc'  },
+  { id: 'country', label: 'Country',   align: 'left',  first: 'asc'  },
+  { id: 'pax',     label: 'Pax market', align: 'right', first: 'desc',
+    tip: 'Passengers a week across every city pair from this airport — the same markets the Route Planner prices, added up, at this point in your game. Airports in one city share its market (every New York airport shows New York\'s), and passengers split between them. A typical week: seasonal swings are left out.' },
+  { id: 'cargo',   label: 'Cargo market', align: 'right', first: 'desc',
+    tip: 'Freight tonnes a week across every city pair from this airport, as the Cargo Planner prices them (annual average).' },
+  { id: 'metro',   label: 'Metro',     align: 'right', first: 'desc', tip: 'Metro-area population, as shown when you pick a hub.' },
+  { id: 'runway',  label: 'Runway',    align: 'right', first: 'desc', tip: 'Longest runway. Aircraft that need more cannot operate here.' },
+  { id: 'airlines', label: 'Airlines', align: 'right', first: 'desc', tip: 'Airlines flying here now, you included. Hover a number for the names.' },
+  { id: 'gates',   label: 'Your gates', align: 'right', first: 'desc' },
+  { id: 'taken',   label: 'Gates taken', align: 'left', first: 'desc', scarcity: true,
+    tip: 'Gate-scarcity worlds: how many of this airport\'s gates every airline holds between them, out of its capacity.' },
+  { id: 'fee',     label: 'Next gate', align: 'right', first: 'asc',  tip: 'Weekly fee for one more gate here.' },
+  { id: 'fuel',    label: 'Fuel',      align: 'right', first: 'asc',  fuel: true },
+];
+
+const by = (f) => (a, b) => (f(a) - f(b)) || a.code.localeCompare(b.code);
+export const ALL_AIRPORT_SORTERS = {
+  airport:  (a, b) => a.code.localeCompare(b.code),
+  country:  (a, b) => a.countryName.localeCompare(b.countryName) || a.code.localeCompare(b.code),
+  pax:      by(r => r.pax),
+  cargo:    by(r => r.cargo),
+  metro:    by(r => r.metro),
+  runway:   by(r => r.runway ?? 0),
+  airlines: by(r => r.airlines.length),
+  gates:    by(r => r.gates),
+  taken:    by(r => (r.capacity > 0 ? r.taken / r.capacity : 0)),
+  fee:      by(r => r.fee),
+  fuel:     by(r => stationFuelBasis(r.code)),
+};
+
+/** Sort rows by a column id, 'asc' or 'desc'. */
+export function sortAllAirportRows(rows, col, dir) {
+  const s = [...rows].sort(ALL_AIRPORT_SORTERS[col] ?? ALL_AIRPORT_SORTERS.pax);
+  if (dir === 'desc') s.reverse();
+  return s;
+}
+
+function compact(n) {
+  if (!(n > 0)) return '0';
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M`;
+  if (n >= 1e4) return `${Math.round(n / 1e3)}K`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return String(Math.round(n));
+}
+
+function matches(a, q) {
+  return a.code.toLowerCase().includes(q) || a.city.toLowerCase().includes(q)
+    || (a.name ?? '').toLowerCase().includes(q) || getCountryName(a.country).toLowerCase().includes(q);
+}
+
+/**
+ * @param {object} props
+ * @param {(code: string) => void} props.onDetails
+ * @param {(code: string) => void} props.onAddGate
+ * @param {(code: string) => string|null} [props.addDenialFor]  why a gate can't be leased here, or null
+ * @param {(code: string) => {taken: number, capacity: number}} [props.availabilityFor]
+ *        gate-scarcity worlds only — turns on the "Gates taken" column
+ * @param {(code: string) => any} [props.renderAvailability]  the chips for that column
+ */
+export default function AllAirportsTable({ onDetails, onAddGate, addDenialFor = () => null, availabilityFor = null, renderAvailability = null }) {
+  const { state } = useGame();
+  const { gates = {}, hubs = {} } = state;
+  const fuelOn = fuelStationsOn(state);
+  const scarcity = typeof availabilityFor === 'function';
+  const columns = COLUMNS.filter(c => (fuelOn || !c.fuel) && (scarcity || !c.scarcity));
+
+  const [table, setTable] = useState(MARKET_TABLE);
+  useEffect(() => {
+    if (table) return undefined;
+    let live = true;
+    loadAirportMarkets().then(t => { if (live) setTable(t); }).catch(() => {});
+    return () => { live = false; };
+  }, [table]);
+
+  const [query, setQuery]   = useState('');
+  const [region, setRegion] = useState('All');
+  const [tier, setTier]     = useState('All');
+  const [sortCol, setSortCol] = useState('pax');
+  const [sortDir, setSortDir] = useState('desc');
+  const [page, setPage]     = useState(0);
+
+  const absWeek = absoluteWeek(state.year ?? 1, state.week ?? 1);
+  const eraStartYear = Number.isInteger(state.startYear) ? state.startYear : null;
+  const flyers = useMemo(() => airlinesByAirport(state), [state.routes, state.cargoRoutes, state.competitors, state.airlineName]);
+
+  const allRows = useMemo(() => {
+    const markets = table?.AIRPORT_MARKETS;
+    // An airport added after the table was last generated still gets a figure
+    // (one airport against the world is a few milliseconds).
+    const missing = markets ? AIRPORTS.filter(a => !markets[a.code]).map(a => a.code) : [];
+    const patched = missing.length && table ? computeAirportMarkets(missing, table.GROWTH_BUCKETS) : {};
+    return AIRPORTS.map(a => {
+      const m = markets
+        ? airportMarketNow(a.code, markets[a.code] ?? patched[a.code], table.GROWTH_BUCKETS, { absWeek, eraStartYear })
+        : null;
+      const held = gates[a.code] ?? 0;
+      return {
+        code: a.code, city: a.city, name: a.name, tier: a.tier,
+        country: a.country, countryName: getCountryName(a.country), region: getRegion(a.country),
+        pax: m?.pax ?? 0, cargo: m?.cargo ?? 0,
+        metro: Math.max(a.population ?? 0, 0),
+        runway: a.runwayFt ?? null,
+        airlines: flyers.get(a.code) ?? [],
+        gates: held,
+        ...(scarcity ? availabilityFor(a.code) : { taken: 0, capacity: 0 }),
+        fee: Math.round(gateMonthlyFee(a, held + 1) / 4),
+        isHub: !!hubs[a.code],
+        airport: a,
+      };
+    });
+  }, [table, absWeek, eraStartYear, flyers, gates, hubs, scarcity, state.gateMarket]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = allRows.filter(r =>
+    (region === 'All' || r.region === region) &&
+    (tier === 'All' || r.tier === tier) &&
+    (!q || matches(r.airport, q))
+  );
+  const sorted = sortAllAirportRows(filtered, sortCol, sortDir);
+  const pages = Math.max(1, Math.ceil(sorted.length / ALL_AIRPORTS_PAGE_SIZE));
+  const pg = Math.min(page, pages - 1);
+  const shown = sorted.slice(pg * ALL_AIRPORTS_PAGE_SIZE, (pg + 1) * ALL_AIRPORTS_PAGE_SIZE);
+
+  function clickHeader(c) {
+    if (sortCol === c.id) setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
+    else { setSortCol(c.id); setSortDir(c.first); }
+    setPage(0);
+  }
+
+  // Scarcity worlds carry one more column; tighter cells keep the row's buttons on screen.
+  const padX = scarcity ? 7 : 10;
+  const TH = {
+    padding: `6px ${padX}px`, color: 'var(--text-muted)', fontWeight: 600, fontSize: 11,
+    whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em',
+    borderBottom: '1px solid var(--border)', cursor: 'pointer', userSelect: 'none',
+  };
+  const TD = { padding: `6px ${padX}px`, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
+  const pill = (active) => ({
+    padding: '4px 10px', fontSize: 12, borderRadius: 20, cursor: 'pointer',
+    fontWeight: active ? 700 : 400,
+    background: active ? 'var(--accent)' : 'var(--surface2)',
+    color: active ? '#fff' : 'var(--text-muted)',
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+  });
+  const pager = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+      <button className="btn btn-ghost" style={{ padding: '2px 10px', fontSize: 12 }}
+        disabled={pg === 0} onClick={() => setPage(pg - 1)} aria-label="Previous page">‹ Prev</button>
+      <span data-all-airports-range>
+        {sorted.length === 0 ? '0' : `${(pg * ALL_AIRPORTS_PAGE_SIZE + 1).toLocaleString()}–${Math.min(sorted.length, (pg + 1) * ALL_AIRPORTS_PAGE_SIZE).toLocaleString()}`} of {sorted.length.toLocaleString()}
+      </span>
+      <button className="btn btn-ghost" style={{ padding: '2px 10px', fontSize: 12 }}
+        disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)} aria-label="Next page">Next ›</button>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+        <input
+          className="form-input"
+          placeholder="Filter by code, city, name or country…"
+          value={query}
+          onChange={e => { setQuery(e.target.value); setPage(0); }}
+          style={{ flex: '1 1 220px', maxWidth: 320 }}
+          aria-label="Filter airports"
+        />
+        <select className="form-input" value={tier} onChange={e => { setTier(e.target.value); setPage(0); }}
+          style={{ maxWidth: 150 }} aria-label="Tier">
+          <option value="All">All tiers</option>
+          <option value="mega">Mega</option>
+          <option value="major">Major</option>
+          <option value="regional">Regional</option>
+        </select>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+        {['All', ...REGIONS].map(r => (
+          <button key={r} style={pill(region === r)} onClick={() => { setRegion(r); setPage(0); }}>
+            {r === 'All' ? 'All regions' : r}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>{pager}</div>
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }} data-all-airports>
+            <thead>
+              <tr>
+                {columns.map(c => (
+                  <th key={c.id} onClick={() => clickHeader(c)} style={{ ...TH, textAlign: c.align }}
+                    aria-sort={sortCol === c.id ? (sortDir === 'desc' ? 'descending' : 'ascending') : undefined}>
+                    {c.label}{sortCol === c.id ? (sortDir === 'desc' ? ' ▾' : ' ▴') : ''}
+                    {c.tip && <span onClick={e => e.stopPropagation()} style={{ marginLeft: 3 }}><InfoTip text={c.tip} /></span>}
+                  </th>
+                ))}
+                <th style={{ ...TH, cursor: 'default' }} />
+              </tr>
+            </thead>
+            <tbody>
+              {shown.length === 0 && (
+                <tr><td colSpan={columns.length + 1} style={{ ...TD, color: 'var(--text-muted)', padding: '18px 10px' }}>
+                  No airports match.
+                </td></tr>
+              )}
+              {shown.map(r => {
+                const denial = addDenialFor(r.code);
+                return (
+                <tr key={r.code} data-airport={r.code}
+                  style={denial ? { background: 'rgba(248,81,73,0.04)' } : undefined}>
+                  <td style={{ ...TD, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{r.code}</span>
+                    {r.isHub && <span title="Hub" style={{ color: 'var(--accent)', marginLeft: 4 }}>★</span>}
+                    <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{r.city}</span>
+                    <span style={{ marginLeft: 6 }}><TierBadge tier={r.tier} /></span>
+                  </td>
+                  <td style={{ ...TD, color: 'var(--text-muted)' }}>{r.countryName}</td>
+                  <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{table ? compact(r.pax) : '…'}</td>
+                  <td style={{ ...TD, textAlign: 'right' }}>{table ? `${compact(r.cargo)} t` : '…'}</td>
+                  <td style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{r.metro.toFixed(1)}M</td>
+                  <td style={{ ...TD, textAlign: 'right' }}>{r.runway ? `${r.runway.toLocaleString()} ft` : '—'}</td>
+                  <td style={{ ...TD, textAlign: 'right' }}
+                    title={r.airlines.length ? r.airlines.map(a => a.name).join(', ') : 'No airline flies here yet'}>
+                    {r.airlines.length}
+                    {r.airlines.some(a => a.isPlayer) && <span style={{ color: 'var(--accent)', marginLeft: 3 }} title="Including you">•</span>}
+                  </td>
+                  <td style={{ ...TD, textAlign: 'right', color: r.gates ? 'var(--accent)' : 'var(--text-dim)', fontWeight: r.gates ? 600 : 400 }}>
+                    {r.gates || '—'}
+                  </td>
+                  {scarcity && (
+                    <td style={{ ...TD }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        {renderAvailability ? renderAvailability(r.code) : `${r.taken}/${r.capacity}`}
+                      </span>
+                    </td>
+                  )}
+                  <td style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{formatMoney(r.fee)}/wk</td>
+                  {fuelOn && <td style={{ ...TD, textAlign: 'right' }}><FuelBasisChip code={r.code} /></td>}
+                  <td style={{ ...TD, textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', gap: 4 }}>
+                      <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => onDetails(r.code)}>
+                        Details
+                      </button>
+                      <DisabledHint title={denial}>
+                        <button className="btn btn-primary"
+                          style={{ padding: '2px 8px', fontSize: 12, opacity: denial ? 0.35 : 1, cursor: denial ? 'not-allowed' : 'pointer' }}
+                          disabled={!!denial}
+                          onClick={() => onAddGate(r.code)}
+                          title={denial ? undefined : 'Lease a gate here'} aria-label={`Add a gate at ${r.code}`}>
+                          +
+                        </button>
+                      </DisabledHint>
+                    </div>
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>{pager}</div>
+    </div>
+  );
+}

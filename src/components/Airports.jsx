@@ -11,6 +11,8 @@ import { GateDenialNote, DisabledHint, lockoutWeeksLeft, idleWeeksAt, idleWarnin
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
 import FuelBasisChip from './FuelBasisChip.jsx';
+import TierBadge from './TierBadge.jsx';
+import AllAirportsTable from './AllAirportsTable.jsx';
 import { stationFuelBasis, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 
 // ─── Gate scarcity helpers (Headwinds worlds with the option on) ─────────────
@@ -124,24 +126,6 @@ function AvailabilityChips({ state, code }) {
   );
 }
 
-// Tier badge styling
-function TierBadge({ tier }) {
-  const cfg = {
-    mega:     { bg: 'rgba(163,113,247,0.15)', color: '#a98bff', border: 'rgba(163,113,247,0.35)' },
-    major:    { bg: 'rgba(56,139,253,0.15)',  color: '#3ea6ff', border: 'rgba(56,139,253,0.35)'  },
-    regional: { bg: 'rgba(63,185,80,0.15)',   color: '#38d39f', border: 'rgba(63,185,80,0.35)'   },
-  }[tier] ?? { bg: 'rgba(139,148,158,0.15)', color: '#93a4ba', border: 'rgba(139,148,158,0.35)' };
-  return (
-    <span style={{
-      fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
-      background: cfg.bg, color: cfg.color,
-      border: `1px solid ${cfg.border}`,
-      textTransform: 'uppercase', letterSpacing: '0.06em',
-    }}>
-      {tier}
-    </span>
-  );
-}
 
 // ─── Your Gates table (default view) ─────────────────────────────────────────
 //
@@ -732,6 +716,17 @@ export default function Airports({ initialRegion = null }) {
     catch { return 'table'; }
   });
 
+  // Browse section: the region picker, or every airport in one sortable table
+  // (Discord, 2026-10-12: "you can't sort ALL airports by PAX"). Remembered.
+  const [browseView, setBrowseViewState] = useState(() => {
+    try { return localStorage.getItem('airports_browse_view') === 'all' ? 'all' : 'regions'; }
+    catch { return 'regions'; }
+  });
+  function setBrowseView(v) {
+    setBrowseViewState(v);
+    try { localStorage.setItem('airports_browse_view', v); } catch { /* private mode */ }
+  }
+
   if (selectedAirport) {
     return <AirportDetail code={selectedAirport} onBack={() => setSelectedAirport(null)} />;
   }
@@ -1126,15 +1121,51 @@ export default function Airports({ initialRegion = null }) {
 
       {/* ── Browse / add airports ─────────────────────────────────── */}
       <section>
-        <div style={{
-          fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-          textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10,
-        }}>
-          {myGateEntries.length > 0 ? 'Expand to More Airports' : 'Acquire Your First Gates'}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+            textTransform: 'uppercase', letterSpacing: '0.07em',
+          }}>
+            {myGateEntries.length > 0 ? 'Expand to More Airports' : 'Acquire Your First Gates'}
+          </div>
+          <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="Browse airports by">
+            {[{ id: 'regions', label: 'By region' }, { id: 'all', label: '⊟ All airports' }].map(v => {
+              const active = browseView === v.id;
+              return (
+                <button
+                  key={v.id}
+                  data-browse-view={v.id}
+                  aria-pressed={active}
+                  onClick={() => setBrowseView(v.id)}
+                  style={{
+                    padding: '3px 10px', fontSize: 11, borderRadius: 20, cursor: 'pointer',
+                    fontWeight: active ? 700 : 400,
+                    background: active ? 'var(--accent)' : 'var(--surface2)',
+                    color: active ? '#fff' : 'var(--text-muted)',
+                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Region picker — shown when no region is selected */}
-        {regionFilter === null ? (
+        {browseView === 'all' ? (
+          <AllAirportsTable
+            onDetails={code => setSelectedAirport(code)}
+            onAddGate={code => dispatch({ type: 'ADD_GATE', airportCode: code })}
+            addDenialFor={addDenialFor}
+            availabilityFor={scarcity ? (code) => {
+              const { taken, capacity } = capacityInfo(state, code);
+              return { taken, capacity };
+            } : null}
+            renderAvailability={scarcity ? (code) => <AvailabilityChips state={state} code={code} /> : null}
+          />
+        ) : regionFilter === null ? (
+          /* Region picker — shown when no region is selected */
           <div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
               Select a region to browse airports:

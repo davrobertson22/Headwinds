@@ -25,6 +25,7 @@ import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import InfoTip from './InfoTip.jsx';
+import { passesMarketFilters, DEFAULT_MARKET_FILTERS } from '../utils/marketFilters.js';
 import { designAgeQualityPts, DESIGN_AGE_GRACE_YEARS, DESIGN_AGE_CAP_YEARS, DESIGN_AGE_MAX_PENALTY } from '../models/demand.js';
 import { LABOR_GROUPS, CREW_LEAD_WEEKS, crewBodiesForAircraft } from '../data/labor.js';
 import { Glyph } from './Icons.jsx';
@@ -652,6 +653,21 @@ export default function Marketplace() {
     try { localStorage.setItem('market_layout', l); } catch { /* private mode */ }
   }
   const [sort, setSort] = useState({ key: 'name', dir: 1 });
+  // "Show only" chips (utils/marketFilters.js). Remembered across sessions, like
+  // the layout: twenty years into an era world the list is long every visit.
+  const [marketFilters, setMarketFiltersState] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('market_filters') ?? 'null');
+      return { ...DEFAULT_MARKET_FILTERS, ...(saved && typeof saved === 'object' ? saved : {}) };
+    } catch { return { ...DEFAULT_MARKET_FILTERS }; }
+  });
+  function toggleMarketFilter(key) {
+    setMarketFiltersState(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('market_filters', JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }
 
   // ── New World Restrictions ────────────────────────────────────────────────
   // Restricted worlds only; every value below is inert when the flag is off.
@@ -673,9 +689,10 @@ export default function Marketplace() {
     .reduce((sum, o) => sum + (o.quantity ?? 1), 0);
   const orderBookCap  = leaseOrderBookCap(activeFleet);
   const orderBookFree = Math.max(0, orderBookCap - leaseOnOrder);
-  // Why this type can't be leased right now, or null. Mirrors the engine's
-  // leaseDenial() so a disabled button and a rejected request always agree.
-  function leaseBlockReason(type) {
+  // Why this TYPE can't be leased, or null — the rules that belong to the
+  // aircraft, not to your airline's order book. The "Leasable now" filter reads
+  // this one: a full order book would otherwise hide every type in the game.
+  function typeLeaseBlockReason(type) {
     const eraLock = eraLockReason(type);
     if (eraLock) return eraLock;
     if (calYear == null && isVintage(type)) return `No lessor stocks it \u2014 line closed ${type.oop}. Buy it outright`;
@@ -687,7 +704,14 @@ export default function Marketplace() {
           ? `Lessors take it from ${lessorFirstYear(type)} \u2014 buy new or used until then`
           : `Not on lessor books (in service ${type.eis}) \u2014 buy new or used`;
     }
-    if (orderBookFree <= 0) {
+    return null;
+  }
+  // Why this type can't be leased right now, or null. Mirrors the engine's
+  // leaseDenial() so a disabled button and a rejected request always agree.
+  function leaseBlockReason(type) {
+    const typeBlock = typeLeaseBlockReason(type);
+    if (typeBlock) return typeBlock;
+    if (restricted && orderBookFree <= 0) {
       return `Lease order book full (${leaseOnOrder}/${orderBookCap})`;
     }
     return null;
@@ -745,12 +769,25 @@ export default function Marketplace() {
 
   const safeMfr = mfrsInCategory.includes(activeMfr) ? activeMfr : 'All';
 
+  // The dated-design chip only exists in era worlds (classic designs never
+  // date), so a remembered "on" can't hide anything in a classic world.
+  const activeFilters = { ...marketFilters, hideDated: calYear != null && marketFilters.hideDated };
+  const filterChips = [
+    { key: 'inProduction', label: 'In production',
+      title: 'Hide types whose production line has closed — they can only be bought second-hand.' },
+    ...(calYear != null ? [{ key: 'hideDated', label: 'Hide dated designs',
+      title: 'Hide designs passengers already mark down for age (the "Dated design" badge).' }] : []),
+    { key: 'leasable', label: 'Leasable now',
+      title: 'Show only types lessors will lease you right now (your lease order-book limit aside).' },
+  ];
+
   const q = query.trim().toLowerCase();
   const filtered = AIRCRAFT_TYPES.filter(t =>
     (calYear == null ? t.withdrawnYear == null : ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired' && !cometWithdrawn(state, t.id))) &&
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
-    (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q))
+    (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q)) &&
+    passesMarketFilters(t, calYear, activeFilters, typeLeaseBlockReason)
   );
 
   return (
@@ -924,6 +961,37 @@ export default function Marketplace() {
                 }}
               >
                 {mfr}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Show-only filters (utils/marketFilters.js) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 2 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Show only
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingBottom: 4, marginTop: 6 }}>
+          {filterChips.map(({ key, label, title }) => {
+            const isActive = !!activeFilters[key];
+            return (
+              <button
+                key={key}
+                title={title}
+                aria-pressed={isActive}
+                data-market-filter={key}
+                onClick={() => toggleMarketFilter(key)}
+                style={{
+                  flexShrink: 0, padding: '4px 12px', borderRadius: 20,
+                  border: isActive ? '1px solid var(--accent)' : '1px solid var(--border)',
+                  background: isActive ? 'rgba(56,139,253,0.15)' : 'var(--surface2)',
+                  color: isActive ? 'var(--accent)' : 'var(--text-muted)',
+                  fontSize: 12, fontWeight: isActive ? 600 : 400,
+                  cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
+                }}
+              >
+                {isActive ? '✓ ' : ''}{label}
               </button>
             );
           })}
