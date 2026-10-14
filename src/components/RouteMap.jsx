@@ -6,6 +6,7 @@ import {
   simulateRoute, simulateCargoRoute, cargoLaneAllocations, formatMoney, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, routeStops, isMultiStop,
+  isRouteActive, routeDistanceKm, cruiseSpeedKmh, turnaroundHours,
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { getAlliance } from '../data/alliances.js';
@@ -15,6 +16,7 @@ import { pairShapes } from './RivalRouteMap.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
 import GlobeMap from './GlobeMap.jsx';
 import { buildGlobeData } from './globeCore.js';
+import { buildFlightPlan } from './flightsCore.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
@@ -97,6 +99,53 @@ export function mapHubs(state = {}) {
 
 // localStorage key for the flat-map / globe choice.
 export const MAP_VIEW_KEY = 'headwinds.mapView';
+// localStorage key for the globe's planes overlay (on unless turned off).
+export const GLOBE_PLANES_KEY = 'headwinds.globePlanes';
+
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/**
+ * One flight plan per flying tail, for the globe's planes (flightsCore.js).
+ * Takes the map's own groups, so the aircraft-type / airport filters and the
+ * cargo toggle apply to the planes exactly as they do to the lines. A tail
+ * flies nothing while it's grounded or in maintenance, or in a month its
+ * seasonal route is dormant.
+ *   groups / cargoGroups: { key, members: [{ r, chain, origin, dest }] }
+ *   colorOf(g): the line colour, used for the plane's glow
+ */
+export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], month, colorOf, cargoColor }) {
+  const plans = [];
+  const add = (g, d, idx, group, color) => {
+    const r = d.r;
+    if (!r || !isRouteActive(r, month)) return;
+    const ac = fleet.find(a => a.id === r.aircraftId);
+    if (!ac || ac.status === 'grounded' || ac.status === 'maintenance') return;
+    const type = getAircraftType(ac.typeId);
+    if (!type) return;
+    const stops = d.chain?.length >= 2 ? d.chain : [d.origin, d.dest];
+    const plan = buildFlightPlan({
+      id: r.id ?? `${group}#${idx}`,
+      group, color,
+      tip: `<div class="map-tip-title">${escHtml(ac.tailNumber || ac.name || type.name)}</div>`
+        + `<div class="map-tip-sub">${escHtml(type.name)} · ${r.weeklyFrequency ?? 0}× weekly</div>`,
+      stops,
+      legKm: stops.slice(1).map((s, i) => routeDistanceKm(stops[i].code, s.code)),
+      weeklyFrequency: r.weeklyFrequency,
+      cruiseKmh: cruiseSpeedKmh(type),
+      turnaroundH: turnaroundHours(type),
+    });
+    if (plan) plans.push(plan);
+  };
+  for (const g of groups) g.members.forEach((d, i) => add(g, d, i, g.key, colorOf(g)));
+  for (const g of cargoGroups) g.members.forEach((d, i) => add(g, d, i, `cargo:${g.key}`, cargoColor));
+  return plans;
+}
+
+/** A passenger line's colour: multi-stop violet, else profit green / loss red. */
+export function routeGroupColor(g) {
+  return g.multi ? TAG_COLOR : ((g.hasResult ? g.profit : 0) >= 0 ? PROFIT_COLOR : LOSS_COLOR);
+}
 
 /** Marker geometry for a hub tier — bigger pin the higher the tier. */
 export function hubMarkerSize(tier) {
@@ -188,7 +237,7 @@ export function mapAirportCodes(hubCodes = [], ...routeDataSets) {
 }
 
 export default function RouteMap() {
-  const { state } = useGame();
+  const { state, remoteChrome } = useGame();
   const { fleet, routes, cargoRoutes = [], hub, hubs: hubsState,
           competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
@@ -226,6 +275,14 @@ export default function RouteMap() {
     try { return localStorage.getItem(MAP_VIEW_KEY) === 'globe' ? 'globe' : 'flat'; }
     catch { return 'flat'; }
   });
+  // Planes on the globe — on by default, remembered per browser.
+  const [showPlanes, setShowPlanes] = useState(() => {
+    try { return localStorage.getItem(GLOBE_PLANES_KEY) !== 'off'; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(GLOBE_PLANES_KEY, showPlanes ? 'on' : 'off'); } catch { /* private mode */ }
+  }, [showPlanes]);
   const frameRef = useRef(null);         // last fitBounds target, for a re-fit after being hidden
   const fitHiddenRef = useRef(false);    // true when that fit ran while the flat map was hidden
 
@@ -833,7 +890,7 @@ export default function RouteMap() {
       routes: routeGroups.map(g => ({
         id: g.key,
         chain: g.chain?.length >= 2 ? g.chain : [g.origin, g.dest],
-        color: g.multi ? TAG_COLOR : ((g.hasResult ? g.profit : 0) >= 0 ? PROFIT_COLOR : LOSS_COLOR),
+        color: routeGroupColor(g),
         tip: routeTipHtml(g),
       })),
       cargo: showCargo ? cargoGroups.map(g => ({
@@ -850,6 +907,23 @@ export default function RouteMap() {
     });
   }, [mapView, routeGroups, cargoGroups, showCargo, partnerRouteData, showAlliance, showCodeshare,
       airportFilter, airportSet, hubs]);
+
+  // Planes: one per flying tail, on the same groups (and so the same filters)
+  // as the lines. Only built while the globe is showing with planes on.
+  const flightPlans = useMemo(() => {
+    if (mapView !== 'globe' || !showPlanes) return null;
+    return tailFlightPlans({
+      groups: routeGroups, cargoGroups: showCargo ? cargoGroups : [],
+      fleet, month: gd.month, colorOf: routeGroupColor, cargoColor: CARGO_COLOR,
+    });
+  }, [mapView, showPlanes, routeGroups, cargoGroups, showCargo, fleet, gd.month]);
+
+  // The world's clock (multiplayer only), as primitives so a poll that
+  // changes nothing doesn't restart the globe's animation.
+  const gc = remoteChrome?.gameClock ?? null;
+  const clockSpec = useMemo(() => (gc
+    ? { nextTickAt: gc.nextTickAt, weeksPerDay: gc.weeksPerDay, preStart: !!gc.preStart, week: state.week }
+    : null), [gc?.nextTickAt, gc?.weeksPerDay, gc?.preStart, state.week]);
 
   const globeHome = useMemo(() => getAirport(hub) ?? airportSet[0] ?? null, [hub, airportSet]);
   const globeFocus = useMemo(() => {
@@ -982,6 +1056,23 @@ export default function RouteMap() {
               </button>
             )}
 
+            {/* Planes toggle — globe only */}
+            {mapView === 'globe' && (
+              <button
+                onClick={() => setShowPlanes(v => !v)}
+                aria-pressed={showPlanes}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                  opacity: showPlanes ? 1 : 0.4, transition: 'opacity 0.15s',
+                  color: 'var(--text-muted)', fontSize: 11,
+                }}
+                title={showPlanes ? 'Hide the planes in the air' : 'Show your planes in the air'}
+              >
+                <Glyph e="✈" /> Planes
+              </button>
+            )}
+
             {/* Divider */}
             <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
 
@@ -1040,6 +1131,8 @@ export default function RouteMap() {
             onHover={setHoveredId}
             onSelect={setSelectedId}
             onFallback={() => setMapView('flat')}
+            flights={flightPlans}
+            clock={clockSpec}
           />
         )}
         <div style={{ display: mapView === 'globe' ? 'none' : 'block' }}>

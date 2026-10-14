@@ -4,6 +4,10 @@ import {
 } from './globeCore.js';
 import { HUB_COLOR, SPOKE_COLOR, CARGO_COLOR } from './mapCore.js';
 import { Glyph } from './Icons.jsx';
+import {
+  gameClockAt, formatGameClock, sunPosition, nightOverlayPixels, nightRefreshMs, NIGHT_COORDINATES,
+} from './gameClock.js';
+import { planesGeoJSON, planeWeekHours, planeRate, planeRefreshMs } from './flightsCore.js';
 
 // ── Globe view of the Network map ─────────────────────────────────────────────
 // Same data as the flat map (RouteMap builds it, globeCore turns it into
@@ -22,13 +26,50 @@ const isActive = ['boolean', ['feature-state', 'active'], false];
 const byState = (spec, idx, anySel) =>
   ['case', isActive, spec.active[idx], anySel ? spec.dimmed[idx] : spec.normal[idx]];
 
-const INTERACTIVE = ['airports-hit', 'routes-hit', 'cargo-line', 'partners-line'];
+const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'partners-line'];
 
-function addLayers(map) {
+// ── Day / night and planes ────────────────────────────────────────────────────
+// Night is a small canvas raster over the whole world (gameClock.js draws the
+// pixels); planes are a symbol layer fed by flightsCore.js. Both are redrawn
+// from one requestAnimationFrame loop at a cadence set by how fast things
+// actually move — a 1-week-a-day world redraws night every ~17 s.
+export const NIGHT_SIZE = 256;
+const PLANE_ICON = 'hw-plane';
+
+/** A top-down airliner pointing north, white with a dark rim, 64 px square
+ *  (shown at 32 css px: pixelRatio 2). */
+function planeIcon() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const right = [[32, 3], [35, 9], [35, 24], [61, 38], [61, 43], [35, 36], [35, 50], [45, 57], [45, 60], [32, 56]];
+  const left = right.slice(1, -1).reverse().map(([x, y]) => [64 - x, y]);
+  ctx.beginPath();
+  [...right, ...left].forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.closePath();
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(2, 6, 18, 0.85)';
+  ctx.stroke();
+  ctx.fillStyle = '#f4f8ff';
+  ctx.fill();
+  return ctx.getImageData(0, 0, 64, 64);
+}
+
+function addLayers(map, nightCanvas) {
+  // Night sits directly on the basemap, under every line and pin.
+  try {
+    map.addSource('night', { type: 'canvas', canvas: nightCanvas, coordinates: NIGHT_COORDINATES, animate: false });
+    map.addLayer({ id: 'night', type: 'raster', source: 'night',
+      layout: { visibility: 'none' },
+      paint: { 'raster-opacity': 1, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } });
+  } catch { /* no canvas sources in this build — the globe just has no night */ }
+
   const src = (id) => map.addSource(id, {
     type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id',
   });
   ['partners', 'partnerStops', 'cargo', 'routes', 'airports'].forEach(src);
+  map.addSource('planes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
   const round = { 'line-cap': 'round', 'line-join': 'round' };
 
@@ -66,13 +107,49 @@ function addLayers(map) {
              'circle-color': ['case', spoke, SPOKE_COLOR, HUB_COLOR],
              'circle-stroke-color': ['case', spoke, '#bfe0ff', '#fff3c4'],
              'circle-stroke-width': 1.5, 'circle-pitch-alignment': 'map' } });
+
+  // Planes: a soft glow in the line's colour under a white airliner turned to
+  // its heading and laid flat on the globe.
+  if (!map.hasImage(PLANE_ICON)) map.addImage(PLANE_ICON, planeIcon(), { pixelRatio: 2 });
+  map.addLayer({ id: 'planes-glow', type: 'circle', source: 'planes',
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 6, 12],
+             'circle-color': ['get', 'color'], 'circle-blur': 1, 'circle-opacity': 0.55,
+             'circle-pitch-alignment': 'map' } });
+  map.addLayer({ id: 'planes', type: 'symbol', source: 'planes',
+    layout: {
+      'icon-image': PLANE_ICON,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 0, 0.42, 3, 0.6, 6, 0.9],
+      'icon-rotate': ['get', 'heading'],
+      'icon-rotation-alignment': 'map',
+      'icon-pitch-alignment': 'map',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: { 'icon-opacity': 1 } });
+
   map.addLayer({ id: 'airports-hit', type: 'circle', source: 'airports',
     paint: { 'circle-radius': 9, 'circle-opacity': 0, 'circle-pitch-alignment': 'map' } });
 }
 
+/** The group a hit belongs to, when hovering / clicking it should focus a
+ *  passenger line: the line itself, or a plane flying it. Cargo planes only
+ *  show their tooltip. */
+function focusGroupOf(f) {
+  if (!f) return null;
+  if (f.layer.id === 'routes-hit') return f.properties.id;
+  if (f.layer.id === 'planes') {
+    const g = f.properties.group;
+    return g && !String(g).startsWith('cargo:') ? g : null;
+  }
+  return null;
+}
+
 export default function GlobeMap({
   data, height, home, selectedId, hoveredId, focusChain, onHover, onSelect, onFallback,
+  flights = null, clock = null,
 }) {
+  const nightCanvasRef = useRef(null);
+  const clockLabelRef = useRef(null);
   const elRef = useRef(null);
   const mapRef = useRef(null);
   const popupRef = useRef(null);
@@ -113,7 +190,10 @@ export default function GlobeMap({
         try { map.setProjection({ type: 'globe' }); } catch { /* older build */ }
       });
       map.on('load', () => {
-        addLayers(map);
+        const nightCanvas = document.createElement('canvas');
+        nightCanvas.width = nightCanvas.height = NIGHT_SIZE;
+        nightCanvasRef.current = nightCanvas;
+        addLayers(map, nightCanvas);
         let lastTip = null;
         const pick = (point) => {
           const layers = INTERACTIVE.filter(l => map.getLayer(l));
@@ -133,8 +213,9 @@ export default function GlobeMap({
         };
         map.on('mousemove', (e) => {
           const f = pick(e.point);
-          map.getCanvas().style.cursor = f && f.layer.id === 'routes-hit' ? 'pointer' : '';
-          handlersRef.current.onHover(f?.layer.id === 'routes-hit' ? f.properties.id : null);
+          const group = focusGroupOf(f);
+          map.getCanvas().style.cursor = group != null ? 'pointer' : '';
+          handlersRef.current.onHover(group);
           show(f, e.lngLat);
         });
         map.getCanvas().addEventListener('mouseleave', () => {
@@ -143,8 +224,9 @@ export default function GlobeMap({
         });
         map.on('click', (e) => {
           const f = pick(e.point);
-          if (f?.layer.id === 'routes-hit') {
-            const id = f.properties.id;
+          const group = focusGroupOf(f);
+          if (group != null) {
+            const id = group;
             handlersRef.current.onSelect(prev => (prev === id ? null : id));
             show(f, e.lngLat);   // a tap on a phone has no hover, so show it now
           } else {
@@ -215,7 +297,60 @@ export default function GlobeMap({
     map.setPaintProperty('cargo-line',  'line-opacity', anySel ? 0.27 : 0.9);
     map.setPaintProperty('cargo-glow',  'line-opacity', anySel ? 0.04 : 0.14);
     map.setPaintProperty('partners-line', 'line-opacity', anySel ? 0.14 : 0.55);
+    const onFocus = ['==', ['get', 'group'], selectedId ?? ''];
+    map.setPaintProperty('planes', 'icon-opacity', anySel ? ['case', onFocus, 1, 0.3] : 1);
+    map.setPaintProperty('planes-glow', 'circle-opacity', anySel ? ['case', onFocus, 0.7, 0.08] : 0.55);
   }, [loaded, data, selectedId, hoveredId]);
+
+  // 5. Day / night and the planes — one animation loop, each redrawn only as
+  //    often as it visibly moves. rAF stops by itself in a background tab.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!loaded || !map) return;
+    const reduce = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const nightSrc = map.getSource('night');
+    const planesSrc = map.getSource('planes');
+    const hasNight = !!(clock && nightSrc && map.getLayer('night'));
+    if (map.getLayer('night')) map.setLayoutProperty('night', 'visibility', hasNight ? 'visible' : 'none');
+    if (!flights?.length) planesSrc?.setData({ type: 'FeatureCollection', features: [] });
+
+    const drawNight = (sun) => {
+      const cv = nightCanvasRef.current;
+      const ctx = cv?.getContext('2d');
+      if (!ctx) return;
+      ctx.putImageData(new ImageData(nightOverlayPixels(sun, cv.width, cv.height), cv.width, cv.height), 0, 0);
+      // A static canvas source uploads only while "playing"; pause() uploads
+      // once and stops, so this is one texture update per redraw.
+      nightSrc.play();
+      nightSrc.pause();
+    };
+
+    let raf = 0, lastNight = -Infinity, lastPlanes = -Infinity, lastLabel = -Infinity;
+    const frame = () => {
+      raf = requestAnimationFrame(frame);
+      const now = Date.now();
+      const c = clock ? gameClockAt(now, clock) : null;
+      if (hasNight && c && now - lastNight >= (reduce ? 60_000 : nightRefreshMs(c.rate))) {
+        lastNight = now;
+        drawNight(sunPosition(clock.week, c.weekHours));
+      }
+      if (planesSrc && flights?.length) {
+        const every = reduce ? 30_000 : planeRefreshMs(planeRate(c?.rate), map.getZoom());
+        if (now - lastPlanes >= every) {
+          lastPlanes = now;
+          planesSrc.setData(planesGeoJSON(flights, planeWeekHours(now, c)));
+        }
+      }
+      if (clockLabelRef.current && now - lastLabel >= 1000) {
+        lastLabel = now;
+        clockLabelRef.current.textContent = c ? `${formatGameClock(c)} UTC` : '';
+        clockLabelRef.current.style.display = c ? '' : 'none';
+      }
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [loaded, flights, clock]);
 
   // 4. Fly to a newly focused route — once per focus, like the flat map.
   useEffect(() => {
@@ -239,6 +374,13 @@ export default function GlobeMap({
   return (
     <div style={{ position: 'relative', height, background: SPACE_COLOR }}>
       <div ref={elRef} style={{ position: 'absolute', inset: 0 }} />
+      {/* Game time, so the day/night line reads as "now" (filled by effect 5). */}
+      <div
+        ref={clockLabelRef}
+        className="globe-clock"
+        title="Game time. Night falls where the sun has set — the simulation still runs in whole weeks."
+        style={{ display: 'none' }}
+      />
       {!loaded && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 13, pointerEvents: 'none' }}>
           Loading globe…

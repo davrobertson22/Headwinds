@@ -1238,6 +1238,14 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   white-space: nowrap;
 }
 .globe-label { pointer-events: none; }
+/* Game time over the globe — reads with the day/night shading. */
+.globe-clock {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(6, 11, 24, 0.72); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em; cursor: default;
+}
 
 /* Globe controls, matched to the flat map's dark zoom + attribution */
 .maplibregl-ctrl-attrib.maplibregl-compact,

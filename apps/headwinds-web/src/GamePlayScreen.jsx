@@ -520,8 +520,15 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // down to week 1 instead of reading "world lobby".
     clock: (meta?.worldStatus === 'RUNNING' || (meta?.worldStatus === 'LOBBY' && meta?.worldClock?.nextTickAt))
       ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost}
-          preStart={meta?.worldStatus === 'LOBBY'} startsAt={meta?.worldClock?.startsAt} />
+          preStart={meta?.worldStatus === 'LOBBY'} startsAt={meta?.worldClock?.startsAt}
+          weeksPerDay={meta?.worldClock?.weeksPerDay ?? null} />
       : (meta?.worldStatus ? <span>world {String(meta.worldStatus).toLowerCase()}</span> : null),
+    // The same clock as data, for the globe's day/night and planes
+    // (src/components/gameClock.js). Null when the world isn't ticking.
+    gameClock: (meta?.worldStatus === 'RUNNING' || (meta?.worldStatus === 'LOBBY' && meta?.worldClock?.nextTickAt))
+      ? { nextTickAt: meta?.worldClock?.nextTickAt ?? null, weeksPerDay: meta?.worldClock?.weeksPerDay ?? null,
+          preStart: meta?.worldStatus === 'LOBBY' }
+      : null,
     right: (
       <>
         {/* Connection state beats the raw error text: "reconnecting" is what

@@ -211,6 +211,9 @@ export default async function decisionRoutes(fastify) {
         // for LOBBY/ENDED worlds) and the world's human-readable pace.
         nextTickAt: dueAt ? dueAt.toISOString() : null,
         paceLabel: paceLabel(world.weeksPerDay),
+        // The raw pace, for the in-game clock: with nextTickAt it places "now"
+        // inside the week (Mon 00:00 → Sun 23:59). Cosmetic only.
+        weeksPerDay: world.weeksPerDay,
         // Scheduled worlds: when the clock starts (null otherwise). The game bar
         // shows "first week in …" against it while the world is still in LOBBY.
         startsAt: world.tickConfig?.scheduledStartAt ?? null,

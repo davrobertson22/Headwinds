@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { gameClockAt, formatGameClock } from '../../../src/components/gameClock.js';
 
 // Live countdown to the server's next weekly tick. Derived from worldClock
 // .nextTickAt; when it crosses zero we show "landing…" and the poller tightens
@@ -7,7 +8,12 @@ import { useState, useEffect } from 'react';
 //
 // preStart: a scheduled world still in LOBBY. The airline is playable but the
 // clock is parked, so the countdown is to week 1 and the tooltip names the start.
-export default function TickCountdown({ nextTickAt, paceLabel, stale, preStart = false, startsAt = null }) {
+//
+// weeksPerDay (when the server sends it) adds the in-game time of day in front
+// of the countdown — "Tue 14:45 · next week in 1h 20m". It runs Mon 00:00 →
+// Sun 23:59 across the week's real interval and holds at 23:59 if a tick is
+// late. See src/components/gameClock.js.
+export default function TickCountdown({ nextTickAt, paceLabel, stale, preStart = false, startsAt = null, weeksPerDay = null }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -15,10 +21,16 @@ export default function TickCountdown({ nextTickAt, paceLabel, stale, preStart =
   }, []);
   if (!nextTickAt) return null;
   const ms = new Date(nextTickAt).getTime() - now;
+  const clock = preStart ? null : gameClockAt(now, { nextTickAt, weeksPerDay });
+  const clockText = clock ? formatGameClock(clock) : '';
+  const clockTip = clock
+    ? `Game time ${clockText} UTC. The simulation runs in whole weeks — this week's results land at Sunday midnight.`
+    : null;
+  const lead = clockText ? <><strong>{clockText}</strong>{' · '}</> : null;
   // Overdue AND out of contact is not "landing" — it's us, not the world.
   if (ms <= 0) {
-    if (stale) return <span>waiting for the server…</span>;
-    return <span>{preStart ? 'first week landing…' : 'next week landing…'}</span>;
+    if (stale) return <span title={clockTip ?? undefined}>{lead}waiting for the server…</span>;
+    return <span title={clockTip ?? undefined}>{lead}{preStart ? 'first week landing…' : 'next week landing…'}</span>;
   }
   const totalSec = Math.ceil(ms / 1000);
   const d = Math.floor(totalSec / 86400);
@@ -33,10 +45,11 @@ export default function TickCountdown({ nextTickAt, paceLabel, stale, preStart =
       parts.push(`World starts ${at.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} — set up now, week 1 flies at the first tick`);
     }
   }
+  if (clockTip) parts.push(clockTip);
   if (paceLabel) parts.push(`World pace: ${paceLabel}`);
   return (
     <span title={parts.length ? parts.join(' · ') : undefined}>
-      {preStart ? 'first week in' : 'next week in'} <strong>{label}</strong>
+      {lead}{preStart ? 'first week in' : 'next week in'} <strong>{label}</strong>
     </span>
   );
 }
