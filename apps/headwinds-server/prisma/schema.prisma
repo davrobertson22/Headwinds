@@ -96,6 +96,8 @@ model Account {
   reportsAgainst Report[] @relation("ReportsAgainst")
   // Supporter-created private worlds this account owns (World.ownerAccountId).
   ownedWorlds    World[]  @relation("WorldOwner")
+  // Tailwinds cloud saves (supporter perk) — see model TailwindsCloudSave.
+  tailwindsCloudSaves TailwindsCloudSave[]
 }
 
 // Username audit trail — the moderation panel shows an account's past names so
@@ -614,4 +616,35 @@ model WorldNews {
 
   @@index([worldId, createdAt]) // news feed: filter worldId ORDER BY createdAt DESC
   @@index([worldId, week]) // retention sweep
+}
+
+// ── Tailwinds cloud saves ─────────────────────────────────────────────────────
+// A supporter perk for the SINGLE-PLAYER game: a Tailwinds player signed in with
+// their Headwinds account keeps up to three airlines here (lib/cloudSaves.mjs),
+// so the airline follows them between browsers and devices. Unrelated to any
+// Headwinds world — nothing in a world, or in the engine, reads this table.
+//
+// `bytes` is the .twsave exactly as uploaded (gzip'd JSON, ~60–100 KB late game).
+// `meta` is the summary the slot cards draw, so listing never reads `bytes`.
+// `uploadedAt` is the server's clock and the conflict token: an upload must name
+// the uploadedAt it expects to replace, and a mismatch is refused (409) rather
+// than overwriting another device's newer save.
+//
+// Only Account.isSupporter gates UPLOAD. Listing, loading and deleting stay open
+// to the account, so a lapsed supporter keeps their airlines. Deleted with the
+// account (Cascade).
+model TailwindsCloudSave {
+  id          String   @id @default(cuid())
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  slot        Int      // 0..2
+  fileVersion Int      // .twsave envelope version
+  meta        Json
+  bytes       Bytes
+  size        Int
+  savedAt     DateTime // when the player's game was exported for upload (client clock)
+  uploadedAt  DateTime // server clock; the conflict token
+  deviceLabel String?  // "Chrome on Mac" — shown when two devices disagree
+
+  @@unique([accountId, slot])
 }

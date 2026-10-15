@@ -142,9 +142,13 @@ await t('server.mjs routes /health through probeDatabase and errors through tran
   const src = fs.readFileSync(path.join(ROOT, 'apps/headwinds-server/src/server.mjs'), 'utf8');
   assert.match(src, /probeDatabase\(prisma\)/, '/health must probe the database');
   assert.match(src, /healthReport\(/, '/health must map the probe to a status');
-  assert.match(src, /transientKind\(err\)/, 'error handler must classify by kind');
-  assert.match(src, /TRANSIENT_MESSAGE\[kind\]/, 'error handler must use the per-kind message');
-  assert.ok(!/isTransientTxError/.test(src), 'server.mjs should use transientKind directly');
+  // The handler itself lives in lib/errorHandler.mjs (moved 2026-10-14 so a
+  // single-plugin suite can run under the real one); server.mjs must use it.
+  assert.match(src, /app\.setErrorHandler\(errorHandler\)/, 'server.mjs must install the shared error handler');
+  const handler = fs.readFileSync(path.join(ROOT, 'apps/headwinds-server/src/lib/errorHandler.mjs'), 'utf8');
+  assert.match(handler, /transientKind\(err\)/, 'error handler must classify by kind');
+  assert.match(handler, /TRANSIENT_MESSAGE\[kind\]/, 'error handler must use the per-kind message');
+  assert.ok(!/isTransientTxError/.test(src + handler), 'the error path should use transientKind directly');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

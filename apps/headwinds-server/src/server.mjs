@@ -10,7 +10,7 @@ import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
-import { transientKind, TRANSIENT_MESSAGE } from './lib/tx.mjs';
+import { errorHandler } from './lib/errorHandler.mjs';
 import { probeDatabase, healthReport } from './lib/health.mjs';
 import meRoutes from './routes/me.mjs';
 import playerRoutes from './routes/players.mjs';
@@ -26,6 +26,7 @@ import messageRoutes from './routes/messages.mjs';
 import reportRoutes from './routes/reports.mjs';
 import adminRoutes from './routes/admin.mjs';
 import logoRoutes from './routes/logos.mjs';
+import tailwindsSaveRoutes from './routes/tailwindsSaves.mjs';
 
 export function buildServer() {
   const app = Fastify({
@@ -42,44 +43,8 @@ export function buildServer() {
   // the compression round-trip would cost more than it saves.
   app.register(compress, { global: true, encodings: ['br', 'gzip', 'deflate'], threshold: 4096 });
 
-  // Uniform error shape. Respect an error's statusCode (set by our helpers /
-  // Fastify's validation); default to 500 and log unexpected ones.
-  //
-  // Below 500 the message is ours and is written for the player, so it is sent
-  // as-is. At 500+ it is NOT: it is whatever the driver said, and the client
-  // renders `error` directly in a toast — which is how players ended up staring at
-  // "Invalid `prisma.airline.updateMany()` invocation: Transaction API error...".
-  // Internals stay in the log; the player gets something actionable.
-  app.setErrorHandler((err, request, reply) => {
-    // A transaction that timed out or lost a deadlock is not a broken request —
-    // it is a busy database. A dropped or unobtainable connection is not a
-    // broken request either — it is a database that did not answer. Both are
-    // 503 + retryable so the client re-submits instead of telling the player
-    // their move failed (or, worse, that it was our bug).
-    const kind = err.statusCode ? null : transientKind(err);
-    const status = err.statusCode ?? (kind ? 503 : 500);
-
-    if (status >= 500) request.log.error(err);
-    // Below 500, pass through the machine-readable code when a helper set one.
-    // Read from `appCode`, NOT `code`: Prisma ('P2028') and Fastify
-    // ('FST_ERR_VALIDATION') both put their own values on `err.code`, and
-    // transientKind above matches on it — a name collision here would be a
-    // very quiet way to break transient-failure retry.
-    // The client cannot decide whether a failed write is safe to re-submit from
-    // the status alone — 409 is both "lost the version check, nothing written"
-    // and "your airline is BANKRUPT". See apps/headwinds-web/src/decisionPolicy.js.
-    if (status < 500) {
-      return reply.code(status).send({
-        error: err.message || 'Request failed',
-        ...(err.appCode ? { code: err.appCode } : {}),
-      });
-    }
-
-    return reply.code(status).send({
-      error: kind ? TRANSIENT_MESSAGE[kind] : 'Something went wrong on our end. Try again in a moment.',
-      retryable: Boolean(kind),
-    });
-  });
+  // Uniform error shape — see lib/errorHandler.mjs.
+  app.setErrorHandler(errorHandler);
 
   // Railway's healthcheck path, and the cheapest way to answer "what is actually
   // running right now?" — which cost us a dashboard hunt on 2026-08-03 while
@@ -114,6 +79,9 @@ export function buildServer() {
   app.register(reportRoutes);
   app.register(adminRoutes);
   app.register(logoRoutes);
+  // Tailwinds cloud saves (supporter perk). Its browser origin must be listed in
+  // CORS_ORIGINS alongside the Headwinds web client's.
+  app.register(tailwindsSaveRoutes);
 
   return app;
 }
