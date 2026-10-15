@@ -25,6 +25,7 @@ import TagRoutePlanner from './TagRoutePlanner.jsx';
 import InfoTip from './InfoTip.jsx';
 import AddGateButton from './AddGateButton.jsx';
 import ReserveNotice, { reserveOptionTag } from './ReserveNotice.jsx';
+import FinderReturnBar from './FinderReturnBar.jsx';
 import { consumeNavFilter, peekNavFilter, requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
 import { useToast } from './ToastSystem.jsx';
@@ -454,6 +455,9 @@ export default function RoutePlanner() {
   // the calendar; RANK_YEAR = the average across the months the route flies.
   // Appended below showAllRecs for the slot-order reason above.
   const [rankMonth, setRankMonth] = useState(null);
+  // Appended for the same slot-order reason: the way back to the finder.
+  const [fromFinder, setFromFinder] = useState(false);
+  const [justOpened, setJustOpened] = useState(null);
 
   // A pair handed over by the Route Finder's optional "Plan". Parked rather
   // than passed as a prop, because this component does not exist yet when the
@@ -467,6 +471,7 @@ export default function RoutePlanner() {
     if (!nav) return;
     if (nav.mode === 'freight') { setMode('freight'); return; }
     consumeNavFilter('planner');
+    if (nav.from === 'finder') setFromFinder(true);
     if (nav.origin) setOrigin(nav.origin);
     if (nav.dest) setDest(nav.dest);
     // The type the finder was searching with. The reachability guard below still
@@ -1101,6 +1106,8 @@ export default function RoutePlanner() {
       return;
     }
     dispatch({ type: 'ADD_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: frequency, ticketPrice: effectivePrice, classPrices: effectiveFares ?? undefined, cateringLevel, season });
+    const typeId = state.fleet.find(a => a.id === aircraftId)?.typeId ?? selectedTypeId;
+    setJustOpened({ origin, dest, typeId });
   }
 
   function handleSwap() {
@@ -1122,6 +1129,8 @@ export default function RoutePlanner() {
     <div>
 
       <ModeToggle mode={mode} setMode={setMode} />
+
+      <FinderReturnBar fromFinder={fromFinder} opened={justOpened} />
 
       {/* ── Route picker ── */}
       <div className="card" style={{ marginBottom: 12 }}>

@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import RouteFinder from './RouteFinder.jsx';
 import CargoRouteFinder from './CargoRouteFinder.jsx';
-import { requestNav } from '../utils/navIntent.js';
+import { requestNav, consumeNavFilter } from '../utils/navIntent.js';
+import { useGame } from '../store/GameContext.jsx';
+import { getAircraftType } from '../data/aircraft.js';
+import { useRememberedState, finderMemoryKey, rememberFinder } from '../utils/finderMemory.js';
 import { Glyph } from './Icons.jsx';
 
 /**
@@ -29,7 +32,23 @@ const MODES = [
 ];
 
 export default function RouteFinderScreen() {
-  const [mode, setMode] = useState('passenger');
+  const { state } = useGame();
+  // A deep link in ("Find routes for your 6 idle A320s" on the Fleet tab) picks
+  // the mode and the aircraft. It is written into the finder's memory BEFORE the
+  // finder mounts, so the finder simply reads it as its remembered search.
+  useState(() => {
+    const nav = consumeNavFilter('finder');
+    if (nav?.typeId && getAircraftType(nav.typeId)) {
+      const t = getAircraftType(nav.typeId);
+      const m = nav.mode ?? (t.freighter ? 'freight' : 'passenger');
+      if (m === 'passenger') rememberFinder(finderMemoryKey(state, 'passenger'), { typeId: t.id, limit: 25 });
+      else rememberFinder(finderMemoryKey(state, 'freight'), { rangeTypeId: t.id, limit: 25 });
+      rememberFinder(finderMemoryKey(state, 'screen'), { mode: m });
+    }
+    return null;
+  });
+  const [mode, setMode] = useRememberedState(finderMemoryKey(state, 'screen'), 'mode', 'passenger',
+    m => m === 'passenger' || m === 'freight');
 
   // The planner is a destination, not a consequence: nothing is parked until the
   // player clicks Plan on a specific pair.
@@ -37,8 +56,9 @@ export default function RouteFinderScreen() {
   // runway and the profit forecast all depend on which one — so handing the pair
   // over without it made the planner re-guess, and land on a different type than
   // the row the player clicked.
+  // `from: 'finder'` is what lets the planner offer the way back.
   const planPair = (m) => (origin, dest, typeId) =>
-    requestNav('planner', { filter: { mode: m, origin, dest, typeId } });
+    requestNav('planner', { filter: { mode: m, origin, dest, typeId, from: 'finder' } });
 
   return (
     <div>
@@ -70,9 +90,10 @@ export default function RouteFinderScreen() {
         <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
           Search the markets you don't serve yet, from any airport, and compare them on
           size, seasonality, reference price and who else already flies them.
-          Nothing here changes your airline — use it to work out where to grow or what
-          to order. <strong>Plan</strong> on a result is optional: it carries that pair
-          over to the Route Planner, where opening a route is a separate, deliberate step.
+          Looking changes nothing — use it to work out where to grow or what to order.
+          <strong> Plan</strong> on a result carries that pair over to the Route Planner, and
+          your search is still here when you come back. Got idle airliners? Tick several passenger
+          results and review them together to open one route per plane.
         </div>
       </div>
 

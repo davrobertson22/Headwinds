@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
-import { effectiveRangeKm, formatMoney, calendarYear, currentGameDate } from '../utils/simulation.js';
+import { effectiveRangeKm, formatMoney, calendarYear, currentGameDate, maxWeeklyBlockHoursFor } from '../utils/simulation.js';
 import { buildRouteMarket } from '../models/demand.js';
 import {
   findCandidates, scoreCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
@@ -13,6 +13,9 @@ import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
 import OriginPicker from './OriginPicker.jsx';
 import { useSlotPosition, SlotCell, OriginSlotsLine } from './FinderSlots.jsx';
+import BatchOpenReview from './BatchOpenReview.jsx';
+import { useRememberedState, finderMemoryKey } from '../utils/finderMemory.js';
+import { idleTailsOfType, pickKey, MAX_BATCH } from '../../packages/engine/src/models/routeBatch.js';
 
 const PAGE_SIZE = 25;
 
@@ -41,16 +44,25 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const slotPosition = useSlotPosition();
 
   const [open, setOpen]         = useState(!!standalone);
-  const [origin, setOrigin]     = useState(state.hub || '');
-  const [minDist, setMinDist]   = useState('');
-  const [maxDist, setMaxDist]   = useState('');
-  const [region, setRegion]     = useState('');
-  const [soloOnly, setSoloOnly] = useState(false);
-  const [showUnflyable, setShowUnflyable] = useState(false);
-  const [showServed, setShowServed]       = useState(false);
-  const [splitMetros, setSplitMetros]     = useState(false);
-  const [sortBy, setSortBy]     = useState('demand');
-  const [limit, setLimit]       = useState(PAGE_SIZE);
+  // The search survives the trip to the planner and back (utils/finderMemory.js):
+  // opening routes for a delivery of twelve A320s used to mean re-picking the
+  // aircraft and re-sorting this table twelve times.
+  const mem = finderMemoryKey(state, 'passenger');
+  const [origin, setOrigin]     = useRememberedState(mem, 'origin', state.hub || '', c => !c || !!getAirport(c));
+  const [minDist, setMinDist]   = useRememberedState(mem, 'minDist', '');
+  const [maxDist, setMaxDist]   = useRememberedState(mem, 'maxDist', '');
+  const [region, setRegion]     = useRememberedState(mem, 'region', '');
+  const [soloOnly, setSoloOnly] = useRememberedState(mem, 'soloOnly', false);
+  const [showUnflyable, setShowUnflyable] = useRememberedState(mem, 'showUnflyable', false);
+  const [showServed, setShowServed]       = useRememberedState(mem, 'showServed', false);
+  const [splitMetros, setSplitMetros]     = useRememberedState(mem, 'splitMetros', false);
+  const [sortBy, setSortBy]     = useRememberedState(mem, 'sortBy', 'demand', v => !!SORTS[v]);
+  const [limit, setLimit]       = useRememberedState(mem, 'limit', PAGE_SIZE, v => Number.isFinite(v) && v > 0);
+  // The shortlist: rows ticked to open together, one idle tail each
+  // (models/routeBatch.js). Kept with the search, so a Plan → detour to look
+  // at one route closely does not drop the other picks.
+  const [picks, setPicks]       = useRememberedState(mem, 'picks', [], Array.isArray);
+  const [reviewing, setReviewing] = useState(false);
 
   // currentGameDate carries absWeek — the finder's forecasts grow with the world.
   const gameDate = currentGameDate(state);
@@ -73,19 +85,23 @@ export default function RouteFinder({ onPick, standalone = false }) {
       if (!t || t.freighter) continue;
       const reach = Math.round(effectiveRangeKm(a, t));
       const cur = byType.get(t.id);
-      if (!cur) byType.set(t.id, { type: t, count: 1, best: a, reach });
+      if (!cur) byType.set(t.id, { type: t, count: 1, best: a, reach, idle: 0 });
       else {
         cur.count += 1;
         if (reach > cur.reach) { cur.best = a; cur.reach = reach; }
       }
     }
+    // Idle as the batch counts it — reserves are parked on purpose, a tail in the
+    // shop cannot fly — so "6 idle" here is the number a shortlist can fill.
+    for (const f of byType.values()) f.idle = idleTailsOfType(state.fleet, f.type.id).length;
     return [...byType.values()].sort((x, y) => y.count - x.count || x.type.name.localeCompare(y.type.name));
   }, [state.fleet]);
 
   // Default to the type you own the most of — the plane you are actually going to
   // fly the next route with. An empty selection is still available ("Any
   // aircraft"), it just isn't what a fleet owner wants on arrival.
-  const [typeId, setTypeId] = useState(() => fleetTypes[0]?.type.id ?? '');
+  const [typeId, setTypeId] = useRememberedState(mem, 'typeId', () => fleetTypes[0]?.type.id ?? '',
+    id => id === '' || !!getAircraftType(id));
   const owned = fleetTypes.find(f => f.type.id === typeId) ?? null;
   const selectedType = typeId ? getAircraftType(typeId) : null;
   const reach = selectedType
@@ -145,7 +161,10 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const forecastSort   = !!SORTS[sortBy]?.needsForecast;
   const results = useMemo(() => {
     if (!forecastReady || rows.length === 0) return sortCandidates(rows, sortBy);
-    const opts = { aircraftTypeId: typeId, aircraft: owned?.best ?? null, weeklyFrequency: 7, gameDate };
+    // The block-hour ceiling the planner and ADD_ROUTE use, so a long sector is
+    // forecast at the frequency it could actually open at, not the catalogue cap.
+    const opts = { aircraftTypeId: typeId, aircraft: owned?.best ?? null, weeklyFrequency: 7, gameDate,
+                   capHours: maxWeeklyBlockHoursFor(state) };
     if (forecastSort) {
       return sortCandidates(scoreCandidates(state, rows, { ...opts, limit: DEFAULT_SCORE_LIMIT }), sortBy);
     }
@@ -156,6 +175,21 @@ export default function RouteFinder({ onPick, standalone = false }) {
 
   const shown    = results.slice(0, limit);
   const unscored = forecastSort ? results.filter(r => !r.scored && !r.block).length : 0;
+
+  // ── Shortlist ──────────────────────────────────────────────────────────────
+  // Only offered for a type you own with an idle tail to spare: a pick is a
+  // route for one of THOSE planes, and the review assigns them.
+  const canPick      = !!owned && owned.idle > 0;
+  const pickedKeys   = new Set(picks.map(p => pickKey(p.origin, p.destination)));
+  const pickedOfType = picks.filter(p => p.typeId === typeId).length;
+  const idleUnpicked = owned ? Math.max(0, owned.idle - pickedOfType) : 0;
+  const pickFull     = idleUnpicked === 0 || picks.length >= MAX_BATCH;
+  function togglePick(r) {
+    const k = pickKey(origin, r.code);
+    setPicks(prev => prev.some(p => pickKey(p.origin, p.destination) === k)
+      ? prev.filter(p => pickKey(p.origin, p.destination) !== k)
+      : [...prev, { origin, destination: r.code, typeId }]);
+  }
 
   // Seasonality only for visible rows (cheap: <= limit calls)
   const seasonalByCode = useMemo(() => {
@@ -215,7 +249,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                   <optgroup label="In your fleet">
                     {fleetTypes.map(f => (
                       <option key={f.type.id} value={f.type.id}>
-                        {f.type.name} — {f.count} owned · {f.reach.toLocaleString()} km
+                        {f.type.name} — {f.count} owned{f.idle > 0 ? ` · ${f.idle} idle` : ''} · {f.reach.toLocaleString()} km
                       </option>
                     ))}
                   </optgroup>
@@ -312,6 +346,14 @@ export default function RouteFinder({ onPick, standalone = false }) {
             </label>
           </div>
 
+          {reviewing && picks.length > 0 && (
+            <BatchOpenReview
+              picks={picks}
+              setPicks={setPicks}
+              onClose={() => setReviewing(false)}
+            />
+          )}
+
           {/* Results */}
           {!originAirport ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
@@ -328,12 +370,20 @@ export default function RouteFinder({ onPick, standalone = false }) {
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
                 {results.length.toLocaleString()} market{results.length !== 1 ? 's' : ''} from {originAirport.code}{region ? ` in ${REGION_LABELS[region]}` : ''} · showing {shown.length}
                 {forecastReady && <> · forecast on {selectedType.name} at 7 flights/wk, reference fares</>}
+                {canPick && (
+                  <> · <span style={{ color: 'var(--yellow)' }}>{owned.idle} idle {selectedType.name}{owned.idle !== 1 ? 's' : ''}</span> — tick rows to open several at once</>
+                )}
               </div>
               <OriginSlotsLine code={originAirport.code} freq={7} position={slotPosition} />
               <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)' }}>
+                      {canPick && (
+                        <th style={{ padding: '7px 4px 7px 12px', width: 1 }}>
+                          <InfoTip text={`Tick the routes you want and open them together, one idle ${selectedType.name} each. Nothing opens until you review the list — every pick is checked and forecast after the ones above it, so they can't double-book a plane, a slot or your cash.`} />
+                        </th>
+                      )}
                       {[
                         { h: 'Destination', right: false },
                         { h: 'Distance',    right: true  },
@@ -356,8 +406,27 @@ export default function RouteFinder({ onPick, standalone = false }) {
                       const a        = r.airport;
                       const seasonal = seasonalByCode.get(r.code) ?? 1;
                       const proj     = r.projection;
+                      const picked   = pickedKeys.has(pickKey(origin, r.code));
                       return (
-                        <tr key={r.code} style={{ borderTop: '1px solid var(--border-subtle)', opacity: r.block ? 0.55 : 1 }}>
+                        <tr key={r.code} style={{ borderTop: '1px solid var(--border-subtle)', opacity: r.block ? 0.55 : 1, background: picked ? 'rgba(56,139,253,0.08)' : undefined }}>
+                          {canPick && (
+                            <td style={{ padding: '7px 4px 7px 12px', width: 1 }}>
+                              {!r.block && (
+                                <input
+                                  type="checkbox"
+                                  data-pick={r.code}
+                                  checked={picked}
+                                  disabled={!picked && pickFull}
+                                  onChange={() => togglePick(r)}
+                                  aria-label={`Shortlist ${origin} to ${a.code}`}
+                                  title={!picked && pickFull
+                                    ? (picks.length >= MAX_BATCH ? `A batch opens up to ${MAX_BATCH} routes` : `All ${owned.idle} idle ${selectedType.name}s are picked`)
+                                    : `Shortlist ${origin} → ${a.code}`}
+                                  style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+                                />
+                              )}
+                            </td>
+                          )}
                           <td style={{ padding: '7px 12px' }}>
                             <span style={{ fontWeight: 700 }}>{a.code}</span>
                             <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{a.city}, {a.country}</span>
@@ -451,6 +520,34 @@ export default function RouteFinder({ onPick, standalone = false }) {
                 </button>
               )}
             </>
+          )}
+
+          {/* The shortlist tray. Sticky, so it stays in reach while you tick
+              down a long table; it commits nothing on its own. */}
+          {picks.length > 0 && !reviewing && (
+            <div
+              data-shortlist-tray=""
+              style={{
+                position: 'sticky', bottom: 0, zIndex: 2, marginTop: 10, padding: '10px 12px',
+                background: 'var(--surface2)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)',
+                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 180, fontSize: 13 }}>
+                <strong>{picks.length}</strong> route{picks.length !== 1 ? 's' : ''} shortlisted
+                {owned && (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {' '}· {idleUnpicked} idle {selectedType.name}{idleUnpicked !== 1 ? 's' : ''} not yet picked
+                  </span>
+                )}
+              </div>
+              <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setPicks([])}>
+                Clear
+              </button>
+              <button className="btn btn-primary" style={{ fontSize: 13, padding: '6px 16px' }} onClick={() => setReviewing(true)}>
+                Review &amp; open →
+              </button>
+            </div>
           )}
         </div>
       )}

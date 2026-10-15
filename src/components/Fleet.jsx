@@ -24,7 +24,7 @@ import { orderProgress } from '../data/delivery.js';
 import { airframeNAV, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
-import { consumeNavFilter } from '../utils/navIntent.js';
+import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
 import { isLeaseAtRisk, leaseRemainingWeeks, leaseWarnWeeks, leaseWarnPhrase, leaseAutoRenewSetting, leaseWillAutoRenew } from '../utils/leaseAlerts.js';
 import { LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from '../models/leaseRenewal.js';
 import { useConfirm } from './ConfirmModal.jsx';
@@ -1025,6 +1025,18 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
             color: 'var(--text-muted)', fontSize: 13, textAlign: 'center',
           }}>
             Aircraft is idle — assign it to a route to start earning.
+            {type && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="btn btn-ghost"
+                  data-find-routes={type.id}
+                  style={{ fontSize: 12, padding: '5px 12px', color: 'var(--accent)' }}
+                  onClick={() => requestNav('finder', { filter: { typeId: type.id } })}
+                >
+                  <Glyph e="🔍" size={12} /> Find routes for your idle {type.name}s
+                </button>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 6 }}>
               {type?.freighter ? (
                 <>Open the <strong>Route Planner</strong> in Freight mode (or <strong>Routes → Cargo → + Open Freight Route</strong>), pick two airports and hit <strong>Open Route</strong> to deploy it.</>
@@ -2225,6 +2237,21 @@ export default function Fleet() {
                 </button>
               );
             })}
+            {filterTypeId && (() => {
+              // The Discord ask in one click: a delivery of N of a type, idle,
+              // and the finder opened on exactly that aircraft to shortlist them.
+              const sel = typeSummaries.find(t => t.typeId === filterTypeId);
+              return sel?.idle > 0 ? (
+                <button
+                  onClick={() => requestNav('finder', { filter: { typeId: filterTypeId } })}
+                  className="btn btn-ghost"
+                  data-find-routes={filterTypeId}
+                  style={{ alignSelf: 'center', fontSize: 12, color: 'var(--accent)' }}
+                >
+                  <Glyph e="🔍" /> Find routes for {sel.idle} idle {sel.type?.name ?? filterTypeId}{sel.idle !== 1 ? 's' : ''}
+                </button>
+              ) : null;
+            })()}
             {filterTypeId && (
               <button
                 onClick={() => setFilterTypeId(null)}

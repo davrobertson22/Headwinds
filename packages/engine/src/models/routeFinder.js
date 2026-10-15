@@ -336,6 +336,68 @@ export function findCandidates(state, {
 }
 
 /**
+ * One launch forecast, the way a finder row prices it: the engine's
+ * projectRouteAddition on `aircraft`, plus connecting feed, less the lease on
+ * that airframe. Split out of scoreCandidates so the finder's shortlist
+ * (models/routeBatch.js) prices each pick with the identical sum — a review
+ * table that quoted a different number from the row it came from would be the
+ * preview-vs-preview bug this module exists to avoid.
+ *
+ * `frameLease` is what the tick charges for this airframe each week; null
+ * derives it (owned 0, leased at its signed rate). Returns null when the
+ * projection has no mature figure.
+ */
+export function forecastLaunch(state, {
+  origin, destination, aircraft, frameLease = null, weeklyFrequency,
+  ticketPrice, classPrices, cateringLevel, gameDate,
+}) {
+  const type = getAircraftType(aircraft?.typeId);
+  if (!type) return null;
+  const lease = frameLease ?? (aircraft.ownershipType === 'owned'
+    ? 0 : (aircraft.weeklyLease ?? type.weeklyLease ?? 0));
+  const p = projectRouteAddition(state, {
+    origin,
+    destination,
+    aircraft,
+    weeklyFrequency,
+    ticketPrice,
+    classPrices,
+    // The catering ADD_ROUTE will assign. Catering is a quality term in the
+    // share fight, so a finder that left it at the engine default forecast a
+    // different slice of a contested pair than the planner and the tick.
+    cateringLevel: cateringLevel ?? normalizeCateringLevel(state.defaultCateringLevel),
+    gameDate,
+  });
+  if (!p?.mature) return null;
+  // Connecting feed. weeklyTick credits a route with its connecting revenue
+  // (`routeRevenue = result.revenue + connecting.totalRevenue`), and the Route
+  // Planner shows it — the finder omitting it ranked every hub spoke BELOW the
+  // profit the planner then quoted for the very same row. The projection now
+  // carries it, computed the tick's way (own-metal itineraries, departures as
+  // slots, seat headroom); the bare computeConnectingDemand call this used to
+  // make quoted 6% of the tick's figure on a fed hub.
+  const connecting = p.connecting ?? { totalRevenue: 0, totalPax: 0 };
+  return {
+    weeklyFrequency,
+    passengers:  p.mature.passengers,
+    loadFactor:  p.mature.loadFactor,
+    revenue:     p.mature.revenue,
+    // The planner's headline number: what the route clears after operating
+    // cost, landing fees and the lease on the aircraft flying it. A finder
+    // that quoted revenue would rank the most expensive markets top.
+    // profitAfterLandingFees is the tick's definition in BOTH repos
+    // (Tailwinds keeps `profit` pre-fee; Headwinds nets it) — reading it
+    // here is what keeps this file identical across them.
+    netProfit:   Math.round((p.mature.profitAfterLandingFees ?? p.mature.profit)
+                   + (connecting.totalRevenue ?? 0) - lease),
+    connectingRevenue: Math.round(connecting.totalRevenue ?? 0),
+    lanePooled:  !!p.lanePooled,
+    siblingPairs: p.siblingPairs ?? [],
+    rivalCount:  p.rivalCount ?? 0,
+  };
+}
+
+/**
  * Price the best `limit` leads with the engine's own launch forecast — the very
  * same projectRouteAddition the Route Planner draws its economics from, so the
  * number on the row and the number on the next screen agree.
@@ -380,51 +442,13 @@ export function scoreCandidates(state, rows, {
     if (r.block) continue;                    // a route you cannot open has no forecast
     const freq = Math.max(1, Math.min(weeklyFrequency,
       maxFrequency(r.distKm, type, capHours)));
-    const fares = defaultClassPrices(r.refPrice);
-    const p = projectRouteAddition(state, {
-      origin: r.origin,
-      destination: r.code,
-      aircraft: frame,
-      weeklyFrequency: freq,
-      ticketPrice: r.refPrice,
-      classPrices: fares,
-      // The catering ADD_ROUTE will assign. Catering is a quality term in the
-      // share fight, so a finder that left it at the engine default forecast a
-      // different slice of a contested pair than the planner and the tick.
-      cateringLevel: normalizeCateringLevel(state.defaultCateringLevel),
+    const projection = forecastLaunch(state, {
+      origin: r.origin, destination: r.code, aircraft: frame, frameLease,
+      weeklyFrequency: freq, ticketPrice: r.refPrice, classPrices: defaultClassPrices(r.refPrice),
       gameDate,
     });
-    if (!p?.mature) continue;
-    // Connecting feed. weeklyTick credits a route with its connecting revenue
-    // (`routeRevenue = result.revenue + connecting.totalRevenue`), and the Route
-    // Planner shows it — the finder omitting it ranked every hub spoke BELOW the
-    // profit the planner then quoted for the very same row. The projection now
-    // carries it, computed the tick's way (own-metal itineraries, departures as
-    // slots, seat headroom); the bare computeConnectingDemand call this used to
-    // make quoted 6% of the tick's figure on a fed hub.
-    const connecting = p.connecting ?? { totalRevenue: 0, totalPax: 0 };
-    out[i] = {
-      ...out[i],
-      scored: true,
-      projection: {
-        weeklyFrequency: freq,
-        passengers:  p.mature.passengers,
-        loadFactor:  p.mature.loadFactor,
-        revenue:     p.mature.revenue,
-        // The planner's headline number: what the route clears after operating
-        // cost, landing fees and the lease on the aircraft flying it. A finder
-        // that quoted revenue would rank the most expensive markets top.
-        // profitAfterLandingFees is the tick's definition in BOTH repos
-        // (Tailwinds keeps `profit` pre-fee; Headwinds nets it) — reading it
-        // here is what keeps this file identical across them.
-        netProfit:   Math.round((p.mature.profitAfterLandingFees ?? p.mature.profit)
-                       + (connecting.totalRevenue ?? 0) - frameLease),
-        connectingRevenue: Math.round(connecting.totalRevenue ?? 0),
-        lanePooled:  !!p.lanePooled,
-        siblingPairs: p.siblingPairs ?? [],
-        rivalCount:  p.rivalCount ?? 0,
-      },
-    };
+    if (!projection) continue;
+    out[i] = { ...out[i], scored: true, projection };
   }
   return out;
 }

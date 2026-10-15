@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn, addCargoRouteBlockReason } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
@@ -13,6 +13,7 @@ import { Glyph } from './Icons.jsx';
 import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
 import ReserveNotice from './ReserveNotice.jsx';
+import FinderReturnBar from './FinderReturnBar.jsx';
 import { frequencySliderWidth } from '../utils/frequencySlider.js';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
@@ -141,6 +142,15 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   const [selectedTypeId, setSelectedTypeId] = useState('');
   const [frequency, setFrequency] = useState(7);
   const [yieldPrice, setYieldPrice] = useState(null); // null = auto reference yield
+  const [fromFinder, setFromFinder] = useState(false);
+  const [justOpened, setJustOpened] = useState(null);
+  // ADD_CARGO_ROUTE's guards live in the reducer, so "it opened" is read off
+  // the route list growing rather than assumed at the click.
+  const openAttempt = useRef(null);
+  useEffect(() => {
+    const a = openAttempt.current;
+    if (a && (state.cargoRoutes?.length ?? 0) > a.before) { setJustOpened(a.opened); openAttempt.current = null; }
+  }, [state.cargoRoutes]);
 
   // A lane handed over by the Route Finder's optional "Plan". The finder is its
   // own screen now, so the pair is parked as a nav intent and read once, on
@@ -151,6 +161,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     if (embedded) return;
     const nav = consumeNavFilter('planner');
     if (!nav || nav.mode !== 'freight') return;
+    if (nav.from === 'finder') setFromFinder(true);
     if (nav.origin) setOrigin(nav.origin);
     if (nav.dest) setDest(nav.dest);
     // The freighter the finder searched with rides along, so Plan lands on the
@@ -319,6 +330,10 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   }, [freqCap]);
 
   function handleOpenRoute(aircraftId) {
+    openAttempt.current = {
+      before: state.cargoRoutes?.length ?? 0,
+      opened: { origin, dest, typeId: state.fleet.find(a => a.id === aircraftId)?.typeId ?? selectedTypeId },
+    };
     dispatch({ type: 'ADD_CARGO_ROUTE', origin, destination: dest, aircraftId, weeklyFrequency: Math.min(frequency, freqCap), yieldPrice: effectiveYield });
     onOpened?.();
   }
@@ -356,6 +371,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   return (
     <div>
       {!embedded && <ModeToggle mode={mode} setMode={setMode} />}
+      {!embedded && <FinderReturnBar fromFinder={fromFinder} opened={justOpened} />}
 
       {/* Route picker */}
       <div className="card" style={{ marginBottom: 12 }}>
