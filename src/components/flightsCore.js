@@ -1,12 +1,11 @@
 // Planes on the globe — where each aircraft is at a given moment of the week.
 //
-// The game schedules nothing finer than "N round trips a week", so the planes
-// are a plausible picture of that, not a timetable the tick reads. Each tail
-// flies its route's frequency as evenly spaced rotations: every leg out, every
-// leg back, with the type's real cruise speed and turnaround (the same numbers
-// the engine charges block hours with). A tail is one plane, so the sky never
-// holds more aircraft than the fleet has, and the block-hour cap keeps a tail's
-// rotations from overlapping.
+// The planes fly the airline's timetable (models/schedule.js): the rotations
+// the player pinned in the schedule editor, and automatic ones everywhere else.
+// Every leg out, every leg back, at the type's real cruise speed and
+// turnaround (the numbers the engine charges block hours with). The timetable
+// is per aircraft and never overlaps, so a tail flying two routes is never in
+// two places at once. Cosmetic: nothing in the tick reads it.
 //
 // Speed: planes run on the game clock when the world is slow enough to look
 // like flying (≤ 24 weeks/day: an hour's hop takes ≥ 21 real seconds). Faster
@@ -81,7 +80,7 @@ export function bearingDeg(a, b) {
  * Returns null for a tail that doesn't fly (no frequency, bad data).
  */
 export function buildFlightPlan({
-  id, group, color, tip = '', stops, legKm, weeklyFrequency, cruiseKmh, turnaroundH,
+  id, group, color, tip = '', stops, legKm, weeklyFrequency, cruiseKmh, turnaroundH, startsH = null,
 }) {
   const f = Math.floor(Number(weeklyFrequency) || 0);
   if (f <= 0 || !Array.isArray(stops) || stops.length < 2 || !(cruiseKmh > 0)) return null;
@@ -100,17 +99,16 @@ export function buildFlightPlan({
   // three hours' jitter so tails sharing a pair don't fly in formation.
   const localSix = 6 - stops[0].lon / 15;
   const phase = ((((localSix + hash01(id) * 3) % slotH) + slotH) % slotH);
-  return { id, group, color, tip, legs, rotationH, slotH, phase };
+  // Explicit rotation starts (hours into the week, from the timetable) win;
+  // without them the rotations are evenly spaced from `phase`.
+  const starts = Array.isArray(startsH) && startsH.length
+    ? [...startsH].map(h => ((h % WEEK_HOURS) + WEEK_HOURS) % WEEK_HOURS).sort((a, b) => a - b)
+    : null;
+  return { id, group, color, tip, legs, rotationH, slotH, phase, starts };
 }
 
-/**
- * Where a plan's aircraft is at `weekHours`: null on the ground, else
- * { lat, lon, heading, leg, progress }.
- */
-export function planePosition(plan, weekHours) {
-  if (!plan) return null;
-  let t = (((weekHours - plan.phase) % plan.slotH) + plan.slotH) % plan.slotH;
-  if (t >= plan.rotationH) return null;
+/** Where along one rotation, `t` hours after it left: null while on the ground. */
+function alongRotation(plan, t) {
   for (let i = 0; i < plan.legs.length; i++) {
     const l = plan.legs[i];
     if (t < l.flightH) {
@@ -130,18 +128,45 @@ export function planePosition(plan, weekHours) {
   return null;
 }
 
-/** GeoJSON of every airborne plane at `weekHours`. */
-export function planesGeoJSON(plans, weekHours) {
+/**
+ * Where a plan's aircraft is at `weekHours`: null on the ground, else
+ * { lat, lon, heading, leg, progress }.
+ */
+export function planePosition(plan, weekHours) {
+  if (!plan) return null;
+  if (plan.starts) {
+    for (const s of plan.starts) {
+      const t = (((weekHours - s) % WEEK_HOURS) + WEEK_HOURS) % WEEK_HOURS;
+      if (t < plan.rotationH) return alongRotation(plan, t);
+    }
+    return null;
+  }
+  const t = (((weekHours - plan.phase) % plan.slotH) + plan.slotH) % plan.slotH;
+  if (t >= plan.rotationH) return null;
+  return alongRotation(plan, t);
+}
+
+/** Tooltip HTML for a plane at `pos` (plan.tip is pre-escaped). */
+export function planeTipHtml(plan, pos) {
+  if (!plan?.tip || !pos) return '';
+  const l = plan.legs[pos.leg];
+  return `${plan.tip}<div class="map-tip-sub">${l.from.code ?? ''} → ${l.to.code ?? ''} · ${Math.round(pos.progress * 100)}% of the way</div>`;
+}
+
+/**
+ * GeoJSON of every airborne plane at `weekHours`. The globe redraws this up to
+ * 30×/s, so it passes `{ tips: false }` and builds a tooltip only on hover.
+ */
+export function planesGeoJSON(plans, weekHours, { tips = true } = {}) {
   const features = [];
   for (const plan of plans ?? []) {
     const pos = planePosition(plan, weekHours);
     if (!pos) continue;
-    const l = plan.legs[pos.leg];
     features.push({
       type: 'Feature',
       properties: {
         id: plan.id, group: plan.group, color: plan.color, heading: pos.heading,
-        tip: plan.tip ? `${plan.tip}<div class="map-tip-sub">${l.from.code ?? ''} → ${l.to.code ?? ''} · ${Math.round(pos.progress * 100)}% of the way</div>` : '',
+        ...(tips ? { tip: planeTipHtml(plan, pos) } : {}),
       },
       geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
     });

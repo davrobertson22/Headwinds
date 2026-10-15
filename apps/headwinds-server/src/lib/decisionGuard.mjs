@@ -27,6 +27,7 @@ import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
+import { normalizeStarts } from '@tailwinds/engine/models/schedule.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
 export class GuardError extends Error {
@@ -257,6 +258,30 @@ function guardSetRouteTankering(payload, state) {
   const mode = payload?.mode === 'auto' ? 'auto' : payload?.mode === 'off' ? 'off' : null;
   if (!mode) throw new GuardError('Tankering is either auto or off.');
   return { routeId: id, mode };
+}
+
+// Timetable pins: only this airline's routes, each a clean list of minutes
+// into the week (the reducer also clamps to the route's frequency).
+function guardSetRouteSchedules(payload, state) {
+  const want = payload?.schedules;
+  if (!want || typeof want !== 'object' || Array.isArray(want)) throw new GuardError('No schedules.');
+  const own = new Map([...(state.routes ?? []), ...(state.cargoRoutes ?? [])].map((r) => [r?.id, r]));
+  const ids = Object.keys(want);
+  // "Reset all to automatic" names every route at once; a big airline has
+  // well over 500. Capped so a forged payload can't be unbounded.
+  if (ids.length === 0 || ids.length > 5000) throw new GuardError('Too many routes in one schedule change.');
+  const schedules = {};
+  for (const id of ids) {
+    const v = want[id];
+    if (v != null && !Array.isArray(v)) throw new GuardError('A schedule is a list of departure minutes.');
+    // A route closed a moment ago (another tab, a poll in flight) is skipped,
+    // not a reason to throw away the rest of the change.
+    const r = own.get(id);
+    if (!r) continue;
+    schedules[id] = v == null ? null : normalizeStarts(v.slice(0, 200), r.weeklyFrequency ?? 0);
+  }
+  if (Object.keys(schedules).length === 0) throw new GuardError('Unknown route.');
+  return { schedules };
 }
 
 // A real airport code; everything else about a fuel farm is the reducer's.
@@ -622,6 +647,7 @@ export function guardDecision(type, payload, state) {
     case 'RETROFIT_WINGTIPS':  return { aircraftIds: guardAircraftIds(payload, state) };
     case 'SET_FUEL_PROGRAMME': return guardSetFuelProgramme(payload);
     case 'SET_ROUTE_TANKERING': return guardSetRouteTankering(payload, state);
+    case 'SET_ROUTE_SCHEDULES': return guardSetRouteSchedules(payload, state);
     case 'BUY_FUEL_STAKE':
     case 'BUILD_FUEL_FARM':
     case 'CLOSE_FUEL_FARM':     return guardFarmCode(payload);

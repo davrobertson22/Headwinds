@@ -17,6 +17,7 @@ import useIsMobile from '../hooks/useIsMobile.js';
 import GlobeMap from './GlobeMap.jsx';
 import { buildGlobeData } from './globeCore.js';
 import { buildFlightPlan } from './flightsCore.js';
+import { airlineWeeks } from '../models/schedule.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
@@ -97,6 +98,9 @@ export function mapHubs(state = {}) {
   return out;
 }
 
+// A stable empty list, so a state with no cargoRoutes doesn't defeat memos.
+const NO_ROUTES = [];
+
 // localStorage key for the flat-map / globe choice.
 export const MAP_VIEW_KEY = 'headwinds.mapView';
 // localStorage key for the globe's planes overlay (on unless turned off).
@@ -106,16 +110,25 @@ const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
- * One flight plan per flying tail, for the globe's planes (flightsCore.js).
- * Takes the map's own groups, so the aircraft-type / airport filters and the
- * cargo toggle apply to the planes exactly as they do to the lines. A tail
- * flies nothing while it's grounded or in maintenance, or in a month its
- * seasonal route is dormant.
+ * One flight plan per route a tail flies, for the globe's planes
+ * (flightsCore.js), timed by the airline's timetable (models/schedule.js) —
+ * the player's pinned rotations plus automatic ones — so a tail on two routes
+ * is never in two places at once. Takes the map's own groups, so the
+ * aircraft-type / airport filters and the cargo toggle apply to the planes
+ * exactly as they do to the lines. A tail flies nothing while it's grounded or
+ * in maintenance, or in a month its seasonal route is dormant.
  *   groups / cargoGroups: { key, members: [{ r, chain, origin, dest }] }
  *   colorOf(g): the line colour, used for the plane's glow
+ *   weeks: airlineWeeks(...) for ALL the airline's routes (filters must not
+ *          reshuffle the timetable); computed here when omitted
  */
-export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], month, colorOf, cargoColor }) {
+export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], month, colorOf, cargoColor, weeks = null }) {
   const plans = [];
+  const table = weeks ?? airlineWeeks({
+    fleet,
+    routes: groups.flatMap(g => g.members.map(d => d.r)),
+    cargoRoutes: cargoGroups.flatMap(g => g.members.map(d => d.r)),
+  }, month);
   const add = (g, d, idx, group, color) => {
     const r = d.r;
     if (!r || !isRouteActive(r, month)) return;
@@ -124,6 +137,8 @@ export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], mon
     const type = getAircraftType(ac.typeId);
     if (!type) return;
     const stops = d.chain?.length >= 2 ? d.chain : [d.origin, d.dest];
+    const startsH = (table.get(ac.id)?.blocks ?? []).filter(b => b.routeId === r.id).map(b => b.start / 60);
+    if (!startsH.length) return;
     const plan = buildFlightPlan({
       id: r.id ?? `${group}#${idx}`,
       group, color,
@@ -134,6 +149,7 @@ export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], mon
       weeklyFrequency: r.weeklyFrequency,
       cruiseKmh: cruiseSpeedKmh(type),
       turnaroundH: turnaroundHours(type),
+      startsH,
     });
     if (plan) plans.push(plan);
   };
@@ -238,7 +254,7 @@ export function mapAirportCodes(hubCodes = [], ...routeDataSets) {
 
 export default function RouteMap() {
   const { state, remoteChrome } = useGame();
-  const { fleet, routes, cargoRoutes = [], hub, hubs: hubsState,
+  const { fleet, routes, cargoRoutes = NO_ROUTES, hub, hubs: hubsState,
           competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
   // Every designated station, gold-pinned — not just the founding hub.
@@ -915,8 +931,9 @@ export default function RouteMap() {
     return tailFlightPlans({
       groups: routeGroups, cargoGroups: showCargo ? cargoGroups : [],
       fleet, month: gd.month, colorOf: routeGroupColor, cargoColor: CARGO_COLOR,
+      weeks: airlineWeeks({ fleet, routes, cargoRoutes }, gd.month),
     });
-  }, [mapView, showPlanes, routeGroups, cargoGroups, showCargo, fleet, gd.month]);
+  }, [mapView, showPlanes, routeGroups, cargoGroups, showCargo, fleet, routes, cargoRoutes, gd.month]);
 
   // The world's clock (multiplayer only), as primitives so a poll that
   // changes nothing doesn't restart the globe's animation.

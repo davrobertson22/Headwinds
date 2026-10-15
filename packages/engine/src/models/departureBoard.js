@@ -268,7 +268,11 @@ export function competitorDepartureLegs(routes, airport) {
  * @param {object[]} o.carriers     [{ id, name, isPlayer, logoId, logoColor,
  *                                     customLogo, onTimeRate, legs: [{ to,
  *                                     weeklyFrequency, typeId, typeName,
- *                                     cancelled?, cancelReason? }] }]
+ *                                     cancelled?, cancelReason?,
+ *                                     times?: [{ day, min }] }] }]
+ *
+ * A leg with `times` is timetabled (the player's schedule): it prints at
+ * exactly those local times on those days instead of synthesised ones.
  *
  * A leg flagged `cancelled` (its aircraft is grounded or in a heavy check with
  * no reserve covering it) keeps its timetable slots — the flights were sold —
@@ -296,22 +300,36 @@ export function buildDepartureBoard({ airport, day = 0, worldSeed = 'w', carrier
     }
     for (const [to, legs] of byDest) {
       const routeSeed = `${worldSeed}|${airport}|${c.id}|${to}`;
+      // A leg with real `times` ([{ day, min }], local to this airport — the
+      // player's timetable, models/schedule.js) prints exactly those; the rest
+      // are synthesised as before.
+      const timed = [];
       const slots = [];
       legs.forEach((leg, k) => {
+        if (Array.isArray(leg.times)) {
+          for (const t of leg.times) if (t?.day === day) timed.push({ leg, time: t.min, key: t.key ?? null });
+          return;
+        }
         const legSeed = k === 0 ? routeSeed : `${routeSeed}|leg${k}`;
         const n = departuresOnDay(leg.weeklyFrequency, day, legSeed);
         for (let j = 0; j < n; j++) slots.push(leg);
       });
-      if (slots.length === 0) continue;
+      if (slots.length === 0 && timed.length === 0) continue;
       const daySeed = `${routeSeed}|d${day}`;
-      const times = departureTimes(slots.length, daySeed);
-      times.forEach((time, i) => {
-        const leg = slots[i];
-        const rowSeed = `${daySeed}|${i}`;
+      const synth = departureTimes(slots.length, daySeed);
+      const all = [...timed, ...slots.map((leg, i) => ({ leg, time: synth[i] }))]
+        .sort((x, y) => x.time - y.time);
+      all.forEach(({ leg, time, key }, i) => {
+        // A timetabled flight is seeded by its own identity, so moving one
+        // flight doesn't renumber (or re-roll the status of) the others.
+        // Synthesised rows keep their positional seeds — byte-identical.
+        const rowSeed = key != null ? `${routeSeed}|k${key}|d${day}` : `${daySeed}|${i}`;
         rows.push({
           time,
           timeLabel:   formatClock(time),
-          flightNo:    flightNumber(codes[c.id] ?? 'XX', routeSeed, i, taken),
+          flightNo:    key != null
+            ? flightNumber(codes[c.id] ?? 'XX', `${routeSeed}|k${key}`, 0, taken)
+            : flightNumber(codes[c.id] ?? 'XX', routeSeed, i, taken),
           destination: to,
           airlineId:   c.id,
           airlineName: c.name,

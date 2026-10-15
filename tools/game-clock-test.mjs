@@ -69,9 +69,10 @@ test('a scheduled world that has not started is parked at Monday 00:00', () => {
   assert.equal(formatGameClock(c), 'Mon 00:00');
 });
 
-test('client clock running ahead of the server never shows a negative time', () => {
+test('client clock running behind the server: clock and planes both hold at Monday 00:00', () => {
   const c = at(4, tickIntervalMs(4) + 30_000);
   assert.equal(c.fraction, 0);
+  assert.equal(c.rawHours, 0, 'planes must not jump to late in the week');
 });
 
 test('no pace or no next tick → no clock (ended worlds, the solo game)', () => {

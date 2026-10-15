@@ -40,6 +40,7 @@ import CateringSelector from './CateringSelector.jsx';
 import CateringContracts from './CateringContracts.jsx';
 import InfoTip from './InfoTip.jsx';
 import Departures, { takeDepartureBoardRequest } from './Departures.jsx';
+import ScheduleTimeline from './ScheduleTimeline.jsx';
 import { Glyph } from './Icons.jsx';
 
 // ─── Headcount ────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ export function headcountFor(groupId, fleet, typeOf) {
 const SUB_TABS = [
   { id: 'labor',      label: 'Labour & Costs' },
   { id: 'departures', label: 'Departure Board' },
+  { id: 'schedule',   label: 'Schedule' },
 ];
 
 // ─── Shared slider styling ─────────────────────────────────────────────────────
@@ -974,7 +976,7 @@ export default function Operations() {
         ))}
       </div>
 
-      {subTab === 'departures' ? <Departures initialAirport={requestedAirport} /> : (<>
+      {subTab === 'schedule' ? <ScheduleTimeline /> : subTab === 'departures' ? <Departures initialAirport={requestedAirport} /> : (<>
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>

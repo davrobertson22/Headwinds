@@ -55,7 +55,7 @@ await test('with the pace, the countdown leads with the game time', () => {
   // Half the interval left at 1 week/day → Thursday noon.
   const next = new Date(Date.now() + tickIntervalMs(1) / 2).toISOString();
   const html = strip(renderToString(React.createElement(TickCountdown, { nextTickAt: next, weeksPerDay: 1 })));
-  assert.match(html, /<strong>Thu 1[12]:\d\d<\/strong> · next week in/);
+  assert.match(html, /<strong>Thu 1[12]:\d\d<\/strong> UTC · next week in/);
   assert.match(html, /title="[^"]*Game time Thu/);
 });
 
@@ -93,7 +93,7 @@ await test('one plan per flying tail, coloured like its line', () => {
   const plans = tailFlightPlans({ groups: [g], fleet: fleetFor(['a', 'b']), month: 6, colorOf: routeGroupColor, cargoColor: '#fa0' });
   assert.equal(plans.length, 2);
   assert.ok(plans.every(p => p.group === 'MEL~SYD' && p.color === routeGroupColor(g)));
-  assert.notEqual(plans[0].phase, plans[1].phase, 'two tails on one pair spread out');
+  assert.notEqual(plans[0].starts[0], plans[1].starts[0], 'two tails on one pair spread out');
 });
 
 await test('grounded, in-maintenance, dormant and zero-frequency tails stay on the ground', () => {
@@ -121,7 +121,32 @@ await test('a rotation flies through every stop', () => {
   const g = { key: 'tag:x', multi: true, members: [member('t', ['MCI', 'JFK', 'ORY'])] };
   const [p] = tailFlightPlans({ groups: [g], fleet: fleetFor(['t']), month: 3, colorOf: routeGroupColor });
   assert.deepEqual(p.legs.map(l => l.from.code), ['MCI', 'JFK', 'ORY', 'JFK']);
-  assert.ok(planePosition(p, p.phase + 0.5), 'airborne half an hour after departure');
+  assert.ok(planePosition(p, p.starts[0] + 0.5), 'airborne half an hour after departure');
+});
+
+await test('a tail flying two routes is never in two places at once', () => {
+  const a = member('a', ['SYD', 'MEL']), b = member('b', ['SYD', 'BNE']);
+  b.r.aircraftId = 'ac-a';
+  const plans = tailFlightPlans({
+    groups: [{ key: 'g1', members: [a] }, { key: 'g2', members: [b] }],
+    fleet: fleetFor(['a']), month: 3, colorOf: () => '#fff',
+  });
+  assert.equal(plans.length, 2);
+  let airborne = 0;
+  for (let m = 0; m < 168 * 60; m += 5) {
+    const up = plans.filter(p => planePosition(p, m / 60)).length;
+    assert.ok(up <= 1, `both routes airborne at ${m} min`);
+    airborne += up;
+  }
+  assert.ok(airborne > 0);
+});
+
+await test('planes fly the player\'s pinned departures', () => {
+  const g = { key: 'k', members: [member('p', ['SYD', 'MEL'], { schedule: { starts: [1000] } })] };
+  const [p] = tailFlightPlans({ groups: [g], fleet: fleetFor(['p']), month: 3, colorOf: () => '#fff' });
+  assert.ok(p.starts.some(h => Math.abs(h - 1000 / 60) < 1e-9), JSON.stringify(p.starts));
+  const pos = planePosition(p, 1000 / 60 + 0.01);
+  assert.ok(pos && pos.leg === 0 && pos.progress < 0.05, 'just left SYD at the pinned minute');
 });
 
 await test('a player-named aircraft cannot inject HTML into the tooltip', () => {

@@ -7,7 +7,9 @@ import { Glyph } from './Icons.jsx';
 import {
   gameClockAt, formatGameClock, sunPosition, nightOverlayPixels, nightRefreshMs, NIGHT_COORDINATES,
 } from './gameClock.js';
-import { planesGeoJSON, planeWeekHours, planeRate, planeRefreshMs } from './flightsCore.js';
+import {
+  planesGeoJSON, planeWeekHours, planeRate, planeRefreshMs, planePosition, planeTipHtml,
+} from './flightsCore.js';
 
 // ── Globe view of the Network map ─────────────────────────────────────────────
 // Same data as the flat map (RouteMap builds it, globeCore turns it into
@@ -31,7 +33,7 @@ const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'part
 // ── Day / night and planes ────────────────────────────────────────────────────
 // Night is a small canvas raster over the whole world (gameClock.js draws the
 // pixels); planes are a symbol layer fed by flightsCore.js. Both are redrawn
-// from one requestAnimationFrame loop at a cadence set by how fast things
+// from one timer loop at a cadence set by how fast things
 // actually move — a 1-week-a-day world redraws night every ~17 s.
 export const NIGHT_SIZE = 256;
 const PLANE_ICON = 'hw-plane';
@@ -150,6 +152,16 @@ export default function GlobeMap({
 }) {
   const nightCanvasRef = useRef(null);
   const clockLabelRef = useRef(null);
+  // Planes carry no tooltip HTML in their per-frame GeoJSON; hover looks the
+  // plan up here and describes where it is at that moment.
+  const planTipRef = useRef(() => '');
+  const hoveredPlaneRef = useRef(null);
+  planTipRef.current = (id) => {
+    const plan = flights?.find(p => p.id === id);
+    if (!plan) return '';
+    const c = clock ? gameClockAt(Date.now(), clock) : null;
+    return planeTipHtml(plan, planePosition(plan, planeWeekHours(Date.now(), c)));
+  };
   const elRef = useRef(null);
   const mapRef = useRef(null);
   const popupRef = useRef(null);
@@ -205,7 +217,9 @@ export default function GlobeMap({
           return null;
         };
         const show = (f, lngLat) => {
-          const tip = f?.properties?.tip;
+          // A hovered plane's tooltip follows it (effect 5 moves the popup).
+          hoveredPlaneRef.current = f?.layer?.id === 'planes' ? f.properties.id : null;
+          const tip = f?.layer?.id === 'planes' ? planTipRef.current(f.properties.id) : f?.properties?.tip;
           if (!tip) { popupRef.current.remove(); lastTip = null; return; }
           if (tip !== lastTip) { popupRef.current.setHTML(tip); lastTip = tip; }
           popupRef.current.setLngLat(lngLat);
@@ -219,7 +233,7 @@ export default function GlobeMap({
           show(f, e.lngLat);
         });
         map.getCanvas().addEventListener('mouseleave', () => {
-          popupRef.current.remove(); lastTip = null;
+          popupRef.current.remove(); lastTip = null; hoveredPlaneRef.current = null;
           handlersRef.current.onHover(null);
         });
         map.on('click', (e) => {
@@ -314,6 +328,11 @@ export default function GlobeMap({
     const hasNight = !!(clock && nightSrc && map.getLayer('night'));
     if (map.getLayer('night')) map.setLayoutProperty('night', 'visibility', hasNight ? 'visible' : 'none');
     if (!flights?.length) planesSrc?.setData({ type: 'FeatureCollection', features: [] });
+    // Nothing to animate (solo game with planes off): no loop at all.
+    if (!clock && !flights?.length) {
+      if (clockLabelRef.current) clockLabelRef.current.style.display = 'none';
+      return undefined;
+    }
 
     const drawNight = (sun) => {
       const cv = nightCanvasRef.current;
@@ -326,20 +345,29 @@ export default function GlobeMap({
       nightSrc.pause();
     };
 
-    let raf = 0, lastNight = -Infinity, lastPlanes = -Infinity, lastLabel = -Infinity;
+    // Wake only when something is due (a 1-week-a-day world redraws night every
+    // ~17 s and its planes every 2 s), not every frame — battery on phones.
+    let timer = 0, lastNight = -Infinity, lastPlanes = -Infinity, lastLabel = -Infinity;
     const frame = () => {
-      raf = requestAnimationFrame(frame);
       const now = Date.now();
       const c = clock ? gameClockAt(now, clock) : null;
-      if (hasNight && c && now - lastNight >= (reduce ? 60_000 : nightRefreshMs(c.rate))) {
+      const nightEvery = reduce ? 60_000 : (c ? nightRefreshMs(c.rate) : Infinity);
+      const planesEvery = reduce ? 30_000 : planeRefreshMs(planeRate(c?.rate), map.getZoom());
+      if (hasNight && c && now - lastNight >= nightEvery) {
         lastNight = now;
         drawNight(sunPosition(clock.week, c.weekHours));
       }
-      if (planesSrc && flights?.length) {
-        const every = reduce ? 30_000 : planeRefreshMs(planeRate(c?.rate), map.getZoom());
-        if (now - lastPlanes >= every) {
-          lastPlanes = now;
-          planesSrc.setData(planesGeoJSON(flights, planeWeekHours(now, c)));
+      if (planesSrc && flights?.length && now - lastPlanes >= planesEvery) {
+        lastPlanes = now;
+        const h = planeWeekHours(now, c);
+        planesSrc.setData(planesGeoJSON(flights, h, { tips: false }));
+        const id = hoveredPlaneRef.current;
+        const popup = popupRef.current;
+        if (id && popup?.isOpen()) {
+          const plan = flights.find(p => p.id === id);
+          const pos = plan && planePosition(plan, h);
+          if (pos) popup.setLngLat([pos.lon, pos.lat]).setHTML(planeTipHtml(plan, pos));
+          else { popup.remove(); hoveredPlaneRef.current = null; }   // it landed
         }
       }
       if (clockLabelRef.current && now - lastLabel >= 1000) {
@@ -347,9 +375,18 @@ export default function GlobeMap({
         clockLabelRef.current.textContent = c ? `${formatGameClock(c)} UTC` : '';
         clockLabelRef.current.style.display = c ? '' : 'none';
       }
+      const due = Math.min(
+        hasNight && c ? lastNight + nightEvery : Infinity,
+        flights?.length ? lastPlanes + planesEvery : Infinity,
+        lastLabel + 1000,
+      ) - Date.now();
+      timer = setTimeout(frame, Math.max(16, Math.min(due, 60_000)));
     };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    frame();
+    // Zooming changes how often planes need redrawing — re-plan straight away.
+    const onZoom = () => { clearTimeout(timer); frame(); };
+    map.on('zoomend', onZoom);
+    return () => { clearTimeout(timer); map.off('zoomend', onZoom); };
   }, [loaded, flights, clock]);
 
   // 4. Fly to a newly focused route — once per focus, like the flat map.
@@ -378,7 +415,7 @@ export default function GlobeMap({
       <div
         ref={clockLabelRef}
         className="globe-clock"
-        title="Game time. Night falls where the sun has set — the simulation still runs in whole weeks."
+        title="Game time (UTC). Night falls where the sun has set — the simulation still runs in whole weeks. In very fast worlds the planes are slowed so they don't race."
         style={{ display: 'none' }}
       />
       {!loaded && (

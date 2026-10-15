@@ -54,7 +54,9 @@ export function gameClockAt(nowMs, spec) {
   return {
     fraction,
     weekHours: fraction * WEEK_HOURS,
-    rawHours: (((raw * WEEK_HOURS) % WEEK_HOURS) + WEEK_HOURS) % WEEK_HOURS,
+    // Before the week (client clock behind the server's): hold at Monday 00:00
+    // like the clock does, rather than wrapping to late in the week.
+    rawHours: raw < 0 ? 0 : (((raw * WEEK_HOURS) % WEEK_HOURS) + WEEK_HOURS) % WEEK_HOURS,
     rate,
     overdue: nowMs >= next,
     frozen: false,
