@@ -171,7 +171,7 @@ export default function UsedMarket() {
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
         <GlyphLabel size={11} text={
           'ℹ Used aircraft come from other airlines selling their fleet. You buy at the jet\'s depreciated value (NAV) — cheaper than a new order — and it arrives on the next weekly tick, carrying its real age, cabin and engines (so it costs a little more to maintain and has less life left). '
-          + 'Selling any owned jet (Fleet ▸ Sell) pays you NAV − 5% instantly and lists it here for others.'
+          + 'Selling any owned jet (Fleet ▸ Sell) pays you NAV − 5% instantly and lists it here for others. A jet bought here never sells back, or borrows, for more than you paid for it.'
         } />
       </div>
     </div>

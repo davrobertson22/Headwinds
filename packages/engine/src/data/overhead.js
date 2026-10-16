@@ -394,6 +394,31 @@ export function valueRemaining(ageWeeks, type) {
 export const VINTAGE_NAV_LIFE_YEARS = 10;
 
 /**
+ * A tail is never worth more than was paid for it — to the shop or to the bank.
+ *
+ * `costBasis` is recorded on a tail when it is bought on the used market (the
+ * reducer's BUY_USED_AIRCRAFT; it rides the delivery queue onto the delivered
+ * aircraft). Wherever the engine turns a tail into cash — loan collateral, a
+ * SELL_AIRCRAFT to the shop, a hull write-off — the value is min(NAV, basis).
+ *
+ * Why: estates list a failed airline's frames at 65% of NAV, Aircraft Finance
+ * lends 70% of book, and the shop buys back at NAV − 5%. Valued at full NAV a
+ * distressed frame could be pledged for more than it cost (a free aeroplane) or
+ * flipped straight back to the shop for +30% of NAV. Heavy Landing, Oct 2026:
+ * one airline bought 454 estate frames for $26.6B and borrowed $31B against
+ * them. NAV only falls, so a tail bought at NAV is unaffected; the cap bites on
+ * the discount, and only until depreciation has eaten it.
+ *
+ * A tail with no basis (factory order, lease buy-out, pre-change save) is
+ * uncapped — exactly the old behaviour. Junk (NaN, negative, non-numeric) is
+ * ignored rather than zeroing the tail.
+ */
+export function capAtCostBasis(aircraft, value) {
+  const basis = Number(aircraft?.costBasis);
+  return Number.isFinite(basis) && basis >= 0 ? Math.min(value, basis) : value;
+}
+
+/**
  * Weekly liability premium per aircraft (owned or leased), stepped by aircraft
  * category — larger aircraft carry far more passenger/third-party liability, so a
  * turboprop is much cheaper to insure than a widebody. This also gives small-aircraft

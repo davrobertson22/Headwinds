@@ -18,7 +18,7 @@
  */
 
 import { eraPurchasePrice } from './aircraft.js';   // era market price of the frame (catalogue × 1 in classic)
-import { DEPRECIATION_YEARS, valueRemaining } from './overhead.js';
+import { DEPRECIATION_YEARS, valueRemaining, capAtCostBasis } from './overhead.js';
 
 // ─── Due thresholds (dual trigger — whichever comes first) ────────────────────
 export const C_HOURS_DUE = 4_500;
@@ -332,6 +332,27 @@ export function airframeNAV(a, type, absWeek = 0) {
   return Math.round(eraPurchasePrice(type) * remaining * maintNavMultiplier(a, absWeek));
 }
 
+/** The shop's cut on a sale, as a fraction of the sale value. */
+export const SALE_FEE_FRACTION = 0.05;
+
+/**
+ * What SELL_AIRCRAFT pays for a tail — the one quote the reducer AND the Fleet
+ * sell dialog use, so the preview cannot disagree with the tick.
+ *
+ * Returns { nav, value, fee, proceeds, capped }:
+ *   nav      — true book value (airframeNAV); the shop relists at this
+ *   value    — what the sale is priced on: nav, capped at the tail's costBasis
+ *   fee      — SALE_FEE_FRACTION of value
+ *   proceeds — value − fee, the cash the seller receives
+ *   capped   — true when the basis cap lowered the value below nav
+ */
+export function saleQuote(a, type, absWeek = 0) {
+  const nav   = airframeNAV(a, type, absWeek);
+  const value = capAtCostBasis(a, nav);
+  const fee   = Math.round(value * SALE_FEE_FRACTION);
+  return { nav, value, fee, proceeds: value - fee, capped: value < nav };
+}
+
 /**
  * Repair cost for one AOG event.
  *
@@ -354,8 +375,10 @@ export function aogRepairCost(a, type, severity, { maintMod = 1, laborMult = 1, 
     uncapped,
     writeOff,
     nav,
+    // Insured for what it cost, not what the book says: a frame bought from an
+    // estate at 65% of NAV is not a 100%-of-NAV hull. See capAtCostBasis.
     payout:   (writeOff && a?.ownershipType === 'owned')
-      ? Math.round(nav * AOG_WRITE_OFF_PAYOUT_FRACTION) : 0,
+      ? Math.round(capAtCostBasis(a, nav) * AOG_WRITE_OFF_PAYOUT_FRACTION) : 0,
   };
 }
 

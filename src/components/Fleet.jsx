@@ -21,7 +21,7 @@ import { ReserveBadge } from './ReserveNotice.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { orderProgress } from '../data/delivery.js';
-import { airframeNAV, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
+import { saleQuote, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
 import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
@@ -1676,19 +1676,21 @@ export default function Fleet() {
     const aircraft     = fleet.find(a => a.id === aircraftId);
     const type         = getAircraftType(aircraft?.typeId);
     const activeRoutes = routes.filter(r => r.aircraftId === aircraftId);
-    // airframeNAV is what SELL_AIRCRAFT actually pays out on. The straight-line
-    // depreciation this used to compute by hand skipped the delivered-age
-    // normalization and the maintenance modifier, so the dialog quoted a
-    // different number from the one the reducer paid — under on the 109 types
-    // that arrive used, over on anything with a check due.
-    const nav          = airframeNAV(aircraft, type, absoluteWeek(state.year, state.week));
-    const fee          = Math.round(nav * 0.05);
-    const proceeds     = nav - fee;
+    // The straight-line depreciation this used to compute by hand skipped the
+    // delivered-age normalization and the maintenance modifier, so the dialog
+    // quoted a different number from the one the reducer paid — under on the
+    // 109 types that arrive used, over on anything with a check due.
+    // saleQuote is the reducer's own valuation: NAV − 5%, capped at what the
+    // tail cost on the used market (a frame bought from an estate at a discount
+    // never sells back for more than it cost). One helper, so this dialog can't
+    // quote a number the tick won't pay.
+    const { nav, value, fee, proceeds, capped } = saleQuote(aircraft, type, absoluteWeek(state.year, state.week));
 
     const body = (activeRoutes.length > 0
       ? `${aircraft.name} is flying ${activeRoutes.length} route${activeRoutes.length > 1 ? 's' : ''}. Selling it closes them all.\n\n`
       : '')
-      + `Sale price (NAV): ${formatMoney(nav)}\n`
+      + `Book value (NAV): ${formatMoney(nav)}\n`
+      + (capped ? `Sale price, capped at what you paid for it: ${formatMoney(value)}\n` : '')
       + `Selling & admin fee (5%): −${formatMoney(fee)}\n`
       + `Net proceeds: ${formatMoney(proceeds)}`;
 
@@ -1887,8 +1889,7 @@ export default function Fleet() {
 
   function sellValue(a) {
     // Same valuation the reducer pays out on — see handleSell.
-    const nav = airframeNAV(a, getAircraftType(a.typeId), absoluteWeek(state.year, state.week));
-    return nav - Math.round(nav * 0.05);
+    return saleQuote(a, getAircraftType(a.typeId), absoluteWeek(state.year, state.week)).proceeds;
   }
 
   async function handleBulkSell() {

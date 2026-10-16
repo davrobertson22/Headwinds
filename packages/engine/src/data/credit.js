@@ -24,7 +24,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getAircraftType, eraPurchasePrice } from './aircraft.js';
-import { valueRemaining } from './overhead.js';
+import { valueRemaining, capAtCostBasis } from './overhead.js';
 
 /** Paid-in capital a new (classic-default) airline begins with. Prefer
  *  state.paidInCapital where a state is to hand — worlds set their own knob. */
@@ -358,9 +358,14 @@ export function unencumberedOwnedFleet(state) {
     a?.ownershipType === 'owned' && a?.status !== 'retired' && !pledged.has(a.id));
 }
 
-/** Book value of everything you could still pledge. */
+/**
+ * What the bank will lend against: everything you could still pledge, each tail
+ * at book value capped at what you paid for it (capAtCostBasis). Lending on full
+ * book against a frame bought at 65% of it was how a loan came to exceed the
+ * purchase price — the aeroplane was free, and the surplus bought the next one.
+ */
 export function collateralValue(state) {
-  return unencumberedOwnedFleet(state).reduce((s, a) => s + aircraftBookValue(a), 0);
+  return unencumberedOwnedFleet(state).reduce((s, a) => s + capAtCostBasis(a, aircraftBookValue(a)), 0);
 }
 
 // ─── Capacity ────────────────────────────────────────────────────────────────

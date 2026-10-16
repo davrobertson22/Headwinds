@@ -55,7 +55,7 @@ import { relativePay, weeklyIntakeUnits, intakeUsed } from './models/talentMarke
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
          FORCED_REP_HIT, REP_PENALTY_DECAY, REP_PENALTY_MAX,
-         autoSchedulingActive, aogRepairCost } from './data/maintenance.js';
+         autoSchedulingActive, aogRepairCost, saleQuote } from './data/maintenance.js';
 import {
   mroLevelDef, canBuildBase, makeBase, closeRefund, clampPartsPool,
   tickBaseConstruction, newSlotLedger, claimSlot, hasSlot, partsPoolDurationMult,
@@ -2565,11 +2565,12 @@ function reducer(state, action) {
         };
       }
       const type          = aircraft ? getAircraftType(aircraft.typeId) : null;
-      const remaining     = valueRemaining(aircraft?.ageWeeks, type);
       const sellAbsWeek   = absoluteWeek(state.year, state.week);
-      const nav           = Math.round(eraPurchasePrice(type) * remaining * maintNavMultiplier(aircraft, sellAbsWeek));
-      const fee           = Math.round(nav * 0.05);
-      const proceeds      = nav - fee;
+      // saleQuote is the one valuation the Fleet sell dialog also shows. `nav`
+      // is true book (the shop relists at it); `proceeds` is nav − 5% capped at
+      // the tail's costBasis — a used frame never sells back for more than it
+      // cost. See capAtCostBasis in data/overhead.js.
+      const { nav, proceeds } = saleQuote(aircraft, type, sellAbsWeek);
       const settled       = settleCoversForRemoval(state, action.aircraftId);
       const updatedRoutes = settled.routes.filter(r => r.aircraftId !== action.aircraftId);
       const updatedCargo  = settled.cargoRoutes.filter(r => r.aircraftId !== action.aircraftId);
@@ -2615,6 +2616,10 @@ function reducer(state, action) {
         usedSnapshot:   snap,
         deliverAbsWeek: absoluteWeek(state.year, state.week) + 1,
         totalPrice:     price,
+        // What was paid, carried onto the delivered tail as its costBasis: the
+        // bank and the shop value it at min(NAV, basis) from then on. See
+        // capAtCostBasis in data/overhead.js for the loop this closes.
+        costBasis:      price,
         orderedWeek:    state.week,
         orderedYear:    state.year,
       };
@@ -5948,12 +5953,16 @@ function reducer(state, action) {
         // Used-aircraft market delivery: rebuild the exact tail from its frozen
         // snapshot (age / cabin / engines / maintenance) instead of a fresh build.
         if (order.used && order.usedSnapshot) {
+          // The basis is THIS sale's price, set after the spread: the snapshot
+          // of a tail that was itself bought used carries its previous owner's.
+          const basis = Number(order.costBasis);
           deliveredAircraft.push({
             ...order.usedSnapshot,
             id:            uid(),
             tailNumber,
             status:        'idle',
             ownershipType: 'owned',
+            ...(Number.isFinite(basis) && basis >= 0 ? { costBasis: basis } : {}),
           });
           newToasts.push({
             type:     'success',
