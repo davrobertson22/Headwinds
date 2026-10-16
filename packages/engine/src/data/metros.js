@@ -357,6 +357,17 @@ export const METROS = [
       DXN: { dom: 0.45, intl: 0.25 },
     },
   },
+  {
+    // SPX (Sphinx) took a share of Cairo's low-cost and Gulf flying from 2020;
+    // CCE (Capital International, ~45 km east) is the New Administrative
+    // Capital's field and had only a single scheduled route as of 2026.
+    id: 'cairo', name: 'Cairo', primary: 'CAI',
+    members: {
+      CAI: { dom: 1.0,  intl: 1.0 },
+      SPX: { dom: 0.35, intl: 0.40 },
+      CCE: { dom: 0.15, intl: 0.20 },
+    },
+  },
 ];
 
 // ─── Lookup tables (built once) ───────────────────────────────────────────────

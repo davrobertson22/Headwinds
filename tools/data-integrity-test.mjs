@@ -89,6 +89,18 @@ for (const [o, d] of [['KIJ','CTS'], ['KIJ','ICN'], ['DSA','AMS'], ['LBA','DUB']
   truthy(baseCityPairDemand(o, d) > 0, `new field carries demand ${o}-${d}`);
 }
 
+// ── Egypt (Oct 2026): SPX and CCE are Cairo metro members pricing the shared
+//    Cairo market; the four new outstation fields carry demand of their own ──
+for (const code of ['SPX', 'CCE']) {
+  eq(isSameMetro(getAirport(code), getAirport('CAI')), true, `${code} is in the Cairo metro`);
+  eq(baseCityPairDemand(code, 'CAI'), 0, `no ${code}-CAI demand`);
+  eq(baseCityPairDemand(code, 'JED'), baseCityPairDemand('CAI', 'JED'), `${code} and CAI price the same Cairo-Jeddah market`);
+}
+eq(baseCityPairDemand('SPX', 'CCE'), 0, 'no SPX-CCE demand');
+for (const [o, d] of [['HMB','CAI'], ['HMB','JED'], ['ABS','CAI'], ['ABS','ASW'], ['DBB','CAI'], ['DBB','DXB'], ['MUH','CAI']]) {
+  truthy(baseCityPairDemand(o, d) > 0, `new field carries demand ${o}-${d}`);
+}
+
 // ── Allow-list hygiene: every entry is two real airports, in the 2–65 km band (sub-35 km entries are spared from the same-metro backstop too) ─
 for (const key of WATER_HOP_PAIRS) {
   const [x, y] = key.split('|');

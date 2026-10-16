@@ -2401,6 +2401,21 @@ export const AIRPORTS = [
   { code: 'DXN', name: 'Noida International',            city: 'Delhi',          country: 'IN', lat: 28.1700, lon: 77.6100,  population: 32.9,   tier: 'regional', runwayFt: 12795 },
   { code: 'DSA', name: 'Doncaster Sheffield',            city: 'Doncaster',      country: 'GB', lat: 53.4753, lon: -1.0042, population: 1.0,    tier: 'regional', runwayFt: 9491 },
   { code: 'LBA', name: 'Leeds Bradford Airport',         city: 'Leeds',          country: 'GB', lat: 53.8661, lon: -1.6608, population: 1.8,    tier: 'regional', annualPaxM: 4.2, runwayFt: 7382 },
+  // ── Egypt: Sohag, Abu Simbel, the Mediterranean coast and Cairo's two new
+  // airports (Discord request, Oct 2026) ─────────────────────────────────────
+  // SPX (Sphinx, on the Alexandria desert road west of Giza) and CCE (Capital
+  // International, by the New Administrative Capital east of the city) join the
+  // Cairo metro registry with CAI, so they share Cairo's market rather than
+  // doubling it. CCE had its first scheduled route (Air Cairo to Jeddah) in
+  // February 2026. Sohag flies mostly to the Gulf; population is the city plus
+  // its Nile-valley catchment. Abu Simbel exists for the temples. El Alamein
+  // (the North Coast resorts) and Marsa Matruh are summer-season beach fields.
+  { code: 'HMB', name: 'Sohag Intl',                     city: 'Sohag',          country: 'EG', lat: 26.3403, lon: 31.7389, population: 0.6,    tier: 'regional', runwayFt: 9843 },
+  { code: 'CCE', name: 'Capital Intl',                   city: 'Cairo',          country: 'EG', lat: 30.0758, lon: 31.8333, population: 21.3,   tier: 'regional', runwayFt: 11980 },
+  { code: 'ABS', name: 'Abu Simbel Airport',             city: 'Abu Simbel',     country: 'EG', lat: 22.3759, lon: 31.6116, population: 0.003,  tier: 'regional', visitors: 0.3,  runwayFt: 9843 },
+  { code: 'DBB', name: 'El Alamein Intl',                city: 'El Alamein',     country: 'EG', lat: 30.9244, lon: 28.4614, population: 0.05,   tier: 'regional', visitors: 0.3,  runwayFt: 11480 },
+  { code: 'SPX', name: 'Sphinx Intl',                    city: 'Cairo',          country: 'EG', lat: 30.1097, lon: 30.8944, population: 21.3,   tier: 'regional', runwayFt: 11975 },
+  { code: 'MUH', name: 'Marsa Matruh Intl',              city: 'Marsa Matruh',   country: 'EG', lat: 31.3250, lon: 27.2222, population: 0.2,    tier: 'regional', visitors: 0.2,  runwayFt: 9843 },
 ];
 
 // Code -> record index, built once on first lookup.

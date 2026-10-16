@@ -279,11 +279,14 @@ test('lane keys collapse member pairs; non-metro pairs are their own lane', () =
   assert.equal(metroPairKeyOf('EWR', 'LGW'), metroPairKeyOf('JFK', 'LHR'));
   assert.equal(metroPairKeyOf('LGA', 'STN'), metroPairKeyOf('JFK', 'LHR'));
   assert.notEqual(metroPairKeyOf('BOS', 'LHR'), metroPairKeyOf('JFK', 'LHR'));
-  assert.equal(metroPairKeyOf('CAI', 'DXB'), 'CAI-DXB');
-  assert.deepEqual(memberPairKeysOf('CAI', 'DXB'), ['CAI-DXB']);
+  assert.equal(metroPairKeyOf('AMM', 'DXB'), 'AMM-DXB');
+  assert.deepEqual(memberPairKeysOf('AMM', 'DXB'), ['AMM-DXB']);
   assert.ok(memberPairKeysOf('JFK', 'LHR').includes('EWR-LGW'));
+  // Cairo gained SPX and CCE (Oct 2026): their routes fight in CAI's lane.
+  assert.equal(metroPairKeyOf('SPX', 'DXB'), metroPairKeyOf('CAI', 'DXB'));
+  assert.ok(memberPairKeysOf('CAI', 'DXB').includes('CCE-DXB'));
   // Appeal products stay in (0, 1] and parity for non-members.
-  assert.equal(pairAppeal('CAI', 'DXB', false, 2400), 1);
+  assert.equal(pairAppeal('AMM', 'DXB', false, 2400), 1);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
