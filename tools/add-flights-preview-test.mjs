@@ -119,7 +119,10 @@ function pickerFreeHours() {
   return m ? Number(m[1]) : null;
 }
 function freqMax() {
-  const m = html.match(/type="number"[^>]*max="(\d+)"/);
+  // The frequency is a NumberStepper (− / box / +); its bound is the box's
+  // aria-valuemax, which is also the clamp on whatever the player types.
+  const tag = (html.match(/<input[^>]*aria-label="flights per week"[^>]*>/) ?? [''])[0];
+  const m = tag.match(/aria-valuemax="(\d+)"/);
   return m ? Number(m[1]) : null;
 }
 

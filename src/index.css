@@ -833,6 +833,12 @@ tr:hover td { background: rgba(62,166,255,.05); }
 .seat-stepper input::-webkit-outer-spin-button,
 .seat-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .seat-stepper input:focus { outline: none; background: var(--surface2); }
+.seat-stepper button.is-blocked { opacity: .35; cursor: not-allowed; }
+.seat-stepper input:disabled { color: var(--text-dim); }
+/* Compact variant for table rows (route list, batch open). */
+.seat-stepper.is-sm { border-radius: 6px; }
+.seat-stepper.is-sm button { width: 22px; font-size: 14px; padding: 1px 0; }
+.seat-stepper.is-sm input { width: 34px; font-size: 12px; padding: 2px 1px; }
 
 .seat-max-btn {
   flex-shrink: 0;

@@ -29,6 +29,7 @@ import {
 } from '../utils/routeEconomics.js';
 import { consumeNavFilter } from '../utils/navIntent.js';
 import { useToast } from './ToastSystem.jsx';
+import NumberStepper from './NumberStepper.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { projectRouteAddition, rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
@@ -1338,7 +1339,10 @@ function TagRouteCard({ route, onClose, onAddAircraft, siblingCount = 1 }) {
           {/* Weekly frequency, editable in place. A rotation is guarded on every
               stop it touches — see frequencyChangeBlockReason — so the + explains
               itself when the airport in the MIDDLE is what has run out. */}
-          <FrequencyStepper route={route} />
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <FrequencyStepper route={route} />
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>/wk</span>
+          </span>
           <button className="btn btn-ghost" style={{ padding: '3px 10px', fontSize: 11 }}
             onClick={onAddAircraft} title="Put another aircraft on this rotation">
             + Add Aircraft
@@ -2524,48 +2528,20 @@ function PricingPanel({ route, aircraft, type }) {
 // silently rejected.
 function FrequencyStepper({ route }) {
   const { state, dispatch } = useGame();
-  const addToast = useToast();
   const freq = route.weeklyFrequency ?? 1;
-  const blockUp = frequencyChangeBlockReason(state, route.id, freq + 1); // null => allowed
-  const canDown = freq > 1;
-
-  const setFreq = (next) =>
-    dispatch({ type: 'UPDATE_FREQUENCY', routeId: route.id, weeklyFrequency: next });
-
-  const stepDown = () => { if (canDown) setFreq(freq - 1); };
-  const stepUp = () => {
-    if (blockUp) { addToast({ type: 'warning', title: 'Can’t add a flight', message: blockUp }); return; }
-    setFreq(freq + 1);
-  };
-
-  const btnStyle = (enabled) => ({
-    width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center',
-    justifyContent: 'center', borderRadius: 'var(--radius)', fontSize: 15, fontWeight: 700,
-    lineHeight: 1, cursor: enabled ? 'pointer' : 'not-allowed',
-    border: '1px solid ' + (enabled ? 'var(--border)' : 'var(--border-subtle)'),
-    background: enabled ? 'var(--surface3)' : 'var(--surface2)',
-    color: enabled ? 'var(--text)' : 'var(--text-dim)',
-  });
-
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-      <button
-        type="button"
-        style={btnStyle(canDown)}
-        onClick={stepDown}
-        disabled={!canDown}
-        title={canDown ? 'One fewer flight per week' : 'At the minimum. Use Remove to close this route'}
-      >−</button>
-      <span style={{ minWidth: 26, textAlign: 'center', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-        {freq}×
-      </span>
-      <button
-        type="button"
-        style={btnStyle(!blockUp)}
-        onClick={stepUp}
-        title={blockUp ? blockUp : 'One more flight per week'}
-      >+</button>
-    </div>
+    <NumberStepper
+      size="sm"
+      value={freq}
+      min={1}
+      max={99}
+      onChange={next => dispatch({ type: 'UPDATE_FREQUENCY', routeId: route.id, weeklyFrequency: next })}
+      blockReason={next => frequencyChangeBlockReason(state, route.id, next)}
+      blockedTitle="Can’t add a flight"
+      ariaLabel={`flights per week, ${route.origin} to ${route.destination}`}
+      decTitle={freq > 1 ? 'One fewer flight per week' : 'At the minimum. Use Remove to close this route'}
+      incTitle="One more flight per week"
+    />
   );
 }
 
@@ -2980,14 +2956,18 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
             <label className="form-label">
               Flights / week{freqLimit < 21 && freqLimit > 0 ? ` (max ${freqLimit})` : ''}
             </label>
-            <input
-              className="form-input"
-              type="number"
-              min="1"
-              max={Math.max(1, freqLimit) || 21}
-              value={frequency}
-              onChange={e => setFrequency(e.target.value)}
-            />
+            <div>
+              <NumberStepper
+                live
+                value={Math.max(1, Number(frequency) || 1)}
+                min={1}
+                max={Math.max(1, freqLimit) || 21}
+                onChange={setFrequency}
+                ariaLabel="flights per week"
+                decTitle="One fewer flight per week"
+                incTitle="One more flight per week"
+              />
+            </div>
           </div>
 
         </div>

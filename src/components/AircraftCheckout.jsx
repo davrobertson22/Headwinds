@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import NumberStepper from './NumberStepper.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType, effectivePurchasePrice, eraWeeklyLease, orderDiscount,
          LEASE_TERM_OPTIONS, DEFAULT_LEASE_TERM_WEEKS, leaseTermRateMultiplier,
@@ -505,14 +506,17 @@ export default function AircraftCheckout({ typeId, mode, onClose }) {
                   {nwrOnOrder > 0 && <> · {nwrOnOrder} already on order</>}
                 </div>
               )}
-              <button onClick={() => setQty(quantity - 1)} disabled={quantity <= 1}
-                style={{ width: 34, height: 34, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: quantity <= 1 ? 'var(--text-dim)' : 'var(--text)', fontSize: 18, cursor: quantity <= 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-              <div style={{ textAlign: 'center', minWidth: 52 }}>
-                <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{quantity}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>aircraft</div>
+              <div style={{ textAlign: 'center' }}>
+                <NumberStepper
+                  live
+                  value={quantity}
+                  min={1}
+                  max={Math.max(1, mode === 'buy' ? Math.min(qtyCeiling, maxAffordable) : qtyCeiling)}
+                  onChange={setQty}
+                  ariaLabel="aircraft quantity"
+                />
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>aircraft</div>
               </div>
-              <button onClick={() => setQty(quantity + 1)} disabled={quantity >= qtyCeiling || (mode === 'buy' && quantity >= maxAffordable)}
-                style={{ width: 34, height: 34, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface2)', color: (quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)) ? 'var(--text-dim)' : 'var(--text)', fontSize: 18, cursor: (quantity >= 100 || (mode === 'buy' && quantity >= maxAffordable)) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
               <div style={{ display: 'flex', gap: 4, marginLeft: 4 }}>
                 {[1, 5, 10, 25, 50, 100].filter(n => n <= (mode === 'buy' ? maxAffordable : 100)).map(n => (
                   <button key={n} onClick={() => setQty(n)} style={{ padding: '4px 9px', borderRadius: 5, border: `1px solid ${quantity === n ? 'var(--accent)' : 'var(--border)'}`, background: quantity === n ? 'rgba(56,139,253,0.15)' : 'var(--surface2)', color: quantity === n ? 'var(--accent)' : 'var(--text-muted)', fontSize: 12, fontWeight: quantity === n ? 600 : 400, cursor: 'pointer' }}>{n}</button>

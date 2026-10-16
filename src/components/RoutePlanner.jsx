@@ -29,6 +29,7 @@ import FinderReturnBar from './FinderReturnBar.jsx';
 import { consumeNavFilter, peekNavFilter, requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
 import { useToast } from './ToastSystem.jsx';
+import NumberStepper from './NumberStepper.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import FuelBasisChip from './FuelBasisChip.jsx';
 import { frequencySliderWidth } from '../utils/frequencySlider.js';
@@ -309,17 +310,18 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
   const bodies     = configBodies(cfg);
 
   // Editing a seat count switches the source to "custom".
-  function setSeat(key, raw) {
-    let next = Math.max(0, parseInt(raw, 10) || 0);
+  // Most seats `key` can hold given the other cabins — the stepper's max, and
+  // the clamp on whatever is typed.
+  function seatCap(key) {
     if (key === 'economy') {
       // economy capped by floor units left after premium cabins
-      const cap = Math.max(0, Math.floor(maxSeats - premiumUnits));
-      next = Math.min(next, cap);
-    } else {
-      const otherPremium = premiumUnits - (cfg[key] ?? 0) * CLASS_SPACE_MULTIPLIERS[key];
-      const cap = Math.floor((maxSeats - otherPremium - (cfg.economy ?? 0) * CLASS_SPACE_MULTIPLIERS.economy) / CLASS_SPACE_MULTIPLIERS[key]);
-      next = Math.min(next, Math.max(0, cap));
+      return Math.max(0, Math.floor(maxSeats - premiumUnits));
     }
+    const otherPremium = premiumUnits - (cfg[key] ?? 0) * CLASS_SPACE_MULTIPLIERS[key];
+    return Math.max(0, Math.floor((maxSeats - otherPremium - (cfg.economy ?? 0) * CLASS_SPACE_MULTIPLIERS.economy) / CLASS_SPACE_MULTIPLIERS[key]));
+  }
+  function setSeat(key, raw) {
+    const next = Math.min(Math.max(0, parseInt(raw, 10) || 0), seatCap(key));
     onChange({ ...cfg, [key]: next });
     if (source !== 'custom') onSourceChange('custom');
   }
@@ -375,13 +377,13 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
               <div>{CABIN_LABELS[k]}</div>
               <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>×{CLASS_FARE_MULTIPLIERS[k]} fare</div>
             </div>
-            <input
-              type="number"
-              min={0}
+            <NumberStepper
+              live
               value={cfg[k] ?? 0}
-              onChange={e => setSeat(k, e.target.value)}
-              className="form-input"
-              style={{ width: 64, textAlign: 'center' }}
+              min={0}
+              max={Math.max(cfg[k] ?? 0, seatCap(k))}
+              onChange={n => setSeat(k, n)}
+              ariaLabel={`${CABIN_LABELS[k]} seats`}
             />
           </div>
         ))}
@@ -1361,9 +1363,18 @@ export default function RoutePlanner() {
                         className="hw-range"
                         value={Math.min(frequency, freqCap)}
                         onChange={e => setFrequency(Number(e.target.value))}
-                        style={{ width: frequencySliderWidth(freqCap), maxWidth: '62vw' }}
+                        style={{ width: frequencySliderWidth(freqCap), maxWidth: '50vw' }}
                       />
-                      <span style={{ fontWeight: 700, minWidth: 22 }}>{frequency}×</span>
+                      <NumberStepper
+                        live
+                        value={Math.min(frequency, freqCap)}
+                        min={1}
+                        max={Math.max(1, freqCap)}
+                        onChange={setFrequency}
+                        ariaLabel="flights per week"
+                        decTitle="One fewer flight per week"
+                        incTitle="One more flight per week"
+                      />
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
                       {frequency === 7 ? 'daily service' : frequency === 14 ? 'twice daily' : `${frequency} flights/wk`} · aircraft max {freqCap}×

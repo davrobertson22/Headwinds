@@ -5,6 +5,7 @@ import { getAirport } from '../data/airports.js';
 import { formatMoney, currentGameDate } from '../utils/simulation.js';
 import { planRouteBatch, pickKey } from '../../packages/engine/src/models/routeBatch.js';
 import { useToast } from './ToastSystem.jsx';
+import NumberStepper from './NumberStepper.jsx';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
 
@@ -116,11 +117,11 @@ export default function BatchOpenReview({ picks, setPicks, onClose }) {
                     <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{t?.name}</div>
                   </td>
                   <td style={{ ...cell, textAlign: 'right' }}>
-                    <input
-                      type="number" min={1} max={it.maxFrequency} value={it.weeklyFrequency}
-                      aria-label={`Flights per week, ${it.origin} to ${it.destination}`}
-                      onChange={e => setFreq(it.key, Math.max(1, Math.min(it.maxFrequency, parseInt(e.target.value, 10) || 1)))}
-                      className="form-input" style={{ width: 64, textAlign: 'center' }}
+                    <NumberStepper
+                      live size="sm"
+                      value={it.weeklyFrequency} min={1} max={Math.max(1, it.maxFrequency)}
+                      ariaLabel={`flights per week, ${it.origin} to ${it.destination}`}
+                      onChange={n => setFreq(it.key, n)}
                     />
                   </td>
                   <td style={{ ...cell, textAlign: 'right' }}>

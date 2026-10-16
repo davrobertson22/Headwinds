@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import NumberStepper from './NumberStepper.jsx';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
 import { designAgeQualityPts } from '../models/demand.js';
@@ -1157,7 +1158,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
                   <option value="D">D check</option>
                 </select>
                 <span>in</span>
-                <input type="number" min={1} max={MAX_SCHEDULE_AHEAD_WEEKS} value={bookWeeks} onChange={e => setBookWeeks(Math.max(1, Math.min(MAX_SCHEDULE_AHEAD_WEEKS, parseInt(e.target.value, 10) || 1)))} style={{ width: 54, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px', fontSize: 12 }} />
+                <NumberStepper live size="sm" value={bookWeeks} min={1} max={MAX_SCHEDULE_AHEAD_WEEKS} onChange={setBookWeeks} ariaLabel="weeks ahead" />
                 <span>weeks — {formatMoney(checkCost(type, bookType, mCheckOpts))}</span>
                 <button className="btn" onClick={() => dispatch({ type: 'SCHEDULE_CHECK', aircraftId: aircraft.id, checkType: bookType, startWeek: mAbsWeek + bookWeeks })}>Book</button>
               </div>
