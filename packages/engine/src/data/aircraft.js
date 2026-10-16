@@ -190,7 +190,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.39,
     baseMaintenancePerWk: 57_600,
     description: 'The aircraft that defined modern short-haul. Enormous global fleet.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/Iberia_EC-HDP_%28Airbus_A320_-_MSN_1101%29_e_Iberia_EC-JQZ_%28Airbus_A321_-_MSN_2736%29.jpg/960px-Iberia_EC-HDP_%28Airbus_A320_-_MSN_1101%29_e_Iberia_EC-JQZ_%28Airbus_A321_-_MSN_2736%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Lufthansa_Airbus_A320-211_D-AIQT_02.jpg/960px-Lufthansa_Airbus_A320-211_D-AIQT_02.jpg',
     configOptions: {
       engines: [
         { id: 'cfm56', label: 'CFM56-5B4', description: 'Standard fitment. Proven, widely serviced.', fuelMod: 1.00, priceMod: 1.00, default: true },
@@ -734,7 +734,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.33,
     baseMaintenancePerWk: 45_000,
     description: 'Shortest Classic 737. Modest capacity and useful range for thin routes, at a low entry price.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Boeing_737-500%2C_PLL_LOT_%2816020940261%29.jpg/960px-Boeing_737-500%2C_PLL_LOT_%2816020940261%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/49/Boeing_737-500_Lufthansa_%28DLH%29_D-ABIE_-_MSN_24819_1979_-_Named_Hildesheim_%285590125906%29.jpg/960px-Boeing_737-500_Lufthansa_%28DLH%29_D-ABIE_-_MSN_24819_1979_-_Named_Hildesheim_%285590125906%29.jpg',
   },
   {
     id: 'b737300',
@@ -1269,7 +1269,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 3.87,
     baseMaintenancePerWk: 275_000,
     description: 'Ultra-long-range 777X. Connects the world\'s most distant city pairs.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Boeing_777-9_front_view.jpg/960px-Boeing_777-9_front_view.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/Boeing_777X_at_Dubai_Airshow_2021.jpg/960px-Boeing_777X_at_Dubai_Airshow_2021.jpg',
   },
   {
     id: 'b7779x',
@@ -1693,7 +1693,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.19,
     baseMaintenancePerWk: 37_200,
     description: 'Largest of the original E-jet family. Bridges regional jets and narrow-bodies on medium-thin routes.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Embraer_195_%2823252063916%29.jpg/960px-Embraer_195_%2823252063916%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/LOT_-_Polish_Airlines%2C_Embraer_ERJ-195%2C_SP-LNF_-_CDG_%2819303496960%29.jpg/960px-LOT_-_Polish_Airlines%2C_Embraer_ERJ-195%2C_SP-LNF_-_CDG_%2819303496960%29.jpg',
   },
   {
     id: 'e195e2',
@@ -2074,7 +2074,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 1.06,
     baseMaintenancePerWk: 30_800,
     description: 'Russian regional jet with competitive specs. Strong presence in CIS markets.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/Aeroflot%2C_RA-89042%2C_Sukhoi_Superjet_100-95LR_%2816603252999%29.jpg/960px-Aeroflot%2C_RA-89042%2C_Sukhoi_Superjet_100-95LR_%2816603252999%29.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Air-to-air_photo_of_a_Sukhoi_Superjet_100_%2897004%29_over_Italy.jpg/960px-Air-to-air_photo_of_a_Sukhoi_Superjet_100_%2897004%29_over_Italy.jpg',
   },
 
   // ── TUPOLEV ─────────────────────────────────────────────────────────────────
@@ -2398,7 +2398,7 @@ export const AIRCRAFT_TYPES = [
     crewCostPerKm: 0.9,
     baseMaintenancePerWk: 6_800,
     description: 'The surplus DC-3. Military cargo door, bare cabin, bargain price — the airframe most postwar start-ups actually began with.',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/d/df/Douglas_DC-3%2C_SE-CFP.jpg',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/442d_Troop_Carrier_Group_Douglas_C-47A-15-DK_Skytrain_42-92879.jpg/960px-442d_Troop_Carrier_Group_Douglas_C-47A-15-DK_Skytrain_42-92879.jpg',
   },
   {
     id: 'dc863',
@@ -3806,7 +3806,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 34_000,
     cruiseKmh: 750,
     description: 'The second jet airliner in service, and for two years the only one flying. Thirsty, fast, and it shows.',
-    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Tupolev_Tu-104,_Aeroflot_AN1206344.jpg?width=960',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Aeroflot_Tupolev_Tu-104A_at_Arlanda%2C_July_1972.jpg/960px-Aeroflot_Tupolev_Tu-104A_at_Arlanda%2C_July_1972.jpg',
   },
   {
     id: 'britannia',
