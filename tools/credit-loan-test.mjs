@@ -29,7 +29,7 @@ import {
   LOAN_PRODUCTS, LOAN_MIN_PRINCIPAL, LOAN_RATE_FLOOR, AIRCRAFT_LOAN_ID,
   AIRCRAFT_LOAN_LTV, STARTING_CAPITAL, CREDIT_WINDOW_WEEKS,
   creditRating, creditScore, creditInputs, loanRate, getLoanProduct,
-  loanProductForTerm, borrowingCapacity, collateralValue, aircraftBookValue,
+  loanProductForTerm, borrowingCapacity, borrowingLimits, collateralValue, aircraftBookValue,
   unencumberedOwnedFleet, pledgedAircraftIds, isPledged, loanSecuredOn,
   amortizedWeeklyPayment, outstandingBalance, unsecuredDebtOutstanding,
 } from '../packages/engine/src/data/credit.js';
@@ -235,13 +235,19 @@ test('repaying restores the headroom', () => {
   assert.equal(unsecuredDebtOutstanding(st), 0);
 });
 
-test('secured debt does not eat the unsecured allowance', () => {
-  // They are different lenders looking at different things.
+test('secured debt does not eat the unsecured revenue ceiling — but its payments do count against coverage', () => {
+  // Different lenders look at different collateral, but debt service is debt
+  // service whoever holds the note: the revenue-multiple ceiling is untouched
+  // by a secured draw, while the earnings-coverage ceiling (credit-ceiling-test)
+  // tightens by exactly the new payment.
   const base = healthy({ fleet: [owned('t1', 'b7878'), owned('t2', 'b7878')] });
-  const before = borrowingCapacity(base, 'long');
+  const before = borrowingLimits(base, 'long');
   const after = gameReducer(base, { type: 'TAKE_LOAN', productId: AIRCRAFT_LOAN_ID, principal: 20_000_000 });
   assert.equal(after.loans.length, 1);
-  assert.equal(borrowingCapacity(after, 'long'), before);
+  const afterLim = borrowingLimits(after, 'long');
+  assert.equal(afterLim.base, before.base, 'the revenue ceiling ignores secured debt');
+  assert.ok(afterLim.coverage < before.coverage, 'the coverage ceiling counts the new payment');
+  assert.ok(borrowingCapacity(after, 'long') <= borrowingCapacity(base, 'long'));
 });
 
 // ── Aircraft finance ───────────────────────────────────────────────────────
@@ -357,14 +363,22 @@ test('eight years of interest costs real money — but the week is survivable', 
   assert.ok(loan.weeklyPayment < 150_000, `$${loan.weeklyPayment}/wk is not survivable`);
 });
 
-test('a distressed airline pays much more for the same metal', () => {
+test('a distressed airline would pay much more for the same metal — and, losing money, is not offered it', () => {
   const fleet = [owned('t1', 'b7878')];
-  const good = gameReducer(healthy({ fleet }), { type: 'TAKE_LOAN', productId: AIRCRAFT_LOAN_ID, principal: 20_000_000 });
-  const bad  = gameReducer(distressed({ fleet }), { type: 'TAKE_LOAN', productId: AIRCRAFT_LOAN_ID, principal: 20_000_000 });
-  assert.ok(bad.loans.at(-1).interestRate > good.loans.at(-1).interestRate * 2);
-  assert.ok(bad.loans.at(-1).weeklyPayment > good.loans.at(-1).weeklyPayment);
+  // The price of secured money moves with the grade…
+  assert.ok(loanRate(distressed({ fleet }), AIRCRAFT_LOAN_ID) > loanRate(healthy({ fleet }), AIRCRAFT_LOAN_ID) * 2);
   // …and it is still cheaper than unsecured money at the same grade.
   assert.ok(loanRate(distressed(), AIRCRAFT_LOAN_ID) < loanRate(distressed(), 'long'));
+  // But since the earnings-coverage ceiling (credit-ceiling-test), an airline
+  // whose four-week net income is negative has no headroom to service a new
+  // loan, so the facility is closed to it: the unsecured base allowance is the
+  // lifeline. Before this, metal alone was enough.
+  const good = gameReducer(healthy({ fleet }), { type: 'TAKE_LOAN', productId: AIRCRAFT_LOAN_ID, principal: 20_000_000 });
+  assert.equal(good.loans.length, 1);
+  const bad  = gameReducer(distressed({ fleet }), { type: 'TAKE_LOAN', productId: AIRCRAFT_LOAN_ID, principal: 20_000_000 });
+  assert.equal((bad.loans ?? []).length, 0, 'no secured credit while losing money');
+  assert.equal(borrowingCapacity(distressed({ fleet }), AIRCRAFT_LOAN_ID), 0);
+  assert.equal(borrowingCapacity(distressed({ fleet }), 'short'), getLoanProduct('short').baseMax, 'the lifeline stays');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

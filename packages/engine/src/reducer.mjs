@@ -1509,6 +1509,18 @@ export function applyRangeStranding(state, { toast = true } = {}) {
   return next;
 }
 
+/**
+ * The cost basis an owned order delivers with: the unit price actually paid
+ * (post bulk discount), so the shop and the bank value the tail at min(NAV,
+ * paid) from then on — see capAtCostBasis in data/overhead.js. A lease order
+ * bought nothing and gets none.
+ */
+function deliveredBasis(order) {
+  if (order?.ownershipType !== 'owned') return {};
+  const paid = Math.round(Number(order.totalPrice));
+  return Number.isFinite(paid) && paid >= 0 ? { costBasis: paid } : {};
+}
+
 function reducer(state, action) {
   // World fare index (New World Restrictions). Set on every action, from state, so
   // every referencePrice()/cargoReferenceYield() call downstream — demand model,
@@ -1626,6 +1638,7 @@ function reducer(state, action) {
         ageWeeks:      eraDeliveredAgeWeeks(type, calendarYear(state)),
         config:        defaultConfig(type.seats),
         ownershipType: 'owned',
+        costBasis:     price,   // what was paid — see capAtCostBasis
       };
       return {
         ...state,
@@ -1871,6 +1884,7 @@ function reducer(state, action) {
             // a pre-change order arrives fitted and pays WIFI_WEEKLY_OPEX
             // forever on a tail the fleet page says can never be fitted.
             hasWifi:       (order.hasWifi ?? false) && canFitWifi(type),
+            ...deliveredBasis(order),
           };
           runningFleet = [...runningFleet, aircraft];
           instantAircraft.push(aircraft);
@@ -4138,6 +4152,7 @@ function reducer(state, action) {
             ? {
                 ...a,
                 ownershipType:       'owned',
+                costBasis:           buyoutPrice,   // what was paid — see capAtCostBasis
                 weeklyLease:         0,
                 leaseDeposit:        0,
                 leaseTermWeeks:      undefined,
@@ -6001,6 +6016,7 @@ function reducer(state, action) {
           // a pre-change order arrives fitted and pays WIFI_WEEKLY_OPEX
           // forever on a tail the fleet page says can never be fitted.
           hasWifi:       (order.hasWifi ?? false) && canFitWifi(ordType),
+          ...deliveredBasis(order),
         });
         newToasts.push({
           type:     'success',

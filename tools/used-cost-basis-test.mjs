@@ -18,9 +18,13 @@
 //     bought at NAV behaves exactly as before; the cap bites only on the
 //     discount, and only until depreciation has eaten it.
 //
-//     Factory orders carry no basis. The bulk-order discount tops out at 20% on
-//     a 100-frame order paid in full up front — a leveraged bet, not a loop —
-//     and recording a basis on every delivery would move the golden master.
+//     Factory orders carry a basis too (added the same evening). The bulk
+//     order discount tops out at 20% on a 100-frame order, the lender advanced
+//     70% of full book against it and the shop bought back at 95% — the same
+//     shape as the estate loop, slower and dearer. Every way an owned tail
+//     enters the fleet with a price now records it: factory delivery, the
+//     starter instant delivery, BUY_AIRCRAFT, a lease buy-out. (The golden
+//     master flies one leased A320 and projects scalars, so it is unmoved.)
 //
 //   node tools/used-cost-basis-test.mjs
 
@@ -29,7 +33,7 @@ import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType, eraPurchasePrice } from '../packages/engine/src/data/aircraft.js';
 import { valueRemaining, capAtCostBasis } from '../packages/engine/src/data/overhead.js';
 import { airframeNAV, saleQuote, aogRepairCost, AOG_WRITE_OFF_PAYOUT_FRACTION } from '../packages/engine/src/data/maintenance.js';
-import { collateralValue, borrowingCapacity, AIRCRAFT_LOAN_ID, AIRCRAFT_LOAN_LTV } from '../packages/engine/src/data/credit.js';
+import { collateralValue, borrowingLimits, AIRCRAFT_LOAN_ID, AIRCRAFT_LOAN_LTV } from '../packages/engine/src/data/credit.js';
 import { AIRCRAFT_DISTRESS_FACTOR, distressedNav } from '../apps/headwinds-server/src/lib/fireSaleService.mjs';
 
 let passed = 0, failed = 0;
@@ -91,10 +95,13 @@ test('a snapshot carrying the previous owner\'s basis is re-based to this sale',
 test('the bank lends against what was paid, not against full book', () => {
   const { s, tail, price } = boughtUsed();
   assert.equal(collateralValue(s), price);
-  assert.equal(borrowingCapacity(s, AIRCRAFT_LOAN_ID), Math.floor(price * AIRCRAFT_LOAN_LTV / 1000) * 1000);
+  // The collateral ceiling specifically (`base`): the earnings and leverage
+  // ceilings in credit-ceiling-test sit on top and, for this one-week,
+  // route-less fixture, take the actual capacity to zero.
+  const ltv = borrowingLimits(s, AIRCRAFT_LOAN_ID).base;
+  assert.equal(ltv, Math.floor(price * AIRCRAFT_LOAN_LTV / 1000) * 1000);
   // The loop that started this: the loan must no longer cover the purchase.
-  assert.ok(borrowingCapacity(s, AIRCRAFT_LOAN_ID) < price,
-    `a secured loan (${borrowingCapacity(s, AIRCRAFT_LOAN_ID)}) still covers the distressed price (${price})`);
+  assert.ok(ltv < price, `a secured loan (${ltv}) still covers the distressed price (${price})`);
   assert.ok(AIRCRAFT_LOAN_LTV > AIRCRAFT_DISTRESS_FACTOR, 'the constants still make the loop possible without the basis cap — keep this test honest');
   void tail;
 });
@@ -145,6 +152,66 @@ test('saleQuote is what the reducer pays — the Fleet dialog must agree with th
     assert.equal(q.value - q.fee, q.proceeds);
     assert.equal(q.fee, Math.round(q.value * 0.05));
   }
+});
+
+test('a factory order delivers with the unit price paid as its basis', () => {
+  let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Probe', hub: 'JFK', enableObjectives: false });
+  s = { ...s, cash: 50_000_000_000 };
+  // Six frames: the 5% bulk tier, so the basis is visibly below catalogue.
+  const before = s;
+  s = gameReducer(s, { type: 'ORDER_AIRCRAFT', typeId: TYPE_ID, quantity: 6, ownershipType: 'owned' });
+  assert.notEqual(s, before, 'order accepted');
+  const orders = s.pendingOrders.filter((o) => o.typeId === TYPE_ID);
+  assert.equal(orders.length, 6);
+  assert.ok(orders[0].totalPrice < eraPurchasePrice(type), 'the bulk discount must apply for this test to mean anything');
+  // Deliver everything: run the clock past the last delivery week.
+  const last = Math.max(...orders.map((o) => o.deliverAbsWeek));
+  while (absWeek(s) <= last) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  const tails = s.fleet.filter((a) => a.typeId === TYPE_ID && a.ownershipType === 'owned');
+  assert.equal(tails.length, 6, 'all six delivered');
+  for (const t of tails) assert.equal(t.costBasis, orders[0].totalPrice);
+  // And the shop will not pay catalogue for them.
+  const q = saleQuote(tails[0], type, absWeek(s));
+  assert.ok(q.capped, 'the bulk-discounted frame is capped at what was paid');
+  assert.equal(q.value, orders[0].totalPrice);
+});
+
+test('a leased order delivers with no basis (nothing was bought)', () => {
+  let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Probe', hub: 'JFK', enableObjectives: false });
+  s = { ...s, cash: 5_000_000_000 };
+  s = gameReducer(s, { type: 'ORDER_AIRCRAFT', typeId: 'a320neo', quantity: 1, ownershipType: 'lease' });
+  const o = s.pendingOrders.at(-1);
+  while (absWeek(s) <= o.deliverAbsWeek) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  const t = s.fleet.find((a) => a.ownershipType === 'lease' && a.typeId === 'a320neo');
+  assert.ok(t, 'leased tail delivered');
+  assert.equal(t.costBasis, undefined);
+});
+
+test('the multiplayer starter delivery carries its basis too', () => {
+  let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Probe', hub: 'JFK', enableObjectives: false });
+  s = { ...s, cash: 5_000_000_000, multiplayer: true };
+  s = gameReducer(s, { type: 'ORDER_AIRCRAFT', typeId: 'a320neo', quantity: 1, ownershipType: 'owned' });
+  const t = s.fleet.find((a) => a.typeId === 'a320neo' && a.ownershipType === 'owned');
+  assert.ok(t, 'starter perk delivered it instantly');
+  assert.equal(t.costBasis, eraPurchasePrice(getAircraftType('a320neo')));
+});
+
+test('BUY_AIRCRAFT and a lease buy-out record what was paid', () => {
+  let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Probe', hub: 'JFK', enableObjectives: false });
+  s = { ...s, cash: 5_000_000_000 };
+  const cashBefore = s.cash;
+  s = gameReducer(s, { type: 'BUY_AIRCRAFT', typeId: 'a320neo' });
+  const bought = s.fleet.find((a) => a.typeId === 'a320neo' && a.ownershipType === 'owned');
+  assert.ok(bought);
+  assert.equal(bought.costBasis, cashBefore - s.cash);
+
+  s = gameReducer(s, { type: 'LEASE_AIRCRAFT', typeId: 'a321neo' });
+  const leased = s.fleet.find((a) => a.typeId === 'a321neo');
+  const cashMid = s.cash;
+  const out = gameReducer(s, { type: 'BUY_OUT_LEASE', aircraftId: leased.id });
+  const ownedNow = out.fleet.find((a) => a.id === leased.id);
+  assert.equal(ownedNow.ownershipType, 'owned');
+  assert.equal(ownedNow.costBasis, cashMid - out.cash);
 });
 
 test('a hull write-off pays out on the basis, not on full NAV', () => {

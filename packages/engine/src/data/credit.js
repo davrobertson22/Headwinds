@@ -57,6 +57,28 @@ export const AIRCRAFT_LOAN_ID = 'aircraft';
 export const AIRCRAFT_LOAN_LTV = 0.70;
 
 /**
+ * Debt service may take at most this fraction of operating cash flow (net
+ * income before loan payments, averaged over CREDIT_WINDOW_WEEKS) once a new
+ * loan is added. Real lenders phrase it the other way round as a coverage
+ * ratio of ~1.25–2×; half is the middle of that range.
+ *
+ * Why: Aircraft Finance's only limit was metal — 70% of whatever you owned —
+ * with no reference to whether the airline could pay. Heavy Landing, Oct 2026:
+ * one airline drew $31B of secured loans in a year, each draw sized by the
+ * planes the previous draw had bought. Together with the cost-basis cap on
+ * collateral (overhead.js capAtCostBasis) this makes borrowing a function of
+ * earnings and equity, not just of what the last loan purchased.
+ */
+export const DEBT_SERVICE_COVERAGE_MAX = 0.5;
+
+/**
+ * Total loan debt after a new loan may not exceed this multiple of book equity
+ * (cash + owned fleet at the lower of book and cost basis − loans). D ≤ 4E is
+ * the same statement as "debt no more than 80% of assets".
+ */
+export const MAX_DEBT_TO_EQUITY = 4;
+
+/**
  * Ceiling on TOTAL unsecured borrowing, as a multiple of weekly revenue. The
  * per-product headline figure is a total, not a per-loan allowance: without
  * this, three long-term loans stacked to $60M on an airline with no revenue,
@@ -370,31 +392,106 @@ export function collateralValue(state) {
 
 // ─── Capacity ────────────────────────────────────────────────────────────────
 
+/** Weekly payments on every loan still running. */
+export function weeklyDebtService(state) {
+  return (state?.loans ?? [])
+    .filter(l => (Number(l?.weeksRemaining) || 0) > 0)
+    .reduce((s, l) => s + (Number(l.weeklyPayment) || 0), 0);
+}
+
 /**
- * The most this airline may draw on a product right now.
+ * Net income before loan payments, averaged over the credit window — what the
+ * airline has available to service debt. financialHistory.profit is AFTER
+ * loan payments, so they are added back.
+ */
+export function operatingCashFlow(state) {
+  return creditInputs(state).weeklyNetIncome + weeklyDebtService(state);
+}
+
+/**
+ * Book equity as the lender sees it: cash, plus every owned airframe at the
+ * lower of book value and what was paid for it, less loans outstanding. The
+ * cost-basis cap is what keeps a fleet bought from estates at 65% of book from
+ * reading as equity it never paid for. Stock holdings are ignored (illiquid
+ * to a lender, and a rival's share price is not this airline's balance sheet).
+ */
+export function bookEquity(state) {
+  const fleetValue = (state?.fleet ?? [])
+    .filter(a => a?.ownershipType === 'owned' && a?.status !== 'retired')
+    .reduce((s, a) => s + capAtCostBasis(a, aircraftBookValue(a)), 0);
+  return (Number(state?.cash) || 0) + fleetValue - totalDebtOutstanding(state);
+}
+
+const floorTo1k = (v) => Math.max(0, Math.floor(v / 1000) * 1000);
+
+/**
+ * Every ceiling on a new loan of this product, and which one binds.
  *
- * Unsecured: the product's headline ceiling (max of its base figure and a
- * multiple of realised weekly revenue) LESS unsecured debt already outstanding —
- * so the figure is a total exposure, not a per-loan allowance.
+ *   base       — the product's own limit: LTV on unpledged metal (secured), or
+ *                the headline ceiling less unsecured debt outstanding.
+ *   coverage   — the largest principal whose payment keeps total debt service
+ *                within DEBT_SERVICE_COVERAGE_MAX of operating cash flow.
+ *                Infinity when no trading week has closed (nothing to read).
+ *   leverage   — MAX_DEBT_TO_EQUITY × book equity, less debt outstanding.
+ *   lifeline   — unsecured products only: the base figure ($5M/$10M/$20M) less
+ *                unsecured debt outstanding, available whatever the ceilings
+ *                say, as it always was — a week-one airline has no results and
+ *                no equity and still has to be able to start.
+ *   capacity   — max(lifeline, min(base, coverage, leverage)), to the $1k.
+ *   binding    — 'collateral' | 'revenue' | 'coverage' | 'leverage' | 'lifeline'
  *
- * Secured: loan-to-value against unpledged metal. It self-limits, because
- * anything already pledged has left the pool.
+ * @returns {{base:number, coverage:number, leverage:number, lifeline:number, capacity:number, binding:string}}
+ */
+export function borrowingLimits(state, productId) {
+  const product = getLoanProduct(productId);
+  if (!product) return { base: 0, coverage: 0, leverage: 0, lifeline: 0, capacity: 0, binding: 'collateral' };
+
+  let base, baseKind, lifeline = 0;
+  if (product.secured) {
+    base     = collateralValue(state) * (product.ltv ?? AIRCRAFT_LOAN_LTV);
+    baseKind = 'collateral';
+  } else {
+    const { weeklyRevenue } = creditInputs(state);
+    const unsecured  = unsecuredDebtOutstanding(state);
+    const revenueMax = weeklyRevenue > 0 ? weeklyRevenue * product.maxMultiple : 0;
+    base     = Math.max(product.baseMax ?? 0, revenueMax) - unsecured;
+    baseKind = 'revenue';
+    lifeline = floorTo1k((product.baseMax ?? 0) - unsecured);
+  }
+
+  // Coverage: solve pay(P) ≤ headroom for P. The payment is linear in the
+  // principal, so price a reference $1B (large enough that the payment's
+  // rounding to the dollar is noise) and scale.
+  const { weeksOps } = creditInputs(state);
+  let coverage = Infinity;
+  if (weeksOps > 0) {
+    const REF       = 1_000_000_000;
+    const headroom  = operatingCashFlow(state) * DEBT_SERVICE_COVERAGE_MAX - weeklyDebtService(state);
+    const payOnRef  = amortizedWeeklyPayment(REF, loanRate(state, product.id), product.termWeeks);
+    coverage = headroom > 0 && payOnRef > 0 ? (headroom / payOnRef) * REF : 0;
+  }
+
+  const leverage = Math.max(0, MAX_DEBT_TO_EQUITY * bookEquity(state) - totalDebtOutstanding(state));
+
+  const ceilings = [[baseKind, base], ['coverage', coverage], ['leverage', leverage]];
+  let binding = baseKind, tightest = base;
+  for (const [kind, v] of ceilings) if (v < tightest) { tightest = v; binding = kind; }
+  let capacity = floorTo1k(tightest);
+  if (lifeline > capacity) { capacity = lifeline; binding = 'lifeline'; }
+
+  return { base: floorTo1k(base), coverage: Number.isFinite(coverage) ? floorTo1k(coverage) : Infinity,
+           leverage: floorTo1k(leverage), lifeline, capacity, binding };
+}
+
+/**
+ * The most this airline may draw on a product right now — the one figure the
+ * server guard, the reducer and the Finance screen all use. See
+ * borrowingLimits for the ceilings behind it.
  *
  * @returns {number} dollars, rounded down to the nearest $1,000
  */
 export function borrowingCapacity(state, productId) {
-  const product = getLoanProduct(productId);
-  if (!product) return 0;
-  const floorTo1k = (v) => Math.max(0, Math.floor(v / 1000) * 1000);
-
-  if (product.secured) {
-    return floorTo1k(collateralValue(state) * (product.ltv ?? AIRCRAFT_LOAN_LTV));
-  }
-
-  const { weeklyRevenue } = creditInputs(state);
-  const revenueMax = weeklyRevenue > 0 ? weeklyRevenue * product.maxMultiple : 0;
-  const ceiling    = Math.max(product.baseMax ?? 0, revenueMax);
-  return floorTo1k(ceiling - unsecuredDebtOutstanding(state));
+  return borrowingLimits(state, productId).capacity;
 }
 
 /** Absolute unsecured ceiling across every product — for UI copy and guards. */

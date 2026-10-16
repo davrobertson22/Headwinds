@@ -56,7 +56,7 @@ import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
 import { isStationOpen, stationLevelDef } from '../data/groundStation.js';
 import {
   LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, LEGACY_STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
-  creditRating, creditFactors, loanRate, borrowingCapacity, amortizedWeeklyPayment,
+  creditRating, creditFactors, loanRate, borrowingCapacity, borrowingLimits, amortizedWeeklyPayment,
   outstandingBalance, collateralValue, unencumberedOwnedFleet,
 } from '../data/credit.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -3600,7 +3600,15 @@ function Loans({ proj }) {
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
           {LOAN_PRODUCTS.map(p => {
             const rate = loanRate(state, p.id);
-            const cap  = borrowingCapacity(state, p.id);
+            const lim  = borrowingLimits(state, p.id);
+            const cap  = lim.capacity;
+            // Which ceiling set the figure — the engine's borrowingLimits, so
+            // this label can never disagree with the amount the guard allows.
+            const why  = {
+              coverage: 'limited by earnings',
+              leverage: 'limited by debt-to-equity',
+              lifeline: 'base allowance',
+            }[lim.binding];
             const isSelected = selectedProduct === p.id;
             return (
               <div
@@ -3619,12 +3627,12 @@ function Loans({ proj }) {
                   {(rate * 100).toFixed(1)}% APR
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
-                  {cap > 0 ? `Available ${formatMoney(cap)}` : 'Nothing available'}
+                  {cap > 0 ? `Available ${formatMoney(cap)}${why ? ` · ${why}` : ''}` : `Nothing available${why && why !== 'base allowance' ? ` · ${why}` : ''}`}
                 </div>
                 {p.secured && (
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
                     {pledgeable.length > 0
-                      ? `${pledgeable.length} aircraft · ${formatMoney(pledgeValue)} book value`
+                      ? `${pledgeable.length} aircraft · ${formatMoney(pledgeValue)} secured value`
                       : 'No unpledged aircraft'}
                   </div>
                 )}
@@ -3640,9 +3648,10 @@ function Loans({ proj }) {
           }}>
             {pledgeable.length > 0 ? (
               <>
-                <Glyph e="🔒" /> Secured on {pledgeable.length} owned aircraft worth {formatMoney(pledgeValue)},
-                advanced at {Math.round((product.ltv ?? 0.7) * 100)}% of book value.
-                {' '}Pledged aircraft cannot be sold or retired until the loan is repaid.
+                <Glyph e="🔒" /> Secured on {pledgeable.length} owned aircraft worth {formatMoney(pledgeValue)}
+                {' '}(book value, capped at what you paid for each), advanced at {Math.round((product.ltv ?? 0.7) * 100)}%.
+                {' '}The bank also wants debt service within half of your operating cash flow and total debt
+                {' '}under four times equity. Pledged aircraft cannot be sold or retired until the loan is repaid.
               </>
             ) : (
               <><Glyph e="⚠" /> Aircraft finance is secured on aircraft you own outright. Every aircraft you own is either leased or already pledged.</>
