@@ -23,7 +23,7 @@ import {
   isGateScarcity, reconcileForfeitures,
   openDueAuctions, resolveDueAuctions,
 } from './gateService.mjs';
-import { scrapStale } from './aircraftMarketService.mjs';
+import { scrapStale, listSoldAircraftTx } from './aircraftMarketService.mjs';
 import { snapshotWorldCareers, passengerTotalsFrom } from './careerService.mjs';
 import { computeSeasonAwards } from './seasonAwards.mjs';
 import { expireStaleOffers } from './codeshareService.mjs';
@@ -246,6 +246,12 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     // recent TOAST_CARRY_CAP. Dropping the OLDEST is the right end to lose —
     // "your gates were forfeited" is followed by a lockout the player can still
     // see on the airport, and the durable record is the news feed either way.
+    // Fleet renewal sold these tails after the tick (reducer.mjs
+    // withFleetRenewal). Lift them off the blob — they are listed in the used
+    // market after the commit, never stored.
+    const renewalSales = next.renewalSales ?? [];
+    if ('renewalSales' in next) delete next.renewalSales;
+
     const carried = airline.state?.pendingToasts ?? [];
     if (carried.length > 0) {
       next.pendingToasts = [...carried, ...(next.pendingToasts ?? [])].slice(-TOAST_CARRY_CAP);
@@ -291,6 +297,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       isPublic: next.equity?.isPublic !== false,
       bankrupt: next.phase === 'bankrupt',
       gateReleases,
+      renewalSales,
     };
   };
 
@@ -452,6 +459,25 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           }
         } catch (err) {
           log.error(`[tick] world ${world.id} airline ${id} recompute failed — skipped, loses this week:`, err?.message ?? err);
+        }
+      }
+
+      // ── Fleet renewal sales → world used market ─────────────────────────
+      // A tail the renewal sold is listed exactly as a SELL_AIRCRAFT decision
+      // lists one (routes/decisions.mjs): at the NAV the sale was valued at.
+      // Only for airlines whose write landed — a skipped airline sold nothing.
+      const renewedIds = new Set(written.map((r) => r.airlineId));
+      for (const c of computed) {
+        if (!renewedIds.has(c.airline.id) || !(c.renewalSales?.length > 0)) continue;
+        for (const sale of c.renewalSales) {
+          if (sale?.aircraft?.ownershipType !== 'owned') continue;
+          await listSoldAircraftTx(tx, {
+            worldId: world.id,
+            sellerName: c.airline.name ?? c.next.airlineName ?? null,
+            aircraft: sale.aircraft,
+            navPrice: sale.nav,
+            weekIdx: toIndex,
+          });
         }
       }
 

@@ -700,7 +700,10 @@ test('the runway shrinks by the right amount when a lease is added', () => {
     (t.weeklyLease > 0 && (!m || t.weeklyLease < m.weeklyLease)) ? t : m, null);
   const i = html.indexOf(cheapest.name);
   assert.ok(i > 0, `${cheapest.name} card rendered`);
-  const m = html.slice(i, i + 4000).match(/(\d+) wks runway/);
+  // Search to the end of THIS card (not a fixed window): cards grow as the
+  // market gains lines (order board, production line, launch terms).
+  const end = html.indexOf('aircraft-market-card', i);
+  const m = html.slice(i, end > i ? end : undefined).match(/(\d+) wks runway/);
   assert.ok(m, 'runway figure on that card');
   const expect = Math.floor(st.cash / (-proj.netCash + cheapest.weeklyLease));
   assert.ok(Math.abs(Number(m[1]) - expect) <= 1,

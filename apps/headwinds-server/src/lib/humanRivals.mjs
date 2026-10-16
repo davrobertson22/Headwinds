@@ -28,6 +28,7 @@ import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
+import { fleetCounts, bookingsFromStates, sumBookings, minusBookings } from '@tailwinds/engine/data/productionLines.js';
 import { netProfitOf } from '@tailwinds/engine/utils/standings.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf } from './logoColumn.mjs';
@@ -576,11 +577,23 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
   const active = airlines.filter((a) => a.status === 'ACTIVE');
   const comps = new Map(active.map((a) => [
     a.id,
-    toHumanCompetitor(a, {
-      allianceId: allianceMap.get(a.id)?.membership.allianceId ?? null,
-      allianceName: allianceMap.get(a.id)?.def?.name ?? null,
-    }),
+    {
+      ...toHumanCompetitor(a, {
+        allianceId: allianceMap.get(a.id)?.membership.allianceId ?? null,
+        allianceName: allianceMap.get(a.id)?.def?.name ?? null,
+      }),
+      // Order board (every world): { [typeId]: [inService, onOrder] }. The
+      // market screen adds these up with your own fleet for world totals and
+      // the customer list (engine data/productionLines.js worldFleetBoard).
+      fleetMix: fleetCounts(a.state),
+    },
   ]));
+  // Production lines: each airline's slot bookings once, so every view can be
+  // "everyone but me" by subtraction instead of re-scanning every order book.
+  const lineBookingsById = new Map(active
+    .filter((a) => a.state?.productionLinesWorld === true)
+    .map((a) => [a.id, bookingsFromStates([a.state])]));
+  const allLineBookings = sumBookings([...lineBookingsById.values()]);
   const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a)]));
   // Talent market (models/talentMarket.js): what each rival pays per crew
   // group, weighted by its fleet. Only the two fields the going rate reads.
@@ -605,6 +618,15 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
     views.set(me.id, {
       competitors,
       humanRivals,
+      // Production-line worlds: OTHER airlines' delivery slots per line per
+      // week (+ this world's capacity scale). The reducer books against it and
+      // the decision route re-checks it under a world lock.
+      lineBook: me.state?.productionLinesWorld === true
+        ? {
+            scale: me.state?.productionLineScale ?? 1,
+            bookings: minusBookings(allLineBookings, lineBookingsById.get(me.id)),
+          }
+        : null,
       alliance: allianceMap.get(me.id) ?? null,
       // The going rate per crew group, from everyone ELSE's payroll. Crew-
       // pipeline worlds only — nothing else reads it.
@@ -670,6 +692,8 @@ export function rivalOverlay(view) {
     ...(view?.gateMarket ? { allianceSlotPool: view.gateMarket.slotPool ?? {} } : {}),
     // Talent market: the going rate per crew group (crew-pipeline worlds).
     ...(view?.laborMarket ? { laborMarket: view.laborMarket } : {}),
+    // Production lines: rivals' delivery slots (production-line worlds).
+    ...(view?.lineBook ? { lineBook: view.lineBook } : {}),
     competitors: view?.competitors ?? [],
     humanRivals: view?.humanRivals ?? {},
     encroachments: {},               // AI encroachment never exists in Headwinds
@@ -698,7 +722,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev, accountSupporter,
-    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket, selfStanding,
+    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket, selfStanding, lineBook,
     ...rest
   } = state;
   return rest;

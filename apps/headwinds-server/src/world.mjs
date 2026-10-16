@@ -31,6 +31,9 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   'SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK', 'SCHEDULE_CHECKS', 'EXTEND_LEASES',
   'BUY_OUT_LEASES',
   'RENEW_LEASE', 'EXTEND_LEASE', 'BUY_OUT_LEASE', 'SET_LEASE_AUTO_RENEW', 'SET_LEASE_AUTO_RENEW_OPT_OUT', 'ORDER_AIRCRAFT', 'CANCEL_ORDER', 'RENAME_ORDER',
+  // Fleet renewal: name the tail an order replaces on delivery, or stop a
+  // delivered tail waiting to take over. The reducer re-runs every check.
+  'SET_ORDER_REPLACEMENT', 'CLEAR_FLEET_REPLACEMENT',
   'SCHEDULE_CHECK', 'CANCEL_SCHEDULED_CHECK',
   'SET_RESERVE', 'CLEAR_RESERVE',
   // Jet bases (MRO network). Capex, gate holdings and level progression are

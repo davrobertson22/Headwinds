@@ -23,7 +23,9 @@ import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruis
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
+import { worldFleetBoard, lineStatus, launchWindow, cancelTerms, slotPremiumPct, MAX_TOTAL_DISCOUNT, lineGapWeeks, lineOf } from '../data/productionLines.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
+import { OrderReplacementLine } from './FleetRenewal.jsx';
 import InfoTip from './InfoTip.jsx';
 import { passesMarketFilters, DEFAULT_MARKET_FILTERS } from '../utils/marketFilters.js';
 import { designAgeQualityPts, DESIGN_AGE_GRACE_YEARS, DESIGN_AGE_CAP_YEARS, DESIGN_AGE_MAX_PENALTY } from '../models/demand.js';
@@ -241,7 +243,7 @@ function DeliveryForecast({ pendingOrders, currentAbsWeek }) {
   );
 }
 
-function OrderCard({ order, currentAbsWeek, onCancel, onRename }) {
+function OrderCard({ order, currentAbsWeek, onCancel, onRename, linesWorld = false }) {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft]     = useState('');
 
@@ -260,6 +262,9 @@ function OrderCard({ order, currentAbsWeek, onCancel, onRename }) {
   const weeksLeft = order.deliverAbsWeek - currentAbsWeek;
   const progress  = orderProgress(order, type, currentAbsWeek, absoluteWeek);
   const isOwned   = order.ownershipType === 'owned';
+  // Production-line worlds: the forfeit depends on how near the slot is, and
+  // launch frames are firm (data/productionLines.js cancelTerms).
+  const terms     = linesWorld && !order.used ? cancelTerms(order, currentAbsWeek) : null;
   const cfg       = order.config;
   const totalSeats = cfg
     ? CABIN_CLASSES.reduce((s, c) => s + (cfg[c.key] || 0), 0)
@@ -420,6 +425,8 @@ function OrderCard({ order, currentAbsWeek, onCancel, onRename }) {
           </div>
         </div>
 
+        <OrderReplacementLine order={order} />
+
         {/* Delivery progress */}
         <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
@@ -431,15 +438,31 @@ function OrderCard({ order, currentAbsWeek, onCancel, onRename }) {
           <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${progress * 100}%`, background: catColor, borderRadius: 2, transition: 'width 0.3s' }} />
           </div>
+          {(order.launch || order.slotPremium > 0) && (
+            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+              {order.launch && <span className="market-chip market-chip-blue" style={{ marginLeft: 0 }}><Glyph e="🚀" /> Launch customer · firm</span>}
+              {order.slotPremium > 0 && <span className="market-chip market-chip-yellow" style={{ marginLeft: order.launch ? 6 : 0 }}>Early slot +{formatMoney(order.slotPremium)}</span>}
+            </div>
+          )}
           <button
-            onClick={() => onCancel(order)}
+            onClick={() => (!terms || terms.allowed) && onCancel(order)}
+            disabled={terms ? !terms.allowed : false}
+            title={terms && !terms.allowed ? terms.reason : undefined}
             style={{
               marginTop: 10, width: '100%', padding: '5px 8px', fontSize: 11,
               borderRadius: 5, border: '1px solid rgba(248,81,73,0.3)',
-              background: 'rgba(248,81,73,0.08)', color: 'var(--red)', cursor: 'pointer',
+              background: 'rgba(248,81,73,0.08)', color: 'var(--red)',
+              cursor: terms && !terms.allowed ? 'not-allowed' : 'pointer',
+              opacity: terms && !terms.allowed ? 0.5 : 1,
             }}
           >
-            Cancel Order{isOwned && order.totalPrice > 0 ? ' (95% refund)' : ' (free)'}
+            {terms
+              ? (!terms.allowed
+                  ? 'Firm order — cannot be cancelled'
+                  : terms.forfeit > 0
+                    ? `Cancel Order (${formatMoney(terms.refund)} back, ${formatMoney(terms.forfeit)} forfeit)`
+                    : 'Cancel Order (full refund)')
+              : <>Cancel Order{isOwned && order.totalPrice > 0 ? ' (95% refund)' : ' (free)'}</>}
           </button>
         </div>
       </div>
@@ -447,7 +470,7 @@ function OrderCard({ order, currentAbsWeek, onCancel, onRename }) {
   );
 }
 
-function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse }) {
+function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse, linesWorld = false }) {
   const currentAbsWeek = absoluteWeek(year, week);
 
   if (!pendingOrders || pendingOrders.length === 0) {
@@ -495,7 +518,7 @@ function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse }) 
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 16 }}>
         {sorted.map(order => (
-          <OrderCard key={order.id} order={order} currentAbsWeek={currentAbsWeek} onCancel={onCancel} onRename={onRename} />
+          <OrderCard key={order.id} order={order} currentAbsWeek={currentAbsWeek} onCancel={onCancel} onRename={onRename} linesWorld={linesWorld} />
         ))}
       </div>
     </div>
@@ -515,9 +538,11 @@ const TABLE_COLS = [
   { key: 'age',      label: 'Age',          align: 'right', title: 'How old the airframe is on delivery. Out-of-production types arrive used.' },
   { key: 'maint',    label: 'Maint/wk',     align: 'right', title: 'Weekly maintenance as delivered — base rate already scaled for delivered age.' },
   { key: 'maintPer', label: 'Maint/seat',   align: 'right', title: 'Weekly maintenance as delivered, per seat (per tonne for freighters). The fuel efficiency score does not include this.' },
+  { key: 'worldFleet',  label: 'World fleet', align: 'right', title: 'Flying with every airline in this world, yours included.' },
+  { key: 'worldOrders', label: 'World orders', align: 'right', title: 'On order across every airline in this world, yours included.' },
   { key: 'lease',    label: 'Lease/wk',     align: 'right' },
   { key: 'buy',      label: 'Buy',          align: 'right' },
-  { key: 'delivery', label: 'Delivery',     align: 'right' },
+  { key: 'delivery', label: 'Delivery',     align: 'right', title: 'Weeks until the first frame of a new order arrives. On production-line worlds: the next slot at list price.' },
   { key: null,       label: '',             align: 'right' },
 ];
 
@@ -583,6 +608,8 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                 </td>
                 <td style={{ textAlign: 'right' }}>{formatMoney(r.maint)}</td>
                 <td style={{ textAlign: 'right' }}>{formatMoney(r.maintPer)}</td>
+                <td style={{ textAlign: 'right' }} title={r.customers || undefined}>{r.worldFleet}</td>
+                <td style={{ textAlign: 'right', color: r.worldOrders > 0 ? 'var(--yellow)' : 'var(--text-muted)' }}>{r.worldOrders}</td>
                 <td style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{formatMoney(r.lease)}</td>
                 <td style={{ textAlign: 'right' }}>
                   <span style={{ color: r.canAffordBuy ? 'var(--green)' : 'var(--text-dim)', fontWeight: 600 }}>
@@ -618,7 +645,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                     title={r.eraBlock || undefined}
                     onClick={() => r.canAffordBuy && onCheckout({ typeId: t.id, mode: 'buy' })}
                   >
-                    {r.eraBlock ? `In service ${AIRCRAFT_TYPES.find(x => x.id === t.id)?.eis ?? ''}` : 'Buy'}
+                    {r.eraBlock ? `In service ${AIRCRAFT_TYPES.find(x => x.id === t.id)?.eis ?? ''}` : r.launch ? 'Launch order' : 'Buy'}
                   </button>
                 </td>
               </tr>
@@ -638,6 +665,16 @@ export default function Marketplace() {
   const { cash, fleet, pendingOrders = [], year, week } = state;
   // Crew requirements are only meaningful where hiring has a lead time.
   const crewOn = state.crewPipeline === true;
+  // Production lines (data/productionLines.js): shared factory lines, one slot
+  // per airline per line per week, early slots at a premium, launch customers.
+  const linesWorld = state.productionLinesWorld === true;
+  // Order board (every world): rivals' fleet mix + your own fleet and orders.
+  const board = useMemo(() => worldFleetBoard(state),
+    [state.competitors, fleet, pendingOrders, state.airlineName]); // eslint-disable-line react-hooks/exhaustive-deps
+  const customersTitle = (b) => (b?.customers ?? [])
+    .slice(0, 12)
+    .map(c => `${c.self ? 'You' : c.name}: ${c.inService} flying${c.onOrder ? `, ${c.onOrder} on order` : ''}`)
+    .join('\n');
 
   const [view, setView]                     = useState('browse'); // 'browse' | 'orders'
   const [activeCategory, setActiveCategory] = useState('All');
@@ -676,9 +713,15 @@ export default function Marketplace() {
   // service. Mirrors the engine's orderDenial() so the disabled button and the
   // rejected action always agree. Null in classic worlds.
   const calYear = calendarYear(state);
+  // Announced type with the launch-customer window open (engine orderDenial
+  // 'launch_only'): buyable on launch terms, never leasable.
+  const launchInfo = (type) => {
+    const lw = launchWindow(state, type);
+    return lw?.open ? lw : null;
+  };
   const eraLockReason = (type) => {
     if (calYear == null) return null;
-    if ((type?.eis ?? 0) > calYear) return `Enters service ${type.eis}`;
+    if ((type?.eis ?? 0) > calYear) return launchInfo(type) ? null : `Enters service ${type.eis}`;
     if (cometWithdrawn(state, type?.id)) return 'Certificate of airworthiness withdrawn — grounded worldwide';
     if (aircraftAvailability(type, calYear) === 'expired') return `No airworthy frames left — line closed ${type.oop}`;
     return null;
@@ -693,6 +736,7 @@ export default function Marketplace() {
   // aircraft, not to your airline's order book. The "Leasable now" filter reads
   // this one: a full order book would otherwise hide every type in the game.
   function typeLeaseBlockReason(type) {
+    if (launchInfo(type)) return 'Launch customers buy outright \u2014 no lessor carries it before it flies';
     const eraLock = eraLockReason(type);
     if (eraLock) return eraLock;
     if (calYear == null && isVintage(type)) return `No lessor stocks it \u2014 line closed ${type.oop}. Buy it outright`;
@@ -721,6 +765,17 @@ export default function Marketplace() {
   const [checkout, setCheckout] = useState(null);
 
   async function handleCancelOrder(order) {
+    if (linesWorld && !order.used) {
+      const terms = cancelTerms(order, absoluteWeek(year, week));
+      if (!terms.allowed) return;
+      const body = terms.forfeit > 0
+        ? `The slot is ${terms.weeksOut} week${terms.weeksOut === 1 ? '' : 's'} away, so ${order.ownershipType === 'lease' ? 'the deposit is forfeit' : `${Math.round(terms.forfeitPct * 100)}% is forfeit`}: you get ${formatMoney(terms.refund)} back and lose ${formatMoney(terms.forfeit)}. The slot goes back on the line for anyone to take.`
+        : `You get ${formatMoney(terms.refund)} back in full. The slot goes back on the line for anyone to take.`;
+      if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
+        dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
+      }
+      return;
+    }
     const hasRefund = order.ownershipType === 'owned' && order.totalPrice > 0;
     const refund    = hasRefund ? Math.round(order.totalPrice * 0.95) : 0;
     const deposit = order.ownershipType === 'lease' ? (order.leaseDeposit ?? 0) : 0;
@@ -830,6 +885,7 @@ export default function Marketplace() {
           onCancel={handleCancelOrder}
           onRename={(order, name) => dispatch({ type: 'RENAME_ORDER', orderId: order.id, name })}
           onBrowse={() => setView('browse')}
+          linesWorld={linesWorld}
         />
       )}
 
@@ -1037,7 +1093,13 @@ export default function Marketplace() {
             lease:    eraWeeklyLease(type, calYear),
             buy:      buyPrice,
             discPct:  0,
-            delivery: nextDeliveryWeeks(type, pendingOrders, nowAbs),
+            delivery: linesWorld && !launchInfo(type)
+              ? lineStatus(state, type, nowAbs).nextStandard - nowAbs
+              : nextDeliveryWeeks(type, pendingOrders, nowAbs),
+            worldFleet:  board[type.id]?.inService ?? 0,
+            worldOrders: board[type.id]?.onOrder ?? 0,
+            customers:   customersTitle(board[type.id]),
+            launch:      !!launchInfo(type),
             owned:    alreadyOwned,
             onOrder,
             canAffordBuy: cash >= buyPrice && !eraLockReason(type),
@@ -1074,8 +1136,13 @@ export default function Marketplace() {
           const canAffordBuy  = cash >= buyPrice && !eraLock;
           const effColor      = effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)';
 
-          // Delivery note
-          const deliveryIn    = nextDeliveryWeeks(type, pendingOrders, currentAbsWeek);
+          // Delivery note. Production-line worlds: the next slot at list price on
+          // the shared line (rivals' bookings included), plus the earliest slot.
+          const launch        = launchInfo(type);
+          const ls            = linesWorld && !launch ? lineStatus(state, type, currentAbsWeek) : null;
+          const deliveryIn    = ls ? ls.nextStandard - currentAbsWeek : nextDeliveryWeeks(type, pendingOrders, currentAbsWeek);
+          const boardRow      = board[type.id];
+          const boardAirlines = (boardRow?.customers ?? []).filter(c => c.inService + c.onOrder > 0);
 
           const hasOptions = (type.configOptions?.engines?.length > 1) || !!type.configOptions?.wingtips;
 
@@ -1113,6 +1180,15 @@ export default function Marketplace() {
                       }}>{d.label}</span>
                     );
                   })()}
+                  {launch && (
+                    <span className="badge" title={`Announced for ${type.eis}. Launch customers may order until ${deliveryDateLabel(launch.closesAbs)}.`} style={{
+                      marginLeft: 6,
+                      background: 'rgba(163,113,247,0.2)', color: '#a98bff',
+                      border: '1px solid rgba(163,113,247,0.45)',
+                    }}>
+                      <Glyph e="🚀" /> Launch customers · until {deliveryDateLabel(launch.closesAbs)}
+                    </span>
+                  )}
                   {alreadyOwned > 0 && (
                     <span className="badge badge-blue" style={{ marginLeft: 6 }}>{alreadyOwned} in fleet</span>
                   )}
@@ -1241,11 +1317,56 @@ export default function Marketplace() {
                   </div>
                 )}
 
+                {/* Launch-customer terms (era production-line worlds) */}
+                {launch && (
+                  <div style={{
+                    marginTop: 8, padding: '7px 9px', borderRadius: 4, fontSize: 11, lineHeight: 1.5,
+                    background: 'rgba(163,113,247,0.10)', border: '1px solid rgba(163,113,247,0.3)',
+                  }}>
+                    <strong><Glyph e="🚀" /> Launch customers wanted.</strong>{' '}
+                    Announced for {type.eis}. Order at least {launch.minQty}, bought outright, by {deliveryDateLabel(launch.closesAbs)}:{' '}
+                    {Math.round(launch.discount * 100)}% off on top of the bulk discount (up to {Math.round(MAX_TOTAL_DISCOUNT * 100)}% in all),
+                    first deliveries January {type.eis}, then one every {lineGapWeeks(lineOf(type))} weeks or more. Launch orders are firm.
+                  </div>
+                )}
+
                 {/* Delivery note */}
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                  <Glyph e="📅" /> Delivery in <strong>{deliveryIn} week{deliveryIn !== 1 ? 's' : ''}</strong>
-                  {onOrder > 0 && ` (${onOrder} already queued)`}
-                </div>
+                {!launch && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                    <Glyph e="📅" /> Delivery in <strong>{deliveryIn} week{deliveryIn !== 1 ? 's' : ''}</strong>
+                    {ls ? ' at list price' : onOrder > 0 ? ` (${onOrder} already queued)` : ''}
+                  </div>
+                )}
+                {ls && (
+                  <div style={{ marginTop: 3, fontSize: 11, color: 'var(--text-muted)' }}
+                       title={`One shared line for the whole family. ${ls.capacity} frames a week across every airline; your own deliveries arrive at least ${ls.gap} week${ls.gap === 1 ? '' : 's'} apart.`}>
+                    <Glyph e="🏭" /> {ls.name} line · {ls.capacity}/wk · {Math.round(ls.utilisation26 * 100)}% booked next 26 wks
+                    {ls.nextOpen < ls.nextStandard && (
+                      <> · earliest {ls.nextOpen - currentAbsWeek}w at +{Math.round(slotPremiumPct(type, ls.nextOpen, currentAbsWeek) * 100)}%</>
+                    )}
+                  </div>
+                )}
+
+                {/* World order board */}
+                <details style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                  <summary style={{ cursor: boardAirlines.length ? 'pointer' : 'default', listStyle: boardAirlines.length ? undefined : 'none' }}>
+                    <Glyph e="🌍" /> World: <strong>{boardRow?.inService ?? 0}</strong> flying · <strong>{boardRow?.onOrder ?? 0}</strong> on order
+                    {boardAirlines.length > 0 && ` · ${boardAirlines.length} airline${boardAirlines.length === 1 ? '' : 's'}`}
+                  </summary>
+                  {boardAirlines.length > 0 && (
+                    <div style={{ marginTop: 4, paddingLeft: 18, display: 'grid', gap: 2 }}>
+                      {boardAirlines.slice(0, 12).map(c => (
+                        <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, color: c.self ? 'var(--accent)' : 'var(--text)' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.self ? 'You' : c.name}</span>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            {c.inService} flying{c.onOrder > 0 ? ` · ${c.onOrder} on order` : ''}
+                          </span>
+                        </div>
+                      ))}
+                      {boardAirlines.length > 12 && <div>+{boardAirlines.length - 12} more</div>}
+                    </div>
+                  )}
+                </details>
                 {deliveredAgeYears(type, calYear) > 0 && (
                   <div style={{ marginTop: 4, fontSize: 11, color: 'var(--yellow)' }}>
                     <Glyph e="🕐" /> {calYear == null && isVintage(type) ? `Vintage — line closed ${type.oop}, the youngest frame left arrives` : 'Out of production — arrives'}{' '}
@@ -1333,7 +1454,7 @@ export default function Marketplace() {
                       title={eraLock || undefined}
                       onClick={() => canAffordBuy && setCheckout({ typeId: type.id, mode: 'buy' })}
                     >
-                      {eraLock ? `In service ${type.eis}` : canAffordBuy ? 'Buy →' : 'Can\'t afford'}
+                      {eraLock ? `In service ${type.eis}` : !canAffordBuy ? 'Can\'t afford' : launch ? 'Launch order →' : 'Buy →'}
                     </button>
                   </div>
 

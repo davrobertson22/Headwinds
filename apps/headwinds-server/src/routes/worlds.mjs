@@ -481,6 +481,8 @@ export default async function worldRoutes(fastify) {
           gateScarcity: { type: 'boolean' },
           newWorldRestrictions: { type: 'boolean' },
           crewPipeline: { type: 'boolean' },
+          // Shared production lines (default ON; false = classic private queues).
+          productionLines: { type: 'boolean' },
           // Rival one-stop itineraries (default ON; false = point-to-point rivals).
           rivalItineraries: { type: 'boolean' },
           // Cosmetic maturity label: alpha | beta | live (default beta).

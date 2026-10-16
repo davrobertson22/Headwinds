@@ -6,6 +6,7 @@ import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
 import { eraJoinCapital } from '@tailwinds/engine/data/era.js';
 import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { capacityScale } from '@tailwinds/engine/data/productionLines.js';
 import {
   validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
@@ -66,6 +67,7 @@ export async function createWorld(prisma, {
   gateScarcity,
   newWorldRestrictions,
   crewPipeline,
+  productionLines,
   stage,
   startYear,
   rivalItineraries,
@@ -80,7 +82,7 @@ export async function createWorld(prisma, {
   password,
 } = {}) {
   if (ownerAccountId) visibility = 'PRIVATE';
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, stage, startYear, rivalItineraries });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -114,6 +116,15 @@ export async function createWorld(prisma, {
     // newWorldRestrictions — omitting it leaves the world on the classic model
     // where crew is instantaneous. Fixed at creation like the other rule flags.
     ...(crewPipeline === true ? { crewPipeline: true } : {}),
+    // Production lines (claude/aircraft-production-lines.md): one shared factory
+    // line per family, one delivery slot per airline per line per week, early
+    // slots at a premium, launch customers in era worlds. ON for every world
+    // created from now on unless the creator unticks it; worlds without the
+    // key keep the classic private delivery queues forever. Fixed at creation —
+    // flipping it mid-world would re-time every order book already placed.
+    // The line-rate scale is fixed HERE, from the player cap at creation, so
+    // every airline in the world — early joiner or late — sees the same line.
+    ...(productionLines !== false ? { productionLines: true, productionLineScale: capacityScale(maxPlayers) } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Every world
     // created from now on stores the key explicitly — ON unless the creator
@@ -258,6 +269,12 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.crewPipeline === true ? {
       crewPipeline: true,
       labor: seedCrewFor(seeded.labor ?? DEFAULT_LABOR_STATE, seeded.fleet ?? [], (a) => getAircraftType(a.typeId)),
+    } : {}),
+    // Production lines, baked at join like the other rule flags. The line rate
+    // scales with the world's player cap (capacityScale), fixed at join.
+    ...(tc.productionLines === true ? {
+      productionLinesWorld: true,
+      productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),
     } : {}),
     // Rival itineraries: baked at join so the client's projections agree with
     // the tick from the first render; the tick re-stamps it every week anyway.

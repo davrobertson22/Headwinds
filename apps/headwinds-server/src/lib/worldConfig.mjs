@@ -169,7 +169,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, stage, startYear, rivalItineraries,
+  newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -186,6 +186,9 @@ export function validateWorldConfig({
   }
   if (crewPipeline != null && typeof crewPipeline !== 'boolean') {
     throw badRequest('crewPipeline must be true or false');
+  }
+  if (productionLines != null && typeof productionLines !== 'boolean') {
+    throw badRequest('productionLines must be true or false');
   }
   if (rivalItineraries != null && typeof rivalItineraries !== 'boolean') {
     throw badRequest('rivalItineraries must be true or false');
@@ -334,6 +337,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Optional crew pipeline (A7): hiring has a lead time and understaffing
     // degrades the operation. Opt-in, independent of newWorldRestrictions.
     crewPipeline: world.tickConfig?.crewPipeline === true,
+    // Shared production lines + delivery slots (new worlds from 2026-10-16).
+    productionLines: world.tickConfig?.productionLines === true,
     // Station fuel pricing + tankering (fuel-ops v2).
     fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell

@@ -21,6 +21,7 @@ import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllian
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
+import { newLineOrdersOf, assertLineSlotsTx, LineSlotConflict } from '../lib/productionLineService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { withTx, assertWithinDeadline } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
@@ -437,6 +438,13 @@ export default async function decisionRoutes(fastify) {
     // world float pool and what gets published as a public move.
     const changed = next !== injected;
 
+    // Production lines: the frames this order put on a shared line. They were
+    // booked against a rival view that another airline's order may have beaten
+    // us to, so the transaction below re-checks them under the world's lock.
+    const newLineOrders = (changed && type === 'ORDER_AIRCRAFT' && injected.productionLinesWorld === true)
+      ? newLineOrdersOf(airline.state?.pendingOrders, next.pendingOrders)
+      : [];
+
     // A capital action the pool could not fund comes back unchanged. Explain it
     // rather than leaving the player with a button that appears to do nothing.
     if (isCapitalAction && market && next === injected) {
@@ -576,6 +584,18 @@ export default async function decisionRoutes(fastify) {
             allianceMap,
           });
         }
+        // Production lines: re-check the new frames' weeks against the rivals'
+        // committed order books, serialised per world. Throws LineSlotConflict.
+        if (newLineOrders.length > 0) {
+          await assertLineSlotsTx(tx, {
+            worldId: airline.worldId,
+            airlineId: airline.id,
+            pendingOrders: next.pendingOrders,
+            newOrders: newLineOrders,
+            scale: injected.productionLineScale ?? 1,
+            absWeek: (next.year - 1) * 52 + next.week,
+          });
+        }
         // Optimistic concurrency: only write if the airline is still at the version
         // we read. If the worker tick (or another decision) got there first, bail
         // with a 409 instead of silently clobbering it — the client re-GETs + retries.
@@ -707,6 +727,16 @@ export default async function decisionRoutes(fastify) {
           'decision lost its version CAS (version_conflict) — client retries',
         );
         throw httpError(409, 'The world ticked while you were saving — retrying.', 'version_conflict');
+      }
+      // Lost a delivery slot to another airline's order that committed first.
+      // Nothing was written; tagged version_conflict so the client re-reads the
+      // fresh line view and re-submits, landing on the next open week.
+      if (e instanceof LineSlotConflict) {
+        request.log.warn(
+          { worldId: airline.worldId, decisionType: type, conflicts: e.conflicts },
+          'order lost a production-line slot race — client retries',
+        );
+        throw httpError(409, 'Another airline just took that delivery slot — finding the next one.', 'version_conflict');
       }
       // Float-pool violations lose a compare-and-set against another trade that
       // landed first. Same contract as DecisionConflict: tell the client to

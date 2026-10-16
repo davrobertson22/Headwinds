@@ -140,7 +140,37 @@ function guardOrderAircraft(payload) {
   // Line-fit Wi-Fi is a flag, not a price: the reducer adds wifiInstallCost()
   // itself. Coerce to a real boolean so nothing truthy-but-odd reaches the blob.
   if (payload.hasWifi !== undefined) payload.hasWifi = payload.hasWifi === true;
+  // Production lines: the only slot input a client may send is WHERE to start
+  // looking. The week, price, premium, line and launch terms are all derived by
+  // the reducer — strip anything that looks like an attempt to set them.
+  if (payload.slotFromWeek !== undefined) {
+    const w = Number(payload.slotFromWeek);
+    if (Number.isInteger(w) && w >= 0 && w <= 52 * 1000) payload.slotFromWeek = w;
+    else delete payload.slotFromWeek;
+  }
+  for (const k of ['deliverAbsWeek', 'lineId', 'slotPremium', 'launch', 'totalPrice']) delete payload[k];
+  // Fleet renewal: the tails these frames replace, one id per frame. The
+  // reducer checks each against the airline's own fleet; here, shape only.
+  if (payload.replaces !== undefined) {
+    const ids = Array.isArray(payload.replaces)
+      ? payload.replaces.filter(isShortId).slice(0, 100)
+      : [];
+    if (ids.length) payload.replaces = ids; else delete payload.replaces;
+  }
+  if (payload.replaceDisposal !== undefined) payload.replaceDisposal = payload.replaceDisposal === 'keep' ? 'keep' : 'dispose';
+  for (const k of ['replacesAircraftId', 'replacesName', 'replacing']) delete payload[k];
   return payload;
+}
+
+const isShortId = (v) => typeof v === 'string' && v.length > 0 && v.length <= 80;
+
+// Fleet renewal from the order queue. Whitelisted: nothing but the order, the
+// tail (or null to clear) and what happens to it.
+function guardSetOrderReplacement(payload) {
+  if (!isShortId(payload.orderId)) throw new GuardError('Invalid order.');
+  const aircraftId = payload.aircraftId == null ? null : payload.aircraftId;
+  if (aircraftId !== null && !isShortId(aircraftId)) throw new GuardError('Invalid aircraft.');
+  return { orderId: payload.orderId, aircraftId, disposal: payload.disposal === 'keep' ? 'keep' : 'dispose' };
 }
 
 // Dispatch. Mutates/returns the payload; throws GuardError (400) on violation.
@@ -668,6 +698,11 @@ export function guardDecision(type, payload, state) {
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
     case 'CONFIGURE_AIRCRAFT_BULK': return guardConfigureAircraftBulk(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
+    case 'SET_ORDER_REPLACEMENT': return guardSetOrderReplacement(payload);
+    case 'CLEAR_FLEET_REPLACEMENT': {
+      if (!isShortId(payload.aircraftId)) throw new GuardError('Invalid aircraft.');
+      return { aircraftId: payload.aircraftId };
+    }
     case 'BUY_STOCK':
     case 'SELL_STOCK':         return guardStockTrade(payload);
     case 'GO_PUBLIC':          return guardIpo(payload);

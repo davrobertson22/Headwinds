@@ -19,6 +19,7 @@ import {
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { ReserveBadge } from './ReserveNotice.jsx';
+import { RenewalNotice, RenewalBadge, OrderReplacementLine, BulkReplaceModal } from './FleetRenewal.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { orderProgress } from '../data/delivery.js';
@@ -580,6 +581,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft]     = useState('');
   const [showTransfer, setShowTransfer] = useState(false);
+  const [showReplace, setShowReplace]   = useState(false);
   const [bookWeeks, setBookWeeks] = useState(4);
   const [bookType, setBookType]   = useState('C');
   const [showExtend, setShowExtend]     = useState(false);
@@ -1219,11 +1221,18 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
       )}
 
       {/* ── Actions ───────────────────────────────────────────────── */}
+      <RenewalNotice aircraft={aircraft} />
+
       <div ref={actionsRef} style={{ display: 'flex', gap: 8, paddingTop: 16, borderTop: '1px solid var(--border)', flexWrap: 'wrap', scrollMarginTop: 70 }}>
         <button className="btn btn-primary" onClick={onConfigure}>Configure Cabin</button>
         {aircraftRoutes.length > 0 && (
           <button className="btn" onClick={() => setShowTransfer(true)}>
             Transfer Routes
+          </button>
+        )}
+        {!(state.pendingOrders ?? []).some(o => o.replacesAircraftId === aircraft.id) && !(state.fleet ?? []).some(a => a.replacing?.aircraftId === aircraft.id) && (
+          <button className="btn" title="Order a new aircraft that takes over this one's routes when it is delivered" onClick={() => setShowReplace(true)}>
+            ↻ Replace…
           </button>
         )}
         {aircraft.ownershipType === 'owned' && (
@@ -1281,6 +1290,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
       </div>
 
       {showTransfer && <TransferRoutesModal aircraft={aircraft} onClose={() => setShowTransfer(false)} />}
+      {showReplace && <BulkReplaceModal aircraftIds={[aircraft.id]} onClose={() => setShowReplace(false)} />}
       {showExtend && <ExtendLeaseModal aircraft={aircraft} onClose={() => setShowExtend(false)} />}
     </div>
   );
@@ -1636,6 +1646,7 @@ export default function Fleet() {
   const [configuringId, setConfiguringId] = useState(null);
   const [checkedIds,    setCheckedIds]    = useState([]);   // bulk selection
   const [bulkConfigIds, setBulkConfigIds] = useState(null); // array of ids → bulk configure modal
+  const [bulkReplaceIds, setBulkReplaceIds] = useState(null); // array of ids → bulk replace modal
   const [search,        setSearch]        = useState('');
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | reserve | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
@@ -2438,6 +2449,7 @@ export default function Fleet() {
                         </span>
                         {order.hasWingtips && '· Wingtips'}
                       </div>
+                      <OrderReplacementLine order={order} compact />
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       {order.engineLabel ?? '—'}
@@ -2563,6 +2575,18 @@ export default function Fleet() {
             {checkedOwned.length} owned · {checkedAircraft.length - checkedOwned.length} leased
           </span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn"
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: 'rgba(56,139,253,0.15)', color: 'var(--accent)',
+                border: '1px solid rgba(56,139,253,0.4)',
+              }}
+              title="Order new aircraft that take over the selected aircraft's routes as they are delivered, then sell or return the old ones"
+              onClick={() => setBulkReplaceIds(checkedAircraft.map(a => a.id))}
+            >
+              ↻ Replace ({checkedAircraft.length})…
+            </button>
             <button
               className="btn"
               style={{
@@ -2841,6 +2865,7 @@ export default function Fleet() {
                   </td>
                   <td>
                     <strong>{aircraft.name}</strong>
+                    <RenewalBadge aircraft={aircraft} pendingOrders={pendingOrders} />
                     {isWifiEquipped(aircraft) && (
                       <span
                         title="Wi-Fi fitted — this aircraft can sell connectivity and avoids the no-Wi-Fi quality penalty"
@@ -2985,6 +3010,15 @@ export default function Fleet() {
         <FleetConfig
           aircraftId={configuringId}
           onClose={() => setConfiguringId(null)}
+        />
+      )}
+
+      {/* Bulk replace modal (fleet renewal) */}
+      {bulkReplaceIds && (
+        <BulkReplaceModal
+          aircraftIds={bulkReplaceIds}
+          onOrdered={() => setCheckedIds([])}
+          onClose={() => setBulkReplaceIds(null)}
         />
       )}
 

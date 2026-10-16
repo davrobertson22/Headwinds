@@ -9,6 +9,7 @@ import { ReportDialog, REPORT_CATEGORIES } from './Report.jsx';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import SupportCard from './SupportCard.jsx';
 import CareerPanel from './CareerPanel.jsx';
+import AccountSearchResults from './AccountSearchResults.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import UsernameCard from './UsernameCard.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
@@ -354,6 +355,8 @@ export function CreateWorld({ token, me, onCreated }) {
   const [newWorldRestrictions, setNewWorldRestrictions] = useState(true);
   // Crew pipeline (A7) — opt-in, independent of New World Restrictions.
   const [crewPipeline, setCrewPipeline] = useState(false);
+  // Shared production lines — on by default (the server defaults it on too).
+  const [productionLines, setProductionLines] = useState(true);
   // Rival one-stop itineraries — on by default (HUB_CONNECTIVITY_PLAN.md).
   const [rivalItineraries, setRivalItineraries] = useState(true);
   const [stage, setStage] = useState('beta');
@@ -389,6 +392,8 @@ export function CreateWorld({ token, me, onCreated }) {
           // old omit-when-false shorthand would have silently forced restrictions.
           newWorldRestrictions,
           ...(crewPipeline ? { crewPipeline: true } : {}),
+          // Always explicit: the server treats an absent field as ON.
+          productionLines,
           // Always explicit: the server treats an absent field as ON.
           rivalItineraries,
           ...(stage !== 'beta' ? { stage } : {}),
@@ -540,6 +545,21 @@ export function CreateWorld({ token, me, onCreated }) {
             Fly short-handed and your on-time rate and passenger satisfaction suffer. Pay below
             market and crew leave faster than you can replace them, so the pay dial becomes a
             retention decision, not just a cost. Growth has to be planned, not clicked.
+          </span>
+        </label>
+        <label style={{ alignItems: 'flex-start' }}>Production lines
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={productionLines}
+              onChange={(e) => setProductionLines(e.target.checked)} />
+            <span className="muted">{productionLines ? 'ON (default) — shared delivery slots' : 'Off — private delivery queues (classic)'}</span>
+          </span>
+          <span className="muted small">
+            Every aircraft family comes off one factory line shared by the whole world, building a
+            set number of frames a week (more for turboprops, fewer for jumbos). Each airline's own
+            deliveries from a line are spaced out — a week apart for turboprops, up to five for
+            jumbos — early slots cost up to 25% extra, and cancelling
+            forfeits more the closer the slot. In historical worlds, new types are announced two
+            years ahead and launch customers can order first at a discount.
           </span>
         </label>
         <label style={{ alignItems: 'flex-start' }}>Rival connections
@@ -711,6 +731,14 @@ const WORLD_FEATURES = [
     label: () => 'Crew pipeline',
     rgb: '92,157,224',
     blurb: 'Crew stop being instant. Pilots take ten weeks to train, ramp agents two, and flying short-handed costs you on-time performance. Pay below market and they leave.',
+  },
+  {
+    key: 'lines',
+    on: (w) => !!w.productionLines,
+    icon: '🏭',
+    label: () => 'Production lines',
+    rgb: '210,153,34',
+    blurb: 'One factory line per aircraft family, shared by every airline. Your deliveries from a line are spaced 1–5 weeks apart by size, early slots cost extra, and in historical worlds launch customers order first.',
   },
   {
     key: 'hubs',
@@ -1527,6 +1555,7 @@ function ModerationScreen({ token, me }) {
     setBusyId(accountId); setError(null);
     try {
       const res = await api(`/admin/accounts/${accountId}/ban`, { method: 'POST', token, body: { reason } });
+      setOgResults((rs) => rs?.map((r) => (r.id === accountId ? { ...r, bannedAt: new Date().toISOString(), banReason: reason.trim() || null } : r)) ?? rs);
       await confirm.alert({ title: `Banned ${who}`, body: `Abandoned ${res.airlinesAbandoned} airline(s) and closed ${res.reportsActioned} open report(s).` });
       load();
     } catch (e) { setError(e); }
@@ -1548,6 +1577,7 @@ function ModerationScreen({ token, me }) {
     setBusyId(accountId); setError(null);
     try {
       await api(`/admin/accounts/${accountId}/unban`, { method: 'POST', token });
+      setOgResults((rs) => rs?.map((r) => (r.id === accountId ? { ...r, bannedAt: null, banReason: null } : r)) ?? rs);
       load();
     } catch (e) { setError(e); }
     setBusyId(null);
@@ -1608,7 +1638,7 @@ function ModerationScreen({ token, me }) {
           <button className={`btn small ${tab === 'OPEN' ? 'primary' : ''}`} onClick={() => setTab('OPEN')}>Open reports</button>
           <button className={`btn small ${tab === 'ALL' ? 'primary' : ''}`} onClick={() => setTab('ALL')}>All reports</button>
           <button className={`btn small ${tab === 'BANS' ? 'primary' : ''}`} onClick={() => setTab('BANS')}>Banned players</button>
-          <button className={`btn small ${tab === 'OGS' ? 'primary' : ''}`} onClick={() => setTab('OGS')}>Badges</button>
+          <button className={`btn small ${tab === 'OGS' ? 'primary' : ''}`} onClick={() => setTab('OGS')}>Players &amp; badges</button>
         </div>
       </div>
       <ErrorNote error={error} />
@@ -1689,7 +1719,14 @@ function ModerationScreen({ token, me }) {
       ) : (
         <>
           <div className="card">
-            <h3>Grant a badge</h3>
+            <h3>Find a player</h3>
+            <p className="muted small">
+              Search by Discord/display name, airline name, or email (a domain such as
+              <code> spambot.com.au</code> matches every account on it), then ban, unban, or
+              grant a badge. A ban signs the player out of every world and abandons their
+              airlines. To stop new sign-ups from a whole domain, add it to
+              <code> BANNED_EMAIL_DOMAINS</code> on the server.
+            </p>
             <p className="muted small">
               Two account-level badges. Both are purely cosmetic, and both are worn on every
               airline the account flies, in every world. <OgBadge /> is for players who have
@@ -1709,47 +1746,10 @@ function ModerationScreen({ token, me }) {
                 Search
               </button>
             </form>
-            {ogResults != null && (
-              ogResults.length === 0 ? (
-                <p className="muted small">No matching account. They need to sign in to Headwinds at least once first.</p>
-              ) : (
-                <table className="worlds">
-                  <thead><tr><th>Player</th><th>Email</th><th>Airlines</th><th /></tr></thead>
-                  <tbody>
-                    {ogResults.map((a) => (
-                      <tr key={a.id}>
-                        <td>
-                          {a.displayName}{a.isOG ? <OgBadge /> : null}{a.isSupporter ? <SupporterBadge /> : null}
-                          {a.bannedAt ? <span className="chip chip-banned"> banned</span> : null}
-                          {/* Rename trail — a new name must not outrun the old one's reputation. */}
-                          {a.pastNames?.length ? <div className="muted small">formerly {a.pastNames.join(', ')}</div> : null}
-                        </td>
-                        <td className="muted">{a.email}</td>
-                        <td className="muted small">{a.airlines?.length ? a.airlines.join(', ') : '—'}</td>
-                        <td>
-                          <div className="row">
-                            {a.isOG ? (
-                              <button className="btn danger small" disabled={busyId === a.id}
-                                onClick={() => setOg(a, false)}>Remove OG</button>
-                            ) : (
-                              <button className="btn primary small" disabled={busyId === a.id}
-                                onClick={() => setOg(a, true)}>Grant OG</button>
-                            )}
-                            {a.isSupporter ? (
-                              <button className="btn danger small" disabled={busyId === a.id}
-                                onClick={() => setSupporter(a, false)}>Remove supporter</button>
-                            ) : (
-                              <button className="btn primary small" disabled={busyId === a.id}
-                                onClick={() => setSupporter(a, true)}>Grant supporter</button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            )}
+            <AccountSearchResults
+              accounts={ogResults} busyId={busyId}
+              onSetOg={setOg} onSetSupporter={setSupporter} onBan={ban} onUnban={unban}
+            />
             {ogNote && <p className="muted small">✓ {ogNote}</p>}
           </div>
 
