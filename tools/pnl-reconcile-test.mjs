@@ -154,7 +154,7 @@ function readWeeklyPnl(html) {
       // Older builds carry no kind tag; these two labels are structurally the
       // subtotal and the total on every version of this card.
       kind: attrOf(labelCell, 'data-pnl-kind')
-        ?? (label === 'Net profit' ? 'total'
+        ?? ((label === 'Net profit' || label === 'Net cash flow') ? 'total'
           : label === 'Operating profit' ? 'subtotal'
           : label.startsWith('Depreciation') ? 'memo' : 'line'),
       label,

@@ -241,6 +241,15 @@ export function compose(item, startYear = null) {
           : (d.finishers != null ? `${d.finishers} airlines finished` : null),
         standalone: true,
       };
+    case 'ranking_changed':
+      // One-off, on the week a running world moved to the rankings rework.
+      return {
+        icon: '🏆', subject: 'The standings',
+        headline: `now rank on average weekly net profit over the last ${d.windowWeeks ?? 52} weeks`,
+        sub: `The best average over the final ${d.windowWeeks ?? 52} weeks wins the world.`
+          + (d.leader?.name ? ` ${d.leader.name} leads at ${formatMoney(d.leader.avgProfit ?? 0)} a week.` : ''),
+        standalone: true,
+      };
     case 'year_in_review':
       return {
         icon: '📅', subject: (Number.isInteger(startYear) && d.year != null ? String(startYear + d.year - 1) : `Year ${d.year ?? ''}`).trim(),

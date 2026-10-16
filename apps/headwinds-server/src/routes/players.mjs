@@ -78,7 +78,7 @@ export default async function playerRoutes(fastify) {
       },
       select: {
         id: true, worldId: true, name: true, hub: true, status: true,
-        week: true, svps: true, joinedWeek: true,
+        week: true, svps: true, rankScore: true, joinedWeek: true,
         world: { select: { name: true, status: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -144,6 +144,9 @@ export default async function playerRoutes(fastify) {
         // Per-share shareholder value in dollars — same scaling the world
         // standings serializer uses.
         svps: toNum(a.svps) / 10_000,
+        // Average weekly net profit over the last 52 weeks — what `rank` is
+        // ordered by since the 2026-10-15 rankings rework.
+        avgProfit: a.rankScore == null ? null : toNum(a.rankScore),
       })),
     };
   });

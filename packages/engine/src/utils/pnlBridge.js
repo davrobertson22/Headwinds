@@ -189,8 +189,11 @@ export function costBridge(proj, state = {}) {
   if (tax)    push('tax',    'Corporate tax',     -tax,    'cost', 'Charged on taxable profit — the base is EBITDA less depreciation, loan INTEREST (principal is not deductible), one-time charges and heavy-check/AOG spend. Depreciation is deducted for tax but costs no cash, so the charge usually reads as less than the headline rate against the operating profit above.');
   if (netResidual) push('netResidual', 'Other (below the line)', netResidual, 'cost',
     'Cash the engine moved between operating profit and the bottom line that no row above names. This should always be zero — if you are seeing it, a charge was added below EBITDA without being added to this breakdown.');
-  push('net', 'Net profit', netProfit, 'total',
-    'The actual change in your cash balance this week.');
+  // "Net cash flow", not "Net profit": this walk ends at the bank balance.
+  // Net profit is the accrual figure (utils/standings.js netProfitOf) —
+  // depreciation charged, loan principal not — and is what the standings rank on.
+  push('net', 'Net cash flow', netProfit, 'total',
+    'The actual change in your cash balance this week. Net profit differs: it adds back loan principal (financing, not a cost) and charges depreciation on owned aircraft.');
 
   const margin = (v) => (revenue > 0 ? v / revenue : 0);
   for (const row of rows) {

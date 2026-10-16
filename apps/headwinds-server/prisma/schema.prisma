@@ -198,6 +198,21 @@ model Airline {
   // Shareholder Value Per Share — the leaderboard metric — in ten-thousandths of
   // a dollar (SVPS_SCALE). Market cap is kept as a displayed stat, not the rank.
   svps        BigInt        @default(0)
+  // ── Live standings stats (rankings rework, 2026-10-15) ───────────────────
+  // Written by every tick from the blob via @tailwinds/engine utils/standings.js
+  // so the world page's player list sorts on them without detoasting a single
+  // state blob. Null until the airline's first tick after the rework (or the
+  // backfill tool, tools/backfill-live-stats.mjs).
+  //
+  // rankScore is THE leaderboard metric: average weekly net profit (accrual)
+  // over the last 52 weeks, whole dollars, weeks not flown counted as $0. On
+  // the final tick that window is the final 52 weeks — highest average wins.
+  rankScore    BigInt?
+  weeklyProfit BigInt? // last week's net profit (accrual)
+  netAssets    BigInt? // Balance Sheet equity
+  paxWeek      Int?    // passengers carried last week
+  flightsWeek  Int?    // weekly departures
+  fleetSize    Int?    // aircraft on the books
   week        Int           @default(1)
   version     Int           @default(0) // optimistic-concurrency guard: tick vs player decision
   status      AirlineStatus @default(ACTIVE)
@@ -226,7 +241,8 @@ model Airline {
   @@unique([worldId, accountId]) // one airline per account per world
   @@index([worldId, cash])
   @@index([worldId, marketCap]) // still shown as a stat ("largest airline")
-  @@index([worldId, svps])      // standings sort by svps DESC
+  @@index([worldId, svps])      // SVPS, the pre-2026-10-15 rank metric (still a displayed stat)
+  @@index([worldId, rankScore]) // standings sort by rankScore DESC
 }
 
 // ── Phase-2-ready: created now, written when the tick lands ──────────────────
@@ -582,6 +598,9 @@ model Standing {
   airlineId String
   week      Int
   rank      Int
+  // The metric `rank` was ordered by that week. Since the rankings rework
+  // (World.tickConfig.rankingSince onwards): average weekly net profit in
+  // whole dollars. Rows before it hold SVPS in ten-thousandths of a dollar.
   score     BigInt
   createdAt DateTime @default(now())
   world     World    @relation(fields: [worldId], references: [id], onDelete: Cascade)

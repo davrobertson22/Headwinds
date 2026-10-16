@@ -31,6 +31,7 @@ function describe(e) {
     case 'event_started': return { who: d.name ?? 'World event', what: '', icon: d.icon ?? '🌍' };
     case 'event_ended':   return { who: d.name ?? 'World event', what: 'has passed', icon: d.icon ?? '🌍' };
     case 'bankruptcy':    return { who: e.airline, what: 'has gone under', icon: '📉' };
+    case 'ranking_changed': return { who: 'The standings', what: 'now rank on average weekly net profit (last 52 weeks)', icon: '🏆' };
     case 'rank_change':   return {
       who: e.airline,
       what: d.direction === 'in' ? `climbed into the top 5 — now #${d.rank}` : 'dropped out of the top 5',

@@ -22,13 +22,14 @@ import { withWorldRecord, passengersFromState } from './career.mjs';
  * @param {object} world     the world row (already flipped to ENDED)
  * @param {object} opts
  * @param {number} opts.weekIndex          the final linear week
- * @param {Array}  [opts.ranked]           [{ airlineId, svpsScore }] final standings, best first
+ * @param {Array}  [opts.ranked]           [{ airlineId, rankScore, svpsScore }] final standings, best first
+ * @param {number} [opts.rankingSince]     first week ranked on average weekly net profit (best-rank reads from here)
  * @param {Map}    [opts.passengersById]   airlineId → lifetime pax, from states already in memory
  * @param {object} [opts.log]
  * @returns {Promise<number>} accounts written
  */
 export async function snapshotWorldCareers(prisma, world, {
-  weekIndex, ranked = [], passengersById = new Map(), log = console,
+  weekIndex, ranked = [], passengersById = new Map(), rankingSince = 0, log = console,
 } = {}) {
   // Every airline that ever flew here, bankrupt ones included — a season you
   // lost is still a season you played, and the Phoenix badge depends on it.
@@ -38,7 +39,7 @@ export async function snapshotWorldCareers(prisma, world, {
     where: { worldId: world.id },
     select: {
       id: true, accountId: true, name: true, hub: true, status: true,
-      svps: true, marketCap: true, restarts: true, joinedWeek: true,
+      svps: true, marketCap: true, rankScore: true, restarts: true, joinedWeek: true,
       restartedWeek: true, week: true,
     },
   });
@@ -54,7 +55,8 @@ export async function snapshotWorldCareers(prisma, world, {
   try {
     const grouped = await prisma.standing.groupBy({
       by: ['airlineId'],
-      where: { worldId: world.id },
+      // From the rankings rework on: ranks before it were an SVPS order.
+      where: { worldId: world.id, week: { gte: rankingSince ?? 0 } },
       _min: { rank: true },
     });
     bestRankOf = new Map(grouped.map((g) => [g.airlineId, g._min.rank]));
@@ -81,6 +83,8 @@ export async function snapshotWorldCareers(prisma, world, {
       of:          rankedCount,
       bestRank:    bestRankOf.get(a.id) ?? null,
       svps:        toNum(a.svps),
+      // Average weekly net profit over the final 52 weeks — what `rank` is.
+      avgProfit:   a.rankScore == null ? null : toNum(a.rankScore),
       marketCap:   toNum(a.marketCap),
       status:      a.status,
       restarts:    a.restarts ?? 0,

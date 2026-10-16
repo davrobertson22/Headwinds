@@ -84,6 +84,15 @@ export function fuelOpsVOf(tickConfig) {
   return Number.isInteger(v) && v >= 1 ? v : 1;
 }
 
+// Rankings rework (2026-10-15): the first linear week whose standings ranked
+// on average weekly net profit. Null on a world no post-rework tick has
+// reached yet (its first such tick stamps it); 0 on a world that was on the
+// new rules from its first week. Rank history before it measured SVPS.
+export function rankingSinceOf(world) {
+  const v = Number(world?.tickConfig?.rankingSince);
+  return Number.isInteger(v) && v >= 0 ? v : null;
+}
+
 export function rivalItinerariesOf(tickConfig) {
   if (typeof tickConfig?.rivalItineraries === 'boolean') return tickConfig.rivalItineraries;
   return worldStageOf(tickConfig) === 'alpha';

@@ -259,7 +259,9 @@ await test('missing / null / short / wrong-typed values match the SQL guards', (
   // Non-object array entries become the field set with nulls — exactly what
   // jsonb_build_object over e->'field' (SQL NULL on scalars) produces.
   assert.deepStrictEqual(projectRivalState({ financialHistory: [7] }).financialHistory,
-    [{ profit: null, revenue: null, passengers: null, fuelIndex: null, fuelMultiplier: null }]);
+    [{ profit: null, revenue: null, passengers: null, fuelIndex: null, fuelMultiplier: null,
+       // Rankings rework (2026-10-15): netProfitOf's inputs ride along too.
+       depreciation: null, loanPayments: null, loanInterest: null, leaseDepositReturned: null }]);
   assert.deepStrictEqual(projectRivalState({ fleet: ['x'] }).fleet,
     [{ id: null, typeId: null, config: null, ageWeeks: null, status: null }]);
   // lastReport: only a plain object is reduced; arrays and scalars become null,

@@ -26,6 +26,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { fuelDigest } from './fuelImpact.js';
+import { netProfitOf } from './standings.js';
 
 /** Fewer weeks than this is just a normal tick — the debrief covers it. */
 export const AWAY_MIN_WEEKS = 2;
@@ -114,8 +115,11 @@ export function buildAwayDigest(state, weeks) {
   const costTotals = Object.fromEntries(COST_LINES.map(([k]) => [k, 0]));
 
   for (const h of window) {
-    const profit = num(h.profit);
-    cashDelta  += profit;
+    // The span's cash movement stays cash; a week's PROFIT is net profit
+    // (accrual — utils/standings.js), the figure the game calls profit
+    // everywhere, so "profitable weeks" and best/worst agree with the P&L.
+    const profit = netProfitOf(h);
+    cashDelta  += num(h.profit);
     // h.revenue is report.totalRevenue, which the simulator has ALREADY folded
     // every freighter's revenue into (and partner O&D on top). h.cargoRevenue is
     // a breakdown line of that same money — adding it billed a cargo operator's

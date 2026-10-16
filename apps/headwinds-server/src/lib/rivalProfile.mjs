@@ -48,7 +48,8 @@ export const RIVAL_PROFILE_SELECT = {
   account: { select: { isOG: true, isSupporter: true, email: true, careerStats: true } },
   // The visibility gate (lib/access.mjs) needs the world on this same read
   // rather than a second round trip.
-  world: { select: { id: true, visibility: true } },
+  // tickConfig: rankingSince scopes the rank chart (rankings rework, 2026-10-15).
+  world: { select: { id: true, visibility: true, tickConfig: true } },
 };
 
 /** The subtree shape both the SQL projection and the JS fallback produce. */

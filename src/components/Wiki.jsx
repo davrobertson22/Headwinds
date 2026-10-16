@@ -59,7 +59,8 @@ const WIKI = [
       { p: 'Every week you collect ticket (and cargo) revenue from your routes. Every week, costs come out: fuel, crew, leases, maintenance, gate fees, overhead and any loan payments. The gap between the two is your weekly profit or loss.' },
       { h: 'How you win' },
       { p: 'You win by **acquiring every competitor**. As you grow stronger and rivals weaken, you can buy them out from the **Competition** tab. Take over the last one and the industry is yours.', solo: true },
-      { p: 'Every airline in this world belongs to a **real player**, and the **Rivals** leaderboard ranks all of them by market cap. The world runs for a fixed length (shown in the lobby), finish at the top when the clock runs out. There are no buyouts of human airlines: you win by out-building, out-pricing and out-lasting people.', remote: true },
+      { p: 'Every airline in this world belongs to a **real player**, and the standings rank all of them on **average weekly net profit over the last 52 weeks**. The world runs for a fixed length (shown in the lobby). When the clock runs out, the airline with the **highest average weekly net profit over the final 52 weeks** wins. Weeks you weren\'t flying count as $0, so you need the whole final year. There are no buyouts of human airlines: you win by out-earning people.', remote: true },
+      { p: '**Net profit** is the accrual figure: EBIT less loan interest and tax. Depreciation on owned aircraft is charged; repaying loan principal is not a cost. The week\'s change in your bank balance is shown separately as **net cash flow**.', remote: true },
       { h: 'How you go bankrupt' },
       { ul: [
         '**Miss 3 loan payments** · i.e. your cash is negative on a week when loan repayments are due, three times.',
@@ -452,10 +453,10 @@ const WIKI = [
     blurb: 'The other players in your world',
     remoteOnly: true,
     blocks: [
-      { p: 'There are **no AI airlines** in Headwinds. Every rival on the leaderboard is a real person running a real airline in the same world, on the same clock, from the same $15M start.' },
+      { p: 'There are **no AI airlines** in Headwinds. Every rival on the leaderboard is a real person running a real airline in the same world, on the same clock, from the same starting cash.' },
       { h: 'The Rivals tab' },
       { ul: [
-        '**Leaderboard** · every airline in the world ranked by market cap, with cash, last-week profit and alliance.',
+        '**Standings** · every airline in the world ranked on average weekly net profit over the last 52 weeks. Sort by weekly profit, net assets, passengers, flights or fleet size to compare. The same list, with the same numbers, is on the world page.',
         '**Contested routes**: city pairs both you and a rival fly, head-to-head: fares, frequency, quality, and how the passenger pool split.',
         '**Rival profiles**: open any airline to see its full route network with fares, fleet, hubs, rank history and recent moves. It\'s all public · and they can see yours too.',
       ] },
@@ -510,8 +511,7 @@ const WIKI = [
       { h: 'The market moves too' },
       { p: 'Every world has a **market index** — one shared sentiment number that multiplies every airline\'s valuation, drifting through bull and bear phases and levered to the fuel price. When fuel spikes, the whole sector re-rates down, so a rising share price can mean the market rose rather than that you did well, and a good quarter can still be swamped by a bad market.' },
       { h: 'How you are ranked' },
-      { p: 'The world standings rank on **shareholder value per share** — your share price plus every dividend you have ever paid — not on market cap. Market cap measures how *big* you got, which rewards hoarding and punishes ever returning money to shareholders. Per-share value measures how much you created for each unit of ownership, so every capital decision below is a genuine trade-off.' },
-      { warn: 'A **private** airline has no traded share price, so it is not ranked. Staying private is a legitimate way to play — no dilution, no rivals on your register — but it is not a way to win.' },
+      { p: 'The world standings rank on **average weekly net profit over the last 52 weeks**, not on your share price, so listing is a financing choice rather than a scoring one. Private airlines are ranked exactly like listed ones. Raising capital, buybacks and dividends don\'t move your rank directly. What the money does once it\'s inside the airline does.' },
       { h: 'Your company' },
       { ul: [
         '**Go public** — from week 26, with a trading record behind you, sell a slice (10–35%) of the company to investors. The cash lands in your treasury; the shares are yours no longer. IPOs price at a **discount**, smaller the longer and more profitable your record.',

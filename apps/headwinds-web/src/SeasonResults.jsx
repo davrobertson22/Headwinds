@@ -18,6 +18,15 @@ const fmtSvps = (n) => n == null ? '—'
   : Math.abs(n) >= 100 ? `$${Math.round(n).toLocaleString('en-US')}`
   : `$${Number(n).toFixed(2)}`;
 const fmtInt = (n) => (n == null ? '—' : Math.round(n).toLocaleString('en-US'));
+// Average weekly net profit over the final 52 weeks — the title metric since
+// the 2026-10-15 rankings rework. Seasons decided before it carry SVPS only.
+const fmtAvgProfit = (n) => {
+  if (n == null) return '—';
+  const abs = Math.abs(n);
+  const body = abs >= 1e9 ? `$${(abs / 1e9).toFixed(2)}B` : abs >= 1e6 ? `$${(abs / 1e6).toFixed(2)}M`
+    : abs >= 1e3 ? `$${Math.round(abs / 1e3)}k` : `$${Math.round(abs)}`;
+  return `${n < 0 ? '−' : ''}${body}/wk`;
+};
 
 const MEDAL = ['🥇', '🥈', '🥉'];
 
@@ -39,6 +48,13 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
 
   const standings = data.standings ?? [];
   const awards = data.seasonAwards ?? null;
+  // Which rule decided this season: the payload says so (`ranking.metric`);
+  // without it, a podium carrying avgProfit means the new rule.
+  const byProfit = data.ranking?.metric
+    ? data.ranking.metric !== 'svps'
+    : (awards?.podium ?? []).some((p) => p.avgProfit != null);
+  const metricLabel = byProfit ? 'Avg profit (final 52 wks)' : 'SVPS';
+  const metricOf = (p) => (byProfit ? fmtAvgProfit(p.avgProfit) : fmtSvps(p.svps));
 
   // Podium: the banked award payload if present, else the top of the final
   // standings. Both carry name + accountId + svps, so the render is identical.
@@ -46,6 +62,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
     ? awards.podium
     : standings.slice(0, 3).map((a) => ({
         rank: a.rank, airlineId: a.id, accountId: a.accountId, name: a.name, svps: a.svps,
+        avgProfit: a.avgProfit ?? null,
       }));
   const champion = awards?.championName ?? podium[0]?.name ?? null;
   const mine = myAirlineId ? standings.find((a) => a.id === myAirlineId) : null;
@@ -79,7 +96,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
               <div key={p.airlineId ?? i} className="card" style={{ flex: '1 1 160px', margin: 0, textAlign: 'center' }}>
                 <div style={{ fontSize: 24 }} aria-hidden="true">{MEDAL[i] ?? `#${p.rank}`}</div>
                 <div><strong>{nameLink(p.accountId, p.name)}</strong></div>
-                <div className="muted small">SVPS {fmtSvps(p.svps)}</div>
+                <div className="muted small">{byProfit ? `${metricOf(p)} average` : `SVPS ${metricOf(p)}`}</div>
               </div>
             ))}
           </div>
@@ -105,14 +122,14 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
         <details>
           <summary className="muted small" style={{ cursor: 'pointer' }}>Final standings ({standings.length})</summary>
           <table className="worlds" style={{ marginTop: 8 }}>
-            <thead><tr><th>#</th><th>Airline</th><th>Hub</th><th>SVPS</th></tr></thead>
+            <thead><tr><th>#</th><th>Airline</th><th>Hub</th><th>{metricLabel}</th></tr></thead>
             <tbody>
               {standings.map((a) => (
                 <tr key={a.id} className={myAirlineId === a.id ? 'me-row' : ''}>
                   <td>{a.rank}</td>
                   <td>{nameLink(a.accountId, a.name)}{myAirlineId === a.id ? <span className="muted"> (you)</span> : null}</td>
                   <td>{a.hub}</td>
-                  <td>{fmtSvps(a.svps)}</td>
+                  <td>{metricOf(a)}</td>
                 </tr>
               ))}
             </tbody>
@@ -121,6 +138,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
       )}
 
       <p className="muted small" style={{ marginTop: 8 }}>
+        {byProfit && 'The title goes to the highest average weekly net profit over the final 52 weeks. '}
         Passengers, network and #1-week records above are banked to each player's career.
       </p>
 

@@ -37,6 +37,7 @@ import {
   DEPRECIATION_YEARS,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
+import { netProfitOf, balanceSheetOf } from '../utils/standings.js';
 import { fuelImpact, hedgeQuoteDollars, hedgeUnwindDollars, hedgeScoreboard } from '../utils/fuelImpact.js';
 import {
   FUEL_PROGRAMMES, fleetBurnMod, programmeWeeklyCost, programmeActivationCost, canActivateProgramme,
@@ -101,12 +102,6 @@ function currentGameDate(state) {
   return { week: state.week, month };
 }
 
-function aircraftBookValue(aircraft, type) {
-  if (aircraft?.ownershipType !== 'owned' || !type?.purchasePrice) return 0;
-  const ageYears = (aircraft.ageWeeks ?? 0) / 52;
-  const remaining = Math.max(0, 1 - ageYears / DEPRECIATION_YEARS);
-  return Math.round(eraPurchasePrice(type) * remaining);
-}
 
 function ytd(history, key) {
   return history.reduce((s, h) => s + (h[key] ?? 0), 0);
@@ -579,7 +574,8 @@ function PLStatement({ proj }) {
   const ytdMaint  = ytd(financialHistory, 'maintenance');
   const ytdLabor  = ytd(financialHistory, 'labor');
   const ytdFamily = ytd(financialHistory, 'familyCosts');
-  const ytdNet    = ytd(financialHistory, 'profit');
+  const ytdNet    = ytd(financialHistory, 'profit');                         // net cash flow
+  const ytdNetProfit = financialHistory.reduce((s, h) => s + netProfitOf(h), 0); // net profit (accrual)
   const ytdWeeks  = financialHistory.length;
 
   // ── Weekly comparison data ────────────────────────────────────────────────
@@ -1537,6 +1533,22 @@ function PLStatement({ proj }) {
               </CollapsibleSection>
             )}
 
+            {/* One-time charges — lease redelivery and seasonal reactivation.
+                Deductible costs, so they sit above net profit (they always
+                came out of cash; net profit now charges them too). */}
+            {((proj.leaseRedelivery ?? 0) + (proj.seasonalReactivation ?? 0) > 0
+              || (pw && ((pw.leaseRedelivery ?? 0) + (pw.seasonalReactivation ?? 0)) > 0)) && (
+              <tr>
+                <td style={{ paddingLeft: 28, color: 'var(--text-muted)', fontSize: 13 }}>
+                  One-time charges
+                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-dim)' }}>lease redelivery · seasonal reactivation</span>
+                </td>
+                {pw && <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 12 }}>{formatMoney(-((pw.leaseRedelivery ?? 0) + (pw.seasonalReactivation ?? 0)))}</td>}
+                <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 13 }}>{formatMoney(-((proj.leaseRedelivery ?? 0) + (proj.seasonalReactivation ?? 0)))}</td>
+                <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-dim)' }}>—</td>
+              </tr>
+            )}
+
             {/* Corporate Tax — matches the engine's base (21% of positive pre-tax profit) */}
             {corporateTax > 0 && (
               <tr>
@@ -1550,18 +1562,21 @@ function PLStatement({ proj }) {
               </tr>
             )}
 
-            {/* ── NET INCOME (accrual) ── */}
+            {/* ── NET PROFIT (accrual) — the profit the standings rank on ── */}
             <Spacer colSpan={pw ? 4 : 3} />
             <tr style={{ background: 'var(--surface2)', borderTop: '2px solid var(--border)' }}>
               <td style={{ padding: '12px 16px', fontWeight: 800, fontSize: 14, letterSpacing: '.3px' }}>
-                NET INCOME <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-dim)', marginLeft: 6 }}>accrual (EBIT − interest − tax)</span>
+                NET PROFIT <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-dim)', marginLeft: 6 }}>accrual (EBIT − interest − one-offs − tax)</span>
               </td>
-              {pw && <td style={{ textAlign: 'right', padding: '12px 16px', fontSize: 12, color: 'var(--text-dim)' }}>—</td>}
+              {pw && (() => {
+                const v = netProfitOf(pw);
+                return <td style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 600, fontSize: 13, color: v >= 0 ? 'var(--green)' : 'var(--red)' }}>{v >= 0 ? '+' : ''}{formatMoney(v)}</td>;
+              })()}
               <td style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 800, fontSize: 14, color: netIncomeAccrual >= 0 ? 'var(--green)' : 'var(--red)' }}>
                 {netIncomeAccrual >= 0 ? '+' : ''}{formatMoney(netIncomeAccrual)}
               </td>
-              <td style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 700, fontSize: 13, color: ytdNet >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {ytdWeeks > 0 ? (ytdNet >= 0 ? '+' : '') + formatMoney(ytdNet) : '—'}
+              <td style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 700, fontSize: 13, color: ytdNetProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {ytdWeeks > 0 ? (ytdNetProfit >= 0 ? '+' : '') + formatMoney(ytdNetProfit) : '—'}
               </td>
             </tr>
 
@@ -1578,18 +1593,21 @@ function PLStatement({ proj }) {
               </tr>
             )}
 
-            {/* ── Reconciliation: accrual net income → actual weekly cash change ── */}
+            {/* ── Reconciliation: net profit (accrual) → net cash flow ── */}
             <PLCategoryHeader label="Reconciliation to Cash" />
-            <LineItem label="Net income (accrual)" weekly={netIncomeAccrual} ytd={null} prior={undefined} />
+            <LineItem label="Net profit (accrual)" weekly={netIncomeAccrual} ytd={null} prior={undefined} />
             {totDepreciation > 0 && (
               <LineItem label="+ Depreciation (non-cash add-back)" weekly={totDepreciation} ytd={null} prior={undefined} />
             )}
             {totPrincipalRepayment > 0 && (
               <LineItem label="− Loan principal repayment (financing)" weekly={-totPrincipalRepayment} ytd={null} prior={undefined} />
             )}
+            {(proj.leaseDepositRefund ?? 0) > 0 && (
+              <LineItem label="+ Lease deposits returned (your own money back)" weekly={proj.leaseDepositRefund} ytd={null} prior={undefined} />
+            )}
             <tr style={{ background: 'var(--surface2)', borderTop: '2px solid var(--border)' }}>
               <td style={{ padding: '14px 16px', fontWeight: 800, fontSize: 15, letterSpacing: '.3px' }}>
-                Δ CASH THIS WEEK <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-dim)', marginLeft: 6 }}>actual bank-balance change</span>
+                NET CASH FLOW <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-dim)', marginLeft: 6 }}>actual bank-balance change</span>
               </td>
               {pw && <td style={{ textAlign: 'right', padding: '14px 16px', fontWeight: 600, fontSize: 13, color: (pw.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>{(pw.profit ?? 0) >= 0 ? '+' : ''}{formatMoney(pw.profit ?? 0)}</td>}
               <td style={{ textAlign: 'right', padding: '14px 16px', fontWeight: 800, fontSize: 15, color: netIncome >= 0 ? 'var(--green)' : 'var(--red)' }}>
@@ -1653,30 +1671,22 @@ function SubSectionHeader({ label, colSpan = 4 }) {
 function BalanceSheet() {
   const { state } = useGame();
   const { fleet, cash, financialHistory } = state;
-  const paidInCapital = state.paidInCapital ?? LEGACY_STARTING_CAPITAL;
+  // One computation of the sheet, shared with the standings' "Net assets"
+  // (utils/standings.js balanceSheetOf) so the two can never disagree.
+  const bs = balanceSheetOf(state);
+  const paidInCapital = bs.paidInCapital;
 
   // Assets
-  const ownedFleet = fleet.filter(a => a.ownershipType === 'owned').map(a => {
-    const type = getAircraftType(a.typeId);
-    return { aircraft: a, type, bookValue: aircraftBookValue(a, type) };
-  });
-  const totalFleetValue = ownedFleet.reduce((s, f) => s + f.bookValue, 0);
+  const ownedFleet = bs.ownedFleet;
+  const totalFleetValue = bs.fleetValue;
   // Stock portfolio (shares held in rival airlines), at last mark-to-market.
-  const stockHoldings = Object.values(state.portfolio?.holdings ?? {}).filter(h => h?.shares > 0);
-  const totalInvestments = stockHoldings.reduce((s, h) => s + Math.round((h.shares ?? 0) * (h.lastPrice ?? 0)), 0);
-  const totalAssets = cash + totalFleetValue + totalInvestments;
+  const stockHoldings = bs.holdings;
+  const totalInvestments = bs.investments;
+  const totalAssets = bs.totalAssets;
 
   // Loan liabilities — outstanding balance on each active loan
-  const activeLoans = state.loans ?? [];
-  const loanLiabilities = activeLoans.map(loan => {
-    const weeklyRate = loan.interestRate / 52;
-    const n = loan.weeksRemaining;
-    const balance = weeklyRate > 0
-      ? Math.round(loan.weeklyPayment * (1 - Math.pow(1 + weeklyRate, -n)) / weeklyRate)
-      : loan.weeklyPayment * n;
-    return { loan, balance };
-  });
-  const totalLoanLiabilities = loanLiabilities.reduce((s, l) => s + l.balance, 0);
+  const loanLiabilities = bs.loans;
+  const totalLoanLiabilities = bs.loanBalance;
   // Operating leases are an off-balance-sheet COMMITMENT (rent), not a borrowing —
   // shown as a footnote, not a liability. (Booking 52× rent as a liability with no
   // offsetting right-of-use asset is what previously made the sheet fail to balance.)
@@ -2244,7 +2254,7 @@ function CashFlow({ proj }) {
     <div>
       <div className="stat-grid" style={{ marginBottom: 20 }}>
         <StatBox label="Operating CF/wk" value={formatMoney(projOperatingCF)} color={projOperatingCF >= 0 ? 'green' : 'red'} />
-        <StatBox label="Net Income/wk"   value={formatMoney(projNetIncome)}   color={projNetIncome >= 0 ? 'green' : 'red'}   />
+        <StatBox label="Net Profit/wk"   value={formatMoney(projNetIncome)}   color={projNetIncome >= 0 ? 'green' : 'red'}   />
         <StatBox label="Depreciation"    value={formatMoney(projDepreciation)} color="blue" />
         <StatBox label="Cash Runway"
           value={isFinite(runway) ? `${runway} wks` : '∞'}
@@ -2260,7 +2270,7 @@ function CashFlow({ proj }) {
             <thead><tr><th>Cash Flow Statement (Weekly)</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
             <tbody>
               <SectionHeader label="Operating Activities" />
-              <CFRow label="Net income (accrual)"           value={projNetIncome}    />
+              <CFRow label="Net profit (accrual)"           value={projNetIncome}    />
               {cfLoanInterest > 0 && <CFRow label="  (incl. interest expense)" value={-cfLoanInterest} />}
               <CFRow label="+ Depreciation (non-cash)"      value={projDepreciation} positive />
               <CFTotalRow label="Net Operating Cash Flow"   value={projOperatingCF} />
@@ -2842,7 +2852,7 @@ function Trends() {
         {[
           { label: 'Revenue', val: last.revenue, wk: wow('revenue'), c: 'green' },
           { label: 'Total Cost', val: last.totalCost, wk: wow('totalCost'), c: 'red' },
-          { label: 'Net Income', val: last.profit,  wk: wow('profit'),  c: (last.profit??0)>=0?'green':'red' },
+          { label: 'Net Cash Flow', val: last.profit,  wk: wow('profit'),  c: (last.profit??0)>=0?'green':'red' },
           { label: 'Cash',       val: last.cash,    wk: wow('cash'),    c: (last.cash??0)>=0?'green':'red'   },
         ].map(m => (
           <div className="stat-box" key={m.label}>
@@ -3243,7 +3253,7 @@ function Statistics() {
           { label: 'Connecting / wk',   val: fmtInt(latest.paxConnecting ?? 0), c: '' },
           { label: 'Interlining / wk',  val: fmtInt(latest.paxInterline ?? 0), c: '' },
           { label: 'Weekly Revenue',    val: money(latest.revenue ?? 0), c: 'green' },
-          { label: 'Net Profit / wk',   val: money(latest.profit ?? 0), c: (latest.profit ?? 0) >= 0 ? 'green' : 'red' },
+          { label: 'Net Cash Flow / wk', val: money(latest.profit ?? 0), c: (latest.profit ?? 0) >= 0 ? 'green' : 'red' },
           { label: 'Active Routes',     val: hasTracked ? fmtInt(latestTracked.routes ?? 0) : '—', c: '' },
           { label: 'Fleet',             val: hasTracked ? fmtInt(latestTracked.fleet ?? 0) : '—', c: '' },
           { label: 'Load Factor',       val: hasTracked ? `${(latestTracked.lfPct ?? 0).toFixed(1)}%` : '—', c: '' },
@@ -3286,13 +3296,13 @@ function Statistics() {
 
       {/* ── Revenue & profit ── */}
       <div className="card">
-        <div className="card-title">Revenue, cost & net profit (per week)</div>
+        <div className="card-title">Revenue, cost & net cash flow (per week)</div>
         <StatChart points={points} wideLabels={wide} yFrom0={false} format={(v) => money(v)} series={[
           { key: 'revenue', label: 'Revenue',    color: STAT_COLORS.revenue },
           { key: 'cost',    label: 'Total cost', color: STAT_COLORS.cost },
-          { key: 'profit',  label: 'Net profit', color: STAT_COLORS.profit },
+          { key: 'profit',  label: 'Net cash flow', color: STAT_COLORS.profit },
         ]} />
-        <StatLegend items={[[STAT_COLORS.revenue, 'Revenue'], [STAT_COLORS.cost, 'Total cost'], [STAT_COLORS.profit, 'Net profit']]} />
+        <StatLegend items={[[STAT_COLORS.revenue, 'Revenue'], [STAT_COLORS.cost, 'Total cost'], [STAT_COLORS.profit, 'Net cash flow']]} />
       </div>
 
       <div className="card">

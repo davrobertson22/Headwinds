@@ -49,6 +49,7 @@ import { svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 // The cap lives in worldConfig (bottom of the import graph) so serializeAirline
 // can publish restartsLeft without importing this module and creating a cycle.
 import { MAX_RESTARTS } from './worldConfig.mjs';
+import { liveStatColumns, weeksFlownOf } from './liveStats.mjs';
 
 /** Second chances per world. Four lives total: the original plus three. */
 export { MAX_RESTARTS };
@@ -262,6 +263,9 @@ export async function restartAirline(prisma, { account, world, airline, airlineN
       // company's share count and leaderboard score on a live airline.
       shares: BigInt(100_000_000),
       svps: BigInt(svpsScore(svps)),
+      // Same for the live standings columns: the new company has flown no
+      // weeks, so its 52-week average starts from $0.
+      ...liveStatColumns(state, weeksFlownOf(world)),
       week,
       status: 'ACTIVE',
       restarts: { increment: 1 },

@@ -55,6 +55,9 @@ export function worldRecord(row) {
     of:          num(row.of) || null,
     bestRank:    row.bestRank == null ? null : num(row.bestRank),
     svps:        num(row.svps),
+    // Average weekly net profit over the final 52 weeks — the ranking metric
+    // since 2026-10-15. Null on seasons banked before it (they ranked on SVPS).
+    avgProfit:   row.avgProfit == null ? null : num(row.avgProfit),
     marketCap:   num(row.marketCap),
     status:      row.status ?? null,
     // World visibility at snapshot time. Absent on records banked before the

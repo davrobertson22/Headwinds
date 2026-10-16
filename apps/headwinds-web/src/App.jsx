@@ -20,6 +20,8 @@ import { rememberReturnRoute, resumeAfterSignIn, safeLocalStorage } from './invi
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
+import { nextSort, loadStandingsSort, saveStandingsSort } from '../../../src/utils/standingsView.js';
+import StandingsTable from './StandingsTable.jsx';
 
 // Lazy: the full game UI (and its CSS) loads only when a player opens a world —
 // it's the whole solo app, no need to ship it to the lobby.
@@ -104,12 +106,6 @@ const fmtAgo = (iso) => {
   return { label, idle };
 };
 
-// Per-share shareholder value in dollars — the metric standings rank by, but
-// never actually shown until now. Cents matter at the low end, so don't fold
-// it into fmtMoney's k/M/B buckets.
-const fmtSvps = (n) => n == null ? '—'
-  : Math.abs(n) >= 100 ? `$${Math.round(n).toLocaleString('en-US')}`
-  : `$${n.toFixed(2)}`;
 
 function StatusChip({ status }) {
   return <span className={`chip chip-${status.toLowerCase()}`}>{status}</span>;
@@ -1196,6 +1192,13 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
   const [error, setError] = useState(null);
   const [openRival, setOpenRival] = useState(null); // airlineId of expanded row
   const [pwDraft, setPwDraft] = useState(null);     // owner's new-password draft (null = closed)
+  // Live player list sort (rankings rework) — remembered per browser.
+  const [standingsSort, setStandingsSort] = useState(loadStandingsSort);
+  const sortBy = (key) => setStandingsSort((cur) => {
+    const next = nextSort(cur, key);
+    saveStandingsSort(next);
+    return next;
+  });
 
   const load = useCallback(() => {
     api(`/worlds/${worldId}`, { token }).then((d) => { setData(d); setError(null); }).catch(setError);
@@ -1452,75 +1455,24 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         />
       )}
 
-      <h3>{world.status === 'ENDED' ? 'Final standings' : 'Standings'}</h3>
-      <p className="muted small">
-        Every airline below is a real player. Click one to see their network, fleet and recent moves.
-        {/* The fallen are a number, not a table: dead airlines no longer clutter
-            the standings (server filters to ACTIVE), but the count keeps the
-            world's history — and its danger — visible. */}
-        {(data.fallen ?? 0) > 0 && (
-          <> {data.fallen} airline{data.fallen === 1 ? ' has' : 's have'} gone bankrupt or bowed out here.</>
+      <StandingsTable
+        world={world}
+        standings={standings}
+        ranking={data.ranking ?? null}
+        fallen={data.fallen ?? 0}
+        mineId={mine?.id ?? null}
+        sort={standingsSort}
+        onSort={sortBy}
+        openRivalId={openRival}
+        onToggleRival={(id) => setOpenRival(openRival === id ? null : id)}
+        idleOf={(a) => (a.status === 'ACTIVE' && mine?.id !== a.id ? fmtAgo(a.lastMoveAt) : null)}
+        renderDetail={(a) => (
+          <RivalDetail
+            worldId={world.id} airlineId={a.id} airlineName={a.name}
+            token={token} canReport={!!(token && mine && mine.id !== a.id)}
+          />
         )}
-      </p>
-      {standings.length === 0 ? (
-        <p className="muted">
-          {(data.fallen ?? 0) > 0
-            ? 'No airlines left flying — the skies are wide open.'
-            : 'No airlines yet, be the first to join.'}
-        </p>
-      ) : (
-        <table className="worlds">
-          <thead>
-            <tr><th>#</th><th>Airline</th><th>Hub</th><th>Routes</th><th>Fleet</th><th>Cash</th><th title="Per-share shareholder value — what standings rank by">SVPS</th><th>Status</th></tr>
-          </thead>
-          <tbody>
-            {standings.map((a) => (
-              <Fragment key={a.id}>
-                <tr
-                  className={`rival-row ${mine?.id === a.id ? 'me-row' : ''}`}
-                  onClick={() => setOpenRival(openRival === a.id ? null : a.id)}
-                >
-                  <td>{a.rank}</td>
-                  <td>
-                    {/* The name links to the account-level profile; stopPropagation so
-                        the click doesn't also toggle the in-row rival panel. Older server
-                        payloads carry no accountId — then the name stays plain text. */}
-                    {a.accountId
-                      ? <a href={`#/players/${a.accountId}`} title="View player profile"
-                           onClick={(e) => e.stopPropagation()}>{a.name}</a>
-                      : a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{a.sup ? <SupporterBadge /> : null}{mine?.id === a.id ? <span className="muted"> (you)</span> : null}
-                    {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
-                    {(() => {
-                      // Flag a probably-abandoned rival at a glance. Only shown when
-                      // idle past ~3 real days, and never on your own row or a
-                      // bankrupt one (its status already tells that story).
-                      const ago = a.status === 'ACTIVE' && mine?.id !== a.id ? fmtAgo(a.lastMoveAt) : null;
-                      return ago?.idle
-                        ? <span className="muted small" title={`Last move ${ago.label}`} style={{ marginLeft: 6 }}>· idle {ago.label}</span>
-                        : null;
-                    })()}
-                  </td>
-                  <td>{a.hub}</td>
-                  <td>{a.routes}</td><td>{a.fleet}</td>
-                  <td>{fmtMoney(a.cash)}</td>
-                  <td title={`Market cap ${fmtMoney(a.marketCap)}`}>{fmtSvps(a.svps)}</td>
-                  <td><StatusChip status={a.status} /></td>
-                </tr>
-                {openRival === a.id && (
-                  <tr>
-                    <td colSpan={8} style={{ padding: 0, border: 'none' }}>
-                      <RivalDetail
-                        worldId={world.id} airlineId={a.id} airlineName={a.name}
-                        token={token} canReport={!!(token && mine && mine.id !== a.id)}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      )}
+      />
     </>
   );
 }

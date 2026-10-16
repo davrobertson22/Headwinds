@@ -289,7 +289,9 @@ test('the world-standings serializer emits lastMoveAt', () => {
   const src = readFileSync(new URL('../apps/headwinds-server/src/routes/worlds.mjs', import.meta.url), 'utf8');
   const at = src.indexOf('standings: airlines.map');
   assert.ok(at >= 0, 'standings serializer not found');
-  assert.ok(/lastMoveAt:/.test(src.slice(at, at + 1400)),
+  // Window widened when the rankings rework (2026-10-15) added the live
+  // standings fields to the same serializer.
+  assert.ok(/lastMoveAt:/.test(src.slice(at, at + 2400)),
     'standings serializer no longer emits the last-active signal');
 });
 

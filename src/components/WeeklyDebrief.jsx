@@ -4,6 +4,7 @@ import { formatMoney, yearLabel } from '../utils/simulation.js';
 import { AlertIcon, HeartIcon } from './Icons.jsx';
 import { leasesAtRisk, leaseWarnPhrase } from '../utils/leaseAlerts.js';
 import { subscribeAwayDigest, pendingAwayWeeks } from '../utils/awayDigest.js';
+import { netProfitOf } from '../utils/standings.js';
 
 export default function WeeklyDebrief() {
   const { state, dispatch } = useGame();
@@ -141,6 +142,22 @@ export default function WeeklyDebrief() {
           <div style={{ fontSize: 48, fontWeight: 800, color: profColor, letterSpacing: '-2px', lineHeight: 1 }}>
             {displayed >= 0 ? '+' : ''}{formatMoney(displayed)}
           </div>
+          {/* The headline is the week's cash movement (revenue − all costs
+              below). Profit means the accrual figure everywhere, so say which
+              this is, and show net profit beside it. */}
+          {(() => {
+            const h = state.financialHistory?.at(-1);
+            const np = h ? netProfitOf(h) : null;
+            return (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                net cash flow
+                {np != null && (
+                  <> · net profit <span style={{ color: np >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                    {np >= 0 ? '+' : ''}{formatMoney(np)}</span></>
+                )}
+              </div>
+            );
+          })()}
           {trend != null && phase === 'done' && (
             <div style={{ fontSize: 13, color: trend >= 0 ? 'var(--green)' : 'var(--red)', marginTop: 6 }}>
               {trend >= 0 ? '↑' : '↓'} {formatMoney(Math.abs(trend))} vs last week

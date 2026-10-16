@@ -112,7 +112,7 @@ function baseTier(item) {
     case 'alliance_founded': case 'gate_auction_won':
     case 'gate_auction_unsold': case 'gate_forfeited':
     case 'hub_designated': case 'hub_upgraded':
-    case 'world_ended': case 'year_in_review':
+    case 'world_ended': case 'year_in_review': case 'ranking_changed':
       return 1;
     case 'joined':
       return 3;
@@ -737,6 +737,20 @@ export function bankruptcyNewsRows({ worldId, week, bankrupt }) {
  * @param {string[]} prevTop5  airline ids, best first, from last week
  * @param {string[]} nextTop5  airline ids, best first, this week
  */
+// The one-off announcement on the week a running world switches to the
+// rankings rework (2026-10-15): standings now rank on average weekly net
+// profit, and the title goes to the best average over the final 52 weeks.
+export function rankingChangedNewsRow({ worldId, week, leader = null }) {
+  return {
+    worldId, week, category: 'world', kind: 'ranking_changed', tier: 1,
+    airlineId: leader?.airlineId ?? null,
+    payload: {
+      windowWeeks: 52,
+      leader: leader ? { airlineId: leader.airlineId, name: leader.name ?? null, avgProfit: leader.rankScore ?? 0 } : null,
+    },
+  };
+}
+
 export function rankChangeNewsRows({ worldId, week, prevTop5, nextTop5, nameOf }) {
   const before = new Set(prevTop5 ?? []);
   const after = new Set(nextTop5 ?? []);

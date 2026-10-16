@@ -15,6 +15,7 @@ import {
 import { isSupporterWorld, mayUseSupporterWorld } from './access.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
 import { splitLogo } from './logoColumn.mjs';
+import { liveStatColumns, weeksFlownOf } from './liveStats.mjs';
 import { seedWorldMarket } from './marketService.mjs';
 import { worldEconomyAt } from './worldEconomy.mjs';
 
@@ -371,6 +372,9 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
         // answerable. It used to store the week-of-year, which threw the year
         // away (a join in year 3 recorded as "week 12").
         joinedWeek: (world.currentYear - 1) * 52 + world.currentWeek,
+        // Live standings columns, so a newcomer shows in the player list (at
+        // $0 a week) before their first tick rather than as a row of dashes.
+        ...liveStatColumns(worldDatedState, weeksFlownOf(world)),
         status: 'ACTIVE',
       },
     });

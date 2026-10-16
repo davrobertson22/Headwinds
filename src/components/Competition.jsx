@@ -14,6 +14,8 @@ import { getAircraftType } from '../data/aircraft.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import RivalRouteMap from './RivalRouteMap.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import { compareStandings, netProfitOf } from '../utils/standings.js';
+import { STANDINGS_SORTS, sortSpec, sortStandings, loadStandingsSort, saveStandingsSort } from '../utils/standingsView.js';
 
 const ACQUISITION_PREMIUM = 1.25;
 
@@ -244,6 +246,22 @@ export default function Competition() {
       )}
 
       {/* ── Leaderboard ───────────────────────────────────────────────────── */}
+      {/* Multiplayer ranks on average weekly net profit over the last 52 weeks
+          (rankings rework, 2026-10-15), from the same server columns as the
+          world page. Solo keeps its market-cap board. */}
+      {remote ? (
+        <PlayerStandings
+          competitors={competitors}
+          self={{
+            name: state.airlineName, logoId: state.logoId, logoColor: state.logoColor,
+            customLogo: state.customLogo ?? null, hub: state.hub,
+            og: state.accountOG === true, sup: state.accountSupporter === true, dev: state.accountDev === true,
+            standing: state.selfStanding ?? null,
+            netProfitHistory: financialHistory.slice(-12).map(netProfitOf),
+          }}
+          onSelect={setDetailCarrier}
+        />
+      ) : (
       <Leaderboard
         competitors={competitors}
         playerLastWeek={playerLastWeek}
@@ -262,6 +280,7 @@ export default function Competition() {
         remote={remote}
         onSelect={remote ? setDetailCarrier : null}
       />
+      )}
 
       {/* ── Contested routes ──────────────────────────────────────────────── */}
       <SectionHeader><Glyph e="⚔" /> Contested Routes</SectionHeader>
@@ -490,6 +509,158 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
   );
 }
 
+// ── Multiplayer standings: the live player list ──────────────────────────────
+// Every airline in the world, ranked on average weekly net profit over the last
+// 52 weeks and sortable by the stats players compare. Numbers come from the
+// airline rows the tick writes (state.selfStanding / competitor.standing), the
+// same source as the world page, so the two always agree. Sorting by another
+// stat reorders the list but the # stays the official rank.
+function PlayerStandings({ competitors, self, onSelect }) {
+  const [sort, setSort] = useState(loadStandingsSort);
+  const pick = (key) => {
+    const next = { key, dir: 'desc' };
+    saveStandingsSort(next);
+    setSort(next);
+  };
+  const toRow = (s, extra) => ({
+    avgProfit: s?.rankScore ?? null,
+    rankScore: s?.rankScore ?? null,
+    weeklyProfit: s?.weeklyProfit ?? null,
+    netAssets: s?.netAssets ?? null,
+    paxWeek: s?.paxWeek ?? null,
+    flightsWeek: s?.flightsWeek ?? null,
+    fleetSize: s?.fleetSize ?? null,
+    ...extra,
+  });
+  const rows = [
+    toRow(self.standing, {
+      id: '__player__', name: self.name, logoId: self.logoId, logoColor: self.logoColor,
+      customLogo: self.customLogo, hub: self.hub, og: self.og, sup: self.sup, dev: self.dev,
+      netProfitHistory: self.netProfitHistory, isPlayer: true, carrier: null,
+    }),
+    ...competitors.map((c) => toRow(c.standing, {
+      id: c.id, name: c.name, logoId: c.logoId, logoColor: c.logoColor, customLogo: c.customLogo ?? null,
+      hub: c.homeHub, og: c.og === true, sup: c.sup === true, dev: c.dev === true,
+      netProfitHistory: c.netProfitHistory ?? [], isPlayer: false, carrier: c,
+    })),
+  ].sort(compareStandings).map((r, i) => ({ ...r, rank: i + 1 }));
+  const pending = rows.every((r) => r.rankScore == null);
+  const spec = sortSpec(sort.key);
+  const shown = sortStandings(rows, sort.key, 'desc');
+  const fmtStat = (sp, v) => (v == null ? '–'
+    : sp.money ? formatMoney(v) : Math.round(v).toLocaleString('en-US'));
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <SectionHeader><Glyph e="🏆" /> Standings · Average weekly profit (52 wks)</SectionHeader>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 8, lineHeight: 1.5 }}>
+        Ranked on average weekly net profit over the last 52 weeks. When the world ends, the best average over the final 52 weeks wins.
+        {competitors.length > 0 && ' Click any rival to open their dossier.'}
+      </div>
+
+      <div role="group" aria-label="Sort standings by" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {STANDINGS_SORTS.map((sp) => {
+          const active = sp.key === sort.key;
+          return (
+            <button
+              key={sp.key}
+              type="button"
+              aria-pressed={active}
+              title={sp.tip}
+              onClick={() => pick(sp.key)}
+              style={{
+                fontSize: 12, padding: '4px 10px', borderRadius: 99, cursor: 'pointer',
+                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                background: active ? 'var(--accent)' : 'var(--surface2)',
+                color: active ? 'var(--bg, #0d1117)' : 'var(--text-muted)', fontWeight: active ? 700 : 500,
+              }}
+            >
+              {sp.key === 'rank' ? 'Rank' : sp.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {pending && (
+        <div className="empty-state" style={{ marginBottom: 8 }}>
+          <div className="empty-state-icon"><Glyph e="📊" /></div>
+          <div className="empty-state-text">The standings fill in when the next week lands</div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {shown.map((entry) => {
+          const clickable = !!(onSelect && entry.carrier);
+          const value = entry[spec.field];
+          const signed = spec.key === 'rank' || spec.key === 'weeklyProfit';
+          const valueColor = !signed || value == null ? 'var(--text)' : value >= 0 ? 'var(--green)' : '#f87171';
+          const sub = spec.key === 'rank'
+            ? (entry.weeklyProfit != null ? `last wk ${formatMoney(entry.weeklyProfit)}` : null)
+            : (entry.avgProfit != null ? `avg ${formatMoney(entry.avgProfit)}/wk` : null);
+          const idx = entry.rank - 1;
+          const rankBadge = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${entry.rank}`;
+          return (
+            <div
+              key={entry.id}
+              className="card"
+              onClick={clickable ? () => onSelect(entry.carrier) : undefined}
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(entry.carrier); } } : undefined}
+              title={clickable ? `View ${entry.name}'s dossier` : undefined}
+              style={{
+                padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12,
+                cursor: clickable ? 'pointer' : undefined,
+                border: entry.isPlayer ? '1px solid rgba(59,130,246,0.4)' : undefined,
+                background: entry.isPlayer ? 'rgba(59,130,246,0.06)' : undefined,
+              }}
+            >
+              <div style={{ width: 28, display: 'flex', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: idx < 3 ? ['#e0b341', '#b8bcc4', '#c8853f'][idx] : 'var(--text-muted)', flexShrink: 0 }}>
+                <Glyph e={rankBadge} size={idx < 3 ? 18 : 13} />
+              </div>
+              <AirlineLogo id={entry.logoId} accentColor={entry.logoColor} customSrc={entry.customLogo} size={32} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{entry.name}</span>
+                  {entry.dev && <DevChip />}
+                  {entry.og && <OgChip />}
+                  {entry.sup && <SupporterChip />}
+                  {entry.isPlayer && (
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(59,130,246,0.2)', color: '#60a5fa', fontWeight: 700 }}>
+                      YOU
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    <AirportLink code={entry.hub} style={{ color: 'var(--text-muted)' }} />
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', flexWrap: 'wrap', columnGap: 10 }}>
+                  {STANDINGS_SORTS.filter((sp) => sp.key !== spec.key && sp.key !== 'rank'
+                    && !(spec.key === 'rank' && sp.key === 'weeklyProfit')).map((sp) => (
+                    <span key={sp.key}>{sp.label} {fmtStat(sp, entry[sp.field])}</span>
+                  ))}
+                </div>
+              </div>
+              {entry.netProfitHistory?.length >= 2 && (
+                <ProfitSparkline history={entry.netProfitHistory} />
+              )}
+              <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 96 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: valueColor }}>
+                  {fmtStat(spec, value)}{signed && value != null ? '/wk' : ''}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                  {spec.key === 'rank' ? 'avg net profit' : spec.long.toLowerCase()}
+                  {sub ? ` · ${sub}` : ''}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Tiny inline profit trend — green above zero, red below.
 function ProfitSparkline({ history, width = 72, height = 24 }) {
   const max = Math.max(...history.map(Math.abs), 1);
@@ -566,9 +737,9 @@ function CompetitorCard({ carrier, playerRouteMap }) {
             display: 'grid', gridTemplateColumns: '1fr 1fr',
             gap: '6px 16px', fontSize: 12, marginBottom: 10,
           }}>
-            <StatLine label="Weekly profit" value={formatMoney(s.weeklyProfit)}
-              color={s.weeklyProfit >= 0 ? 'var(--green)' : '#f87171'}
-              prefix={s.weeklyProfit >= 0 ? '+' : ''} />
+            <StatLine label="Weekly profit" value={formatMoney(s.netProfit ?? s.weeklyProfit)}
+              color={(s.netProfit ?? s.weeklyProfit) >= 0 ? 'var(--green)' : '#f87171'}
+              prefix={(s.netProfit ?? s.weeklyProfit) >= 0 ? '+' : ''} />
             <StatLine label="Weekly revenue" value={formatMoney(s.weeklyRevenue)} />
             <StatLine label="Weekly flights" value={s.weeklyFlights.toLocaleString()} />
             <StatLine label="Weekly pax" value={s.weeklyPax.toLocaleString()} />
@@ -1429,9 +1600,13 @@ function RivalDetailView({ carrier, onClose }) {
 
   const alliance = carrier.allianceId ? (carrier.allianceName ?? profile?.alliance ?? 'Alliance') : (profile?.alliance ?? null);
   const hubs = profile?.hubs?.length ? profile.hubs : (carrier.homeHub ? [carrier.homeHub] : []);
-  const wp = carrier.weeklyStats?.weeklyProfit ?? null;
+  // Net profit (accrual) — what the game calls profit everywhere. Older server
+  // payloads carry only the cash figure, so fall back to it.
+  const wp = carrier.weeklyStats?.netProfit ?? carrier.weeklyStats?.weeklyProfit ?? null;
   const wr = carrier.weeklyStats?.weeklyRevenue ?? null;
-  const profitHistory = carrier.profitHistory ?? [];
+  const profitHistory = carrier.netProfitHistory ?? carrier.profitHistory ?? [];
+  const avgProfit = carrier.standing?.rankScore ?? null;
+  const netAssets = carrier.standing?.netAssets ?? null;
   const moves = profile?.recentMoves ?? [];
 
   const money = (v) => (v == null ? '–' : formatMoney(v));
@@ -1513,6 +1688,12 @@ function RivalDetailView({ carrier, onClose }) {
             <StatTile label="Cash" value={money(carrier.cash)} color={carrier.cash != null && carrier.cash < 0 ? '#f87171' : undefined} />
             <StatTile label="Weekly profit" value={wp == null ? '–' : `${wp >= 0 ? '+' : ''}${formatMoney(wp)}`}
               color={wp == null ? undefined : wp >= 0 ? 'var(--green)' : '#f87171'} />
+            {avgProfit != null && (
+              <StatTile label="Avg profit (52 wks)" value={`${avgProfit >= 0 ? '+' : ''}${formatMoney(avgProfit)}`}
+                sub="what the standings rank on"
+                color={avgProfit >= 0 ? 'var(--green)' : '#f87171'} />
+            )}
+            {netAssets != null && <StatTile label="Net assets" value={money(netAssets)} />}
             <StatTile label="Weekly revenue" value={money(wr)} />
             <StatTile label="Quality" value={`${carrier.baseQualityScore}/100`} color={qualityColor(carrier.baseQualityScore)} />
             <StatTile label="Routes" value={routeEntries.length} sub={contestedEntries.length ? `${contestedEntries.length} vs you` : undefined} />

@@ -24,7 +24,10 @@ import {
   MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
   WORLD_STAGES, DEFAULT_WORLD_STAGE, MIN_START_YEAR, MAX_START_YEAR,
   PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword,
+  rankingSinceOf, totalWeeks,
 } from '../lib/worldConfig.mjs';
+import { compareStandings, finalStretchOf, RANKING_WINDOW_WEEKS } from '@tailwinds/engine/utils/standings.js';
+import { weeksFlownOf } from '../lib/liveStats.mjs';
 
 export default async function worldRoutes(fastify) {
   // ── List public worlds (with optional tier filters) ───────────────────────
@@ -131,6 +134,8 @@ export default async function worldRoutes(fastify) {
     const airlines = await prisma.$queryRaw`
       SELECT a.id, a."worldId", a."accountId", a.name, a.hub, a.cash, a."marketCap",
              a.shares, a.svps,
+             a."rankScore", a."weeklyProfit", a."netAssets", a."paxWeek",
+             a."flightsWeek", a."fleetSize",
              a.week, a.status::text AS status, a."joinedWeek",
              CASE WHEN jsonb_typeof(a.state->'routes') = 'array'
                   THEN jsonb_array_length(a.state->'routes') ELSE 0 END AS routes,
@@ -141,8 +146,21 @@ export default async function worldRoutes(fastify) {
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
         AND a.status = 'ACTIVE'
-      ORDER BY a."svps" DESC
+      ORDER BY a."rankScore" DESC NULLS LAST, a."svps" DESC
       LIMIT 100`;
+    // The SQL order picks the top 100; this puts them in exactly the order the
+    // tick ranked them (same comparator, same tie-breaks). A world no
+    // post-rework tick has reached — one that ENDED before 2026-10-15, or a
+    // running one between the deploy and its next week — keeps the SVPS order
+    // its standings were actually decided on.
+    const nOrNull = (v) => (v == null ? null : Number(v));
+    const legacyRanking = rankingSinceOf(world) == null;
+    airlines.sort(legacyRanking
+      ? (x, y) => Number(y.svps) - Number(x.svps)
+      : (x, y) => compareStandings(
+        { rankScore: nOrNull(x.rankScore), netAssets: nOrNull(x.netAssets), name: x.name },
+        { rankScore: nOrNull(y.rankScore), netAssets: nOrNull(y.netAssets), name: y.name },
+      ));
 
     // The fallen are a count, not a list. Nineteen bankrupt rows drowning nine
     // live airlines made a mature world read as a graveyard, and every one of
@@ -205,6 +223,15 @@ export default async function worldRoutes(fastify) {
         includeJoinCode: isMember,
       }),
       seasonAwards,
+      // How the standings are ranked, and where the world is in its season —
+      // the player list's header reads this. The title goes to the best
+      // average weekly net profit over the final 52 weeks.
+      ranking: {
+        metric: legacyRanking ? 'svps' : 'avgWeeklyNetProfit',
+        windowWeeks: RANKING_WINDOW_WEEKS,
+        since: rankingSinceOf(world),
+        ...finalStretchOf({ totalWeeks: totalWeeks(world.lengthYears ?? 0), weeksFlown: weeksFlownOf(world) }),
+      },
       // How many airlines went bankrupt or walked away here — flavour and fair
       // warning, without parading the corpses.
       fallen,
@@ -220,8 +247,18 @@ export default async function worldRoutes(fastify) {
         cash: Number(a.cash),
         marketCap: Number(a.marketCap),
         shares: Number(a.shares),
-        // Per-share shareholder value in dollars — what `rank` is ordered by.
+        // Per-share shareholder value in dollars — the rank metric until the
+        // 2026-10-15 rankings rework; still shown as a stat.
         svps: Number(a.svps) / 10_000,
+        // Live standings stats (null until the airline's first tick after the
+        // rework). `avgProfit` is what `rank` is ordered by: average weekly
+        // net profit over the last 52 weeks.
+        avgProfit: nOrNull(a.rankScore),
+        weeklyProfit: nOrNull(a.weeklyProfit),
+        netAssets: nOrNull(a.netAssets),
+        paxWeek: nOrNull(a.paxWeek),
+        flightsWeek: nOrNull(a.flightsWeek),
+        fleetSize: nOrNull(a.fleetSize),
         week: a.week,
         status: a.status,
         joinedWeek: a.joinedWeek,
@@ -326,7 +363,9 @@ export default async function worldRoutes(fastify) {
 
     const [rankHistory, recentDecisions, membership] = await Promise.all([
       prisma.standing.findMany({
-        where: { worldId: airline.worldId, airlineId: airline.id, week: { gte: generationStart } },
+        // From the rankings rework on: older ranks were an SVPS order, and a
+        // chart spanning the switch would show a jump no airline made.
+        where: { worldId: airline.worldId, airlineId: airline.id, week: { gte: Math.max(generationStart, rankingSinceOf(airline.world) ?? 0) } },
         orderBy: { week: 'desc' },
         take: 26,
         select: { week: true, rank: true },

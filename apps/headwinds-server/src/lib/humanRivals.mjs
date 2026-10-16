@@ -28,6 +28,7 @@ import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
+import { netProfitOf } from '@tailwinds/engine/utils/standings.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
@@ -319,6 +320,20 @@ export function fuelPaidOf(s) {
 // One competitor-shaped object for a human rival (consumed by the Competition
 // tab, marketing voice, alliances, codeshares — everywhere state.competitors
 // flows in the engine).
+// An airline row's live standings columns (lib/liveStats.mjs) as plain numbers.
+// BigInt columns would not survive JSON; null stays null (not yet ticked).
+export function standingOfRow(row) {
+  const n = (v) => (v == null ? null : Number(v));
+  return {
+    rankScore: n(row?.rankScore),
+    weeklyProfit: n(row?.weeklyProfit),
+    netAssets: n(row?.netAssets),
+    paxWeek: n(row?.paxWeek),
+    flightsWeek: n(row?.flightsWeek),
+    fleetSize: n(row?.fleetSize),
+  };
+}
+
 export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName = null } = {}) {
   const s = airlineRow.state ?? {};
   const routes = {};
@@ -373,7 +388,12 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     };
   }
   const history = (s.financialHistory ?? []).slice(-12);
+  // `profitHistory` is the weekly CASH change and is an engine input (rival
+  // valuation and AI heuristics read it), so it stays exactly as it was.
+  // `netProfitHistory` is what the screens chart and call profit — accrual
+  // net profit, the figure the standings rank on (engine utils/standings.js).
   const profitHistory = history.map((w) => w.profit ?? 0);
+  const netProfitHistory = history.map((w) => netProfitOf(w));
   const lastWeek = history.length ? history[history.length - 1] : null;
   return {
     id: rivalIdOf(airlineRow),
@@ -427,6 +447,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
       .slice(-26)
       .map((e) => (typeof e.sharePrice === 'number' ? e.sharePrice : null)),
     profitHistory,
+    netProfitHistory,
+    // Live standings stats from the airline ROW (written by the tick — see
+    // lib/liveStats.mjs), so the in-game leaderboard ranks exactly like the
+    // world page. Null fields until the airline's first post-rework tick.
+    standing: standingOfRow(airlineRow),
     // What this airline actually paid per unit of fuel over the last 13 weeks
     // (FUEL_OPERATIONS_PLAN.md §5.4): the blended multiplier when a hedge made
     // it differ from the market, the market index otherwise. Everyone in a
@@ -441,6 +466,8 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     weeklyStats: lastWeek
       ? {
           weeklyProfit: lastWeek.profit ?? 0,
+          // Accrual net profit — what the UI labels "Net profit".
+          netProfit: netProfitOf(lastWeek),
           ...(lastWeek.revenue != null ? { weeklyRevenue: lastWeek.revenue } : {}),
         }
       : null,
@@ -583,6 +610,9 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
       // pipeline worlds only — nothing else reads it.
       laborMarket: me.state?.crewPipeline === true ? goingRateFromRivals(rivalPayrolls) : null,
       stockPool: null,   // filled in by attachStockPool (worlds with a float pool)
+      // The player's OWN standings row (in-game leaderboard), same source as
+      // every rival's `standing` so the order agrees with the world page.
+      selfStanding: standingOfRow(me),
       // The player's OWN badges (shown on their leaderboard row in-game).
       selfOG: me.account?.isOG === true,
       selfSupporter: me.account?.isSupporter === true,
@@ -650,6 +680,8 @@ export function rivalOverlay(view) {
     accountOG: view?.selfOG === true,
     accountSupporter: view?.selfSupporter === true,
     accountDev: view?.selfDev === true,
+    // The player's own live standings row (rankings rework, 2026-10-15).
+    selfStanding: view?.selfStanding ?? null,
   };
 }
 
@@ -666,7 +698,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev, accountSupporter,
-    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket,
+    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket, selfStanding,
     ...rest
   } = state;
   return rest;
@@ -722,7 +754,10 @@ export function stripRivals(state) {
 export const RIVAL_FIN_KEEP = 13;    // deepest read: fuelPaidOf slice(-13) (FUEL_PAID_WEEKS)
 export const RIVAL_STATS_KEEP = 26;  // sharePriceHistory slice(-26)
 export const RIVAL_FLEET_FIELDS = ['id', 'typeId', 'config', 'ageWeeks', 'status'];
-export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers', 'fuelIndex', 'fuelMultiplier'];
+// depreciation / loanPayments / loanInterest / leaseDepositReturned: netProfitOf
+// (engine utils/standings.js) — the accrual net profit the screens show.
+export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers', 'fuelIndex', 'fuelMultiplier',
+  'depreciation', 'loanPayments', 'loanInterest', 'leaseDepositReturned'];
 export const RIVAL_STATS_FIELDS = ['sharePrice'];
 // Keys the rival path provably never reads, removed outright. customLogo is the
 // player's uploaded logo payload — rivals get a URL to it (logoHash below,
@@ -793,6 +828,7 @@ export async function loadRivalRows(prisma, worldId) {
   const statsTail = `[last-${RIVAL_STATS_KEEP - 1} to last]`;
   const rows = await prisma.$queryRaw`
     SELECT a.id, a."worldId", a.name, a.hub, a.status, a.restarts, a.version,
+           a."rankScore", a."weeklyProfit", a."netAssets", a."paxWeek", a."flightsWeek", a."fleetSize",
            acc."isOG" AS "accountIsOG", acc."isSupporter" AS "accountIsSupporter",
            acc.email AS "accountEmail",
            left(md5(a."customLogo"), 12) AS "logoHash",  -- = LOGO_HASH_LEN (lib/logoColumn.mjs); a literal, since a bound JS number may arrive as int8 and left() takes int4
@@ -803,7 +839,9 @@ export async function loadRivalRows(prisma, worldId) {
                          THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
                                         'profit', e->'profit', 'revenue', e->'revenue',
                                         'passengers', e->'passengers',
-                                        'fuelIndex', e->'fuelIndex', 'fuelMultiplier', e->'fuelMultiplier') ORDER BY ord), '[]'::jsonb)
+                                        'fuelIndex', e->'fuelIndex', 'fuelMultiplier', e->'fuelMultiplier',
+                                        'depreciation', e->'depreciation', 'loanPayments', e->'loanPayments',
+                                        'loanInterest', e->'loanInterest', 'leaseDepositReturned', e->'leaseDepositReturned') ORDER BY ord), '[]'::jsonb)
                                  FROM jsonb_array_elements(jsonb_path_query_array(a.state, ${'$.financialHistory' + finTail}::jsonpath))
                                       WITH ORDINALITY AS fh(e, ord))
                          ELSE '[]'::jsonb END,
@@ -842,6 +880,8 @@ export async function loadRivalRows(prisma, worldId) {
     status: r.status,
     restarts: r.restarts,
     version: r.version,
+    rankScore: r.rankScore, weeklyProfit: r.weeklyProfit, netAssets: r.netAssets,
+    paxWeek: r.paxWeek, flightsWeek: r.flightsWeek, fleetSize: r.fleetSize,
     logoHash: r.logoHash ?? null,
     state: r.state,
     account: { isOG: r.accountIsOG === true, isSupporter: r.accountIsSupporter === true,

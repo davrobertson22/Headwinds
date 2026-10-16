@@ -77,11 +77,13 @@ test('the Finance P&L view renders the cost bridge without throwing', () => {
     'the card should be titled as a bridge, not a cost-category waterfall');
 });
 
-test('both anchor rows are on screen — route profit and net profit', () => {
+test('both anchor rows are on screen — route profit and net cash flow', () => {
   const html = render(React.createElement(Finance));
   assert.ok(html.includes('Route operating profit'),
     'the row a player is reconciling FROM (their Routes page figure) must appear');
-  assert.ok(html.includes('Net profit'),
+  // The bridge ends at the bank balance, so its total is "Net cash flow" —
+  // "Net profit" is the accrual figure (rankings rework, 2026-10-15).
+  assert.ok(html.includes('Net cash flow'),
     'and the row they are reconciling TO');
   assert.ok(html.includes('Operating profit (EBITDA)'), 'with EBITDA between them');
 });

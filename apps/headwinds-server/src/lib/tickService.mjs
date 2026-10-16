@@ -11,9 +11,11 @@
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { applyScheduleTrimMigration } from '@tailwinds/engine/utils/simulation.js';
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
+import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings.js';
+import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
-import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
 import { farmFeeOn } from '@tailwinds/engine/data/fuelFarm.js';
 import { splitLogo } from './logoColumn.mjs';
@@ -31,7 +33,7 @@ import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs
 import { withTx } from './tx.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
-  NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows,
+  NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
   gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows,
 } from './newsService.mjs';
 
@@ -116,6 +118,18 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // year L+1 week 1 — "January of the year after", which is also exactly
   // endsAt (see completeIndex).
   const ended = toIndex >= completeIndex(world);
+
+  // ── Rankings rework (2026-10-15) ────────────────────────────────────────────
+  // Standings rank on average weekly net profit over the last 52 weeks (see
+  // engine utils/standings.js); before this they ranked on SVPS. `rankingSince`
+  // is the first week ranked the new way, stamped into tickConfig by the first
+  // tick that runs this code. Rank history from before it measured something
+  // else, so the rank chart, best-rank, #1 tenure and "biggest climber" all read
+  // from it onwards. A world that has never ticked starts on the new rules
+  // (rankingSince 0), with no announcement.
+  const priorRankingSince = rankingSinceOf(world);
+  const switchingRanking = priorRankingSince == null;
+  const rankingSince = switchingRanking ? (fromIndex > 1 ? toIndex : 0) : priorRankingSince;
 
   // Reads first (outside the transaction): active airlines + their rival views.
   // Humans-only competition — each airline ticks against the OTHER players'
@@ -251,6 +265,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       }
     }
     const svps = svpsOf(next);
+    // Live standings stats. `fromIndex` weeks have now been flown, which sets
+    // the ranking window (52, or fewer in a world's first year).
+    const live = liveStatsOf(next, { weeksFlown: fromIndex });
     return {
       airline,
       next,
@@ -267,6 +284,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Packed to ten-thousandths of a dollar so it survives the BigInt column.
       svps,
       svpsScore: svpsScore(svps),
+      live,
       shares: safeInt(next.equity?.shares),
       // A private airline has no traded share price, so it is not ranked (it
       // still ticks, still shows in the world, and starts ranking on listing).
@@ -317,7 +335,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           currentYear: newYear,
           // Persist the world's shared event list (preserving any other tickConfig
           // keys, e.g. scheduledStartAt) so next week ages from it.
-          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: worldEvents },
+          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: worldEvents, rankingSince },
           ...(ended ? { status: 'ENDED', endedAt: new Date() } : {}),
         },
       });
@@ -344,6 +362,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             marketCap: BigInt(c.marketCap),
             shares: BigInt(c.shares > 0 ? c.shares : 100_000_000),
             svps: BigInt(c.svpsScore),
+            ...liveStatColumnsFrom(c.live),
             week: toIndex,
             version: { increment: 1 },
             ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
@@ -354,6 +373,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       const writtenRow = (c) => ({
         airlineId: c.airline.id, name: c.airline.name,
         marketCap: c.marketCap, svpsScore: c.svpsScore, isPublic: c.isPublic,
+        rankScore: safeInt(c.live.rankScore), netAssets: safeInt(c.live.netAssets),
+        bankrupt: c.bankrupt,
         dividend: c.dividend, consumedCreditIds: c.consumedCreditIds,
         fuelByStation: c.fuelByStation,
       });
@@ -504,13 +525,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       }
       if (newCredits.length > 0) await tx.dividendCredit.createMany({ data: newCredits });
 
-      // Standings rank on SVPS (per-share shareholder value), not market cap.
-      // Market cap measures size, so it rewarded raising capital and punished
-      // returning it — every buyback and dividend was score-negative under it.
-      // Private airlines are excluded: with no traded share price they have
-      // nothing comparable to rank, and they start ranking when they list.
-      const ranked = [...written].filter((r) => r.isPublic)
-        .sort((a, b) => b.svpsScore - a.svpsScore);
+      // Standings rank on average weekly net profit over the last 52 weeks
+      // (rankings rework, 2026-10-15 — they ranked on SVPS before). On the
+      // final tick the window is exactly the final 52 weeks, so this order IS
+      // the season's result. Every airline still flying is ranked, private
+      // ones included — profit needs no share price — and one that failed
+      // this week is not: it is out of the game.
+      const ranked = [...written].filter((r) => !r.bankrupt).sort(compareStandings);
       if (ranked.length > 0) {
         await tx.standing.createMany({
           data: ranked.map((r, i) => ({
@@ -518,7 +539,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             airlineId: r.airlineId,
             week: toIndex,
             rank: i + 1,
-            score: BigInt(r.svpsScore),
+            score: BigInt(r.rankScore),
           })),
         });
       }
@@ -546,9 +567,12 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
               fleet: (c.next.fleet ?? []).length,
             })),
         }),
-        ...rankChangeNewsRows({
-          worldId: world.id, week: toIndex, prevTop5, nextTop5, nameOf,
-        }),
+        // The week the ranking switches, last week's top 5 was an SVPS top 5:
+        // diffing it would announce a reshuffle nobody earned. Say what changed
+        // instead, once.
+        ...(switchingRanking
+          ? (fromIndex > 1 ? [rankingChangedNewsRow({ worldId: world.id, week: toIndex, leader: ranked[0] ?? null })] : [])
+          : rankChangeNewsRows({ worldId: world.id, week: toIndex, prevTop5, nextTop5, nameOf })),
         // Gate forfeitures, for the airlines whose write actually landed. The
         // toast that used to be the only record of this is perishable; this is
         // not.
@@ -653,8 +677,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       try {
         const ranked = outcome.ranked ?? [];
         // Rank a year ago, to name who climbed the most. One indexed read.
+        // A year ago is before the ranking switched: that rank measured SVPS,
+        // so a "climb" from it would be the rule change, not the airline.
         let priorRank = new Map();
-        try {
+        if (toIndex - WEEKS_PER_YEAR >= rankingSince) try {
           const prior = await prisma.standing.findMany({
             where: { worldId: world.id, week: toIndex - WEEKS_PER_YEAR },
             select: { airlineId: true, rank: true },
@@ -681,7 +707,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
               payload: {
                 year: newYear - 1,
                 airlines: ranked.length,
-                leader: { airlineId: ranked[0].airlineId, name: ranked[0].name, svps: svpsScoreToDollars(ranked[0].svpsScore) },
+                leader: {
+                  airlineId: ranked[0].airlineId, name: ranked[0].name,
+                  avgProfit: ranked[0].rankScore,
+                  svps: svpsScoreToDollars(ranked[0].svpsScore),
+                },
                 podium: ranked.slice(0, 3).map((r, i) => ({ rank: i + 1, airlineId: r.airlineId, name: r.name })),
                 topMover,
               },
@@ -708,6 +738,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       try {
         await snapshotWorldCareers(prisma, { ...world, status: 'ENDED', endedAt: new Date() }, {
           weekIndex: toIndex,
+          rankingSince,
           ranked: outcome.ranked ?? [],
           // Lifetime passengers come from states already in memory. Reading
           // forty half-megabyte blobs back out to count them would cost more
@@ -734,7 +765,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         try {
           const held = await prisma.standing.groupBy({
             by: ['airlineId'],
-            where: { worldId: world.id, rank: 1 },
+            where: { worldId: world.id, rank: 1, week: { gte: rankingSince } },
             _count: { _all: true },
           });
           tenureById = new Map(held.map((h) => [h.airlineId, h._count?._all ?? 0]));

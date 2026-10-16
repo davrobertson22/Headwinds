@@ -18,7 +18,8 @@ const toDollars = (score) => (Number(score) || 0) / SVPS_SCALE;
 
 /**
  * @param {object}  opts
- * @param {Array<{airlineId,name,svpsScore,isPublic}>} opts.ranked  final order, best-first (public only)
+ * @param {Array<{airlineId,name,rankScore,svpsScore}>} opts.ranked  final order, best-first —
+ *        by average weekly net profit over the final 52 weeks (see engine utils/standings.js)
  * @param {Array<{airline:{id,name,accountId,restarts},next:{routes,fleet}}>} opts.computed  per-airline final state
  * @param {Map<string,number>} opts.passengersById  lifetime passengers by airlineId
  * @param {Map<string,number>} opts.tenureById      weeks held at rank #1 by airlineId
@@ -30,7 +31,10 @@ export function computeSeasonAwards({
   ranked = [], computed = [], passengersById = new Map(),
   tenureById = new Map(), lengthYears = null, podiumSize = 3,
 } = {}) {
-  const finishers = ranked.filter((r) => r.isPublic !== false);
+  // Every ranked airline finished: since the rankings rework the order is
+  // average weekly net profit, which private airlines have too. (Under SVPS
+  // only listed airlines were ranked, so `ranked` was public-only already.)
+  const finishers = ranked;
   if (finishers.length === 0) return null;
 
   // Enrich every finisher with the extra facts the awards need. `computed` is
@@ -45,6 +49,9 @@ export function computeSeasonAwards({
       accountId: c?.airline?.accountId ?? null,
       name: r.name ?? c?.airline?.name ?? 'An airline',
       svps: toDollars(r.svpsScore),
+      // The number that decided the title: average weekly net profit over the
+      // final 52 weeks, whole dollars.
+      avgProfit: r.rankScore == null ? null : Math.round(Number(r.rankScore) || 0),
       passengers: Math.round(passengersById.get(r.airlineId) ?? 0),
       routes: (c?.next?.routes ?? []).length,
       fleet: (c?.next?.fleet ?? []).length,
@@ -55,6 +62,7 @@ export function computeSeasonAwards({
 
   const podium = rows.slice(0, podiumSize).map((r) => ({
     rank: r.rank, airlineId: r.airlineId, accountId: r.accountId, name: r.name, svps: r.svps,
+    avgProfit: r.avgProfit,
   }));
 
   // ── Superlative awards ─────────────────────────────────────────────────────

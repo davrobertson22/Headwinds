@@ -26,6 +26,7 @@ export * as simulation from './src/utils/simulation.js';
 export * as market      from './src/utils/market.js';
 export * as fuel        from './src/utils/fuel.js';
 export * as finance     from './src/utils/financeProjection.js';
+export * as standings   from './src/utils/standings.js';
 
 // ── World models ────────────────────────────────────────────────────────────
 export * as network      from './src/models/network.js';

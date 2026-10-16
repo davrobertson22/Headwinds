@@ -5,6 +5,7 @@ import { formatMoney, formatPercent, simulateRoute, currentGameDate, maintenance
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields,
 } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
+import { netProfitOf } from '../utils/standings.js';
 import { fuelImpact } from '../utils/fuelImpact.js';
 import { programmeSavingsFromReport } from '../../packages/engine/src/data/fuelProgrammes.js';
 import { getAircraftType } from '../data/aircraft.js';
@@ -120,7 +121,10 @@ export default function Dashboard({ onNavigate }) {
   }, [routes, fleet, proj, gd, state.labor]);
 
   const projectedRevenue = proj.effectiveRevenue;   // all-in weekly revenue (incl. cargo)
-  const projectedProfit  = proj.netCash;            // fully-loaded weekly cash bottom line
+  // "Profit" is the accrual figure everywhere (utils/standings.js netProfitOf):
+  // EBIT − interest − one-offs − tax. The cash bottom line is "net cash flow".
+  const projectedProfit  = proj.netIncomeAccrual;   // projected net profit
+  const projectedCash    = proj.netCash;            // fully-loaded weekly cash bottom line
 
   // Cargo headline figures (from the same engine pass)
   const cargoRevenue = proj.report.totalCargoRevenue ?? 0;
@@ -392,7 +396,7 @@ export default function Dashboard({ onNavigate }) {
     ? ((lastReport.totalRevenue - prevRev) / Math.max(1, prevRev)) * 100
     : null;
   const profTrend = hist.length >= 2
-    ? hist.at(-1)?.profit - hist.at(-2)?.profit
+    ? netProfitOf(hist.at(-1)) - netProfitOf(hist.at(-2))
     : null;
 
   // ── Unique airports and countries ────────────────────────────────────────
@@ -574,11 +578,14 @@ export default function Dashboard({ onNavigate }) {
           onClick={canNavigate ? () => go('finance') : undefined}
         />
         <KpiBox
-          label="Projected Profit / wk"
+          label="Projected Net Profit / wk"
           value={(projectedProfit >= 0 ? '+' : '') + formatMoney(projectedProfit)}
           color={projectedProfit >= 0 ? 'green' : 'red'}
           trend={profTrend}
-          sub={projectedRevenue > 0 ? `${Math.round((projectedProfit / projectedRevenue) * 100)}% margin` : undefined}
+          sub={[
+            projectedRevenue > 0 ? `${Math.round((projectedProfit / projectedRevenue) * 100)}% margin` : null,
+            `cash flow ${(projectedCash >= 0 ? '+' : '') + formatMoney(projectedCash)}`,
+          ].filter(Boolean).join(' · ')}
           onClick={canNavigate ? () => go('finance') : undefined}
         />
         <KpiBox
@@ -713,6 +720,17 @@ export default function Dashboard({ onNavigate }) {
           depreciation={{
             lw: financialHistory?.[financialHistory.length - 1]?.depreciation ?? 0,
             pj: proj?.depreciation ?? 0,
+          }}
+          netProfit={{
+            // Last week's from the week's own history row, this week's from
+            // the canonical projection — the same identity both ways.
+            lw: financialHistory?.length ? netProfitOf(financialHistory[financialHistory.length - 1]) : null,
+            pj: proj?.netIncomeAccrual ?? null,
+            principalLw: (() => {
+              const h = financialHistory?.[financialHistory.length - 1];
+              return h && h.loanInterest != null ? Math.max(0, (h.loanPayments ?? 0) - h.loanInterest) : 0;
+            })(),
+            principalPj: proj?.principal ?? 0,
           }}
           costBreakdown={totalWeeklyCosts > 0 ? costBreakdown : null}
           collapsed={!!collapsed.pnl}
@@ -1229,7 +1247,7 @@ function TrendBadge({ value, isPercent, unit }) {
 // Reconciles per-route operating profit (the Top Routes table) down to the real
 // bottom line, side by side for last week (actual) and this week (projected).
 
-function WeeklyPnL({ lastWeek, projected, depreciation, costBreakdown, collapsed, onToggleCollapse }) {
+function WeeklyPnL({ lastWeek, projected, depreciation, netProfit = null, costBreakdown, collapsed, onToggleCollapse }) {
   const [showFixed, setShowFixed] = useState(false);
   const two = !!lastWeek;
 
@@ -1353,9 +1371,9 @@ function WeeklyPnL({ lastWeek, projected, depreciation, costBreakdown, collapsed
   });
   rows.push({
     key: 'net', kind: 'total',
-    label: 'Net profit',
+    label: 'Net cash flow',
     tip: 'The actual change in your cash balance for the week. Every row above '
-       + 'adds up to this figure exactly.',
+       + 'adds up to this figure exactly. Net profit, below, is a different number.',
     lw: lastWeek?.net, pj: projected.net,
     total: true,
   });
@@ -1364,13 +1382,46 @@ function WeeklyPnL({ lastWeek, projected, depreciation, costBreakdown, collapsed
     label: 'Depreciation (tax only, non-cash)',
     tip: 'How much value your fleet lost this week on paper. It is deducted when '
        + 'the tax base is worked out, but no money leaves the airline — which is '
-       + 'why it sits BELOW the net profit line as a memo and changes none of '
-       + 'the totals above. It is also the main reason the tax bill reads as '
-       + 'less than 21% of the operating profit shown.',
+       + 'why it sits BELOW the net cash flow line and changes none of the cash '
+       + 'totals above. It is a real cost of owning aircraft, though, so net '
+       + 'profit below deducts it. It is also the main reason the tax bill reads '
+       + 'as less than 21% of the operating profit shown.',
     lw: lastWeek ? -(depreciation?.lw ?? 0) : null,
     pj: -(depreciation?.pj ?? 0),
     memo: true,
   });
+  // ── Cash flow → net profit ────────────────────────────────────────────────
+  // Net profit is the accrual figure the game calls profit everywhere and the
+  // standings rank on (utils/standings.js): net cash flow + loan principal
+  // repaid − depreciation (the memo above) − lease deposits handed back. These
+  // rows are kind 'adjust' / 'result', never 'line' / 'total', so the cash walk
+  // above (tools/pnl-reconcile-test.mjs) is untouched by them.
+  if (netProfit) {
+    if ((netProfit.principalLw ?? 0) !== 0 || (netProfit.principalPj ?? 0) !== 0) rows.push({
+      key: 'principal', kind: 'adjust',
+      label: 'Loan principal repaid',
+      tip: 'The part of your loan payments that paid down the debt itself. Cash '
+         + 'left, but you owe that much less, so it is financing rather than a '
+         + 'cost and net profit adds it back. Interest stays a cost.',
+      lw: lastWeek ? (netProfit.principalLw ?? 0) : null, pj: netProfit.principalPj ?? 0,
+    });
+    if ((lastWeek?.deposits ?? 0) !== 0 || (projected.deposits ?? 0) !== 0) rows.push({
+      key: 'depositsBack', kind: 'adjust',
+      label: 'Less lease deposits returned',
+      tip: 'Deposits refunded on returned leases were your own money coming back, '
+         + 'not something the airline earned, so net profit leaves them out.',
+      lw: lastWeek ? -(lastWeek.deposits ?? 0) : null, pj: -(projected.deposits ?? 0),
+    });
+    rows.push({
+      key: 'netProfit', kind: 'result',
+      label: 'Net profit',
+      tip: 'What the airline earned this week on an accrual basis: EBIT less loan '
+         + 'interest, one-time charges and tax. Depreciation on owned aircraft is '
+         + 'charged; loan principal is not. This is the profit the standings rank on.',
+      lw: lastWeek ? netProfit.lw : null, pj: netProfit.pj,
+      total: true,
+    });
+  }
 
   const colStyle = { textAlign: 'right', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap' };
   const valColor = (v, strong) =>
@@ -1644,7 +1695,8 @@ function FinancialChart({ history, currentWeek }) {
             </div>
             <div style={{ color: '#3ea6ff' }}>Revenue&nbsp; {formatMoney(revenues[hover])}</div>
             <div style={{ color: '#ff5d6c' }}>Costs&nbsp;&nbsp;&nbsp;&nbsp; {formatMoney(costs[hover])}</div>
-            <div style={{ color: '#38d39f', fontWeight: 600 }}>Profit&nbsp;&nbsp;&nbsp; {(profits[hover] >= 0 ? '+' : '') + formatMoney(profits[hover])}</div>
+            <div style={{ color: '#38d39f', fontWeight: 600 }}>Cash flow&nbsp; {(profits[hover] >= 0 ? '+' : '') + formatMoney(profits[hover])}</div>
+            <div style={{ color: 'var(--text-muted)' }}>Net profit&nbsp; {(netProfitOf(h) >= 0 ? '+' : '') + formatMoney(netProfitOf(h))}</div>
             {(h.events?.length ?? 0) > 0 && (
               <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--border)' }}>
                 {h.events.map((ev, j) => (

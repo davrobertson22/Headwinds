@@ -201,8 +201,14 @@ function computeProjectWeek(state) {
   // the `profit` stored in history). Depreciation is non-cash so it doesn't affect cash.
   const preTaxProfit  = ebitda - loanPayments - seasonalReactivation - leaseRedelivery + leaseDepositRefund;   // pre-tax CASH
   const netCash       = preTaxProfit - corporateTax;
-  // Accrual view (proper P&L): EBIT − interest − tax. Principal excluded.
-  const netIncomeAccrual = ebit - interest - corporateTax;
+  // Accrual view (proper P&L) — "Net profit" on every screen, and what the
+  // standings rank on (utils/standings.js netProfitOf): EBIT − interest − the
+  // one-off charges − tax. Principal excluded (financing), and the returned
+  // lease deposit too (the airline's own money coming back). It equals
+  // taxableIncome − tax, the same figure netProfitOf derives from a week's
+  // history row, so the projection and the record agree. (It used to leave
+  // out lease redelivery and seasonal reactivation, which are real costs.)
+  const netIncomeAccrual = taxableIncome - corporateTax;
 
   return {
     report,
