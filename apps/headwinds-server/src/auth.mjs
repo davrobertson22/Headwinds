@@ -30,6 +30,7 @@
 // and answerable from a recently-cached account instead).
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
+import { isEmailDomainBlocked } from './lib/emailDomains.mjs';
 import {
   AuthProviderUnavailableError,
   keysFromJwks,
@@ -153,7 +154,16 @@ export function isBanned(account) {
   return Boolean(account?.bannedAt);
 }
 
+// BANNED_EMAIL_DOMAINS: a whole domain locked out (lib/emailDomains.mjs). Admins
+// are exempt so a mistyped entry can never lock the operators out.
+const DOMAIN_BLOCKED_MESSAGE = 'Accounts from this email domain are not allowed in Headwinds.';
+export function isDomainBlocked(email) {
+  return !env.adminEmails.includes(String(email ?? '').toLowerCase())
+    && isEmailDomainBlocked(email, env.bannedEmailDomains);
+}
+
 function assertNotBanned(account) {
+  if (isDomainBlocked(account?.email)) throw forbidden(DOMAIN_BLOCKED_MESSAGE);
   if (!isBanned(account)) return account;
   throw forbidden(
     account.banReason
@@ -169,6 +179,8 @@ function assertNotBanned(account) {
 async function accountForUser(user, now) {
   const email = user.email ?? `${user.id}@no-email.local`;
   let account = await prisma.account.findUnique({ where: { authUserId: user.id } });
+  // Refuse before the INSERT, so a spam domain can't fill the Account table.
+  if (!account && isDomainBlocked(email)) throw forbidden(DOMAIN_BLOCKED_MESSAGE);
   if (!account) {
     const displayName =
       user.user_metadata?.full_name ||

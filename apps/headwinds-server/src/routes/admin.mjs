@@ -3,7 +3,7 @@
 // and ban/unban accounts. Bans are account-wide: auth.mjs rejects a banned
 // account on its next request, and we also abandon all of its airlines so it
 // drops out of live competition immediately.
-import { requireAdmin, isAdmin } from '../auth.mjs';
+import { requireAdmin, isAdmin, isDomainBlocked } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { worldStageOf } from '../lib/worldConfig.mjs';
 
@@ -254,6 +254,10 @@ export default async function adminRoutes(fastify) {
     return {
       accounts: accounts.map((a) => ({
         ...accountSummary(a),
+        // So the panel can hide Ban on operators (the ban route refuses them
+        // anyway) and show when BANNED_EMAIL_DOMAINS already locks one out.
+        isAdmin: isAdmin(a),
+        domainBlocked: isDomainBlocked(a.email),
         airlines: a.airlines.map((x) => x.name),
         pastNames: [...new Set(a.nameChanges.map((nc) => nc.oldName).filter(Boolean))],
       })),

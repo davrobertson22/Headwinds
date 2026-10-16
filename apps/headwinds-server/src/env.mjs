@@ -2,6 +2,7 @@
 // Loads .env (local dev) and fails fast with a clear message if a required var is
 // missing — better than a cryptic crash deep in a request handler.
 import 'dotenv/config';
+import { parseDomainList } from './lib/emailDomains.mjs';
 
 function required(name) {
   const v = process.env[name];
@@ -37,6 +38,10 @@ export const env = {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
+  // Blocked email domains (comma-separated, e.g. "spambot.com.au,junk.example").
+  // Sign-ups from these domains are refused and existing accounts on them are
+  // locked out (auth.mjs). Subdomains are included; admins are exempt.
+  bannedEmailDomains: parseDomainList(optional('BANNED_EMAIL_DOMAINS', '')),
   // Tick scheduler (worker)
   tickCheckSeconds: Number(optional('TICK_CHECK_SECONDS', '60')),
   tickMaxCatchUp: Number(optional('TICK_MAX_CATCHUP', '12')),
