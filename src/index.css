@@ -1108,6 +1108,8 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   pointer-events: none;
   user-select: none;
 }
+/* Labels toggle on the network map (flat map and globe alike) */
+.map-labels-off .airport-label { display: none !important; }
 
 /* Route lines — glow + animated flow */
 .route-glow {

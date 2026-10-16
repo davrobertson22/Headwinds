@@ -105,6 +105,8 @@ const NO_ROUTES = [];
 export const MAP_VIEW_KEY = 'headwinds.mapView';
 // localStorage key for the globe's planes overlay (on unless turned off).
 export const GLOBE_PLANES_KEY = 'headwinds.globePlanes';
+// localStorage key for the airport code labels (both views; on unless turned off).
+export const AIRPORT_LABELS_KEY = 'headwinds.airportLabels';
 
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -299,6 +301,16 @@ export default function RouteMap() {
   useEffect(() => {
     try { localStorage.setItem(GLOBE_PLANES_KEY, showPlanes ? 'on' : 'off'); } catch { /* private mode */ }
   }, [showPlanes]);
+  // Airport code labels — on by default, remembered per browser. One switch for
+  // both views: hiding is a class on the map card (CSS hides .airport-label
+  // inside it), so neither map rebuilds its layers or markers.
+  const [showLabels, setShowLabels] = useState(() => {
+    try { return localStorage.getItem(AIRPORT_LABELS_KEY) !== 'off'; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(AIRPORT_LABELS_KEY, showLabels ? 'on' : 'off'); } catch { /* private mode */ }
+  }, [showLabels]);
   const frameRef = useRef(null);         // last fitBounds target, for a re-fit after being hidden
   const fitHiddenRef = useRef(false);    // true when that fit ran while the flat map was hidden
 
@@ -963,7 +975,7 @@ export default function RouteMap() {
   return (
     <div>
       {/* Map card */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+      <div className={showLabels ? 'card' : 'card map-labels-off'} style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
         {/* Header */}
         <div style={{
           padding: '12px 20px', borderBottom: '1px solid var(--border)',
@@ -1089,6 +1101,22 @@ export default function RouteMap() {
                 <Glyph e="✈" /> Planes
               </button>
             )}
+
+            {/* Airport code labels — both views */}
+            <button
+              onClick={() => setShowLabels(v => !v)}
+              aria-pressed={showLabels}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                opacity: showLabels ? 1 : 0.4, transition: 'opacity 0.15s',
+                color: 'var(--text-muted)', fontSize: 11,
+              }}
+              title={showLabels ? 'Hide the airport codes (hover an airport to see it)' : 'Show the airport codes'}
+            >
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 9, color: '#6fb0f0', letterSpacing: '.05em' }}>ABC</span>
+              Labels
+            </button>
 
             {/* Divider */}
             <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
