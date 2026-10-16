@@ -809,8 +809,12 @@ export function routeQualityBreakdown(route, aircraft, state) {
   const config = aircraft.config ?? defaultConfig(type.seats);
   const r      = hydrateRoute(route, state.routePricing ?? {}, state.routeCatering ?? {});
 
-  const avgUtilization = fleetAvgUtilization(state.fleet ?? [],
-    [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
+  // A whole-network figure, the same for every route on the snapshot — memoised
+  // on the fleet / routes / cargo arrays (fleetAvgUtilizationOf) so a caller
+  // that asks about every route (pairQualities, the Routes page's fare-cliff
+  // banner) pays one fleet scan, not one per route. That was O(routes²): 440 ms
+  // of the Routes page's render at 450 routes (Discord, Barca, 2026-10-16).
+  const avgUtilization = fleetAvgUtilizationOf(state.fleet, state.routes, state.cargoRoutes);
   const satisfaction = state.satisfaction ?? null;
   const { onTimeRate, customerRating, groundQualityBonus } =
     laborEffects(state.labor ?? null, avgUtilization, satisfaction);
@@ -1010,6 +1014,23 @@ export function routeBlockHours(route, type, weeklyFrequency) {
  * an operational buffer that protects on-time performance (see
  * utilizationOnTimePenalty in data/labor.js).
  */
+// fleetAvgUtilization(fleet, [...routes, ...cargoRoutes]), remembered per
+// (fleet, routes, cargoRoutes) array identity. Game state is never mutated in
+// place — the reducer returns new arrays and a poll adopts a new blob — so the
+// same three arrays always mean the same answer.
+const AVG_UTIL_MEMO = new WeakMap();
+const EMPTY_OPS = [];
+export function fleetAvgUtilizationOf(fleet, routes, cargoRoutes) {
+  const f = fleet ?? EMPTY_OPS, r = routes ?? EMPTY_OPS, c = cargoRoutes ?? EMPTY_OPS;
+  let byRoutes = AVG_UTIL_MEMO.get(f);
+  if (!byRoutes) { byRoutes = new WeakMap(); AVG_UTIL_MEMO.set(f, byRoutes); }
+  let byCargo = byRoutes.get(r);
+  if (!byCargo) { byCargo = new WeakMap(); byRoutes.set(r, byCargo); }
+  let v = byCargo.get(c);
+  if (v === undefined) { v = fleetAvgUtilization(f, [...r, ...c]); byCargo.set(c, v); }
+  return v;
+}
+
 export function fleetAvgUtilization(fleet = [], routes = []) {
   const byAircraft = new Map();
   for (const r of routes) {

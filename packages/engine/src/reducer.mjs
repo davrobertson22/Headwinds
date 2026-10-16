@@ -490,10 +490,20 @@ export function slotIncidentsAt(route, code) {
 
 // Peak weekly slot usage at `code` across `months`, with `freqOf` supplying the
 // frequency to charge each route (so a proposed change can be priced in place).
+//
+// Which routes touch `code` (and how often) does not depend on the month, so it
+// is worked out once, not twelve times: this sits under every frequency guard
+// call, and the bulk-frequency plan makes thousands of them (Routes ▸ Bulk
+// Frequency, Discord 2026-10-16). Same routes, same order, same sums.
 export function peakSlotsUsedAt(routes, code, months, freqOf = (r) => r.weeklyFrequency ?? 0) {
-  return Math.max(0, ...months.map(m => (routes ?? [])
-    .filter(r => isRouteActive(r, m))
-    .reduce((s, r) => s + slotIncidentsAt(r, code) * (freqOf(r) ?? 0), 0)));
+  const here = [];
+  for (const r of routes ?? []) {
+    const n = slotIncidentsAt(r, code);
+    if (n !== 0) here.push([r, n]);
+  }
+  return Math.max(0, ...months.map(m => here
+    .filter(([r]) => isRouteActive(r, m))
+    .reduce((s, [r, n]) => s + n * (freqOf(r) ?? 0), 0)));
 }
 
 const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -505,6 +515,48 @@ const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 // guard was happily opening at the same airport.
 export function slotsUsedAt(ops, code, freqOf = (r) => r.weeklyFrequency ?? 0) {
   return peakSlotsUsedAt(ops, code, ALL_MONTHS, freqOf);
+}
+
+// slotsUsedAt for EVERY airport at once: Map(code → the same number
+// slotsUsedAt(ops, code) returns). A screen listing many airports (the Gates
+// tab, the alliance slot pool) used to call slotsUsedAt per airport — each a
+// 12-month walk of every route — and the gate list did it inside its sort
+// comparator, ~2 s of render at 450 routes / 200 gate airports (Discord, Barca,
+// 2026-10-16). This is one walk. Remembered per ops array, which callers
+// should pass as a stable array (slotUsageFor below) to get the cache.
+const SLOT_USAGE_MEMO = new WeakMap();
+export function slotUsageByAirport(ops) {
+  const list = ops ?? [];
+  const hit = SLOT_USAGE_MEMO.get(list);
+  if (hit) return hit;
+  const peak = new Map();
+  for (const m of ALL_MONTHS) {
+    const month = new Map();
+    for (const r of list) {
+      if (!isRouteActive(r, m)) continue;
+      const f = r.weeklyFrequency ?? 0;
+      for (const l of routeLegs(r)) {
+        month.set(l.from, (month.get(l.from) ?? 0) + f);
+        month.set(l.to,   (month.get(l.to)   ?? 0) + f);
+      }
+    }
+    for (const [code, n] of month) if (n > (peak.get(code) ?? 0)) peak.set(code, n);
+  }
+  SLOT_USAGE_MEMO.set(list, peak);
+  return peak;
+}
+
+// The usage map for a state's passenger + freight operations together — what
+// the slot guards count — built once per (routes, cargoRoutes) pair.
+const SLOT_OPS_MEMO = new WeakMap();
+const NO_OPS = [];
+export function slotUsageFor(state) {
+  const routes = state?.routes ?? NO_OPS, cargo = state?.cargoRoutes ?? NO_OPS;
+  let byCargo = SLOT_OPS_MEMO.get(routes);
+  if (!byCargo) { byCargo = new WeakMap(); SLOT_OPS_MEMO.set(routes, byCargo); }
+  let ops = byCargo.get(cargo);
+  if (!ops) { ops = [...routes, ...cargo]; byCargo.set(cargo, ops); }
+  return slotUsageByAirport(ops);
 }
 
 // Two different questions about a city pair, deliberately NOT merged.
@@ -524,9 +576,10 @@ export function slotsUsedAt(ops, code, freqOf = (r) => r.weeklyFrequency ?? 0) {
 /** Weekly departures operated on the LEG `pairKey`, whatever route shape flies
  *  it. Peak across `months`; `freqOf` prices a proposed change in place. */
 export function peakLegFreqOn(routes, pairKey, months, freqOf = (r) => r.weeklyFrequency ?? 0) {
-  return Math.max(0, ...months.map(m => (routes ?? [])
-    .filter(r => isRouteActive(r, m)
-      && routeLegs(r).some(l => routePairKey(l.from, l.to) === pairKey))
+  // The leg test is month-independent: run it once per route, not per month.
+  const onLeg = (routes ?? []).filter(r => routeLegs(r).some(l => routePairKey(l.from, l.to) === pairKey));
+  return Math.max(0, ...months.map(m => onLeg
+    .filter(r => isRouteActive(r, m))
     .reduce((s, r) => s + (freqOf(r) ?? 0), 0)));
 }
 
@@ -537,8 +590,9 @@ export function peakLegFreqOn(routes, pairKey, months, freqOf = (r) => r.weeklyF
  *  a nonstop and a one-stop selling it share one slot and one daily frequency;
  *  giving each its own allowance let them stack to twice the cap. */
 export function peakMarketFreqOn(routes, pairKey, months, freqOf = (r) => r.weeklyFrequency ?? 0) {
-  return Math.max(0, ...months.map(m => (routes ?? [])
-    .filter(r => isRouteActive(r, m) && routePairKey(r.origin, r.destination) === pairKey)
+  const onMarket = (routes ?? []).filter(r => routePairKey(r.origin, r.destination) === pairKey);
+  return Math.max(0, ...months.map(m => onMarket
+    .filter(r => isRouteActive(r, m))
     .reduce((s, r) => s + (freqOf(r) ?? 0), 0)));
 }
 
@@ -637,6 +691,116 @@ export function frequencyChangeBlockReason(state, routeId, newFreq) {
   }
 
   return null;
+}
+
+// ─────────────────────────────────────────────
+// BULK FREQUENCY (Routes: change flights/wk on many routes at once)
+// ─────────────────────────────────────────────
+// Discord, Barca 2026-10-16: "Bulk pricing but instead it adjusts route
+// frequency." The plan is computed here, once, and used by BOTH the Routes
+// preview and the BULK_ADJUST_FREQUENCY reducer case, so the line that says
+// "+14 flights, 3 capped by block hours" is exactly what Apply does.
+//
+// Every step goes through frequencyChangeBlockReason — the guard behind the
+// per-route stepper and UPDATE_FREQUENCY — against the network as it stands
+// AFTER the routes before it were changed, so two routes sharing a tail or an
+// airport cannot each claim the same spare hours or slots.
+//
+//   mode 'delta'  each route ±value flights/wk (an increase that doesn't fit
+//                 whole takes the largest step that does)
+//   mode 'set'    each route to exactly `value` (same clamping)
+//   mode 'max'    add flights until the next one is refused, one flight at a
+//                 time round-robin, so a tail flying two of the routes shares
+//                 its spare hours between them instead of the first taking all
+//
+// Reductions are never refused (the stepper's rule); nothing goes below 1/wk —
+// closing a route is Close, not a frequency.
+export const BULK_FREQUENCY_MODES = ['delta', 'set', 'max'];
+export const MAX_ROUTE_FREQUENCY = 99;   // the per-route stepper's ceiling
+
+function withRouteFrequency(state, routeId, weeklyFrequency) {
+  return { ...state, routes: state.routes.map(r => (r.id === routeId ? { ...r, weeklyFrequency } : r)) };
+}
+
+/** The highest frequency in [from, want] the guard accepts (guard is monotone in frequency). */
+function highestAllowedFrequency(state, routeId, from, want) {
+  if (!frequencyChangeBlockReason(state, routeId, want)) return want;
+  let lo = from, hi = want - 1;          // lo is always allowed (no change)
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (frequencyChangeBlockReason(state, routeId, mid)) hi = mid - 1; else lo = mid;
+  }
+  return lo;
+}
+
+/**
+ * @returns {{ state, plan: Array<{routeId, origin, destination, from, to, wanted, reason}>,
+ *             changed: number, added: number, removed: number, capped: number }}
+ *   `state` is the network with the plan applied; `reason` is why a route got
+ *   less than it asked for (null when it got all of it).
+ */
+export function planBulkFrequency(state, routeIds, { mode = 'delta', value = 0 } = {}) {
+  const m = BULK_FREQUENCY_MODES.includes(mode) ? mode : 'delta';
+  const v = Math.round(Number(value) || 0);
+  const ids = [...new Set((routeIds ?? []).map(String))]
+    .filter(id => (state.routes ?? []).some(r => r.id === id));
+  let s = state;
+  const plan = new Map();
+  for (const id of ids) {
+    const r = s.routes.find(x => x.id === id);
+    const from = r.weeklyFrequency ?? 1;
+    const wanted = m === 'max' ? MAX_ROUTE_FREQUENCY
+      : Math.max(1, Math.min(MAX_ROUTE_FREQUENCY, m === 'set' ? v : from + v));
+    plan.set(id, { routeId: id, origin: r.origin, destination: r.destination, from, to: from, wanted, reason: null });
+  }
+
+  if (m === 'max') {
+    // Round-robin: one flight per route per pass until nobody can take another.
+    let progress = true;
+    while (progress) {
+      progress = false;
+      for (const id of ids) {
+        const e = plan.get(id);
+        if (e.done || e.to >= MAX_ROUTE_FREQUENCY) { e.done = true; continue; }
+        const why = frequencyChangeBlockReason(s, id, e.to + 1);
+        if (why) { e.done = true; e.reason = why; continue; }
+        e.to += 1;
+        s = withRouteFrequency(s, id, e.to);
+        progress = true;
+      }
+    }
+    // 'max' asks for "all that fits", so every route got what it asked for:
+    // what stopped it is reported as `stoppedBy`, not as a shortfall.
+    for (const e of plan.values()) {
+      delete e.done;
+      e.wanted = e.to;
+      e.stoppedBy = e.to >= MAX_ROUTE_FREQUENCY ? null : e.reason;
+      e.reason = null;
+    }
+  } else {
+    for (const id of ids) {
+      const e = plan.get(id);
+      let to = e.wanted;
+      if (to > e.from) {
+        to = highestAllowedFrequency(s, id, e.from, e.wanted);
+        if (to < e.wanted) e.reason = frequencyChangeBlockReason(s, id, to + 1);
+      }
+      if (to !== e.from) s = withRouteFrequency(s, id, to);
+      e.to = to;
+    }
+  }
+
+  const list = [...plan.values()];
+  let added = 0, removed = 0;
+  for (const e of list) { if (e.to > e.from) added += e.to - e.from; else removed += e.from - e.to; }
+  return {
+    state: s,
+    plan: list,
+    changed: list.filter(e => e.to !== e.from).length,
+    added,
+    removed,
+    capped: list.filter(e => e.reason).length,
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -3979,6 +4143,17 @@ function reducer(state, action) {
           r.id === action.routeId ? { ...r, weeklyFrequency: newFreq } : r
         ),
       };
+    }
+
+    // Change flights/wk on many routes in one write (Routes ▸ bulk frequency).
+    // action: { routeIds: [...], mode: 'delta' | 'set' | 'max', value }
+    // planBulkFrequency is the whole rule — the preview uses the same call, and
+    // every step is checked by the stepper's own guard. One action rather than an
+    // UPDATE_FREQUENCY per route: in multiplayer each dispatch is a separate,
+    // version-checked server write, and a loop of them races itself into 409s.
+    case 'BULK_ADJUST_FREQUENCY': {
+      const { state: next, changed } = planBulkFrequency(state, action.routeIds, { mode: action.mode, value: action.value });
+      return changed > 0 ? next : state;
     }
 
     // Set the catering service level on one route, or several at once

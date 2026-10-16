@@ -1,12 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { effectiveRangeKm, formatMoney, calendarYear, currentGameDate, maxWeeklyBlockHoursFor } from '../utils/simulation.js';
 import { buildRouteMarket } from '../models/demand.js';
 import {
-  findCandidates, scoreCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
-  rivalTopologyKey,
+  findCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
+  rivalTopologyKey, finderForecastContext, forecastCandidate, candidateFrequency, rowsToScore,
 } from '../models/routeFinder.js';
 import { REGION_LABELS, REGION_ORDER, regionLabel } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
@@ -18,6 +18,23 @@ import { useRememberedState, finderMemoryKey } from '../utils/finderMemory.js';
 import { idleTailsOfType, pickKey, MAX_BATCH } from '../../packages/engine/src/models/routeBatch.js';
 
 const PAGE_SIZE = 25;
+
+// Forecasting is priced a few rows at a time, this many milliseconds of work per
+// render, with the browser handed back control in between. Each forecast is a
+// network-tick projection — ~50 ms a market in Node on a 450-route airline, a
+// few times that in a browser — and the finder used to price its whole page
+// (150 rows on a profit sort) in one synchronous pass: seconds of frozen page on
+// every search change (Discord, 2026-10-16). A small airline still finishes
+// inside the first slice, so for most players nothing visibly changes.
+const FORECAST_SLICE_MS = 24;
+
+// performance.now where there is one (browsers, Node), Date.now otherwise.
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+/** Same inputs, same order, by identity — the forecast cache's validity test. */
+function sameDeps(a, b) {
+  return !!a && !!b && a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+}
 
 /**
  * Route Finder — scans every airport reachable from a chosen origin and ranks
@@ -145,36 +162,89 @@ export default function RouteFinder({ onPick, standalone = false }) {
       origin, open, typeId, owned?.best, minDist, maxDist, region, showUnflyable, showServed,
       soloOnly, splitMetros]);
 
-  // ── Forecasts, bounded ─────────────────────────────────────────────────────
+  // ── Forecasts, bounded and progressive ─────────────────────────────────────
   // The engine's real launch projection, so "Plan →" cannot contradict the row it
-  // was clicked on. It costs about a millisecond a market on a busy save, which
-  // is why it is bounded two different ways:
+  // was clicked on. Bounded two ways, as before:
   //
   //   ranking by a forecast   the field has to be priced before it can be ranked,
   //                           so the biggest DEFAULT_SCORE_LIMIT markets get one
   //                           and the footer says out loud which rows did not —
   //                           a silent cap reads as "nothing below is worth flying".
-  //   ranking by anything else  only the page you are looking at is priced, so
-  //                           typing in the distance boxes costs 25 forecasts
-  //                           rather than 150.
+  //   ranking by anything else  only the page you are looking at is priced.
+  //
+  // And now priced progressively (FORECAST_SLICE_MS a render) into a cache that
+  // belongs to the NETWORK, not the search: it is dropped when your routes,
+  // fleet, gates, hubs, the rivals' map, the aircraft or the month change, and
+  // kept through everything else — so typing in the distance boxes, flipping a
+  // filter or paging re-prices only rows it hasn't seen.
   const forecastReady  = !!typeId;
   const forecastSort   = !!SORTS[sortBy]?.needsForecast;
-  const results = useMemo(() => {
-    if (!forecastReady || rows.length === 0) return sortCandidates(rows, sortBy);
-    // The block-hour ceiling the planner and ADD_ROUTE use, so a long sector is
-    // forecast at the frequency it could actually open at, not the catalogue cap.
-    const opts = { aircraftTypeId: typeId, aircraft: owned?.best ?? null, weeklyFrequency: 7, gameDate,
-                   capHours: maxWeeklyBlockHoursFor(state) };
-    if (forecastSort) {
-      return sortCandidates(scoreCandidates(state, rows, { ...opts, limit: DEFAULT_SCORE_LIMIT }), sortBy);
-    }
-    return scoreCandidates(state, sortCandidates(rows, sortBy), { ...opts, limit, order: 'asGiven' });
+  // The block-hour ceiling the planner and ADD_ROUTE use, so a long sector is
+  // forecast at the frequency it could actually open at, not the catalogue cap.
+  const capNow = maxWeeklyBlockHoursFor(state);
+  const forecastCtx = useMemo(
+    () => (forecastReady
+      ? finderForecastContext({ aircraftTypeId: typeId, aircraft: owned?.best ?? null, weeklyFrequency: 7, gameDate,
+                                capHours: maxWeeklyBlockHoursFor(state) })
+      : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, sortBy, forecastSort, forecastReady, typeId, owned?.best, limit,
-      gameDate.month, state.fleet, state.cash]);
+    [forecastReady, typeId, owned?.best, gameDate.month, capNow]);
+
+  const cacheRef = useRef({ deps: null, map: new Map(), gen: 0 });
+  const cacheDeps = [state.routes, rivalKey, state.fleet, state.gates, state.hubs, state.allianceSlotPool, forecastCtx];
+  if (!sameDeps(cacheRef.current.deps, cacheDeps)) {
+    cacheRef.current = { deps: cacheDeps, map: new Map(), gen: cacheRef.current.gen + 1 };
+  }
+  const cache = cacheRef.current.map;
+  const keyOf = (r) => (forecastCtx ? `${r.origin}|${r.code}|${candidateFrequency(r, forecastCtx)}|${r.refPrice}` : '');
+
+  // Which rows this view needs priced, in the order to price them.
+  const sortedRows = useMemo(() => sortCandidates(rows, sortBy), [rows, sortBy]);
+  const targets = useMemo(() => {
+    if (!forecastCtx || rows.length === 0) return [];
+    const list = forecastSort
+      ? rowsToScore(rows, { limit: DEFAULT_SCORE_LIMIT, order: 'demand' }).map(i => rows[i])
+      : sortedRows.slice(0, limit);
+    return list.filter(r => !r.block);
+  }, [forecastCtx, rows, sortedRows, forecastSort, limit]);
+
+  // Price what's missing, up to the slice budget.
+  {
+    const t0 = now();
+    for (const r of targets) {
+      const k = keyOf(r);
+      if (cache.has(k)) continue;
+      if (now() - t0 > FORECAST_SLICE_MS) break;
+      cache.set(k, forecastCandidate(state, r, forecastCtx));
+    }
+  }
+  const pending = targets.reduce((n, r) => n + (cache.has(keyOf(r)) ? 0 : 1), 0);
+
+  // More to do: hand the browser back a frame, then render again to price the
+  // next slice. A change of search simply re-targets; nothing priced is lost.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (pending === 0) return undefined;
+    const t = setTimeout(() => setTick(v => v + 1), 0);
+    return () => clearTimeout(t);
+  });
+
+  const withForecast = (r) => {
+    if (!forecastCtx || r.block) return r;
+    const k = keyOf(r);
+    if (!cache.has(k)) return r;
+    const projection = cache.get(k);
+    return projection ? { ...r, scored: true, projection } : r;
+  };
+  // Under a forecast sort the order is only meaningful once the field is
+  // priced; until then the list holds its demand order and says it's working.
+  const ranking = forecastSort && pending > 0;
+  const results = forecastSort
+    ? (ranking ? sortCandidates(rows, 'demand').map(withForecast) : sortCandidates(rows.map(withForecast), sortBy))
+    : sortedRows.map(withForecast);
 
   const shown    = results.slice(0, limit);
-  const unscored = forecastSort ? results.filter(r => !r.scored && !r.block).length : 0;
+  const unscored = forecastSort && !ranking ? results.filter(r => !r.scored && !r.block).length : 0;
 
   // ── Shortlist ──────────────────────────────────────────────────────────────
   // Only offered for a type you own with an idle tail to spare: a pick is a
@@ -191,7 +261,10 @@ export default function RouteFinder({ onPick, standalone = false }) {
       : [...prev, { origin, destination: r.code, typeId }]);
   }
 
-  // Seasonality only for visible rows (cheap: <= limit calls)
+  // Seasonality only for visible rows (cheap: <= limit calls). Keyed on the codes
+  // shown — `shown` is a new array on every render, and the progressive
+  // forecast renders several times in a row.
+  const shownCodes = shown.map(r => r.code).join(',');
   const seasonalByCode = useMemo(() => {
     const m = new Map();
     for (const r of shown) {
@@ -199,7 +272,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, origin, gameDate.month]);
+  }, [shownCodes, origin, gameDate.month]);
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -370,6 +443,12 @@ export default function RouteFinder({ onPick, standalone = false }) {
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
                 {results.length.toLocaleString()} market{results.length !== 1 ? 's' : ''} from {originAirport.code}{region ? ` in ${REGION_LABELS[region]}` : ''} · showing {shown.length}
                 {forecastReady && <> · forecast on {selectedType.name} at 7 flights/wk, reference fares</>}
+                {pending > 0 && (
+                  <span data-forecast-progress="" style={{ color: 'var(--accent)' }}>
+                    {' '}· forecasting {targets.length - pending} of {targets.length}…
+                    {ranking && ` ranked by ${SORTS[sortBy].label.toLowerCase()} once all are in`}
+                  </span>
+                )}
                 {canPick && (
                   <> · <span style={{ color: 'var(--yellow)' }}>{owned.idle} idle {selectedType.name}{owned.idle !== 1 ? 's' : ''}</span> — tick rows to open several at once</>
                 )}
@@ -473,7 +552,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               ? <span style={{ color: proj.loadFactor >= 0.75 ? 'var(--green)' : proj.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' }}>
                                   {Math.round(proj.loadFactor * 100)}%
                                 </span>
-                              : <span style={{ color: 'var(--text-dim)' }} title={r.block ? 'This aircraft cannot fly here' : forecastReady ? `Outside the ${DEFAULT_SCORE_LIMIT} markets forecast — narrow the search to price it` : 'Pick an aircraft to forecast this market'}>–</span>}
+                              : <span style={{ color: 'var(--text-dim)' }} title={r.block ? 'This aircraft cannot fly here' : forecastReady && !cache.has(keyOf(r)) && pending > 0 ? 'Forecasting…' : forecastReady ? `Outside the ${DEFAULT_SCORE_LIMIT} markets forecast — narrow the search to price it` : 'Pick an aircraft to forecast this market'}>{forecastReady && !r.block && !cache.has(keyOf(r)) && pending > 0 ? '…' : '–'}</span>}
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
                             {proj

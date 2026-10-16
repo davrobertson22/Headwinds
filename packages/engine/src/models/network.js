@@ -1339,7 +1339,7 @@ export function rivalOneStopOffersFor(rivalIndex, market) {
 // ─── Own-metal itinerary revenue ─────────────────────────────────────────────
 
 /** Max own-metal O&D markets scored per hub per tick (perf guard; sorted by demand). */
-const MAX_OWN_METAL_ODS_PER_HUB = 150;
+export const MAX_OWN_METAL_ODS_PER_HUB = 150;
 
 /**
  * How many own-metal itineraries the weekly report keeps for the UI, per hub and
@@ -1427,7 +1427,19 @@ export function trimOwnMetalEntries(entries = [], perHub = OWN_METAL_ENTRIES_PER
  * count one-way-consistent with the direct model. It feeds computeOwnMetalODRevenue
  * only; partner/interline feed is unchanged and still flows through buildAllConnections.
  */
-export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}, legacy = false) {
+//
+// `opts.hubs` / `opts.perHubLimit` (runNetworkTick passes both) skip work whose
+// result computeOwnMetalODRevenue throws away: it keeps only designated hubs and
+// only the top MAX_OWN_METAL_ODS_PER_HUB markets per hub by gravity demand. A
+// 90-spoke hub enumerates ~4,000 spoke pairs to keep 150, and the Route
+// Finder's forecasts run one network tick per row (Discord, 2026-10-16) — so the
+// ranking is done here on the cheap demand figure first, and only the survivors
+// are priced. The survivors, their fields and their order are exactly what the
+// unfiltered call followed by computeOwnMetalODRevenue's own cut would keep
+// (network-own-metal-prefilter-test.mjs holds the two equal).
+export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}, legacy = false, opts = {}) {
+  const onlyHubs    = opts.hubs ?? null;
+  const perHubLimit = opts.perHubLimit ?? Infinity;
   const legs = expandRoutesToLegs(playerRoutes);
   const directRouteKeys = buildDirectRouteIndex(legs, seatsByRouteKey);
 
@@ -1452,10 +1464,14 @@ export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}
 
   const connections = [];
   for (const [hub, spokeMap] of atAirport) {
+    if (onlyHubs && onlyHubs[hub]?.tier == null) continue;
     const spokes = [...spokeMap.entries()].map(([spoke, e]) => ({
       spoke, freq: e.freq, price: e.priceFreqSum / Math.max(e.freq, 1), tagParents: e.tagParents,
     }));
     if (spokes.length < 2) continue;
+
+    // Pass 1 — the cheap filters and the gravity demand, in enumeration order.
+    const cands = [];
     for (let i = 0; i < spokes.length; i++) {
       for (let j = i + 1; j < spokes.length; j++) {
         const a = spokes[i], b = spokes[j];
@@ -1467,38 +1483,47 @@ export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}
 
         // Canonical (sorted) O&D so each market is emitted exactly once.
         const [origin, dest] = a.spoke < b.spoke ? [a.spoke, b.spoke] : [b.spoke, a.spoke];
-        const legO = origin === a.spoke ? a : b;
-        const legD = dest   === a.spoke ? a : b;
-
         const odDemand = baseCityPairDemand(origin, dest);
         if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
-
-        const directKey    = [origin, dest].sort().join('-');
-        const directExists = directRouteKeys.has(directKey);
-        const totalPrice   = legO.price + legD.price;
-        const refP         = referencePrice(origin, dest) || totalPrice;
-        const minFreq      = Math.min(legO.freq, legD.freq);
-
-        const penalty     = CONNECTION_PENALTY.ownMetal;
-        const connectUtil = -penalty
-                            - PRICE_WEIGHT * (totalPrice / Math.max(refP, 1))
-                            + FREQ_WEIGHT  * Math.log1p(minFreq);
-        let connectionShare = 1.0;
-        if (directExists) {
-          ({ connectionShare } = connectionShareVsDirect(
-            connectUtil, directRouteKeys.get(directKey), refP, odDemand, legacy));
-        }
-
-        connections.push({
-          hub,
-          legOneOrigin: origin, legOneDest: hub, legTwoDest: dest,
-          leg1Owner: 'player', leg2Owner: 'player', partnershipType: 'ownMetal',
-          leg1Freq: legO.freq, leg2Freq: legD.freq,
-          leg1Price: legO.price, leg2Price: legD.price,
-          totalPrice, odDemand, directExists,
-          connectionShare, directShare: 1 - connectionShare,
-        });
+        cands.push({ a, b, origin, dest, odDemand, n: cands.length });
       }
+    }
+    // The per-hub cut computeOwnMetalODRevenue makes: highest demand first,
+    // ties in enumeration order (a stable sort), then back to that order.
+    const kept = cands.length > perHubLimit
+      ? [...cands].sort((x, y) => y.odDemand - x.odDemand).slice(0, perHubLimit).sort((x, y) => x.n - y.n)
+      : cands;
+
+    // Pass 2 — price the survivors.
+    for (const { a, b, origin, dest, odDemand } of kept) {
+      const legO = origin === a.spoke ? a : b;
+      const legD = dest   === a.spoke ? a : b;
+
+      const directKey    = [origin, dest].sort().join('-');
+      const directExists = directRouteKeys.has(directKey);
+      const totalPrice   = legO.price + legD.price;
+      const refP         = referencePrice(origin, dest) || totalPrice;
+      const minFreq      = Math.min(legO.freq, legD.freq);
+
+      const penalty     = CONNECTION_PENALTY.ownMetal;
+      const connectUtil = -penalty
+                          - PRICE_WEIGHT * (totalPrice / Math.max(refP, 1))
+                          + FREQ_WEIGHT  * Math.log1p(minFreq);
+      let connectionShare = 1.0;
+      if (directExists) {
+        ({ connectionShare } = connectionShareVsDirect(
+          connectUtil, directRouteKeys.get(directKey), refP, odDemand, legacy));
+      }
+
+      connections.push({
+        hub,
+        legOneOrigin: origin, legOneDest: hub, legTwoDest: dest,
+        leg1Owner: 'player', leg2Owner: 'player', partnershipType: 'ownMetal',
+        leg1Freq: legO.freq, leg2Freq: legD.freq,
+        leg1Price: legO.price, leg2Price: legD.price,
+        totalPrice, odDemand, directExists,
+        connectionShare, directShare: 1 - connectionShare,
+      });
     }
   }
   return connections;
@@ -1746,7 +1771,8 @@ export function runNetworkTick(state) {
   // Own-metal itinerary revenue: real A→hub→C markets over designated hubs.
   // Enumerated bidirectionally (routes are round trips) so hub connectivity does
   // NOT depend on the stored origin/destination orientation of each spoke route.
-  const ownMetalConnections = buildOwnMetalConnections(routes, seatsByRouteKey, legacyWorld);
+  const ownMetalConnections = buildOwnMetalConnections(routes, seatsByRouteKey, legacyWorld,
+    { hubs, perHubLimit: MAX_OWN_METAL_ODS_PER_HUB });
   const ownMetalOD = computeOwnMetalODRevenue(ownMetalConnections, {
     hubs,
     gameDate,

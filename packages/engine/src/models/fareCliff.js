@@ -285,6 +285,10 @@ function cabinCosting(cls, results) {
  * @returns {Array<{key, origin, destination, cabins, routeIds, costing}>}
  */
 export function networkFareCliff(state, opts = {}) {
+  // Classic worlds have no cliff: faresOverCliff answers [] for every pair, so
+  // don't price every route's quality first to learn that. The Routes page
+  // calls this on every network change.
+  if (!(opts.force ?? getNwrYieldChoke())) return [];
   const seated = seatedClassesByPair(state);
   const routeIdsByKey = new Map();
   for (const r of state?.routes ?? []) {

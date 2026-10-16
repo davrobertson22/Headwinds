@@ -16,7 +16,7 @@ import SoloApp from '../../../src/App.jsx';
 import { RemoteGameProvider, gameReducer } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
 import { api, isTransientError, readableError } from './api.js';
-import { shouldFastPoll, isStaleContact } from './connection.js';
+import { shouldFastPoll, isStaleContact, sameMeta } from './connection.js';
 import { authedApi, SessionExpiredError } from './authedApi.js';
 import { isHidden } from './usePoll.js';
 import {
@@ -140,8 +140,14 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       const d = await authedApi(`/worlds/${worldId}/airline${q}`, { token });
       lastOkRef.current = Date.now();
       setConnLost(false);
-      setMeta({ status: d.status, worldStatus: d.worldStatus, worldClock: d.worldClock, airlineId: d.airlineId,
-                restartsLeft: d.restartsLeft });
+      // Keep the SAME meta object when the poll says nothing new. A fresh object
+      // every poll rebuilt remoteChrome, which re-rendered every screen in the
+      // game on a timer — on a big airline that is the Routes table, the Route
+      // Finder and the projection behind them, every 4–25 s (Discord, Barca,
+      // 2026-10-16). sameMeta compares the few fields by value.
+      const nextMeta = { status: d.status, worldStatus: d.worldStatus, worldClock: d.worldClock, airlineId: d.airlineId,
+                         restartsLeft: d.restartsLeft };
+      setMeta((cur) => (sameMeta(cur, nextMeta) ? cur : nextMeta));
       if (d.stamp) stampRef.current = d.stamp;
       setError(null); // a good poll clears any stale transient error
       if (d.unchanged) return; // nothing moved server-side — keep what we have

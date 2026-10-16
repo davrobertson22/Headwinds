@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { useGame, gateLeaseDenial, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
+import { useGame, gateLeaseDenial, slotUsageFor } from '../store/GameContext.jsx';
 import AirportDetail from './AirportDetail.jsx';
 import {
   AIRPORTS, getAirport, gateMonthlyFee, totalGateMonthlyFee, REGIONS, getRegion, getCountryName,
   gateCapacityOf, gateAirlineCapOf, GATE_HUB_GUARANTEE, GATE_SURCHARGE_MULT, GATE_BID_MAX_QTY,
   GATE_IDLE_FORFEIT_WEEKS, GATE_IDLE_WARN_WEEKS,
 } from '../data/airports.js';
-import { SLOTS_PER_GATE, cargoSlotsUsedAt } from '../utils/simulation.js';
+import { SLOTS_PER_GATE } from '../utils/simulation.js';
 import { GateDenialNote, DisabledHint, lockoutWeeksLeft, idleWeeksAt, idleWarningFor } from './GateDenial.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
@@ -127,6 +127,10 @@ function AvailabilityChips({ state, code }) {
 }
 
 
+// Airports shown per country when browsing a region, before "show all".
+const BROWSE_PER_COUNTRY = 5;
+const EMPTY_SET = new Set();
+
 // ─── Your Gates table (default view) ─────────────────────────────────────────
 //
 // Dense, sortable table so a large network (30+ airports of gates) fits on one
@@ -159,10 +163,27 @@ function utilColor(usagePct) {
        : 'var(--green)';
 }
 
+// Rows drawn per page — the Routes table's paging (Discord, Barca 2026-10-16:
+// "similarly for gates tab"). Sorting acts on every row; paging only changes
+// how many are drawn.
+export const GATE_PAGE_SIZE = 25;
+
+function ShowMore({ shown, total, page, onMore, label = 'more' }) {
+  if (total <= shown) return null;
+  return (
+    <div style={{ padding: '10px 14px', textAlign: 'center' }}>
+      <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onMore}>
+        Show {Math.min(page, total - shown)} {label} ({shown} of {total})
+      </button>
+    </div>
+  );
+}
+
 function GateTable({ rows, onAdd, onRemove, onDetails }) {
   const { state } = useGame();
   const [sortCol, setSortCol] = useState(null);   // null = default order (region → hub → congestion)
   const [sortDir, setSortDir] = useState('desc');
+  const [shown, setShown]     = useState(GATE_PAGE_SIZE);
   const columns = fuelStationsOn(state) ? GATE_COLUMNS : GATE_COLUMNS.filter(c => !c.fuel);
 
   const sorted = (() => {
@@ -203,7 +224,7 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map(r => {
+            {sorted.slice(0, shown).map(r => {
               const barColor = utilColor(r.usagePct);
               return (
                 <tr key={r.code}>
@@ -288,6 +309,7 @@ function GateTable({ rows, onAdd, onRemove, onDetails }) {
           </tbody>
         </table>
       </div>
+      <ShowMore shown={shown} total={sorted.length} page={GATE_PAGE_SIZE} onMore={() => setShown(n => n + GATE_PAGE_SIZE)} />
     </div>
   );
 }
@@ -319,6 +341,7 @@ function SlotPoolSection({ state, remoteApi }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [reserveDrafts, setReserveDrafts] = useState({}); // code → string
+  const [shown, setShown] = useState(GATE_PAGE_SIZE);
 
   if (!state.gateScarcityWorld || !remoteApi?.setGateSlotShare) return null;
   if (!state.allianceMembership) return null; // pool is an alliance benefit
@@ -332,12 +355,11 @@ function SlotPoolSection({ state, remoteApi }) {
 
   // Slots my own schedule uses at an airport (pax + cargo) — same arithmetic
   // the engine's slot checks use, so "spare" here matches what can be shared.
-  // That means slotsUsedAtEngine: a rotation stopping here occupies two
+  // That means the engine's slot count: a rotation stopping here occupies two
   // movements a cycle, and offering them to the pool would be offering slots
   // this airline is itself using.
-  const usedAt = (code) =>
-    slotsUsedAtEngine(state.routes ?? [], code)
-    + slotsUsedAtEngine(state.cargoRoutes ?? [], code);
+  const slotUsage = slotUsageFor(state);
+  const usedAt = (code) => slotUsage.get(code) ?? 0;
 
   const run = (fn) => {
     setBusy(true); setErr(null);
@@ -386,7 +408,7 @@ function SlotPoolSection({ state, remoteApi }) {
         </div>
         {err && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{err}</div>}
 
-        {rows.map(({ code, count, capacity, used, spare, p }) => {
+        {rows.slice(0, shown).map(({ code, count, capacity, used, spare, p }) => {
           const sharing = p?.sharing === true;
           const reserved = p?.reserved ?? 0;
           const draft = reserveDrafts[code] ?? String(reserved);
@@ -430,6 +452,8 @@ function SlotPoolSection({ state, remoteApi }) {
             </div>
           );
         })}
+        <ShowMore shown={Math.min(shown, rows.length)} total={rows.length} page={GATE_PAGE_SIZE} label="more airports"
+          onMore={() => setShown(n => n + GATE_PAGE_SIZE)} />
 
         {borrowedRows.length > 0 && (
           <div style={{ marginTop: 10 }}>
@@ -726,6 +750,22 @@ export default function Airports({ initialRegion = null }) {
     setBrowseViewState(v);
     try { localStorage.setItem('airports_browse_view', v); } catch { /* private mode */ }
   }
+  // Paging for the long lists on this tab (Discord, Barca 2026-10-16: the gates
+  // tab is laggy, "maybe make it click to show more like the route finder").
+  const [cardsShown, setCardsShown]   = useState(GATE_PAGE_SIZE);
+  // Browse: each country shows its first few airports (held first, then the
+  // biggest) and expands on request. Kept as {key, open} so a new region or
+  // search starts folded again without an effect.
+  const browseKey = `${regionFilter}|${search.trim().toLowerCase()}`;
+  const [browseOpen, setBrowseOpen] = useState({ key: browseKey, open: new Set() });
+  const openCountries = browseOpen.key === browseKey ? browseOpen.open : EMPTY_SET;
+  const expandCountry = (name) => setBrowseOpen({ key: browseKey, open: new Set([...openCountries, name]) });
+  // The alliance slot pool on its own sub-page ("put the alliance gate sharing
+  // thing separately too") instead of a second full list of your airports under
+  // the first one.
+  const poolAvailable = scarcity && !!state.allianceMembership && !!remoteApi?.setGateSlotShare;
+  const [section, setSection] = useState('gates');   // 'gates' | 'pool'
+  const showPool = poolAvailable && section === 'pool';
 
   if (selectedAirport) {
     return <AirportDetail code={selectedAirport} onBack={() => setSelectedAirport(null)} />;
@@ -735,8 +775,11 @@ export default function Airports({ initialRegion = null }) {
   // the engine's own helper, so a multi-stop rotation calling here shows the two
   // movements it actually makes — the endpoint-only reading under-reported this
   // page against the guards that refuse flights on the strength of it.
+  // One walk of the schedule for every airport (slotUsageFor), not one per
+  // airport — and never one per sort comparison, which is what this was.
+  const slotUsage = slotUsageFor(state);
   function slotsUsedAt(code) {
-    return slotsUsedAtEngine(routes, code) + cargoSlotsUsedAt(code, cargoRoutes);
+    return slotUsage.get(code) ?? 0;
   }
 
   const myGateEntries = Object.entries(gates)
@@ -814,6 +857,17 @@ export default function Airports({ initialRegion = null }) {
       .map(([name, g]) => ({ name, region: g.region, airports: g.airports }));
   })();
 
+  // A region is hundreds of airports (Europe and North America are ~600 each),
+  // each row with its own availability and lease check: drawn whole it was
+  // 650–850 KB of page. Every country stays listed, folded to its first
+  // BROWSE_PER_COUNTRY airports — the ones you hold and the biggest — with a
+  // button for the rest, so nothing is ever more than one click away.
+  const pagedBrowseGroups = browseGroups.map(g => ({
+    ...g,
+    total: g.airports.length,
+    airports: openCountries.has(g.name) ? g.airports : g.airports.slice(0, BROWSE_PER_COUNTRY),
+  }));
+
   return (
     <div>
       {/* Header */}
@@ -844,6 +898,34 @@ export default function Airports({ initialRegion = null }) {
         </div>
       </div>
 
+      {/* ── Gates | Alliance slot pool ─────────────────────────────── */}
+      {poolAvailable && (
+        <div role="tablist" aria-label="Gates tab sections" style={{ display: 'inline-flex', gap: 3, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 3, marginBottom: 18 }}>
+          {[{ id: 'gates', label: '⛩ Your gates' }, { id: 'pool', label: '⚖ Alliance slot pool' }].map(t => {
+            const active = section === t.id;
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={active}
+                data-gates-section={t.id}
+                onClick={() => setSection(t.id)}
+                style={{
+                  fontSize: 12, padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600,
+                  background: active ? 'rgba(56,139,253,0.15)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-muted)',
+                }}
+              >
+                <Glyph e={t.label.slice(0, 1)} /> {t.label.slice(2)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {showPool ? (
+        <SlotPoolSection state={state} remoteApi={remoteApi} />
+      ) : (<>
       {/* ── Find any airport ──────────────────────────────────────── */}
       <section style={{ marginBottom: 24 }}>
         <input
@@ -980,7 +1062,7 @@ export default function Airports({ initialRegion = null }) {
                   return (
                     <button
                       key={r}
-                      onClick={() => setMyGatesRegion(r)}
+                      onClick={() => { setMyGatesRegion(r); setCardsShown(GATE_PAGE_SIZE); }}
                       style={{
                         padding: '3px 10px', fontSize: 12, borderRadius: 20, cursor: 'pointer',
                         fontWeight: active ? 700 : 400,
@@ -1003,10 +1085,11 @@ export default function Airports({ initialRegion = null }) {
             // With multiple regions, only ever render the active one. A single
             // region renders directly (no filtering needed).
             const activeRegion = myGatesRegion ?? heldRegions[0];
-            const visibleEntries = heldRegions.length > 1
+            const regionEntries = heldRegions.length > 1
               ? myGateEntries.filter(({ airport }) => getRegion(airport.country) === activeRegion)
               : myGateEntries;
-            return visibleEntries.map(({ code, count, airport }) => {
+            const visibleEntries = regionEntries.slice(0, cardsShown);
+            return (<>{visibleEntries.map(({ code, count, airport }) => {
             const used       = slotsUsedAt(code);
             const capacity   = count * SLOTS_PER_GATE;
             const usagePct   = capacity > 0 ? used / capacity : 0;
@@ -1107,7 +1190,10 @@ export default function Airports({ initialRegion = null }) {
                 </div>
               </div>
             );
-          });
+          })}
+          <ShowMore shown={Math.min(cardsShown, regionEntries.length)} total={regionEntries.length} page={GATE_PAGE_SIZE}
+            onMore={() => setCardsShown(n => n + GATE_PAGE_SIZE)} />
+          </>);
           })()}
 
         </section>
@@ -1116,8 +1202,7 @@ export default function Airports({ initialRegion = null }) {
       {/* ── Gate market: auctions + player-to-player sales (scarcity worlds) ── */}
       {scarcity && !liveAuction && <GateMarketSection state={state} remoteApi={remoteApi} />}
 
-      {/* ── Alliance slot pool: share spare slots with your alliance ── */}
-      {scarcity && <SlotPoolSection state={state} remoteApi={remoteApi} />}
+      {/* The alliance slot pool lives on its own sub-page (tabs above). */}
 
       {/* ── Browse / add airports ─────────────────────────────────── */}
       <section>
@@ -1257,7 +1342,7 @@ export default function Airports({ initialRegion = null }) {
               <div style={{ padding: '20px 0', color: 'var(--text-muted)', fontSize: 13 }}>
                 No airports match "{search}"
               </div>
-            ) : browseGroups.map(({ name, airports: groupAirports }) => (
+            ) : pagedBrowseGroups.map(({ name, airports: groupAirports, total: countryTotal }) => (
           <div key={name} style={{ marginBottom: 4 }}>
             {/* Country subheading */}
             <div style={{
@@ -1342,12 +1427,23 @@ export default function Airports({ initialRegion = null }) {
                   </div>
                 );
               })}
+              {countryTotal > groupAirports.length && (
+                <button
+                  className="btn btn-ghost"
+                  data-country-more={name}
+                  style={{ fontSize: 12, padding: '4px 10px', alignSelf: 'flex-start' }}
+                  onClick={() => expandCountry(name)}
+                >
+                  Show all {countryTotal} in {name}
+                </button>
+              )}
             </div>
           </div>
             ))}
           </>
         )}
       </section>
+      </>)}
     </div>
   );
 }

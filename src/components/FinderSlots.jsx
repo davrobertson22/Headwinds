@@ -1,4 +1,4 @@
-import { useGame, slotCapAt, slotsUsedAt } from '../store/GameContext.jsx';
+import { useGame, slotCapAt, slotUsageFor } from '../store/GameContext.jsx';
 import AddGateButton from './AddGateButton.jsx';
 
 /**
@@ -19,10 +19,11 @@ import AddGateButton from './AddGateButton.jsx';
  */
 export function useSlotPosition() {
   const { state } = useGame();
-  const allOps = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
+  // Every airport's usage in one walk of the schedule, cached per network.
+  const usage = slotUsageFor(state);
   return (code) => {
     const cap = slotCapAt(state, code);
-    const used = slotsUsedAt(allOps, code);
+    const used = usage.get(code) ?? 0;
     return { cap, used, free: Math.max(0, cap - used), hasGate: cap > 0 };
   };
 }

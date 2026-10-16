@@ -165,6 +165,11 @@ export function servedLaneIndex(state) {
  */
 export function laneBlockFor({
   origin, destination, distKm, type, aircraft = null, weeklyFrequency = 7, routes = [],
+  // Weekly frequency you already fly on this exact pair. findCandidates passes
+  // it from one index of your network; left out, it is counted here — which is
+  // a walk of every route for each of ~2,000 candidates, ~400 ms of a search on
+  // a 450-route airline.
+  existingFreq: knownFreq,
 }) {
   if (!type) return null;
   const range = effectiveRangeKm(aircraft ?? { typeId: type.id }, type);
@@ -177,7 +182,7 @@ export function laneBlockFor({
     };
   }
   const key = pairKey(origin, destination);
-  const existingFreq = (routes ?? [])
+  const existingFreq = knownFreq ?? (routes ?? [])
     .filter((r) => pairKey(r.origin, r.destination) === key)
     .reduce((s, r) => s + (r.weeklyFrequency ?? 0), 0);
   // Body class the way the reducer's guards read it: a freighter's comes from its
@@ -235,6 +240,12 @@ export function findCandidates(state, {
   const type      = aircraftTypeId ? getAircraftType(aircraftTypeId) : null;
   const rivals    = rivalPairIndex(state);
   const servedLanes = servedLaneIndex(state);
+  // Your weekly frequency per exact pair, once — laneBlockFor's existingFreq.
+  const freqByPair = new Map();
+  for (const r of state.routes ?? []) {
+    const k = pairKey(r.origin, r.destination);
+    freqByPair.set(k, (freqByPair.get(k) ?? 0) + (r.weeklyFrequency ?? 0));
+  }
   const rows = [];
   // The demand a row prints is the demand the Route Planner prints for the same
   // pair this week: the base pool × this month's seasonality × the world's demand
@@ -273,7 +284,8 @@ export function findCandidates(state, {
 
     const block = type
       ? laneBlockFor({ origin, destination: a.code, distKm, type, aircraft,
-                       weeklyFrequency, routes: state.routes ?? [] })
+                       weeklyFrequency, routes: state.routes ?? [],
+                       existingFreq: freqByPair.get(pairKey(origin, a.code)) ?? 0 })
       : null;
     if (hideUnflyable && block) continue;
 
@@ -415,8 +427,28 @@ export function scoreCandidates(state, rows, {
   //           150 on every keystroke in the distance boxes.
   order = 'demand',
 } = {}) {
+  const ctx = finderForecastContext({ aircraftTypeId, aircraft, weeklyFrequency, gameDate, capHours });
+  if (!ctx) return rows;
+
+  const out = rows.map((r) => ({ ...r }));
+  for (const i of rowsToScore(rows, { limit, order })) {
+    const projection = forecastCandidate(state, rows[i], ctx);
+    if (!projection) continue;
+    out[i] = { ...out[i], scored: true, projection };
+  }
+  return out;
+}
+
+/**
+ * Everything about the forecast that is the same for every row: the type, the
+ * airframe it is priced on and what that airframe costs a week. Null when no
+ * type is picked (nothing to forecast). Split out of scoreCandidates so the
+ * Route Finder can price rows a few at a time (components/RouteFinder.jsx)
+ * through the identical sum.
+ */
+export function finderForecastContext({ aircraftTypeId, aircraft = null, weeklyFrequency = 7, gameDate, capHours } = {}) {
   const type = aircraftTypeId ? getAircraftType(aircraftTypeId) : null;
-  if (!type) return rows;
+  if (!type) return null;
 
   // A synthetic airframe when the player owns none of the type — the planner
   // previews a TYPE the same way, so an order can be sized against a real market.
@@ -431,26 +463,35 @@ export function scoreCandidates(state, rows, {
   const frameLease = aircraft
     ? (aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type.weeklyLease ?? 0))
     : (type.weeklyLease ?? 0);
+  return { type, frame, frameLease, weeklyFrequency, gameDate, capHours };
+}
 
+/** The frequency a row is forecast at: the requested one, inside what the block-hour cap allows. */
+export function candidateFrequency(row, ctx) {
+  return Math.max(1, Math.min(ctx.weeklyFrequency, maxFrequency(row.distKm, ctx.type, ctx.capHours)));
+}
+
+/** One row's launch forecast (null for a blocked row or no mature figure). */
+export function forecastCandidate(state, r, ctx) {
+  if (!ctx || r.block) return null;           // a route you cannot open has no forecast
+  return forecastLaunch(state, {
+    origin: r.origin, destination: r.code, aircraft: ctx.frame, frameLease: ctx.frameLease,
+    weeklyFrequency: candidateFrequency(r, ctx), ticketPrice: r.refPrice, classPrices: defaultClassPrices(r.refPrice),
+    gameDate: ctx.gameDate,
+  });
+}
+
+/**
+ * Indices (into `rows`) of the rows a scoring pass prices, in pricing order —
+ * scoreCandidates' selection rule, exported so a progressive pass picks the
+ * same rows. Blocked rows are included (they take a slot and get no forecast).
+ */
+export function rowsToScore(rows, { limit = DEFAULT_SCORE_LIMIT, order = 'demand' } = {}) {
   const indexed = rows.map((r, i) => ({ r, i }));
   const ranked = order === 'asGiven'
     ? indexed.slice(0, limit)
     : indexed.sort((x, y) => y.r.demand - x.r.demand).slice(0, limit);
-
-  const out = rows.map((r) => ({ ...r }));
-  for (const { r, i } of ranked) {
-    if (r.block) continue;                    // a route you cannot open has no forecast
-    const freq = Math.max(1, Math.min(weeklyFrequency,
-      maxFrequency(r.distKm, type, capHours)));
-    const projection = forecastLaunch(state, {
-      origin: r.origin, destination: r.code, aircraft: frame, frameLease,
-      weeklyFrequency: freq, ticketPrice: r.refPrice, classPrices: defaultClassPrices(r.refPrice),
-      gameDate,
-    });
-    if (!projection) continue;
-    out[i] = { ...out[i], scored: true, projection };
-  }
-  return out;
+  return ranked.map(({ i }) => i);
 }
 
 export const SORTS = {

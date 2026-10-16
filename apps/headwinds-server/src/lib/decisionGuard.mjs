@@ -269,6 +269,24 @@ function guardAircraftIds(payload, state) {
   return clean;
 }
 
+// Bulk frequency (Routes ▸ select ▸ Flights/wk). Every step is re-checked by
+// the reducer through frequencyChangeBlockReason, so this only bounds the
+// payload: the airline's own route ids (the reducer folds one guard pass per
+// id inside the write transaction — same reason guardAircraftIds caps), a
+// known mode, and a value inside the stepper's range.
+function guardBulkFrequency(payload, state) {
+  const ids = Array.isArray(payload?.routeIds) ? payload.routeIds : [];
+  if (ids.length === 0) throw new GuardError('No routes selected.');
+  if (ids.length > 500) throw new GuardError('Too many routes in one batch.');
+  const own = new Set((state.routes ?? []).map((r) => r.id));
+  const routeIds = [...new Set(ids.map(String))].filter((id) => own.has(id));
+  if (routeIds.length === 0) throw new GuardError('Unknown routes.');
+  const mode = ['delta', 'set', 'max'].includes(payload?.mode) ? payload.mode : null;
+  if (!mode) throw new GuardError('Unknown frequency change.');
+  const value = Math.max(-98, Math.min(99, Math.round(Number(payload?.value) || 0)));
+  return { routeIds, mode, value };
+}
+
 // A programme id from the catalogue and a boolean. Eligibility, the one-off
 // cost and the hub requirement are the reducer's (canActivateProgramme).
 function guardSetFuelProgramme(payload) {
@@ -661,6 +679,7 @@ export function guardDecision(type, payload, state) {
       aircraftIds: guardAircraftIds(payload, state),
       optOut: !!payload.optOut,
     };
+    case 'BULK_ADJUST_FREQUENCY': return guardBulkFrequency(payload, state);
     case 'REASSIGN_ROUTE':     return {
       routeId: String(payload.routeId ?? ''),
       toAircraftId: String(payload.toAircraftId ?? ''),

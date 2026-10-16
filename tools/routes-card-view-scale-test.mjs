@@ -178,11 +178,13 @@ test('phone (card view) stops growing once past the cap', () => {
     `card HTML grew ${growth.toFixed(1)}x between 60 and ${GROUPS} groups — the cap is not holding`);
 });
 
-test('desktop (table view) still caps at 100 rows', () => {
+test('desktop (table view) pages at 25 rows, like the Route Finder', () => {
+  // Was 100. "Routes tab is very laggy for me, maybe make it click to show more
+  // like the route finder?" (Barca, Discord 2026-10-16).
   phone = false;
   const html = render(state);
-  assert.match(html, /Show \d+ more \(100 of \d+\)/,
-    'table view must still paginate at TABLE_PAGE_SIZE = 100');
+  assert.match(html, /Show \d+ more \(25 of \d+\)/,
+    'table view must paginate at TABLE_PAGE_SIZE = 25');
 });
 
 console.log(`\n${failed === 0 ? '✓' : '✗'} routes-card-view-scale: ${passed} passed, ${failed} failed\n`);

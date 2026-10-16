@@ -103,12 +103,56 @@ export function persistAutosave(state, storage = (typeof localStorage !== 'undef
 // Routes hydrated with their per-pair price so every consumer can keep reading
 // route.classPrices / route.ticketPrice unchanged (the reducer stores the
 // normalized form — price only in state.routePricing).
+// The screen-facing state: every route carries its pair's fares and catering.
+// Built ONCE per raw state object and handed back on every later ask.
+//
+// It used to be rebuilt inside the context value's useMemo, whose deps include
+// remoteChrome — and GamePlayScreen rebuilds remoteChrome on every poll (the
+// topbar clock reads `meta`). So each poll, even one that said "nothing
+// changed", produced a brand-new state object and a brand-new routes array.
+// Every cache keyed on them missed: projectWeek's WeakMap (a full weeklyTick on
+// the Dashboard, Routes, Fleet and Finance), the network-tick memo behind every
+// Route Finder forecast, and every useMemo depending on state.routes. That is
+// a multi-second freeze on a big airline, every 4–25 s — the "routes tab /
+// route finder is very laggy" reports (Discord, Barca, 2026-10-16).
+//
+// The hydrated ROUTES array is remembered separately, per (routes, routePricing,
+// routeCatering): a rival-overlay poll spreads a new state object but leaves
+// all three alone, and keeping state.routes the same array is what lets the
+// screens' route-keyed memos (the Routes table's per-pair stats, the Route
+// Finder's candidate list) hold still while somebody else re-prices.
+const HYDRATED = new WeakMap();
+const HYDRATED_ROUTES = new WeakMap();
+const NO_TABLE = {};
+function hydratedRoutes(routes, pricing, catering) {
+  const p = pricing ?? NO_TABLE, c = catering ?? NO_TABLE;
+  let byPricing = HYDRATED_ROUTES.get(routes);
+  if (!byPricing) { byPricing = new WeakMap(); HYDRATED_ROUTES.set(routes, byPricing); }
+  let byCatering = byPricing.get(p);
+  if (!byCatering) { byCatering = new WeakMap(); byPricing.set(p, byCatering); }
+  let out = byCatering.get(c);
+  if (!out) {
+    out = routes.map((r) => hydrateRoute(r, pricing, catering));
+    byCatering.set(c, out);
+  }
+  return out;
+}
+export function hydrateState(state) {
+  if (!state || typeof state !== 'object') return state;
+  let h = HYDRATED.get(state);
+  if (!h) {
+    h = {
+      ...state,
+      routes: state.routes ? hydratedRoutes(state.routes, state.routePricing, state.routeCatering) : [],
+    };
+    HYDRATED.set(state, h);
+  }
+  return h;
+}
+
 function hydratedValue(state, dispatch, remote = false, remoteApi = null, remoteChrome = null) {
   return {
-    state: {
-      ...state,
-      routes: (state.routes ?? []).map((r) => hydrateRoute(r, state.routePricing, state.routeCatering)),
-    },
+    state: hydrateState(state),
     dispatch,
     remote, // true only under RemoteGameProvider — hides solo-only chrome
     // Multiplayer-only capabilities (world-scoped reads the shared UI can call

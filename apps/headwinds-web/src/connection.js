@@ -37,3 +37,19 @@ export function shouldFastPoll(nextTickAt, now = Date.now()) {
 export function isStaleContact(lastOkMs, now = Date.now()) {
   return now - lastOkMs > STALE_AFTER_MS;
 }
+
+// True when two poll `meta` snapshots say the same thing. Every poll builds a
+// fresh meta object (and a fresh worldClock inside it); adopting it when nothing
+// changed re-rendered the whole game — every screen, every projection memo
+// keyed off it — on the poll timer. Compared by value over the few small
+// fields it carries, so a real change (a tick moving nextTickAt, a status
+// flip) is never swallowed.
+export function sameMeta(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.status === b.status
+    && a.worldStatus === b.worldStatus
+    && a.airlineId === b.airlineId
+    && a.restartsLeft === b.restartsLeft
+    && JSON.stringify(a.worldClock ?? null) === JSON.stringify(b.worldClock ?? null);
+}
