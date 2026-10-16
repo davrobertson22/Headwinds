@@ -358,9 +358,11 @@ export const METROS = [
     },
   },
   {
-    // SPX (Sphinx) took a share of Cairo's low-cost and Gulf flying from 2020;
-    // CCE (Capital International, ~45 km east) is the New Administrative
-    // Capital's field and had only a single scheduled route as of 2026.
+    // Greater Cairo. SPX (Sphinx, in Giza) took a share of the low-cost and
+    // Gulf flying from 2020; CCE (Capital International, in the New
+    // Administrative Capital ~45 km east) had a single scheduled route as of
+    // 2026. Both carry their own city names; the registry, not the city
+    // string, is what makes them one market.
     id: 'cairo', name: 'Cairo', primary: 'CAI',
     members: {
       CAI: { dom: 1.0,  intl: 1.0 },
