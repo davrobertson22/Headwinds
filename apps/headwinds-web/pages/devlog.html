@@ -55,6 +55,16 @@
 
     <div class="entry">
       <p class="date">October 17, 2026</p>
+      <h2>Lighter cabins now add range sooner</h2>
+      <ul>
+        <li><strong>The real ultra-long 787-9 routes now work.</strong> Qantas flies Perth&ndash;London (14,508 km) and Melbourne&ndash;Dallas with a 236-seat 787-9, and Air New Zealand flies Auckland&ndash;New York with about 275 seats. In the game none of these reached, because taking seats out of a cabin added range too slowly.</li>
+        <li><strong>How it works now.</strong> At the typical cabin an aircraft is at its take-off weight with the tanks a few percent short of full. Each passenger you leave off becomes fuel at the same rate that packing in an extra one costs it, until the tanks are full, up to 5% more range. A 787-9 with 236 seats now reaches about 14,850 km, against 14,140 km at its typical 290.</li>
+        <li><strong>The maximum hasn&rsquo;t changed.</strong> A light cabin still adds at most 5%. You just reach it after removing a few dozen seats rather than every seat. Packed cabins lose range exactly as before, and nothing that flew before is affected. Added to Tailwinds as well.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">October 17, 2026</p>
       <h2>Fix: long routes near an aircraft&rsquo;s range wouldn&rsquo;t open</h2>
       <ul>
         <li><strong>The Route Planner counted your cabin twice.</strong> Since range started depending on seats, the planner took an aircraft&rsquo;s range with its cabin already counted, then counted the cabin&rsquo;s weight again for the forecast. A route your aircraft could reach, but only with a few hundred kilometres to spare, showed no forecast and no Open Route button. For example, an A340-300 with 362 seats reaches 12,351 km, but the planner treated it as about 11,300 km and wouldn&rsquo;t open LA&ndash;Sydney (12,061 km). The planner, the cargo planner and the &ldquo;Best aircraft for this route&rdquo; table now use the range your aircraft really has.</li>
@@ -84,7 +94,7 @@
       <ul>
         <li><strong>At the typical seat count you get the full quoted range.</strong> The marketplace now shows which cabin that is, for example &ldquo;15,200 km at 525 seats&rdquo;. Hover over it to see the range with every seat filled.</li>
         <li><strong>Packing in more seats costs range.</strong> Every passenger past the typical number, about 100 kg with bags, is fuel the aircraft can&rsquo;t carry. An A380 packed to 853 seats reaches about 12,900 km, and a 777-300ER packed to 550 about 11,600 km. On short and medium routes this costs you nothing, so packing a cabin is still a good way to earn more on them.</li>
-        <li><strong>Fewer seats than typical adds little.</strong> At the typical cabin the tanks are already about full, so stripping seats out adds 5% at most.</li>
+        <li><strong>Fewer seats than typical adds little.</strong> At the typical cabin the tanks are already nearly full, so stripping seats out adds 5% at most.</li>
         <li><strong>New aircraft arrive with the typical cabin.</strong> The order screen starts at the typical seat count and shows the range as you change the cabin. The Route Planner has an &ldquo;all economy, typical seats&rdquo; default and a separate &ldquo;packed to the limit&rdquo; option.</li>
         <li><strong>The ultra-long-range A350s</strong> are now quoted at 18,000 km with Singapore&rsquo;s 161-seat cabin and Qantas&rsquo; 238-seat cabin. Packed full, neither can reach Sydney&ndash;London.</li>
         <li><strong>Your existing routes are untouched.</strong> Every route you were flying when this update arrived keeps the old rule on the aircraft flying it. A route you open from now on, or an existing route you move to another aircraft, uses the new rule. If a new route is out of range and a lighter cabin would fix it, the out-of-range notice tells you which cabin.</li>
@@ -99,9 +109,9 @@
       <p>One of the most requested aircraft on the Discord, added to Tailwinds as well.</p>
       <ul>
         <li><strong>What it is.</strong> The A350 Qantas ordered for Project Sunrise: an A350-1000 with an extra 20,000-litre fuel tank and a higher take-off weight, built to fly Sydney to London and Sydney to New York nonstop. The photo is the real first aircraft, test-flying out of Melbourne in its Project Sunrise colours.</li>
-        <li><strong>How it plays.</strong> With every seat filled it flies no further than a standard A350-1000 (16,100 km): the aircraft hits its weight limit before the extra tank can be filled. Every seat you take out becomes fuel, so a light cabin is where the range comes from. A third of the seats (160) reaches about 19,300 km, and a Qantas-style 238-seat cabin reaches about 18,500 km, enough for Sydney&ndash;London. It also costs more to buy and lease, and burns about 4% more fuel than a standard -1000, so it only pays on routes that genuinely need the range.</li>
-        <li><strong>The A350-900ULR now works the same way.</strong> It used to fly 440 passengers 18,000 km, which the real aircraft can&rsquo;t do: Singapore Airlines flies it with 161 seats and no economy cabin. With a full cabin it now matches the A350-900 at 15,000 km, and a light cabin takes it to about 18,000 km. A Singapore-style cabin still reaches Singapore&ndash;New York. If you fly one far with a dense cabin, the route will show as out of range, and the notice will tell you which lighter cabin brings it back.</li>
-        <li><strong>Range on screen.</strong> The marketplace now shows both figures for these two, for example &ldquo;16,100 km&rdquo; and &ldquo;19,300 km at 160 seats&rdquo;. An aircraft&rsquo;s own page in your fleet now shows its real range with its current cabin and any engine or wingtip options, instead of the catalogue figure.</li>
+        <li><strong>How it plays.</strong> With every seat filled (480) it reaches about 14,600 km: the aircraft hits its weight limit before the extra tank can be filled. Every seat you take out becomes fuel, so a light cabin is where the range comes from. A Qantas-style 238-seat cabin reaches 18,000 km, enough for Sydney&ndash;London, and a lighter one up to about 18,900 km. It also costs more to buy and lease, and burns about 4% more fuel than a standard -1000, so it only pays on routes that genuinely need the range.</li>
+        <li><strong>The A350-900ULR now works the same way.</strong> It used to fly 440 passengers 18,000 km, which the real aircraft can&rsquo;t do: Singapore Airlines flies it with 161 seats and no economy cabin. Packed full it now reaches about 13,700 km, and a Singapore-style 161-seat cabin takes it to 18,000 km. A Singapore-style cabin still reaches Singapore&ndash;New York. If you fly one far with a dense cabin, the route will show as out of range, and the notice will tell you which lighter cabin brings it back.</li>
+        <li><strong>Range on screen.</strong> The marketplace shows each aircraft&rsquo;s range at the cabin it is quoted with, for example &ldquo;18,000 km at 238 seats&rdquo;. An aircraft&rsquo;s own page in your fleet now shows its real range with its current cabin and any engine or wingtip options, instead of the catalogue figure.</li>
         <li><strong>When you can get one.</strong> In classic games it&rsquo;s in the marketplace now. In era games it enters service in 2027, the same year Qantas takes its first one.</li>
       </ul>
       <p>Planning ultra-long-haul? The <a href="/aircraft-wide-body.html">wide-body guide</a> lines it up against the A350-900ULR and the 777X-8, and <a href="/route-economics.html">route economics</a> covers when the longest routes pay.</p>

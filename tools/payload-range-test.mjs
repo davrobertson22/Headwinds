@@ -83,6 +83,32 @@ test('a lighter cabin gains at most LIGHT_CABIN_GAIN_MAX', () => {
   }
 });
 
+test('a lighter cabin buys fuel at the packing rate until the tanks are full', () => {
+  for (const t of PAX.filter(x => x.fuelBurnPer100km > 0)) {
+    const typ = typicalSeatsOf(t);
+    let prev = 1;
+    for (let b = typ; b >= 0; b -= Math.max(1, Math.round(typ / 20))) {
+      const m = payloadRangeMod(b, t);
+      assert.ok(m >= prev - 1e-12, `${t.id}: range must not fall as seats come out`);
+      prev = m;
+    }
+  }
+  const t = T('b7879');
+  const burnKgKm = t.fuelBurnPer100km * FUEL_KG_PER_L / 100;
+  assert.equal(reach('b7879', eco(typicalSeatsOf(t) - 10)), Math.round(t.range + 10 * PAX_PAYLOAD_KG / burnKgKm));
+  assert.equal(reach('b7879', eco(150)), Math.round(t.range * (1 + LIGHT_CABIN_GAIN_MAX)), 'capped once the tanks are full');
+});
+
+test('the real ultra-long 787-9 routes fly at the airlines\' own cabins', () => {
+  const QF789 = { firstClass: 0, businessClass: 42, premiumEconomy: 28, economy: 166 };   // 236
+  const NZ789 = { firstClass: 0, businessClass: 27, premiumEconomy: 33, economy: 215 };   // 275
+  for (const [cfg, a, b] of [[QF789, 'PER', 'LHR'], [QF789, 'MEL', 'DFW'], [QF789, 'PER', 'CDG'], [NZ789, 'AKL', 'JFK']]) {
+    assert.ok(reach('b7879', cfg) >= km(a, b), `${a}–${b}: ${reach('b7879', cfg)} km < ${Math.round(km(a, b))} km`);
+  }
+  assert.ok(reach('b7879', QF789) < km('SYD', 'LHR'), 'but a 787-9 still cannot do Sydney–London');
+  assert.ok(reach('b7879', eco(T('b7879').seats)) < km('PER', 'LHR'), 'nor Perth–London packed');
+});
+
 test('an A380 packed to all 853 seats cannot fly its headline range', () => {
   const t = T('a380');
   assert.ok(t.typicalSeats < t.seats, 'A380 typical seats below the exit limit');

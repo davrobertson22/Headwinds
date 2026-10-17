@@ -4218,7 +4218,9 @@ export function typicalSeatsOf(type) {
 export const PAX_PAYLOAD_KG = 100;
 /** Jet fuel / avgas, kg per litre. */
 export const FUEL_KG_PER_L = 0.8;
-/** Range gained at an EMPTY cabin over the typical one: tanks are already ~full. */
+/** Most range a cabin lighter than typical can add: at the typical cabin the
+ *  aircraft is at its take-off weight with the tanks a few percent short of full,
+ *  so the first passengers taken off become fuel — then the tanks are full. */
 export const LIGHT_CABIN_GAIN_MAX = 0.05;
 /** A dense cabin never cuts range below this share of the headline. */
 export const DENSE_RANGE_FLOOR = 0.5;
@@ -4227,8 +4229,17 @@ export const DENSE_RANGE_FLOOR = 0.5;
 export function payloadRangeMod(bodies, type) {
   const typical = typicalSeatsOf(type);
   if (!typical || !type?.range) return 1;
-  if (bodies <= typical) return 1 + LIGHT_CABIN_GAIN_MAX * (1 - Math.max(0, bodies) / typical);
   const fuelKgPerKm = (type.fuelBurnPer100km ?? 0) * FUEL_KG_PER_L / 100;
+  if (bodies <= typical) {
+    // Each passenger left off is fuel taken on instead — the same exchange rate
+    // as packing, run backwards — until the tanks are full (LIGHT_CABIN_GAIN_MAX).
+    // A real 787-9 gains ~2.6% at Qantas' 236 seats (Perth–London, 14,508 km);
+    // spreading the gain evenly down to an EMPTY cabin gave it 0.9%, so the
+    // airline's own route was out of range (Discord, 2026-10-17).
+    if (!(fuelKgPerKm > 0)) return 1 + LIGHT_CABIN_GAIN_MAX * (1 - Math.max(0, bodies) / typical);
+    const gainedKm = (typical - Math.max(0, bodies)) * PAX_PAYLOAD_KG / fuelKgPerKm;
+    return 1 + Math.min(LIGHT_CABIN_GAIN_MAX, gainedKm / type.range);
+  }
   if (!(fuelKgPerKm > 0)) return 1;
   const lostKm = (bodies - typical) * PAX_PAYLOAD_KG / fuelKgPerKm;
   return Math.max(DENSE_RANGE_FLOOR, 1 - lostKm / type.range);
