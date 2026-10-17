@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import AirlineLogo, { resolveLogoSrc } from './AirlineLogo.jsx';
+import * as LogoModule from './AirlineLogo.jsx';
 import { liveryKey, normalizeLivery } from '../data/livery.js';
 import { liveryTemplateFor, getLiveryTemplate, DEFAULT_LIVERY_TEMPLATE } from '../data/liveryTemplates.js';
 import { paintLivery, loadLiveryTemplate, loadLogoImage } from '../utils/liveryPaint.js';
@@ -15,6 +15,11 @@ import { paintLivery, loadLiveryTemplate, loadLogoImage } from '../utils/liveryP
 //   category   aircraft category → which template (liveryTemplateFor)
 //   templateId explicit template instead of a category
 //   width      CSS px wide; the canvas paints at device pixel ratio (≤2)
+
+const AirlineLogo = LogoModule.default;
+// Headwinds resolves hosted rival logos (/logos/…) against the API origin;
+// Tailwinds only ever has data-URL uploads and no resolver.
+const resolveLogoSrc = LogoModule.resolveLogoSrc ?? ((src) => (typeof src === 'string' && src ? src : null));
 
 const painted = new Map();           // key → canvas (bounded)
 const PAINT_CACHE_MAX = 48;
