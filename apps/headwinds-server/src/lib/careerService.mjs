@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { withWorldRecord, passengersFromState } from './career.mjs';
+import { eventOf } from './worldConfig.mjs';
 
 /**
  * Bank every airline's result in this world into its owner's career.
@@ -67,6 +68,10 @@ export async function snapshotWorldCareers(prisma, world, {
   }
 
   const toNum = (v) => (typeof v === 'bigint' ? Number(v) : Number(v) || 0);
+  // Event world: every record carries the event, and the top three's is what
+  // shows as a trophy (career.mjs publicCareer). Name falls back to the world's.
+  const ev = eventOf(world.tickConfig);
+  const event = ev ? { name: ev.name ?? world.name ?? null } : null;
   let written = 0;
 
   for (const a of airlines) {
@@ -75,6 +80,7 @@ export async function snapshotWorldCareers(prisma, world, {
       worldName:   world.name ?? null,
       lengthYears: world.lengthYears ?? null,
       visibility:  world.visibility ?? null,
+      event,
       endedAt:     (world.endedAt ?? new Date()).toISOString?.() ?? null,
       airlineId:   a.id,
       airlineName: a.name,

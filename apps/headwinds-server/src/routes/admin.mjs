@@ -5,7 +5,7 @@
 // drops out of live competition immediately.
 import { requireAdmin, isAdmin, isDomainBlocked } from '../auth.mjs';
 import { prisma } from '../db.mjs';
-import { worldStageOf } from '../lib/worldConfig.mjs';
+import { worldStageOf, eventOf, paceLabel } from '../lib/worldConfig.mjs';
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -381,6 +381,12 @@ export default async function adminRoutes(fastify) {
         stage: worldStageOf(w.tickConfig),
         createdAt: w.createdAt,
         startedAt: w.startedAt,
+        // Event worlds — the Trophies tab lists them with a link to results.
+        event: eventOf(w.tickConfig) ? { name: eventOf(w.tickConfig).name ?? w.name } : null,
+        paceLabel: paceLabel(w.weeksPerDay),
+        scheduledStartAt: w.tickConfig?.scheduledStartAt ?? null,
+        endsAt: w.endsAt ?? w.tickConfig?.endAt ?? null,
+        endedAt: w.endedAt ?? null,
       })),
     };
   });

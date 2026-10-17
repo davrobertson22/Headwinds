@@ -24,7 +24,7 @@ import {
   MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
   WORLD_STAGES, DEFAULT_WORLD_STAGE, MIN_START_YEAR, MAX_START_YEAR,
   PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword,
-  rankingSinceOf, totalWeeks,
+  rankingSinceOf, worldTotalWeeks, MIN_EVENT_LENGTH_YEARS, EVENT_NAME_MAX_LENGTH,
 } from '../lib/worldConfig.mjs';
 import { compareStandings, finalStretchOf, RANKING_WINDOW_WEEKS } from '@tailwinds/engine/utils/standings.js';
 import { weeksFlownOf } from '../lib/liveStats.mjs';
@@ -37,7 +37,7 @@ export default async function worldRoutes(fastify) {
         type: 'object',
         properties: {
           status: { type: 'string', enum: ['LOBBY', 'RUNNING', 'ENDED', 'ARCHIVED'] },
-          length: { type: 'integer', minimum: MIN_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
+          length: { type: 'integer', minimum: MIN_EVENT_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
           pace: { type: 'integer', minimum: MIN_WEEKS_PER_DAY, maximum: MAX_WEEKS_PER_DAY },
         },
       },
@@ -103,8 +103,11 @@ export default async function worldRoutes(fastify) {
     const viewer = await optionalAccount(request);
     // The owner of a supporter world counts as a member before their first
     // join (lib/access.mjs mayReadWorld) — the password shows on their page.
+    // An ADMIN reads every world in full — standings and join code included —
+    // so an operator-run private world (an event, say) can be watched and its
+    // code re-found without founding an airline in it.
     const viewerIsMember = viewer
-      ? (isOwner(world, viewer) || await isWorldMember(prisma, world.id, viewer.id))
+      ? (isAdmin(viewer) || isOwner(world, viewer) || await isWorldMember(prisma, world.id, viewer.id))
       : false;
     if (!mayReadWorld(world, { account: viewer, isMember: viewerIsMember })) {
       return {
@@ -141,7 +144,8 @@ export default async function worldRoutes(fastify) {
                   THEN jsonb_array_length(a.state->'routes') ELSE 0 END AS routes,
              CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
                   THEN jsonb_array_length(a.state->'fleet') ELSE 0 END AS fleet,
-             acc."isOG" AS og, acc."isSupporter" AS sup, acc.email AS email
+             acc."isOG" AS og, acc."isSupporter" AS sup, acc.email AS email,
+             COALESCE(acc.username, acc."displayName") AS "playerName"
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
@@ -230,7 +234,7 @@ export default async function worldRoutes(fastify) {
         metric: legacyRanking ? 'svps' : 'avgWeeklyNetProfit',
         windowWeeks: RANKING_WINDOW_WEEKS,
         since: rankingSinceOf(world),
-        ...finalStretchOf({ totalWeeks: totalWeeks(world.lengthYears ?? 0), weeksFlown: weeksFlownOf(world) }),
+        ...finalStretchOf({ totalWeeks: worldTotalWeeks(world), weeksFlown: weeksFlownOf(world) }),
       },
       // How many airlines went bankrupt or walked away here — flavour and fair
       // warning, without parading the corpses.
@@ -242,6 +246,9 @@ export default async function worldRoutes(fastify) {
         // Profile link target (#/players/:accountId) — the raw SQL above has
         // always fetched it; emitting it is what makes names clickable.
         accountId: a.accountId,
+        // The player behind the airline — the same name their public profile
+        // shows (username ?? displayName). The event ranking needs it to award.
+        playerName: a.playerName ?? null,
         name: a.name,
         hub: a.hub,
         cash: Number(a.cash),
@@ -468,7 +475,9 @@ export default async function worldRoutes(fastify) {
           // The world's password (supporter worlds: required; admin: optional,
           // replaces the generated join code). Bounds re-checked in worldConfig.
           password: { type: 'string', maxLength: 200 },
-          lengthYears: { type: 'integer', minimum: MIN_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
+          // Event worlds may be as short as MIN_EVENT_LENGTH_YEARS; everything
+          // else is held to MIN_LENGTH_YEARS by validateWorldConfig.
+          lengthYears: { type: 'integer', minimum: MIN_EVENT_LENGTH_YEARS, maximum: MAX_LENGTH_YEARS },
           weeksPerDay: { type: 'integer', minimum: MIN_WEEKS_PER_DAY, maximum: MAX_WEEKS_PER_DAY },
           visibility: { type: 'string', enum: ['PUBLIC', 'PRIVATE'] },
           maxPlayers: { type: 'integer', minimum: 1, maximum: 500 },
@@ -489,11 +498,23 @@ export default async function worldRoutes(fastify) {
           stage: { type: 'string', enum: WORLD_STAGES },
           // Era world: real calendar year of week 1 (omit for a classic world).
           startYear: { type: 'integer', minimum: MIN_START_YEAR, maximum: MAX_START_YEAR },
+          // Admin-only event world: { name } (the trophy's name; empty = the
+          // world's own name). Omit for an ordinary world.
+          event: {
+            type: 'object',
+            properties: { name: { type: 'string', maxLength: EVENT_NAME_MAX_LENGTH } },
+          },
+          // Event worlds: end at this instant instead of after lengthYears
+          // (needs scheduledStartAt; real validation in createWorld).
+          endAt: { type: 'string', maxLength: 40 },
         },
       },
     },
   }, async (request, reply) => {
     const admin = isAdmin(request.account);
+    if (!admin && request.body.event != null) {
+      return reply.code(403).send({ error: 'Event worlds are run by the game admins.' });
+    }
     if (!admin && request.account.isSupporter !== true) {
       return reply.code(403).send({
         error: 'Creating a world is for ♥ SUPPORTER accounts — support the game on Ko-fi to open one for your group.',

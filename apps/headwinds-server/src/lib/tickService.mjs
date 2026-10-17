@@ -15,7 +15,7 @@ import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings
 import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
-import { WEEKS_PER_YEAR, totalWeeks, tickIntervalMs, deriveEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
 import { farmFeeOn } from '@tailwinds/engine/data/fuelFarm.js';
 import { splitLogo } from './logoColumn.mjs';
@@ -74,7 +74,8 @@ export const weekIndex = (world) =>
 // the last year unflown: a 100-year 1950 world closed on 2049 W51, the final
 // year never got its statsHistoryYearly row (the rollup fires on entering
 // week 1) and the world went ENDED one tick-interval before its endsAt.
-export const completeIndex = (world) => totalWeeks(world.lengthYears) + 1;
+// A timed event world's length is tickConfig.totalWeeks (worldTotalWeeks).
+export const completeIndex = (world) => worldTotalWeeks(world) + 1;
 
 // When the NEXT week lands for this world (null when not RUNNING or complete).
 // Week toIndex = weekIndex+1 becomes due once elapsed ≥ weekIndex × interval —
@@ -905,7 +906,7 @@ export async function startDueWorlds(prisma, { now = new Date(), log = console }
       data: {
         status: 'RUNNING',
         startedAt: startAt,
-        endsAt: deriveEndsAt(startAt, w.lengthYears, w.weeksPerDay),
+        endsAt: deriveWorldEndsAt(startAt, w),
       },
     });
     if (claimed.count) {

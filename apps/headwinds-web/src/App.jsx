@@ -17,6 +17,7 @@ import SeasonResults from './SeasonResults.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { KOFI_URL } from './support.js';
 import InviteButton from './InviteButton.jsx';
+import { TrophyBank, EventRankingPanel } from './Trophies.jsx';
 import { rememberReturnRoute, resumeAfterSignIn, safeLocalStorage } from './invite.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -318,7 +319,19 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
 // ── Create world ──────────────────────────────────────────────────────────────
 
 const LENGTH_PRESETS = [10, 25, 50, 100, 200];
+// "About 26 real hours" — how long a world of this many weeks runs in real time.
+export function realDurationLabel(weeks, weeksPerDay) {
+  if (!(weeks > 0) || !(weeksPerDay > 0)) return '';
+  const hours = (weeks * 24) / weeksPerDay;
+  if (hours < 48) return `about ${Math.round(hours)} real hours`;
+  const days = hours / 24;
+  if (days < 60) return `about ${Math.round(days)} real days`;
+  return `about ${Math.round(days / 30)} real months`;
+}
 const PACE_PRESETS = [1, 2, 4, 6, 12, 24, 48, 96];
+// Event worlds usually want something quick, so the quick-picks run from the
+// fastest pace down; any whole weeks-per-day 1–96 is still a Custom… away.
+const EVENT_PACE_PRESETS = [96, 72, 48, 32, 24, 12, 6];
 // Era-world start-year quick-picks (any 1930-2100 year is accepted via custom).
 const ERA_PRESETS = [1950, 1958, 1970, 1978, 2000];
 const createPaceLabel = (w) => {
@@ -334,16 +347,18 @@ const createPaceLabel = (w) => {
 // private world for their own group, password-protected, at most two live ones
 // per account — see World.ownerAccountId in the server schema). Same knobs for
 // both; the server decides what the caller may do (POST /worlds).
-export function CreateWorld({ token, me, onCreated }) {
+// `initialOpen` / `initialEvent` ({ start, end } datetime-local strings) open
+// the form pre-filled — the event-world SSR test renders it that way.
+export function CreateWorld({ token, me, onCreated, initialOpen = false, initialEvent = null }) {
   const admin = me?.account?.isAdmin === true;
   const slots = me?.supporterWorldSlots ?? { used: 0, max: 2 };
   const slotsLeft = admin ? Infinity : Math.max(0, slots.max - slots.used);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [lengthSel, setLengthSel] = useState('50');   // preset value or 'custom'
   const [lengthCustom, setLengthCustom] = useState('75');
-  const [paceSel, setPaceSel] = useState('24');       // preset value or 'custom'
+  const [paceSel, setPaceSel] = useState(initialEvent ? '96' : '24');       // preset value or 'custom'
   const [paceCustom, setPaceCustom] = useState('8');
   const [visibility, setVisibility] = useState('PRIVATE');
   const [maxPlayers, setMaxPlayers] = useState(20);
@@ -363,13 +378,28 @@ export function CreateWorld({ token, me, onCreated }) {
   // Era world: real calendar year of week 1 ('' = classic ordinal world).
   const [eraSel, setEraSel] = useState('');           // '' | preset year | 'custom'
   const [eraCustom, setEraCustom] = useState('1978');
-  const [scheduledStart, setScheduledStart] = useState('');   // datetime-local; empty = start on first join
+  const [scheduledStart, setScheduledStart] = useState(initialEvent?.start ?? '');   // datetime-local; empty = start on first join
+  // Admin-only event world: runs from a start time to an END time (not a
+  // length), and the admin awards trophies from its ranking (Trophies.jsx).
+  const [isEvent, setIsEvent] = useState(Boolean(initialEvent));
+  const [eventName, setEventName] = useState('');
+  const [endAt, setEndAt] = useState(initialEvent?.end ?? '');   // datetime-local
   const [busy, setBusy] = useState(false);
+  const toggleEvent = (on) => {
+    setIsEvent(on);
+    // An event is a sprint: 15-minute weeks, private, unless changed.
+    if (on) { setPaceSel('96'); setVisibility('PRIVATE'); }
+  };
   const [error, setError] = useState(null);
 
   const lengthYears = lengthSel === 'custom' ? Math.round(Number(lengthCustom)) : Number(lengthSel);
   const startYear = eraSel === '' ? null : Math.round(Number(eraSel === 'custom' ? eraCustom : eraSel));
   const weeksPerDay = paceSel === 'custom' ? Math.round(Number(paceCustom)) : Number(paceSel);
+  // Game-weeks that fit between the start and end at this pace (the server
+  // does the same sum: worldConfig weeksBetween).
+  const eventWeeks = isEvent && scheduledStart && endAt && weeksPerDay > 0
+    ? Math.floor((new Date(endAt).getTime() - new Date(scheduledStart).getTime()) / (86_400_000 / weeksPerDay))
+    : null;
 
   const create = async (ev) => {
     ev.preventDefault();
@@ -379,7 +409,8 @@ export function CreateWorld({ token, me, onCreated }) {
         method: 'POST', token,
         body: {
           ...(name.trim() ? { name: name.trim() } : {}),
-          lengthYears,
+          // A timed event sends its end; the server derives the length from it.
+          lengthYears: isEvent ? Math.max(1, Math.ceil((eventWeeks ?? 52) / 52)) : lengthYears,
           weeksPerDay,
           // A supporter's world is private whatever is sent; the server forces it.
           visibility: admin ? visibility : 'PRIVATE',
@@ -399,6 +430,7 @@ export function CreateWorld({ token, me, onCreated }) {
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
+          ...(admin && isEvent ? { event: { name: eventName.trim() }, endAt: new Date(endAt).toISOString() } : {}),
         },
       });
       onCreated?.(res.world);
@@ -435,6 +467,27 @@ export function CreateWorld({ token, me, onCreated }) {
       <div className="row wrap">
         <input maxLength={60} placeholder="Name (optional, we'll invent one)" value={name}
           onChange={(e) => setName(e.target.value)} />
+        {admin && (
+          <label style={{ alignItems: 'flex-start' }}>Event world
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={isEvent} onChange={(e) => toggleEvent(e.target.checked)} />
+              <span className="muted">{isEvent ? 'ON — trophies for the top 3' : 'Off — an ordinary world'}</span>
+            </span>
+            <span className="muted small">
+              A competition you run, for a Discord event say. Anyone with the join code can play —
+              no ♥ SUPPORTER badge needed. It runs from a start time to an end time you set. You
+              watch the ranking from the world page and award trophies from the trophy bank when
+              it ends. Events don't count toward anyone's season record or badges.
+            </span>
+          </label>
+        )}
+        {admin && isEvent && (
+          <label>Event name
+            <input maxLength={60} placeholder={name.trim() || 'Defaults to the world name'}
+              value={eventName} onChange={(e) => setEventName(e.target.value)} />
+            <span className="muted small">Shown on the world and on trophies awarded from it, e.g. “Discord Cup · October 2026”.</span>
+          </label>
+        )}
         {!admin && (
           <label>Password
             <input required minLength={4} maxLength={32} placeholder="What your friends type to join"
@@ -442,17 +495,40 @@ export function CreateWorld({ token, me, onCreated }) {
             <span className="muted small">4–32 characters, not case-sensitive. You can change it later from the world page.</span>
           </label>
         )}
-        <label>Length
-          <select value={lengthSel} onChange={(e) => setLengthSel(e.target.value)}>
-            {LENGTH_PRESETS.map((y) => <option key={y} value={String(y)}>{y} game-years</option>)}
-            <option value="custom">Custom…</option>
-          </select>
-        </label>
-        {lengthSel === 'custom' && (
-          <label>Custom length (yrs)
-            <input type="number" min={5} max={300} value={lengthCustom}
-              onChange={(e) => setLengthCustom(e.target.value)} />
-          </label>
+        {isEvent ? (
+          <>
+            <label>Starts at
+              <input type="datetime-local" required value={scheduledStart}
+                onChange={(e) => setScheduledStart(e.target.value)} />
+            </label>
+            <label>Ends at
+              <input type="datetime-local" required value={endAt}
+                onChange={(e) => setEndAt(e.target.value)} />
+            </label>
+            <span className="muted small">
+              {eventWeeks == null ? 'Players can join and set up from now; the clock starts at the start time.'
+                : eventWeeks < 4 ? 'Too short — an event needs at least 4 game-weeks. Move the end later or speed up the pace.'
+                : `${eventWeeks} game-weeks (${(eventWeeks / 52).toFixed(1)} game-years) at this pace — ${realDurationLabel(eventWeeks, weeksPerDay)}. The last week ticks at the end time.`}
+            </span>
+          </>
+        ) : (
+          <>
+            <label>Length
+              <select value={lengthSel} onChange={(e) => setLengthSel(e.target.value)}>
+                {LENGTH_PRESETS.map((y) => <option key={y} value={String(y)}>{y} game-years</option>)}
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+            {lengthSel === 'custom' && (
+              <label>Custom length (yrs)
+                <input type="number" min={5} max={300} value={lengthCustom}
+                  onChange={(e) => setLengthCustom(e.target.value)} />
+              </label>
+            )}
+            {realDurationLabel(lengthYears * 52, weeksPerDay) && (
+              <span className="muted small">Runs {realDurationLabel(lengthYears * 52, weeksPerDay)} at this pace.</span>
+            )}
+          </>
         )}
         <label>Era
           <select value={eraSel} onChange={(e) => setEraSel(e.target.value)}>
@@ -476,9 +552,10 @@ export function CreateWorld({ token, me, onCreated }) {
         )}
         <label>Pace
           <select value={paceSel} onChange={(e) => setPaceSel(e.target.value)}>
-            {PACE_PRESETS.map((w) => <option key={w} value={String(w)}>{createPaceLabel(w)}</option>)}
+            {(isEvent ? EVENT_PACE_PRESETS : PACE_PRESETS).map((w) => <option key={w} value={String(w)}>{createPaceLabel(w)}</option>)}
             <option value="custom">Custom…</option>
           </select>
+          {isEvent && <span className="muted small">Any pace you like per event — 15 min is just where it starts.</span>}
         </label>
         {paceSel === 'custom' && (
           <label>Weeks / day
@@ -595,13 +672,13 @@ export function CreateWorld({ token, me, onCreated }) {
             it later from “Manage all worlds”.
           </span>
         </label>
-        <label>Scheduled start (optional)
+        {!isEvent && <label>Scheduled start (optional)
           <input type="datetime-local" value={scheduledStart}
             onChange={(e) => setScheduledStart(e.target.value)} />
           <span className="muted">{scheduledStart
             ? `Opens for joining now · clock starts ${fmtStartTime(new Date(scheduledStart).toISOString())}`
             : 'Empty → clock starts when the first player joins'}</span>
-        </label>
+        </label>}
       </div>
       <div className="row">
         <button className="btn primary" disabled={busy} type="submit">{busy ? 'Creating…' : 'Create'}</button>
@@ -1325,6 +1402,12 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                 ♥ {isOwner ? 'YOUR PRIVATE WORLD' : 'PRIVATE WORLD'}
               </span>
             )}
+            {world.event && (
+              <span title="Event world: an admin-run competition — trophies are awarded from the final ranking"
+                style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(255,200,61,0.15)', color: '#ffc83d', border: '1px solid rgba(255,200,61,0.45)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                🏆 EVENT · {world.event.name ?? world.name}
+              </span>
+            )}
             {world.startYear != null && (
               <span title={`Era world: the calendar started in ${world.startYear} and moves through real time — aircraft appear when they entered service, demand, fares and fuel follow history`}
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(169,139,255,0.15)', color: '#a98bff', border: '1px solid rgba(169,139,255,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
@@ -1361,12 +1444,18 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
                   : `Year ${world.progress.year} of ${world.progress.totalYears}`)} ·
             {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
             {world.seedCapital != null && <> · start with {fmtMoney(world.seedCapital)}</>}
+            {world.event?.endAt && world.status !== 'ENDED' && <> · ends {fmtStartTime(world.event.endAt)}</>}
             {world.joinCode ? <> · {world.supporterWorld ? 'password' : 'join code'}: <code className="join-code">{world.joinCode}</code></> : null}
             {world.joinCode && (isOwner || isAdminViewer) && pwDraft == null
               ? <> · <button className="btn small" type="button" onClick={() => setPwDraft(world.joinCode ?? '')}>Change {world.supporterWorld ? 'password' : 'code'}</button></>
               : null}
           </p>
-          {['LOBBY', 'RUNNING'].includes(world.status) && (world.visibility !== 'PRIVATE' || myAirline || isOwner) && (
+          {world.event && world.status !== 'ENDED' && world.status !== 'ARCHIVED' && (
+            <p className="muted small" style={{ marginTop: 0 }}>
+              🏆 Event world — trophies are awarded from the final ranking when it ends.
+            </p>
+          )}
+          {['LOBBY', 'RUNNING'].includes(world.status) && (world.visibility !== 'PRIVATE' || myAirline || isOwner || isAdminViewer) && (
             <div className="row" style={{ marginBottom: 8 }}><InviteButton world={world} /></div>
           )}
           {pwDraft != null && (
@@ -1474,6 +1563,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       )}
       {!token && <div className="card"><p className="muted">Sign in above to join this world.</p></div>}
 
+      {isAdminViewer && world.event && world.status === 'ENDED' && (
+        <EventRankingPanel world={world} standings={standings} token={token} fallen={data.fallen ?? 0} />
+      )}
+
       {world.status === 'ENDED' && (
         <SeasonResults
           worldId={world.id} token={token}
@@ -1481,6 +1574,10 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
           preloaded={data}
           me={me}
         />
+      )}
+
+      {isAdminViewer && world.event && world.status !== 'ENDED' && (
+        <EventRankingPanel world={world} standings={standings} token={token} fallen={data.fallen ?? 0} />
       )}
 
       <StandingsTable
@@ -1536,6 +1633,8 @@ function ModerationScreen({ token, me }) {
     setError(null);
     if (tab === 'BANS') {
       api('/admin/bans', { token }).then((d) => setBans(d.bans)).catch(setError);
+    } else if (tab === 'TROPHIES') {
+      // TrophyBank loads its own data.
     } else if (tab === 'OGS') {
       api('/admin/ogs', { token }).then((d) => setOgs(d.ogs)).catch(setError);
       api('/admin/supporters', { token }).then((d) => setSupporters(d.supporters)).catch(setError);
@@ -1639,11 +1738,14 @@ function ModerationScreen({ token, me }) {
           <button className={`btn small ${tab === 'ALL' ? 'primary' : ''}`} onClick={() => setTab('ALL')}>All reports</button>
           <button className={`btn small ${tab === 'BANS' ? 'primary' : ''}`} onClick={() => setTab('BANS')}>Banned players</button>
           <button className={`btn small ${tab === 'OGS' ? 'primary' : ''}`} onClick={() => setTab('OGS')}>Players &amp; badges</button>
+          <button className={`btn small ${tab === 'TROPHIES' ? 'primary' : ''}`} onClick={() => setTab('TROPHIES')}>🏆 Trophies</button>
         </div>
       </div>
       <ErrorNote error={error} />
 
-      {tab === 'OPEN' || tab === 'ALL' ? (
+      {tab === 'TROPHIES' ? (
+        <TrophyBank token={token} />
+      ) : tab === 'OPEN' || tab === 'ALL' ? (
         reports == null ? <p className="muted">Loading reports…</p> :
         reports.length === 0 ? <p className="muted">{tab === 'OPEN' ? 'No open reports, all clear.' : 'No reports yet.'}</p> : (
           <div className="mod-list">

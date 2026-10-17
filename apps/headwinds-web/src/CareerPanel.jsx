@@ -39,7 +39,9 @@ export default function CareerPanel({ career, accountId = null }) {
 
   // An account that has never finished a season gets nothing rather than a
   // grid of zeroes — a hall of fame with no entries is worse than no hall.
-  if (!totals || !(totals.worldsFinished > 0)) return null;
+  // Event worlds count as neither seasons nor totals, but having played one
+  // still earns the panel its place.
+  if (!totals || !(totals.worldsFinished > 0 || totals.eventsPlayed > 0)) return null;
 
   return (
     <section className="card" style={{ marginTop: 24 }}>
@@ -56,6 +58,9 @@ export default function CareerPanel({ career, accountId = null }) {
         {totals.worldsFinished === 1
           ? 'One season finished.'
           : `${totals.worldsFinished} seasons finished.`}
+        {totals.eventsPlayed > 0
+          ? ` ${totals.eventsPlayed} event${totals.eventsPlayed === 1 ? '' : 's'} (not counted in the season figures).`
+          : ''}
         {' '}Seasons still running are not counted until they end.
       </p>
 
@@ -106,7 +111,8 @@ export default function CareerPanel({ career, accountId = null }) {
       {worlds.map((w) => (
         <div key={w.worldId} className="row" style={{ padding: '6px 0', gap: 12 }}>
           <span style={{ flex: 1 }}>
-            {w.worldName ?? 'Unnamed world'}
+            {w.event ? (w.event.name ?? w.worldName ?? 'Event') : (w.worldName ?? 'Unnamed world')}
+            {w.event ? <span className="muted small" style={{ color: '#ffc83d' }}> · 🏆 event</span> : null}
             {w.lengthYears ? <span className="muted small"> · {w.lengthYears}y</span> : null}
           </span>
           <span style={{ flex: 1 }}>

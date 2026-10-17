@@ -8,10 +8,10 @@ import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.j
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { capacityScale } from '@tailwinds/engine/data/productionLines.js';
 import {
-  validateWorldConfig, deriveEndsAt, genJoinCode, genWorldSeed, genWorldName,
+  validateWorldConfig, deriveWorldEndsAt, genJoinCode, weeksBetween, MIN_TIMED_WEEKS, WEEKS_PER_YEAR, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
   MAX_SUPPORTER_WORLD_MEMBERSHIPS, validatePassword, joinCodeMatches,
-  FUEL_OPS_VERSION, fuelOpsVOf,
+  FUEL_OPS_VERSION, fuelOpsVOf, normalizeEventInput,
 } from './worldConfig.mjs';
 import { isSupporterWorld, mayUseSupporterWorld } from './access.mjs';
 import { rebaseStateCalendar } from './calendar.mjs';
@@ -80,9 +80,33 @@ export async function createWorld(prisma, {
   // to pick the code instead of taking a generated one.
   ownerAccountId = null,
   password,
+  // ── Event world (admin only — the route never passes it for a supporter) ─
+  // `true` or `{ name }`: a competition whose top three bank a trophy. See
+  // eventOf in worldConfig.mjs. Refused on a supporter world here too, so a
+  // future caller cannot hand out trophies from a privately-run world.
+  event,
+  // Timed event: the instant the world ends (ISO). Needs `scheduledStartAt`;
+  // replaces lengthYears — the weeks that fit between the two at this pace
+  // become tickConfig.totalWeeks (worldConfig worldTotalWeeks).
+  endAt,
 } = {}) {
   if (ownerAccountId) visibility = 'PRIVATE';
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries });
+  const eventConfig = normalizeEventInput(event);
+  if (eventConfig && ownerAccountId) throw httpError(403, 'Only an admin can run an event world');
+  let timed = null;
+  if (endAt != null) {
+    if (!eventConfig) throw httpError(400, 'Only an event world can end at a set time');
+    if (!scheduledStartAt) throw httpError(400, 'An event that ends at a set time needs a start time too');
+    const end = new Date(endAt);
+    if (Number.isNaN(end.getTime())) throw httpError(400, 'endAt must be a valid date/time');
+    const weeks = weeksBetween(scheduledStartAt, end, weeksPerDay);
+    if (!(weeks >= MIN_TIMED_WEEKS)) {
+      throw httpError(400, `The event must run at least ${MIN_TIMED_WEEKS} game-weeks — move the end later or speed up the pace`);
+    }
+    timed = { endAt: end.toISOString(), totalWeeks: weeks };
+    lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
+  }
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -146,6 +170,9 @@ export async function createWorld(prisma, {
     // Optional preset start instant (ISO). Present → the worker starts this world
     // at that time and joining does NOT start the clock (see joinWorld + tickService).
     ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),
+    // Event world (see eventOf in worldConfig.mjs).
+    ...(eventConfig ? { event: eventConfig } : {}),
+    ...(timed ?? {}),
   };
 
   return prisma.world.create({
@@ -423,7 +450,7 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
       data: {
         status: 'RUNNING',
         startedAt,
-        endsAt: deriveEndsAt(startedAt, world.lengthYears, world.weeksPerDay),
+        endsAt: deriveWorldEndsAt(startedAt, world),
       },
     });
     // Seed the world's float pool — the finite counterparty for share trading —

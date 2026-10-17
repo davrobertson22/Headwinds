@@ -64,6 +64,13 @@ export function worldRecord(row) {
     // profile feature (2026-08-24) — publicCareer resolves those by a
     // read-time World lookup and FAILS CLOSED (unresolvable = private).
     visibility:  row.visibility ?? null,
+    // Event world (operator competition): { name } or null. An event is kept
+    // out of the season totals and the public season list below; what an event
+    // earns publicly is the trophy an admin AWARDS from its final ranking
+    // (lib/trophies.mjs). See eventOf in worldConfig.mjs.
+    event:       row.event && typeof row.event === 'object'
+      ? { name: typeof row.event.name === 'string' ? row.event.name : null }
+      : null,
     restarts:    num(row.restarts),
     passengers:  num(row.passengers),
     weeksPlayed: num(row.weeksPlayed),
@@ -76,7 +83,10 @@ export function worldRecord(row) {
  * @param {Record<string, object>} worlds  worldId → worldRecord
  */
 export function careerTotals(worlds = {}) {
-  const list = Object.values(worlds ?? {});
+  // Events are their own thing: a 13-hour sprint is not a season, so it moves
+  // none of the season figures or badges. Its prize is an awarded trophy.
+  const all = Object.values(worlds ?? {});
+  const list = all.filter((w) => !w?.event);
   let championships = 0, podiums = 0, bankruptcies = 0, refoundings = 0;
   let passengers = 0, weeks = 0;
   let bestFinish = null;
@@ -102,6 +112,7 @@ export function careerTotals(worlds = {}) {
     refoundings,
     lifetimePassengers: passengers,
     weeksPlayed: weeks,
+    eventsPlayed: all.length - list.length,
   };
 }
 
@@ -232,7 +243,11 @@ export function serializeCareer(raw) {
 export function publicCareer(raw, visibilityByWorldId = new Map()) {
   const career = normalizeCareer(raw);
   const publicWorlds = {};
+  // Event worlds never appear here, whatever their visibility: an event's
+  // public record is the trophy an admin awards (lib/trophies.mjs, served
+  // alongside this as `awards`), not an automatic placing.
   for (const [id, w] of Object.entries(career.worlds)) {
+    if (w?.event) continue;
     const visibility = w?.visibility ?? visibilityByWorldId.get(id) ?? null;
     if (visibility === 'PUBLIC') publicWorlds[id] = w;
   }

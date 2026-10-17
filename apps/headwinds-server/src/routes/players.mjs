@@ -22,6 +22,7 @@
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
+import { awardsForAccount } from '../lib/trophies.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
 import { dmRefusal } from '../lib/accountMessaging.mjs';
 import { sharesWorld } from './accountMessages.mjs';
@@ -112,6 +113,9 @@ export default async function playerRoutes(fastify) {
     }
 
     const career = publicCareer(account.careerStats, visibilityByWorldId);
+    // Trophies an admin awarded (trophy bank) — public by design, they are the
+    // prize. Best-effort: a failure here is an empty shelf, not a broken profile.
+    const awards = await awardsForAccount(prisma, account.id).catch(() => []);
 
     return {
       player: {
@@ -131,6 +135,7 @@ export default async function playerRoutes(fastify) {
       },
       // totals, badges, trophies, seasons — the public subset only.
       ...career,
+      awards,
       current: airlines.map((a, i) => ({
         worldId: a.worldId,
         worldName: a.world?.name ?? null,

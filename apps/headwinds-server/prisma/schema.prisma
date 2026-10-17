@@ -98,6 +98,8 @@ model Account {
   ownedWorlds    World[]  @relation("WorldOwner")
   // Tailwinds cloud saves (supporter perk) — see model TailwindsCloudSave.
   tailwindsCloudSaves TailwindsCloudSave[]
+  // Trophies an admin has awarded this account (trophy bank) — see model Trophy.
+  trophyAwards TrophyAward[]
 }
 
 // Username audit trail — the moderation panel shows an account's past names so
@@ -666,4 +668,45 @@ model TailwindsCloudSave {
   deviceLabel String?  // "Chrome on Mac" — shown when two devices disagree
 
   @@unique([accountId, slot])
+}
+
+// ── Trophy bank ──────────────────────────────────────────────────────────────
+// Admin-made trophies with their own artwork (Dave, 2026-10-17: "a trophy bank
+// to be able to store trophy images"), awarded BY HAND — typically from an
+// event world's final ranking — and shown in the winner's public trophy case.
+// Purely cosmetic: nothing in any world or the engine reads either table.
+model Trophy {
+  id             String        @id @default(cuid())
+  name           String
+  description    String?
+  // The artwork, byte-for-byte (png/jpeg/webp/gif, see lib/trophies.mjs). Served
+  // by GET /trophies/:id/image with an immutable cache keyed on imageHash, so a
+  // profile never carries the bytes in JSON.
+  image          Bytes?
+  imageType      String?
+  imageHash      String?
+  createdAt      DateTime      @default(now())
+  createdByEmail String?
+  awards         TrophyAward[]
+}
+
+model TrophyAward {
+  id             String   @id @default(cuid())
+  trophyId       String
+  trophy         Trophy   @relation(fields: [trophyId], references: [id], onDelete: Restrict)
+  accountId      String
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  // Where it was won. No foreign key on purpose: a world may be deleted long
+  // after the trophy was handed out, and the trophy must outlive it — so the
+  // names are snapshotted at award time.
+  worldId        String?
+  worldName      String?
+  airlineName    String?
+  place          Int?     // final rank, when awarded from a ranking
+  note           String?  // shown under the trophy, e.g. "Fastest-growing airline"
+  awardedAt      DateTime @default(now())
+  awardedByEmail String?
+
+  @@index([accountId])
+  @@index([worldId])
 }

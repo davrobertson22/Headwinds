@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
+import { TrophyCard } from './Trophies.jsx';
 
 const fmtNum = (n) => Math.round(Number(n) || 0).toLocaleString();
 
@@ -89,7 +90,9 @@ export default function PlayerProfileScreen({ accountId, token, onClose = null, 
 // The pure rendering half — exported so the test suite can SSR it with a
 // fixture payload (the screen's data arrives via fetch, which SSR never runs).
 export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
-  const { player, badges = [], trophies = [], totals, seasons = [], current = [] } = data;
+  // `awards` — trophies an admin handed out from the trophy bank (event
+  // prizes, with their own artwork); `trophies` — season podium finishes.
+  const { player, badges = [], trophies = [], awards = [], totals, seasons = [], current = [] } = data;
 
   return (
     <>
@@ -134,8 +137,13 @@ export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
 
       <section className="card" style={{ marginTop: 16 }}>
         <h3 style={{ marginTop: 0 }}>Trophy case</h3>
+        {awards.length > 0 && (
+          <div className="row wrap" style={{ gap: 12, marginBottom: trophies.length ? 12 : 0 }}>
+            {awards.map((a) => <TrophyCard key={a.id} award={a} />)}
+          </div>
+        )}
         {trophies.length === 0 ? (
-          <p className="muted">No trophies yet — seasons are long.</p>
+          awards.length === 0 ? <p className="muted">No trophies yet — seasons are long.</p> : null
         ) : (
           <div className="row wrap" style={{ gap: 12 }}>
             {trophies.map((t) => (

@@ -30,6 +30,51 @@ export const MAX_LENGTH_YEARS = 300;
 export const MIN_WEEKS_PER_DAY = 1;
 export const MAX_WEEKS_PER_DAY = 96;
 
+// ── Event worlds ─────────────────────────────────────────────────────────────
+// An operator-run competition (Dave, 2026-10-17: a Discord event world at 15-
+// minute weeks, "we will give the winner/top 3 players a trophy in their
+// trophy cabinet"). Admin-created only, so it is an ordinary operator world in
+// every other respect: PRIVATE with a join code, and NO supporter badge needed
+// to join — the badge rule only ever applies to a world with an owner.
+//
+// What `tickConfig.event = { name }` changes, and nothing else:
+//   • the length may go down to MIN_EVENT_LENGTH_YEARS (a season world's
+//     minimum is MIN_LENGTH_YEARS) — an event is meant to finish in a day or two;
+//   • at the end, the top PODIUM_RANK finishers bank an EVENT TROPHY that shows
+//     in their public trophy case even though the world is private
+//     (lib/career.mjs publicCareer). Every other finisher's result stays
+//     private, exactly like any private world.
+// Event results are kept OUT of the season totals (championships, podiums,
+// best finish, Veteran/Champion badges): a 13-hour sprint is a different
+// thing from a seven-month season, and it gets its own trophy for it.
+// Nothing in the engine reads it. Fixed at creation.
+export const MIN_EVENT_LENGTH_YEARS = 1;
+export const EVENT_NAME_MAX_LENGTH = 60;
+
+/** The world's event, or null for an ordinary world. Accepts a world or its tickConfig. */
+export function eventOf(worldOrTickConfig) {
+  const tc = worldOrTickConfig?.tickConfig ?? worldOrTickConfig;
+  const ev = tc?.event;
+  if (!ev || typeof ev !== 'object') return null;
+  const name = typeof ev.name === 'string' ? ev.name.trim() : '';
+  return { name: name || null };
+}
+
+/**
+ * Normalise the create form's `event` field. `true` or `{ name }` makes an
+ * event world (name defaults to the world's own name at read time); absent,
+ * null or false makes an ordinary one.
+ */
+export function normalizeEventInput(event) {
+  if (event == null || event === false) return null;
+  if (event === true) return { name: null };
+  if (typeof event !== 'object' || Array.isArray(event)) throw badRequest('event must be true or { name }');
+  if (event.name != null && typeof event.name !== 'string') throw badRequest('event.name must be text');
+  const name = (event.name ?? '').trim();
+  if (name.length > EVENT_NAME_MAX_LENGTH) throw badRequest(`The event name must be at most ${EVENT_NAME_MAX_LENGTH} characters`);
+  return { name: name || null };
+}
+
 // Per-world starting capital (founders' equity). Default matches the solo game's
 // STARTING_CASH ($10M); market cap seeds at a fixed multiple as always. Admin may
 // override per world to make a world easier (more runway) or harder.
@@ -155,6 +200,31 @@ export const realTimeDays = (lengthYears, weeksPerDay) =>
 export const deriveEndsAt = (startedAt, lengthYears, weeksPerDay) =>
   new Date(startedAt.getTime() + realTimeDays(lengthYears, weeksPerDay) * DAY_MS);
 
+// ── Timed worlds (event worlds that end at a set time) ───────────────────────
+// A world's length is normally whole game-years. An event world may instead be
+// given a start and an END TIME (Dave, 2026-10-17: "end at a certain time
+// instead of a weeks drop down"); the number of weeks that fit between them at
+// the world's pace is fixed at creation in tickConfig.totalWeeks, and every
+// "how long is this world" question goes through worldTotalWeeks — the tick's
+// completeIndex, progress, endsAt and the final-stretch ranking header alike.
+// lengthYears is still written (rounded up) for the lists that show years.
+export const MIN_TIMED_WEEKS = 4;
+
+/** The world's length in weeks: tickConfig.totalWeeks for a timed world, else lengthYears × 52. */
+export function worldTotalWeeks(world) {
+  const tw = Number(world?.tickConfig?.totalWeeks);
+  if (Number.isInteger(tw) && tw > 0) return tw;
+  return totalWeeks(world?.lengthYears ?? 0);
+}
+
+/** When a world that started at `startedAt` ends — exact for timed worlds too. */
+export const deriveWorldEndsAt = (startedAt, world) =>
+  new Date(startedAt.getTime() + worldTotalWeeks(world) * tickIntervalMs(world.weeksPerDay));
+
+/** Whole weeks that fit between two instants at this pace. */
+export const weeksBetween = (startAt, endAt, weeksPerDay) =>
+  Math.floor((new Date(endAt).getTime() - new Date(startAt).getTime()) / tickIntervalMs(weeksPerDay));
+
 // Human label for a pace, e.g. 48 → "1 week / 30 min", 1 → "1 week / 1 day".
 const fmtNum = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 export function paceLabel(weeksPerDay) {
@@ -169,7 +239,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries,
+  newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -193,8 +263,9 @@ export function validateWorldConfig({
   if (rivalItineraries != null && typeof rivalItineraries !== 'boolean') {
     throw badRequest('rivalItineraries must be true or false');
   }
-  if (!Number.isInteger(lengthYears) || lengthYears < MIN_LENGTH_YEARS || lengthYears > MAX_LENGTH_YEARS) {
-    throw badRequest(`lengthYears must be a whole number between ${MIN_LENGTH_YEARS} and ${MAX_LENGTH_YEARS}`);
+  const minLength = event ? MIN_EVENT_LENGTH_YEARS : MIN_LENGTH_YEARS;
+  if (!Number.isInteger(lengthYears) || lengthYears < minLength || lengthYears > MAX_LENGTH_YEARS) {
+    throw badRequest(`lengthYears must be a whole number between ${minLength} and ${MAX_LENGTH_YEARS}`);
   }
   if (!Number.isInteger(weeksPerDay) || weeksPerDay < MIN_WEEKS_PER_DAY || weeksPerDay > MAX_WEEKS_PER_DAY) {
     throw badRequest(`weeksPerDay must be a whole number between ${MIN_WEEKS_PER_DAY} and ${MAX_WEEKS_PER_DAY}`);
@@ -292,14 +363,20 @@ export function genWorldName() {
 // weeks FLOWN, and a finished world reads as year L week 52, 100% — never
 // "year 101 of 100".
 export function worldProgress(world) {
-  const total = totalWeeks(world.lengthYears);
+  const total = worldTotalWeeks(world);
   const flown = Math.min(total, (world.currentYear - 1) * WEEKS_PER_YEAR + world.currentWeek - 1);
   const complete = flown >= total;
+  // The last week flown, as year/week — year L week 52 for a whole-year world,
+  // wherever the clock stops for a timed one.
+  const lastYear = Math.floor((total - 1) / WEEKS_PER_YEAR) + 1;
+  const lastWeek = ((total - 1) % WEEKS_PER_YEAR) + 1;
   return {
-    year: complete ? world.lengthYears : world.currentYear,
-    week: complete ? WEEKS_PER_YEAR : world.currentWeek,
-    totalYears: world.lengthYears,
-    percent: Math.min(100, Math.round((flown / total) * 100)),
+    year: complete ? lastYear : world.currentYear,
+    week: complete ? lastWeek : world.currentWeek,
+    totalYears: lastYear,
+    totalWeeks: total,
+    weeksFlown: flown,
+    percent: total > 0 ? Math.min(100, Math.round((flown / total) * 100)) : 0,
   };
 }
 
@@ -365,6 +442,11 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // "your world". It is a cuid, not an email.
     supporterWorld: Boolean(world.ownerAccountId),
     ownerAccountId: world.ownerAccountId ?? null,
+    // Event world (operator competition, trophies for the top three): the
+    // trophy name, falling back to the world's own name. Null otherwise.
+    event: eventOf(world.tickConfig)
+      ? { name: eventOf(world.tickConfig).name ?? world.name, endAt: world.tickConfig?.endAt ?? null }
+      : null,
     startedAt: world.startedAt,
     endsAt: world.endsAt,
     createdAt: world.createdAt,
