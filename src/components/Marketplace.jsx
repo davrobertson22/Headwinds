@@ -59,10 +59,15 @@ function deliveredMaint(type, calYear = null) {
 // Design-age badge for the market card (era worlds only; classic → null).
 // Warns DESIGN_AGE_WARN_YEARS ahead so a buyer knows when the type starts to date.
 const DESIGN_AGE_WARN_YEARS = 5;
+// First calendar year passengers mark the design down. designAgeQualityPts is
+// zero while (calYear - eis) <= GRACE, so the first markdown lands at GRACE + 1.
+function designDatesFrom(type) {
+  return type.eis + DESIGN_AGE_GRACE_YEARS + 1;
+}
 function designAgeBadge(type, calYear) {
   if (calYear == null || type?.eis == null || type.category === 'Supersonic') return null;
   const pts = designAgeQualityPts(type, calYear);
-  const datesFrom = type.eis + DESIGN_AGE_GRACE_YEARS;
+  const datesFrom = designDatesFrom(type);
   if (pts < 0) {
     return { pts, label: `Dated design \u00b7 ${Math.round(pts)} quality`,
       title: `A ${type.eis} design. Passengers mark it down ${Math.round(-pts)} quality points today, rising to ${DESIGN_AGE_MAX_PENALTY} by ${type.eis + DESIGN_AGE_CAP_YEARS}.` };
@@ -72,6 +77,19 @@ function designAgeBadge(type, calYear) {
       title: `Passengers start marking this ${type.eis} design down in ${datesFrom} \u2014 1 quality point a year, up to ${DESIGN_AGE_MAX_PENALTY} by ${type.eis + DESIGN_AGE_CAP_YEARS}.` };
   }
   return null;
+}
+
+// Second line under the release year in the market table (era worlds only):
+// when the design starts to date, or how far it has dated already.
+function designDatingLine(type, calYear) {
+  if (calYear == null || type?.eis == null || type.category === 'Supersonic') return null;
+  const pts = designAgeQualityPts(type, calYear);
+  if (pts < 0) return { text: `dated \u00b7 ${Math.round(pts)} qual`, color: 'var(--red)' };
+  const datesFrom = designDatesFrom(type);
+  return {
+    text: `dates ${datesFrom}`,
+    color: calYear >= datesFrom - DESIGN_AGE_WARN_YEARS ? 'var(--yellow)' : 'var(--text-muted)',
+  };
 }
 
 function deliveredAgeYears(type, calYear = null) {
@@ -535,6 +553,7 @@ const TABLE_COLS = [
   { key: 'runway',   label: 'Runway',       align: 'right', title: 'Minimum runway length required (ft)' },
   { key: 'fuel',     label: 'Fuel/seat',    align: 'right', title: 'Litres per seat per 100 km (per tonne for freighters)' },
   { key: 'eff',      label: 'Fuel eff.',    align: 'right', title: 'Fuel cost per seat, scored 0-100 across the passenger fleet. FUEL ONLY — maintenance, crew and ownership are not in this number.' },
+  { key: 'eis',      label: 'Year',         align: 'right', title: 'Year the type entered service. In era games passengers start marking a design down once it is more than 15 years old; the line underneath says when.' },
   { key: 'age',      label: 'Age',          align: 'right', title: 'How old the airframe is on delivery. Out-of-production types arrive used.' },
   { key: 'maint',    label: 'Maint/wk',     align: 'right', title: 'Weekly maintenance as delivered — base rate already scaled for delivered age.' },
   { key: 'maintPer', label: 'Maint/seat',   align: 'right', title: 'Weekly maintenance as delivered, per seat (per tonne for freighters). The fuel efficiency score does not include this.' },
@@ -546,7 +565,7 @@ const TABLE_COLS = [
   { key: null,       label: '',             align: 'right' },
 ];
 
-function MarketTable({ rows, sort, setSort, onCheckout }) {
+function MarketTable({ rows, sort, setSort, onCheckout, calYearRef = null }) {
   const sorted = [...rows].sort((a, b) => {
     const { key, dir } = sort;
     const av = a[key], bv = b[key];
@@ -603,6 +622,18 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                 <td style={{ textAlign: 'right' }}>{t.runwayFt ? `${t.runwayFt.toLocaleString()} ft` : '–'}</td>
                 <td style={{ textAlign: 'right' }}>{r.fuel.toFixed(2)}</td>
                 <td style={{ textAlign: 'right', color: r.effColor, fontWeight: 600 }}>{t.freighter ? '–' : r.eff}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {t.eis ?? '\u2013'}
+                  {(() => {
+                    const d = designDatingLine(t, calYearRef);
+                    return d && (
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: d.color, whiteSpace: 'nowrap' }}
+                            title={`A ${t.eis} design. Passengers mark it down 1 quality point a year from ${designDatesFrom(t)}, up to ${DESIGN_AGE_MAX_PENALTY} by ${t.eis + DESIGN_AGE_CAP_YEARS}.`}>
+                        {d.text}
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td style={{ textAlign: 'right', color: r.age > 0 ? 'var(--yellow)' : 'var(--text-muted)' }}>
                   {r.age > 0 ? `${r.age}y used` : 'new'}
                 </td>
@@ -1101,6 +1132,7 @@ export default function Marketplace() {
             range:    type.range,
             speed:    cruiseSpeedKmh(type),
             runway:   type.runwayFt ?? 0,
+            eis:      type.eis ?? 0,
             fuel:     type.freighter
               ? type.fuelBurnPer100km / (type.payloadTonnes || 1)
               : type.fuelBurnPer100km / (type.seats || 1),
@@ -1127,7 +1159,7 @@ export default function Marketplace() {
             catColor: CAT_COLORS[type.category] || '#93a4ba',
           };
         });
-        return <MarketTable rows={rows} sort={sort} setSort={setSort} onCheckout={setCheckout} />;
+        return <MarketTable rows={rows} sort={sort} setSort={setSort} onCheckout={setCheckout} calYearRef={calYear} />;
       })()}
 
       {/* Aircraft grid */}
@@ -1227,9 +1259,12 @@ export default function Marketplace() {
               <div className="aircraft-market-body">
                 {/* Title */}
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', rowGap: 2 }}>
                     <span style={{ fontWeight: 700, fontSize: 17 }}>{type.name}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{type.manufacturer}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {type.manufacturer}
+                      {type.eis != null && <span title="Year the type entered service"> · Introduced {type.eis}</span>}
+                    </span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
                     {type.description}
