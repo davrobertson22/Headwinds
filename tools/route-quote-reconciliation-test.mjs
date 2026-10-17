@@ -277,6 +277,8 @@ function tickQuote(state, { origin, dest, frame, freq }) {
     pax: rr.passengers, lf: rr.loadFactor,
     odRevenue: rr.revenue - connecting,
     connecting,
+    connPax: rr.connecting?.totalPax ?? 0,
+    connCapScale: rr.connecting?.capacityScale ?? 1,
     opProfit: rr.profit,                     // routeRevenue − opCost − landing fee
     leaseCharged: rr.weeklyLeaseCost ?? 0,
     opCost: rr.totalOpCost, landingFee: rr.landingFee,
@@ -349,15 +351,27 @@ function reconcile(name, state, spec) {
       + ` (off ${(pct(got, want) * 100).toFixed(1)}%${scale !== Math.abs(want) ? ', ' + (off / scale * 100).toFixed(2) + '% of revenue' : ''})`);
   };
   const rev = t.odRevenue + t.connecting;
+  // Connecting passengers board the seats O&D leaves (× 0.95 ops buffer), so
+  // when that headroom binds (the tick's capacityScale < 1 — the norm on a hub
+  // spoke under the hub package) connecting is a RESIDUAL of O&D pax: every
+  // O&D passenger the quote is allowed to miss by moves one connecting seat the
+  // other way. Under the old rules the feed never reached the cap and this
+  // never came up; with the package on, a 0.3% O&D gap read as a 4% connecting
+  // gap, and the NWR wobble (±2.5% on O&D, quoted at its expectation) as 70%.
+  // So a capped leg's connecting tolerance adds exactly the O&D pax tolerance
+  // below, valued at the tick's connecting yield — no looser than the O&D
+  // check it inherits from.
+  const paxTol = Math.max(1, t.pax * demandPct);
+  const connSeatTol = t.connCapScale < 1 && t.connPax > 0 ? paxTol * (t.connecting / t.connPax) : 0;
   push('finder',  'pax',        f.pax,        t.pax,        1,   demandPct);
   push('finder',  'loadFactor', f.lf,         t.lf,         0.0005, demandPct);
   push('finder',  'odRevenue',  f.odRevenue,  t.odRevenue,  50,  demandPct);
-  push('finder',  'connecting', f.connecting, t.connecting, 100, demandPct);
+  push('finder',  'connecting', f.connecting, t.connecting, 100 + connSeatTol, demandPct);
   push('finder',  'opProfit',   f.opProfit,   t.opProfit,   100, demandPct, rev);
   push('planner', 'pax',        p.pax,        t.pax,        1,   demandPct);
   push('planner', 'loadFactor', p.lf,         t.lf,         p.tol.lf + 0.0005, demandPct);
   push('planner', 'odRevenue',  p.odRevenue,  t.odRevenue,  p.tol.odRevenue + 50,  demandPct);
-  push('planner', 'connecting', p.connecting, t.connecting, p.tol.connecting + 100, demandPct);
+  push('planner', 'connecting', p.connecting, t.connecting, p.tol.connecting + 100 + connSeatTol, demandPct);
   push('planner', 'opProfit',   p.opProfit,   t.opProfit,   p.tol.opProfit + 100,   demandPct, rev);
   push('planner', 'landingFee', p.landingFee, t.landingFee, 100, 0.005);
   // The lease each screen nets is the one the tick will charge the tail the

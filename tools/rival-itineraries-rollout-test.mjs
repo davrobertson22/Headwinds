@@ -4,8 +4,10 @@
 // worlds." Not the betas — the standard ruleset players are mid-game in. So:
 //   · a world with an explicit tickConfig.rivalItineraries uses it
 //   · a world WITHOUT the key predates the feature: on for alpha, OFF for beta/live
-//   · createWorld always writes the key (ON unless the creator unticks it), so
-//     every future world is on whatever its stage
+//   · createWorld always writes the key ON — there is no opt-out any more
+//     (Dave, 2026-10-17: rival connections are part of every new world, not a
+//     setup option), so every future world is on whatever its stage or body
+//   · the create form no longer offers the toggle or sends the field
 //   · the admin toggle writes an explicit true/false either way
 //   · serializeWorld's `rivalItineraries` (what the lobby chip reads) follows
 //     the same rule, so a beta world does not wear the ⇄ HUBS chip
@@ -48,15 +50,25 @@ await test('worlds that predate the feature: alpha ON, beta and live OFF', () =>
   assert.equal(rivalItinerariesOf({ stage: 'live' }), false);
 });
 
-await test('every future world stores the key — ON by default, OFF if unticked', async () => {
+await test('every future world stores the key ON — no opt-out at creation', async () => {
   for (const stage of ['alpha', 'beta', 'live']) {
     const p = fakePrisma();
     await createWorld(p, { ...BASE, stage });
     assert.equal(p.calls[0].tickConfig.rivalItineraries, true, `${stage} world created today is on`);
   }
-  const off = fakePrisma();
-  await createWorld(off, { ...BASE, stage: 'beta', rivalItineraries: false });
-  assert.equal(off.calls[0].tickConfig.rivalItineraries, false);
+  const asked = fakePrisma();
+  await createWorld(asked, { ...BASE, stage: 'beta', rivalItineraries: false });
+  assert.equal(asked.calls[0].tickConfig.rivalItineraries, true, 'a body asking for off still gets a world with rival connections');
+});
+
+await test('the create-world form has no rival-connections toggle and sends no flag', async () => {
+  const app = await readFile(new URL('../apps/headwinds-web/src/App.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /setRivalItineraries/, 'no toggle state in the form');
+  assert.doesNotMatch(app, /^\s*rivalItineraries,\s*$/m, 'no rivalItineraries in the create payload');
+  assert.match(app, /on: \(w\) => !!w\.rivalItineraries/, 'the lobby chip still reads the world (betas stay off)');
+  const route = await readFile(new URL('../apps/headwinds-server/src/routes/worlds.mjs', import.meta.url), 'utf8');
+  const createSchema = route.slice(route.indexOf("required: ['lengthYears', 'weeksPerDay']"), route.indexOf('endAt: {', route.indexOf("required: ['lengthYears', 'weeksPerDay']")));
+  assert.doesNotMatch(createSchema, /rivalItineraries/, 'POST /worlds no longer takes the field');
 });
 
 await test('the lobby chip follows the same rule', () => {

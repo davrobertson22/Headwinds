@@ -1125,7 +1125,7 @@ export function throughFare(sumOfLegs, origin, dest) {
 // in the player's connecting markets). Now a rival with a declared hub H flying
 // A–H and H–C puts a real A→H→C offer into the A–C market — the player's
 // nonstop market, their own-metal markets and their partner markets — through
-// the same logit that books everyone else. Gated on state.rivalItineraries.
+// the same logit that books everyone else. On unless state.rivalItineraries === false.
 
 /** Routings longer than this × the nonstop distance are not sold (DOH between JFK and CDG). */
 export const MAX_CIRCUITY = 1.5;
@@ -1214,15 +1214,17 @@ const RIVAL_INDEX_CACHE = new WeakMap();
 
 /**
  * The hub-connectivity package (HUB_CONNECTIVITY_PLAN.md) is ONE switch,
- * `state.rivalItineraries`. Off means the whole package is off — rival
- * one-stops, through-fares, the time-scaled connection penalty, partner feed
- * in real seats, AND the spill/choke rewrite of computeMarketShare — and a
- * world ticks byte-for-byte as it did before the package existed
- * (tools/golden-master/beta-world.mjs locks that). The existing beta worlds
- * run that way; the alphas and every new world run the package.
+ * `state.rivalItineraries`, and it is part of the engine: ON unless a state
+ * says `false` (Dave, 2026-10-17 — no longer a world-setup option). Off means
+ * the whole package is off — rival one-stops, through-fares, the time-scaled
+ * connection penalty, partner feed in real seats, AND the spill/choke rewrite
+ * of computeMarketShare — and a world ticks byte-for-byte as it did before the
+ * package existed (tools/golden-master/beta-world.mjs locks that). Only the
+ * pre-package beta worlds run that way: the Headwinds server stamps them an
+ * explicit `false` every tick (worldConfig.rivalItinerariesOf).
  */
 export function hubPackageOn(state) {
-  return state?.rivalItineraries === true;
+  return state?.rivalItineraries !== false;
 }
 
 /**

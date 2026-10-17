@@ -58,10 +58,13 @@ test('a declared hub with enough spokes is a connection point; a busy non-hub is
   assert.ok(!buildRivalHubIndex([thin]).get('thin').tierAt.has('FRA'), '3 spokes is below the T1 bar');
 });
 
-test('the index is off unless state.rivalItineraries is true', () => {
-  // OFF hands back the RIVALS_OFF sentinel — a real object, so "the caller
-  // passed nothing" (modern rules, no rivals) can never be mistaken for it.
-  assert.equal(rivalIndexFor({ competitors: [RHINE] }), RIVALS_OFF);
+test('the index is on unless state.rivalItineraries is explicitly false', () => {
+  // The package is part of the engine: a state with no flag runs it. Only a
+  // world stamped `false` (the pre-package beta worlds) gets the RIVALS_OFF
+  // sentinel — a real object, so "the caller passed nothing" (modern rules,
+  // no rivals) can never be mistaken for it.
+  assert.ok(rivalIndexFor({ competitors: [RHINE] }) instanceof Map, 'no flag = the package is on');
+  assert.ok(rivalsOn(rivalIndexFor({ competitors: [] })), 'no flag, nobody else in the world = modern rules');
   assert.equal(rivalIndexFor({ competitors: [RHINE], rivalItineraries: false }), RIVALS_OFF);
   assert.ok(isLegacy(RIVALS_OFF) && !rivalsOn(RIVALS_OFF));
   assert.ok(!isLegacy(undefined) && !rivalsOn(undefined), 'nothing passed = modern rules, no rivals');

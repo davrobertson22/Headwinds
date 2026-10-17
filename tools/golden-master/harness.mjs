@@ -41,6 +41,13 @@ export function runScenario({ seed = 0xC0FFEE, weeks = 60 } = {}) {
     let s = gameReducer(freshState(), {
       type: 'START_GAME', airlineName: 'GoldenAir', hub: 'JFK', enableObjectives: true,
     });
+    // A pre-package world (HUB_CONNECTIVITY_PLAN.md): the engine runs the hub
+    // package unless a state says `false`, and this baseline was captured on
+    // the old rules, so it says so (after START_GAME, which rebuilds state from
+    // freshState). The flag is an input, not engine output, so it is stripped
+    // before the snapshot. beta-world.mjs locks the same rules on a
+    // Headwinds-shaped two-hub network.
+    s = { ...s, rivalItineraries: false };
     s = gameReducer(s, { type: 'LEASE_AIRCRAFT', typeId: 'a320ceo' });
     const aircraftId = s.fleet[0]?.id;
     s = gameReducer(s, { type: 'ADD_GATE', airportCode: 'LAX' });
@@ -50,7 +57,8 @@ export function runScenario({ seed = 0xC0FFEE, weeks = 60 } = {}) {
     for (let w = 0; w < weeks; w++) {
       s = gameReducer(s, { type: 'ADVANCE_WEEK' });
     }
-    return s;
+    const { rivalItineraries: _input, ...out } = s;
+    return out;
   } finally {
     restore();
   }
