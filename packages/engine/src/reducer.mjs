@@ -13,7 +13,7 @@ import { featureLive, ERA_FEATURE_MESSAGE } from './data/eraFeatures.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
-  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
+  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, cabinRangeFix, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey, isMultiStop,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
@@ -1825,12 +1825,15 @@ export function applyRangeStranding(state, { toast = true } = {}) {
     if (hit) {
       if (route.rangeStranded) return route;          // already flagged
       changed = true;
+      const aircraft = (state.fleet ?? []).find(a => a.id === hit.aircraftId);
+      const type = aircraft ? getAircraftType(aircraft.typeId) : null;
       return {
         ...route,
         rangeStranded: {
           from: hit.from, to: hit.to,
           sectorKm: Math.round(hit.sectorKm), rangeKm: Math.round(hit.rangeKm),
           since: absWeek,
+          ...(hit.cargo ? {} : (cabinRangeFix(aircraft, type, hit.sectorKm) ?? {})),
         },
       };
     }

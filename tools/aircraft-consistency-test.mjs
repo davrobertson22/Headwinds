@@ -553,6 +553,20 @@ test('no freighter is strictly dominated by another', () => {
   assert.deepEqual(dominated, []);
 });
 
+test('the A350-1000ULR is a real choice against both its A350 siblings (Oct 2026)', () => {
+  // Range is the ULR's whole case, and tools/ulr-range-test.mjs holds that half:
+  // a full cabin flies exactly as far as the -1000, a light one much further. This
+  // half holds the price of it: dearer and thirstier than the -1000 it is built
+  // from, and more seats than the -900ULR for more money.
+  const ulr = BY_ID.a3501000ulr, k = BY_ID.a3501000, nine = BY_ID.a350900ulr;
+  assert.ok(ulr, 'a3501000ulr exists');
+  assert.ok(ulr.purchasePrice > k.purchasePrice && ulr.weeklyLease > k.weeklyLease
+    && ulr.fuelBurnPer100km > k.fuelBurnPer100km, 'ULR costs more than the -1000');
+  assert.ok(ulr.seats > nine.seats && ulr.purchasePrice > nine.purchasePrice
+    && ulr.fuelBurnPer100km > nine.fuelBurnPer100km, 'ULR buys seats from the -900ULR with price and fuel');
+  assert.equal(ulr.eis, 2027);
+});
+
 test('no modern widebody is Pareto-dominated by another (2026-08-24 rebalance)', () => {
   // Three new-build widebodies used to lose on EVERY axis to a cheaper rival —
   // the 787-10 and C929 to the A330neo, the 777X-8 to the A350-900ULR — so they

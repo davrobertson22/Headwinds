@@ -16,6 +16,7 @@ import {
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
   freighterLandingCategory, aircraftUtilization,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, coverOutlookByAircraft,
+  effectiveRangeKm,
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { ReserveBadge } from './ReserveNotice.jsx';
@@ -842,7 +843,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
           {/* Specs strip */}
           <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
             <span>⟣ {type?.seats ?? '?'} seats max</span>
-            <span>↔ {type?.range?.toLocaleString() ?? '?'} km range</span>
+            <span title="This aircraft's reach with its current cabin and any engine or wingtip options">↔ {type ? effectiveRangeKm(aircraft, type).toLocaleString() : '?'} km range</span>
             <span><Glyph e="⛽" /> {type?.fuelBurnPer100km?.toFixed(0)} L/100km fuel burn</span>
             {aircraft.engineLabel && <span><Glyph e="🔧" /> {aircraft.engineLabel}</span>}
             {aircraft.hasWingtips  && <span style={{ color: 'var(--green)' }}>◇ Wingtips</span>}

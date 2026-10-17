@@ -8,7 +8,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
 import { fuelCostPerKm } from '../src/utils/fuel.js';
-import { cruiseSpeedKmh } from '../src/utils/simulation.js';
+import { cruiseSpeedKmh, lightCabinRange } from '../src/utils/simulation.js';
+
+// A ULR's catalogue range is its FULL-cabin figure; say what a light cabin reaches.
+const lightCabinNote = (t) => { const lc = lightCabinRange(t); return lc ? ` (${fmtIntLite(lc.km)} km at ${lc.seats} seats)` : ''; };
+const fmtIntLite = (n) => Math.round(n).toLocaleString('en-US');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'public');
@@ -41,7 +45,7 @@ const PAGES = [
       <p>Widebodies are how a Tailwinds airline goes intercontinental — and how plenty of them go bankrupt. A twin-aisle jet carries two to three times the passengers of a narrow-body, costs several times as much to lease, and burns fuel accordingly. On a dense long-haul trunk route it prints money; on a thin route it is the fastest way to destroy a healthy balance sheet.</p>
       <p>Fill rate is everything at this scale. A 300-seat jet at 85% load is a triumph; the same jet at 45% is a weekly six-figure loss. Before leasing any aircraft on this page, be confident the city pair can actually fill it — big populations at both ends, ideally with hub feed behind one of them.</p>
       <h2>How to choose</h2>
-      <p>Modern twins (787, A350, 777) dominate the efficiency table and should be your default for new long-haul flying. Older types — A340s, early 777s, the 767 family — lease for dramatically less and remain sensible on routes you have already proven, or as a bridge while you build cash. Watch range carefully: ultra-long-range variants carry a lease premium you only earn back on routes that actually need it.</p>`,
+      <p>Modern twins (787, A350, 777) dominate the efficiency table and should be your default for new long-haul flying. Older types — A340s, early 777s, the 767 family — lease for dramatically less and remain sensible on routes you have already proven, or as a bridge while you build cash. Watch range carefully: ultra-long-range variants carry a lease premium you only earn back on routes that actually need it. The A350 ULRs fly no further than a standard A350 with every seat filled. Their extra fuel only goes in as seats come out, so the range they are famous for needs a light, premium-heavy cabin, the way Singapore and Qantas fly them.</p>`,
   },
   {
     file: 'aircraft-regional-jets.html',
@@ -236,7 +240,7 @@ function statsTable(group, isFreight) {
       (t) => `      <tr>
         <td><a href="#${t.id}">${esc(t.name)}</a></td>
         <td>${isFreight ? `${t.payloadTonnes} t` : fmtInt(t.seats)}</td>
-        <td>${fmtInt(t.range)} km</td>
+        <td>${fmtInt(t.range)} km${lightCabinNote(t)}</td>
         <td>${fmtInt(cruiseSpeedKmh(t))} km/h</td>
         <td>${fmtMoney(t.weeklyLease)}</td>
         <td>${fmtMoney(t.purchasePrice)}</td>
@@ -256,7 +260,7 @@ ${rows}
 function aircraftCard(t, group, isFreight) {
   const specs = [
     isFreight ? `<span>Payload <b>${t.payloadTonnes} tonnes</b></span>` : `<span>Seats <b>${fmtInt(t.seats)}</b></span>`,
-    `<span>Range <b>${fmtInt(t.range)} km</b></span>`,
+    `<span>Range <b>${fmtInt(t.range)} km</b>${lightCabinNote(t)}</span>`,
     `<span>Cruise <b>${fmtInt(cruiseSpeedKmh(t))} km/h</b></span>`,
     `<span>Lease <b>${fmtMoney(t.weeklyLease)}/wk</b></span>`,
     `<span>Buy <b>${fmtMoney(t.purchasePrice)}</b></span>`,

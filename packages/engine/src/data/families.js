@@ -101,6 +101,7 @@ export const AIRCRAFT_FAMILY = {
 
   // Airbus A350 ─────────────────────────────────────────────────────────────
   a350900: 'airbus_a350', a350900ulr: 'airbus_a350', a3501000: 'airbus_a350',
+  a3501000ulr: 'airbus_a350',                               // Project Sunrise: -1000 airframe + rear centre tank
   a350f: 'airbus_a350',                                     // A350F = -1000 airframe, freight door
 
   // Airbus A380 ─────────────────────────────────────────────────────────────

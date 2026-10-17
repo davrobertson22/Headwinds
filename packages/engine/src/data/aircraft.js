@@ -9,6 +9,9 @@
 // crewCostPerKm:        crew wages per km flown ($)
 // baseMaintenancePerWk: base maintenance per week at age 0 ($)
 // range:                max range (km)
+// payloadRangeGain:     optional — ultra-long-range types only: range bonus at an empty
+//                       cabin (default 0.15). `range` is then the FULL-cabin figure. See
+//                       payloadRangeGainOf in utils/simulation.js.
 // runwayFt:             minimum runway length required (ft) — both endpoints of a
 //                       route must have airport.runwayFt >= this to operate
 // steepApproach:        true = holds Steep Approach (SAp) certification (may use
@@ -463,14 +466,18 @@ export const AIRCRAFT_TYPES = [
     category: 'Wide Body',
     eis: 2018,
     seats: 440,   // same airframe as the A350-900; carriers configure capacity down
-    range: 18_000,
+    // Full cabin: weight-limited to the -900's range, extra tank empty. Each seat
+    // taken out becomes fuel: Singapore's 161-seat cabin reaches ~17,850 km, enough
+    // for SIN-New York. Third of the seats (147) ~18,000 km. tools/ulr-range-test.mjs
+    range: 15_000,
+    payloadRangeGain: 0.30,
     runwayFt: 8900,
     weeklyLease:      423_000,
     purchasePrice: 195000000,
     fuelBurnPer100km: 813,   // heavier than the -900 (extra centre-tank fuel/weight)
     crewCostPerKm: 3.6,      // same crew as the -900
     baseMaintenancePerWk: 255_000,  // marginally higher than the -900
-    description: 'Ultra-long-range A350. The only aircraft capable of operating the world\'s longest routes.',
+    description: 'Ultra-long-range A350. With a full cabin it flies no further than a -900; strip it to a premium cabin and its extra fuel reaches 18,000 km.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Singapore_Airlines_Airbus_A350-900_ULR_at_New_York_JFK.jpg/960px-Singapore_Airlines_Airbus_A350-900_ULR_at_New_York_JFK.jpg',
   },
   {
@@ -489,6 +496,27 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 290_000,
     description: 'Stretched A350. Highest capacity twin-engine aircraft available.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Airbus_A350-1000_F-WMIL_15.jpg/960px-Airbus_A350-1000_F-WMIL_15.jpg',
+  },
+  {
+    id: 'a3501000ulr',
+    name: 'Airbus A350-1000ULR',
+    manufacturer: 'Airbus',
+    category: 'Wide Body',
+    eis: 2027,    // Qantas Project Sunrise: first flight June 2026, first delivery April 2027
+    seats: 480,   // same airframe as the A350-1000; Qantas configures 238 for 22-hour sectors
+    // Full cabin: weight-limited to the -1000's 16,100 km, extra tank empty. Each
+    // seat taken out becomes fuel: Qantas' 238-seat cabin reaches ~18,500 km
+    // (SYD-London 17,000). Third of the seats (160) ~19,300 km. tools/ulr-range-test.mjs
+    range: 16_100,
+    payloadRangeGain: 0.30,
+    runwayFt: 9300, // higher MTOW than the -1000 (8,500), as the -900ULR sits over the -900
+    weeklyLease:      486_000,  // -1000 x 1.05, the -900ULR's premium over the -900
+    purchasePrice: 222000000,   // -1000 x 1.055, likewise
+    fuelBurnPer100km: 883,      // -1000 x 1.042 (heavier: tank structure + fuel), the -900ULR's ratio
+    crewCostPerKm: 3.83,        // same crew as the -1000
+    baseMaintenancePerWk: 296_000,  // marginally higher than the -1000
+    description: 'Qantas\' Project Sunrise A350. With a full cabin it flies no further than a -1000; with a light premium cabin its extra fuel tank takes it Sydney to London nonstop.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cc/Airbus_Industrie_F-WULR_Airbus_A350-1041_Melbourne_International_Airport_%28MEL_YMML%29_%2855482809183%29.jpg/960px-Airbus_Industrie_F-WULR_Airbus_A350-1041_Melbourne_International_Airport_%28MEL_YMML%29_%2855482809183%29.jpg',
   },
   {
     id: 'a380',

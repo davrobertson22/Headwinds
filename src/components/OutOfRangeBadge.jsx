@@ -20,7 +20,10 @@ export default function OutOfRangeBadge({ route, style = null }) {
       border: '1px solid rgba(248,81,73,0.3)',
       textTransform: 'uppercase', letterSpacing: '.04em',
     }} title={`The ${r.from}–${r.to} leg is ${km(r.sectorKm)}; this aircraft reaches ${km(r.rangeKm)}. `
-            + `Not flying. Reassign to a longer-range aircraft — the route keeps its ramp and pricing.`}>
+            + (r.cabinFixSeats
+              ? `Not flying. A lighter cabin brings it back in range: about ${km(r.cabinFixKm)} at ${r.cabinFixSeats} seats. `
+                + `Refit it from the Fleet page, or reassign the route to a longer-range aircraft — the route keeps its ramp and pricing.`
+              : `Not flying. Reassign to a longer-range aircraft — the route keeps its ramp and pricing.`)}>
       <Glyph e="📏" /> Out of range
     </span>
   );

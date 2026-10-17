@@ -48,7 +48,7 @@ export const PRODUCTION_LINES = {
   a300:            { name: 'Airbus A300 / A310',          types: ['a300b4', 'a310200', 'a310300', 'a300600r', 'a300600f'] },
   a330:            { name: 'Airbus A330 / A340',          types: ['a330200', 'a330300', 'a340300', 'a340600', 'a330200f'] },
   a330neo:         { name: 'Airbus A330neo',              types: ['a330neo', 'a330800'] },
-  a350:            { name: 'Airbus A350',                 types: ['a350900', 'a350900ulr', 'a3501000', 'a350f'] },
+  a350:            { name: 'Airbus A350',                 types: ['a350900', 'a350900ulr', 'a3501000', 'a3501000ulr', 'a350f'] },
   a380:            { name: 'Airbus A380',                 types: ['a380'] },
   b707:            { name: 'Boeing 707 / 720',            types: ['b707120', 'b707320', 'b720b'] },
   b717:            { name: 'Boeing 717',                  types: ['b717'] },

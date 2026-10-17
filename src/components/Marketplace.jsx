@@ -19,7 +19,7 @@ import {
   LESSOR_MIN_AGE_YEARS,
   leaseOrderBookCap,
 } from '../data/aircraft.js';
-import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh } from '../utils/simulation.js';
+import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh, lightCabinRange } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
@@ -598,7 +598,7 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
                   </div>
                 </td>
                 <td style={{ textAlign: 'right' }}>{t.freighter ? `${t.payloadTonnes}t` : t.seats}</td>
-                <td style={{ textAlign: 'right' }}>{t.range.toLocaleString()} km</td>
+                <td style={{ textAlign: 'right' }}><RangeValue type={t} /></td>
                 <td style={{ textAlign: 'right' }}>{r.speed.toLocaleString()} km/h</td>
                 <td style={{ textAlign: 'right' }}>{t.runwayFt ? `${t.runwayFt.toLocaleString()} ft` : '–'}</td>
                 <td style={{ textAlign: 'right' }}>{r.fuel.toFixed(2)}</td>
@@ -658,6 +658,25 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+
+// Range as the catalogue quotes it, plus, for an ultra-long-range type (whose
+// figure is for a FULL cabin), what a light cabin reaches. See lightCabinRange in
+// utils/simulation.js: the A350 ULRs fly no further than their standard siblings
+// full, and turn every seat taken out into fuel.
+function RangeValue({ type }) {
+  const lc = lightCabinRange(type);
+  return (
+    <>
+      {type.range.toLocaleString()} km
+      {lc && (
+        <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
+              title={`${type.range.toLocaleString()} km with every seat filled. Take seats out and the extra fuel goes in: ${lc.km.toLocaleString()} km with ${lc.seats} seats.`}>
+          {lc.km.toLocaleString()} km at {lc.seats} seats
+        </span>
+      )}
+    </>
+  );
+}
 
 export default function Marketplace() {
   const { state, dispatch } = useGame();
@@ -1225,7 +1244,7 @@ export default function Marketplace() {
                   </div>
                   <div className="aircraft-stat-pill">
                     <span className="aircraft-stat-pill-label">Range</span>
-                    <span className="aircraft-stat-pill-value">{type.range.toLocaleString()} km</span>
+                    <span className="aircraft-stat-pill-value"><RangeValue type={type} /></span>
                   </div>
                   <div className="aircraft-stat-pill" title="Cruise speed. Block time is flight time plus turnaround, so this is what caps how many rotations a week the frame can fly.">
                     <span className="aircraft-stat-pill-label">Cruise</span>

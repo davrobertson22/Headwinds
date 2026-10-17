@@ -416,9 +416,52 @@ export const CLASS_SPACE_MULTIPLIERS = {
 
 /** Max range bonus when the cabin carries (almost) no payload.
  *  Passengers are only ~12–15% of a jet's max takeoff weight, so trading payload
- *  for fuel on a fixed airframe realistically buys ~10–15% range — not more. (The
- *  real A350 ULR's bigger gain comes from added fuel tankage, which we don't model.) */
+ *  for fuel on a fixed airframe realistically buys ~10–15% range — not more.
+ *  Ultra-long-range variants are the exception and declare their own, steeper
+ *  `payloadRangeGain` (see payloadRangeGainOf). */
 export const CONFIG_RANGE_GAIN_MAX = 0.15;     // up to +15% range
+
+/**
+ * The range bonus ceiling for a type. An ultra-long-range variant (the A350
+ * ULRs) carries extra fuel tankage it can only fill when payload comes out: with
+ * a full cabin it is weight-limited to its standard sibling's range, and every
+ * seat removed becomes fuel. Its `range` is therefore the full-cabin figure and
+ * its own `payloadRangeGain` is steep. Every other type uses the standard curve.
+ * Guarded by tools/ulr-range-test.mjs.
+ */
+export function payloadRangeGainOf(type) {
+  return type?.payloadRangeGain ?? CONFIG_RANGE_GAIN_MAX;
+}
+
+/** The share of a steep-curve type's seats the market screens quote its light-cabin range at. */
+export const LIGHT_CABIN_SHARE = 1 / 3;
+
+/**
+ * For a type with its own payload-range curve, the range it reaches with a light
+ * cabin (a third of its seats), so a market screen can say what the extra tank
+ * buys: { seats, km }. Null for every other type, whose headline range already
+ * tells the story.
+ */
+export function lightCabinRange(type) {
+  if (type?.payloadRangeGain == null || !type.seats) return null;
+  const seats = Math.round(type.seats * LIGHT_CABIN_SHARE);
+  return { seats, km: Math.round(type.range * configRangeMod({ economy: seats }, type) / 100) * 100 };
+}
+
+/**
+ * A passenger aircraft has fallen short of a leg: would a light cabin (a third of
+ * its seats, the cabin the market quotes) bring it back in range? Returns
+ * { cabinFixSeats, cabinFixKm } when it would, else null. The out-of-range notice
+ * offers it next to "reassign": for an ultra-long-range type flying a dense cabin
+ * a refit IS the fix, and for any type a few percent short it is the cheap one.
+ */
+export function cabinRangeFix(aircraft, type, sectorKm) {
+  if (!aircraft || !type || type.freighter || !type.seats) return null;
+  const seats = Math.round(type.seats * LIGHT_CABIN_SHARE);
+  if (configBodies(aircraft.config ?? defaultConfig(type.seats)) <= seats) return null;   // already that light
+  const km = effectiveRangeKm({ ...aircraft, config: { economy: seats } }, type);
+  return km >= sectorKm ? { cabinFixSeats: seats, cabinFixKm: km } : null;
+}
 /** Max quality points awarded for an entirely empty (impossibly spacious) floor. */
 export const CONFIG_SPACE_QUALITY_MAX = 14;
 
@@ -444,7 +487,7 @@ export function configRangeMod(config, type) {
   const maxBodies = type?.seats ?? 0;
   if (!maxBodies) return 1;
   const frac = Math.max(0, Math.min(1, configBodies(config) / maxBodies));
-  return 1 + CONFIG_RANGE_GAIN_MAX * (1 - frac);
+  return 1 + payloadRangeGainOf(type) * (1 - frac);
 }
 
 /** Quality points from floor space left deliberately empty (extra room per pax). */
