@@ -319,6 +319,17 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
 // ── Create world ──────────────────────────────────────────────────────────────
 
 const LENGTH_PRESETS = [10, 25, 50, 100, 200];
+// The browser's time zone, e.g. "PDT · America/Los_Angeles" — datetime-local
+// inputs are read in it, and the server stores the converted UTC instant.
+export function localTzLabel(date = new Date()) {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const short = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+      .formatToParts(date).find((p) => p.type === 'timeZoneName')?.value;
+    return [short, zone].filter(Boolean).join(' · ');
+  } catch { return 'local time'; }
+}
+
 // "About 26 real hours" — how long a world of this many weeks runs in real time.
 export function realDurationLabel(weeks, weeksPerDay) {
   if (!(weeks > 0) || !(weeksPerDay > 0)) return '';
@@ -505,6 +516,9 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
               <input type="datetime-local" required value={endAt}
                 onChange={(e) => setEndAt(e.target.value)} />
             </label>
+            <span className="muted small">
+              Times are in your own time zone ({localTzLabel()}). Players see them converted to theirs.
+            </span>
             <span className="muted small">
               {eventWeeks == null ? 'Players can join and set up from now; the clock starts at the start time.'
                 : eventWeeks < 4 ? 'Too short — an event needs at least 4 game-weeks. Move the end later or speed up the pace.'
