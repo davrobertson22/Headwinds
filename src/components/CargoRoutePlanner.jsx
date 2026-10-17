@@ -4,7 +4,7 @@ import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn, a
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
-import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm, calendarYear } from '../utils/simulation.js';
+import { simulateCargoRoute, cargoLaneAllocations, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm, forecastRangeMod, calendarYear } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
 import { cargoPriceChokeFactor, CARGO_PRICE_CAP_MULTIPLE } from '../models/demand.js';
 import { runwayShortfall } from '../data/airportRestrictions.js';
@@ -290,7 +290,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     // range guard and no part of the economics.
     const quotedReach = reachKmFor(type);
     const ac    = { id: 'p', typeId: selectedTypeId, ageWeeks: 0,
-      rangeMod: type.range > 0 ? quotedReach / type.range : 1.0 };
+      rangeMod: forecastRangeMod(type, quotedReach) };
     if (routeData.dist > quotedReach) return null;
     // Joining a lane you already fly: project THIS aircraft's slice of the
     // shared pool, not the full market (the same math the weekly tick runs).

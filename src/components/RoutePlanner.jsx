@@ -9,7 +9,7 @@ import {
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS,
   buildEventDemandModel, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor,
-  maxFrequency, routeActiveMonths, effectiveRangeKm,
+  maxFrequency, routeActiveMonths, effectiveRangeKm, forecastRangeMod,
   calendarYear, stateCateringCapReport,
   newAircraftConfig, typicalSeatsOf,
 } from '../utils/simulation.js';
@@ -780,7 +780,7 @@ export default function RoutePlanner() {
     // the rate it signed, not the catalogue rate.
     const tail = fleetOfType[0] ?? null;
     const simAircraft = { id:'p', typeId: selectedTypeId, ageWeeks: tail?.ageWeeks ?? 0,
-      rangeMod: type.range > 0 ? quotedReach / type.range : 1.0,
+      rangeMod: forecastRangeMod(type, quotedReach, effectiveConfig ?? undefined),
       config: effectiveConfig ?? undefined };
     const weeklyLease = tail
       ? (tail.ownershipType === 'owned' ? 0 : (tail.weeklyLease ?? type.weeklyLease))

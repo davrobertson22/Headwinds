@@ -511,6 +511,20 @@ export function effectiveRangeKm(aircraft, type) {
 }
 
 /**
+ * The rangeMod a FORECAST frame needs so that, flown with `config`, it reaches
+ * exactly `quotedReachKm` — the reach the picker quoted, which is a real tail's
+ * effectiveRangeKm and so already includes that tail's own cabin payload. A frame
+ * that copied quotedReach / range and then flew a cabin as well paid the cabin's
+ * payload twice: an A340-300 at 362 seats quoted 12,351 km, forecast 11,300 km,
+ * and the planner refused a 12,003 km lane the engine accepts (Discord, 2026-10-17).
+ */
+export function forecastRangeMod(type, quotedReachKm, config) {
+  if (!type || !(type.range > 0)) return 1.0;
+  const cabin = configRangeMod(config ?? newAircraftConfig(type), type);
+  return quotedReachKm / (type.range * (cabin > 0 ? cabin : 1));
+}
+
+/**
  * Range under the rule in force before 2026-10-17: headline range with every seat
  * filled, +CONFIG_RANGE_GAIN_MAX at an empty cabin — and the headline as it stood
  * then (`legacyRange`, on the types whose figure was corrected that day). Only

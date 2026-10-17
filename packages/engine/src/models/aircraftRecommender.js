@@ -49,7 +49,7 @@
 import { getAircraftType } from '../data/aircraft.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 import {
-  defaultConfig, defaultClassPrices, effectiveRangeKm, maxFrequency, routeActiveMonths,
+  defaultConfig, defaultClassPrices, effectiveRangeKm, forecastRangeMod, maxFrequency, routeActiveMonths,
   newAircraftConfig,
 } from '../utils/simulation.js';
 import { projectRouteAddition } from './pairShare.js';
@@ -168,7 +168,7 @@ export function rankAircraftForRoute(state, {
       id: '__rec__',
       typeId: type.id,
       ageWeeks: tail?.ageWeeks ?? 0,
-      rangeMod: type.range > 0 ? quotedReach / type.range : 1.0,
+      rangeMod: forecastRangeMod(type, quotedReach, cfg),
       config: cfg,
     };
 

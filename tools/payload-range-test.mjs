@@ -27,7 +27,9 @@ import {
   effectiveRangeKm, legacyEffectiveRangeKm, routeReachKm, payloadRangeMod, newAircraftConfig,
   grandfatherRouteRanges, routeRangeShortfall, cabinRangeFix, fullCabinRangeKm, defaultConfig,
   distanceKm, LIGHT_CABIN_GAIN_MAX, PAX_PAYLOAD_KG, FUEL_KG_PER_L,
+  forecastRangeMod, referencePrice, defaultClassPrices,
 } from '../src/utils/simulation.js';
+import { rankAircraftForRoute } from '../src/models/aircraftRecommender.js';
 import { pickCompetitorAircraftType } from '../src/models/demand.js';
 import { routeDistance } from '../src/utils/market.js';
 
@@ -169,6 +171,40 @@ test('corrected types keep their old figure for grandfathered routes only', () =
   for (const t of AIRCRAFT_TYPES.filter(x => x.legacyRange != null)) {
     assert.equal(legacyEffectiveRangeKm({ typeId: t.id, config: eco(t.seats) }, t), t.legacyRange, t.id);
   }
+});
+
+// ── 5c. A forecast pays for its cabin once ──────────────────────────────────
+// The planner quotes a type at its longest-legged tail's effectiveRangeKm, which
+// already includes that tail's cabin payload, then forecasts on a frame flying a
+// cabin. Scaling the frame by quotedReach / range charged the cabin twice: an
+// A340-300 at 14F/28J/60W/260Y quoted 12,351 km, forecast 11,300 km, and LAX–SYD
+// (12,061 km) showed no forecast and no Open Route button (Discord, 2026-10-17).
+test('a forecast frame reaches exactly the reach the picker quoted', () => {
+  const t = T('a340300');
+  const cabin = { firstClass: 14, businessClass: 28, premiumEconomy: 60, economy: 260 };
+  const quoted = effectiveRangeKm({ typeId: t.id, config: cabin }, t);
+  assert.ok(quoted > km('LAX', 'SYD'), 'fixture: the tail reaches LAX–SYD');
+  for (const cfg of [cabin, eco(t.seats), eco(typicalSeatsOf(t)), undefined]) {
+    const frame = { typeId: t.id, rangeMod: forecastRangeMod(t, quoted, cfg), config: cfg };
+    assert.equal(effectiveRangeKm(frame, t), quoted, JSON.stringify(cfg));
+  }
+  const doubled = effectiveRangeKm({ typeId: t.id, rangeMod: quoted / t.range, config: cabin }, t);
+  assert.ok(doubled < km('LAX', 'SYD'), 'the old frame fell short — the bug this guards');
+});
+
+test('the recommender forecasts a tail on a lane its cabin reaches', () => {
+  const t = T('a340300');
+  const cabin = { firstClass: 14, businessClass: 28, premiumEconomy: 60, economy: 260 };
+  const tail = { id: 'jap', typeId: t.id, tailNumber: 'B-JAPBD', status: 'idle', ownershipType: 'owned', ageWeeks: 52, config: cabin };
+  const quoted = effectiveRangeKm(tail, t);
+  const fare = Math.round(referencePrice('LAX', 'SYD'));
+  const state = { week: 60, absWeek: 60, hub: 'LAX', hubs: {}, cash: 5e8, fleet: [tail], routes: [], cargoRoutes: [],
+    competitors: [], humanRivals: {}, encroachments: {}, gates: { LAX: 5, SYD: 5 }, routePricing: {},
+    gameDate: { week: 60, month: 6, absWeek: 60 } };
+  const rows = rankAircraftForRoute(state, { origin: 'LAX', destination: 'SYD', distKm: Math.round(km('LAX', 'SYD')),
+    types: [t], weeklyFrequency: 4, ticketPrice: fare, classPrices: defaultClassPrices(fare),
+    gameDate: state.gameDate, reachKmFor: () => quoted, configFor: () => cabin });
+  assert.ok(rows[0]?.projection, 'A340-300 row has no forecast on a lane it reaches');
 });
 
 test('a new game starts on the new rule (nothing to grandfather)', () => {
