@@ -216,6 +216,17 @@ export function loadLiveryTemplate(spec) {
 // `src` is a data URL / URL (uploaded logo) or an SVG markup string (a preset
 // AirlineLogo rendered to static markup). Resolves to an Image, cached by src.
 const logoLoads = new Map();
+
+// SVG markup → data URL the browser will decode as an image. React's
+// renderToStaticMarkup leaves the root <svg> without an xmlns, and a
+// namespace-less SVG document is not an image: Image.onerror fires and the
+// fin came out blank (reported the day the editor shipped). Add it when absent.
+export function svgImageUrl(markup) {
+  const m = String(markup).trimStart();
+  const withNs = /^<svg\b[^>]*\sxmlns=/.test(m) ? m : m.replace(/^<svg\b/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(withNs)}`;
+}
+
 export function loadLogoImage(src) {
   if (!src) return Promise.resolve(null);
   if (!logoLoads.has(src)) {
@@ -228,7 +239,7 @@ export function loadLogoImage(src) {
       // load with CORS or drawing it would taint the canvas and break
       // getImageData; a route without the headers just yields no logo.
       if (!svg && !src.startsWith('data:')) img.crossOrigin = 'anonymous';
-      img.src = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(src)}` : src;
+      img.src = svg ? svgImageUrl(src) : src;
     }));
     if (logoLoads.size > 64) logoLoads.delete(logoLoads.keys().next().value);
   }

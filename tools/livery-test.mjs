@@ -223,5 +223,32 @@ await test('the Fleet page shows the livery card with the way into the editor', 
   assert.match(html, /data-livery-template="b737-800"/);
 });
 
+console.log('\n── 7. Logo on the tail ─────────────────────────────────────────────');
+// The fin logo is the preset AirlineLogo rendered to static markup and loaded
+// as an SVG data URL. Browsers refuse an SVG image whose root has no xmlns —
+// React never emits one — so the logo silently never appeared (reported on
+// Discord the day the editor shipped). The loader must add the namespace.
+const { svgImageUrl } = await import('../src/utils/liveryPaint.js');
+const AirlineLogo = (await import('../src/components/AirlineLogo.jsx')).default;
+const { renderToStaticMarkup } = await import('react-dom/server');
+
+await test('a preset logo rasterises to an SVG data URL carrying the SVG namespace', () => {
+  const markup = renderToStaticMarkup(React.createElement(AirlineLogo, { id: 'horizon', accentColor: '#2563eb', size: 128, radius: 26 }));
+  assert.match(markup, /^<svg/, 'AirlineLogo renders a bare <svg>');
+  assert.doesNotMatch(markup, /xmlns=/, 'React emits no xmlns — the loader has to add it');
+  const url = svgImageUrl(markup);
+  assert.match(url, /^data:image\/svg\+xml;charset=utf-8,/);
+  const decoded = decodeURIComponent(url.slice(url.indexOf(',') + 1));
+  assert.match(decoded, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"[\s>]/);
+  assert.ok(decoded.includes('viewBox="0 0 40 40"'), 'the rest of the markup is intact');
+});
+
+await test('markup that already has the namespace is left alone', () => {
+  const src = '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>';
+  const decoded = decodeURIComponent(svgImageUrl(src).split(',').slice(1).join(','));
+  assert.equal(decoded, src);
+  assert.equal((decoded.match(/xmlns=/g) || []).length, 1);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
