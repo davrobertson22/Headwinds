@@ -30,6 +30,9 @@
 // metro pool, and sibling-pair rivals were invisible to the tick.
 
 import assert from 'node:assert/strict';
+import { routeDistance } from '../packages/engine/src/utils/market.js';
+import { maxSeatsForRange } from '../packages/engine/src/data/aircraft.js';
+import { newAircraftConfig } from '../src/utils/simulation.js';
 import {
   weeklyTick, defaultConfig, defaultClassPrices,
 } from '../packages/engine/src/utils/simulation.js';
@@ -62,9 +65,11 @@ function run(routeSpecs, { competitors = [], humanRivals = {}, priceMult = 1 } =
       defaultClassPrices(Math.round(referencePrice(o, d) * priceMult));
   }
   const state = {
-    fleet: routeSpecs.map(([, , id]) => ({
+    fleet: routeSpecs.map(([o, d, id]) => ({
       id, typeId: TYPE.id, status: 'assigned', ageWeeks: 52,
-      config: defaultConfig(TYPE.seats), ownershipType: 'owned',
+      // As many seats as each lane allows (maxSeatsForRange): a new A320neo now
+      // arrives at its typical 165, which left these pools capacity-bound.
+      config: { ...newAircraftConfig(TYPE), economy: maxSeatsForRange(TYPE, routeDistance(o, d)) }, ownershipType: 'owned',
     })),
     routes: routeSpecs.map(([o, d, id]) => ({
       id: `r-${id}`, origin: o, destination: d, aircraftId: id,
@@ -235,9 +240,11 @@ test('pairMarketShare previews the SAME pooled lane the tick books', async () =>
       defaultClassPrices(Math.round(referencePrice(o, d) * PM));
   }
   const state = {
-    fleet: specs.map(([, , id]) => ({
+    fleet: specs.map(([o, d, id]) => ({
       id, typeId: TYPE.id, status: 'assigned', ageWeeks: 52,
-      config: defaultConfig(TYPE.seats), ownershipType: 'owned',
+      // As many seats as each lane allows (maxSeatsForRange): a new A320neo now
+      // arrives at its typical 165, which left these pools capacity-bound.
+      config: { ...newAircraftConfig(TYPE), economy: maxSeatsForRange(TYPE, routeDistance(o, d)) }, ownershipType: 'owned',
     })),
     routes: specs.map(([o, d, id]) => ({
       id: `r-${id}`, origin: o, destination: d, aircraftId: id,

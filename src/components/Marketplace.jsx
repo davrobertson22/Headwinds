@@ -19,7 +19,7 @@ import {
   LESSOR_MIN_AGE_YEARS,
   leaseOrderBookCap,
 } from '../data/aircraft.js';
-import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh, lightCabinRange } from '../utils/simulation.js';
+import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh, typicalSeatsOf, fullCabinRangeKm } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
@@ -659,19 +659,19 @@ function MarketTable({ rows, sort, setSort, onCheckout }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-// Range as the catalogue quotes it, plus, for an ultra-long-range type (whose
-// figure is for a FULL cabin), what a light cabin reaches. See lightCabinRange in
-// utils/simulation.js: the A350 ULRs fly no further than their standard siblings
-// full, and turn every seat taken out into fuel.
+// Range as the maker quotes it, and the seats it is quoted at. A passenger type's
+// headline range applies at its TYPICAL cabin; packed to the exit limit it flies
+// less (payloadRangeMod in utils/simulation.js), and the tooltip says how much.
 function RangeValue({ type }) {
-  const lc = lightCabinRange(type);
+  const typical = type.freighter ? 0 : typicalSeatsOf(type);
+  const quoted  = typical > 0 && typical < (type.seats ?? 0);
   return (
     <>
       {type.range.toLocaleString()} km
-      {lc && (
+      {quoted && (
         <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
-              title={`${type.range.toLocaleString()} km with every seat filled. Take seats out and the extra fuel goes in: ${lc.km.toLocaleString()} km with ${lc.seats} seats.`}>
-          {lc.km.toLocaleString()} km at {lc.seats} seats
+              title={`${type.range.toLocaleString()} km with ${typical} seats, the cabin the maker quotes. Packed to all ${type.seats} seats: ${fullCabinRangeKm(type).toLocaleString()} km.`}>
+          at {typical} seats
         </span>
       )}
     </>

@@ -11,6 +11,9 @@
 //   node --import ./tools/_register-loader.mjs tools/rival-itinerary-test.mjs
 
 import assert from 'node:assert/strict';
+import { routeDistance } from '../packages/engine/src/utils/market.js';
+import { maxSeatsForRange } from '../packages/engine/src/data/aircraft.js';
+import { newAircraftConfig } from '../src/utils/simulation.js';
 import {
   buildRivalHubIndex, rivalIndexFor, rivalOneStopOffersFor, rivalHubTierForSpokes,
   MAX_CIRCUITY, computeOwnMetalODRevenue, buildOwnMetalConnections,
@@ -142,7 +145,10 @@ test('rivalOffersFor appends one-stops when handed an index, and nothing without
 
 test('a player nonstop loses passengers to a rival one-stop in a market with room', () => {
   const type = getAircraftType('a320neo');
-  const ac = { id: 'p', typeId: type.id, status: 'assigned', ageWeeks: 52, config: defaultConfig(type.seats), ownershipType: 'owned' };
+  // As many seats as JFK–AMS allows: at a new A320neo's typical 165 this fixture
+  // sold out, and a full aircraft cannot lose passengers to anyone.
+  const ac = { id: 'p', typeId: type.id, status: 'assigned', ageWeeks: 52,
+    config: { ...newAircraftConfig(type), economy: maxSeatsForRange(type, routeDistance('JFK', 'AMS')) }, ownershipType: 'owned' };
   // Priced above reference so the aircraft is demand-limited, not full.
   const route = { id: 'r', origin: 'JFK', destination: 'AMS', aircraftId: 'p', weeklyFrequency: 14, weeksOpen: 40, ticketPrice: Math.round(referencePrice('JFK', 'AMS') * 1.8) };
   const alone = simulateRoute(route, ac, GD, null, 1.0, null, [], null, null, 1.0, null, [RHINE]);
@@ -197,7 +203,7 @@ console.log('\n── the battle card names the routing ────');
   const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
   const { buildPlayerPairMap, ContestedRouteRow } = await import('../src/components/Competition.jsx');
   const type = getAircraftType('a320neo');
-  const fleet = [{ id: 't1', typeId: type.id, config: { economy: type.seats, businessClass: 0 }, ageWeeks: 52 }];
+  const fleet = [{ id: 't1', typeId: type.id, config: { economy: type.typicalSeats ?? type.seats, businessClass: 0 }, ageWeeks: 52 }];
   const routes = [{ origin: 'JFK', destination: 'AMS', aircraftId: 't1', weeklyFrequency: 14, ticketPrice: Math.round(referencePrice('JFK', 'AMS') * 1.8), weeksOpen: 30 }];
   const state = { ...freshState(), phase: 'playing', week: 30, year: 1, hub: 'JFK', cash: 1e7, awareness: 60,
     fleet, routes, cargoRoutes: [], competitors: [RHINE], rivalItineraries: true };

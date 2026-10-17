@@ -1,5 +1,8 @@
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee, GATE_SURCHARGE_MULT } from '../data/airports.js';
-import { getAircraftType, fuelCostPerKm } from '../data/aircraft.js';
+import {
+  getAircraftType, fuelCostPerKm, typicalSeatsOf,
+  PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, DENSE_RANGE_FLOOR, payloadRangeMod, maxSeatsForRange,
+} from '../data/aircraft.js';
 import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import {
   resolveBaseFor, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
@@ -414,54 +417,59 @@ export const CLASS_SPACE_MULTIPLIERS = {
 //   2. EMPTY FLOOR → COMFORT. Floor space you deliberately leave unfilled becomes
 //      extra room per passenger, raising perceived quality (but you sell fewer seats).
 
-/** Max range bonus when the cabin carries (almost) no payload.
- *  Passengers are only ~12–15% of a jet's max takeoff weight, so trading payload
- *  for fuel on a fixed airframe realistically buys ~10–15% range — not more.
- *  Ultra-long-range variants are the exception and declare their own, steeper
- *  `payloadRangeGain` (see payloadRangeGainOf). */
-export const CONFIG_RANGE_GAIN_MAX = 0.15;     // up to +15% range
+// ─── Payload–range (2026-10-17) ──────────────────────────────────────────────
+//
+// A type's `range` is the manufacturer's headline, and the headline is quoted at
+// a TYPICAL cabin (`typicalSeats`: 396 on a 777-300ER, 575 on an A380), not at
+// the exit-limit maximum in `seats`. At the typical cabin the tanks are about
+// full, so the two sides of it behave differently:
+//
+//   • more bodies than typical: the aircraft is weight-limited and every extra
+//     passenger (PAX_PAYLOAD_KG with bags) comes out of the fuel. The range lost
+//     is that mass divided by the type's own burn per km — no per-type tuning;
+//   • fewer bodies than typical: the tanks are already full, so there is little
+//     to gain — at most LIGHT_CABIN_GAIN_MAX at an empty cabin.
+//
+// Ultra-long-range types are not special-cased: they simply quote a high range
+// at a low typical cabin (A350-1000ULR 18,000 km at 238), so packing one to 480
+// seats costs it a lot of range, exactly as on the real aircraft.
+//
+// Routes that were already flying when this model shipped keep the rule they
+// were opened under, on the aircraft that flies them (see grandfatherRouteRanges
+// and routeReachKm). Guarded by tools/payload-range-test.mjs.
 
-/**
- * The range bonus ceiling for a type. An ultra-long-range variant (the A350
- * ULRs) carries extra fuel tankage it can only fill when payload comes out: with
- * a full cabin it is weight-limited to its standard sibling's range, and every
- * seat removed becomes fuel. Its `range` is therefore the full-cabin figure and
- * its own `payloadRangeGain` is steep. Every other type uses the standard curve.
- * Guarded by tools/ulr-range-test.mjs.
- */
-export function payloadRangeGainOf(type) {
-  return type?.payloadRangeGain ?? CONFIG_RANGE_GAIN_MAX;
+export { PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, DENSE_RANGE_FLOOR, payloadRangeMod, maxSeatsForRange };
+/** The old flat curve (+15% at an empty cabin, measured from a FULL cabin), kept
+ *  only for routes grandfathered under it. */
+export const CONFIG_RANGE_GAIN_MAX = 0.15;
+
+export { typicalSeatsOf };
+
+/** The cabin a newly delivered aircraft arrives with: all-economy at typical seats. */
+export function newAircraftConfig(type) {
+  return defaultConfig(typicalSeatsOf(type));
 }
 
-/** The share of a steep-curve type's seats the market screens quote its light-cabin range at. */
-export const LIGHT_CABIN_SHARE = 1 / 3;
-
 /**
- * For a type with its own payload-range curve, the range it reaches with a light
- * cabin (a third of its seats), so a market screen can say what the extra tank
- * buys: { seats, km }. Null for every other type, whose headline range already
- * tells the story.
- */
-export function lightCabinRange(type) {
-  if (type?.payloadRangeGain == null || !type.seats) return null;
-  const seats = Math.round(type.seats * LIGHT_CABIN_SHARE);
-  return { seats, km: Math.round(type.range * configRangeMod({ economy: seats }, type) / 100) * 100 };
-}
-
-/**
- * A passenger aircraft has fallen short of a leg: would a light cabin (a third of
- * its seats, the cabin the market quotes) bring it back in range? Returns
+ * A passenger aircraft has fallen short of a leg: would refitting it to the
+ * type's typical cabin (where its headline range applies) bring it back? Returns
  * { cabinFixSeats, cabinFixKm } when it would, else null. The out-of-range notice
- * offers it next to "reassign": for an ultra-long-range type flying a dense cabin
- * a refit IS the fix, and for any type a few percent short it is the cheap one.
+ * offers it next to "reassign": for a densely packed long-haul jet the refit IS
+ * the fix.
  */
 export function cabinRangeFix(aircraft, type, sectorKm) {
   if (!aircraft || !type || type.freighter || !type.seats) return null;
-  const seats = Math.round(type.seats * LIGHT_CABIN_SHARE);
+  const seats = typicalSeatsOf(type);
   if (configBodies(aircraft.config ?? defaultConfig(type.seats)) <= seats) return null;   // already that light
   const km = effectiveRangeKm({ ...aircraft, config: { economy: seats } }, type);
   return km >= sectorKm ? { cabinFixSeats: seats, cabinFixKm: km } : null;
 }
+
+/** What a type flies with every seat filled, for the market screens. */
+export function fullCabinRangeKm(type) {
+  return Math.round(type.range * payloadRangeMod(type.seats ?? 0, type) / 100) * 100;
+}
+
 /** Max quality points awarded for an entirely empty (impossibly spacious) floor. */
 export const CONFIG_SPACE_QUALITY_MAX = 14;
 
@@ -479,15 +487,9 @@ export function configBodies(config) {
        + (config.premiumEconomy ?? 0) + (config.economy ?? 0);
 }
 
-/**
- * Range multiplier from cabin payload. Densest all-economy = 1.0 (baseline);
- * lighter cabins (premium-heavy or partly empty) extend range up to +CONFIG_RANGE_GAIN_MAX.
- */
+/** Range multiplier from a cabin config (see payloadRangeMod). */
 export function configRangeMod(config, type) {
-  const maxBodies = type?.seats ?? 0;
-  if (!maxBodies) return 1;
-  const frac = Math.max(0, Math.min(1, configBodies(config) / maxBodies));
-  return 1 + payloadRangeGainOf(type) * (1 - frac);
+  return payloadRangeMod(configBodies(config), type);
 }
 
 /** Quality points from floor space left deliberately empty (extra room per pax). */
@@ -498,10 +500,64 @@ export function configSpaceQualityBonus(config, type) {
   return Math.round(emptyFrac * CONFIG_SPACE_QUALITY_MAX);
 }
 
-/** Full effective range (km): manufacturer range × engine/wingtip mod × cabin-payload mod. */
+/**
+ * Full effective range (km): manufacturer range × engine/wingtip mod × cabin-payload
+ * mod. An aircraft with no cabin on record (a type probe — "a new one of these")
+ * is measured with the cabin a new delivery arrives with.
+ */
 export function effectiveRangeKm(aircraft, type) {
-  const config = aircraft.config ?? defaultConfig(type.seats);
+  const config = aircraft.config ?? newAircraftConfig(type);
   return Math.round(type.range * (aircraft.rangeMod ?? 1.0) * configRangeMod(config, type));
+}
+
+/**
+ * Range under the rule in force before 2026-10-17: headline range with every seat
+ * filled, +CONFIG_RANGE_GAIN_MAX at an empty cabin. Only grandfathered routes use it.
+ */
+export function legacyEffectiveRangeKm(aircraft, type) {
+  const config = aircraft.config ?? defaultConfig(type.seats);
+  const max = type.seats ?? 0;
+  const mod = max ? 1 + CONFIG_RANGE_GAIN_MAX * (1 - Math.max(0, Math.min(1, configBodies(config) / max))) : 1;
+  return Math.round(type.range * (aircraft.rangeMod ?? 1.0) * mod);
+}
+
+/** True when this route keeps the pre-2026-10-17 range rule on this aircraft. */
+export function isRangeGrandfathered(route, aircraft) {
+  return !!(route && aircraft && Array.isArray(route.legacyRangeAircraftIds)
+    && route.legacyRangeAircraftIds.includes(aircraft.id));
+}
+
+/**
+ * The reach a ROUTE gets from the aircraft flying it. A route that was flying when
+ * the payload-range model shipped keeps the old rule on the aircraft(s) it had
+ * then; on any other aircraft — a reassignment, a transfer, a reserve cover — and
+ * on every route opened since, the current rule applies.
+ */
+export function routeReachKm(route, aircraft, type) {
+  return isRangeGrandfathered(route, aircraft)
+    ? legacyEffectiveRangeKm(aircraft, type)
+    : effectiveRangeKm(aircraft, type);
+}
+
+/**
+ * One-time migration for a save made before the payload-range model: every route
+ * flying then is marked with the aircraft flying it (and the original, when a
+ * reserve is covering), so it keeps flying under the old rule. Idempotent: a
+ * state already carrying `payloadRangeV2` comes back unchanged (same object).
+ * New games start with the flag set.
+ */
+export function grandfatherRouteRanges(state) {
+  if (!state || state.payloadRangeV2) return state;
+  const mark = (r) => {
+    const ids = [r.aircraftId, r.coverForAircraftId].filter(Boolean);
+    return ids.length ? { ...r, legacyRangeAircraftIds: ids } : r;
+  };
+  return {
+    ...state,
+    payloadRangeV2: true,
+    routes:      (state.routes ?? []).map(mark),
+    cargoRoutes: (state.cargoRoutes ?? []).map(mark),
+  };
 }
 
 // ── Routes an aircraft can no longer reach ───────────────────────────────────
@@ -527,7 +583,7 @@ export function effectiveRangeKm(aircraft, type) {
 export function routeRangeShortfall(route, aircraft) {
   const type = aircraft ? getAircraftType(aircraft.typeId) : null;
   if (!route || !type) return null;
-  const rangeKm = effectiveRangeKm(aircraft, type);
+  const rangeKm = routeReachKm(route, aircraft, type);
   let worst = null;
   for (const leg of routeLegs(route)) {
     const a = getAirport(leg.from), b = getAirport(leg.to);
@@ -1947,7 +2003,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 
   const dist = distanceKm(origin, dest);
   // Effective range includes the cabin-payload bonus: a lighter cabin flies further.
-  const effectiveRange = effectiveRangeKm(aircraft, type);
+  const effectiveRange = routeReachKm(route, aircraft, type);
   if (dist > effectiveRange) return null;
 
   // Labor morale feeds into quality inputs — on-time rate blends pilot/ground/cabin
@@ -2243,7 +2299,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // and tankering when the route asks for it and the tanks allow. Exactly 1
   // with the stations knob off, so classic worlds are byte-identical.
   const stationPlan = routeFuelStations(route, {
-    sectorKm: dist, rangeKm: effectiveRangeKm(aircraft, type), blockHours: blockTimeHours(dist, type),
+    sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type),
   });
   const fuelCost    = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
   const crewCost    = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
@@ -2598,7 +2654,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const legDistKm = legs.map(l => distanceKm(getAirport(l.from), getAirport(l.to)));
 
   // Range is bound by the LONGEST leg, not the total — that's why a stop extends reach.
-  const effectiveRange = effectiveRangeKm(aircraft, type);
+  const effectiveRange = routeReachKm(route, aircraft, type);
   if (Math.max(...legDistKm) > effectiveRange) return null;
 
   const f = Math.max(1, route.weeklyFrequency ?? 7);
@@ -2941,7 +2997,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   if (!origin || !dest || !type || !type.freighter) return null;
 
   const dist = distanceKm(origin, dest);
-  const effectiveRange = effectiveRangeKm(aircraft, type);
+  const effectiveRange = routeReachKm(route, aircraft, type);
   if (dist > effectiveRange) return null;
 
   // ── Demand (tonnes/week, one-way) ────────────────────────────────────────────
@@ -2989,7 +3045,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   const flights         = route.weeklyFrequency * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;
   const stationPlan = routeFuelStations(route, {
-    sectorKm: dist, rangeKm: effectiveRangeKm(aircraft, type), blockHours: blockTimeHours(dist, type),
+    sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type),
   });
   const fuelCost  = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
   const crewCost  = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
@@ -3107,7 +3163,7 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
     if (!o || !d) continue;
     // A route the aircraft can't fly carries nothing (simulateCargoRoute
     // returns null) — it must not dilute the shares of routes that do fly.
-    if (distanceKm(o, d) > effectiveRangeKm(aircraft, type)) continue;
+    if (distanceKm(o, d) > routeReachKm(route, aircraft, type)) continue;
     // Lane = METRO pair (design point 5): a freighter on EWR–LHR and one on
     // JFK–LHR draw the SAME New York↔London freight, exactly as two on JFK–LHR
     // do. For a pair with no metro member this is the ordinary sorted pair key,

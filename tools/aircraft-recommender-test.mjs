@@ -23,6 +23,7 @@
 //   node --import ./tools/_register-loader.mjs tools/aircraft-recommender-test.mjs
 
 import assert from 'node:assert/strict';
+import { newAircraftConfig } from '../src/utils/simulation.js';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { AIRPORTS, getAirport } from '../src/data/airports.js';
@@ -154,7 +155,7 @@ test('a row\'s net profit is the planner card\'s own arithmetic, to the dollar',
   const type = row.type;
   const p = projectRouteAddition(st, {
     origin: HUB, destination: THIN.a.code,
-    aircraft: { id: 'p', typeId: type.id, ageWeeks: 0, rangeMod: 1.0, config: defaultConfig(type.seats) },
+    aircraft: { id: 'p', typeId: type.id, ageWeeks: 0, rangeMod: 1.0, config: newAircraftConfig(type) },
     weeklyFrequency: row.weeklyFrequency,
     ticketPrice: fareTo(THIN.a.code),
     classPrices: defaultClassPrices(fareTo(THIN.a.code)),

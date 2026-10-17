@@ -12,7 +12,7 @@ import {
   SEAT_QUALITY_FITTING_FEE,
   cabinInstallFee,
   weekToGameDate,
-  configRangeMod, calendarYear, cruiseSpeedKmh, lightCabinRange } from '../utils/simulation.js';
+  configRangeMod, calendarYear, cruiseSpeedKmh, typicalSeatsOf } from '../utils/simulation.js';
 import {
   wifiInstallCost, wifiRetrofitCost, wifiLeaseSurcharge, WIFI_WEEKLY_OPEX,
 } from '../data/wifi.js';
@@ -205,7 +205,9 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const [first, setFirstRaw] = useState(0);
   const [biz,   setBizRaw]   = useState(0);
   const [prem,  setPremRaw]  = useState(0);
-  const [eco,   setEcoRaw]   = useState(maxSeats);   // ← now user-controlled
+  // A new aircraft arrives at the type's TYPICAL seating, where its headline range
+  // applies; packing it up to the exit limit costs range (payloadRangeMod).
+  const [eco,   setEcoRaw]   = useState(typicalSeatsOf(type));
   const [seatQ, setSeatQ]    = useState('basic');
 
   // Every hook above has now run unconditionally. Safe to bail.
@@ -299,7 +301,6 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const cabinRangeMod     = configRangeMod(cabinForRange, type);
   const effectiveRangeFull = Math.round(type.range * wingtipRangeMod * cabinRangeMod);
   const cabinRangePctGain  = Math.round((cabinRangeMod - 1) * 100);
-  const isSparse           = eco < maxEco || (first + biz + prem + eco) < maxSeats;
 
   // ── Delivery schedule ─────────────────────────────────────────────────────
   const lead           = deliveryLead(type);
@@ -469,7 +470,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
               <div style={{ fontWeight: 700, fontSize: 19 }}>{type.name}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 {type.manufacturer} · <span style={{ color: catColor }}>{type.category}</span>
-                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range{lightCabinRange(type) ? ` (${lightCabinRange(type).km.toLocaleString()} km at ${lightCabinRange(type).seats} seats)` : ''} · {cruiseSpeedKmh(type).toLocaleString()} km/h cruise
+                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range{!isFreighter && typicalSeatsOf(type) < type.seats ? ` at ${typicalSeatsOf(type)} seats` : ''} · {cruiseSpeedKmh(type).toLocaleString()} km/h cruise
               </div>
             </div>
             <button className="btn btn-ghost" onClick={onClose} style={{ padding: '4px 10px', marginLeft: 8 }}><Glyph e="✕" /></button>
@@ -824,7 +825,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
               value={eco} max={maxEco} onChange={setEco}
             />
             {/* Sparse-cabin range callout */}
-            {isSparse && (
+            {!isFreighter && (
               <div style={{
                 marginTop: 6, padding: '6px 10px',
                 background: 'rgba(56,139,253,0.08)', borderRadius: 5,
@@ -834,10 +835,11 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
               }}>
                 <span><Glyph e="✈" /></span>
                 <span>
-                  Sparse cabin — effective range{' '}
+                  Range with this cabin{' '}
                   <strong>{effectiveRangeFull.toLocaleString()} km</strong>
-                  {cabinRangePctGain > 0 && <span style={{ color: 'var(--green)', marginLeft: 4 }}>(+{cabinRangePctGain}% vs full load)</span>}
-                  {' · '}{first + biz + prem + eco} seats / {maxSeats} capacity
+                  {cabinRangePctGain > 0 && <span style={{ color: 'var(--green)', marginLeft: 4 }}>(+{cabinRangePctGain}%)</span>}
+                  {cabinRangePctGain < 0 && <span style={{ color: 'var(--red)', marginLeft: 4 }}>({cabinRangePctGain}%: packed past the typical {typicalSeatsOf(type)} seats)</span>}
+                  {' · '}{first + biz + prem + eco} seats · {typicalSeatsOf(type)} typical · {maxSeats} max
                 </span>
               </div>
             )}

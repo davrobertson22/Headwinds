@@ -33,7 +33,7 @@ import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor,
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
-import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm, aircraftAvailability, aircraftOrderable } from '../data/aircraft.js';
+import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm, aircraftAvailability, aircraftOrderable, typicalSeatsOf, maxSeatsForRange } from '../data/aircraft.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -2715,6 +2715,9 @@ export function pickCompetitorAircraftType(distKm, tier) {
   // narrowbody on short hops — instead of an ultra-long-range jet flown short or a
   // marginal small jet stretched across an ocean.
   const need = distKm * 1.25;   // reserve allowance
+  // The choice of type is unchanged by the payload-range model: it is sized on the
+  // airframe. What the route then flies is maxSeatsForRange (every seat on short
+  // haul, fewer near the type's range) — stored on the route by the caller.
   const score = (t) =>
     Math.abs((t.seats ?? 0) - target) + Math.max(0, (t.range ?? 0) - need) * 0.005;
   return capable.slice().sort((a, b) => score(a) - score(b))[0];
@@ -2739,6 +2742,8 @@ export function pickLargerCompetitorAircraftType(distKm, minSeats, { prefer = nu
   const eraYear = getEraCalendarYear();
   const capable = AIRCRAFT_TYPES.filter(t => (t.range ?? 0) >= distKm
     && (t.seats ?? 0) >= minSeats && (t.seats ?? 0) <= maxSeats
+    // A step up must actually add seats on THIS lane, not just on paper.
+    && maxSeatsForRange(t, distKm) >= minSeats
     && (eraYear != null ? aircraftOrderable(t, eraYear) : aircraftAvailability(t, 2026) !== 'expired'));
   if (capable.length === 0) return null;
   const need  = distKm * 1.25;
@@ -2784,7 +2789,7 @@ export function buildCompetitorFleet(airline) {
     const type   = pickCompetitorAircraftType(dist, airline.tier);
     if (!type) { routes[routeKey] = cfg; continue; }   // no in-range type — leave unflown
     const tails  = tailsForRoute(dist, cfg.frequency ?? 7);
-    routes[routeKey] = { ...cfg, aircraftType: type.id, tails };
+    routes[routeKey] = { ...cfg, aircraftType: type.id, seats: maxSeatsForRange(type, dist), tails };
     for (let i = 0; i < tails; i++) fleet.push(makeCompetitorTail(airline.id, type.id, routeKey, true));
   }
   return { ...airline, routes, fleet };
@@ -2828,12 +2833,12 @@ export function healAnachronisticCompetitorFleets(competitors, calYear) {
       const dist    = routeDistance(a, b);
       // Never let the heal hand out MORE seats than the illegal frame carried:
       // this is a downgrade to period metal, not a free up-gauge.
-      const wasSeats = getAircraftType(cfg.aircraftType)?.seats ?? Infinity;
+      const wasSeats = cfg.seats ?? getAircraftType(cfg.aircraftType)?.seats ?? Infinity;
       const type = AIRCRAFT_TYPES
-        .filter(t => (t.range ?? 0) >= dist && (t.seats ?? 0) <= wasSeats && aircraftOrderable(t, calYear))
-        .sort((x, y) => Math.abs((x.seats ?? 0) - target) - Math.abs((y.seats ?? 0) - target))[0];
+        .filter(t => (t.range ?? 0) >= dist && maxSeatsForRange(t, dist) <= wasSeats && aircraftOrderable(t, calYear))
+        .sort((x, y) => Math.abs(maxSeatsForRange(x, dist) - target) - Math.abs(maxSeatsForRange(y, dist) - target))[0];
       if (!type) { delete routes[routeKey]; continue; }   // nothing of the era can fly it — drop the route
-      routes[routeKey] = { ...cfg, aircraftType: type.id, tails: tailsForRoute(dist, cfg.frequency ?? 7) };
+      routes[routeKey] = { ...cfg, aircraftType: type.id, seats: maxSeatsForRange(type, dist), tails: tailsForRoute(dist, cfg.frequency ?? 7) };
       swapped.set(routeKey, type.id);
     }
     const fleet = (c.fleet ?? [])
@@ -3306,6 +3311,7 @@ export function tickCompetitorGrowth(competitors, weekNumber) {
         frequency:       entry.frequency,
         priceMultiplier: entry.priceMultiplier,
         aircraftType:    type.id,
+        seats:           maxSeatsForRange(type, dist),
         tails,
       };
 
@@ -3614,7 +3620,10 @@ export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, 
   if (!dist || !refP || !baseD) return null;
 
   const type    = cfg.aircraftType ? getAircraftType(cfg.aircraftType) : null;
-  const seats   = type?.seats ?? ac.seats;
+  // A route opened since the payload-range model carries the seats it flies (as
+  // many as the lane allows, maxSeatsForRange); older AI routes keep the
+  // exit-limit seats they always had.
+  const seats   = cfg.seats ?? type?.seats ?? ac.seats;
   const opPerKm = type ? (fuelCostPerKm(type) + (type.crewCostPerKm ?? 0)) : ac.costPerKm;
   const tails   = cfg.tails ?? 1;
 

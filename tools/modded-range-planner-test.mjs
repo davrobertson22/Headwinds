@@ -117,7 +117,8 @@ function buildSave({ type, origin, dest, spoke, rangeMod }) {
   const tailOf = (id, tailNumber, extra = {}) => ({
     id, tailNumber, name: `Tail ${tailNumber}`, typeId: type.id,
     status: 'idle', ageWeeks: 52, ownershipType: 'owned',
-    config: { economy: type.seats }, fuelMod: 1.0, maintMod: 1.0, ...extra,
+    // Typical cabin: where the book range applies (payload-range model, 2026-10-17).
+    config: { economy: type.typicalSeats ?? type.seats }, fuelMod: 1.0, maintMod: 1.0, ...extra,
   });
   return {
     ...freshState(),
@@ -293,7 +294,9 @@ const lightCabinFixture = (() => {
     };
     const probe = { id: 'x', typeId: type.id, config };
     const reach = effectiveRangeKm(probe, type);
-    if (!(reach > type.range * 1.05)) continue;   // want a bonus well past any wingtip
+    // A light cabin now buys at most LIGHT_CABIN_GAIN_MAX over the book range
+    // (payload-range model, 2026-10-17): any real margin past it will do.
+    if (!(reach > type.range * 1.01)) continue;
     for (let i = 0; i < bigAirports.length; i++) {
       for (let j = i + 1; j < bigAirports.length; j++) {
         const o = bigAirports[i], d = bigAirports[j];

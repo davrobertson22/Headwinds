@@ -448,7 +448,10 @@ test('RoutePlanner\'s Est. Market Share is sensitive to the airline\'s brand', (
     const st = baseSave(over);
     st.competitors = [{ ...RIVAL, routes: { ...RIVAL.routes,
       [key]: { frequency: 14, seats: 180, priceMultiplier: 1.0, aircraftType: jet.id } } }];
-    const html = renderPlanner(st, { origin: T1, dest: T3, typeId: jet.id, frequency: 40 });
+    // 80/wk, not 40: a new jet now arrives at its TYPICAL cabin (payload-range model,
+    // 2026-10-17), and below ~80/wk this pair is capacity-bound — every carrier sells
+    // out, so brand cannot show. The test needs a schedule with seats to spare.
+    const html = renderPlanner(st, { origin: T1, dest: T3, typeId: jet.id, frequency: 80 });
     assert.ok(lastSeed, 'seed wrapper never ran');
     assert.deepEqual(lastSeed.seen.slice(0, SLOT_NAMES.length), EXPECTED_INITIALS,
       `RoutePlanner's leading useState block changed — expected [${SLOT_NAMES}]`);

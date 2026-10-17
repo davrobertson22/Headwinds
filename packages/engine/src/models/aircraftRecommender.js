@@ -50,6 +50,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 import {
   defaultConfig, defaultClassPrices, effectiveRangeKm, maxFrequency, routeActiveMonths,
+  newAircraftConfig,
 } from '../utils/simulation.js';
 import { projectRouteAddition } from './pairShare.js';
 
@@ -141,7 +142,7 @@ export function rankAircraftForRoute(state, {
 
     const cfg = (configFor && configFor(type))
       || tails.find((a) => a.config)?.config
-      || defaultConfig(type.seats);
+      || newAircraftConfig(type);
 
     // Per-type frequency ceiling. Asking for 14× on a type that fits 6 rotations
     // a week is not a forecast, it is a different route.

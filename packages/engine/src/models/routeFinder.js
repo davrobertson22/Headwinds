@@ -43,6 +43,7 @@ import { checkRouteRestrictions } from '../data/airportRestrictions.js';
 import {
   baseCityPairDemand, distanceKm, referencePrice,
   effectiveRangeKm, maxFrequency, defaultConfig, defaultClassPrices, freighterBodyClass,
+  newAircraftConfig,
 } from '../utils/simulation.js';
 import { metroPairKeyOf, memberPairKeysOf, airportAppeal, regionOf } from '../utils/market.js';
 import { pairDemandNow } from './demand.js';
@@ -454,7 +455,7 @@ export function finderForecastContext({ aircraftTypeId, aircraft = null, weeklyF
   // previews a TYPE the same way, so an order can be sized against a real market.
   const frame = aircraft ?? {
     id: '__finder__', typeId: type.id, ageWeeks: 0,
-    config: defaultConfig(type.seats),
+    config: newAircraftConfig(type),
   };
 
   // What the aircraft flying it actually costs per week. An OWNED tail has no

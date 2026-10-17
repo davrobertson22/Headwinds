@@ -13,7 +13,7 @@ import { featureLive, ERA_FEATURE_MESSAGE } from './data/eraFeatures.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
-  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, cabinRangeFix, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
+  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, cabinRangeFix, newAircraftConfig, grandfatherRouteRanges, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey, isMultiStop,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
@@ -1573,6 +1573,9 @@ export const LEGACY_STARTING_CASH = 15_000_000;
 
 function freshState() {
   return {
+    // Every route in this airline is opened under the payload-range model (2026-10-17);
+    // a state without this flag is migrated by grandfatherRouteRanges (rootReducer).
+    payloadRangeV2: true,
     airlineName: '',
     logoId: 'horizon',
     logoColor: '#f5a623',
@@ -1943,7 +1946,7 @@ function reducer(state, action) {
         tailNumber,
         status:             'idle',
         ageWeeks:           eraDeliveredAgeWeeks(type, calendarYear(state)),
-        config:             defaultConfig(type?.seats ?? 100),
+        config:             type ? newAircraftConfig(type) : defaultConfig(100),
         ownershipType:      'lease',
         // Lock the rate at signing. Without this the tail carried no weeklyLease
         // at all, so every cost site fell through to `type.weeklyLease` — which
@@ -1982,7 +1985,7 @@ function reducer(state, action) {
         tailNumber,
         status:        'idle',
         ageWeeks:      eraDeliveredAgeWeeks(type, calendarYear(state)),
-        config:        defaultConfig(type.seats),
+        config:        newAircraftConfig(type),
         ownershipType: 'owned',
         costBasis:     price,   // what was paid — see capAtCostBasis
       };
@@ -2272,7 +2275,7 @@ function reducer(state, action) {
             tailNumber,
             status:        'idle',
             ageWeeks:      eraDeliveredAgeWeeks(type, calendarYear(state)),
-            config:        order.config ?? defaultConfig(type.seats ?? 100),
+            config:        order.config ?? newAircraftConfig(type),
             ownershipType: order.ownershipType,
             weeklyLease:         order.weeklyLease ?? 0,
             leaseDeposit:        order.leaseDeposit ?? 0,
@@ -4793,7 +4796,7 @@ function reducer(state, action) {
           tailNumber,
           status:        'idle',   // set to 'assigned' below if it takes a route
           ageWeeks:      tail.ageWeeks ?? 0,
-          config:        defaultConfig(type?.seats ?? 150),
+          config:        type ? newAircraftConfig(type) : defaultConfig(150),
           ownershipType: 'owned',
           acquired:      true,
         };
@@ -6509,7 +6512,7 @@ function reducer(state, action) {
           tailNumber,
           status:        'idle',
           ageWeeks:      eraDeliveredAgeWeeks(ordType, calendarYear(state)),
-          config:        order.config ?? defaultConfig(ordType?.seats ?? 100),
+          config:        order.config ?? (ordType ? newAircraftConfig(ordType) : defaultConfig(100)),
           ownershipType: order.ownershipType,
           weeklyLease:        order.weeklyLease ?? 0,
           leaseDeposit:       order.leaseDeposit ?? 0,
@@ -7518,7 +7521,16 @@ function withAutoReplace(prev, next) {
 }
 
 function rootReducer(state, action) {
-  const next = reducer(state, action);
+  // A player state from before the payload-range model: routes flying then keep
+  // the old range rule on their aircraft. Runs before ANY action, so a route the
+  // player opens next is never mistaken for an old one. No-op once flagged.
+  // An action that changes nothing still returns the caller's own object (the
+  // reducer's identity contract); the migration then simply runs on the next one.
+  const original = state;
+  if (state && !state.payloadRangeV2 && Array.isArray(state.routes)) state = grandfatherRouteRanges(state);
+  const next0 = reducer(state, action);
+  if (next0 === state && state !== original) return original;
+  const next = next0;
   // Fleet renewal before crew auto-replace, so the crew plan sees the fleet
   // after any old tail has been sold.
   return action?.type === 'ADVANCE_WEEK' ? withAutoReplace(state, withFleetRenewal(state, next)) : next;
@@ -7875,5 +7887,5 @@ function reconcileState(parsed) {
     // for a private airline WAS the fair value, so nothing moves at the migration.
     fairValue:   Number.isFinite(parsed.fairValue) ? parsed.fairValue : (parsed.marketCap ?? null),
   };
-  return applyScheduleTrimMigration(reconciled);
+  return applyScheduleTrimMigration(grandfatherRouteRanges(reconciled));
 }

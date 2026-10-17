@@ -40,6 +40,9 @@ function makeAirline({ id, name, hub, dest, fare }) {
   let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: name, hub, enableObjectives: false });
   s = { ...s, multiplayer: true, competitors: [], humanRivals: {}, encroachments: {} };
   s = gameReducer(s, { type: 'LEASE_AIRCRAFT', typeId: shortHaul.id });
+  // Packed (JFK–BOS is far inside its reach): a leased aircraft now arrives at its
+  // typical cabin, and on this pair that sells out, so no rival could take a share.
+  s = { ...s, fleet: s.fleet.map((a) => ({ ...a, config: { ...a.config, economy: shortHaul.seats } })) };
   s = gameReducer(s, { type: 'ADD_GATE', airportCode: dest });
   const aircraftId = s.fleet[0].id;
   s = gameReducer(s, { type: 'ADD_ROUTE', aircraftId, origin: hub, destination: dest, weeklyFrequency: 14 });

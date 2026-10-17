@@ -22,7 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { baseCityPairDemand, routeDistance, referencePrice, metroPairKeyOf } from '../utils/market.js';
-import { getAircraftType } from '../data/aircraft.js';
+import { getAircraftType, maxSeatsForRange } from '../data/aircraft.js';
 import { ALLIANCES, applyAllianceEra } from '../data/alliances.js';
 import { featureLive } from '../data/eraFeatures.js';
 import {
@@ -533,16 +533,16 @@ export function tickCompetitorAI(competitors, ctx) {
 
         // Dense schedule: fly something bigger rather than a 22nd flight.
         if (cfg.frequency >= UPGAUGE_FROM_FREQUENCY) {
-          const bigger = pickLargerCompetitorAircraftType(dist, Math.ceil(type.seats * UPGAUGE_MIN_SEAT_STEP), {
-            prefer:   (t) => projected(key, { ...cfg, aircraftType: t.id, tails }),
+          const bigger = pickLargerCompetitorAircraftType(dist, Math.ceil((cfg.seats ?? type.seats) * UPGAUGE_MIN_SEAT_STEP), {
+            prefer:   (t) => projected(key, { ...cfg, aircraftType: t.id, seats: maxSeatsForRange(t, dist), tails }),
             maxSeats: upgaugeSeatCeiling(dist, c.tier),
           });
-          if (bigger && projected(key, { ...cfg, aircraftType: bigger.id, tails }) > p.profit) {
+          if (bigger && projected(key, { ...cfg, aircraftType: bigger.id, seats: maxSeatsForRange(bigger, dist), tails }) > p.profit) {
             const cost = tailDeposit(bigger, tails) - tailSalvage(type, tails);
             if (cash - cost < reserve) continue;
             cash -= cost;
             fleet = fleet.map(f => f.routeKey === key ? { ...f, typeId: bigger.id, ageWeeks: 0 } : f);
-            routes[key] = { ...cfg, aircraftType: bigger.id, tails };
+            routes[key] = { ...cfg, aircraftType: bigger.id, seats: maxSeatsForRange(bigger, dist), tails };
             loadMap[key] = 0;
             movesLeft--;
             events.push({ type: 'boost', airlineId: c.id, name: c.name, routeKey: key,
@@ -554,7 +554,7 @@ export function tickCompetitorAI(competitors, ctx) {
 
         // Otherwise add flights: +25% (at least one), no further than demand
         // supports at an 80% load, never past the schedule cap.
-        const want    = Math.ceil((p.demandOneWay ?? 0) / Math.max(1, type.seats * GROW_TARGET_LF));
+        const want    = Math.ceil((p.demandOneWay ?? 0) / Math.max(1, (cfg.seats ?? type.seats) * GROW_TARGET_LF));
         const step    = Math.max(1, Math.round(cfg.frequency * GROW_STEP));
         const newFreq = Math.min(MAX_FREQUENCY, cfg.frequency + step, Math.max(cfg.frequency + 1, want));
         if (newFreq <= cfg.frequency) continue;
@@ -562,10 +562,11 @@ export function tickCompetitorAI(competitors, ctx) {
         const addTails = Math.max(0, newTails - tails);
         const cost     = tailDeposit(type, addTails);
         if (cash - cost < reserve) continue;
-        if (projected(key, { ...cfg, frequency: newFreq, aircraftType: type.id, tails: Math.max(tails, newTails) }) <= p.profit) continue;
+        const seatsOf = cfg.aircraftType ? {} : { seats: maxSeatsForRange(type, dist) };   // a newly picked type flies what the lane allows
+        if (projected(key, { ...cfg, ...seatsOf, frequency: newFreq, aircraftType: type.id, tails: Math.max(tails, newTails) }) <= p.profit) continue;
         cash -= cost;
         for (let i = 0; i < addTails; i++) fleet.push(makeCompetitorTail(c.id, type.id, key, false));
-        routes[key] = { ...cfg, frequency: newFreq, aircraftType: type.id, tails: Math.max(tails, newTails) };
+        routes[key] = { ...cfg, ...seatsOf, frequency: newFreq, aircraftType: type.id, tails: Math.max(tails, newTails) };
         loadMap[key] = 0;
         movesLeft--;
         events.push({ type: 'boost', airlineId: c.id, name: c.name, routeKey: key,
@@ -632,7 +633,7 @@ export function tickCompetitorAI(competitors, ctx) {
         if (cash - cost < reserve * 0.5) continue;
         cash -= cost;
         for (let i = 0; i < addTails; i++) fleet.push(makeCompetitorTail(c.id, type.id, key, false));
-        routes[key] = { ...cfg, frequency: targetFreq, aircraftType: type.id, tails: needTails };
+        routes[key] = { ...cfg, ...(cfg.aircraftType ? {} : { seats: maxSeatsForRange(type, dist) }), frequency: targetFreq, aircraftType: type.id, tails: needTails };
         boostsAllowed--;
         events.push({ type: 'boost', airlineId: c.id, name: c.name, routeKey: key,
           description: `${c.name} added capacity on ${a} → ${b}, matching your schedule.` });
@@ -755,6 +756,7 @@ export function tickCompetitorAI(competitors, ctx) {
               frequency:       cand.frequency,
               priceMultiplier: cand.priceMultiplier,
               aircraftType:    type.id,
+              seats:           maxSeatsForRange(type, cand.dist),
               tails,
             };
             const [a, b] = cand.key.split('-');

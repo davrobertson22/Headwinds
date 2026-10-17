@@ -25,6 +25,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import assert from 'node:assert/strict';
+import { getAircraftType } from '../src/data/aircraft.js';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
@@ -236,7 +237,11 @@ function startedAirline({ seed = 12345, ownership = 'owned', ageWeeks = 500, fre
   return {
     ...s, routePricing, awareness: 70,
     hubs: { ...(s.hubs ?? {}), JFK: { tier: 2, tierSince: 0 } },
-    fleet: s.fleet.map(a => ({ ...a, ageWeeks, ownershipType: ownership })),
+    // Packed all-economy, as this fixture was seeded: a bought 737-800 now arrives
+    // at its typical 162 seats (payload-range model, 2026-10-17); these domestic
+    // lanes are well inside a packed 737-800's reach.
+    fleet: s.fleet.map(a => ({ ...a, ageWeeks, ownershipType: ownership,
+      config: { ...a.config, economy: getAircraftType(a.typeId).seats } })),
   };
 }
 

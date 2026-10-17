@@ -108,7 +108,11 @@ function flyingThisWeek(state) {
     const aircraft = fleet.get(route.aircraftId);
     if (!aircraft || aircraft.status === 'retired') return false;
     if (isOutOfService(aircraft) && !backThisWeek(aircraft)) return false;
-    return !routeRangeShortfall(route, aircraft);
+    // A rival state not yet through the payload-range migration (it runs on that
+    // player's next action or tick): every route it has is a pre-model route.
+    const r = state.payloadRangeV2 ? route
+      : { ...route, legacyRangeAircraftIds: [route.aircraftId, route.coverForAircraftId].filter(Boolean) };
+    return !routeRangeShortfall(r, aircraft);
   };
 }
 
