@@ -510,6 +510,9 @@ export default async function worldRoutes(fastify) {
           crewPipeline: { type: 'boolean' },
           // Shared production lines (default ON; false = classic private queues).
           productionLines: { type: 'boolean' },
+          // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
+          // Contents validated in worldConfig (lineRatesProblem).
+          productionLineRates: { type: 'object' },
           // Rival one-stop itineraries (default ON; false = point-to-point rivals).
           rivalItineraries: { type: 'boolean' },
           // Cosmetic maturity label: alpha | beta | live (default beta).

@@ -22,6 +22,8 @@ import { rememberReturnRoute, resumeAfterSignIn, safeLocalStorage } from './invi
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
+import { normalizeLineRates } from '../../../packages/engine/src/data/productionLines.js';
+import ProductionRates, { EMPTY_LINE_RATES } from './ProductionRates.jsx';
 import { nextSort, loadStandingsSort, saveStandingsSort } from '../../../src/utils/standingsView.js';
 import StandingsTable from './StandingsTable.jsx';
 
@@ -383,6 +385,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [crewPipeline, setCrewPipeline] = useState(false);
   // Shared production lines — on by default (the server defaults it on too).
   const [productionLines, setProductionLines] = useState(true);
+  // Per-world frames a week (blank = default); sent only when something is set.
+  const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
   // Rival one-stop itineraries — on by default (HUB_CONNECTIVITY_PLAN.md).
   const [rivalItineraries, setRivalItineraries] = useState(true);
   const [stage, setStage] = useState('beta');
@@ -436,6 +440,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           ...(crewPipeline ? { crewPipeline: true } : {}),
           // Always explicit: the server treats an absent field as ON.
           productionLines,
+          ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           // Always explicit: the server treats an absent field as ON.
           rivalItineraries,
           ...(stage !== 'beta' ? { stage } : {}),
@@ -646,13 +651,16 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           </span>
           <span className="muted small">
             Every aircraft family comes off one factory line shared by the whole world, building a
-            set number of frames a week (more for turboprops, fewer for jumbos). Each airline's own
+            set number of frames a week (more for turboprops, fewer for jumbos — set your own below). Each airline's own
             deliveries from a line are spaced out — a week apart for turboprops, up to five for
             jumbos — early slots cost up to 25% extra, and cancelling
             forfeits more the closer the slot. In historical worlds, new types are announced two
             years ahead and launch customers can order first at a discount.
           </span>
         </label>
+        {productionLines && (
+          <ProductionRates rates={lineRates} onChange={setLineRates} maxPlayers={maxPlayers} />
+        )}
         <label style={{ alignItems: 'flex-start' }}>Rival connections
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={rivalItineraries}
@@ -827,7 +835,7 @@ const WORLD_FEATURES = [
     key: 'lines',
     on: (w) => !!w.productionLines,
     icon: '🏭',
-    label: () => 'Production lines',
+    label: (w) => (w?.productionLineRates ? 'Production lines · custom rates' : 'Production lines'),
     rgb: '210,153,34',
     blurb: 'One factory line per aircraft family, shared by every airline. Your deliveries from a line are spaced 1–5 weeks apart by size, early slots cost extra, and in historical worlds launch customers order first.',
   },

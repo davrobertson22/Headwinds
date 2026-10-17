@@ -632,6 +632,7 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
       lineBook: me.state?.productionLinesWorld === true
         ? {
             scale: me.state?.productionLineScale ?? 1,
+            rates: me.state?.productionLineRates ?? null,
             bookings: minusBookings(allLineBookings, lineBookingsById.get(me.id)),
           }
         : null,

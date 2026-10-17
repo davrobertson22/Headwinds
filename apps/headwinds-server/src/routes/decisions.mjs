@@ -593,6 +593,7 @@ export default async function decisionRoutes(fastify) {
             pendingOrders: next.pendingOrders,
             newOrders: newLineOrders,
             scale: injected.productionLineScale ?? 1,
+            rates: injected.productionLineRates ?? null,
             absWeek: (next.year - 1) * 52 + next.week,
           });
         }

@@ -2,6 +2,7 @@
 // Single home for the §3a rules (admin world creation + the tick worker).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { eraJoinCapital } from '@tailwinds/engine/data/era.js';
+import { lineRatesProblem, normalizeLineRates } from '@tailwinds/engine/data/productionLines.js';
 
 /**
  * Second chances per world: the original airline plus this many re-foundings.
@@ -239,7 +240,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries, event = null,
+  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, rivalItineraries, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -259,6 +260,13 @@ export function validateWorldConfig({
   }
   if (productionLines != null && typeof productionLines !== 'boolean') {
     throw badRequest('productionLines must be true or false');
+  }
+  if (productionLineRates != null) {
+    const problem = lineRatesProblem(productionLineRates);
+    if (problem) throw badRequest(problem);
+    if (productionLines === false && normalizeLineRates(productionLineRates)) {
+      throw badRequest('Production rates need production lines turned on');
+    }
   }
   if (rivalItineraries != null && typeof rivalItineraries !== 'boolean') {
     throw badRequest('rivalItineraries must be true or false');
@@ -416,6 +424,9 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     crewPipeline: world.tickConfig?.crewPipeline === true,
     // Shared production lines + delivery slots (new worlds from 2026-10-16).
     productionLines: world.tickConfig?.productionLines === true,
+    // The rates the creator set (null = every line at its default).
+    productionLineRates: world.tickConfig?.productionLines === true
+      ? (world.tickConfig?.productionLineRates ?? null) : null,
     // Station fuel pricing + tankering (fuel-ops v2).
     fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell

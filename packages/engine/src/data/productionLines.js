@@ -219,15 +219,116 @@ export function capacityScale(maxPlayers) {
  * Stateless on purpose — derived from the order books every time, so there is
  * no rate history to persist, migrate or drift.
  */
-export function lineCapacity(lineId, { scale = 1, backlogFrames = 0 } = {}) {
-  const spec = LINE_CAPACITY[lineInfo(lineId).cls] ?? LINE_CAPACITY['Narrow Body'];
-  const base = Math.max(spec.floor, Math.round(spec.base * scale));
-  const ceiling = Math.max(base, Math.round(spec.ceiling * scale));
+export function lineCapacity(lineId, { scale = 1, backlogFrames = 0, rates = null } = {}) {
+  const cls = lineInfo(lineId).cls;
+  const spec = LINE_CAPACITY[cls] ?? LINE_CAPACITY['Narrow Body'];
+  const custom = customLineRate(rates, lineId, cls);
+  // A rate the world's creator typed is the rate: no player scale on top. It
+  // keeps the class's ramp headroom (ceiling ÷ base), so a long backlog still
+  // speeds the line up in proportion.
+  const base = custom ?? Math.max(spec.floor, Math.round(spec.base * scale));
+  const ceiling = custom != null
+    ? Math.max(base, Math.round(custom * spec.ceiling / spec.base))
+    : Math.max(base, Math.round(spec.ceiling * scale));
   const backlogWeeks = Math.max(0, backlogFrames) / base;
   const extra = backlogWeeks > RAMP_START_WEEKS
     ? Math.floor((backlogWeeks - RAMP_START_WEEKS) / RAMP_STEP_WEEKS) + 1
     : 0;
   return Math.min(ceiling, base + extra);
+}
+
+// ── Per-world rates ──────────────────────────────────────────────────────────
+// Whoever creates a world may set the frames a week for a whole size class and,
+// below that, for any single line. Stored in tickConfig.productionLineRates as
+// { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — only what was set — and
+// baked into each airline at join (state.productionLineRates), carried in the
+// rival view (lineBook.rates) and the server's race check. Line beats class;
+// anything unset keeps the default × the world's player scale.
+export const MIN_LINE_RATE = 1;
+export const MAX_LINE_RATE = 50;
+/** Size classes in the order the create-world form lists them. */
+export const RATE_CLASSES = ['Turboprop', 'Regional Jet', 'Narrow Body', 'Wide Body', 'Double Deck', 'Supersonic', 'Outsize', 'Conversion'];
+
+function customLineRate(rates, lineId, cls) {
+  const ok = (v) => (Number.isInteger(v) && v >= MIN_LINE_RATE && v <= MAX_LINE_RATE ? v : null);
+  return ok(rates?.lines?.[lineId]) ?? ok(rates?.classes?.[cls]) ?? null;
+}
+
+/** The world's rates from wherever this state carries them (null = all defaults). */
+export function ratesFor(state) {
+  return state?.lineBook?.rates ?? state?.productionLineRates ?? null;
+}
+
+const blank = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+
+/**
+ * What's wrong with a rates object from the create-world form, in words, or null.
+ * Blanks are fine (they mean "default").
+ */
+export function lineRatesProblem(rates) {
+  if (rates == null) return null;
+  if (typeof rates !== 'object' || Array.isArray(rates)) return 'Production rates must be an object of classes and lines';
+  const check = (label, v) => {
+    if (blank(v)) return null;
+    const n = Number(v);
+    if (!Number.isInteger(n)) return `${label}: the rate must be a whole number of frames a week`;
+    if (n < MIN_LINE_RATE || n > MAX_LINE_RATE) return `${label}: the rate must be between ${MIN_LINE_RATE} and ${MAX_LINE_RATE} frames a week`;
+    return null;
+  };
+  for (const key of Object.keys(rates)) {
+    if (key !== 'classes' && key !== 'lines') return `Unknown production-rate group "${key}"`;
+    const group = rates[key];
+    if (group != null && (typeof group !== 'object' || Array.isArray(group))) return `Production rates "${key}" must be an object`;
+  }
+  for (const [cls, v] of Object.entries(rates.classes ?? {})) {
+    if (!RATE_CLASSES.includes(cls)) return `Unknown aircraft class "${cls}"`;
+    const p = check(cls, v); if (p) return p;
+  }
+  for (const [id, v] of Object.entries(rates.lines ?? {})) {
+    if (!PRODUCTION_LINES[id]) return `Unknown production line "${id}"`;
+    const p = check(PRODUCTION_LINES[id].name, v); if (p) return p;
+  }
+  return null;
+}
+
+/** Valid rates with blanks dropped and numbers made numbers; null when nothing is set. */
+export function normalizeLineRates(rates) {
+  if (rates == null || typeof rates !== 'object') return null;
+  const out = {};
+  for (const key of ['classes', 'lines']) {
+    for (const [k, v] of Object.entries(rates[key] ?? {})) {
+      if (blank(v)) continue;
+      const n = Number(v);
+      if (Number.isInteger(n) && n >= MIN_LINE_RATE && n <= MAX_LINE_RATE) (out[key] ??= {})[k] = n;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * What a blank box means, for the form's placeholders: each class's default at
+ * this scale, and each line's rate given the classes typed so far.
+ */
+export function lineRateDefaults({ scale = 1, rates = null } = {}) {
+  const classes = {};
+  for (const cls of RATE_CLASSES) {
+    const spec = LINE_CAPACITY[cls];
+    classes[cls] = Math.max(spec.floor, Math.round(spec.base * scale));
+  }
+  const classOnly = rates?.classes ? { classes: normalizeLineRates({ classes: rates.classes })?.classes } : null;
+  const lines = {};
+  for (const id of Object.keys(PRODUCTION_LINES)) lines[id] = lineCapacity(id, { scale, rates: classOnly });
+  return { classes, lines };
+}
+
+/** Lines grouped by class, for the form: [{ cls, lines: [{ id, name }] }]. */
+export function linesByClass() {
+  const groups = new Map(RATE_CLASSES.map((c) => [c, []]));
+  for (const id of Object.keys(PRODUCTION_LINES)) {
+    const info = lineInfo(id);
+    (groups.get(info.cls) ?? groups.set(info.cls, []).get(info.cls)).push({ id, name: info.name });
+  }
+  return [...groups].filter(([, l]) => l.length).map(([cls, l]) => ({ cls, lines: l.sort((a, b) => a.name.localeCompare(b.name)) }));
 }
 
 // ── Bookings ────────────────────────────────────────────────────────────────
@@ -321,6 +422,7 @@ const sumMap = (m) => { let n = 0; for (const v of m.values()) n += v; return n;
 export function capacityFor(state, lineId, absWeek) {
   return lineCapacity(lineId, {
     scale: state?.lineBook?.scale ?? state?.productionLineScale ?? 1,
+    rates: ratesFor(state),
     backlogFrames: sumMap(lineBookings(state, lineId, absWeek + 1)),
   });
 }
@@ -530,7 +632,7 @@ export function launchWindow(state, type) {
  * airline's post-decision pending orders, which of the NEW orders' weeks are
  * over capacity? Empty array = safe to commit.
  */
-export function lineConflicts({ othersBookings = {}, pendingOrders = [], newOrderIds = [], scale = 1, absWeek = 0 }) {
+export function lineConflicts({ othersBookings = {}, pendingOrders = [], newOrderIds = [], scale = 1, rates = null, absWeek = 0 }) {
   const fresh = new Set(newOrderIds);
   const conflicts = [];
   const byLine = new Map();
@@ -540,7 +642,7 @@ export function lineConflicts({ othersBookings = {}, pendingOrders = [], newOrde
     (byLine.get(line) ?? byLine.set(line, []).get(line)).push(o);
   }
   for (const [line, orders] of byLine) {
-    const state = { lineBook: { scale, bookings: othersBookings }, pendingOrders };
+    const state = { lineBook: { scale, rates, bookings: othersBookings }, pendingOrders };
     const booked = lineBookings(state, line, absWeek);
     const cap = capacityFor(state, line, absWeek);
     const gap = lineGapWeeks(line);

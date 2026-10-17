@@ -75,7 +75,7 @@ async function othersBookingsTx(tx, { worldId, airlineId, lines, absWeek }) {
  * Inside the decision transaction, before the airline write. Throws
  * LineSlotConflict if any of `newOrders` landed on a full week.
  */
-export async function assertLineSlotsTx(tx, { worldId, airlineId, pendingOrders, newOrders, scale = 1, absWeek }) {
+export async function assertLineSlotsTx(tx, { worldId, airlineId, pendingOrders, newOrders, scale = 1, rates = null, absWeek }) {
   if (!newOrders?.length) return;
   if (typeof tx.$executeRaw === 'function') {
     // Transaction-scoped: released at COMMIT/ROLLBACK, so it is safe behind the
@@ -85,7 +85,7 @@ export async function assertLineSlotsTx(tx, { worldId, airlineId, pendingOrders,
   const lines = [...new Set(newOrders.map((o) => o.lineId))];
   const othersBookings = await othersBookingsTx(tx, { worldId, airlineId, lines, absWeek });
   const conflicts = lineConflicts({
-    othersBookings, pendingOrders, newOrderIds: newOrders.map((o) => o.id), scale, absWeek,
+    othersBookings, pendingOrders, newOrderIds: newOrders.map((o) => o.id), scale, rates, absWeek,
   });
   if (conflicts.length > 0) throw new LineSlotConflict(conflicts);
 }

@@ -6,7 +6,7 @@ import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
 import { eraJoinCapital } from '@tailwinds/engine/data/era.js';
 import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
-import { capacityScale } from '@tailwinds/engine/data/productionLines.js';
+import { capacityScale, normalizeLineRates } from '@tailwinds/engine/data/productionLines.js';
 import {
   validateWorldConfig, deriveWorldEndsAt, genJoinCode, weeksBetween, MIN_TIMED_WEEKS, WEEKS_PER_YEAR, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
@@ -68,6 +68,9 @@ export async function createWorld(prisma, {
   newWorldRestrictions,
   crewPipeline,
   productionLines,
+  // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
+  // creator typed; blanks keep the default (engine data/productionLines.js).
+  productionLineRates,
   stage,
   startYear,
   rivalItineraries,
@@ -106,7 +109,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, stage, startYear, rivalItineraries, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, rivalItineraries, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -149,6 +152,10 @@ export async function createWorld(prisma, {
     // The line-rate scale is fixed HERE, from the player cap at creation, so
     // every airline in the world — early joiner or late — sees the same line.
     ...(productionLines !== false ? { productionLines: true, productionLineScale: capacityScale(maxPlayers) } : {}),
+    // Per-world production rates, when the creator set any. Fixed at creation
+    // like the scale: re-rating a live line would re-time order books.
+    ...(productionLines !== false && normalizeLineRates(productionLineRates)
+      ? { productionLineRates: normalizeLineRates(productionLineRates) } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Every world
     // created from now on stores the key explicitly — ON unless the creator
@@ -302,6 +309,7 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),
+      ...(tc.productionLineRates ? { productionLineRates: tc.productionLineRates } : {}),
     } : {}),
     // Rival itineraries: baked at join so the client's projections agree with
     // the tick from the first render; the tick re-stamps it every week anyway.
