@@ -156,6 +156,21 @@ test('the same lane opened now, or moved to another aircraft, uses the new rule'
   assert.equal(routeReachKm(s.routes[0], packed, T('b777300er')), oldReach);
 });
 
+// ── 5b. A corrected headline never strands a route already flying ───────────
+test('corrected types keep their old figure for grandfathered routes only', () => {
+  const sp = T('b747sp');
+  assert.ok(sp.legacyRange > sp.range, '747SP headline corrected down, old figure kept');
+  const tailSP = tail('sp', 'b747sp', eco(sp.seats));
+  const lane = { id: 'rsp', origin: 'JFK', destination: 'HKG', stops: ['JFK', 'HKG'], aircraftId: 'sp' };
+  assert.ok(km('JFK', 'HKG') > effectiveRangeKm(tailSP, sp) && km('JFK', 'HKG') <= legacyEffectiveRangeKm(tailSP, sp));
+  const old = grandfatherRouteRanges({ year: 2, week: 1, fleet: [tailSP], routes: [lane], cargoRoutes: [] });
+  assert.equal(routeRangeShortfall(old.routes[0], tailSP), null, 'the 747SP route flying before the fix keeps flying');
+  assert.ok(routeRangeShortfall(lane, tailSP), 'the same lane opened now is out of range');
+  for (const t of AIRCRAFT_TYPES.filter(x => x.legacyRange != null)) {
+    assert.equal(legacyEffectiveRangeKm({ typeId: t.id, config: eco(t.seats) }, t), t.legacyRange, t.id);
+  }
+});
+
 test('a new game starts on the new rule (nothing to grandfather)', () => {
   assert.equal(freshState().payloadRangeV2, true);
 });

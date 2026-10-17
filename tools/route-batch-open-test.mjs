@@ -51,7 +51,7 @@ const optional = async (path) => { try { return await import(path); } catch { re
 const { GameProvider, RemoteGameProvider, freshState, gameReducer } = await import('../src/store/GameContext.jsx');
 const RouteFinder       = (await import('../src/components/RouteFinder.jsx')).default;
 const RouteFinderScreen = (await import('../src/components/RouteFinderScreen.jsx')).default;
-const { getAircraftType } = await import('../src/data/aircraft.js');
+const { getAircraftType, typicalSeatsOf } = await import('../src/data/aircraft.js');
 const { findCandidates, scoreCandidates } = await import('../src/models/routeFinder.js');
 const { maxFrequency, maxWeeklyBlockHoursFor, routeDistanceKm, currentGameDate } = await import('../src/utils/simulation.js');
 const { requestNav, clearNavIntent } = await import('../src/utils/navIntent.js');
@@ -222,7 +222,10 @@ await test('a pick into a market the pick above already serves is forecast again
   // lane; after BOS–BFS it is a second offer in a lane you already fly, and the
   // engine pools the two (projectRouteAddition's lanePooled). A batch that
   // forecast each pick against today's state would quote the fresh-lane number.
-  const state = base({ hub: 'BOS', gates: { BOS: 2, BFS: 1, BHD: 1 } });
+  // BOS–Belfast is ~4,800 km: a 737-800 makes it at its typical cabin, not packed.
+  const typical = { config: { economy: typicalSeatsOf(NB) } };
+  const state = base({ hub: 'BOS', gates: { BOS: 2, BFS: 1, BHD: 1 },
+    fleet: [tail('a1', NB, typical), tail('a2', NB, typical)] });
   const alone = b.planRouteBatch(state, [{ origin: 'BOS', destination: 'BHD', typeId: NB.id }]).items[0];
   const after = b.planRouteBatch(state, [
     { origin: 'BOS', destination: 'BFS', typeId: NB.id },
