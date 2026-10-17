@@ -26,6 +26,7 @@ import { BULK_FREQUENCY_BATCH } from '@tailwinds/engine/reducer';
 import { GROUND_STATION_MAX_LEVEL } from '@tailwinds/engine/data/groundStation.js';
 import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data/cateringContracts.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
+import { normalizeLivery, isLiveryShaped } from '@tailwinds/engine/data/livery.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
 import { normalizeStarts } from '@tailwinds/engine/models/schedule.js';
@@ -640,6 +641,17 @@ function guardBranding(payload) {
       }
       out.customLogo = logo;
     }
+  }
+  // Livery: same contract as customLogo — forwarded only when the client sent
+  // the key. null clears; an object is normalised here (valid hex colours and a
+  // known style, nothing else survives) so a forged livery can neither smuggle
+  // bytes into the blob nor reach rival views unvalidated. Anything else is a
+  // malformed request, not a livery.
+  if ('livery' in payload) {
+    const l = payload.livery;
+    if (l === null) out.livery = null;
+    else if (isLiveryShaped(l)) out.livery = normalizeLivery(l, typeof payload.logoColor === 'string' ? payload.logoColor : undefined);
+    else throw new GuardError('That livery could not be read — please try again.');
   }
   return out;
 }

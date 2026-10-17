@@ -1866,3 +1866,70 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 @media (max-width: 640px) {
   .sched-label { padding: 4px 6px; }
 }
+
+/* =============================================
+   Branding — Livery tab (LiveryEditor.jsx) and the Fleet livery card
+   ============================================= */
+.branding-tabs { display: flex; gap: 2px; margin: 4px 0 12px; border-bottom: 1px solid var(--border); }
+.branding-tab {
+  background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 8px 14px; color: var(--text-muted); font: 600 13px var(--font); cursor: pointer;
+}
+.branding-tab:hover { color: var(--text); }
+.branding-tab.on { color: var(--accent); border-color: var(--accent); }
+
+.livery-editor { display: flex; flex-direction: column; gap: 14px; }
+.livery-preview {
+  background: radial-gradient(120% 90% at 50% 100%, #3a3b42 0%, var(--surface2) 55%, var(--surface) 100%);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 18px 10px;
+}
+.livery-preview canvas { filter: drop-shadow(0 16px 16px rgba(0,0,0,.45)); }
+.livery-preview-cap { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+.livery-credit { color: var(--text-dim); white-space: nowrap; }
+.livery-section-head {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text-muted);
+}
+.livery-link { background: none; border: 0; color: var(--accent); font: 600 12px var(--font); cursor: pointer; padding: 0; text-transform: none; letter-spacing: 0; }
+.livery-link:hover { color: var(--accent-bright); }
+.livery-styles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.livery-style {
+  background: var(--surface2); border: 2px solid transparent; border-radius: 10px; padding: 7px 5px 5px;
+  cursor: pointer; text-align: center; transition: border-color var(--speed), background var(--speed);
+}
+.livery-style:hover { border-color: var(--border-strong); }
+.livery-style.on { border-color: var(--accent); background: var(--accent-dim); }
+.livery-style span { display: block; margin-top: 4px; font: 600 10.5px var(--font); color: var(--text-muted); }
+.livery-style.on span { color: var(--accent); }
+.livery-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+.livery-row { display: flex; align-items: center; gap: 8px; }
+.livery-row > label { width: 92px; flex: none; font-size: 12.5px; color: var(--text); }
+.livery-swatches { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.livery-swatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border); padding: 0; cursor: pointer; flex: none; }
+.livery-swatch:hover { border-color: var(--text-muted); }
+.livery-swatch.on { border-color: #fff; outline: 2px solid var(--accent); outline-offset: 1px; }
+.livery-custom { width: 22px; height: 22px; border: 1px dashed var(--text-dim); border-radius: 50%; background: transparent; padding: 0; cursor: pointer; flex: none; }
+.livery-opts { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 12px; font-size: 12.5px; color: var(--text-muted); }
+.livery-opts label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.livery-opts input[type=checkbox] { accent-color: var(--accent); }
+.livery-foot { margin-top: 10px; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+@media (max-width: 640px) {
+  .livery-rows { grid-template-columns: 1fr; }
+  .livery-styles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.fleet-livery-card { display: flex; align-items: center; gap: 18px; padding: 14px 18px; margin-bottom: 16px; }
+.fleet-livery-card .fleet-livery-art {
+  flex: 0 0 auto; width: 300px; max-width: 46%;
+  background: radial-gradient(120% 90% at 50% 100%, #3a3b42 0%, var(--surface2) 55%, var(--surface) 100%);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px 8px;
+}
+.fleet-livery-card .fleet-livery-art canvas { filter: drop-shadow(0 10px 10px rgba(0,0,0,.45)); }
+.fleet-livery-card .fleet-livery-text { flex: 1; min-width: 0; }
+.fleet-livery-card h3 { margin: 0 0 4px; font-size: 15px; }
+.fleet-livery-card p { margin: 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+.fleet-livery-card .fleet-livery-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .fleet-livery-card { flex-direction: column; align-items: stretch; }
+  .fleet-livery-card .fleet-livery-art { width: 100%; max-width: none; }
+}

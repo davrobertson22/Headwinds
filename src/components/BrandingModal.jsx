@@ -5,11 +5,15 @@ import { ACCENT_COLORS } from './SetupScreen.jsx';
 import { fileToLogoDataURL, LOGO_UPLOAD_HINT } from '../utils/logoImage.js';
 import { Glyph } from './Icons.jsx';
 import { CloseIcon } from './Icons.jsx';
+import LiveryEditor from './LiveryEditor.jsx';
+import { liveryFor, isLiveryShaped } from '../data/livery.js';
 
 // In-game branding editor: change the airline name, logo (preset or uploaded
-// image) and accent colour without starting a new game.
-export default function BrandingModal({ onClose }) {
+// image) and accent colour without starting a new game — and, on the Livery
+// tab, the paint scheme shown on the aircraft (LiveryEditor.jsx).
+export default function BrandingModal({ onClose, initialTab = 'identity' }) {
   const { state, dispatch } = useGame();
+  const [tab, setTab] = useState(initialTab === 'livery' ? 'livery' : 'identity');
 
   const [name,        setName]        = useState(state.airlineName ?? '');
   const [logoId,      setLogoId]      = useState(state.customLogo ? 'custom' : (state.logoId ?? AIRLINE_LOGOS[0].id));
@@ -17,6 +21,13 @@ export default function BrandingModal({ onClose }) {
   const [customLogo,  setCustomLogo]  = useState(state.customLogo ?? null);
   const [logoError,   setLogoError]   = useState('');
   const fileInputRef = useRef(null);
+  // Livery: edits are local until Save. `liveryDirty` keeps a name-only rebrand
+  // from freezing the default (logo-colour-derived) paint into the blob;
+  // `livery: null` on save clears a saved scheme back to that default.
+  const [livery,      setLivery]      = useState(() => liveryFor(state));
+  const [liveryDirty, setLiveryDirty] = useState(false);
+  const [liveryReset, setLiveryReset] = useState(false);
+  const hasSavedLivery = isLiveryShaped(state.livery);
 
   const usingCustom = logoId === 'custom' && customLogo;
   const canSave = name.trim().length > 0;
@@ -43,19 +54,40 @@ export default function BrandingModal({ onClose }) {
       logoId:      usingCustom ? 'horizon' : logoId,
       logoColor:   accentColor,
       customLogo:  usingCustom ? customLogo : null,
+      ...(liveryReset ? { livery: null } : liveryDirty ? { livery } : {}),
     });
     onClose();
   }
 
+  function changeLivery(next) { setLivery(next); setLiveryDirty(true); setLiveryReset(false); }
+  function resetLivery() {
+    setLivery(liveryFor({ ...state, livery: undefined, logoColor: accentColor }));
+    setLiveryDirty(false); setLiveryReset(true);
+  }
+
   return (
     <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="saveload-modal" style={{ maxWidth: 560 }}>
+      <div className="saveload-modal" style={{ maxWidth: tab === 'livery' ? 640 : 560 }}>
         <div className="saveload-header">
           <h2 className="saveload-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <Glyph e="✎" size={18} /> Edit Branding
           </h2>
           <button className="saveload-close btn btn-ghost" onClick={onClose}><CloseIcon size={15} /></button>
         </div>
+        <div className="branding-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'identity'} className={`branding-tab${tab === 'identity' ? ' on' : ''}`} onClick={() => setTab('identity')}>Name &amp; logo</button>
+          <button type="button" role="tab" aria-selected={tab === 'livery'} className={`branding-tab${tab === 'livery' ? ' on' : ''}`} onClick={() => setTab('livery')}>Livery</button>
+        </div>
+        {tab === 'livery' ? (
+          <LiveryEditor
+            livery={livery}
+            onChange={changeLivery}
+            onReset={hasSavedLivery || liveryDirty ? resetLivery : null}
+            isDefault={!hasSavedLivery && !liveryDirty}
+            airlineName={name.trim() || 'Your airline'}
+            logo={{ id: usingCustom ? null : logoId, accentColor, customSrc: usingCustom ? customLogo : null }}
+          />
+        ) : (<>
         <p className="saveload-hint">
           Update your airline's name and look. Changes apply immediately across the game.
         </p>
@@ -221,9 +253,10 @@ export default function BrandingModal({ onClose }) {
             </div>
           </div>
         </div>
+        </>)}
 
         {/* ── Actions ── */}
-        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
           <button type="button" className="btn btn-ghost" style={{ flex: '0 0 auto', padding: '10px 18px' }} onClick={onClose}>
             Cancel
           </button>
@@ -237,6 +270,12 @@ export default function BrandingModal({ onClose }) {
             Save Changes
           </button>
         </div>
+        {tab === 'livery' && (
+          <div className="livery-foot">
+            Your livery shows on the Fleet page, your airline profile, the planes on the globe, and to every rival.
+            More aircraft templates arrive as players fund them (see the Fleet page).
+          </div>
+        )}
       </div>
     </div>
   );

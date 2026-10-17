@@ -15,6 +15,8 @@ import { Glyph } from './Icons.jsx';
 import { pairShapes } from './RivalRouteMap.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
 import GlobeMap from './GlobeMap.jsx';
+import { liveryFor } from '../data/livery.js';
+import { planeSpriteColors } from '../utils/liveryPaint.js';
 import { buildGlobeData } from './globeCore.js';
 import { buildFlightPlan } from './flightsCore.js';
 import { airlineWeeks } from '../models/schedule.js';
@@ -256,6 +258,8 @@ export function mapAirportCodes(hubCodes = [], ...routeDataSets) {
 
 export default function RouteMap() {
   const { state, remoteChrome } = useGame();
+  // Globe plane sprite in the airline's livery (fuselage + tail colours).
+  const planeColors = useMemo(() => planeSpriteColors(liveryFor(state)), [state.livery, state.logoColor]);
   const { fleet, routes, cargoRoutes = NO_ROUTES, hub, hubs: hubsState,
           competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
@@ -1178,6 +1182,7 @@ export default function RouteMap() {
             onFallback={() => setMapView('flat')}
             flights={flightPlans}
             clock={clockSpec}
+            planeColors={planeColors}
           />
         )}
         <div style={{ display: mapView === 'globe' ? 'none' : 'block' }}>

@@ -38,9 +38,13 @@ const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'part
 export const NIGHT_SIZE = 256;
 const PLANE_ICON = 'hw-plane';
 
-/** A top-down airliner pointing north, white with a dark rim, 64 px square
- *  (shown at 32 css px: pixelRatio 2). */
-function planeIcon() {
+/** A top-down airliner pointing north, 64 px square (shown at 32 css px:
+ *  pixelRatio 2), in the airline's livery: body colour for the fuselage and
+ *  wings, tail colour for the fin — the same two colours the livery editor
+ *  paints, so the planes on your routes match your paint (DEFAULT_PLANE_COLORS
+ *  is the pre-livery white). */
+export const DEFAULT_PLANE_COLORS = { body: '#f4f8ff', fin: '#f4f8ff' };
+function planeIcon(colors = DEFAULT_PLANE_COLORS) {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const ctx = c.getContext('2d');
@@ -53,12 +57,18 @@ function planeIcon() {
   ctx.lineWidth = 4;
   ctx.strokeStyle = 'rgba(2, 6, 18, 0.85)';
   ctx.stroke();
-  ctx.fillStyle = '#f4f8ff';
+  ctx.fillStyle = colors.body;
+  ctx.fill();
+  // Tailplane in the fin colour: the rear sweep of the silhouette.
+  ctx.beginPath();
+  [[35, 50], [45, 57], [45, 60], [32, 56], [19, 60], [19, 57], [29, 50]].forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.closePath();
+  ctx.fillStyle = colors.fin;
   ctx.fill();
   return ctx.getImageData(0, 0, 64, 64);
 }
 
-function addLayers(map, nightCanvas) {
+function addLayers(map, nightCanvas, planeColors) {
   // Night sits directly on the basemap, under every line and pin.
   try {
     map.addSource('night', { type: 'canvas', canvas: nightCanvas, coordinates: NIGHT_COORDINATES, animate: false });
@@ -112,7 +122,7 @@ function addLayers(map, nightCanvas) {
 
   // Planes: a soft glow in the line's colour under a white airliner turned to
   // its heading and laid flat on the globe.
-  if (!map.hasImage(PLANE_ICON)) map.addImage(PLANE_ICON, planeIcon(), { pixelRatio: 2 });
+  if (!map.hasImage(PLANE_ICON)) map.addImage(PLANE_ICON, planeIcon(planeColors), { pixelRatio: 2 });
   map.addLayer({ id: 'planes-glow', type: 'circle', source: 'planes',
     paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 6, 12],
              'circle-color': ['get', 'color'], 'circle-blur': 1, 'circle-opacity': 0.55,
@@ -148,9 +158,11 @@ function focusGroupOf(f) {
 
 export default function GlobeMap({
   data, height, home, selectedId, hoveredId, focusChain, onHover, onSelect, onFallback,
-  flights = null, clock = null,
+  flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS,
 }) {
   const nightCanvasRef = useRef(null);
+  const planeColorsRef = useRef(planeColors);
+  planeColorsRef.current = planeColors;
   const clockLabelRef = useRef(null);
   // Planes carry no tooltip HTML in their per-frame GeoJSON; hover looks the
   // plan up here and describes where it is at that moment.
@@ -205,7 +217,7 @@ export default function GlobeMap({
         const nightCanvas = document.createElement('canvas');
         nightCanvas.width = nightCanvas.height = NIGHT_SIZE;
         nightCanvasRef.current = nightCanvas;
-        addLayers(map, nightCanvas);
+        addLayers(map, nightCanvas, planeColorsRef.current);
         let lastTip = null;
         const pick = (point) => {
           const layers = INTERACTIVE.filter(l => map.getLayer(l));
@@ -271,6 +283,13 @@ export default function GlobeMap({
   }, []);
 
   useEffect(() => { mapRef.current?.resize(); }, [height]);
+
+  // Livery change → repaint the plane sprite in place (no layer rebuild).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!loaded || !map || !map.hasImage(PLANE_ICON)) return;
+    try { map.updateImage(PLANE_ICON, planeIcon(planeColors)); } catch { /* style not ready */ }
+  }, [loaded, planeColors?.body, planeColors?.fin]);
 
   // 2. Data → sources, plus HTML code labels (no glyph server needed).
   useEffect(() => {

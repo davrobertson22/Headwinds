@@ -425,6 +425,10 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // Accent colour of a preset mark — without it every rival's preset
     // rendered in the default blue, whatever they picked.
     ...(typeof s.logoColor === 'string' ? { logoColor: s.logoColor } : {}),
+    // Paint scheme (engine data/livery.js) — a handful of colour strings, so
+    // it rides in the view; the client derives a default from logoColor when
+    // a rival has never opened the livery editor.
+    ...(s.livery && typeof s.livery === 'object' && !Array.isArray(s.livery) ? { livery: s.livery } : {}),
     // Uploaded logo, as a URL to routes/logos.mjs — never the bytes (see
     // lib/logoColumn.mjs RIVALS). `logoHash` comes from the SQL projection;
     // a full row (worker, tests) hashes its column here. Same value either way.

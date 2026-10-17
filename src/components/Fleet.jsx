@@ -27,6 +27,10 @@ import { orderProgress } from '../data/delivery.js';
 import { saleQuote, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
+import LiveryPlane from './LiveryPlane.jsx';
+import { liveryFor, isLiveryShaped } from '../data/livery.js';
+import { getLiveryTemplate, DEFAULT_LIVERY_TEMPLATE } from '../data/liveryTemplates.js';
+import { openBranding } from '../utils/openBranding.js';
 import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
 import { isLeaseAtRisk, leaseRemainingWeeks, leaseWarnWeeks, leaseWarnPhrase, leaseAutoRenewSetting, leaseWillAutoRenew } from '../utils/leaseAlerts.js';
 import { LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from '../models/leaseRenewal.js';
@@ -1633,6 +1637,43 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
 
 // ─── Main Fleet page ──────────────────────────────────────────────────────────
 
+// ─── Livery card ─────────────────────────────────────────────────────────────
+// The airline's paint scheme on the licensed template (LiveryPlane.jsx), with
+// the way into the editor. One template today — every type paints onto the
+// 737-800 — so the card says so rather than pretending an A380 is a 737.
+function FleetLiveryCard({ state }) {
+  const livery = liveryFor(state);
+  const saved = isLiveryShaped(state.livery);
+  const tpl = getLiveryTemplate(DEFAULT_LIVERY_TEMPLATE);
+  return (
+    <div className="card fleet-livery-card" data-testid="fleet-livery-card">
+      <div className="fleet-livery-art">
+        <LiveryPlane
+          livery={livery}
+          titles={state.airlineName}
+          logo={{ id: state.logoId, accentColor: state.logoColor, customSrc: state.customLogo }}
+          templateId={tpl.id}
+          width={276}
+          style={{ width: '100%', height: 'auto' }}
+          title={`${state.airlineName || 'Your'} livery on a ${tpl.name}`}
+        />
+      </div>
+      <div className="fleet-livery-text">
+        <h3>Your livery</h3>
+        <p>
+          {saved
+            ? 'Painted on your planes on the globe, on your airline profile and in every rival\'s view of you.'
+            : 'Default colours from your logo — open the editor to design your own: tail, fuselage, engines, a stripe or sweep, titles and your logo on the fin.'}
+          {' '}Shown on a {tpl.name}; more aircraft templates are added as players fund them.
+        </p>
+        <div className="fleet-livery-actions">
+          <button type="button" className="btn btn-primary" onClick={() => openBranding('livery')}>✎ {saved ? 'Edit livery' : 'Design your livery'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Fleet() {
   const { state, dispatch } = useGame();
   // Tails the crew pipeline parks this week (severe band) — same set the tick
@@ -2156,6 +2197,7 @@ export default function Fleet() {
         above the table. Ignore one and the check is forced on you at +50% cost
         with the aircraft grounded, which is how most airlines here lose a week.
       </Callout>
+      <FleetLiveryCard state={state} />
       {/* Summary stats */}
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: 16 }}>
         <div className="stat-box">

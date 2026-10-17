@@ -36,6 +36,7 @@ import AirportSelect from './components/AirportSelect.jsx';
 import AirlineLogo from './components/AirlineLogo.jsx';
 import OnboardingTour, { TOUR_KEY } from './components/OnboardingTour.jsx';
 import BrandingModal from './components/BrandingModal.jsx';
+import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
 
@@ -337,6 +338,14 @@ function AppInner() {
   const [saveLoadMode, setSaveLoadMode] = useState(null); // 'save' | 'load' | null
   const [showNewGameConfirm, setShowNewGameConfirm] = useState(false);
   const [showBranding, setShowBranding] = useState(false);
+  const [brandingTab,  setBrandingTab]  = useState('identity');
+  // "Edit livery" on the Fleet page (utils/openBranding.js) opens this modal
+  // on the Livery tab without threading a callback through every screen.
+  useEffect(() => {
+    const open = (e) => { setBrandingTab(e.detail?.tab === 'livery' ? 'livery' : 'identity'); setShowBranding(true); };
+    window.addEventListener(BRANDING_OPEN_EVENT, open);
+    return () => window.removeEventListener(BRANDING_OPEN_EVENT, open);
+  }, []);
   const isMobile = useIsMobile();
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const addToast = useToast();
@@ -882,7 +891,7 @@ function AppInner() {
       )}
 
       {/* Edit branding modal */}
-      {showBranding && <BrandingModal onClose={() => setShowBranding(false)} />}
+      {showBranding && <BrandingModal initialTab={brandingTab} onClose={() => { setShowBranding(false); setBrandingTab('identity'); }} />}
 
       {/* New Game confirmation */}
       {showNewGameConfirm && (
