@@ -43,6 +43,14 @@
          a full screen below the app, out of a player's way. -->
     <style>
       #root { min-height: 100vh; }
+      /* The game screen's stylesheet (src/index.css, lazy-loaded with
+         GamePlayScreen) sets html,body,#root{height:100%}, and once loaded it
+         stays loaded for the tab. That pinned #root to one viewport, so the
+         lobby spilled over #play-info and the game could be scrolled past into
+         it. Outside the game #root grows with its content; inside the game
+         (.app-layout mounted) #play-info is not rendered at all. */
+      html body #root:not(:has(.app-layout)) { height: auto; }
+      #root:has(.app-layout) ~ #play-info { display: none; }
       #play-info { border-top: 1px solid #263143; background: #0b0e13; color: #c3cddb; font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif; line-height: 1.6; font-size: 15px; }
       #play-info .wrap { max-width: 1080px; margin: 0 auto; padding: 0 22px; }
       #play-info a { color: #5fe0cc; }
