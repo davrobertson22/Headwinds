@@ -26,6 +26,11 @@ export const TROPHY_NOTE_MAX = 120;
 export const TROPHY_IMAGE_MAX_BYTES = 750_000;
 // Route body limit: the base64 data URL is ~4/3 of the bytes, plus the fields.
 export const TROPHY_BODY_LIMIT = 1_200_000;
+// 3D models (binary glTF). Uploaded raw, not base64. A model is fetched once per
+// browser (immutable cache) and only when someone opens it, but it lives in
+// Postgres, so the ceiling is deliberately modest: 2048-px textures are what
+// make a trophy heavy, and 1024 px looks identical at trophy-case size.
+export const TROPHY_MODEL_MAX_BYTES = 10_000_000;
 
 function httpError(statusCode, message) {
   const e = new Error(message);
@@ -71,6 +76,29 @@ const cleanText = (v, max, label, { required = false } = {}) => {
   return t || null;
 };
 
+/**
+ * Check an uploaded .glb: the 12-byte glTF 2.0 header must say "glTF", version
+ * 2, and a total length equal to what arrived, and the first chunk must be the
+ * JSON chunk. Returns { bytes, hash, size } or throws a 400/413.
+ */
+export function validateTrophyModel(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) throw httpError(400, 'No 3D model received');
+  if (buf.length > TROPHY_MODEL_MAX_BYTES) {
+    throw httpError(413, `The model is ${(buf.length / 1e6).toFixed(1)} MB — keep it under ${TROPHY_MODEL_MAX_BYTES / 1e6} MB (shrinking its textures to 1024 px usually does it)`);
+  }
+  if (buf.length < 20 || buf.toString('ascii', 0, 4) !== 'glTF') {
+    throw httpError(400, 'That is not a .glb file — export the model as binary glTF (.glb)');
+  }
+  const version = buf.readUInt32LE(4), length = buf.readUInt32LE(8);
+  if (version !== 2) throw httpError(400, `glTF version ${version} is not supported — export as glTF 2.0`);
+  if (length !== buf.length) throw httpError(400, 'The .glb file is incomplete or damaged');
+  if (buf.toString('ascii', 16, 20) !== 'JSON') throw httpError(400, 'The .glb file is damaged (no JSON chunk)');
+  const hash = createHash('sha256').update(buf).digest('hex').slice(0, 12);
+  return { bytes: buf, hash, size: buf.length };
+}
+
+export const trophyModelUrl = (t) => (t?.modelHash ? `/trophies/${t.id}/model?v=${t.modelHash}` : null);
+
 /** Where the artwork is served, cache-keyed on its hash. Null when there is none. */
 export function trophyImageUrl(t) {
   return t?.imageHash ? `/trophies/${t.id}/image?v=${t.imageHash}` : null;
@@ -83,6 +111,8 @@ export function serializeTrophy(t) {
     name: t.name,
     description: t.description ?? null,
     imageUrl: trophyImageUrl(t),
+    modelUrl: trophyModelUrl(t),
+    modelSize: t.modelSize ?? null,
     createdAt: t.createdAt ?? null,
     awardCount: t._count?.awards ?? undefined,
   };
@@ -96,6 +126,7 @@ export function serializeAward(a) {
     name: a.trophy?.name ?? null,
     description: a.trophy?.description ?? null,
     imageUrl: a.trophy ? trophyImageUrl({ id: a.trophyId, imageHash: a.trophy.imageHash }) : null,
+    modelUrl: a.trophy ? trophyModelUrl({ id: a.trophyId, modelHash: a.trophy.modelHash }) : null,
     worldId: a.worldId ?? null,
     worldName: a.worldName ?? null,
     airlineName: a.airlineName ?? null,
@@ -107,8 +138,29 @@ export function serializeAward(a) {
 
 // Never select the bytes for a list.
 export const TROPHY_META_SELECT = {
-  id: true, name: true, description: true, imageHash: true, imageType: true, createdAt: true,
+  id: true, name: true, description: true, imageHash: true, imageType: true,
+  modelHash: true, modelSize: true, createdAt: true,
 };
+
+/** Attach (or replace) a trophy's 3D model. */
+export async function setTrophyModel(prisma, id, buf) {
+  const m = validateTrophyModel(buf);
+  const exists = await prisma.trophy.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) throw httpError(404, 'No such trophy');
+  return prisma.trophy.update({
+    where: { id },
+    data: { model: m.bytes, modelHash: m.hash, modelSize: m.size },
+    select: TROPHY_META_SELECT,
+  });
+}
+
+export async function clearTrophyModel(prisma, id) {
+  return prisma.trophy.update({
+    where: { id },
+    data: { model: null, modelHash: null, modelSize: null },
+    select: TROPHY_META_SELECT,
+  });
+}
 
 export async function createTrophy(prisma, { name, description, image } = {}, { adminEmail = null } = {}) {
   const data = {

@@ -5,10 +5,62 @@
 // EventRankingPanel (an event world's page, admins only): the ranking — final
 // once the world ends — with an "Award" control on every row.
 // TrophyCard: one awarded trophy as a public trophy case shows it.
+// TrophyViewer: the 3D turntable a trophy with a .glb model opens into.
 //
 // Server: apps/headwinds-server/src/lib/trophies.mjs + routes/trophies.mjs.
-import { useCallback, useEffect, useState } from 'react';
+// 3D: ./trophy3d.js (three.js, loaded from a CDN only when a model is opened).
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, API_BASE } from './api.js';
+
+const load3d = () => import('./trophy3d.js');
+// The server's ceiling (lib/trophies.mjs TROPHY_MODEL_MAX_BYTES).
+export const TROPHY_MODEL_MAX_BYTES = 10_000_000;
+
+/** PUT a .glb to a trophy. Raw bytes, not JSON — models run to megabytes. */
+export async function uploadTrophyModel(token, trophyId, buffer) {
+  const res = await fetch(`${API_BASE}/admin/trophies/${trophyId}/model`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'model/gltf-binary', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: buffer,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `${res.status} ${res.statusText}`);
+  return data;
+}
+
+const fmtMB = (n) => (n == null ? '' : `${(n / 1e6).toFixed(1)} MB`);
+
+/** Full-screen turntable for one trophy's model. */
+export function TrophyViewer({ modelUrl, name, onClose }) {
+  const canvasRef = useRef(null);
+  const [state, setState] = useState('loading'); // loading | ready | error
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let viewer = null, cancelled = false;
+    load3d()
+      .then((m) => m.mountTrophyViewer(canvasRef.current, `${API_BASE}${modelUrl}`))
+      .then((v) => { if (cancelled) v.dispose(); else { viewer = v; setState('ready'); } })
+      .catch((e) => { if (!cancelled) { setErr(e); setState('error'); } });
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => { cancelled = true; viewer?.dispose(); window.removeEventListener('keydown', onKey); };
+  }, [modelUrl, onClose]);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`${name ?? 'Trophy'} in 3D`} onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,10,20,.82)', display: 'grid', placeItems: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ position: 'relative', width: 'min(92vw, 640px)', aspectRatio: '1 / 1', borderRadius: 14,
+                 background: 'radial-gradient(circle at 50% 40%, #2a3448, #0d1320 70%)', border: '1px solid rgba(255,200,61,.35)' }}>
+        <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', borderRadius: 14, touchAction: 'none', cursor: 'grab' }} />
+        <div style={{ position: 'absolute', left: 14, top: 10, fontWeight: 700 }}>{name}</div>
+        <button className="btn small" type="button" onClick={onClose} style={{ position: 'absolute', right: 10, top: 8 }}>✕</button>
+        {state === 'loading' && <div className="muted" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>Loading the 3D trophy…</div>}
+        {state === 'error' && <div className="error" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center' }}>Couldn’t show the 3D trophy: {err?.message ?? String(err)}</div>}
+        {state === 'ready' && <div className="muted small" style={{ position: 'absolute', bottom: 10, width: '100%', textAlign: 'center' }}>Drag to turn · scroll or pinch to zoom</div>}
+      </div>
+    </div>
+  );
+}
 
 // The longest edge an uploaded trophy keeps. Artwork is shown at ~96 px, so
 // 512 is ample for retina and keeps a PNG in the tens of kB.
@@ -67,10 +119,19 @@ function TrophyArt({ url, size = 64, alt = '' }) {
 
 /** One awarded trophy, as the public trophy case shows it. */
 export function TrophyCard({ award: a }) {
+  const [open3d, setOpen3d] = useState(false);
   return (
     <div style={{ border: '1px solid rgba(255,200,61,.35)', borderRadius: 10, padding: '10px 14px',
                   minWidth: 180, maxWidth: 260, display: 'flex', gap: 12, alignItems: 'center' }}>
-      <TrophyArt url={a.imageUrl} size={64} alt={a.name ?? 'Trophy'} />
+      {a.modelUrl ? (
+        <button type="button" onClick={() => setOpen3d(true)} title="View in 3D"
+          style={{ position: 'relative', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}>
+          <TrophyArt url={a.imageUrl} size={64} alt={a.name ?? 'Trophy'} />
+          <span style={{ position: 'absolute', right: -4, bottom: -4, fontSize: 10, fontWeight: 800, padding: '1px 5px',
+                         borderRadius: 4, background: '#ffc83d', color: '#1a1300' }}>3D</span>
+        </button>
+      ) : <TrophyArt url={a.imageUrl} size={64} alt={a.name ?? 'Trophy'} />}
+      {open3d && <TrophyViewer modelUrl={a.modelUrl} name={a.name} onClose={() => setOpen3d(false)} />}
       <div>
         <div style={{ fontWeight: 700 }}>{a.name ?? 'Trophy'}</div>
         {(a.worldName || a.place) && (
@@ -96,7 +157,10 @@ export function TrophyBank({ token }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [image, setImage] = useState(null); // data URL
+  const [model, setModel] = useState(null); // { buffer, name, size } of a picked .glb
   const [editing, setEditing] = useState(null); // trophy id
+  const [viewing, setViewing] = useState(null); // trophy whose model is open
+  const [status, setStatus] = useState(null);   // progress line while saving
 
   const [events, setEvents] = useState(null);
   const load = useCallback(() => {
@@ -113,14 +177,56 @@ export function TrophyBank({ token }) {
     try { then(await fileToTrophyDataUrl(f)); } catch (err) { setError(err); }
   };
 
+  const pickModel = async (e, then) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setError(null);
+    if (!/\.glb$/i.test(f.name)) { setError(new Error('Pick a .glb file (binary glTF). A .gltf with separate files won’t upload — export as .glb.')); return; }
+    if (f.size > TROPHY_MODEL_MAX_BYTES) { setError(new Error(`That model is ${fmtMB(f.size)} — the limit is ${fmtMB(TROPHY_MODEL_MAX_BYTES)}. Shrinking its textures to 1024 px usually does it.`)); return; }
+    then({ buffer: await f.arrayBuffer(), name: f.name, size: f.size });
+  };
+
+  // No picture but a model: render one from the model, so the trophy case
+  // always has something to show before anyone opens the 3D view.
+  const posterFor = async (buffer) => {
+    setStatus('Rendering a picture from the 3D model…');
+    const m = await load3d();
+    return m.renderTrophyPoster(buffer.slice(0), { size: 512 });
+  };
+
   const create = async (ev) => {
     ev.preventDefault();
     setBusy(true); setError(null);
     try {
-      await api('/admin/trophies', { method: 'POST', token, body: { name: name.trim(), description: description.trim() || null, image } });
-      setName(''); setDescription(''); setImage(null); load();
+      const picture = image ?? (model ? await posterFor(model.buffer) : null);
+      setStatus('Saving…');
+      const { trophy } = await api('/admin/trophies', { method: 'POST', token, body: { name: name.trim(), description: description.trim() || null, image: picture } });
+      if (model) {
+        setStatus(`Uploading the 3D model (${fmtMB(model.size)})…`);
+        await uploadTrophyModel(token, trophy.id, model.buffer);
+      }
+      setName(''); setDescription(''); setImage(null); setModel(null); load();
     } catch (e) { setError(e); }
+    setStatus(null);
     setBusy(false);
+  };
+  const attachModel = async (t, m) => {
+    setError(null); setBusy(true);
+    try {
+      // A trophy with no picture yet gets one rendered from the model.
+      if (!t.imageUrl) {
+        const picture = await posterFor(m.buffer);
+        await api(`/admin/trophies/${t.id}`, { method: 'POST', token, body: { image: picture } });
+      }
+      setStatus(`Uploading the 3D model (${fmtMB(m.size)})…`);
+      await uploadTrophyModel(token, t.id, m.buffer);
+      setEditing(null); load();
+    } catch (e) { setError(e); }
+    setStatus(null); setBusy(false);
+  };
+  const removeModel = async (t) => {
+    if (!window.confirm(`Remove the 3D model from “${t.name}”? The picture stays.`)) return;
+    try { await api(`/admin/trophies/${t.id}/model`, { method: 'DELETE', token }); load(); } catch (e) { setError(e); }
   };
   const replaceImage = async (id, dataUrl) => {
     setError(null);
@@ -157,10 +263,21 @@ export function TrophyBank({ token }) {
             <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => pick(e, setImage)} />
             <span className="muted small">PNG, JPEG, WebP or GIF. Scaled to {TROPHY_IMAGE_EDGE}px; transparent PNGs look best.</span>
           </label>
+          <label>3D model (optional)
+            <input type="file" accept=".glb,model/gltf-binary" onChange={(e) => pickModel(e, setModel)} />
+            <span className="muted small">
+              {model ? `${model.name} · ${fmtMB(model.size)}` : `A .glb file, up to ${fmtMB(TROPHY_MODEL_MAX_BYTES)}.`}
+              {' '}Players can spin it in the trophy case. No picture? One is rendered from the model.
+            </span>
+          </label>
         </div>
-        <div className="row"><button className="btn primary" disabled={busy || !name.trim()} type="submit">{busy ? 'Saving…' : 'Add to the bank'}</button></div>
+        <div className="row">
+          <button className="btn primary" disabled={busy || !name.trim()} type="submit">{busy ? 'Saving…' : 'Add to the bank'}</button>
+        </div>
       </form>
       {error && <p className="error">{error.message ?? String(error)}</p>}
+      {status && <p className="muted small">{status}</p>}
+      {viewing && <TrophyViewer modelUrl={viewing.modelUrl} name={viewing.name} onClose={() => setViewing(null)} />}
 
       <h3>Trophy bank</h3>
       {data == null ? <p className="muted">Loading…</p> : data.trophies.length === 0 ? <p className="muted">No trophies yet.</p> : (
@@ -170,11 +287,19 @@ export function TrophyBank({ token }) {
               <TrophyArt url={t.imageUrl} size={96} alt={t.name} />
               <div style={{ fontWeight: 700, marginTop: 8 }}>{t.name}</div>
               {t.description && <div className="muted small">{t.description}</div>}
-              <div className="muted small">Awarded {t.awardCount ?? 0}×</div>
+              <div className="muted small">
+                Awarded {t.awardCount ?? 0}×{t.modelUrl ? ` · 3D model ${fmtMB(t.modelSize)}` : ''}
+              </div>
               <div className="row wrap" style={{ marginTop: 6 }}>
-                {editing === t.id
-                  ? <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => pick(e, (d) => replaceImage(t.id, d))} />
-                  : <button className="btn small" type="button" onClick={() => setEditing(t.id)}>Change picture</button>}
+                {t.modelUrl && <button className="btn small" type="button" onClick={() => setViewing(t)}>View 3D</button>}
+                {editing === t.id ? (
+                  <>
+                    <label className="small">Picture <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => pick(e, (d) => replaceImage(t.id, d))} /></label>
+                    <label className="small">3D model <input type="file" accept=".glb,model/gltf-binary" onChange={(e) => pickModel(e, (m) => attachModel(t, m))} /></label>
+                    <button className="btn small" type="button" onClick={() => setEditing(null)}>Done</button>
+                  </>
+                ) : <button className="btn small" type="button" onClick={() => setEditing(t.id)}>Change picture / 3D</button>}
+                {t.modelUrl && editing !== t.id && <button className="btn small" type="button" onClick={() => removeModel(t)}>Remove 3D</button>}
                 {!(t.awardCount > 0) && <button className="btn small danger" type="button" onClick={() => remove(t)}>Delete</button>}
               </div>
             </div>

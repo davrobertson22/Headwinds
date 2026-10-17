@@ -16,7 +16,11 @@
 //   4. an admin sees the ranking (with player names) and AWARDS trophies by
 //      hand from a TROPHY BANK of admin-made trophies with their own artwork;
 //      awards show in the public trophy case and outlive the world;
-//   5. an event is not a season: no automatic placing, no season totals/badges.
+//   5. an event is not a season: no automatic placing, no season totals/badges;
+//   6. a trophy may carry a 3D MODEL (.glb) — validated, served by URL, and
+//      opened from the trophy case in a three.js turntable (trophy3d.js, which
+//      was also exercised in real headless Chromium against Dave's Concorde
+//      model while building this: poster render + auto-rotating viewer).
 //
 // Verified failing on HEAD (115a0b2) against a `git archive HEAD` copy: a
 // one-year event world was refused with a 400, endAt was ignored (the world
@@ -372,6 +376,60 @@ await test('the Trophies tab lists event worlds, and a finished one links straig
   ] }));
   assert.match(html, /Discord Cup[\s\S]*Finished[\s\S]*1 week \/ 15 min[\s\S]*href="#\/w\/w-done"[^>]*>Results &amp; awards/);
   assert.match(html, /Night Race[\s\S]*Running[\s\S]*1 week \/ 30 min/);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+console.log('\n── 6. 3D trophies ───────────────────────────────────────\n');
+
+// The smallest valid binary glTF: header + one JSON chunk.
+function glb({ version = 2, json = '{"asset":{"version":"2.0"}}', lie = 0 } = {}) {
+  let js = Buffer.from(json);
+  while (js.length % 4) js = Buffer.concat([js, Buffer.from(' ')]);
+  const total = 12 + 8 + js.length;
+  const head = Buffer.alloc(20);
+  head.write('glTF', 0, 'ascii'); head.writeUInt32LE(version, 4); head.writeUInt32LE(total + lie, 8);
+  head.writeUInt32LE(js.length, 12); head.write('JSON', 16, 'ascii');
+  return Buffer.concat([head, js]);
+}
+
+await test('a real .glb is accepted and hashed; anything else is refused with a reason', () => {
+  const ok = trophies.validateTrophyModel(glb());
+  assert.match(ok.hash, /^[0-9a-f]{12}$/);
+  assert.throws(() => trophies.validateTrophyModel(Buffer.from('{"asset":{}}')), /not a \.glb/);
+  assert.throws(() => trophies.validateTrophyModel(glb({ version: 1 })), /version 1/);
+  assert.throws(() => trophies.validateTrophyModel(glb({ lie: 64 })), /incomplete or damaged/);
+  const big = Buffer.alloc(trophies.TROPHY_MODEL_MAX_BYTES + 1); big.write('glTF', 0, 'ascii');
+  assert.throws(() => trophies.validateTrophyModel(big), /MB/);
+});
+
+await test('a trophy with a model serves it by URL; awards carry it to the trophy case', async () => {
+  const prisma = trophyPrisma();
+  const t = await trophies.createTrophy(prisma, { name: 'Concorde', image: PNG });
+  const withModel = await trophies.setTrophyModel(prisma, t.id, glb());
+  const out = trophies.serializeTrophy(withModel);
+  assert.match(out.modelUrl, /^\/trophies\/t\d+\/model\?v=[0-9a-f]{12}$/);
+  assert.equal(out.model, undefined, 'never the bytes');
+  await trophies.awardTrophy(prisma, { trophyId: t.id, accountId: 'acc1', worldId: 'w-ev', place: 1 });
+  const [award] = await trophies.awardsForAccount(prisma, 'acc1');
+  assert.equal(award.modelUrl, out.modelUrl);
+});
+
+await test('the trophy case marks a 3D trophy and makes it openable', () => {
+  const html = renderToString(React.createElement(trophyUi.TrophyCard, { award: {
+    id: 'aw', name: 'Concorde', imageUrl: '/trophies/t1/image?v=a', modelUrl: '/trophies/t1/model?v=b', place: 1, worldName: 'Time Flies',
+  } }));
+  assert.match(html, /title="View in 3D"/);
+  assert.match(html, />3D</);
+  const flat = renderToString(React.createElement(trophyUi.TrophyCard, { award: { id: 'aw', name: 'Plain', imageUrl: '/trophies/t2/image?v=a' } }));
+  assert.doesNotMatch(flat, /View in 3D/);
+});
+
+await test('three.js is loaded from one pinned CDN core that every addon shares', async () => {
+  const t3 = await opt('../apps/headwinds-web/src/trophy3d.js');
+  assert.ok(!t3.__err, t3.__err?.message);
+  assert.match(t3.THREE_URLS.core, /three@\d+\.\d+\.\d+\/\+esm$/, 'pinned exact version');
+  for (const k of ['gltf', 'orbit', 'room']) assert.ok(t3.THREE_URLS[k].startsWith(t3.THREE_URLS.core.replace('/+esm', '/')), k);
+  for (const fn of ['loadThree', 'mountTrophyViewer', 'renderTrophyPoster']) assert.equal(typeof t3[fn], 'function');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

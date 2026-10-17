@@ -8,6 +8,9 @@ CREATE TABLE "Trophy" (
     "image" BYTEA,
     "imageType" TEXT,
     "imageHash" TEXT,
+    "model" BYTEA,
+    "modelHash" TEXT,
+    "modelSize" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdByEmail" TEXT,
 

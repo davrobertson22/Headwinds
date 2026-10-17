@@ -685,6 +685,12 @@ model Trophy {
   image          Bytes?
   imageType      String?
   imageHash      String?
+  // Optional 3D model (binary glTF, .glb) — the trophy case shows the picture
+  // and opens this in a turntable viewer. Served by GET /trophies/:id/model,
+  // cache-keyed on modelHash, and never selected for a list.
+  model          Bytes?
+  modelHash      String?
+  modelSize      Int?
   createdAt      DateTime      @default(now())
   createdByEmail String?
   awards         TrophyAward[]
