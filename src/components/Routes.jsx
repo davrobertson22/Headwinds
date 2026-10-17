@@ -2,7 +2,7 @@ import { Glyph, GlyphLabel } from './Icons.jsx';
 import OutOfRangeBadge from './OutOfRangeBadge.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
-import { useGame, frequencyChangeBlockReason, peakSlotsUsedAt, slotCapAt, planBulkFrequency } from '../store/GameContext.jsx';
+import { useGame, frequencyChangeBlockReason, peakSlotsUsedAt, slotCapAt, planBulkFrequencyBatched } from '../store/GameContext.jsx';
 import RouteDetail from './RouteDetail.jsx';
 import AirportLink from './AirportLink.jsx';
 import CargoRoutesList, { FreightBadge, PassengerBadge } from './CargoRoutesList.jsx';
@@ -659,10 +659,13 @@ export default function Routes() {
     });
   }
 
-  // Bulk: flights/wk on many routes — one action, previewed by the same plan.
-  function applyFrequencyPlan(plan, { routeIds, mode, value }) {
+  // Bulk: flights/wk on many routes, previewed by the same plan. One action per
+  // planned batch — the server takes at most BULK_FREQUENCY_BATCH routes a write
+  // and the write chain sends them in order, so a 1,200-route network lands the
+  // fold the preview showed instead of one refusal (Discord, Barca 2026-10-17).
+  function applyFrequencyPlan(plan, { mode, value }) {
     if (!plan || plan.changed === 0) return;
-    dispatch({ type: 'BULK_ADJUST_FREQUENCY', routeIds, mode, value });
+    for (const ids of plan.batches) dispatch({ type: 'BULK_ADJUST_FREQUENCY', routeIds: ids, mode, value });
     const parts = [];
     if (plan.added > 0) parts.push(`+${plan.added}`);
     if (plan.removed > 0) parts.push(`−${plan.removed}`);
@@ -2569,8 +2572,9 @@ function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGrou
 // Discord, Barca 2026-10-16: "Bulk pricing but instead it adjusts route
 // frequency." Same two doors as bulk pricing — the header button opens a modal
 // that matches routes by how full they are, and the selection bar applies to
-// the ticked rows — and both preview and apply through planBulkFrequency, the
-// engine's own plan, so the summary under the controls is what Apply does.
+// the ticked rows — and both preview and apply through planBulkFrequencyBatched,
+// the engine's own plan split into server-sized writes, so the summary under the
+// controls is what Apply does.
 //
 // Frequency is per AIRCRAFT (each tail on a pair is its own route), so "+2"
 // means two more flights a week on every aircraft on the matching pairs.
@@ -2650,7 +2654,7 @@ function BulkFrequencyControls({ groups, onApply }) {
   // what the guard reads rather than the whole state, so a rival re-pricing
   // somewhere in the world doesn't re-plan a big selection.
   const plan = useMemo(
-    () => (ready ? planBulkFrequency(state, routeIds, { mode, value }) : null),
+    () => (ready ? planBulkFrequencyBatched(state, routeIds, { mode, value }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.routes, state.fleet, state.cargoRoutes, state.gates, state.allianceSlotPool, routeIds, mode, value, ready]);
 
@@ -2736,7 +2740,7 @@ function BulkFrequencyModal({ allGroups, onApply, onClose }) {
   const routeIds = useMemo(() => routeIdsOf(matching), [matching]);
   const ready = routeIds.length > 0 && (mode !== 'delta' || delta !== 0);
   const plan = useMemo(
-    () => (ready ? planBulkFrequency(state, routeIds, { mode, value }) : null),
+    () => (ready ? planBulkFrequencyBatched(state, routeIds, { mode, value }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.routes, state.fleet, state.cargoRoutes, state.gates, state.allianceSlotPool, routeIds, mode, value, ready]);
 

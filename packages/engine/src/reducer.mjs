@@ -98,7 +98,7 @@ import {
   STRIKE_COOLDOWN_WEEKS,
 } from './data/laborRelations.js';
 import { LABOR_GROUP_MAP } from './data/labor.js';
-import { checkRouteRestrictions } from './data/airportRestrictions.js';
+import { checkRouteRestrictions, runwayShortfall } from './data/airportRestrictions.js';
 import { deliverySchedule } from './data/delivery.js';
 import { makeSlotAllocator, slotPremiumPct, cancelTerms, launchWindow, launchOrderDiscount } from './data/productionLines.js';
 import {
@@ -187,6 +187,27 @@ function withRouteStatus(a, next, extra = {}) {
 }
 
 // ─────────────────────────────────────────────
+// RUNWAY ON AN EQUIPMENT CHANGE
+// ─────────────────────────────────────────────
+// ADD_ROUTE meets the runway rule through checkRouteRestrictions, but the
+// equipment-change guards below only re-ran that check when the new type's
+// CATEGORY differed — so an A320neo route into SNA (5,700 ft) moved onto an
+// A321neo (5,950 ft) unchallenged (Discord, Barca 2026-10-17). Every stop of the
+// route is checked against the new type, whatever its category.
+//
+// Grandfathering: routes opened before the runway rule exist and keep flying
+// (airportRestrictions.js). A tail that needs no more runway than the one
+// already on the route is let through, or a like-for-like renewal of such a
+// route would be refused.
+function runwayRefusal(route, toType, fromType) {
+  const short = runwayShortfall(routeStops(route), toType);
+  if (!short) return null;
+  if (fromType?.runwayFt && toType.runwayFt <= fromType.runwayFt) return null;
+  return `Runway too short at ${short.code}: the ${toType.name} needs `
+    + `${short.needFt.toLocaleString()} ft, ${short.code} has ${short.haveFt.toLocaleString()} ft`;
+}
+
+// ─────────────────────────────────────────────
 // ROUTE TRANSFER (Fleet: move every route from one tail to another)
 // ─────────────────────────────────────────────
 // Returns { ok:true } or { ok:false, reason }. Shared by the TRANSFER_ROUTES
@@ -227,6 +248,10 @@ export function transferCompatibility(state, fromAircraftId, toAircraftId) {
   const range = effectiveRangeKm(to, toType);
   for (const r of all) {
     if (routeMaxLegKm(r) > range) return { ok: false, reason: `Out of range: ${r.origin}–${r.destination}` };
+  }
+  for (const r of all) {
+    const why = runwayRefusal(r, toType, fromType);
+    if (why) return { ok: false, reason: why };
   }
 
   // Regulatory restrictions re-checked per leg with the NEW aircraft category
@@ -301,10 +326,13 @@ export function reassignCompatibility(state, routeId, toAircraftId) {
     return { ok: false, reason: `Out of range: ${route.origin}–${route.destination}` };
   }
 
-  // Regulatory restrictions re-checked with the NEW aircraft's category. Pair
-  // frequencies do not change, so the totals are the ones already approved.
   const from     = state.fleet.find(a => a.id === route.aircraftId);
   const fromType = from ? getAircraftType(from.typeId) : null;
+  const runwayWhy = runwayRefusal(route, toType, fromType);
+  if (runwayWhy) return { ok: false, reason: runwayWhy };
+
+  // Regulatory restrictions re-checked with the NEW aircraft's category. Pair
+  // frequencies do not change, so the totals are the ones already approved.
   if (!fromType || toType.category !== fromType.category) {
     const allOps = [...paxRoutes, ...cargoRoutes];
     for (const l of routeLegs(route)) {
@@ -801,6 +829,66 @@ export function planBulkFrequency(state, routeIds, { mode = 'delta', value = 0 }
     removed,
     capped: list.filter(e => e.reason).length,
   };
+}
+
+// ── Batches ──────────────────────────────────────────────────────────────────
+// The most routes one BULK_ADJUST_FREQUENCY carries. The server guard refuses
+// more (decisionGuard.mjs: the reducer folds a guard pass per id inside the
+// write transaction), and the header's Bulk Frequency matches EVERY route by
+// default — so an airline past 500 aircraft-routes got only "Too many routes in
+// one batch" (Discord, Barca 2026-10-17). A bigger selection now goes out as one
+// action per batch (the client's write chain sends them one after another), and
+// planBulkFrequencyBatched is that same fold, so the preview is still exactly
+// what Apply lands.
+export const BULK_FREQUENCY_BATCH = 500;
+
+/**
+ * The selection split into BULK_FREQUENCY_BATCH-sized actions: own, de-duplicated
+ * ids, in the order given. Up to one batch it is that list unchanged. Past it,
+ * a tail's routes are kept together (tails in order of first appearance), so
+ * 'max' still shares one tail's spare hours round-robin inside a single plan.
+ */
+export function bulkFrequencyBatches(state, routeIds, size = BULK_FREQUENCY_BATCH) {
+  const own = new Map((state.routes ?? []).map(r => [r.id, r]));
+  const ids = [...new Set((routeIds ?? []).map(String))].filter(id => own.has(id));
+  if (ids.length === 0) return [];
+  if (ids.length <= size) return [ids];
+  const byTail = new Map();
+  for (const id of ids) {
+    const tail = own.get(id).aircraftId ?? `route:${id}`;
+    if (!byTail.has(tail)) byTail.set(tail, []);
+    byTail.get(tail).push(id);
+  }
+  const out = [];
+  let cur = [];
+  for (const group of byTail.values()) {
+    if (cur.length > 0 && cur.length + group.length > size) { out.push(cur); cur = []; }
+    for (const id of group) {
+      if (cur.length >= size) { out.push(cur); cur = []; }
+      cur.push(id);
+    }
+  }
+  if (cur.length > 0) out.push(cur);
+  return out;
+}
+
+/**
+ * planBulkFrequency folded over bulkFrequencyBatches — each batch planned
+ * against the network the batches before it left, exactly as the reducer folds
+ * the actions. Same return shape, plus `batches` (the routeIds of each action).
+ */
+export function planBulkFrequencyBatched(state, routeIds, spec = {}) {
+  const batches = bulkFrequencyBatches(state, routeIds);
+  let s = state;
+  const plan = [];
+  let changed = 0, added = 0, removed = 0, capped = 0;
+  for (const ids of batches) {
+    const p = planBulkFrequency(s, ids, spec);
+    s = p.state;
+    plan.push(...p.plan);
+    changed += p.changed; added += p.added; removed += p.removed; capped += p.capped;
+  }
+  return { state: s, plan, changed, added, removed, capped, batches };
 }
 
 // ─────────────────────────────────────────────

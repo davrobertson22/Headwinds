@@ -22,6 +22,7 @@ import {
   borrowingCapacity, unencumberedOwnedFleet,
 } from '@tailwinds/engine/data/credit.js';
 import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
+import { BULK_FREQUENCY_BATCH } from '@tailwinds/engine/reducer';
 import { GROUND_STATION_MAX_LEVEL } from '@tailwinds/engine/data/groundStation.js';
 import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data/cateringContracts.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
@@ -273,11 +274,13 @@ function guardAircraftIds(payload, state) {
 // the reducer through frequencyChangeBlockReason, so this only bounds the
 // payload: the airline's own route ids (the reducer folds one guard pass per
 // id inside the write transaction — same reason guardAircraftIds caps), a
-// known mode, and a value inside the stepper's range.
+// known mode, and a value inside the stepper's range. The cap is the engine's
+// batch size: the client splits a bigger selection into that many per action
+// (bulkFrequencyBatches), so only a forged payload ever meets this refusal.
 function guardBulkFrequency(payload, state) {
   const ids = Array.isArray(payload?.routeIds) ? payload.routeIds : [];
   if (ids.length === 0) throw new GuardError('No routes selected.');
-  if (ids.length > 500) throw new GuardError('Too many routes in one batch.');
+  if (ids.length > BULK_FREQUENCY_BATCH) throw new GuardError('Too many routes in one batch.');
   const own = new Set((state.routes ?? []).map((r) => r.id));
   const routeIds = [...new Set(ids.map(String))].filter((id) => own.has(id));
   if (routeIds.length === 0) throw new GuardError('Unknown routes.');
