@@ -512,13 +512,15 @@ export function effectiveRangeKm(aircraft, type) {
 
 /**
  * Range under the rule in force before 2026-10-17: headline range with every seat
- * filled, +CONFIG_RANGE_GAIN_MAX at an empty cabin. Only grandfathered routes use it.
+ * filled, +CONFIG_RANGE_GAIN_MAX at an empty cabin — and the headline as it stood
+ * then (`legacyRange`, on the types whose figure was corrected that day). Only
+ * grandfathered routes use it, so a correction never strands a route already flying.
  */
 export function legacyEffectiveRangeKm(aircraft, type) {
   const config = aircraft.config ?? defaultConfig(type.seats);
   const max = type.seats ?? 0;
   const mod = max ? 1 + CONFIG_RANGE_GAIN_MAX * (1 - Math.max(0, Math.min(1, configBodies(config) / max))) : 1;
-  return Math.round(type.range * (aircraft.rangeMod ?? 1.0) * mod);
+  return Math.round((type.legacyRange ?? type.range) * (aircraft.rangeMod ?? 1.0) * mod);
 }
 
 /** True when this route keeps the pre-2026-10-17 range rule on this aircraft. */

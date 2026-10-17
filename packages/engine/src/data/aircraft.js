@@ -468,7 +468,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2015,
     seats: 440,
     typicalSeats: 325,   // seats the headline range is quoted at
-    range: 15_000,
+    range: 15_400,   // Airbus A350 Facts & Figures, Oct 2024: 8,300 nm, typical 3-class 300-350 (2022 booklet said 8,100 nm)
     runwayFt: 8000,
     weeklyLease:      403_000,
     purchasePrice: 185000000,
@@ -682,7 +682,8 @@ export const AIRCRAFT_TYPES = [
     seats: 19,
     typicalSeats: 19,   // seats the headline range is quoted at
     deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
-    range: 2_776,
+    range: 1259,   // Beechcraft: 680 nmi with 19
+    legacyRange: 2776,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 3800,
     weeklyLease:        10_000,
     purchasePrice:  5000000,
@@ -704,7 +705,8 @@ export const AIRCRAFT_TYPES = [
     seats: 136,
     typicalSeats: 120,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
-    range: 3_800,
+    range: 4815,   // Boeing 737-200 Adv: 2,600 nmi with 120
+    legacyRange: 3800,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 6150,
     weeklyLease:       14_500,
     purchasePrice: 6_000_000,
@@ -784,7 +786,8 @@ export const AIRCRAFT_TYPES = [
     seats: 140,
     typicalSeats: 110,   // seats the headline range is quoted at
     deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
-    range: 5_200,
+    range: 4398,   // Boeing: 2,375 nmi with 110 (2-class)
+    legacyRange: 5200,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5400,
     weeklyLease:       26_000,
     purchasePrice: 10_500_000,
@@ -824,7 +827,8 @@ export const AIRCRAFT_TYPES = [
     seats: 149,
     typicalSeats: 126,   // seats the headline range is quoted at
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
-    range: 6_370,
+    range: 5575,   // Boeing (2015 basis): 3,010 nmi with 126 (2-class)
+    legacyRange: 6370,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5150,
     weeklyLease:       40_000,
     purchasePrice: 16000000,
@@ -902,7 +906,8 @@ export const AIRCRAFT_TYPES = [
     seats: 189,
     typicalSeats: 162,   // seats the headline range is quoted at
     deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
-    range: 5_765,
+    range: 5436,   // Boeing (2015 basis): 2,935 nmi with 162 (2-class)
+    legacyRange: 5765,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5700,
     weeklyLease:       68_000,
     purchasePrice: 28000000,
@@ -944,7 +949,8 @@ export const AIRCRAFT_TYPES = [
     typicalSeats: 178,   // seats the headline range is quoted at
     deliveredAgeWeeks: 312,   // arrives 6y old - NG line, out of production since 2019
     bandEis: 1998,            // band with the 737NG cohort it was built alongside, not its own 2007 EIS
-    range: 5_925,
+    range: 5463,   // Boeing (2015 basis): 2,950 nmi with 178 (2-class)
+    legacyRange: 5925,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 7100,
     weeklyLease:       79_000,
     purchasePrice: 33000000,
@@ -1264,7 +1270,8 @@ export const AIRCRAFT_TYPES = [
     seats: 400,
     typicalSeats: 276,   // seats the headline range is quoted at
     deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
-    range: 15_400,
+    range: 10800,   // Boeing: 5,830 nmi with 276 (3-class)
+    legacyRange: 15400,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 9000,
     weeklyLease:      43_000,
     purchasePrice: 22000000,
@@ -1552,7 +1559,8 @@ export const AIRCRAFT_TYPES = [
     eis: 2013,
     seats: 14,
     typicalSeats: 9,   // seats the headline range is quoted at
-    range: 1_982,
+    range: 1689,   // Cessna Grand Caravan EX: 912 nmi (1,070 nmi is the short Caravan)
+    legacyRange: 1982,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 2400,
     weeklyLease:        6_000,
     purchasePrice:   3000000,
@@ -1899,7 +1907,8 @@ export const AIRCRAFT_TYPES = [
     eis: 2025,
     seats: 211,
     typicalSeats: 163,   // seats the headline range is quoted at
-    range: 6_400,
+    range: 6000,   // Irkut MC-21-300: 6,000 km (6,400 km is the -200)
+    legacyRange: 6400,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 7000,
     weeklyLease:       98_000,
     purchasePrice: 50000000,
@@ -1983,7 +1992,8 @@ export const AIRCRAFT_TYPES = [
     seats: 139,
     typicalSeats: 135,   // seats the headline range is quoted at
     deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
-    range: 3_100,
+    range: 2408,   // Douglas: 1,300 nmi with 135
+    legacyRange: 3100,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5500,
     weeklyLease:       24_000,
     purchasePrice: 10_000_000,
@@ -2103,8 +2113,9 @@ export const AIRCRAFT_TYPES = [
     category: 'Turboprop',
     eis: 2020,
     seats: 9,
-    typicalSeats: 9,   // seats the headline range is quoted at
-    range: 1_846,
+    typicalSeats: 4,   // seats the headline range is quoted at
+    range: 3339,   // Pilatus: 1,803 nmi with 4 (the game's 1,846 was the nmi figure read as km)
+    legacyRange: 1846,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 2600,
     weeklyLease:        10_000,
     purchasePrice:   5000000,
@@ -2169,7 +2180,8 @@ export const AIRCRAFT_TYPES = [
     seats: 39,
     typicalSeats: 36,   // seats the headline range is quoted at
     deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
-    range: 1_178,
+    range: 1056,   // Shorts: 570 nmi with 36
+    legacyRange: 1178,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 4300,
     weeklyLease:        8_000,
     purchasePrice:  4000000,
@@ -2579,7 +2591,8 @@ export const AIRCRAFT_TYPES = [
     seats: 180,
     typicalSeats: 180,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
-    range: 2_700,
+    range: 3593,   // Hawker Siddeley: 1,940 nmi with 180
+    legacyRange: 2700,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 8200,
     weeklyLease:    20_000,
     purchasePrice: 8_000_000,
@@ -2639,7 +2652,8 @@ export const AIRCRAFT_TYPES = [
     seats: 180,
     typicalSeats: 164,   // seats the headline range is quoted at
     deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
-    range: 5_200,
+    range: 4250,   // Tupolev: 3,900 km at 18 t / 6,600 km at 5.45 t; 164 pax (16.4 t) interpolated
+    legacyRange: 5200,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 7200,
     weeklyLease:    38_000,
     purchasePrice: 16_000_000,
@@ -2799,7 +2813,8 @@ export const AIRCRAFT_TYPES = [
     seats: 165,
     typicalSeats: 156,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
-    range: 6_700,
+    range: 5926,   // Boeing: 3,200 nmi with 156
+    legacyRange: 6700,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 6050,
     weeklyLease:    20_000,
     purchasePrice: 8_000_000,
@@ -2959,7 +2974,8 @@ export const AIRCRAFT_TYPES = [
     eis: 2021,
     seats: 202,
     typicalSeats: 197,   // seats the headline range is quoted at
-    range: 6_400,
+    range: 5000,   // Boeing 737-8-200: ~2,700 nmi with 197 (Ryanair layout)
+    legacyRange: 6400,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5800,
     weeklyLease:    99_000,
     purchasePrice: 53000000,
@@ -2995,7 +3011,8 @@ export const AIRCRAFT_TYPES = [
     eis: 2026,
     seats: 108,
     typicalSeats: 98,   // seats the headline range is quoted at
-    range: 3_000,
+    range: 3530,   // UAC SJ-100 datasheet: 3,530 km with 98
+    legacyRange: 3000,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5900,
     weeklyLease:    75_000,
     purchasePrice: 38000000,
@@ -3273,7 +3290,8 @@ export const AIRCRAFT_TYPES = [
     seats: 60,
     typicalSeats: 56,   // seats the headline range is quoted at
     deliveredAgeWeeks: 364,   // line closed 2019 — youngest frame left is ~7y old
-    range: 1_600,
+    range: 1430,   // Xian MA600: 1,430 km with 56
+    legacyRange: 1600,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 4300,
     weeklyLease:    31_000,
     purchasePrice: 16000000,
@@ -3876,7 +3894,8 @@ export const AIRCRAFT_TYPES = [
     seats: 53,
     typicalSeats: 47,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
-    range: 2_830,
+    range: 2140,   // Vickers Viscount 700: 2,140 km
+    legacyRange: 2830,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 4800,
     weeklyLease:      9_300,
     purchasePrice: 3600000,
@@ -3898,7 +3917,8 @@ export const AIRCRAFT_TYPES = [
     seats: 32,
     typicalSeats: 26,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
-    range: 1_500,
+    range: 1305,   // Ilyushin Il-14: 1,305 km
+    legacyRange: 1500,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 3300,
     weeklyLease:      3_600,
     purchasePrice: 1400000,
@@ -4045,7 +4065,8 @@ export const AIRCRAFT_TYPES = [
     seats: 75,
     typicalSeats: 65,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
-    range: 2_780,
+    range: 2220,   // Vickers Viscount 800: 2,220 km
+    legacyRange: 2780,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 5000,
     weeklyLease:      11_900,
     purchasePrice: 4600000,
@@ -4128,7 +4149,8 @@ export const AIRCRAFT_TYPES = [
     seats: 177,
     typicalSeats: 177,   // seats the headline range is quoted at
     deliveredAgeWeeks: 832,   // arrives 16y old in classic worlds - long out of production
-    range: 8_300,
+    range: 7417,   // Douglas: 4,005 nmi at max payload
+    legacyRange: 8300,   // pre-2026-10-17 figure: grandfathered routes keep it (legacyEffectiveRangeKm)
     runwayFt: 9500,
     weeklyLease:      29_300,
     purchasePrice: 11300000,
