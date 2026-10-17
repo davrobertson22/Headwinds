@@ -3746,7 +3746,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 24_000,
     cruiseKmh: 490,
     description: 'The definitive Connie. Transatlantic range and tip tanks — the flagship of the piston era.',
-    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Lockheed_L-1049G_Super_Constellation,_Lufthansa_AN0158905.jpg?width=960',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Lockheed_L-1049G_Super_Constellation%2C_F-BGNC%2C_Air_France_Manteufel-2.jpg/960px-Lockheed_L-1049G_Super_Constellation%2C_F-BGNC%2C_Air_France_Manteufel-2.jpg',
   },
   {
     id: 'cv440',
@@ -3905,7 +3905,7 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 36_000,
     cruiseKmh: 810,
     description: 'The Comet redeemed — first jet across the Atlantic, weeks ahead of the 707.',
-    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/G-APDB_De_Havilland_DH-106_Comet_4_(11649581314).jpg?width=960',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/49/G-APDN_DH106_Comet_4_Kuwait_Aws-BOAC_LHR_14MAY66_%286812606685%29.jpg/960px-G-APDN_DH106_Comet_4_Kuwait_Aws-BOAC_LHR_14MAY66_%286812606685%29.jpg',
   },
   {
     id: 'il18',
