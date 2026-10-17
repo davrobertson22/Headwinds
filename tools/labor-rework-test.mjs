@@ -183,7 +183,13 @@ await test('the recruiting queue counts as on the way: auto-replace does not hir
   const need = labor.crewRequired('cabinCrew', s0.fleet, typeOf);
   const st = { ...s0.labor, cabinCrew: { ...s0.labor.cabinCrew, headcount: need - 10, recruiting: 10, autoReplace: true, lastLeavers: 3 } };
   const plan = labor.autoReplacePlan(st, s0.fleet, typeOf).find(p => p.group === 'cabinCrew');
-  assert.equal(plan.bodies, 0, 'nothing to replace when the gap is already being recruited');
+  // The queued 10 close the gap, so none of the 3 leavers is rehired. What it
+  // does hire is the standing cover for the replacement wait (2026-10-17) —
+  // and exactly that, not the queue again on top of it.
+  const g = st.cabinCrew;
+  const cover = labor.crewReplaceCover('cabinCrew', need, g.payMultiplier ?? 1, g.morale ?? 80);
+  assert.equal(plan.bodies, Math.floor(cover * labor.CREW_PER_UNIT.cabinCrew + 1e-9),
+    'nothing to replace when the gap is already being recruited — only the cover');
 });
 
 console.log('\n── talent market: poaching ────────────────────────────\n');

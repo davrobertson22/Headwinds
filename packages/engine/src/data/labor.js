@@ -240,6 +240,17 @@ export const DEFAULT_MAINTENANCE_BUDGET = 1.0;
 // Without it, crew is infinitely elastic and instantaneous: the weekly bill is
 // `baseWeeklyPerAircraft × fleetCrewScale(...)`, so an airline that takes
 // delivery of ten aircraft on Monday pays for ten crews and flies all ten at
+/**
+ * Reserve cover. The requirement (CREW_PER_UNIT) already carries standby and
+ * reserve crews on top of the people needed to fly the schedule, so a gap this
+ * small — as a fraction of the requirement — is flown by reserves: no on-time
+ * penalty and no warning. Before this, an airline 9 short of 3,474 cabin crew
+ * (0.26%) was told "on-time performance is suffering" every week of a 27-year
+ * game. A small airline still feels a missing person: the band is a fraction,
+ * so one of twenty is 5% and well outside it.
+ */
+export const CREW_RESERVE_BAND = 0.01;
+
 // full capability the same week. Headcount was never state — `estimateHeadcount`
 // existed only as a display number on the Operations page and had zero engine
 // references. Hiring was the one input to an airline that had no lead time.
@@ -386,7 +397,10 @@ export function crewShortfall(labor, fleet, typeOf) {
     //
     // Expressed in people rather than units because that is the resolution the
     // game reports at, and a unit means a different number of people per group.
-    byGroup[g.id] = crewBodies(g.id, need - have) < 1 ? 0 : short;
+    //
+    // And a gap inside the reserve band is covered by standby crews (see
+    // CREW_RESERVE_BAND) — the same "not worth telling anyone" rule at scale.
+    byGroup[g.id] = (crewBodies(g.id, need - have) < 1 || short <= CREW_RESERVE_BAND) ? 0 : short;
     if (byGroup[g.id] > worst) worst = byGroup[g.id];
   }
   return { byGroup, worst, severe: worst >= CREW_SEVERE_SHORTFALL };
@@ -482,10 +496,20 @@ export function unstaffedAircraftIds(labor, fleet, typeOf, assignedIds = null) {
  * Weekly attrition rate for a group. Underpaying bleeds people: at 1.0× pay it
  * is the base rate, rising sharply below market and easing above it. Morale
  * (which lags pay) modulates it, so a recent pay cut hurts for several weeks.
+ *
+ * Above market the curve is (1/pay)^2, which reaches the 0.25 floor exactly at
+ * the 2.0× cap. It used to share the below-market exponent (2.2) and hit the
+ * floor at ~1.88×, so the top of the pay slider cost more and retained nobody
+ * (2026-10-17). The floor itself — retirements and moves, ~3.4%/yr at full
+ * morale — is unchanged, and so is everything below market.
  */
+export const CREW_ATTRITION_PAY_EXP_BELOW = 2.2;
+export const CREW_ATTRITION_PAY_EXP_ABOVE = 2.0;   // (1/2.0)^2 = 0.25, the floor
+
 export function crewAttritionRate(payMultiplier = 1.0, morale = 80) {
   const pay = Math.max(0.1, Number(payMultiplier) || 1.0);
-  const payFactor = Math.max(0.25, Math.min(4, Math.pow(1 / pay, 2.2)));
+  const exp = pay < 1 ? CREW_ATTRITION_PAY_EXP_BELOW : CREW_ATTRITION_PAY_EXP_ABOVE;
+  const payFactor = Math.max(0.25, Math.min(4, Math.pow(1 / pay, exp)));
   const moraleFactor = Math.max(0.5, Math.min(2.5, 1 + (80 - (Number(morale) || 80)) / 60));
   return CREW_ATTRITION_BASE * payFactor * moraleFactor;
 }
@@ -947,25 +971,58 @@ export function erodePayPremium(payMultiplier, weeks = 1) {
 // rehiring by hand every week forever. A group with `autoReplace` on rehires
 // its leavers at the normal training cost and lead time, but only up to what
 // the fleet (incl. aircraft already training crew) needs — a shrinking airline
-// is not made to replace people it no longer needs.
+// is not made to replace people it no longer needs, and a GROWING one still
+// hires for its new aircraft itself.
+//
+// It HIRES AHEAD (2026-10-17). Rehiring a leaver only after they had gone meant
+// the replacement arrived a week of recruiting plus the full training lead time
+// later, so the line ran (lead + 1) weeks of leavers short forever — 4% of
+// pilots at 1.0× pay, still 0.8% at the 2.0× cap — with an on-time penalty and
+// a "Short-handed" warning that never cleared ("2-3 staff leave every week at
+// maximum wages"). So once the leavers are replaced, it also keeps COVER in the
+// pipeline: the people expected to leave over that wait, at this group's pay
+// and morale. Each of them graduates as someone else walks out, and the line
+// sits at the requirement. Cover is topped up only while nothing else is
+// missing — an open growth gap is the player's hire, exactly as before.
 //
 // Leavers arrive in fractions of a person (the engine works in narrowbody
 // units), so they accumulate in `replaceOwed` until at least one whole person
 // is owed.
 //
+// `relPayOf(groupId)` is pay RELATIVE to the going rate (what attrition reads).
+// Solo has no going rate, so it defaults to the group's own pay.
+//
 // @returns {{ group: string, bodies: number, owedAfter: number }[]} hires to make
-export function autoReplacePlan(labor, fleet, typeOf) {
+/** Weeks between a leaver going and an auto-replacement reaching the line. */
+export function crewReplaceLagWeeks(groupId) {
+  return (CREW_LEAD_WEEKS[groupId] ?? 0) + 1;   // a week in the recruiting queue, then training
+}
+
+/** Cover auto-replace keeps in the pipeline: expected leavers over the lag. */
+export function crewReplaceCover(groupId, need, payMultiplier, morale) {
+  return Math.max(0, Number(need) || 0)
+    * (1 - crewSurvival(payMultiplier, morale, crewReplaceLagWeeks(groupId)));
+}
+
+export function autoReplacePlan(labor, fleet, typeOf, relPayOf = null) {
   const out = [];
   for (const g of LABOR_GROUPS) {
     const s = labor?.[g.id];
     if (!s?.autoReplace) continue;
     const per = CREW_PER_UNIT[g.id] ?? 1;
+    const need = crewRequired(g.id, fleet, typeOf);
     // The recruiting queue is a hire already made — replacing it again would
     // pay for the same people twice.
-    const deficit = Math.max(0,
-      crewRequired(g.id, fleet, typeOf) - crewAvailable(labor, g.id) - crewOnTheWay(labor, g.id));
-    const owed = Math.min(deficit, (Number(s.replaceOwed) || 0) + (Number(s.lastLeavers) || 0));
-    const bodies = Math.floor(owed * per + 1e-9);
+    const gap = need - crewAvailable(labor, g.id) - crewOnTheWay(labor, g.id);
+    const owed = Math.min(Math.max(0, gap), (Number(s.replaceOwed) || 0) + (Number(s.lastLeavers) || 0));
+    // Cover: only once the gap is closed (gap − owed ≤ 0), and only the part of
+    // it not already sitting in the pipeline as a surplus over the need.
+    const after = gap - owed;
+    const pay = relPayOf ? relPayOf(g.id) : (s.payMultiplier ?? 1.0);
+    const cover = after <= 1e-9
+      ? Math.max(0, crewReplaceCover(g.id, need, pay, s.morale ?? 80) - Math.max(0, -after))
+      : 0;
+    const bodies = Math.floor((owed + cover) * per + 1e-9);
     out.push({ group: g.id, bodies, owedAfter: Math.max(0, owed - bodies / per) });
   }
   return out;

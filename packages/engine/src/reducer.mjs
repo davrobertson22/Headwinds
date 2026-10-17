@@ -7504,7 +7504,11 @@ function reducer(state, action) {
 // the server's scheduler tick too: it ticks through this export.
 function withAutoReplace(prev, next) {
   if (!next || next === prev || !next.crewPipeline || !next.labor) return next;
-  const plan = autoReplacePlan(next.labor, next.fleet ?? [], (a) => getAircraftType(a.typeId));
+  // Cover for the replacement wait is sized at pay RELATIVE to the going rate —
+  // the same figure the tick's attrition reads — so an out-paid airline keeps
+  // more in training.
+  const plan = autoReplacePlan(next.labor, next.fleet ?? [], (a) => getAircraftType(a.typeId),
+    (id) => relativePay(next, id, next.labor?.[id]?.payMultiplier ?? 1.0));
   if (plan.length === 0) return next;
   let s = next;
   for (const { group, bodies, owedAfter } of plan) {

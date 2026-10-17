@@ -300,7 +300,9 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
               <span style={{ color: 'var(--text-muted)' }}>Staffing</span>
               <span style={{ fontWeight: 600, color: tone }}>
                 {haveBodies.toLocaleString()} / {needBodies.toLocaleString()} {group.name.toLowerCase()}
-                {short > 0 ? ` · ${missingBodies.toLocaleString()} short` : ' · fully staffed'}
+                {short > 0 ? ` · ${missingBodies.toLocaleString()} short`
+                  : missingBodies > 0 ? ` · ${missingBodies.toLocaleString()} short, covered by reserves`
+                  : ' · fully staffed'}
               </span>
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4 }}>
@@ -348,7 +350,10 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
             {leaversWk >= 1 && (
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
                 ↩ ≈{leaversWk.toLocaleString()} leave each week at {payMultiplier.toFixed(2)}× pay
-                {crew.onOrder > 0 ? ' — the hire figures above already cover those lost before delivery.' : ' — pay above market to slow it.'}
+                {crew.onOrder > 0 ? ' — the hire figures above already cover those lost before delivery.'
+                  : groupState.autoReplace ? ' — replaced automatically; their cover is already in training.'
+                  : crew.relPay >= 1.995 ? ' — as low as it goes: at top pay this is retirements and moves. Tick "Replace leavers automatically" below.'
+                  : ' — pay more to slow it, or tick "Replace leavers automatically" below.'}
               </div>
             )}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, cursor: 'pointer' }}>
@@ -358,7 +363,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
                 onChange={e => dispatch({ type: 'SET_AUTO_REPLACE', group: group.id, enabled: e.target.checked })}
               />
               Replace leavers automatically
-              <span style={{ color: 'var(--text-dim)' }}>· normal training cost &amp; wait, only up to what the fleet needs</span>
+              <span style={{ color: 'var(--text-dim)' }}>· hires ahead of leavers so you stay fully staffed — normal training cost, only up to what the fleet needs</span>
             </label>
             {crew.instantRoom > 0 && (
               <div style={{ fontSize: 11, color: 'var(--green)', marginBottom: 4 }}>

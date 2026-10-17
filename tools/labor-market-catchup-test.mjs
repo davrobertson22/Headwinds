@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import {
   erodePayPremium, PAY_MARKET_CATCHUP_PER_YEAR, DEFAULT_LABOR_STATE, LABOR_GROUPS,
-  seedCrewFor, crewRequired, crewAvailable, crewInTraining,
+  seedCrewFor, crewRequired, crewAvailable, crewInTraining, crewReplaceCover, CREW_PER_UNIT,
 } from '../packages/engine/src/data/labor.js';
 import { negotiationDemand } from '../packages/engine/src/data/laborRelations.js';
 
@@ -81,7 +81,11 @@ t('auto-replace keeps every group staffed over a year', () => {
   for (const g of LABOR_GROUPS) {
     const need = crewRequired(g.id, fleet, typeOf);
     assert.ok(staffed(s, g.id) >= need - 0.2, `${g.id}: ${staffed(s, g.id).toFixed(2)} of ${need.toFixed(2)} after a year`);
-    assert.ok(staffed(s, g.id) <= need + 1e-6, `${g.id} over-hired`);
+    // It hires AHEAD (2026-10-17): on top of the requirement it holds the
+    // leavers expected over the replacement wait in training — and no more.
+    const cover = crewReplaceCover(g.id, need, s.labor[g.id].payMultiplier, s.labor[g.id].morale);
+    assert.ok(staffed(s, g.id) <= need + cover + 1 / CREW_PER_UNIT[g.id] + 1e-6, `${g.id} over-hired`);
+    assert.ok(crewAvailable(s.labor, g.id) >= need - 1 / CREW_PER_UNIT[g.id], `${g.id}: the LINE should be at the requirement, not just line + training`);
   }
 });
 
