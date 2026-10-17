@@ -24,7 +24,7 @@ import {
   MIN_STARTING_CAPITAL, MAX_STARTING_CAPITAL, MIN_DEMAND_MULT, MAX_DEMAND_MULT,
   WORLD_STAGES, DEFAULT_WORLD_STAGE, MIN_START_YEAR, MAX_START_YEAR,
   PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword,
-  rankingSinceOf, worldTotalWeeks, MIN_EVENT_LENGTH_YEARS, EVENT_NAME_MAX_LENGTH,
+  rankingSinceOf, worldTotalWeeks, MIN_EVENT_LENGTH_YEARS, EVENT_NAME_MAX_LENGTH, eventOf,
 } from '../lib/worldConfig.mjs';
 import { compareStandings, finalStretchOf, RANKING_WINDOW_WEEKS } from '@tailwinds/engine/utils/standings.js';
 import { weeksFlownOf } from '../lib/liveStats.mjs';
@@ -71,11 +71,29 @@ export default async function worldRoutes(fastify) {
       });
       championByWorld = new Map(rows.map((r) => [r.worldId, r.payload?.championName ?? null]));
     }
+    // Live EVENT worlds, listed for everyone in the lobby's Events section even
+    // though they are private (Dave, 2026-10-17: "why can't I see my event
+    // worlds in my central worlds list?"). Only the card: joining still needs
+    // the code and the standings stay members-only (GET /worlds/:id). Kept OUT
+    // of `worlds`, which the public pages and the sitemap also read.
+    let events;
+    if (!status && !length && !pace) {
+      const privateLive = await prisma.world.findMany({
+        where: { visibility: 'PRIVATE', ownerAccountId: null, status: { in: ['LOBBY', 'RUNNING'] } },
+        include: { _count: { select: { airlines: { where: { status: 'ACTIVE' } } } } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      events = privateLive
+        .filter((w) => eventOf(w.tickConfig))
+        .map((w) => serializeWorld(w, { playerCount: w._count.airlines }));
+    }
     return {
       worlds: worlds.map((w) => ({
         ...serializeWorld(w, { playerCount: w._count.airlines }),
         ...(status === 'ENDED' ? { champion: championByWorld.get(w.id) ?? null } : {}),
       })),
+      ...(events ? { events } : {}),
     };
   });
 

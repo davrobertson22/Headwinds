@@ -914,7 +914,7 @@ function Meter({ pct, tone }) {
 }
 
 // ── One open world ───────────────────────────────────────────────────────────
-function WorldCard({ world: w }) {
+export function WorldCard({ world: w }) {
   const open = () => goTo(`/w/${w.id}`);
   const when = whenLabel(w);
   const seatPct = w.maxPlayers ? (w.playerCount / w.maxPlayers) * 100 : 0;
@@ -933,6 +933,13 @@ function WorldCard({ world: w }) {
         </h3>
         <StageChip stage={w.stage ?? 'beta'} />
       </div>
+      {w.event && (
+        <div className="small" style={{ color: '#ffc83d', fontWeight: 600, margin: '2px 0 6px' }}>
+          🏆 {w.event.name ?? w.name}
+          {w.event.endAt ? <span className="muted" style={{ fontWeight: 400 }}> · ends {fmtStartTime(w.event.endAt)}</span> : null}
+          {w.visibility === 'PRIVATE' ? <span className="muted" style={{ fontWeight: 400 }}> · join code needed</span> : null}
+        </div>
+      )}
 
       <div className="wtags">
         {tags.length > 0
@@ -1049,13 +1056,16 @@ export function AirlineCard({ airline: a, lapsed = false }) {
 
 function WorldsScreen({ token, me }) {
   const [worlds, setWorlds] = useState(null);
+  // Live event worlds — private, but listed so players can find them (the
+  // join code is still needed to get in).
+  const [events, setEvents] = useState([]);
   const [error, setError] = useState(null);
   // Concluded seasons — the hall of fame. Fetched once (they don't change),
   // each stamped with its champion by the server.
   const [concluded, setConcluded] = useState(null);
 
   const load = useCallback(() => {
-    api('/worlds').then((d) => setWorlds(d.worlds)).catch(setError);
+    api('/worlds').then((d) => { setWorlds(d.worlds); setEvents(d.events ?? []); }).catch(setError);
   }, []);
   useEffect(() => { load(); }, [load]);
   useVisibleInterval(load, 15000);
@@ -1104,6 +1114,21 @@ function WorldsScreen({ token, me }) {
                 lapsed={a.world?.supporterWorld === true && !isSupporter && !me?.account?.isAdmin} />
             ))}
             {ownedOnly.map((w) => <OwnedWorldCard key={w.id} world={w} />)}
+          </div>
+        </section>
+      )}
+
+      {events.length > 0 && (
+        <section>
+          <div className="list-head">
+            <h2>🏆 Events</h2>
+          </div>
+          <p className="muted small section-note">
+            Competitions run by the Headwinds team, with trophies for the winners. Joining needs the
+            event's join code — it's posted in the Discord.
+          </p>
+          <div className="lobby-grid">
+            {events.map((w) => <WorldCard key={w.id} world={w} />)}
           </div>
         </section>
       )}

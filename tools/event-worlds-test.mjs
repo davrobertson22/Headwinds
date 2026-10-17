@@ -432,5 +432,30 @@ await test('three.js is loaded from one pinned CDN core that every addon shares'
   for (const fn of ['loadThree', 'mountTrophyViewer', 'renderTrophyPoster']) assert.equal(typeof t3[fn], 'function');
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+console.log('\n── 7. events are listed in the lobby ────────────────────\n');
+
+await test('GET /worlds lists live private EVENT worlds separately, never in the public `worlds` list', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../apps/headwinds-server/src/routes/worlds.mjs', import.meta.url), 'utf8');
+  const block = src.slice(src.indexOf("fastify.get('/worlds',"), src.indexOf("fastify.get('/worlds/:id',"));
+  assert.match(block, /visibility: 'PRIVATE', ownerAccountId: null, status: \{ in: \['LOBBY', 'RUNNING'\] \}/, 'operator-run, live, private');
+  assert.match(block, /\.filter\(\(w\) => eventOf\(w\.tickConfig\)\)/, 'events only — other private worlds stay unlisted');
+  assert.match(block, /\.\.\.\(events \? \{ events \} : \{\}\)/, 'returned as `events`, apart from `worlds` (the sitemap reads that)');
+  assert.doesNotMatch(block, /includeJoinCode: true/, 'never the join code');
+});
+
+await test('an event card in the lobby says it is an event, when it ends, and that it needs the code', () => {
+  assert.ok(!app.__err, app.__err?.message);
+  const html = renderToString(React.createElement(app.WorldCard, { world: {
+    id: 'w-ev', name: 'Time Flies', status: 'LOBBY', visibility: 'PRIVATE', stage: 'beta', weeksPerDay: 96, paceLabel: '1 week / 15 min',
+    maxPlayers: 30, playerCount: 0, progress: { percent: 0, year: 1, totalYears: 13 },
+    event: { name: 'Time Flies', endAt: '2026-10-25T22:00:00.000Z' }, tickConfig: {},
+  } }));
+  assert.match(html, /🏆 <!-- -->Time Flies/);
+  assert.match(html, /ends /);
+  assert.match(html, /join code needed/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
