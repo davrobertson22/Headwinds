@@ -30,9 +30,21 @@ export function rememberFinder(key, patch) {
   memory.set(key, { ...(memory.get(key) ?? {}), ...patch });
 }
 
+/**
+ * The Route Finder's forecast cache, per panel key — same lifetime as the
+ * search, so coming back from the planner does not re-price the table from
+ * nothing. Owned by components/RouteFinder.jsx; kept here so the test seam
+ * below clears it with the rest.
+ */
+const forecasts = new Map();
+export function finderForecastStore() {
+  return forecasts;
+}
+
 /** Test seam. */
 export function clearFinderMemory() {
   memory.clear();
+  forecasts.clear();
 }
 
 /**

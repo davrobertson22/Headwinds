@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
@@ -14,7 +14,7 @@ import InfoTip from './InfoTip.jsx';
 import OriginPicker from './OriginPicker.jsx';
 import { useSlotPosition, SlotCell, OriginSlotsLine } from './FinderSlots.jsx';
 import BatchOpenReview from './BatchOpenReview.jsx';
-import { useRememberedState, finderMemoryKey } from '../utils/finderMemory.js';
+import { useRememberedState, finderMemoryKey, finderForecastStore } from '../utils/finderMemory.js';
 import { idleTailsOfType, pickKey, MAX_BATCH } from '../../packages/engine/src/models/routeBatch.js';
 
 const PAGE_SIZE = 25;
@@ -34,6 +34,27 @@ const now = () => (typeof performance !== 'undefined' ? performance.now() : Date
 /** Same inputs, same order, by identity — the forecast cache's validity test. */
 function sameDeps(a, b) {
   return !!a && !!b && a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+}
+
+// The forecast cache, per finder panel (finderMemoryKey), at module scope like
+// the search itself (utils/finderMemory.js), so a trip to the planner and back
+// does not start the pricing over.
+//
+// Discord, 2026-10-17 (Kadicuss): "+ Gate" on a row reset a profit sort to
+// most-demand and started "forecasting 2 of 150…" again. The lease is a network
+// change, so every forecast WAS out of date — but the cache simply dropped
+// them, and a forecast sort with nothing priced holds demand order until all
+// 150 are back. Now the previous figures are kept as STALE: they stand in,
+// dimmed, while the fresh ones are priced, so the table keeps its order and
+// re-ranks in place. Stale figures only carry over while the forecast is for
+// the same airframe — a different aircraft is a different question.
+// The store itself lives in utils/finderMemory.js (clearFinderMemory clears it).
+const forecastCaches = finderForecastStore();
+const MAX_STALE = 3000;
+
+/** Which airframe a forecast context prices — stale figures are only reused for the same one. */
+function ctxIdentity(ctx) {
+  return ctx ? `${ctx.type.id}|${ctx.frame.id}|${ctx.frameLease}|${ctx.weeklyFrequency}` : '';
 }
 
 /**
@@ -190,13 +211,28 @@ export default function RouteFinder({ onPick, standalone = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [forecastReady, typeId, owned?.best, gameDate.month, capNow]);
 
-  const cacheRef = useRef({ deps: null, map: new Map(), gen: 0 });
-  const cacheDeps = [state.routes, rivalKey, state.fleet, state.gates, state.hubs, state.allianceSlotPool, forecastCtx];
-  if (!sameDeps(cacheRef.current.deps, cacheDeps)) {
-    cacheRef.current = { deps: cacheDeps, map: new Map(), gen: cacheRef.current.gen + 1 };
+  // The context by VALUE, not identity: forecastCtx is rebuilt on every mount,
+  // and the cache is meant to outlive one (the trip to the planner and back).
+  const ctxId = ctxIdentity(forecastCtx);
+  const cacheDeps = [state.routes, rivalKey, state.fleet, state.gates, state.hubs, state.allianceSlotPool,
+                     `${ctxId}|${gameDate.month}|${capNow}`];
+  let entry = forecastCaches.get(mem);
+  if (!entry || !sameDeps(entry.deps, cacheDeps)) {
+    // Out of date: start a fresh map, and keep what we had as stale figures
+    // when it is still the same airframe being priced.
+    let stale = new Map();
+    if (entry && ctxId && entry.ctxId === ctxId) {
+      stale = entry.stale.size + entry.map.size > MAX_STALE ? new Map(entry.map) : new Map(entry.stale);
+      for (const [k, v] of entry.map) stale.set(k, v);
+    }
+    entry = { deps: cacheDeps, ctxId, map: new Map(), stale };
+    forecastCaches.set(mem, entry);
   }
-  const cache = cacheRef.current.map;
+  const cache = entry.map;
+  const stale = entry.stale;
   const keyOf = (r) => (forecastCtx ? `${r.origin}|${r.code}|${candidateFrequency(r, forecastCtx)}|${r.refPrice}` : '');
+  // A figure to show: the fresh one, else the previous one while it is re-priced.
+  const known = (k) => cache.has(k) || stale.has(k);
 
   // Which rows this view needs priced, in the order to price them.
   const sortedRows = useMemo(() => sortCandidates(rows, sortBy), [rows, sortBy]);
@@ -232,13 +268,22 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const withForecast = (r) => {
     if (!forecastCtx || r.block) return r;
     const k = keyOf(r);
-    if (!cache.has(k)) return r;
-    const projection = cache.get(k);
-    return projection ? { ...r, scored: true, projection } : r;
+    if (cache.has(k)) {
+      const projection = cache.get(k);
+      return projection ? { ...r, scored: true, projection } : r;
+    }
+    if (!stale.has(k)) return r;
+    const projection = stale.get(k);
+    return projection ? { ...r, scored: true, projection, refreshing: true } : r;
   };
   // Under a forecast sort the order is only meaningful once the field is
   // priced; until then the list holds its demand order and says it's working.
-  const ranking = forecastSort && pending > 0;
+  // Rows with a stale figure count as priced: re-pricing after a network change
+  // (a gate, a new route) re-ranks the table in place rather than resetting it.
+  const unknown = targets.reduce((n, r) => n + (known(keyOf(r)) ? 0 : 1), 0);
+  const ranking = forecastSort && unknown > 0;
+  // Every row has a figure, some only the previous one: say "updating", not "forecasting".
+  const refreshing = pending > 0 && unknown === 0;
   const results = forecastSort
     ? (ranking ? sortCandidates(rows, 'demand').map(withForecast) : sortCandidates(rows.map(withForecast), sortBy))
     : sortedRows.map(withForecast);
@@ -445,7 +490,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                 {forecastReady && <> · forecast on {selectedType.name} at 7 flights/wk, reference fares</>}
                 {pending > 0 && (
                   <span data-forecast-progress="" style={{ color: 'var(--accent)' }}>
-                    {' '}· forecasting {targets.length - pending} of {targets.length}…
+                    {' '}· {refreshing ? 'updating forecasts' : 'forecasting'} {targets.length - pending} of {targets.length}…
                     {ranking && ` ranked by ${SORTS[sortBy].label.toLowerCase()} once all are in`}
                   </span>
                 )}
@@ -547,14 +592,16 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               ? <span style={{ fontSize: 12, color: 'var(--green)' }}>None</span>
                               : <span style={{ fontSize: 12, color: 'var(--yellow)' }}>{r.laneRivalCount} airline{r.laneRivalCount !== 1 ? 's' : ''}</span>}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', opacity: r.refreshing ? 0.55 : 1 }}
+                              title={r.refreshing ? 'Updating — your network changed, this is the previous forecast' : undefined}>
                             {proj
                               ? <span style={{ color: proj.loadFactor >= 0.75 ? 'var(--green)' : proj.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' }}>
                                   {Math.round(proj.loadFactor * 100)}%
                                 </span>
-                              : <span style={{ color: 'var(--text-dim)' }} title={r.block ? 'This aircraft cannot fly here' : forecastReady && !cache.has(keyOf(r)) && pending > 0 ? 'Forecasting…' : forecastReady ? `Outside the ${DEFAULT_SCORE_LIMIT} markets forecast — narrow the search to price it` : 'Pick an aircraft to forecast this market'}>{forecastReady && !r.block && !cache.has(keyOf(r)) && pending > 0 ? '…' : '–'}</span>}
+                              : <span style={{ color: 'var(--text-dim)' }} title={r.block ? 'This aircraft cannot fly here' : forecastReady && !known(keyOf(r)) && pending > 0 ? 'Forecasting…' : forecastReady ? `Outside the ${DEFAULT_SCORE_LIMIT} markets forecast — narrow the search to price it` : 'Pick an aircraft to forecast this market'}>{forecastReady && !r.block && !known(keyOf(r)) && pending > 0 ? '…' : '–'}</span>}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, opacity: r.refreshing ? 0.55 : 1 }}
+                              title={r.refreshing ? 'Updating — your network changed, this is the previous forecast' : undefined}>
                             {proj
                               ? <span style={{ color: proj.netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
                                   {proj.netProfit >= 0 ? '+' : ''}{formatMoney(proj.netProfit)}
