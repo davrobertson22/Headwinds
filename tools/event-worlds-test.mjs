@@ -112,8 +112,9 @@ await test('a supporter cannot hand out trophies from their own world', async ()
 await test('serializeWorld names the event, defaulting the trophy to the world name; ordinary worlds say null', () => {
   assert.ok(!cfg.__err, cfg.__err?.message);
   const base = { id: 'w', name: 'Sprint', status: 'LOBBY', visibility: 'PRIVATE', lengthYears: 1, weeksPerDay: 96, currentWeek: 1, currentYear: 1, maxPlayers: 30 };
-  assert.deepEqual(cfg.serializeWorld({ ...base, tickConfig: { event: { name: 'Cup' } } }).event, { name: 'Cup', endAt: null });
-  assert.deepEqual(cfg.serializeWorld({ ...base, tickConfig: { event: { name: null } } }).event, { name: 'Sprint', endAt: null });
+  const pick = (e) => ({ name: e.name, endAt: e.endAt });
+  assert.deepEqual(pick(cfg.serializeWorld({ ...base, tickConfig: { event: { name: 'Cup' } } }).event), { name: 'Cup', endAt: null });
+  assert.deepEqual(pick(cfg.serializeWorld({ ...base, tickConfig: { event: { name: null } } }).event), { name: 'Sprint', endAt: null });
   assert.equal(cfg.serializeWorld({ ...base, tickConfig: {} }).event, null);
   assert.equal(cfg.paceLabel(96), '1 week / 15 min');
 });

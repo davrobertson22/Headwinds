@@ -31,6 +31,7 @@ import { passesMarketFilters, DEFAULT_MARKET_FILTERS } from '../utils/marketFilt
 import { designAgeQualityPts, DESIGN_AGE_GRACE_YEARS, DESIGN_AGE_CAP_YEARS, DESIGN_AGE_MAX_PENALTY } from '../models/demand.js';
 import { LABOR_GROUPS, CREW_LEAD_WEEKS, crewBodiesForAircraft } from '../data/labor.js';
 import { Glyph } from './Icons.jsx';
+import { aircraftAllowedByRules, aircraftRuleLabel } from '../data/eventRules.js';
 
 // ── Delivered-age economics ───────────────────────────────────────────────────
 //
@@ -786,6 +787,8 @@ export default function Marketplace() {
   // aircraft, not to your airline's order book. The "Leasable now" filter reads
   // this one: a full order book would otherwise hide every type in the game.
   function typeLeaseBlockReason(type) {
+    // Event worlds (engine data/eventRules.js) — mirrors leaseDenial().
+    if (state.eventRules?.noLeases) return 'Event rules: no leasing \u2014 buy new or used';
     if (launchInfo(type)) return 'Launch customers buy outright \u2014 no lessor carries it before it flies';
     const eraLock = eraLockReason(type);
     if (eraLock) return eraLock;
@@ -887,7 +890,11 @@ export default function Marketplace() {
   ];
 
   const q = query.trim().toLowerCase();
+  // Event worlds with a restricted fleet: the catalogue shows only what may
+  // be flown (the engine's orderDenial refuses the rest anyway).
+  const eventFleet = state.eventRules?.aircraft ?? null;
   const filtered = AIRCRAFT_TYPES.filter(t =>
+    aircraftAllowedByRules(state.eventRules, t.id) &&
     (calYear == null ? t.withdrawnYear == null : ((t.eis ?? 0) <= calYear + 3 && aircraftAvailability(t, calYear) !== 'expired' && !cometWithdrawn(state, t.id))) &&
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
@@ -897,6 +904,13 @@ export default function Marketplace() {
 
   return (
     <div>
+      {(eventFleet || state.eventRules?.noLeases) && (
+        <div style={{ margin: '0 0 14px', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,200,61,.4)', background: 'rgba(255,200,61,.07)', fontSize: 13 }}>
+          🏆 <strong>Event rules:</strong>
+          {eventFleet ? <> only the {aircraftRuleLabel(eventFleet)} may be flown — the market shows nothing else.</> : null}
+          {state.eventRules?.noLeases ? <> No leasing — every aircraft is bought, new or used.</> : null}
+        </div>
+      )}
       {/* Subtabs: Browse Market / Orders & Deliveries */}
       <div className="category-tabs" style={{ marginBottom: 20 }}>
         <button

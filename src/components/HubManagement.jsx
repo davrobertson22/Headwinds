@@ -419,7 +419,9 @@ export default function HubManagement() {
     routes: state.routes, gates, homeCountry,
     hubs, hubThroughput: state.hubThroughput ?? {},
     cash: state.cash, absWeek: absoluteWeek(state.year, state.week),
-  }), [state.routes, gates, homeCountry, hubs, state.hubThroughput, state.cash, state.year, state.week]);
+    // Event worlds: the hub rule shows as a failed checklist line.
+    eventRules: state.eventRules ?? null,
+  }), [state.routes, gates, homeCountry, hubs, state.hubThroughput, state.cash, state.year, state.week, state.eventRules]);
 
   // Routes per airport (tag stops included)
   const routeCountByAirport = useMemo(() => {

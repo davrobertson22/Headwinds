@@ -146,6 +146,9 @@ import { routeLaunchCost, valueRemaining,
          marketingAwarenessGain, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
          campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor, setEraCostScale } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
+import {
+  eventActionDenial, eventAircraftDenial, eventLeaseDenial, eventRouteDenial, pinEventBonusFrom,
+} from './data/eventRules.js';
 import { normalizeAncillaries, defaultAncillaries, ANCILLARY_MAP } from './data/ancillaries.js';
 import { initialObjectives, initialObjectivesForState, checkObjectives, getObjective, objectiveDesc } from './data/objectives.js';
 
@@ -923,6 +926,9 @@ export function addRouteBlockReason(state, action) {
   if (action.origin === action.destination) return 'Origin and destination are the same airport';
   if (isSameLocation(getAirport(action.origin), getAirport(action.destination)))
     return 'Origin and destination are the same location';
+  // Event worlds: domestic-only / international-only (data/eventRules.js).
+  const evRoute = eventRouteDenial(state, [action.origin, action.destination]);
+  if (evRoute) return evRoute;
 
   const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
   const dist = routeDistanceKm(action.origin, action.destination);
@@ -1053,6 +1059,9 @@ export function addCargoRouteBlockReason(state, action) {
   if (action.origin === action.destination) return 'Origin and destination are the same airport';
   if (isSameLocation(getAirport(action.origin), getAirport(action.destination)))
     return 'Origin and destination are the same location';
+  // Event worlds: domestic-only / international-only (data/eventRules.js).
+  const evRoute = eventRouteDenial(state, [action.origin, action.destination]);
+  if (evRoute) return evRoute;
   // A stated yield that is not a number at all (see the ADD_CARGO_ROUTE case).
   if (action.yieldPrice != null && !Number.isFinite(Number(action.yieldPrice))) {
     return 'That freight rate is not a number — set a rate in $/tonne-km';
@@ -1166,6 +1175,9 @@ export function addTagRouteBlockReason(state, action) {
     if (!getAirport(l.to))   return `Unknown airport: ${l.to}`;
     if (isSameLocation(getAirport(l.from), getAirport(l.to))) return 'Two consecutive stops are the same location';
   }
+  // Event worlds: domestic-only / international-only, leg by leg.
+  const evRoute = eventRouteDenial(state, stops);
+  if (evRoute) return evRoute;
 
   const weeklyFrequency = Math.max(1, Math.round(Number(action.weeklyFrequency) || 0));
 
@@ -1323,6 +1335,10 @@ export function cargoFrequencyChangeBlockReason(state, routeId, newFreq) {
 // cannot be ordered at all — bought or leased. Null in classic worlds and for
 // anything already flying; the UI renders the message on the locked row.
 export function orderDenial(state, typeId) {
+  // Event worlds (data/eventRules.js): a restricted fleet refuses every other
+  // type before the era gate is even asked. Null in every normal world.
+  const evDenial = eventAircraftDenial(state, typeId);
+  if (evDenial) return evDenial;
   const cy = calendarYear(state);
   const type = getAircraftType(typeId);
   if (!type) return null;
@@ -1466,6 +1482,10 @@ function applyCometGrounding(state) {
 }
 
 export function leaseDenial(state, typeId, quantity = 1) {
+  // Event worlds: "no leases" refuses every lease, and a restricted fleet
+  // refuses the type outright (data/eventRules.js). Null in normal worlds.
+  const evDenial = eventLeaseDenial(state) ?? eventAircraftDenial(state, typeId);
+  if (evDenial) return evDenial;
   // Vintage metal on the 2026 market is buy-only in EVERY classic world — no
   // lessor exists for a line closed 50 years, restrictions or not (aircraft.js
   // isVintage). Checked ahead of the NWR gate so an open world can't lease the
@@ -1889,6 +1909,20 @@ function reducer(state, action) {
   setEraCostScale(eraOverheadScale(calendarYearFrac(state)) ?? 1);
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
+  // Event worlds: this year's double-profit airports (data/eventRules.js) —
+  // a module knob like the yield choke, read by the route simulators.
+  pinEventBonusFrom(state);
+  // Event worlds: one gate for every rule a player action can break. The
+  // decisions endpoint asks the same function first and answers a 400; this
+  // is the authoritative refusal, with the same sentence as a toast.
+  const _eventDenial = state?.eventRules ? eventActionDenial(state, action) : null;
+  if (_eventDenial) {
+    return {
+      ...state,
+      pendingToasts: [...(state.pendingToasts ?? []),
+        { type: 'warning', icon: '🏆', title: 'Not allowed in this event', message: _eventDenial }],
+    };
+  }
   setFuelStationsEnabled(fuelStationsOn(state));   // station fuel pricing (FUEL_OPERATIONS_PLAN.md §7)
   setFuelStationDiscounts(fuelStationsOn(state)    // this airline's fuel farms (§8)
     ? farmDiscountsOf(state, absoluteWeek(state?.year ?? 1, state?.week ?? 1)) : null);
@@ -4034,6 +4068,7 @@ function reducer(state, action) {
         routes: state.routes, gates: state.gates ?? {}, homeCountry: state.homeCountry,
         hubs: state.hubs ?? {}, hubThroughput: state.hubThroughput ?? {},
         cash: state.cash, absWeek: absoluteWeek(state.year, state.week),
+        eventRules: state.eventRules ?? null,
       };
       if (!hubUpgradeChecklist(snap, code, 0).ok) return state;
       // Focus cities are instant (no construction period)
@@ -4059,6 +4094,7 @@ function reducer(state, action) {
         routes: state.routes, gates: state.gates ?? {}, homeCountry: state.homeCountry,
         hubs, hubThroughput: state.hubThroughput ?? {},
         cash: state.cash, absWeek: absoluteWeek(state.year, state.week),
+        eventRules: state.eventRules ?? null,
       };
       if (!hubUpgradeChecklist(snap, code, targetTier).ok) return state;
       const tierDef = HUB_TIERS[targetTier];

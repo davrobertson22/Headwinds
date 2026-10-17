@@ -11,9 +11,10 @@ import {
   validateWorldConfig, deriveWorldEndsAt, genJoinCode, weeksBetween, MIN_TIMED_WEEKS, WEEKS_PER_YEAR, genWorldSeed, genWorldName,
   DEFAULT_STARTING_CAPITAL, DEFAULT_DEMAND_MULT, DEFAULT_WORLD_STAGE, rivalItinerariesOf,
   MAX_SUPPORTER_WORLD_MEMBERSHIPS, validatePassword, joinCodeMatches,
-  FUEL_OPS_VERSION, fuelOpsVOf, normalizeEventInput,
+  FUEL_OPS_VERSION, fuelOpsVOf, normalizeEventInput, eventRulesOfWorld,
 } from './worldConfig.mjs';
 import { isSupporterWorld, mayUseSupporterWorld } from './access.mjs';
+import { eventHubDenial } from '@tailwinds/engine/data/eventRules.js';
 import { rebaseStateCalendar } from './calendar.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import { liveStatColumns, weeksFlownOf } from './liveStats.mjs';
@@ -73,7 +74,6 @@ export async function createWorld(prisma, {
   productionLineRates,
   stage,
   startYear,
-  rivalItineraries,
   // ── Supporter world ──────────────────────────────────────────────────────
   // `ownerAccountId` set = a ♥ SUPPORTER created this for their group. The
   // route decides WHO may pass it (routes/worlds.mjs: an admin never does,
@@ -94,7 +94,9 @@ export async function createWorld(prisma, {
   endAt,
 } = {}) {
   if (ownerAccountId) visibility = 'PRIVATE';
-  const eventConfig = normalizeEventInput(event);
+  // Generated up front so the event's double-profit draw is seeded from it.
+  const worldSeed = genWorldSeed();
+  const eventConfig = normalizeEventInput(event, { seed: worldSeed });
   if (eventConfig && ownerAccountId) throw httpError(403, 'Only an admin can run an event world');
   let timed = null;
   if (endAt != null) {
@@ -109,7 +111,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, rivalItineraries, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -157,11 +159,13 @@ export async function createWorld(prisma, {
     ...(productionLines !== false && normalizeLineRates(productionLineRates)
       ? { productionLineRates: normalizeLineRates(productionLineRates) } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
-    // sell connections over their hubs in every passenger market. Every world
-    // created from now on stores the key explicitly — ON unless the creator
-    // unticked it. Worlds without the key predate the feature and resolve via
-    // rivalItinerariesOf (alphas on, betas off).
-    rivalItineraries: rivalItineraries !== false,
+    // sell connections over their hubs in every passenger market. Part of the
+    // game, not a setup option (Dave, 2026-10-17): every world created from
+    // now on stores it ON, whatever the request body says. Existing worlds are
+    // untouched — keyless ones predate the feature and resolve via
+    // rivalItinerariesOf (alphas on, betas off); the admin route can still
+    // switch a running world.
+    rivalItineraries: true,
     // Station fuel pricing + tankering for every world created from now on
     // (FUEL_OPERATIONS_PLAN.md §7.4). Worlds without the key stay world-flat.
     fuelOpsV: FUEL_OPS_VERSION,
@@ -195,7 +199,7 @@ export async function createWorld(prisma, {
       tickConfig,
       joinCode: visibility === 'PRIVATE' ? (chosenPassword ?? genJoinCode()) : null,
       ownerAccountId: ownerAccountId ?? null,
-      worldSeed: genWorldSeed(),
+      worldSeed,
       startedAt: null,
       endsAt: null,
     },
@@ -314,6 +318,14 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     // Rival itineraries: baked at join so the client's projections agree with
     // the tick from the first render; the tick re-stamps it every week anyway.
     rivalItineraries: rivalItinerariesOf(tc),
+    // Event worlds: the weird rules (engine data/eventRules.js), stamped like
+    // every other rule flag and re-stamped by the tick and every decision.
+    // "No hubs" also takes the founding airport's hub status away — it stays
+    // the airline's base, but nothing connects over it.
+    ...(eventRulesOfWorld(tc) ? {
+      eventRules: eventRulesOfWorld(tc),
+      ...(eventRulesOfWorld(tc).hubs?.mode === 'none' ? { hubs: {} } : {}),
+    } : {}),
   };
 
   // ── One world, one calendar ─────────────────────────────────────────────────
@@ -356,6 +368,13 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
   return worldDatedState;
 }
 
+/** Event worlds: refuse a founding airport the hub rule does not allow (join + restart). */
+export function assertFoundingHubAllowed(world, hub) {
+  const rules = eventRulesOfWorld(world?.tickConfig);
+  const why = rules ? eventHubDenial(rules, String(hub ?? '').toUpperCase(), { founding: true }) : null;
+  if (why) throw httpError(400, why);
+}
+
 // Join a world: create the caller's Airline, seeded from the shared engine's
 // starting position (the exact solo-game opening). Enforces capacity, join codes,
 // world lifecycle, and one-airline-per-account-per-world.
@@ -383,6 +402,9 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
       if (problem) throw httpError(409, problem);
     }
   }
+
+  // Event worlds: regional-only or set-city bases (engine data/eventRules.js).
+  assertFoundingHubAllowed(world, hub);
 
   const existing = await prisma.airline.findUnique({
     where: { worldId_accountId: { worldId: world.id, accountId: account.id } },

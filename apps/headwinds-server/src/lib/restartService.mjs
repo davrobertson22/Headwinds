@@ -43,7 +43,7 @@
 //     older bug where a deal outlived a bankrupt partner by up to a year.
 import { releaseAllFor, seedHubGate } from './gateService.mjs';
 import { poolKeyOf } from './marketService.mjs';
-import { seedAirlineState, OG_NAME_PATTERN } from './worldService.mjs';
+import { seedAirlineState, OG_NAME_PATTERN, assertFoundingHubAllowed } from './worldService.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import { svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 // The cap lives in worldConfig (bottom of the import graph) so serializeAirline
@@ -204,6 +204,8 @@ export async function restartAirline(prisma, { account, world, airline, airlineN
   if (world.status === 'ENDED' || world.status === 'ARCHIVED') {
     throw httpError(409, 'This world has ended');
   }
+  // Event worlds: the hub rule applies to a re-founded airline's base too.
+  assertFoundingHubAllowed(world, hub);
   if (!RESTARTABLE.has(airline.status)) {
     // The common case is a double-submit from a client that already restarted.
     throw httpError(409, airline.status === 'ACTIVE'

@@ -30,6 +30,7 @@ import FeedWidget from './Feed.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import TickCountdown from './TickCountdown.jsx';
+import { EventRulesBanner } from './EventRules.jsx';
 import InviteButton from './InviteButton.jsx';
 import '../../../src/index.css';
 
@@ -618,6 +619,13 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
 
   return (
     <div className="hw-game">
+      {/* Event worlds: the weird rules, one tap away for the whole game
+          (EventRules.jsx). Renders nothing in a normal world. */}
+      {state?.eventRules && (
+        <div style={{ padding: '0 12px' }}>
+          <EventRulesBanner rules={state.eventRules} year={state.year ?? 1} />
+        </div>
+      )}
       <RemoteGameProvider state={state} dispatch={dispatch} remoteApi={remoteApi} remoteChrome={remoteChrome}>
         <SoloApp />
       </RemoteGameProvider>

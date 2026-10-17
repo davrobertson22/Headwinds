@@ -15,7 +15,7 @@ import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings
 import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
-import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf } from './worldConfig.mjs';
+import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf, eventRulesOfWorld } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
 import { farmFeeOn } from '@tailwinds/engine/data/fuelFarm.js';
 import { splitLogo } from './logoColumn.mjs';
@@ -222,6 +222,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Station fuel pricing: read live too, and only ever written when the
       // world is on it (a classic world's blobs keep no key).
       ...(fuelOpsVOf(world.tickConfig) >= 2 ? { fuelOpsV: fuelOpsVOf(world.tickConfig) } : {}),
+      // Event worlds: the weird rules, read live from the world like the flags
+      // above (engine data/eventRules.js — the bonus airports roll with the year).
+      ...(eventRulesOfWorld(world.tickConfig) ? { eventRules: eventRulesOfWorld(world.tickConfig) } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

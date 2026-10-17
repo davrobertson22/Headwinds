@@ -15,7 +15,8 @@ import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/red
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
 import { journalledPayload } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
-import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor } from '../lib/worldConfig.mjs';
+import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld } from '../lib/worldConfig.mjs';
+import { eventActionDenial } from '@tailwinds/engine/data/eventRules.js';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
          RIVAL_VIEW_POLL_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
@@ -372,6 +373,15 @@ export default async function decisionRoutes(fastify) {
     // last write.
     const { view } = await rivalViewFor(airline, await worldStampOf(airline.worldId));
     const injected = withRivals(airline.state, view);
+    // Event worlds: the rules come from the WORLD, never the blob a client
+    // round-tripped, and a broken rule is a readable 400 before the reducer
+    // (which would otherwise answer with a toast and a 201).
+    const eventRules = eventRulesOfWorld(airline.world?.tickConfig);
+    if (eventRules) {
+      injected.eventRules = eventRules;
+      const why = eventActionDenial(injected, { type, ...guarded });
+      if (why) throw httpError(400, why);
+    }
 
     // Opening a route: every way the engine can refuse one now has a sentence
     // attached, so send it back as a 400 rather than replying 201 with an

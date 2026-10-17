@@ -15,6 +15,7 @@
 // inside the same transaction as the buyer's version-guarded blob write.
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { eventAircraftDenial } from '@tailwinds/engine/data/eventRules.js';
 import { withTx } from './tx.mjs';
 
 export class AircraftMarketError extends Error {
@@ -99,6 +100,10 @@ export async function buyUsed(prisma, { world, buyer, listingId }) {
     if (!listing || listing.status !== 'OPEN' || listing.worldId !== world.id) {
       throw new AircraftMarketError('That aircraft is no longer available.', 404);
     }
+    // Event worlds: a restricted fleet can't be dodged on the used market.
+    const eventRules = world.tickConfig?.event?.rules ?? null;
+    const evDenial = eventRules ? eventAircraftDenial({ eventRules }, listing.snapshot?.typeId) : null;
+    if (evDenial) throw new AircraftMarketError(evDenial.message, 400);
     const price = listing.navPrice;
     if (Number(buyer.state?.cash ?? 0) < price) {
       throw new AircraftMarketError('You cannot afford that aircraft.');

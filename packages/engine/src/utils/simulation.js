@@ -35,6 +35,7 @@ import {
   getEraCostScale,
 } from '../data/overhead.js';
 import { routeCatering, cateringQualityBonus, normalizeCateringLevel } from '../data/catering.js';
+import { withEventBonus, pinEventBonusFrom } from '../data/eventRules.js';
 import { routeAncillaries, ancillaryQualityBonus } from '../data/ancillaries.js';
 import {
   isWifiEquipped, wifiCoverageFor, groupWifiCoverage, fleetWifiCoverage, fleetWifiWeeklyCost,
@@ -2391,7 +2392,10 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
 
   const totalOpCost = fuelCost + crewCost + qualityCost + cateringCost + ancillaryCost + groundHandlingCost + layoverCost + compensationCost + loungeCost;
 
-  return {
+  // Event worlds: a route touching one of this year's double-profit airports
+  // earns its operating profit twice (data/eventRules.js). Applied HERE so the
+  // planner, the finder and the tick all read the same number.
+  return withEventBonus({
     revenue:      Math.round(totalRevenue),
     // Final quality score used in the demand model (all bonuses, clamped 0–100).
     // Consumed by the Alliances page (eligibility) and available to any UI.
@@ -2439,7 +2443,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     competitorCount: competitorOffersCount,
     capacityCapped:  demandResult.capacityCapped,
     ticketPremium,   // >1 for supersonic aircraft (e.g. Concorde = 2.5)
-  };
+  }, [route.origin, route.destination]);
 }
 
 
@@ -2875,7 +2879,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const totalSeatLegsAvail = legs.length * (ecoSeatsPerFlight + bizSeatsPerFlight) * f;
   const totalSeatLegsUsed  = perLeg.reduce((s, l) => s + l.ecoUsed + l.bizUsed, 0);
 
-  return {
+  return withEventBonus({   // event worlds: double-profit airports (see simulateRoute)
     tag:          true,
     revenue:      Math.round(totalRevenue),
     // Average per-segment quality score (all bonuses, clamped) — same field
@@ -2924,7 +2928,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       bizFare:  d.biz,
     })),
     classSummary,
-  };
+  }, stops);
 }
 
 // ─────────────────────────────────────────────
@@ -3069,7 +3073,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
 
   const totalOpCost = fuelCost + crewCost + groundHandlingCost;
 
-  return {
+  return withEventBonus({   // event worlds: double-profit airports (see simulateRoute)
     cargo:        true,
     backhaulFactor: backhaul,
     revenue,
@@ -3092,7 +3096,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
     yieldPrice,
     refYield,
     demandTonnes: Math.round(demandTonnes),
-  };
+  }, [route.origin, route.destination]);
 }
 
 /**
@@ -3992,6 +3996,9 @@ export function weeklyTick(state) {
   // the reducer / providers — but tools and server paths call weeklyTick
   // directly, so pin it from THIS state to make every tick self-consistent.
   setNwrYieldChoke(state.newWorldRestrictions === true);
+  // Event worlds: this year's double-profit airports, pinned from THIS state
+  // for the same reason as the yield choke above.
+  pinEventBonusFrom(state);
   // Station fuel pricing (data/fuelStations.js): a module knob like the yield
   // choke, set from the same state the reducer set it from, so a projection
   // built on a foreign state cannot inherit the last caller's setting.
@@ -4372,6 +4379,7 @@ export function weeklyTick(state) {
   let totalAncillaryCost    = 0; // à la carte ancillary provisioning COST
   let totalGroundHandling = 0;
   let totalGroundStationSavings = 0;   // what self-handling saved vs the contract rate
+  let totalEventBonus = 0;             // event worlds: double-profit airports (inside revenue)
   let totalLounge         = 0;
   let totalLayover        = 0;
   let totalCompensation   = 0;
@@ -4775,6 +4783,7 @@ export function weeklyTick(state) {
       totalAncillaryCost    += result.ancillaryCost    ?? 0;
       totalGroundHandling += result.groundHandlingCost ?? 0;
       totalGroundStationSavings += result.groundStationSavings ?? 0;
+    totalEventBonus += result.eventBonus ?? 0;
       totalLounge         += result.loungeCost         ?? 0;
       totalLayover        += result.layoverCost        ?? 0;
       totalCompensation   += result.compensationCost   ?? 0;
@@ -5003,6 +5012,7 @@ export function weeklyTick(state) {
     totalAncillaryCost    += result.ancillaryCost     ?? 0;
     totalGroundHandling += result.groundHandlingCost  ?? 0;
     totalGroundStationSavings += result.groundStationSavings ?? 0;
+    totalEventBonus += result.eventBonus ?? 0;
     totalLounge         += result.loungeCost          ?? 0;
     totalLayover        += result.layoverCost         ?? 0;
     totalCompensation   += result.compensationCost    ?? 0;
@@ -5098,6 +5108,7 @@ export function weeklyTick(state) {
     totalLandingFees    += landingFee;
 
     totalCargoRevenue += result.revenue;
+    totalEventBonus   += result.eventBonus ?? 0;
     totalCargoTonnes  += result.tonnes;
     const cargoProfit  = result.revenue - result.totalOpCost - landingFee;
     totalCargoProfit  += cargoProfit;
@@ -5560,6 +5571,10 @@ export function weeklyTick(state) {
       ? { totalGroundStationCosts:   Math.round(totalGroundStationCosts),
           totalGroundStationSavings: Math.round(totalGroundStationSavings) }
       : {}),
+    // Event worlds: how much of this week's revenue was the double-profit
+    // airport bonus (already inside the revenue totals — display only).
+    // Spread only when earned, for golden-master parity.
+    ...(totalEventBonus > 0 ? { totalEventBonus: Math.round(totalEventBonus) } : {}),
     // Catering contracts: last week's spend under each, for the break penalty
     // and the contracts card. Conditional for the same golden-parity reason.
     ...(anyCateringContract

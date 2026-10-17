@@ -50,6 +50,7 @@ import { pairDemandNow } from './demand.js';
 import { currentGameDate } from '../utils/simulation.js';
 import { projectRouteAddition } from './pairShare.js';
 import { normalizeCateringLevel } from '../data/catering.js';
+import { eventRouteDenial } from '../data/eventRules.js';
 
 /** How many leads get a full engine forecast before the finder stops paying for it. */
 export const DEFAULT_SCORE_LIMIT = 150;
@@ -271,6 +272,10 @@ export function findCandidates(state, {
     // you already fly out of the other New York field is not a new market, and
     // listing it as one is what made "large demand, no profit" look like a bug in
     // the economics rather than a market you had already taken.
+    // Event worlds: domestic-only / international-only lanes are never offered
+    // (the same check addRouteBlockReason refuses them with).
+    if (state.eventRules?.routes && eventRouteDenial(state, [origin, a.code])) continue;
+
     const lane      = metroPairKeyOf(origin, a.code);
     const yourPairs = [...(servedLanes.get(lane) ?? [])];
     const serves    = yourPairs.length > 0;

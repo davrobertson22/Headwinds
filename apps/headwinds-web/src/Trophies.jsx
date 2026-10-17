@@ -368,7 +368,7 @@ export function EventsList({ events }) {
 
 // ── An event world's ranking, with Award controls ────────────────────────────
 
-export function EventRankingPanel({ world, standings = [], token, fallen = 0 }) {
+export function EventRankingPanel({ world, standings = [], token, fallen = 0, allianceStandings = null }) {
   const [bank, setBank] = useState(null);
   const [error, setError] = useState(null);
   const [choice, setChoice] = useState({}); // accountId → trophyId
@@ -402,8 +402,32 @@ export function EventRankingPanel({ world, standings = [], token, fallen = 0 }) 
     setBusy(null);
   };
 
+  // Alliance-ranked events: award the whole team in one go, each member
+  // getting the trophy with the TEAM's place.
+  const [teamChoice, setTeamChoice] = useState({});
+  const [teamNotes, setTeamNotes] = useState({});
+  const awardTeam = async (team) => {
+    const trophyId = teamChoice[team.name] ?? trophies[0]?.id;
+    if (!trophyId) return;
+    setBusy(`team:${team.name}`); setError(null);
+    try {
+      for (const m of team.members) {
+        const already = (awardsBy.get(m.accountId) ?? []).some((a) => a.trophyId === trophyId);
+        if (already) continue;
+        await api(`/admin/trophies/${trophyId}/award`, {
+          method: 'POST', token,
+          body: { accountId: m.accountId, worldId: world.id, place: team.rank, note: (teamNotes[team.name] ?? '').trim() || (team.alliance ? team.name : null) },
+        });
+      }
+      load();
+    } catch (e) { setError(e); }
+    setBusy(null);
+  };
+
   const copyRanking = () => {
-    const text = standings.map((s) => `${s.rank}. ${s.name}${s.playerName ? ` (${s.playerName})` : ''} — ${fmtMoney(s.avgProfit)}/wk`).join('\n');
+    const text = allianceStandings
+      ? allianceStandings.map((t) => `${t.rank}. ${t.name} — ${fmtMoney(t.score)}/wk (${t.members.map((m) => m.playerName ?? m.name).join(', ')})`).join('\n')
+      : standings.map((s) => `${s.rank}. ${s.name}${s.playerName ? ` (${s.playerName})` : ''} — ${fmtMoney(s.avgProfit)}/wk`).join('\n');
     navigator.clipboard?.writeText(`${world.event?.name ?? world.name} — ${ended ? 'final ranking' : 'ranking so far'}\n${text}`).catch(() => {});
   };
 
@@ -423,6 +447,40 @@ export function EventRankingPanel({ world, standings = [], token, fallen = 0 }) 
         {trophies.length === 0 ? ' Add a trophy to the bank first to award one.' : ''}
       </p>
       {error && <p className="error">{error.message ?? String(error)}</p>}
+      {allianceStandings && (
+        <>
+          <h4 style={{ margin: '8px 0 4px' }}>🤝 Alliance ranking — this event ranks alliances</h4>
+          <table className="worlds" style={{ marginBottom: 14 }}>
+            <thead><tr><th>#</th><th>Alliance</th><th>Members</th><th>Score / wk</th><th>Award the team</th></tr></thead>
+            <tbody>
+              {allianceStandings.map((t) => (
+                <tr key={`${t.alliance ? 'a' : 's'}:${t.name}`}>
+                  <td>{t.rank}</td>
+                  <td>{t.alliance ? t.name : <span className="muted">{t.name} (no alliance)</span>}</td>
+                  <td className="small">{t.members.map((m) => `${m.name}${m.playerName ? ` (${m.playerName})` : ''}`).join(', ')}</td>
+                  <td>{fmtMoney(t.score)}</td>
+                  <td>
+                    {trophies.length > 0 && (
+                      <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                        <select value={teamChoice[t.name] ?? trophies[0].id}
+                          onChange={(e) => setTeamChoice((c) => ({ ...c, [t.name]: e.target.value }))}>
+                          {trophies.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+                        </select>
+                        <input placeholder="Note (optional)" maxLength={120} style={{ width: 120 }}
+                          value={teamNotes[t.name] ?? ''} onChange={(e) => setTeamNotes((n) => ({ ...n, [t.name]: e.target.value }))} />
+                        <button className="btn small primary" type="button" disabled={busy === `team:${t.name}`} onClick={() => awardTeam(t)}>
+                          {busy === `team:${t.name}` ? '…' : `Award all ${t.members.length}`}
+                        </button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <h4 style={{ margin: '8px 0 4px' }}>Airlines</h4>
+        </>
+      )}
       <table className="worlds">
         <thead><tr><th>#</th><th>Airline</th><th>Player</th><th>Avg weekly profit</th><th>Trophies</th><th>Award</th></tr></thead>
         <tbody>

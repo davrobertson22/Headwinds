@@ -2,6 +2,7 @@
 // Single home for the §3a rules (admin world creation + the tick worker).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { eraJoinCapital } from '@tailwinds/engine/data/era.js';
+import { normalizeEventRules, describeEventRules } from '@tailwinds/engine/data/eventRules.js';
 import { lineRatesProblem, normalizeLineRates } from '@tailwinds/engine/data/productionLines.js';
 
 /**
@@ -62,18 +63,31 @@ export function eventOf(worldOrTickConfig) {
 }
 
 /**
+ * The event world's "weird rules" (engine data/eventRules.js), or null. Stored
+ * already normalised in tickConfig.event.rules; the server stamps them onto
+ * every airline as state.eventRules (join, tick, every decision).
+ */
+export function eventRulesOfWorld(worldOrTickConfig) {
+  const tc = worldOrTickConfig?.tickConfig ?? worldOrTickConfig;
+  const r = tc?.event?.rules;
+  return r && typeof r === 'object' && Object.keys(r).length ? r : null;
+}
+
+/**
  * Normalise the create form's `event` field. `true` or `{ name }` makes an
  * event world (name defaults to the world's own name at read time); absent,
  * null or false makes an ordinary one.
  */
-export function normalizeEventInput(event) {
+export function normalizeEventInput(event, { seed = null } = {}) {
   if (event == null || event === false) return null;
   if (event === true) return { name: null };
-  if (typeof event !== 'object' || Array.isArray(event)) throw badRequest('event must be true or { name }');
+  if (typeof event !== 'object' || Array.isArray(event)) throw badRequest('event must be true or { name, rules }');
   if (event.name != null && typeof event.name !== 'string') throw badRequest('event.name must be text');
   const name = (event.name ?? '').trim();
   if (name.length > EVENT_NAME_MAX_LENGTH) throw badRequest(`The event name must be at most ${EVENT_NAME_MAX_LENGTH} characters`);
-  return { name: name || null };
+  // The weird rules — validated by the engine, which is what enforces them.
+  const rules = normalizeEventRules(event.rules ?? null, { seed });
+  return { name: name || null, ...(rules ? { rules } : {}) };
 }
 
 // Per-world starting capital (founders' equity). Default matches the solo game's
@@ -117,8 +131,10 @@ export function worldStageOf(tickConfig) {
 // (Dave, 2026-09-07): the alpha worlds get it, every world created from now on
 // gets it, and the existing beta worlds — the standard ruleset players are in
 // the middle of — do NOT. So: an explicit `rivalItineraries` on the world wins
-// (createWorld always writes one, the admin toggle rewrites it); a world with
-// no key predates the feature and is on only if it is an alpha.
+// (createWorld always writes `true` — no opt-out since 2026-10-17 — and the
+// admin toggle rewrites it); a world with no key predates the feature and is
+// on only if it is an alpha. The tick always stamps the resolved boolean, so
+// the engine's own default (on) never decides a server world.
 // Fuel-ops rule version (FUEL_OPERATIONS_PLAN.md §7.4). 2 = station fuel
 // pricing and tankering. createWorld writes it for every new world; a world
 // with no key predates the feature and stays on world-flat fuel (1) until an
@@ -240,7 +256,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, rivalItineraries, event = null,
+  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -267,9 +283,6 @@ export function validateWorldConfig({
     if (productionLines === false && normalizeLineRates(productionLineRates)) {
       throw badRequest('Production rates need production lines turned on');
     }
-  }
-  if (rivalItineraries != null && typeof rivalItineraries !== 'boolean') {
-    throw badRequest('rivalItineraries must be true or false');
   }
   const minLength = event ? MIN_EVENT_LENGTH_YEARS : MIN_LENGTH_YEARS;
   if (!Number.isInteger(lengthYears) || lengthYears < minLength || lengthYears > MAX_LENGTH_YEARS) {
@@ -456,7 +469,14 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Event world (operator competition, trophies for the top three): the
     // trophy name, falling back to the world's own name. Null otherwise.
     event: eventOf(world.tickConfig)
-      ? { name: eventOf(world.tickConfig).name ?? world.name, endAt: world.tickConfig?.endAt ?? null }
+      ? {
+          name: eventOf(world.tickConfig).name ?? world.name,
+          endAt: world.tickConfig?.endAt ?? null,
+          // The weird rules, raw (the admin's editor) and in words for players,
+          // with THIS game-year's double-profit airports filled in.
+          rules: eventRulesOfWorld(world.tickConfig),
+          rulesSummary: describeEventRules(eventRulesOfWorld(world.tickConfig), { year: world.currentYear ?? 1 }),
+        }
       : null,
     startedAt: world.startedAt,
     endsAt: world.endsAt,

@@ -18,6 +18,7 @@ import { useVisibleInterval } from './usePoll.js';
 import { KOFI_URL } from './support.js';
 import InviteButton from './InviteButton.jsx';
 import { TrophyBank, EventRankingPanel } from './Trophies.jsx';
+import { EventRulesEditor, EventRulesCard, foundingHubOptions, foundingHubNote } from './EventRules.jsx';
 import { rememberReturnRoute, resumeAfterSignIn, safeLocalStorage } from './invite.js';
 import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
@@ -231,14 +232,16 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  // Event worlds may restrict where an airline is based (EventRules.jsx).
+  const baseAirports = useMemo(() => foundingHubOptions(world, AIRPORTS), [world]);
   const hubOptions = useMemo(
-    () => AIRPORTS.map((a) => {
+    () => baseAirports.map((a) => {
       const n = hubCounts[a.code] ?? 0;
       return { code: a.code, label: `${a.code} · ${a.city}${n ? ` · ${n} airline${n === 1 ? '' : 's'} here` : ''}` };
     }),
-    [hubCounts]
+    [hubCounts, baseAirports]
   );
-  const hubValid = AIRPORTS.some((a) => a.code === hub.toUpperCase());
+  const hubValid = baseAirports.some((a) => a.code === hub.toUpperCase());
   // How contested the entered hub already is — your first and most consequential
   // choice, otherwise made blind against the standings sitting right below it.
   const hubTaken = hubValid ? (hubCounts[hub.toUpperCase()] ?? 0) : 0;
@@ -307,7 +310,8 @@ function JoinForm({ world, token, needsCode, onJoined, mode = 'join', hubCounts 
             : (isRestart ? 'Start flying again' : 'Join world')}
         </button>
       </div>
-      {hub && !hubValid && <p className="muted small">Pick a real airport code from the list.</p>}
+      {foundingHubNote(world) && <p className="muted small">🏆 {foundingHubNote(world)}</p>}
+      {hub && !hubValid && <p className="muted small">{foundingHubNote(world) ? 'Pick an airport this event allows, from the list.' : 'Pick a real airport code from the list.'}</p>}
       {hubTaken > 0 && (
         <p className="muted small">
           {hubTaken} airline{hubTaken === 1 ? ' is' : 's are'} already based at {hub.toUpperCase()} — you'll be competing head-to-head there. A quieter hub is often an easier start.
@@ -387,8 +391,6 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [productionLines, setProductionLines] = useState(true);
   // Per-world frames a week (blank = default); sent only when something is set.
   const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
-  // Rival one-stop itineraries — on by default (HUB_CONNECTIVITY_PLAN.md).
-  const [rivalItineraries, setRivalItineraries] = useState(true);
   const [stage, setStage] = useState('beta');
   // Era world: real calendar year of week 1 ('' = classic ordinal world).
   const [eraSel, setEraSel] = useState('');           // '' | preset year | 'custom'
@@ -399,6 +401,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [isEvent, setIsEvent] = useState(Boolean(initialEvent));
   const [eventName, setEventName] = useState('');
   const [endAt, setEndAt] = useState(initialEvent?.end ?? '');   // datetime-local
+  // The event's weird rules (EventRules.jsx / engine data/eventRules.js).
+  const [eventRules, setEventRules] = useState(initialEvent?.rules ?? null);
   const [busy, setBusy] = useState(false);
   const toggleEvent = (on) => {
     setIsEvent(on);
@@ -441,12 +445,10 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           // Always explicit: the server treats an absent field as ON.
           productionLines,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
-          // Always explicit: the server treats an absent field as ON.
-          rivalItineraries,
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
           ...(scheduledStart ? { scheduledStartAt: new Date(scheduledStart).toISOString() } : {}),
-          ...(admin && isEvent ? { event: { name: eventName.trim() }, endAt: new Date(endAt).toISOString() } : {}),
+          ...(admin && isEvent ? { event: { name: eventName.trim(), rules: eventRules }, endAt: new Date(endAt).toISOString() } : {}),
         },
       });
       onCreated?.(res.world);
@@ -504,6 +506,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             <span className="muted small">Shown on the world and on trophies awarded from it, e.g. “Discord Cup · October 2026”.</span>
           </label>
         )}
+        {admin && isEvent && <EventRulesEditor value={eventRules} onChange={setEventRules} />}
         {!admin && (
           <label>Password
             <input required minLength={4} maxLength={32} placeholder="What your friends type to join"
@@ -661,19 +664,6 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         {productionLines && (
           <ProductionRates rates={lineRates} onChange={setLineRates} maxPlayers={maxPlayers} />
         )}
-        <label style={{ alignItems: 'flex-start' }}>Rival connections
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={rivalItineraries}
-              onChange={(e) => setRivalItineraries(e.target.checked)} />
-            <span className="muted">{rivalItineraries ? 'ON — rivals sell one-stop itineraries over their hubs' : 'Off — rivals fly point-to-point only (classic)'}</span>
-          </span>
-          <span className="muted small">
-            Every airline in the world sells connections, not just you. A rival hubbed at Frankfurt
-            with flights to New York and Amsterdam competes on New York–Amsterdam via Frankfurt,
-            in the same demand model that books your own passengers — and your connections over
-            your hubs face theirs. Turning it off gives the older world where only you can hub.
-          </span>
-        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -1560,6 +1550,8 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
         )}
       </div>
 
+      <EventRulesCard world={world} token={token} isAdmin={isAdminViewer} onSaved={load} />
+
       {needsBadgeToJoin && (
         <div className="card">
           <p><strong>♥ This is a supporter world.</strong></p>
@@ -1611,7 +1603,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       {!token && <div className="card"><p className="muted">Sign in above to join this world.</p></div>}
 
       {isAdminViewer && world.event && world.status === 'ENDED' && (
-        <EventRankingPanel world={world} standings={standings} token={token} fallen={data.fallen ?? 0} />
+        <EventRankingPanel world={world} standings={standings} token={token} fallen={data.fallen ?? 0} allianceStandings={data.allianceStandings ?? null} />
       )}
 
       {world.status === 'ENDED' && (
@@ -1624,7 +1616,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
       )}
 
       {isAdminViewer && world.event && world.status !== 'ENDED' && (
-        <EventRankingPanel world={world} standings={standings} token={token} fallen={data.fallen ?? 0} />
+        <EventRankingPanel world={world} standings={standings} token={token} fallen={data.fallen ?? 0} allianceStandings={data.allianceStandings ?? null} />
       )}
 
       <StandingsTable

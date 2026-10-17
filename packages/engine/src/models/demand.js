@@ -33,6 +33,7 @@ import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor,
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
+import { eventHubDenial } from '../data/eventRules.js';
 import { AIRCRAFT_TYPES, getAircraftType, fuelCostPerKm, aircraftAvailability, aircraftOrderable, typicalSeatsOf, maxSeatsForRange } from '../data/aircraft.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -1927,12 +1928,17 @@ export function hubUpgradeChecklist(snap, code, targetTier) {
   if (!tierDef) return { ok: false, checks: [] };
   const {
     routes = [], gates = {}, homeCountry = null, hubs = {},
-    hubThroughput = {}, cash = 0, absWeek = 0,
+    hubThroughput = {}, cash = 0, absWeek = 0, eventRules = null,
   } = snap;
 
   const checks = [];
   const add = (id, label, current, required, met) =>
     checks.push({ id, label, current, required, met });
+
+  // Event worlds (data/eventRules.js): no hubs / regional only / set cities.
+  // Listed first so the hub screen leads with the reason it can't be done.
+  const evHub = eventRules ? eventHubDenial(eventRules, code) : null;
+  if (evHub) add('event', evHub, '—', '—', false);
 
   const gateCount = gates[code] ?? 0;
   add('gates', `${tierDef.minGates} gates at ${code}`, gateCount, tierDef.minGates, gateCount >= tierDef.minGates);

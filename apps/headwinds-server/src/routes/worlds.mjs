@@ -11,6 +11,7 @@ import { publicPayload, isPublicDecision } from '../lib/publicDecisions.mjs';
 import { assertWorldReadable, mayReadWorld, isWorldMember, mayUseSupporterWorld, isOwner } from '../lib/access.mjs';
 import { RIVAL_PROFILE_SELECT, loadRivalProfileState } from '../lib/rivalProfile.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
+import { allianceStandings } from '@tailwinds/engine/data/eventRules.js';
 import { buildNews } from '../lib/newsService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 
@@ -25,6 +26,7 @@ import {
   WORLD_STAGES, DEFAULT_WORLD_STAGE, MIN_START_YEAR, MAX_START_YEAR,
   PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, validatePassword,
   rankingSinceOf, worldTotalWeeks, MIN_EVENT_LENGTH_YEARS, EVENT_NAME_MAX_LENGTH, eventOf,
+  eventRulesOfWorld, normalizeEventInput,
 } from '../lib/worldConfig.mjs';
 import { compareStandings, finalStretchOf, RANKING_WINDOW_WEEKS } from '@tailwinds/engine/utils/standings.js';
 import { weeksFlownOf } from '../lib/liveStats.mjs';
@@ -239,11 +241,25 @@ export default async function worldRoutes(fastify) {
       seasonAwards = row?.payload ?? null;
     }
 
+    // Event worlds with "alliances are ranked": the team table, from the same
+    // average-weekly-profit figures the airline standings use (engine
+    // data/eventRules.js allianceStandings). No alliance = a team of one.
+    const evRules = eventRulesOfWorld(world.tickConfig);
+    const allianceTable = evRules?.allianceRanking
+      ? allianceStandings(airlines.map((a) => ({
+        id: a.id, accountId: a.accountId, name: a.name, hub: a.hub,
+        playerName: a.playerName ?? null,
+        alliance: allianceNameByAirline.get(a.id) ?? null,
+        avgProfit: nOrNull(a.rankScore),
+      })), { score: evRules.allianceRanking.score })
+      : null;
+
     return {
       world: serializeWorld(world, {
         playerCount: world._count.airlines,
         includeJoinCode: isMember,
       }),
+      ...(allianceTable ? { allianceStandings: allianceTable } : {}),
       seasonAwards,
       // How the standings are ranked, and where the world is in its season —
       // the player list's header reads this. The title goes to the best
@@ -513,8 +529,6 @@ export default async function worldRoutes(fastify) {
           // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
           // Contents validated in worldConfig (lineRatesProblem).
           productionLineRates: { type: 'object' },
-          // Rival one-stop itineraries (default ON; false = point-to-point rivals).
-          rivalItineraries: { type: 'boolean' },
           // Cosmetic maturity label: alpha | beta | live (default beta).
           stage: { type: 'string', enum: WORLD_STAGES },
           // Era world: real calendar year of week 1 (omit for a classic world).
@@ -523,7 +537,11 @@ export default async function worldRoutes(fastify) {
           // world's own name). Omit for an ordinary world.
           event: {
             type: 'object',
-            properties: { name: { type: 'string', maxLength: EVENT_NAME_MAX_LENGTH } },
+            properties: {
+              name: { type: 'string', maxLength: EVENT_NAME_MAX_LENGTH },
+              // The weird rules — validated by the engine (data/eventRules.js).
+              rules: { type: ['object', 'null'] },
+            },
           },
           // Event worlds: end at this instant instead of after lengthYears
           // (needs scheduledStartAt; real validation in createWorld).
@@ -550,6 +568,58 @@ export default async function worldRoutes(fastify) {
     return reply.code(201).send({
       world: serializeWorld(world, { playerCount: 0, includeJoinCode: true }),
     });
+  });
+
+  // ── Event worlds: edit the event's name and rules (admin, LOBBY only) ──────
+  // Rules are fixed once the clock starts — changing them mid-event would
+  // strand fleets and networks built under the old ones. Before that, an admin
+  // may add or change rules freely; airlines that already joined are re-stamped
+  // (and their version bumped, so open tabs pick the new rules up).
+  fastify.post('/worlds/:id/event-rules', {
+    preHandler: requireAdmin,
+    schema: {
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', maxLength: EVENT_NAME_MAX_LENGTH },
+          rules: { type: ['object', 'null'] },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const world = await prisma.world.findUnique({ where: { id: request.params.id } });
+    if (!world) return reply.code(404).send({ error: 'No such world' });
+    const current = eventOf(world.tickConfig);
+    if (!current) return reply.code(409).send({ error: 'This is not an event world' });
+    if (world.status !== 'LOBBY') {
+      return reply.code(409).send({ error: 'Event rules are locked once the world has started' });
+    }
+    const prevSeed = world.tickConfig?.event?.rules?.bonusAirports?.seed ?? world.worldSeed;
+    const nextEvent = normalizeEventInput({
+      name: request.body?.name ?? current.name ?? '',
+      rules: request.body?.rules ?? null,
+    }, { seed: prevSeed });
+    const tickConfig = { ...(world.tickConfig ?? {}), event: nextEvent };
+    const updated = await prisma.world.update({ where: { id: world.id }, data: { tickConfig } });
+
+    // Re-stamp anyone already in (a lobby holds a handful of airlines at most).
+    const rules = nextEvent.rules ?? null;
+    const members = await prisma.airline.findMany({ where: { worldId: world.id }, select: { id: true, state: true, hub: true } });
+    for (const m of members) {
+      const { eventRules: old, ...rest } = m.state ?? {};
+      const home = rest.hub ?? m.hub;
+      const state = {
+        ...rest,
+        ...(rules ? { eventRules: rules } : {}),
+        // "No hubs" takes the base's hub status away; lifting it gives it back.
+        ...(rules?.hubs?.mode === 'none' ? { hubs: {} } : {}),
+        ...(old?.hubs?.mode === 'none' && rules?.hubs?.mode !== 'none' && home
+          ? { hubs: { [home]: { tier: 1 } } } : {}),
+      };
+      await prisma.airline.update({ where: { id: m.id }, data: { state, version: { increment: 1 } } });
+    }
+    return { world: serializeWorld(updated, { includeJoinCode: true }), restamped: members.length };
   });
 
   // ── Change a private world's password (OWNER or admin) ────────────────────
@@ -735,10 +805,11 @@ export default async function worldRoutes(fastify) {
   });
 
   // ── Switch rival one-stop itineraries on a running world (ADMIN) ──────────
-  // HUB_CONNECTIVITY_PLAN.md: ON for every world by default (absent key =
-  // on). This route switches a world OFF (stores `false`) or back on (removes
-  // the key). The tick reads the flag live and re-stamps every airline blob,
-  // so it lands at the world's next tick.
+  // HUB_CONNECTIVITY_PLAN.md: every world created since 2026-09-07 is on, and
+  // since 2026-10-17 creation offers no opt-out. This route stores an explicit
+  // true/false (overriding the stage default for keyless pre-feature worlds).
+  // The tick reads the flag live and re-stamps every airline blob, so it
+  // lands at the world's next tick.
   fastify.post('/worlds/:id/rival-itineraries', {
     preHandler: requireAdmin,
     schema: {
