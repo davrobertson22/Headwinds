@@ -347,6 +347,88 @@ function ExtendLeaseModal({ aircraft, onClose }) {
   );
 }
 
+// ── Reserves by base ─────────────────────────────────────────────────────────
+// The Reserve chip's breakdown: which airports the standby tails sit at and how
+// many of each type are there, so "how many A320s are covering DFW?" is one
+// glance — and a click narrows the list to that base, or that base + type.
+
+/**
+ * Stationed reserves grouped by base airport, then by type. Bases are sorted
+ * busiest first (then by code); types within a base the same way (then by name).
+ * Uses isReserve, so retired tails and plain idle aircraft are left out.
+ */
+export function reserveBaseSummary(fleet, typeOf = getAircraftType) {
+  const byBase = new Map();
+  for (const a of fleet ?? []) {
+    if (!isReserve(a)) continue;
+    let b = byBase.get(a.reserveBase);
+    if (!b) { b = { base: a.reserveBase, total: 0, types: new Map() }; byBase.set(a.reserveBase, b); }
+    b.total += 1;
+    b.types.set(a.typeId, (b.types.get(a.typeId) ?? 0) + 1);
+  }
+  return [...byBase.values()]
+    .map(b => ({
+      base: b.base,
+      total: b.total,
+      types: [...b.types]
+        .map(([typeId, count]) => ({ typeId, name: typeOf(typeId)?.name ?? typeId, count }))
+        .sort((x, y) => y.count - x.count || x.name.localeCompare(y.name)),
+    }))
+    .sort((x, y) => y.total - x.total || x.base.localeCompare(y.base));
+}
+
+/** onPick(base | null, typeId | null) — null base means every base. */
+export function ReserveBaseBreakdown({ summary, base = null, typeId = null, onPick }) {
+  if (!summary?.length) return null;
+  const all = summary.reduce((n, b) => n + b.total, 0);
+  return (
+    <div className="card" data-reserve-bases style={{ padding: '10px 14px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+          <Glyph e="🛡️" /> Reserves by base
+        </span>
+        <button
+          className={`btn ${!base ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: 12, padding: '3px 9px', marginLeft: 'auto' }}
+          onClick={() => onPick?.(null, null)}
+        >All bases <span style={{ marginLeft: 5, opacity: 0.65, fontSize: 11 }}>{all}</span></button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {summary.map(b => {
+          const baseActive = base === b.base;
+          const city = getAirport(b.base)?.city;
+          return (
+            <div key={b.base} data-reserve-base={b.base} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                className={`btn ${baseActive && !typeId ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontSize: 12, padding: '3px 9px', minWidth: 130, justifyContent: 'flex-start' }}
+                title={`Show only the reserves stationed at ${b.base}`}
+                onClick={() => onPick?.(baseActive && !typeId ? null : b.base, null)}
+              >
+                <b>{b.base}</b>
+                {city && <span style={{ marginLeft: 5, opacity: 0.7 }}>{city}</span>}
+                <span style={{ marginLeft: 6, opacity: 0.65, fontSize: 11 }}>{b.total}</span>
+              </button>
+              {b.types.map(t => {
+                const active = baseActive && typeId === t.typeId;
+                return (
+                  <button
+                    key={t.typeId}
+                    className={`btn ${active ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    title={`Show only the ${t.name} reserves at ${b.base}`}
+                    onClick={() => onPick?.(b.base, active ? null : t.typeId)}
+                  >{t.count}× {t.name}</button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail panel ─────────────────────────────────────────────────────────────
 
 // ── Reserve standby (hub-based covers — see docs/reserve-aircraft-design.md) ──
@@ -1692,6 +1774,7 @@ export default function Fleet() {
   const [search,        setSearch]        = useState('');
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | reserve | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
+  const [filterBase,    setFilterBase]    = useState(null); // Reserve chip only: null = every base, or an airport code
   const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
   const [sortKey,       setSortKey]       = useState(null);   // null = default order | name | type | cabin | age | util | fixed | status
   const [sortDir,       setSortDir]       = useState('asc');  // asc | desc
@@ -1825,6 +1908,11 @@ export default function Fleet() {
 
   const currentAbsWeek = absoluteWeek(year, week);
 
+  // Reserve chip → per-base breakdown. A base whose last reserve has stood
+  // down drops out of the summary, so the filter quietly falls back to all.
+  const reserveBases = reserveBaseSummary(fleet);
+  const activeBase   = filterBase && reserveBases.some(b => b.base === filterBase) ? filterBase : null;
+
   // Search + filter
   const searchTerm = search.trim().toLowerCase();
   const visibleFleet = fleet.filter(a => {
@@ -1842,7 +1930,7 @@ export default function Fleet() {
     // "Idle" means genuinely unused — a tail stationed as a reserve is doing a
     // job (standing by) and lives on its own chip instead.
     if (filterChip === 'idle')     return a.status === 'idle' && !isReserve(a);
-    if (filterChip === 'reserve')  return isReserve(a);
+    if (filterChip === 'reserve')  return isReserve(a) && (!activeBase || a.reserveBase === activeBase);
     if (filterChip === 'grounded') return a.status === 'grounded';
     if (filterChip === 'expiring') return isLeaseAtRisk(state, a);
     if (filterChip === 'leased')   return a.ownershipType !== 'owned';
@@ -2349,7 +2437,7 @@ export default function Fleet() {
                       key={c.id}
                       className={`btn ${filterChip === c.id ? 'btn-primary' : 'btn-ghost'}`}
                       style={{ fontSize: 12, padding: '4px 10px' }}
-                      onClick={() => setFilterChip(c.id)}
+                      onClick={() => { setFilterChip(c.id); setFilterBase(null); }}
                     >
                       <GlyphLabel text={c.label} size={12} />
                       {c.id !== 'all' && chipCounts[c.id] > 0 && (
@@ -2397,6 +2485,16 @@ export default function Fleet() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* ── Reserves by base (Reserve chip) ───────────────────────────────── */}
+      {viewMode === 'list' && filterChip === 'reserve' && (
+        <ReserveBaseBreakdown
+          summary={reserveBases}
+          base={activeBase}
+          typeId={filterTypeId}
+          onPick={(b, t) => { setFilterBase(b); setFilterTypeId(t); }}
+        />
       )}
 
       {/* ── Lease auto-renew ──────────────────────────────────────────────── */}
