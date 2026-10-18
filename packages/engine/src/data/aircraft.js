@@ -4218,10 +4218,26 @@ export function typicalSeatsOf(type) {
 export const PAX_PAYLOAD_KG = 100;
 /** Jet fuel / avgas, kg per litre. */
 export const FUEL_KG_PER_L = 0.8;
-/** Most range a cabin lighter than typical can add: at the typical cabin the
+/** Range the fuel swap can add below the typical cabin: at the typical cabin the
  *  aircraft is at its take-off weight with the tanks a few percent short of full,
- *  so the first passengers taken off become fuel — then the tanks are full. */
+ *  so the first passengers taken off become fuel — then the tanks are full. Past
+ *  that point a lighter cabin still gains, more slowly (fullTankGainRate). */
 export const LIGHT_CABIN_GAIN_MAX = 0.05;
+/** Breguet range scale for a modern airliner, km: flying `range` burns about
+ *  1 − e^(−range / this) of the take-off weight (a 787-9 at 14,140 km: ~38%). */
+export const BREGUET_RANGE_KM = 30_000;
+
+/**
+ * Once the tanks are full, a passenger left off can no longer become fuel; the
+ * aircraft is just lighter, and burns less for the rest of the flight. Breguet
+ * makes that worth (fuel burned / take-off weight) of the fuel-swap distance —
+ * ~38% on a 787-9, ~19% on an A320neo. Without it a 787-9 with 49 aboard was
+ * capped at 14,847 km, where Qantas flew one New York–Sydney (16,013 km) in 2019
+ * (Discord, 2026-10-18).
+ */
+export function fullTankGainRate(type) {
+  return type?.range > 0 ? 1 - Math.exp(-type.range / BREGUET_RANGE_KM) : 0;
+}
 /** A dense cabin never cuts range below this share of the headline. */
 export const DENSE_RANGE_FLOOR = 0.5;
 
@@ -4232,13 +4248,19 @@ export function payloadRangeMod(bodies, type) {
   const fuelKgPerKm = (type.fuelBurnPer100km ?? 0) * FUEL_KG_PER_L / 100;
   if (bodies <= typical) {
     // Each passenger left off is fuel taken on instead — the same exchange rate
-    // as packing, run backwards — until the tanks are full (LIGHT_CABIN_GAIN_MAX).
+    // as packing, run backwards — until the tanks are full (LIGHT_CABIN_GAIN_MAX);
+    // past that, each one makes the aircraft lighter instead (fullTankGainRate).
     // A real 787-9 gains ~2.6% at Qantas' 236 seats (Perth–London, 14,508 km);
     // spreading the gain evenly down to an EMPTY cabin gave it 0.9%, so the
     // airline's own route was out of range (Discord, 2026-10-17).
     if (!(fuelKgPerKm > 0)) return 1 + LIGHT_CABIN_GAIN_MAX * (1 - Math.max(0, bodies) / typical);
-    const gainedKm = (typical - Math.max(0, bodies)) * PAX_PAYLOAD_KG / fuelKgPerKm;
-    return 1 + Math.min(LIGHT_CABIN_GAIN_MAX, gainedKm / type.range);
+    const swapKmPerBody = PAX_PAYLOAD_KG / fuelKgPerKm;
+    const kneeKm = LIGHT_CABIN_GAIN_MAX * type.range;
+    const leftOff = typical - Math.max(0, bodies);
+    const swapBodies = Math.min(leftOff, kneeKm / swapKmPerBody);
+    const gainedKm = swapBodies * swapKmPerBody
+                   + (leftOff - swapBodies) * swapKmPerBody * fullTankGainRate(type);
+    return 1 + gainedKm / type.range;
   }
   if (!(fuelKgPerKm > 0)) return 1;
   const lostKm = (bodies - typical) * PAX_PAYLOAD_KG / fuelKgPerKm;

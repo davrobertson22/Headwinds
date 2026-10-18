@@ -10,7 +10,10 @@
 //   • at the typical cabin the type flies its headline range;
 //   • past it, each extra passenger (100 kg with bags) comes out of the fuel —
 //     range lost = that mass / the type's own burn per km;
-//   • below it, at most +5% (the tanks are already about full);
+//   • below it, each passenger left off is fuel taken on instead, until the
+//     tanks are full (+LIGHT_CABIN_GAIN_MAX); past that a lighter aircraft still
+//     burns less, so range keeps growing at fullTankGainRate of that pace
+//     (2026-10-18: Qantas flew a 787-9 New York–Sydney with 49 aboard);
 //   • a new aircraft arrives at its typical seats; AI carriers, on routes they
 //     open, fly as many seats as the lane's distance allows (maxSeatsForRange);
 //   • routes flying when this shipped keep the old rule on the aircraft flying
@@ -26,7 +29,7 @@ import { getAirport } from '../src/data/airports.js';
 import {
   effectiveRangeKm, legacyEffectiveRangeKm, routeReachKm, payloadRangeMod, newAircraftConfig,
   grandfatherRouteRanges, routeRangeShortfall, cabinRangeFix, fullCabinRangeKm, defaultConfig,
-  distanceKm, LIGHT_CABIN_GAIN_MAX, PAX_PAYLOAD_KG, FUEL_KG_PER_L,
+  distanceKm, LIGHT_CABIN_GAIN_MAX, PAX_PAYLOAD_KG, FUEL_KG_PER_L, fullTankGainRate,
   forecastRangeMod, referencePrice, defaultClassPrices,
 } from '../src/utils/simulation.js';
 import { rankAircraftForRoute } from '../src/models/aircraftRecommender.js';
@@ -76,9 +79,9 @@ test('packing past typical costs PAX_PAYLOAD_KG of fuel per extra passenger', ()
   assert.equal(reach('b777300er', eco(typicalSeatsOf(t) + extra)), expect);
 });
 
-test('a lighter cabin gains at most LIGHT_CABIN_GAIN_MAX', () => {
+test('an empty cabin never adds more than 30% to the headline range (narrowbodies most, ~+22-26%)', () => {
   for (const t of PAX) {
-    assert.ok(payloadRangeMod(0, t) <= 1 + LIGHT_CABIN_GAIN_MAX + 1e-9, t.id);
+    assert.ok(payloadRangeMod(0, t) <= 1.30, `${t.id}: ${payloadRangeMod(0, t).toFixed(3)}`);
     assert.ok(payloadRangeMod(typicalSeatsOf(t), t) === 1, t.id);
   }
 });
@@ -96,7 +99,32 @@ test('a lighter cabin buys fuel at the packing rate until the tanks are full', (
   const t = T('b7879');
   const burnKgKm = t.fuelBurnPer100km * FUEL_KG_PER_L / 100;
   assert.equal(reach('b7879', eco(typicalSeatsOf(t) - 10)), Math.round(t.range + 10 * PAX_PAYLOAD_KG / burnKgKm));
-  assert.equal(reach('b7879', eco(150)), Math.round(t.range * (1 + LIGHT_CABIN_GAIN_MAX)), 'capped once the tanks are full');
+  assert.ok(reach('b7879', eco(150)) > Math.round(t.range * (1 + LIGHT_CABIN_GAIN_MAX)), 'past full tanks a lighter aircraft still flies further');
+});
+
+test('past full tanks each passenger left off adds fullTankGainRate of the fuel-swap distance', () => {
+  const t = T('b7879');
+  const swapKm = PAX_PAYLOAD_KG / (t.fuelBurnPer100km * FUEL_KG_PER_L / 100);
+  const kneeKm = t.range * LIGHT_CABIN_GAIN_MAX;
+  const kneeBodies = typicalSeatsOf(t) - kneeKm / swapKm;
+  const rate = fullTankGainRate(t);
+  assert.ok(rate > 0.3 && rate < 0.45, `787-9 burns ~38% of its take-off weight at the headline range, got ${rate}`);
+  assert.equal(reach('b7879', eco(150)), Math.round(t.range + kneeKm + (kneeBodies - 150) * swapKm * rate));
+  assert.ok(fullTankGainRate(T('a320neo')) < rate, 'a short-range type carries a smaller share of fuel, so gains less per passenger');
+});
+
+test("Qantas' 2019 787-9 New York–Sydney test flight (49 aboard) is in range", () => {
+  assert.ok(reach('b7879', eco(49)) >= km('JFK', 'SYD'), `${reach('b7879', eco(49))} km < ${Math.round(km('JFK', 'SYD'))} km`);
+});
+
+test("Boeing's 2026 'up to' 787-9 range (8,300 nmi, 15,370 km) is reachable with a light premium cabin", () => {
+  assert.ok(reach('b7879', eco(150)) >= 15_370, `${reach('b7879', eco(150))} km`);
+});
+
+test('no 787-9 does Sydney–London, however light, and the ULRs still outreach their parents', () => {
+  assert.ok(reach('b7879', eco(0)) < km('SYD', 'LHR'), `empty 787-9 ${reach('b7879', eco(0))}`);
+  assert.ok(reach('a350900ulr', SINGAPORE_ULR) > reach('a350900', SINGAPORE_ULR) + 500);
+  assert.ok(reach('a3501000ulr', QANTAS_SUNRISE) > reach('a3501000', QANTAS_SUNRISE) + 500);
 });
 
 test('the real ultra-long 787-9 routes fly at the airlines\' own cabins', () => {

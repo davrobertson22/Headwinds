@@ -1,7 +1,7 @@
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee, GATE_SURCHARGE_MULT } from '../data/airports.js';
 import {
   getAircraftType, fuelCostPerKm, typicalSeatsOf,
-  PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, DENSE_RANGE_FLOOR, payloadRangeMod, maxSeatsForRange,
+  PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, BREGUET_RANGE_KM, DENSE_RANGE_FLOOR, payloadRangeMod, fullTankGainRate, maxSeatsForRange,
 } from '../data/aircraft.js';
 import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import {
@@ -428,8 +428,10 @@ export const CLASS_SPACE_MULTIPLIERS = {
 //   • more bodies than typical: the aircraft is weight-limited and every extra
 //     passenger (PAX_PAYLOAD_KG with bags) comes out of the fuel. The range lost
 //     is that mass divided by the type's own burn per km — no per-type tuning;
-//   • fewer bodies than typical: the tanks are already full, so there is little
-//     to gain — at most LIGHT_CABIN_GAIN_MAX at an empty cabin.
+//   • fewer bodies than typical: each one left off becomes fuel until the tanks
+//     are full (+LIGHT_CABIN_GAIN_MAX); past that the aircraft is only lighter,
+//     which still adds range at fullTankGainRate of the fuel-swap pace (~+17%
+//     for an empty 787-9; narrowbodies, heavier with people, up to ~+26%).
 //
 // Ultra-long-range types are not special-cased: they simply quote a high range
 // at a low typical cabin (A350-1000ULR 18,000 km at 238), so packing one to 480
@@ -439,7 +441,7 @@ export const CLASS_SPACE_MULTIPLIERS = {
 // were opened under, on the aircraft that flies them (see grandfatherRouteRanges
 // and routeReachKm). Guarded by tools/payload-range-test.mjs.
 
-export { PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, DENSE_RANGE_FLOOR, payloadRangeMod, maxSeatsForRange };
+export { PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, BREGUET_RANGE_KM, DENSE_RANGE_FLOOR, payloadRangeMod, fullTankGainRate, maxSeatsForRange };
 /** The old flat curve (+15% at an empty cabin, measured from a FULL cabin), kept
  *  only for routes grandfathered under it. */
 export const CONFIG_RANGE_GAIN_MAX = 0.15;
