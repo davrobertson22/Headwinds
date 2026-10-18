@@ -960,7 +960,52 @@ const viewCache = new Map(); // worldId → { stamp, at, promise }
 
 // One-stop world view builder for API/tick call sites: loads active airlines
 // and the alliance graph, returns the per-airline view map.
-export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null, maxStaleMs = 0 } = {}) {
+// ── Rival-ROW cache: the expensive half, reusable by the write paths ─────────
+// The view cache above is keyed on the world stamp, which ANY player's action
+// moves, and the decision POST insists on a strict match. So in practice the
+// API re-ran loadRivalRows on almost every decision. That query detoasts every
+// active airline's whole state blob inside Postgres to trim it: 2026-10-18,
+// 153 runs in the 13 minutes after a restart, ~950 ms and ~40 MB of buffers
+// each. Postgres had been over its commit limit all afternoon on Small compute
+// (~2 GB) and was killed at 4:04 PM PT.
+//
+// The rows are only the OTHER airlines' trimmed blobs. Everything in a view
+// that depends on our own write or on an authoritative table is rebuilt fresh
+// on every call regardless: the alliance graph, gate market and alliance slot
+// pool (WorldGate tables), the float pool, and the per-airline derivation over
+// the rows. A caller opting in via `rowsMaxStaleMs` therefore sees rivals'
+// blobs up to that old and nothing else stale. Write paths are re-checked
+// authoritatively anyway: gate leases in applyGateDecisionTx, production-line
+// slots under a world lock, stock trades by the pool compare-and-set.
+//
+// A view built from cached rows is NEVER put in the view cache (it does not
+// reflect the stamp it was asked for), and it reports `builtFromStamp` = the
+// stamp its rows were loaded at, or ROWS_STAMP_UNKNOWN, so a caller handing a
+// stamp to the client can tell the truth and the client's next poll fetches
+// the current overlay.
+export const RIVAL_ROWS_MAX_STALE_MS = 60_000;
+export const ROWS_STAMP_UNKNOWN = 'cached';
+const rowCache = new Map(); // worldId → { at, stamp, promise }
+
+function cachedRivalRows(worldId, maxStaleMs) {
+  if (!(maxStaleMs > 0)) return null;
+  const hit = rowCache.get(worldId);
+  return hit && Date.now() - hit.at < maxStaleMs ? hit : null;
+}
+
+function loadAndCacheRivalRows(prisma, worldId, stamp) {
+  const now = Date.now();
+  // Nothing may be served past RIVAL_ROWS_MAX_STALE_MS, so anything older is
+  // dead weight in the API heap (a big world's projected rows run to MBs).
+  for (const [id, e] of rowCache) if (now - e.at >= RIVAL_ROWS_MAX_STALE_MS) rowCache.delete(id);
+  const promise = loadRivalRows(prisma, worldId);
+  const entry = { at: now, stamp, promise };
+  rowCache.set(worldId, entry);
+  promise.catch(() => { if (rowCache.get(worldId) === entry) rowCache.delete(worldId); });
+  return promise;
+}
+
+export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null, maxStaleMs = 0, rowsMaxStaleMs = 0, forAirlineId = null } = {}) {
   // Attach per-airline gate-market views on scarcity worlds (one extra world
   // read when the caller didn't pass the row; non-scarcity worlds skip the
   // gate tables entirely).
@@ -1032,8 +1077,23 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     // served view's own stamp. Never fires with the default maxStaleMs of 0.
     if (age < maxStaleMs) return hit.promise;
   }
+  // Opt-in reuse of recently loaded rows (see RIVAL_ROWS_MAX_STALE_MS). Skipped
+  // when the caller's own airline is not in them — a player who joined after
+  // the load would otherwise be handed an empty rival view.
+  const cachedRows = cachedRivalRows(worldId, rowsMaxStaleMs);
+  if (cachedRows) {
+    const rows = await cachedRows.promise;
+    if (forAirlineId == null || rows.some((r) => r.id === forAirlineId)) {
+      const allianceMap = await loadAllianceMap(prisma, worldId);
+      const views = await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
+      const rowsStamp = cachedRows.stamp ?? ROWS_STAMP_UNKNOWN;
+      Object.defineProperty(views, 'builtFromStamp', { value: rowsStamp, configurable: true });
+      Object.defineProperty(views, 'fromCachedRows', { value: true, configurable: true });
+      return views;
+    }
+  }
   const promise = (async () => {
-    const rows = await loadRivalRows(prisma, worldId);
+    const rows = await loadAndCacheRivalRows(prisma, worldId, stamp);
     const allianceMap = await loadAllianceMap(prisma, worldId);
     const views = await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
     // Which world stamp this view actually reflects. Non-enumerable so it can

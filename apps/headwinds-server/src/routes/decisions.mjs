@@ -18,7 +18,7 @@ import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld } from '../lib/worldConfig.mjs';
 import { eventActionDenial } from '@tailwinds/engine/data/eventRules.js';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
-         RIVAL_VIEW_POLL_MAX_STALE_MS } from '../lib/humanRivals.mjs';
+         RIVAL_VIEW_POLL_MAX_STALE_MS, RIVAL_ROWS_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
@@ -94,11 +94,13 @@ async function worldStampOf(worldId) {
 // cache may answer from a slightly older build, and the caller must echo the
 // older stamp so the client does not record itself as current on a view it has
 // not been given. See RIVAL_VIEW_POLL_MAX_STALE_MS.
-async function rivalViewFor(airline, worldStamp, { maxStaleMs = 0 } = {}) {
-  const views = await buildWorldRivalViews(prisma, airline.worldId, { stamp: worldStamp, maxStaleMs });
+async function rivalViewFor(airline, worldStamp, { maxStaleMs = 0, rowsMaxStaleMs = 0 } = {}) {
+  const views = await buildWorldRivalViews(prisma, airline.worldId,
+    { stamp: worldStamp, maxStaleMs, rowsMaxStaleMs, forAirlineId: airline.id });
   return {
     view: views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null },
     worldStamp: views.builtFromStamp ?? worldStamp,
+    fromCachedRows: views.fromCachedRows === true,
   };
 }
 
@@ -368,10 +370,15 @@ export default async function decisionRoutes(fastify) {
     // Run it over the rival-injected view so (a) the stored blob is scrubbed of
     // any pre-humans-only AI competitors, and (b) the response the client
     // re-renders from shows the same rivals the read path does.
-    // Strict (no maxStaleMs): the reducer runs against these rivals, and a
-    // decision must never be computed against a view that predates our own
-    // last write.
-    const { view } = await rivalViewFor(airline, await worldStampOf(airline.worldId));
+    // Strict on the view cache (no maxStaleMs): a decision must never be
+    // computed against a view that predates our own last write. Rivals' blobs
+    // may be reused for up to RIVAL_ROWS_MAX_STALE_MS — they are other airlines'
+    // data, and everything derived from ours or from authoritative tables
+    // (alliance, gate market, slot pool, float pool) is rebuilt on this call.
+    // Rebuilding the rows on every decision is what took Postgres down on
+    // 2026-10-18; see RIVAL_ROWS_MAX_STALE_MS in lib/humanRivals.mjs.
+    const { view, worldStamp: rivalsStamp, fromCachedRows } = await rivalViewFor(
+      airline, await worldStampOf(airline.worldId), { rowsMaxStaleMs: RIVAL_ROWS_MAX_STALE_MS });
     const injected = withRivals(airline.state, view);
     // Event worlds: the rules come from the WORLD, never the blob a client
     // round-tripped, and a broken rule is a readable 400 before the reducer
@@ -788,7 +795,10 @@ export default async function decisionRoutes(fastify) {
       error: (next.error && next.error !== airline.state?.error) ? next.error : null,
       // Post-write stamp (our version bumped by the transaction) so the client's
       // next poll short-circuits instead of re-downloading what it already has.
-      stamp: `${airline.version + 1}:${await worldStampOf(airline.worldId)}`,
+      // When the rivals in `state` came from cached rows, the world half is the
+      // stamp THOSE reflect, so the next poll sees a world change and ships the
+      // current overlay (kilobytes) rather than trusting a stale one.
+      stamp: `${airline.version + 1}:${fromCachedRows ? rivalsStamp : await worldStampOf(airline.worldId)}`,
     });
   });
 }

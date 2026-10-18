@@ -6,7 +6,7 @@ import { prisma } from '../db.mjs';
 import { assertWorldReadable } from '../lib/access.mjs';
 import { allow } from '../lib/rateLimit.mjs';
 import { GATE_BID_MAX_QTY } from '@tailwinds/engine/data/airports.js';
-import { buildWorldRivalViews, withRivals, loadAllianceMap, loadRivalRows } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, loadAllianceMap, loadRivalRows, RIVAL_ROWS_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { injectLogo } from '../lib/logoColumn.mjs';
 import {
   isGateScarcity, buildGateMarketViews, gateWorldSummary,
@@ -232,7 +232,10 @@ export default async function gateRoutes(fastify) {
     });
     // Re-render material: the buyer's new state with the CURRENT rival view
     // injected (same shape the decision endpoint returns).
-    const views = await buildWorldRivalViews(prisma, world.id, { world });
+    // Rivals' blobs may be up to RIVAL_ROWS_MAX_STALE_MS old; the gate market,
+    // alliance graph and float pool are rebuilt fresh (lib/humanRivals.mjs).
+    const views = await buildWorldRivalViews(prisma, world.id,
+      { world, rowsMaxStaleMs: RIVAL_ROWS_MAX_STALE_MS, forAirlineId: airline.id });
     const view = views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
     return {
       ok: true,

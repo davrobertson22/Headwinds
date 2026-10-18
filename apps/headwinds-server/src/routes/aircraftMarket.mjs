@@ -10,7 +10,7 @@ import { requireAuth, optionalAccount } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { assertWorldReadable } from '../lib/access.mjs';
 import { allow } from '../lib/rateLimit.mjs';
-import { buildWorldRivalViews, withRivals } from '../lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, RIVAL_ROWS_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { injectLogo } from '../lib/logoColumn.mjs';
 import { buildUsedMarketView, buyUsed } from '../lib/aircraftMarketService.mjs';
 
@@ -68,7 +68,10 @@ export default async function aircraftMarketRoutes(fastify) {
     // Re-render material: the buyer's new state with the CURRENT rival view
     // injected (same shape the decision endpoint returns), plus the refreshed
     // market so the listing that was just bought disappears immediately.
-    const views = await buildWorldRivalViews(prisma, world.id, { world });
+    // Rivals' blobs may be up to RIVAL_ROWS_MAX_STALE_MS old; the gate market,
+    // alliance graph and float pool are rebuilt fresh (lib/humanRivals.mjs).
+    const views = await buildWorldRivalViews(prisma, world.id,
+      { world, rowsMaxStaleMs: RIVAL_ROWS_MAX_STALE_MS, forAirlineId: airline.id });
     const view = views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
     return {
       ok: true,
