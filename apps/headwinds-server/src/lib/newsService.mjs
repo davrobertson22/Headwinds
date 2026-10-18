@@ -45,8 +45,9 @@ const FETCH_MULTIPLIER = 3;
 const CATEGORY_OF_DECISION = {
   ADD_ROUTE: 'routes', CLOSE_ROUTE: 'routes', CLOSE_ROUTES: 'routes',
   ADD_CARGO_ROUTE: 'routes', CLOSE_CARGO_ROUTE: 'routes', ADD_TAG_ROUTE: 'routes',
-  BUY_AIRCRAFT: 'fleet', ORDER_AIRCRAFT: 'fleet',
+  BUY_AIRCRAFT: 'fleet', ORDER_AIRCRAFT: 'fleet', CANCEL_ORDER: 'fleet',
   SELL_AIRCRAFT: 'fleet', RETIRE_AIRCRAFT: 'fleet',
+  SELL_AIRCRAFT_BULK: 'fleet', RETIRE_AIRCRAFT_BULK: 'fleet',
   ADD_GATE: 'airports', REMOVE_GATE: 'airports',
   UPGRADE_HUB: 'airports', DESIGNATE_HUB: 'airports', DESIGNATE_FOCUS_CITY: 'airports',
   BUILD_LOUNGE: 'airports',
@@ -60,8 +61,11 @@ const CATEGORY_OF_DECISION = {
 const FAMILY_OF_DECISION = {
   ADD_ROUTE: 'routes_opened', ADD_CARGO_ROUTE: 'routes_opened', ADD_TAG_ROUTE: 'routes_opened',
   CLOSE_ROUTE: 'routes_closed', CLOSE_ROUTES: 'routes_closed', CLOSE_CARGO_ROUTE: 'routes_closed',
-  BUY_AIRCRAFT: 'fleet_in', ORDER_AIRCRAFT: 'fleet_in',
+  // A cancellation rolls into the same week's orders and nets against them, so
+  // "ordered 5, cancelled 2" reads as the 3 the airline actually kept.
+  BUY_AIRCRAFT: 'fleet_in', ORDER_AIRCRAFT: 'fleet_in', CANCEL_ORDER: 'fleet_in',
   SELL_AIRCRAFT: 'fleet_out', RETIRE_AIRCRAFT: 'fleet_out',
+  SELL_AIRCRAFT_BULK: 'fleet_out', RETIRE_AIRCRAFT_BULK: 'fleet_out',
   ADD_GATE: 'gates_added', REMOVE_GATE: 'gates_removed',
   BUY_STOCK: 'stock_tape', SELL_STOCK: 'stock_tape',
 };
@@ -182,7 +186,9 @@ function rollDecisions(decisions, nameOf, ogOf, devOf, acctOf = new Map()) {
     g.members.push({ type: d.type, payload: p, at: iso(d.createdAt), id: d.id });
   }
 
-  const rolled = [...groups.values()].map((g) => composeGroup(g));
+  // composeGroup returns null for a group that nets to nothing (a week's
+  // orders all cancelled again) — there is no move left to report.
+  const rolled = [...groups.values()].map((g) => composeGroup(g)).filter(Boolean);
   return [...singles, ...rolled];
 }
 
@@ -263,21 +269,39 @@ function composeGroup(g) {
   }
 
   if (family === 'fleet_in' || family === 'fleet_out') {
-    const byType = {};
-    let total = 0;
+    // Net frames per type over the week: orders/buys/disposals count up, a
+    // cancellation counts down. A row's own `byType` (a mixed-type bulk sale)
+    // wins over its single typeId.
+    const net = {};
     for (const m of members) {
-      const qty = m.payload.quantity ?? 1;
-      total += qty;
-      const t = m.payload.typeId ?? 'unknown';
-      byType[t] = (byType[t] ?? 0) + qty;
+      const p = m.payload;
+      if (m.type === 'CANCEL_ORDER') {
+        const t = p.typeId ?? 'unknown';
+        net[t] = (net[t] ?? 0) - (p.cancelled ?? 1);
+        continue;
+      }
+      const counts = p.byType ?? { [p.typeId ?? 'unknown']: p.quantity ?? 1 };
+      for (const [t, n] of Object.entries(counts)) net[t] = (net[t] ?? 0) + n;
     }
+    const byType = {};
+    const cancelledByType = {};
+    for (const [t, n] of Object.entries(net)) {
+      if (n > 0) byType[t] = n;
+      else if (n < 0) cancelledByType[t] = -n;
+    }
+    const total = Object.values(byType).reduce((a, b) => a + b, 0);
+    const cancelled = Object.values(cancelledByType).reduce((a, b) => a + b, 0);
+    if (total === 0 && cancelled === 0) return null;
     return {
       ...base,
       data: {
         total,
         byType,
+        // Frames cancelled beyond what was ordered this week — i.e. orders from
+        // an EARLIER week coming off the book. Omitted when there are none.
+        ...(cancelled > 0 ? { cancelled, cancelledByType } : {}),
         ordered: members.some((m) => m.type === 'ORDER_AIRCRAFT'),
-        retired: members.every((m) => m.type === 'RETIRE_AIRCRAFT'),
+        retired: members.every((m) => m.type === 'RETIRE_AIRCRAFT' || m.type === 'RETIRE_AIRCRAFT_BULK'),
       },
     };
   }

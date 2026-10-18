@@ -25,6 +25,12 @@ export const PUBLIC_DECISIONS = new Set([
   // TRANSFER_ROUTES is also absent, and deliberately: it moves routes between
   // two of your OWN tails. Nothing about the market changes, so it is not news.
   'BUY_AIRCRAFT', 'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'ORDER_AIRCRAFT',
+  // Batched disposals are the same move as the single ones, just N at a time;
+  // leaving them out meant a 30-tail fleet sale never reached the feed at all.
+  // An order cancellation is public for the same reason the order was: it is
+  // in the manufacturer's (or lessor's) order book. All three are only public
+  // when journalled with their executed counts — see EXECUTED_ONLY below.
+  'SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK', 'CANCEL_ORDER',
   // ── Airports & hubs ────────────────────────────────────────────────────────
   'ADD_GATE', 'REMOVE_GATE', 'UPGRADE_HUB', 'DESIGNATE_HUB', 'DESIGNATE_FOCUS_CITY',
   // A lounge is a room with your name over the door in a public terminal — you
@@ -45,6 +51,7 @@ export const PUBLIC_DECISIONS = new Set([
 ]);
 
 export const STOCK_DECISIONS = new Set(['BUY_STOCK', 'SELL_STOCK']);
+const BULK_DISPOSALS = new Set(['SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK']);
 
 const str = (v, max = 60) => (typeof v === 'string' && v ? v.slice(0, max) : null);
 const int = (v) => (Number.isFinite(v) ? Math.round(v) : null);
@@ -73,14 +80,32 @@ const airportish = (v) => {
   return /^[A-Z0-9]{3,4}$/.test(up) ? up : null;
 };
 const typeIdish    = matching(/^[A-Za-z0-9_-]{1,24}$/);
+
+// { typeId: count } with every key a type-id and every value a positive int.
+function typeCounts(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out = {};
+  for (const [k, n] of Object.entries(v).slice(0, 20)) {
+    if (!typeIdish(k) || !Number.isFinite(n) || n <= 0) continue;
+    out[k] = Math.min(500, Math.round(n));
+  }
+  return Object.keys(out).length ? out : null;
+}
 const allianceIdish = matching(/^[A-Za-z0-9:_-]{1,40}$/);
 
 // Only the payload fields that describe a PUBLIC move — never echo payloads raw.
 export function publicPayload(d) {
   const p = d?.payload ?? {};
+  // Bounded by what the move can actually be: an order is 1–100 frames (the
+  // reducer's range); a bulk sale/retire is up to 500 tails (the guard's batch).
+  const maxQty = BULK_DISPOSALS.has(d?.type) ? 500 : 100;
   const quantity = Number.isFinite(p.quantity)
-    ? Math.max(1, Math.min(100, Math.round(p.quantity)))
+    ? Math.max(1, Math.min(maxQty, Math.round(p.quantity)))
     : null;
+  const cancelled = Number.isFinite(p.cancelled) && p.cancelled > 0
+    ? Math.min(100, Math.round(p.cancelled))
+    : null;
+  const byType = typeCounts(p.byType);
   const origin      = airportish(p.origin);
   const destination = airportish(p.destination);
   const airportCode = airportish(p.airportCode);
@@ -111,6 +136,10 @@ export function publicPayload(d) {
     // twelve-frame order as "ordered a 737-800" — the count vanished entirely.
     // Omitted when 1 so single orders read naturally.
     ...(quantity && quantity > 1 ? { quantity } : {}),
+    // Frames an order cancellation took off the book (CANCEL_ORDER only).
+    ...(cancelled ? { cancelled } : {}),
+    // A batched disposal can span types: { typeId: frames }, scrubbed.
+    ...(byType ? { byType } : {}),
     // Tag (multi-stop) routes: the stop list IS the schedule, so it is public.
     ...(Array.isArray(p.stops) ? {
       stops: p.stops.map(airportish).filter(Boolean).slice(0, 8),
@@ -169,7 +198,86 @@ export function journalledPayload(payload, { changed } = {}) {
   return changed ? payload : { noop: true };
 }
 
+// Types that became public only once the journal carried what EXECUTED. Rows
+// written before that hold the raw request (a bulk sale's id list, a cancel's
+// order id) with no count, so they are not reported rather than guessed at.
+const EXECUTED_ONLY = new Set(['SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK', 'CANCEL_ORDER']);
+
 /** Is this journal row a move other players may be told about? */
 export function isPublicDecision(d) {
-  return PUBLIC_DECISIONS.has(d?.type) && d?.payload?.noop !== true;
+  if (!PUBLIC_DECISIONS.has(d?.type) || d?.payload?.noop === true) return false;
+  return !EXECUTED_ONLY.has(d.type) || d.payload?.executed === true;
+}
+
+// ── Fleet moves: journal what HAPPENED, not what was asked for ───────────────
+// The fleet rows used to carry the REQUEST. But the reducer routinely does less
+// than asked: a lease order is clamped to the free order-book slots, an order is
+// trimmed to what the airline can afford, and an order against a full book is
+// refused outright with a toast — and a toast is a state change, so the refusal
+// passed `changed` and was published as an order. Time Flies, week 1 (Discord,
+// 2026-10-18): Air Canada asked for 5 + 2 + 5 lease frames against a 5-slot
+// book, cancelled two, held 5 — and every player read "ordered 12× 777-200ER".
+//
+// So every fleet decision is measured off the before/after states:
+//   ORDER_AIRCRAFT / BUY_AIRCRAFT  frames placed = new order-book lines + new
+//                                  tails (multiplayer starter deliveries skip
+//                                  the book and land straight in the fleet)
+//   SELL / RETIRE (single + bulk)  tails that left the active fleet, by type
+//   CANCEL_ORDER                   the frames on the order that is now gone
+// A decision that moved no frames is not a move (`moved: false`) and is
+// journalled as a no-op, whatever else its state change was.
+const FLEET_MOVES = new Set([
+  'ORDER_AIRCRAFT', 'BUY_AIRCRAFT',
+  'SELL_AIRCRAFT', 'RETIRE_AIRCRAFT', 'SELL_AIRCRAFT_BULK', 'RETIRE_AIRCRAFT_BULK',
+  'CANCEL_ORDER',
+]);
+
+const activeFleet = (s) => (s?.fleet ?? []).filter((a) => a && a.status !== 'retired');
+
+/**
+ * Measure a fleet decision from the states either side of the reducer.
+ * @returns {{ journalled: object, moved: boolean }}  the payload to journal and
+ *   whether any frames actually moved. Non-fleet types pass through untouched.
+ */
+export function withFleetFacts(type, journalled, before, after) {
+  if (!FLEET_MOVES.has(type)) return { journalled, moved: true };
+  if (after === before) return { journalled, moved: false };
+
+  if (type === 'ORDER_AIRCRAFT' || type === 'BUY_AIRCRAFT') {
+    const hadOrder = new Set((before?.pendingOrders ?? []).map((o) => o?.id));
+    const placed = (after?.pendingOrders ?? [])
+      .filter((o) => o && !hadOrder.has(o.id))
+      .reduce((n, o) => n + (o.quantity ?? 1), 0);
+    const hadTail = new Set((before?.fleet ?? []).map((a) => a?.id));
+    const delivered = (after?.fleet ?? []).filter((a) => a && !hadTail.has(a.id)).length;
+    const quantity = placed + delivered;
+    return quantity > 0
+      ? { journalled: { ...journalled, quantity, executed: true }, moved: true }
+      : { journalled, moved: false };
+  }
+
+  if (type === 'CANCEL_ORDER') {
+    const order = (before?.pendingOrders ?? []).find((o) => o?.id === journalled.orderId);
+    const gone = order && !(after?.pendingOrders ?? []).some((o) => o?.id === order.id);
+    return gone
+      ? { journalled: { ...journalled, typeId: order.typeId, cancelled: order.quantity ?? 1, executed: true }, moved: true }
+      : { journalled, moved: false };
+  }
+
+  // Disposals: tails that were active before and are not now.
+  const still = new Set(activeFleet(after).map((a) => a.id));
+  const left = activeFleet(before).filter((a) => !still.has(a.id));
+  if (left.length === 0) return { journalled, moved: false };
+  const byType = {};
+  for (const a of left) byType[a.typeId] = (byType[a.typeId] ?? 0) + 1;
+  const types = Object.keys(byType);
+  return {
+    journalled: {
+      ...journalled,
+      quantity: left.length,
+      ...(types.length === 1 ? { typeId: types[0] } : { byType }),
+      executed: true,
+    },
+    moved: true,
+  };
 }

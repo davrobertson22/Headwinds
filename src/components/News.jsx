@@ -17,6 +17,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { formatMoney } from '../utils/simulation.js';
 import { NewsIcon } from './Icons.jsx';
+import { fleetHeadline } from '../utils/fleetNews.js';
 
 const CATEGORIES = [
   { id: 'world',     label: 'World',     icon: '🌍' },
@@ -113,23 +114,11 @@ export function compose(item, startYear = null) {
         : `closed ${plural(d.total, what, `${what}s`)}`;
       return { icon: '🛬', headline: head, pairs: d.pairs, total: d.total };
     }
-    case 'fleet_in': {
-      const parts = Object.entries(d.byType ?? {})
-        .sort((a, b) => b[1] - a[1])
-        .map(([id, n]) => (n > 1 ? `${n}× ${typeName(id)}` : `a ${typeName(id)}`));
-      const verb = d.ordered ? 'ordered' : 'bought';
-      const list = parts.length > 2
-        ? `${parts.slice(0, 2).join(', ')} and ${parts.length - 2} more`
-        : parts.join(' and ');
-      return { icon: '✈️', headline: `${verb} ${list || plural(d.total, 'aircraft', 'aircraft')}` };
-    }
-    case 'fleet_out': {
-      const verb = d.retired ? 'retired' : 'sold';
-      const parts = Object.entries(d.byType ?? {})
-        .sort((a, b) => b[1] - a[1])
-        .map(([id, n]) => (n > 1 ? `${n}× ${typeName(id)}` : `a ${typeName(id)}`));
-      return { icon: '🛠️', headline: `${verb} ${parts.join(' and ') || plural(d.total, 'aircraft', 'aircraft')}` };
-    }
+    // Wording shared with the lobby widget and both rival profiles.
+    case 'fleet_in':
+      return { icon: '✈️', headline: fleetHeadline('fleet_in', d, typeName) };
+    case 'fleet_out':
+      return { icon: '🛠️', headline: fleetHeadline('fleet_out', d, typeName) };
     case 'gates_added':
       return { icon: '🛄', headline: `took ${plural(d.total, 'gate', 'gates')}${d.airportCode ? ` at ${d.airportCode}` : ''}` };
     case 'gates_removed':

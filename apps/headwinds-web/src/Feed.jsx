@@ -14,6 +14,7 @@ import { api } from './api.js';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { getAircraftType } from '../../../src/data/aircraft.js';
+import { fleetHeadline } from '../../../src/utils/fleetNews.js';
 
 const TICKER_LIMIT = 8;
 
@@ -51,14 +52,9 @@ function describe(e) {
         : `closed ${plural(d.total, 'route', 'routes')}`,
       icon: '🛬',
     };
-    case 'fleet_in': {
-      const [top] = Object.entries(d.byType ?? {}).sort((a, b) => b[1] - a[1]);
-      const what = top
-        ? `${d.ordered ? 'ordered' : 'bought'} ${top[1] > 1 ? `${top[1]}× ` : 'a '}${typeName(top[0])}`
-        : `${d.ordered ? 'ordered' : 'bought'} ${plural(d.total, 'aircraft', 'aircraft')}`;
-      return { who: e.airline, what, icon: '✈️' };
-    }
-    case 'fleet_out':     return { who: e.airline, what: `${d.retired ? 'retired' : 'sold'} ${plural(d.total, 'aircraft', 'aircraft')}`, icon: '🛠️' };
+    // The widget is one line per item, so it names the biggest type only.
+    case 'fleet_in':  return { who: e.airline, what: fleetHeadline('fleet_in', d, typeName, { max: 1 }), icon: '✈️' };
+    case 'fleet_out': return { who: e.airline, what: fleetHeadline('fleet_out', d, typeName, { max: 1 }), icon: '🛠️' };
     case 'gates_added':   return { who: e.airline, what: `took ${plural(d.total, 'gate', 'gates')}${d.airportCode ? ` at ${d.airportCode}` : ''}`, icon: '🛄' };
     case 'gates_removed': return { who: e.airline, what: `released ${plural(d.total, 'gate', 'gates')}${d.airportCode ? ` at ${d.airportCode}` : ''}`, icon: '🛄' };
     case 'hub_designated': return { who: e.airline, what: `designated ${d.airportCode ?? 'a new'} hub`, icon: '🏛️' };

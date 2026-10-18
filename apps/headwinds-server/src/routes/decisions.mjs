@@ -13,7 +13,7 @@ import { assertSupporterAccess } from '../lib/access.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
-import { journalledPayload } from '../lib/publicDecisions.mjs';
+import { journalledPayload, withFleetFacts } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld } from '../lib/worldConfig.mjs';
 import { eventActionDenial } from '@tailwinds/engine/data/eventRules.js';
@@ -543,6 +543,14 @@ export default async function decisionRoutes(fastify) {
         : { ...journalled, shares: 0 };
     }
 
+    // Fleet moves journal the frames that actually moved, measured off the
+    // states either side of the reducer — not the request, which the reducer
+    // clamps (lease order book), trims (affordability) or refuses with a toast.
+    // A fleet decision that moved nothing is not a move. See withFleetFacts().
+    const fleetFacts = withFleetFacts(type, journalled, injected, next);
+    journalled = fleetFacts.journalled;
+    const isMove = changed && fleetFacts.moved;
+
     // Did this decision actually change the airline's gate count? (The reducer
     // no-ops rejected leases/removals — no ledger entry must be written then.)
     const gateDelta = (type === 'ADD_GATE' || type === 'REMOVE_GATE')
@@ -678,7 +686,7 @@ export default async function decisionRoutes(fastify) {
             airlineId: airline.id,
             week: weekIndex(airline.world),
             type,
-            payload: journalledPayload(journalled, { changed }),
+            payload: journalledPayload(journalled, { changed: isMove }),
           },
         });
         // Used-aircraft market: a completed SELL_AIRCRAFT lists that exact tail in

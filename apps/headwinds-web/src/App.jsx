@@ -26,6 +26,7 @@ import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
 import { normalizeLineRates } from '../../../packages/engine/src/data/productionLines.js';
 import ProductionRates, { EMPTY_LINE_RATES } from './ProductionRates.jsx';
 import { nextSort, loadStandingsSort, saveStandingsSort } from '../../../src/utils/standingsView.js';
+import { describeFleetMove } from '../../../src/utils/fleetNews.js';
 import StandingsTable from './StandingsTable.jsx';
 
 // Lazy: the full game UI (and its CSS) loads only when a player opens a world —
@@ -1202,11 +1203,8 @@ const MOVE_LABELS = {
   CLOSE_ROUTE: (p) => `Closed route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
   ADD_CARGO_ROUTE: (p) => `Opened cargo route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
   CLOSE_CARGO_ROUTE: (p) => `Closed cargo route ${p.origin ?? '?'} → ${p.destination ?? '?'}`,
-  LEASE_AIRCRAFT: (p, ac) => `Leased a ${ac(p.typeId)}`,
-  BUY_AIRCRAFT: (p, ac) => `Bought a ${ac(p.typeId)}`,
-  ORDER_AIRCRAFT: (p, ac) => `Ordered a ${ac(p.typeId)}`,
-  SELL_AIRCRAFT: () => 'Sold an aircraft',
-  RETIRE_AIRCRAFT: () => 'Retired an aircraft',
+  // Fleet moves (orders, buys, disposals, cancellations) are worded by
+  // describeFleetMove — shared with the in-game profile and the news feeds.
   ADD_GATE: (p) => `Added a gate at ${p.airportCode ?? '?'}`,
   UPGRADE_HUB: (p) => `Upgraded hub ${p.airportCode ?? ''}`.trim(),
   DESIGNATE_HUB: (p) => `Designated ${p.airportCode ?? 'a'} hub`,
@@ -1317,7 +1315,7 @@ function RivalDetail({ worldId, airlineId, airlineName, token, canReport }) {
           {data.recentMoves.map((m, i) => (
             <div className="rival-move" key={i}>
               <span className="wk">W{m.week}</span>
-              {(MOVE_LABELS[m.type] ?? (() => m.type))(m.payload ?? {}, acName)}
+              {describeFleetMove(m, acName) ?? (MOVE_LABELS[m.type] ?? (() => m.type))(m.payload ?? {}, acName)}
             </div>
           ))}
         </>

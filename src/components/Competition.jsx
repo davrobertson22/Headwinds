@@ -11,6 +11,7 @@ import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
 import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { describeFleetMove } from '../utils/fleetNews.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import RivalRouteMap from './RivalRouteMap.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -1325,11 +1326,8 @@ const MOVE_LABELS = {
   CLOSE_ROUTE:         (p) => `Closed route ${p.origin ?? '?'}–${p.destination ?? '?'}`,
   ADD_CARGO_ROUTE:     (p) => `Opened cargo lane ${p.origin ?? '?'}–${p.destination ?? '?'}`,
   CLOSE_CARGO_ROUTE:   (p) => `Closed cargo lane ${p.origin ?? '?'}–${p.destination ?? '?'}`,
-  LEASE_AIRCRAFT:      (p) => `Leased ${p.typeId ?? 'an aircraft'}`,
-  BUY_AIRCRAFT:        (p) => `Bought ${p.typeId ?? 'an aircraft'}`,
-  ORDER_AIRCRAFT:      (p) => `Ordered ${p.typeId ?? 'an aircraft'}`,
-  SELL_AIRCRAFT:       () => 'Sold an aircraft',
-  RETIRE_AIRCRAFT:     () => 'Retired an aircraft',
+  // Fleet moves are worded by describeFleetMove (utils/fleetNews.js), shared
+  // with the lobby profile and both news feeds.
   ADD_GATE:            (p) => `Added a gate${p.airportCode ? ` at ${p.airportCode}` : ''}`,
   UPGRADE_HUB:         (p) => `Upgraded hub${p.airportCode ? ` ${p.airportCode}` : ''}`,
   DESIGNATE_HUB:       (p) => `Designated ${p.airportCode ?? 'a'} hub`,
@@ -1338,7 +1336,11 @@ const MOVE_LABELS = {
   LEAVE_ALLIANCE:      () => 'Left an alliance',
 };
 
+const aircraftName = (id) => getAircraftType(id)?.name ?? id;
+
 function describeMove(m) {
+  const fleet = describeFleetMove(m, aircraftName);
+  if (fleet) return fleet;
   const fn = MOVE_LABELS[m.type];
   return fn ? fn(m.payload ?? {}) : m.type;
 }
