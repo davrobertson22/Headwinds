@@ -121,6 +121,12 @@ test("Boeing's 2026 'up to' 787-9 range (8,300 nmi, 15,370 km) is reachable with
   assert.ok(reach('b7879', eco(150)) >= 15_370, `${reach('b7879', eco(150))} km`);
 });
 
+test('headline ranges follow the makers\' current figures where they state the basis (2026-10-18)', () => {
+  assert.equal(T('a350900').range, 15_750, 'Airbus: 8,500 nm at 332-352 seats');
+  assert.equal(T('b7778x').range, 16_190, 'Boeing: 8,745 nmi at 395 seats');
+  assert.equal(T('b7778f').range, 9_260, 'Boeing: 5,000 nmi at 110 t payload');
+});
+
 test('no 787-9 does Sydney–London, however light, and the ULRs still outreach their parents', () => {
   assert.ok(reach('b7879', eco(0)) < km('SYD', 'LHR'), `empty 787-9 ${reach('b7879', eco(0))}`);
   assert.ok(reach('a350900ulr', SINGAPORE_ULR) > reach('a350900', SINGAPORE_ULR) + 500);

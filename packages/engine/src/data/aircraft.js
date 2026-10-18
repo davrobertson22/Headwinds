@@ -468,7 +468,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2015,
     seats: 440,
     typicalSeats: 325,   // seats the headline range is quoted at
-    range: 15_400,   // Airbus A350 Facts & Figures, Oct 2024: 8,300 nm, typical 3-class 300-350 (2022 booklet said 8,100 nm)
+    range: 15_750,   // Airbus A350-900 page, Oct 2026: 8,500 nm, typical 3-class 332-352 (Oct 2024 Facts & Figures said 8,300 nm; 2022 booklet 8,100)
     runwayFt: 8000,
     weeklyLease:      403_000,
     purchasePrice: 185000000,
@@ -1352,7 +1352,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2029,
     seats: 445,
     typicalSeats: 395,   // seats the headline range is quoted at
-    range: 16_090,
+    range: 16_190,   // Boeing: 8,745 nmi at 395 seats (June 2026 'up to' 9,500 nmi states no cabin: reached with a light one, payloadRangeMod)
     runwayFt: 9500,
     weeklyLease:      435_000,
     purchasePrice: 180000000,   // 0.84x the 777-9: the ULR shrink sells at a discount per frame; replaces the 777-200LR at parity all-in, 12% better fuel/seat
@@ -3388,7 +3388,7 @@ export const AIRCRAFT_TYPES = [
     category: 'Freighter',
     eis: 2028,
     seats: 0,
-    range: 8_200,
+    range: 9_260,   // Boeing, Oct 2026: 5,000 nmi at 110 t payload (was 4,410 nmi at max payload)
     runwayFt: 10000,
     weeklyLease: 343000,
     purchasePrice: 170000000,
