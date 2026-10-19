@@ -1770,6 +1770,35 @@ function BalanceSheet() {
                   </>
                 )}
 
+                {/* Paid out but still yours: a lease deposit comes back with the
+                    aircraft (or as a buy-out credit / on cancellation), and a
+                    purchase order becomes the airframe on delivery. */}
+                {(bs.leaseDeposits > 0 || bs.aircraftOnOrder > 0) && (
+                  <>
+                    <BSSectionHeader label="Deposits & Prepayments" />
+                    {bs.leaseDeposits > 0 && (
+                      <BSRow
+                        label="Lease deposits"
+                        sublabel={`${[
+                          bs.leasedTails.length ? `${bs.leasedTails.length} leased aircraft` : null,
+                          bs.leaseOrders.length ? `${bs.leaseOrders.length} on order` : null,
+                        ].filter(Boolean).join(' + ')} · refunded when the lease ends`}
+                        value={bs.leaseDeposits}
+                        indent={1}
+                      />
+                    )}
+                    {bs.aircraftOnOrder > 0 && (
+                      <BSRow
+                        label="Aircraft on order"
+                        sublabel={`${bs.purchaseOrders.length} purchase${bs.purchaseOrders.length === 1 ? '' : 's'} paid in full · on the fleet at delivery`}
+                        value={bs.aircraftOnOrder}
+                        indent={1}
+                      />
+                    )}
+                    <BSTotalRow label="Total Deposits & Prepayments" value={bs.leaseDeposits + bs.aircraftOnOrder} />
+                  </>
+                )}
+
                 <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
                   <td style={{ padding: '12px 16px', fontSize: 13 }}>TOTAL ASSETS</td>
                   <td style={{ textAlign: 'right', padding: '12px 16px', fontSize: 13, color: 'var(--accent)' }}>{formatMoney(totalAssets)}</td>
@@ -1844,7 +1873,7 @@ function BalanceSheet() {
           <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
             <strong>Current Ratio</strong> (cash ÷ loans + annual lease commitment): {isFinite(currentRatio) ? currentRatio.toFixed(2) : '∞'} · {currentRatio >= 1 ? 'solvent' : 'at risk'}<br />
             <strong>Equity</strong> = total assets − liabilities (net book value); <strong>retained earnings</strong> = equity − paid-in capital = accumulated net income.<br />
-            <strong>Fleet book value</strong> = purchase price × remaining life (straight-line, {DEPRECIATION_YEARS}yr). Operating leases are rent (a commitment), not a balance-sheet liability.
+            <strong>Fleet book value</strong> = purchase price × remaining life (straight-line, {DEPRECIATION_YEARS}yr). Operating leases are rent (a commitment), not a balance-sheet liability. Their <strong>deposits</strong> are an asset: the lessor hands them back with the aircraft.
           </div>
         </div>
       </div>

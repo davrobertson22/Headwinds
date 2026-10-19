@@ -100,14 +100,37 @@ export function balanceSheetOf(state) {
   const fleetValue = ownedFleet.reduce((s, f) => s + f.bookValue, 0);
   const holdings = Object.values(state?.portfolio?.holdings ?? {}).filter((h) => h?.shares > 0);
   const investments = holdings.reduce((s, h) => s + Math.round(num(h.shares) * num(h.lastPrice)), 0);
-  const totalAssets = cash + fleetValue + investments;
+
+  // Money the airline has paid out but still owns. Both used to vanish from the
+  // sheet the moment they were paid, so Net Assets fell on every order and
+  // jumped back on every return — Time Flies' all-leasing field read as broke
+  // (Vodkair: +$12.7M earned, $9.4M shown, $12.4M sitting with lessors).
+  //
+  // • Lease deposits: the security deposit on every leased tail in service and
+  //   every lease frame on order. It comes back on redelivery, on an early
+  //   return, as a credit against a buy-out, and on cancellation — a receivable.
+  // • Aircraft on order: the full price of a purchase order, paid at order time,
+  //   that becomes the airframe's book value on delivery.
+  // The LENDER does not count either (data/credit.js bookEquity): a bank does
+  // not lend against cash a lessor or a manufacturer is holding.
+  const pending = Array.isArray(state?.pendingOrders) ? state.pendingOrders : [];
+  const leasedTails = fleet.filter((a) => a?.ownershipType === 'lease' && a.status !== 'retired' && num(a.leaseDeposit) > 0);
+  const leaseOrders = pending.filter((o) => o?.ownershipType === 'lease' && num(o.leaseDeposit) > 0);
+  const purchaseOrders = pending.filter((o) => o?.ownershipType === 'owned' && num(o.totalPrice) > 0);
+  const leaseDeposits = leasedTails.reduce((s, a) => s + num(a.leaseDeposit), 0)
+    + leaseOrders.reduce((s, o) => s + num(o.leaseDeposit), 0);
+  const aircraftOnOrder = purchaseOrders.reduce((s, o) => s + num(o.totalPrice), 0);
+
+  const totalAssets = cash + fleetValue + investments + leaseDeposits + aircraftOnOrder;
   const loans = (state?.loans ?? []).map((loan) => ({ loan, balance: outstandingLoanBalance(loan) }));
   const loanBalance = loans.reduce((s, l) => s + l.balance, 0);
   const totalLiabilities = loanBalance;
   const equity = totalAssets - totalLiabilities;
   const paidInCapital = state?.paidInCapital ?? LEGACY_STARTING_CAPITAL;
   return {
-    cash, ownedFleet, fleetValue, holdings, investments, totalAssets,
+    cash, ownedFleet, fleetValue, holdings, investments,
+    leasedTails, leaseOrders, leaseDeposits, purchaseOrders, aircraftOnOrder,
+    totalAssets,
     loans, loanBalance, totalLiabilities, equity, paidInCapital,
     retainedEarnings: equity - paidInCapital,
   };
