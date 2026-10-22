@@ -1158,7 +1158,9 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // carrier until it carried more than a monopoly would have, because the
   // contested pool is sized on the share-weighted AVERAGE fare, not on the fare
   // those spilled passengers would actually have to pay.
-  const soloCeil   = offers.map(o => _soloCeiling(market, o, compressedRef));
+  // When NO carrier sells business, the business travellers are in the leisure
+  // pool above (leisurePool), so each economy-only ceiling must count them too.
+  const soloCeil   = offers.map(o => _soloCeiling(market, o, compressedRef, { foldBusiness: !anyBiz }));
   const reachCeilL = soloCeil.map(c => c.leisure);
   const reachCeilB = soloCeil.map(c => c.business);
 
@@ -1508,15 +1510,30 @@ function _computeMarketShareLegacy(market, offers) {
  * a carrier better off than a monopoly would. `ref` is the (competition-
  * compressed) reference fare the contested market is being priced against.
  */
-function _soloCeiling(market, offer, ref) {
+function _soloCeiling(market, offer, ref, { foldBusiness = false } = {}) {
   const sens       = 1 - (offer.priceSensitivityReduction ?? 0);
   const poolMult   = (1 + (offer.marketingBoost ?? 0))
     * Math.min(1, Math.max(0, offer.brandReach ?? 1))
     * Math.min(1, Math.max(0, offerAirportAppeal(offer)));
-  const leisure = market.leisureDemand * poolMult
+  // `foldBusiness`: the contested fight has put the business travellers in the
+  // leisure pool because nobody on the pair sells a business cabin (its
+  // `anyBiz` test). Then an economy-only carrier alone would carry them in
+  // economy — exactly as _monopolyResult folds them — so its ceiling counts
+  // them. Sizing it on leisureDemand alone left every all-economy pair's
+  // ceilings at ~1/(1 + B/L) of the real figure: on JFK–MCO an established
+  // carrier lost a quarter of its traffic to one 150-seat weekly rival, and a
+  // full rival's spill stopped ~19% short of what the recipient would fly alone
+  // (Discord, 2026-10-21; tools/solo-ceiling-business-fold-test.mjs).
+  // When someone DOES sell business, those travellers stay in the business
+  // segment, which an economy-only offer never draws from, so its leisure
+  // ceiling is the leisure-only figure, as before.
+  const noBusiness = offer.businessPrice == null || !((offer.businessSeats ?? 0) > 0);
+  const leisurePool = foldBusiness && noBusiness
+    ? market.leisureDemand + market.businessDemand
+    : market.leisureDemand;
+  const leisure = leisurePool * poolMult
     * Math.min(1.5, Math.pow(ref / Math.max(offer.economyPrice, 1), ELASTICITY.leisure * sens))
     * priceChokeFactor(offer.economyPrice, ref, offer.qualityScore);
-  const noBusiness = offer.businessPrice == null || !((offer.businessSeats ?? 0) > 0);
   const bizRef     = ref * BUSINESS_PRICE_MULTIPLIER * businessFareTolerance(offer.qualityScore);
   const business = noBusiness ? 0 : market.businessDemand * poolMult
     * Math.max(0, offer.loungeAppeal ?? 1)

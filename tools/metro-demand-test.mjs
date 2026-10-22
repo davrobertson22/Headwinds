@@ -194,9 +194,16 @@ test('a lone Newburgh route books far fewer than a lone JFK route in the same ma
 
 test('a human rival on EWR–LHR takes passengers from a player flying JFK–LHR', () => {
   // Demand-constrained fixture (see above) + an at-reference rival: the player
-  // holds a 2.4x fare, the rival sells at 1x on the sibling pair, so if the
+  // holds a 2.7x fare, the rival sells at 1x on the sibling pair, so if the
   // tick actually pools the lane the player's bookings must collapse.
-  const PM = 2.4;
+  //
+  // 2.7x, not 2.4x: at 2.4x the player's 7 weekly A320s were FULL alone (1,302
+  // of 1,302), so the lane's spill could refill them whatever the rival did.
+  // The test only passed because the player's solo ceiling forgot the business
+  // travellers an all-economy pair flies in economy, which held it ~19% under
+  // its seats (tools/solo-ceiling-business-fold-test.mjs, 2026-10-21). At 2.7x
+  // it flies 952 alone, and the rival takes half of them.
+  const PM = 2.7;
   const alone = run([['JFK', 'LHR', 'a1']], { priceMult: PM }).pax('a1');
   const contested = run([['JFK', 'LHR', 'a1']], {
     priceMult: PM,
