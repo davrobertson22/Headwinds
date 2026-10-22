@@ -136,8 +136,15 @@ console.log('\n── bulk frequency batches: the Routes screen ─────�
 
 const src = readFileSync(new URL('../src/components/Routes.jsx', import.meta.url), 'utf8');
 
+// The selection bar's row moved to components/FrequencyControls.jsx (shared with
+// Fleet's "Flights/wk"); the modal's preview is still in Routes.jsx.
+const controlsSrc = readFileSync(new URL('../src/components/FrequencyControls.jsx', import.meta.url), 'utf8');
+
 test('both previews plan through planBulkFrequencyBatched', () => {
-  const calls = src.match(/planBulkFrequency(Batched)?\(state, routeIds/g) ?? [];
+  const calls = [
+    ...(src.match(/planBulkFrequency(Batched)?\(state, routeIds/g) ?? []),
+    ...(controlsSrc.match(/planBulkFrequency(Batched)?\(state, ids/g) ?? []),
+  ];
   assert.equal(calls.length, 2, 'expected the selection-bar and modal previews');
   assert.ok(calls.every(c => c.startsWith('planBulkFrequencyBatched')), `a preview still plans unbatched: ${calls.join(', ')}`);
 });

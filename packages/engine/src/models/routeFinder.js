@@ -45,10 +45,12 @@ import {
   effectiveRangeKm, maxFrequency, defaultConfig, defaultClassPrices, freighterBodyClass,
   newAircraftConfig,
 } from '../utils/simulation.js';
-import { metroPairKeyOf, memberPairKeysOf, airportAppeal, regionOf } from '../utils/market.js';
+import { metroPairKeyOf, memberPairKeysOf, airportAppeal, regionOf, cargoCityPairDemand, cargoReferenceYield } from '../utils/market.js';
 import { pairDemandNow } from './demand.js';
-import { currentGameDate } from '../utils/simulation.js';
-import { projectRouteAddition } from './pairShare.js';
+import {
+  currentGameDate, simulateCargoRoute, cargoLaneAllocations, CARGO_YIELD_ELASTICITY,
+} from '../utils/simulation.js';
+import { projectRouteAddition, pairMarketShare } from './pairShare.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 import { eventRouteDenial } from '../data/eventRules.js';
 
@@ -487,6 +489,167 @@ export function forecastCandidate(state, r, ctx) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HOW MUCH OF A MARKET IS ALREADY FLOWN
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   VodkaOnFire  "Simple; next to estimated load (or market), add a 0-x% digit
+//                 to tell you how much of the demand is satisfied already. Saves
+//                 you having to check every individual route and recalculate
+//                 every time you do."  (Discord, 2026-10-21 — and the same ask
+//                 for the freight finder)
+//
+// The Market column is the size of the pool, not what is left in it: a 9,000 a
+// week lane that rivals already carry 8,500 of is a much worse lead than a 4,000
+// one nobody flies, and the only way to tell them apart was to open each lane
+// and add up who is on it. These answer it with the ENGINE's own figures, not a
+// seat count: the same share fight weeklyTick runs (pairMarketShare), with
+// everyone already on the lane — rivals' nonstops, their one-stops over their
+// hubs, and your own services — and the passengers it hands out divided by the
+// market's weekly size. A seat count would call a lane "full" that rivals fly
+// half-empty at a fare nobody pays.
+//
+// Run at maturity, like the finder's Est. load: a lane you opened last month is
+// not "half served" just because it is still ramping up.
+
+/** Weeks of service the served figure assumes — past the 16-week ramp, so a lane reads at maturity. */
+export const SERVED_MATURE_WEEKS = 52;
+
+/**
+ * The share of a passenger market already carried, by whom.
+ *
+ * `row` is a finder row (findCandidates). When you already fly the lane, the
+ * fight is run from YOUR pair — pairMarketShare pools the metro lane from
+ * there, so sibling-airport services and rivals at the other field are all in
+ * it; run from an empty sibling pair it would miss your own.
+ *
+ * @returns {{ pool, pax, yourPax, rivalPax, share, yourShare, rivalShare }|null}
+ *   pool = the market's weekly travellers; pax = everyone carried on it.
+ *   `share` can pass 1: cheap fares and frequent service grow a market past
+ *   its base size (the demand model's elasticity), and that is still "served".
+ */
+export function laneServed(state, row, { gameDate = null } = {}) {
+  if (!row?.origin || !row?.code) return null;
+  const mine = row.yourLanePairs?.[0];
+  const [a, b] = mine ? mine.split('-') : [row.origin, row.code];
+  const gd = gameDate ?? (state?.week != null ? currentGameDate(state) : { month: 6 });
+  const ms = pairMarketShare(state, a, b, { gameDate: gd, weeksOpen: SERVED_MATURE_WEEKS });
+  const pool = (ms.market?.leisureDemand ?? 0) + (ms.market?.businessDemand ?? 0);
+  if (!(pool > 0)) return null;
+  const pax = Math.max(0, Math.round(ms.totalPax ?? 0));
+  const yourPax = Math.min(pax, Math.round(pax * (ms.playerLaneShare ?? 0)));
+  const rivalPax = pax - yourPax;
+  return {
+    pool, pax, yourPax, rivalPax,
+    share: pax / pool, yourShare: yourPax / pool, rivalShare: rivalPax / pool,
+  };
+}
+
+/**
+ * The freight sibling: tonnes a week already flown on `origin`–`destination`,
+ * as a share of the lane's weekly pool.
+ *
+ * Your side is exactly the freight table's figure — cargoLaneAllocations plus
+ * simulateCargoRoute, the tick's own pair — summed over your freighters on the
+ * pair, at maturity. A rival's side (Headwinds players publish their freighter
+ * capacity on `competitors[].cargoRoutes`; Tailwinds' AI carriers fly no
+ * freight) is estimated the way the tick weighs it: its price-weighted capacity's
+ * share of the lane, never more than it can lift.
+ *
+ * @returns {{ pool, tonnes, yourTonnes, rivalTonnes, share, yourShare, rivalShare }|null}
+ */
+export function cargoLaneServed(state, origin, destination, { gameDate = null } = {}) {
+  const gd = gameDate ?? (state?.week != null ? currentGameDate(state) : { month: 6 });
+  const pool = cargoCityPairDemand(origin, destination, gd.month);
+  if (!(pool > 0)) return null;
+  const key = pairKey(origin, destination);
+  const fleet = state?.fleet ?? [];
+  // Mature copies — `weeksOpen: null` is the cargo sim's "established lane".
+  const mine = (state?.cargoRoutes ?? [])
+    .filter((r) => pairKey(r.origin, r.destination) === key)
+    .map((r) => ({ ...r, weeksOpen: null }));
+  const alloc = cargoLaneAllocations(mine, fleet, 1.0, { gameDate: gd, competitors: state?.competitors ?? [] });
+  let yourTonnes = 0, yourCap = 0;
+  for (const r of mine) {
+    const ac = fleet.find((a) => a.id === r.aircraftId);
+    if (!ac) continue;
+    const sim = simulateCargoRoute(r, ac, gd, null, 1.0, 1.0, alloc.get(r.id) ?? null);
+    if (!sim) continue;
+    yourTonnes += sim.tonnes ?? 0;
+    yourCap    += sim.capacityTonnes ?? 0;
+  }
+  // Rivals, rolled up the way cargoLaneAllocations looks them up for this pair.
+  let rivalCap = 0, rivalYieldCap = 0;
+  for (const c of state?.competitors ?? []) {
+    for (const [k, cr] of Object.entries(c?.cargoRoutes ?? {})) {
+      const cap = cr?.tonnesPerWeek ?? 0;
+      if (!(cap > 0)) continue;
+      const [ra, rb] = String(k).split('-');
+      if (!ra || !rb || metroPairKeyOf(ra, rb) !== key) continue;
+      rivalCap += cap;
+      rivalYieldCap += (cr.yieldPrice ?? 0) * cap;
+    }
+  }
+  let rivalTonnes = 0;
+  if (rivalCap > 0) {
+    const refYield = cargoReferenceYield(origin, destination);
+    const rivalYield = rivalYieldCap > 0 ? rivalYieldCap / rivalCap : 0;
+    const elast = rivalYield > 0 ? Math.min(1.6, Math.pow(refYield / rivalYield, CARGO_YIELD_ELASTICITY)) : 1;
+    const weighted = rivalCap * elast;
+    rivalTonnes = Math.round(Math.min(rivalCap, pool * weighted / (yourCap + weighted)));
+  }
+  const tonnes = Math.round(yourTonnes + rivalTonnes);
+  return {
+    pool, tonnes, yourTonnes: Math.round(yourTonnes), rivalTonnes,
+    share: tonnes / pool, yourShare: yourTonnes / pool, rivalShare: rivalTonnes / pool,
+  };
+}
+
+/**
+ * The part of a row's market nobody carries yet, in the Market column's own
+ * units (`row.demand`, travellers or tonnes a week). Never more than the
+ * market, never below zero — a lane flown past its base size has nothing left.
+ */
+export function demandLeftOf(row, served) {
+  const share = Math.max(0, served?.share ?? 0);
+  return Math.max(0, Math.round((row?.demand ?? 0) * (1 - Math.min(1, share))));
+}
+
+/**
+ * Rows ranked by the demand still unflown ("Most demand left"), pricing only
+ * as many as the ranking needs.
+ *
+ * A lane's demand left can never exceed its market, so walking the rows
+ * biggest-market first, the walk can stop as soon as `limit` lanes have more
+ * left than the next row's whole market — nothing further down can climb into
+ * the page. On a typical search the top rows are unflown (left = market) and
+ * it stops after `limit` share fights instead of ~2,000.
+ *
+ * `servedOf(row)` returns laneServed / cargoLaneServed (the caller caches it).
+ * Priced rows come back ranked with `served` and `demandLeft` attached; the
+ * rest follow in market order, which is what they would rank as anyway once
+ * a bigger page asks for them.
+ */
+export function rankByDemandLeft(rows, servedOf, limit = 25) {
+  const byDemand = [...rows].sort((x, y) => y.demand - x.demand);
+  const priced = [];
+  const lefts = [];            // best `limit` demand-left figures so far, descending
+  let i = 0;
+  for (; i < byDemand.length; i++) {
+    const r = byDemand[i];
+    if (lefts.length >= limit && lefts[limit - 1] >= r.demand) break;
+    const served = servedOf(r);
+    const demandLeft = demandLeftOf(r, served);
+    priced.push({ ...r, served, demandLeft });
+    let j = lefts.length;
+    while (j > 0 && lefts[j - 1] < demandLeft) j--;
+    lefts.splice(j, 0, demandLeft);
+    if (lefts.length > limit) lefts.length = limit;
+  }
+  priced.sort((x, y) => y.demandLeft - x.demandLeft || y.demand - x.demand);
+  return [...priced, ...byDemand.slice(i)];
+}
+
 /**
  * Indices (into `rows`) of the rows a scoring pass prices, in pricing order —
  * scoreCandidates' selection rule, exported so a progressive pass picks the
@@ -502,6 +665,9 @@ export function rowsToScore(rows, { limit = DEFAULT_SCORE_LIMIT, order = 'demand
 
 export const SORTS = {
   demand:      { label: 'Biggest market',        needsForecast: false },
+  // Ranked by rankByDemandLeft (it needs the lane's share fight, priced as far
+  // down as the page needs), so sortCandidates only sees it as a fallback.
+  room:        { label: 'Most demand left',      needsForecast: false },
   profit:      { label: 'Best est. profit',      needsForecast: true  },
   loadFactor:  { label: 'Best est. load factor', needsForecast: true  },
   fare:        { label: 'Highest fare',          needsForecast: false },
@@ -515,6 +681,7 @@ export function sortCandidates(rows, sortBy) {
   const p = (r) => r.projection;
   const cmp = {
     demand:     (x, y) => y.demand - x.demand,
+    room:       (x, y) => (y.demandLeft ?? y.demand) - (x.demandLeft ?? x.demand) || y.demand - x.demand,
     shortest:   (x, y) => x.distKm - y.distKm,
     longest:    (x, y) => y.distKm - x.distKm,
     fare:       (x, y) => y.refPrice - x.refPrice,

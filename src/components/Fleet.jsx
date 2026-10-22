@@ -3,7 +3,8 @@ import NumberStepper from './NumberStepper.jsx';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
 import { designAgeQualityPts } from '../models/demand.js';
-import { useGame, transferCompatibility } from '../store/GameContext.jsx';
+import { useGame, transferCompatibility, frequencyChangeBlockReason, cargoFrequencyChangeBlockReason } from '../store/GameContext.jsx';
+import RouteFrequencyControls from './FrequencyControls.jsx';
 import { getAircraftType, LEASE_TERM_OPTIONS, LEASE_BUYOUT_PREMIUM, AIRCRAFT_CATEGORIES } from '../data/aircraft.js';
 import { leaseBuyoutQuote } from '../models/leaseBuyout.js';
 import { laborEffects, crewStatus } from '../data/labor.js';
@@ -671,6 +672,8 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
   const [showReplace, setShowReplace]   = useState(false);
   const [bookWeeks, setBookWeeks] = useState(4);
   const [bookType, setBookType]   = useState('C');
+  // "Adjust flights" on this aircraft's routes (components/FrequencyControls.jsx).
+  const [freqOpen, setFreqOpen]   = useState(false);
   const [showExtend, setShowExtend]     = useState(false);
 
   // In-panel section navigation — jump straight to a section instead of scrolling.
@@ -1063,9 +1066,38 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
 
       {/* ── Route breakdown ───────────────────────────────────────── */}
       <div ref={routesRef} style={{ marginBottom: 20, scrollMarginTop: 70 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-          Route Performance {routeResults.length > 1 && `(${routeResults.length} routes)`}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Route Performance {routeResults.length > 1 && `(${routeResults.length} routes)`}
+          </div>
+          {/* Discord, VodkaOnFire 2026-10-21: "add an option in the fleet menu to
+              add flights [to] planes that already have routes … increase routes
+              to the same amount for each route a plane flies rather than having
+              to look through the routes list". Each route below has its own
+              stepper; this changes all of them at once. Ported from Tailwinds. */}
+          {aircraftRoutes.length > 0 && (
+            <button
+              type="button"
+              data-adjust-flights={aircraft.id}
+              className="btn btn-ghost"
+              style={{ fontSize: 12, padding: '3px 10px', color: freqOpen ? 'var(--text)' : 'var(--accent)' }}
+              aria-expanded={freqOpen}
+              onClick={() => setFreqOpen(v => !v)}
+            >
+              <Glyph e="⏱" size={12} /> {freqOpen ? 'Done' : aircraftRoutes.length > 1 ? 'Adjust flights on all routes' : 'Adjust flights'}
+            </button>
+          )}
         </div>
+        {freqOpen && aircraftRoutes.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <RouteFrequencyControls
+              routeIds={aircraftRoutes.map(r => r.id)}
+              noun="route"
+              each={aircraftRoutes.length > 1 ? 'each route' : 'the route'}
+              defaultMode={aircraftRoutes.length > 1 ? 'set' : 'delta'}
+            />
+          </div>
+        )}
 
         {routeResults.length > 0 ? routeResults.map(({ route: r, result: res, blockHrs: bh }) => {
           const org = getAirport(r.origin);
@@ -1081,7 +1113,25 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
-                  {r.weeklyFrequency}× / wk · {res.distance?.toLocaleString()} km
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <NumberStepper
+                      size="sm"
+                      value={r.weeklyFrequency}
+                      min={1}
+                      max={99}
+                      onChange={n => dispatch(r.cargo
+                        ? { type: 'UPDATE_CARGO_FREQUENCY', routeId: r.id, weeklyFrequency: n }
+                        : { type: 'UPDATE_FREQUENCY', routeId: r.id, weeklyFrequency: n })}
+                      blockReason={n => (r.cargo
+                        ? cargoFrequencyChangeBlockReason(state, r.id, n)
+                        : frequencyChangeBlockReason(state, r.id, n))}
+                      blockedTitle="Can’t add a flight"
+                      ariaLabel={`flights per week, ${r.origin} to ${r.destination}`}
+                      decTitle="One fewer flight per week"
+                      incTitle="One more flight per week"
+                    />
+                    <span>/ wk · {res.distance?.toLocaleString()} km</span>
+                  </div>
                   <div style={{ color: rhColor }}>{bh.toFixed(1)}h block</div>
                 </div>
               </div>
@@ -1769,6 +1819,7 @@ export default function Fleet() {
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
   const [checkedIds,    setCheckedIds]    = useState([]);   // bulk selection
+  const [bulkFlightsOpen, setBulkFlightsOpen] = useState(false); // selection bar ▸ Flights/wk
   const [bulkConfigIds, setBulkConfigIds] = useState(null); // array of ids → bulk configure modal
   const [bulkReplaceIds, setBulkReplaceIds] = useState(null); // array of ids → bulk replace modal
   const [search,        setSearch]        = useState('');
@@ -2009,6 +2060,10 @@ export default function Fleet() {
   const checkedTypeIds    = [...new Set(checkedAircraft.map(a => a.typeId))];
   const canBulkConfigure  = checkedAircraft.length > 0 && checkedTypeIds.length === 1;
   const checkedOwned      = checkedAircraft.filter(a => a.ownershipType === 'owned');
+  // Every passenger and freight route the ticked aircraft fly — the selection
+  // bar's Flights/wk row changes them in one plan (components/FrequencyControls.jsx).
+  const checkedRouteIds   = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]
+    .filter(r => checkedIds.includes(r.aircraftId)).map(r => r.id);
   // Wi-Fi retrofit: only tails that don't already have it. Quoted through the
   // engine's own canRetrofitWifi so the number on the button is the number the
   // reducer takes — the same shared-predicate rule canBuildBase follows.
@@ -2903,6 +2958,25 @@ export default function Fleet() {
               Return / Retire ({checkedAircraft.length})
             </button>
             <button
+              className="btn"
+              data-bulk-flights=""
+              style={{
+                fontSize: 12, padding: '5px 12px',
+                background: checkedRouteIds.length > 0 ? 'rgba(56,139,253,0.15)' : 'var(--surface3)',
+                color: checkedRouteIds.length > 0 ? 'var(--accent)' : 'var(--text-dim)',
+                border: `1px solid ${checkedRouteIds.length > 0 ? 'rgba(56,139,253,0.4)' : 'var(--border)'}`,
+                cursor: checkedRouteIds.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+              disabled={checkedRouteIds.length === 0}
+              aria-expanded={bulkFlightsOpen}
+              title={checkedRouteIds.length > 0
+                ? 'Add, remove or set flights per week on every route the selected aircraft fly'
+                : 'None of the selected aircraft flies a route'}
+              onClick={() => setBulkFlightsOpen(v => !v)}
+            >
+              <Glyph e="⏱" /> Flights/wk ({checkedRouteIds.length} route{checkedRouteIds.length !== 1 ? 's' : ''})
+            </button>
+            <button
               className="btn btn-ghost"
               style={{ fontSize: 12, padding: '5px 10px' }}
               onClick={() => setCheckedIds([])}
@@ -2910,6 +2984,9 @@ export default function Fleet() {
               <Glyph e="✕" /> Clear
             </button>
           </div>
+          {bulkFlightsOpen && checkedRouteIds.length > 0 && (
+            <RouteFrequencyControls routeIds={checkedRouteIds} noun="route" each="each route" />
+          )}
         </div>
       )}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>

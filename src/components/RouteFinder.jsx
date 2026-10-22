@@ -7,7 +7,9 @@ import { buildRouteMarket } from '../models/demand.js';
 import {
   findCandidates, sortCandidates, SORTS, DEFAULT_SCORE_LIMIT,
   rivalTopologyKey, finderForecastContext, forecastCandidate, candidateFrequency, rowsToScore,
+  laneServed, rankByDemandLeft,
 } from '../models/routeFinder.js';
+import ServedCell from './FinderServed.jsx';
 import { REGION_LABELS, REGION_ORDER, regionLabel } from '../utils/market.js';
 import { Glyph } from './Icons.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -209,6 +211,25 @@ export default function RouteFinder({ onPick, standalone = false }) {
       origin, open, typeId, owned?.best, minDist, maxDist, region, showUnflyable, showServed,
       soloOnly, splitMetros]);
 
+  // ── How much of each market is already flown ───────────────────────────────
+  // models/routeFinder.js laneServed: the tick's share fight with everyone on
+  // the lane, at maturity. Under a millisecond a lane, so it is priced for the
+  // rows on screen (and, under "Most demand left", as far down as that ranking
+  // needs) and cached until your network, the rival map or the week moves —
+  // keyed on rivalKey like the rows, not on the rival overlay's identity, so a
+  // fare nudge somewhere in the world does not re-price the column on a timer.
+  // It does not depend on the aircraft picked.
+  const servedCache = useMemo(
+    () => new Map(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.routes, rivalKey, state.fleet, state.hubs, state.routePricing, state.activeEvents,
+     state.week, gameDate.month]);
+  const servedOf = (r) => {
+    const k = `${r.origin}|${r.code}|${r.yourLanePairs?.[0] ?? ''}`;
+    if (!servedCache.has(k)) servedCache.set(k, laneServed(state, r, { gameDate }));
+    return servedCache.get(k);
+  };
+
   // ── Forecasts, bounded and progressive ─────────────────────────────────────
   // The engine's real launch projection, so "Plan →" cannot contradict the row it
   // was clicked on. Bounded two ways, as before:
@@ -279,7 +300,10 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const known = (k) => cache.has(k) || stale.has(k);
 
   // Which rows this view needs priced, in the order to price them.
-  const sortedRows = useMemo(() => sortCandidates(rows, sortBy), [rows, sortBy]);
+  const sortedRows = useMemo(
+    () => (sortBy === 'room' ? rankByDemandLeft(rows, servedOf, limit) : sortCandidates(rows, sortBy)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, sortBy, sortBy === 'room' ? limit : 0, servedCache]);
   const targets = useMemo(() => {
     if (!forecastCtx || rows.length === 0) return [];
     const list = forecastSort
@@ -596,6 +620,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                         { h: 'Destination', right: false },
                         { h: 'Distance',    right: true  },
                         { h: 'Market',      right: true, tip: "The whole city-pair market per week. Airports in one metro share it: JFK–LHR and EWR–LHR are one New York↔London market, not two." },
+                        { h: 'Served',      right: true, tip: "How much of the market is already flown — everyone on the lane, rivals' one-stops over their hubs and your own services included, from the same share fight the weekly results run (at maturity, this month). Low is room for you; near 100% means a new route mostly takes passengers from someone. Hover a figure for who carries what." },
                         { h: 'Ref fare',    right: true  },
                         { h: 'Rivals',      right: false, tip: 'Carriers flying this market from any airport in either city.' },
                         { h: 'Est. load',   right: true, tip: 'Projected mature load factor for the selected aircraft at 7 flights a week — the same projection the Route Planner runs.' },
@@ -669,6 +694,9 @@ export default function RouteFinder({ onPick, standalone = false }) {
                             <div style={{ fontSize: 10, color: seasonal > 1.05 ? 'var(--green)' : seasonal < 0.95 ? 'var(--yellow)' : 'var(--text-dim)' }}>
                               ×{seasonal.toFixed(2)} season
                             </div>
+                          </td>
+                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                            <ServedCell served={r.served ?? servedOf(r)} />
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>${r.refPrice}</td>
                           <td style={{ padding: '7px 12px' }}>

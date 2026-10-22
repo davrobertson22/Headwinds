@@ -252,11 +252,40 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     return { reachableTypes: ok, runwayBarred: barred };
   }, [routeData, reachByType, origin, dest]);
 
+  // Freighter types you own (any tail that isn't retired) — they head the picker.
+  const ownedTypeIds = useMemo(() => new Set(
+    (state.fleet ?? []).filter(a => a.status !== 'retired').map(a => a.typeId)), [state.fleet]);
+
+  // "When in route selection, can't see which planes you have idle"
+  // (VodkaOnFire, Discord 2026-10-21). The picker was the catalogue in catalogue
+  // order, defaulting to its first freighter whether or not you owned one. It
+  // now reads like the passenger planner's: your freighters first, the
+  // catalogue after, and the default is one you can fly today — an idle tail
+  // that reaches the lane, then any freighter you own, then the catalogue.
+  // Ported from Tailwinds.
+  const typeGroups = useMemo(() => {
+    const inFleet = [], catalogue = [];
+    for (const t of reachableTypes) (ownedTypeIds.has(t.id) ? inFleet : catalogue).push(t);
+    return { inFleet, catalogue };
+  }, [reachableTypes, ownedTypeIds]);
+  const defaultTypeId = useMemo(() => {
+    if (!reachableTypes.length || !routeData) return '';
+    const idleReaching = (t) => (state.fleet ?? []).some(a => a.typeId === t.id && a.status === 'idle'
+      && !a.reserveBase && !isOutOfService(a) && effectiveRangeKm(a, t) >= routeData.dist);
+    const rank = (t) => (idleReaching(t) ? 0 : ownedTypeIds.has(t.id) ? 1 : 2);
+    let best = reachableTypes[0], bestRank = rank(best);
+    for (const t of reachableTypes) {
+      const r = rank(t);
+      if (r < bestRank) { best = t; bestRank = r; }
+    }
+    return best.id;
+  }, [reachableTypes, ownedTypeIds, state.fleet, routeData]);
+
   useMemo(() => {
     if (reachableTypes.length && !reachableTypes.find(t => t.id === selectedTypeId)) {
-      setSelectedTypeId(reachableTypes[0]?.id ?? '');
+      setSelectedTypeId(defaultTypeId);
     }
-  }, [reachableTypes]);
+  }, [reachableTypes, defaultTypeId]);
 
   // Freighters that can be deployed to THIS lane, by type. Includes aircraft
   // already flying another route but with spare block-hours that touch an
@@ -450,13 +479,25 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                   <div style={{ flex: '1 1 220px', maxWidth: 340 }}>
                     <div className="form-label" style={{ marginBottom: 6 }}>Freighter type</div>
                     <select className="form-select" value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)}>
-                      {reachableTypes.map(t => {
-                        // Reserves counted apart from "ready" — see RoutePlanner.
-                        const pool  = (deployableByType[t.id] ?? []).filter(d => d.eligible);
-                        const ready = pool.filter(d => !d.reserve).length;
-                        const onRes = pool.filter(d => d.reserve).length;
-                        return <option key={t.id} value={t.id}>{t.name} ({t.payloadTonnes}t){ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}</option>;
-                      })}
+                      {[['In your fleet', typeGroups.inFleet], ['Not in your fleet', typeGroups.catalogue]]
+                        .filter(([, types]) => types.length > 0)
+                        .map(([label, types]) => (
+                          <optgroup key={label} label={label}>
+                            {types.map(t => {
+                              // Reserves counted apart from "ready" — see RoutePlanner.
+                              const pool  = (deployableByType[t.id] ?? []).filter(d => d.eligible);
+                              const ready = pool.filter(d => !d.reserve).length;
+                              const idle  = pool.filter(d => !d.reserve && d.idle).length;
+                              const onRes = pool.filter(d => d.reserve).length;
+                              const owned = ownedTypeIds.has(t.id);
+                              return (
+                                <option key={t.id} value={t.id}>
+                                  {t.name} ({t.payloadTonnes}t){idle > 0 ? ` · ${idle} idle` : ''}{ready > idle ? ` · ${ready - idle} with spare hours` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : ' · lease required'}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        ))}
                     </select>
                   </div>
                   {/* Frequency */}

@@ -27,7 +27,7 @@ import { worldFleetBoard, lineStatus, launchWindow, cancelTerms, slotPremiumPct,
 import AircraftCheckout from './AircraftCheckout.jsx';
 import { OrderReplacementLine } from './FleetRenewal.jsx';
 import InfoTip from './InfoTip.jsx';
-import { passesMarketFilters, DEFAULT_MARKET_FILTERS } from '../utils/marketFilters.js';
+import { passesMarketFilters, DEFAULT_MARKET_FILTERS, ownedFamilyIds, normalizeMaxAge, deliveredAgeYears } from '../utils/marketFilters.js';
 import { designAgeQualityPts, DESIGN_AGE_GRACE_YEARS, DESIGN_AGE_CAP_YEARS, DESIGN_AGE_MAX_PENALTY } from '../models/demand.js';
 import { LABOR_GROUPS, CREW_LEAD_WEEKS, crewBodiesForAircraft } from '../data/labor.js';
 import { Glyph } from './Icons.jsx';
@@ -93,9 +93,6 @@ function designDatingLine(type, calYear) {
   };
 }
 
-function deliveredAgeYears(type, calYear = null) {
-  return Math.round(eraDeliveredAgeWeeks(type, calYear) / 52);
-}
 
 // Category accent colors
 const CAT_COLORS = {
@@ -756,6 +753,13 @@ export default function Marketplace() {
       return next;
     });
   }
+  function setMarketMaxAge(v) {
+    setMarketFiltersState(prev => {
+      const next = { ...prev, maxAge: normalizeMaxAge(v) };
+      try { localStorage.setItem('market_filters', JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }
 
   // ── New World Restrictions ────────────────────────────────────────────────
   // Restricted worlds only; every value below is inert when the flag is off.
@@ -880,7 +884,12 @@ export default function Marketplace() {
   // The dated-design chip only exists in era worlds (classic designs never
   // date), so a remembered "on" can't hide anything in a classic world.
   const activeFilters = { ...marketFilters, hideDated: calYear != null && marketFilters.hideDated };
+  // The families you fly or have on order (utils/marketFilters.js). The chip
+  // only exists once there is something to narrow to.
+  const ownedFamilies = useMemo(() => ownedFamilyIds(fleet, pendingOrders), [fleet, pendingOrders]);
   const filterChips = [
+    ...(ownedFamilies.size > 0 ? [{ key: 'yourFamilies', label: 'Your families',
+      title: 'Show only the aircraft families you already fly or have on order — your types plus their stretches, shrinks and freighters, which share your crews\' type ratings and your maintenance set-up.' }] : []),
     { key: 'inProduction', label: 'In production',
       title: 'Hide types whose production line has closed — they can only be bought second-hand.' },
     ...(calYear != null ? [{ key: 'hideDated', label: 'Hide dated designs',
@@ -899,7 +908,7 @@ export default function Marketplace() {
     (activeCategory === 'All' || t.category === activeCategory) &&
     (safeMfr        === 'All' || t.manufacturer === safeMfr) &&
     (!q || `${t.manufacturer} ${t.name} ${t.category}`.toLowerCase().includes(q)) &&
-    passesMarketFilters(t, calYear, activeFilters, typeLeaseBlockReason)
+    passesMarketFilters(t, calYear, activeFilters, typeLeaseBlockReason, { ownedFamilies })
   );
 
   return (
@@ -1115,6 +1124,36 @@ export default function Marketplace() {
               </button>
             );
           })}
+          {/* "filter out aircraft older than X years in market" (VodkaOnFire,
+              Discord 2026-10-21): the Age column, how old the frame is on
+              delivery (out-of-production types arrive second-hand). Blank = any. */}
+          <label
+            title="Hide aircraft that would arrive older than this (the Age column). Types still in production arrive new; out-of-production types arrive second-hand. Leave blank for any age."
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '2px 4px 2px 12px', borderRadius: 20, fontSize: 12, whiteSpace: 'nowrap',
+              border: activeFilters.maxAge != null ? '1px solid var(--accent)' : '1px solid var(--border)',
+              background: activeFilters.maxAge != null ? 'rgba(56,139,253,0.15)' : 'var(--surface2)',
+              color: activeFilters.maxAge != null ? 'var(--accent)' : 'var(--text-muted)',
+            }}
+          >
+            Up to
+            <input
+              type="number"
+              min={0}
+              max={99}
+              data-market-max-age=""
+              placeholder="any"
+              value={activeFilters.maxAge ?? ''}
+              onChange={e => setMarketMaxAge(e.target.value)}
+              aria-label="Hide aircraft that arrive older than this many years"
+              style={{
+                width: 46, padding: '2px 4px', fontSize: 12, textAlign: 'center',
+                background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 10,
+              }}
+            />
+            yrs old
+          </label>
         </div>
       </div>
 

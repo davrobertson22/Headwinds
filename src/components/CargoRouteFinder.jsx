@@ -4,9 +4,11 @@ import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
 import { distanceKm, formatMoney, currentGameDate, calendarYear, effectiveRangeKm } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, cargoBackhaulFactor } from '../utils/market.js';
-import { laneBlockFor } from '../models/routeFinder.js';
+import { laneBlockFor, cargoLaneServed, rankByDemandLeft } from '../models/routeFinder.js';
 import { isOutOfService } from '../data/maintenance.js';
+import { idleTailsOfType } from '../../packages/engine/src/models/routeBatch.js';
 import { Glyph } from './Icons.jsx';
+import ServedCell from './FinderServed.jsx';
 import InfoTip from './InfoTip.jsx';
 import OriginPicker from './OriginPicker.jsx';
 import { useSlotPosition, SlotCell, OriginSlotsLine } from './FinderSlots.jsx';
@@ -17,6 +19,7 @@ const ACCENT    = '#e8833a';
 
 const SORT_OPTIONS = [
   { id: 'demand',   label: 'Highest demand' },
+  { id: 'room',     label: 'Most demand left' },
   { id: 'revenue',  label: 'Revenue potential' },
   { id: 'shortest', label: 'Shortest distance' },
   { id: 'longest',  label: 'Longest distance' },
@@ -38,6 +41,18 @@ const SORT_OPTIONS = [
  * the same question, laneBlockFor — range on the freighter you actually own
  * (mods included), the runway at both ends, and the airport rules ADD_CARGO_ROUTE
  * enforces — and hides the lanes it would refuse.
+ *
+ * Then it fell behind the passenger finder in three more ways (VodkaOnFire,
+ * Discord 2026-10-21: "Freight has some key missing features"):
+ *
+ *   "can't see which planes you have idle"     The freighter picker listed the
+ *       catalogue, never your fleet. Your freighters now come first, with how
+ *       many you own, how many sit idle and the reach of your best tail — the
+ *       passenger finder's picker, row for row.
+ *   "can't see/toggle routes already flown"    Lanes you fly were always
+ *       hidden. They can be shown, tagged with the route you already fly.
+ *   "the same 0-x% demand satisfied"           The Served column
+ *       (models/routeFinder.js cargoLaneServed) and a "Most demand left" sort.
  */
 export default function CargoRouteFinder({ onPick, standalone = false }) {
   const { state } = useGame();
@@ -52,7 +67,8 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
   const [minDist, setMinDist]   = useRememberedState(mem, 'minDist', '');
   const [maxDist, setMaxDist]   = useRememberedState(mem, 'maxDist', '');
   const [rangeTypeId, setRangeTypeId] = useRememberedState(mem, 'rangeTypeId', '', id => id === '' || !!getAircraftType(id));
-  const [sortBy, setSortBy]     = useRememberedState(mem, 'sortBy', 'demand', v => typeof v === 'string');
+  const [showServed, setShowServed] = useRememberedState(mem, 'showServed', false);
+  const [sortBy, setSortBy]     = useRememberedState(mem, 'sortBy', 'demand', v => SORT_OPTIONS.some(o => o.id === v));
   const [limit, setLimit]       = useRememberedState(mem, 'limit', PAGE_SIZE, v => Number.isFinite(v) && v > 0);
 
   const originAirport = getAirport(origin);
@@ -87,11 +103,35 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
 
   const searchType = rangeTypeId ? getAircraftType(rangeTypeId) : null;
 
-  // Freight lanes the player already flies (either direction)
+  // ── Your freighters, as the picker sees them ───────────────────────────────
+  // Same shape as the passenger finder's fleetTypes: per type, how many you
+  // own, how many are idle (as the shortlist counts them — reserves and tails
+  // in the shop are not idle), and the reach of the longest-legged one.
+  const fleetTypes = useMemo(() => {
+    const byType = new Map();
+    for (const a of state.fleet ?? []) {
+      const t = getAircraftType(a.typeId);
+      if (!t?.freighter || a.status === 'retired') continue;
+      const cur = byType.get(t.id);
+      if (!cur) byType.set(t.id, { type: t, count: 1, idle: 0 });
+      else cur.count += 1;
+    }
+    for (const f of byType.values()) {
+      f.idle  = idleTailsOfType(state.fleet, f.type.id).length;
+      f.reach = Math.round(bestTailByType.has(f.type.id) ? effectiveRangeKm(bestTailByType.get(f.type.id), f.type) : f.type.range);
+    }
+    return [...byType.values()].sort((x, y) => y.count - x.count || x.type.name.localeCompare(y.type.name));
+  }, [state.fleet, bestTailByType]);
+  const ownedFreighter = fleetTypes.find(f => f.type.id === rangeTypeId) ?? null;
+
+  // Freight lanes the player already flies (either direction), with the route.
   const servedPairs = useMemo(() => {
-    const s = new Set();
-    for (const r of state.cargoRoutes ?? []) s.add([r.origin, r.destination].sort().join('-'));
-    return s;
+    const m = new Map();
+    for (const r of state.cargoRoutes ?? []) {
+      const k = [r.origin, r.destination].sort().join('-');
+      if (!m.has(k)) m.set(k, `${r.origin}–${r.destination}`);
+    }
+    return m;
   }, [state.cargoRoutes]);
 
   // Demand + distance + yield for every destination from the origin
@@ -110,23 +150,38 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
       // carried the whole pool. A scale for comparing lanes, not a promise.
       const backhaul = cargoBackhaulFactor(originAirport.code, a.code);
       const revPotential = Math.round(demand * (1 + backhaul) * dist * refYield);
-      out.push({ airport: a, dist, demand, refYield, revPotential });
+      out.push({ airport: a, code: a.code, origin: originAirport.code, dist, demand, refYield, revPotential });
     }
     return out;
   }, [originAirport, open, gd.month]);
 
+  // ── How much of each lane is already flown (models/routeFinder.js) ─────────
+  // Cached until your freight network, the rivals' freight or the week moves.
+  const rivalCargoKey = (state.competitors ?? [])
+    .map(c => `${c.id}:${Object.keys(c?.cargoRoutes ?? {}).length}`).join(',');
+  const servedCache = useMemo(
+    () => new Map(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.cargoRoutes, state.fleet, rivalCargoKey, state.week, gd.month, origin]);
+  const servedOf = (r) => {
+    if (!servedCache.has(r.code)) servedCache.set(r.code, cargoLaneServed(state, r.origin, r.code, { gameDate: gd }));
+    return servedCache.get(r.code);
+  };
+
   // Apply filters + sort. `barred` counts what the chosen freighter cannot fly,
   // by reason, so the list can say what it left out instead of going quiet.
-  const { results, barred } = useMemo(() => {
+  const { results: filtered, barred } = useMemo(() => {
     const lo = parseInt(minDist, 10) || 0;
     const hi = parseInt(maxDist, 10) || Infinity;
     const ops = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
     const aircraft = searchType ? (bestTailByType.get(searchType.id) ?? null) : null;
     const barred = { range: 0, runway: 0, restriction: 0 };
-    const rows = candidates.filter(c => {
-      if (c.dist < lo || c.dist > hi) return false;
+    const rows = [];
+    for (const c of candidates) {
+      if (c.dist < lo || c.dist > hi) continue;
       const key = [origin, c.airport.code].sort().join('-');
-      if (servedPairs.has(key)) return false; // unserved only
+      const flown = servedPairs.get(key) ?? null;
+      if (flown && !showServed) continue;   // unserved only, unless asked
       if (searchType) {
         // The engine's own verdict, with the freighter's body class and every
         // passenger and cargo op on the pair — what addCargoRouteBlockReason asks.
@@ -134,18 +189,22 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
           origin, destination: c.airport.code, distKm: c.dist, type: searchType,
           aircraft, weeklyFrequency: 7, routes: ops,
         });
-        if (block) { barred[block.kind] = (barred[block.kind] ?? 0) + 1; return false; }
+        if (block) { barred[block.kind] = (barred[block.kind] ?? 0) + 1; continue; }
       }
-      return true;
-    });
-    rows.sort((x, y) =>
+      rows.push(flown ? { ...c, flown } : c);
+    }
+    return { results: rows, barred };
+  }, [candidates, minDist, maxDist, origin, servedPairs, showServed, searchType, bestTailByType, state.routes, state.cargoRoutes]);
+  const results = useMemo(() => {
+    if (sortBy === 'room') return rankByDemandLeft(filtered, servedOf, limit);
+    return [...filtered].sort((x, y) =>
       sortBy === 'shortest' ? x.dist - y.dist :
       sortBy === 'longest'  ? y.dist - x.dist :
       sortBy === 'revenue'  ? y.revPotential - x.revPotential :
       y.demand - x.demand
     );
-    return { results: rows, barred };
-  }, [candidates, minDist, maxDist, sortBy, origin, servedPairs, searchType, bestTailByType, state.routes, state.cargoRoutes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, sortBy, sortBy === 'room' ? limit : 0, servedCache]);
   const barredTotal = barred.range + barred.runway + barred.restriction;
   // The origin itself too short for the freighter bars every lane at once —
   // say that, not "no lanes match".
@@ -221,12 +280,24 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                 className="form-select"
                 value={rangeTypeId}
                 onChange={e => { pickRangeType(e.target.value); resetPaging(); }}
-                style={{ width: 210 }}
+                style={{ width: 260 }}
               >
                 <option value="">Any freighter</option>
-                {AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id)).map(t => (
-                  <option key={t.id} value={t.id}>{t.name} — {Math.round(bestTailByType.has(t.id) ? effectiveRangeKm(bestTailByType.get(t.id), t) : t.range).toLocaleString()} km{t.runwayFt ? ` · ${t.runwayFt.toLocaleString()} ft` : ''}</option>
-                ))}
+                {fleetTypes.length > 0 && (
+                  <optgroup label="In your fleet">
+                    {fleetTypes.map(f => (
+                      <option key={f.type.id} value={f.type.id}>
+                        {f.type.name} — {f.count} owned{f.idle > 0 ? ` · ${f.idle} idle` : ''} · {f.reach.toLocaleString()} km{f.type.runwayFt ? ` · ${f.type.runwayFt.toLocaleString()} ft` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Not in your fleet">
+                  {AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id)
+                    && !fleetTypes.some(f => f.type.id === t.id)).map(t => (
+                    <option key={t.id} value={t.id}>{t.name} — {Math.round(t.range).toLocaleString()} km{t.runwayFt ? ` · ${t.runwayFt.toLocaleString()} ft` : ''}</option>
+                  ))}
+                </optgroup>
               </select>
             </div>
 
@@ -244,6 +315,15 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
             </div>
           </div>
 
+          {/* Filter toggles */}
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+                   title="Lanes you already fly freight on are hidden by default. Show them to see how much of each is left — the Served column counts your own freighters too.">
+              <input type="checkbox" data-show-served="" checked={showServed} onChange={e => { setShowServed(e.target.checked); resetPaging(); }} style={{ accentColor: ACCENT }} />
+              Show lanes I already serve
+            </label>
+          </div>
+
           {/* Results */}
           {!originAirport ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
@@ -256,27 +336,43 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
             </div>
           ) : results.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
-              No unserved freight lanes match these filters.
+              No {showServed ? '' : 'unserved '}freight lanes match these filters.
               {barredTotal > 0 && <> <BarredNote barred={barred} type={searchType} /></>}
             </div>
           ) : (
             <>
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
-                {results.length.toLocaleString()} unserved lane{results.length !== 1 ? 's' : ''} from {originAirport.code} · showing {shown.length}
+                {results.length.toLocaleString()} {showServed ? '' : 'unserved '}lane{results.length !== 1 ? 's' : ''} from {originAirport.code} · showing {shown.length}
                 {barredTotal > 0 && <> · <BarredNote barred={barred} type={searchType} /></>}
+                {ownedFreighter && ownedFreighter.idle > 0 && (
+                  <> · <span style={{ color: 'var(--yellow)' }}>{ownedFreighter.idle} idle {searchType.name}{ownedFreighter.idle !== 1 ? 's' : ''}</span></>
+                )}
               </div>
               <OriginSlotsLine code={originAirport.code} freq={7} position={slotPosition} />
               <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)' }}>
-                      {['Destination', 'Distance', 'Cargo Demand', 'Ref Yield', '≈ Rate', 'Rev Potential', 'Your slots', ''].map((h, i) => (
-                        <th key={i} style={{ padding: '7px 12px', textAlign: i >= 1 && i <= 6 ? 'right' : 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                      {[
+                        { h: 'Destination' },
+                        { h: 'Distance',      right: true },
+                        { h: 'Cargo Demand',  right: true },
+                        { h: 'Served',        right: true, tip: "How much of the lane's weekly freight is already flown — your freighters (the freight table's own figure) and other airlines' published freighter capacity, at maturity, this month. Low is room for you; near 100% means a new freighter mostly splits the tonnage already there. Hover a figure for who carries what." },
+                        { h: 'Ref Yield',     right: true },
+                        { h: '≈ Rate',        right: true },
+                        { h: 'Rev Potential', right: true },
+                        { h: 'Your slots',    right: true },
+                        { h: '' },
+                      ].map((c, i) => (
+                        <th key={i} style={{ padding: '7px 12px', textAlign: c.right ? 'right' : 'left', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          {c.h}{c.tip && <InfoTip text={c.tip} />}
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {shown.map(({ airport: a, dist, demand, refYield, revPotential }) => {
+                    {shown.map(r => {
+                      const { airport: a, dist, demand, refYield, revPotential } = r;
                       const inRange = maxFleetRange >= dist;
                       return (
                         <tr key={a.code} style={{ borderTop: '1px solid var(--border-subtle)' }}>
@@ -286,9 +382,20 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                             {inRange && maxFleetRange > 0 && (
                               <span title="Within range of a freighter in your fleet" style={{ marginLeft: 6, fontSize: 11, color: 'var(--green)' }}><Glyph e="✈" /></span>
                             )}
+                            {r.flown && (
+                              <span
+                                title={`You already fly freight on this lane (${r.flown}). Another freighter here shares the lane's one pool of tonnage with it.`}
+                                style={{ marginLeft: 8, fontSize: 10, borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap', color: 'var(--yellow)', border: '1px solid rgba(210,153,34,0.4)' }}
+                              >
+                                you fly {r.flown}
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{dist.toLocaleString()} km</td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: ACCENT, whiteSpace: 'nowrap' }}>{demand.toLocaleString()} t<span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-dim)' }}> /wk</span></td>
+                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                            <ServedCell served={r.served ?? servedOf(r)} cargo />
+                          </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>${refYield.toFixed(3)}</td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>${(refYield * dist / 1000).toFixed(2)}/kg</td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--green)', whiteSpace: 'nowrap' }} title="Weekly lane revenue at reference yield IF you carried the whole pool — a comparison scale, not a promise">{formatMoney(revPotential)}</td>

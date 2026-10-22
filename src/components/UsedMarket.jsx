@@ -9,11 +9,25 @@
 //
 // Inventory is fetched from GET /worlds/:id/used-aircraft (remoteApi.fetchUsedAircraft)
 // rather than injected into state, so this whole feature is inert in solo.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { useToast } from './ToastSystem.jsx';
 import { formatMoney } from '../utils/simulation.js';
 import { GlyphLabel } from './Icons.jsx';
+import { ownedFamilyIds, usedListingPasses, normalizeMaxAge } from '../utils/marketFilters.js';
+
+// "Add slider/box/similar to filter out aircraft older than X years in market"
+// and "Add 'Owned by you' filter to airliner market" (VodkaOnFire, Discord
+// 2026-10-21). Here the age is the airframe's own; the families are the ones
+// you fly or have on order (utils/marketFilters.js). Per-browser, like the
+// Market's own chips.
+const FILTERS_KEY = 'hw_used_market_filters';
+function loadUsedFilters() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? 'null');
+    return { maxAge: normalizeMaxAge(v?.maxAge), yourFamilies: !!v?.yourFamilies };
+  } catch { return { maxAge: null, yourFamilies: false }; }
+}
 
 const fmtAge = (weeks) => {
   const yrs = (weeks ?? 0) / 52;
@@ -37,6 +51,15 @@ export default function UsedMarket() {
   const [error, setError]       = useState(null);
   const [busyId, setBusyId]     = useState(null);
   const [sortKey, setSortKey]   = useState('price');
+  const [filters, setFiltersState] = useState(loadUsedFilters);
+  function setFilters(patch) {
+    setFiltersState(prev => {
+      const next = { ...prev, ...patch, maxAge: normalizeMaxAge(patch.maxAge !== undefined ? patch.maxAge : prev.maxAge) };
+      try { localStorage.setItem(FILTERS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }
+  const ownedFamilies = useMemo(() => ownedFamilyIds(state.fleet, state.pendingOrders), [state.fleet, state.pendingOrders]);
 
   const canUse = remote && typeof remoteApi?.fetchUsedAircraft === 'function';
 
@@ -88,7 +111,16 @@ export default function UsedMarket() {
     );
   }
 
-  const sorted = [...listings].sort(SORTS[sortKey].fn);
+  const visible = listings.filter(l => usedListingPasses(l, filters, ownedFamilies));
+  const sorted = [...visible].sort(SORTS[sortKey].fn);
+  const hidden = listings.length - visible.length;
+  const chip = (on) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+    padding: '3px 10px', borderRadius: 20, fontSize: 11.5, whiteSpace: 'nowrap', cursor: 'pointer',
+    border: on ? '1px solid var(--accent)' : '1px solid var(--border)',
+    background: on ? 'rgba(56,139,253,0.15)' : 'var(--surface2)',
+    color: on ? 'var(--accent)' : 'var(--text-muted)',
+  });
 
   return (
     <div>
@@ -97,7 +129,39 @@ export default function UsedMarket() {
           fontWeight: 700, fontSize: 13, color: 'var(--text-muted)',
           textTransform: 'uppercase', letterSpacing: '0.06em', flex: 1,
         }}>
-          Used aircraft {listings.length > 0 && <span style={{ color: 'var(--text-dim)' }}>· {listings.length}</span>}
+          Used aircraft {listings.length > 0 && <span style={{ color: 'var(--text-dim)' }}>· {visible.length}{hidden > 0 ? ` of ${listings.length}` : ''}</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {ownedFamilies.size > 0 && (
+            <button
+              type="button"
+              data-used-filter="yourFamilies"
+              aria-pressed={filters.yourFamilies}
+              title="Show only the families you already fly or have on order"
+              style={chip(filters.yourFamilies)}
+              onClick={() => setFilters({ yourFamilies: !filters.yourFamilies })}
+            >
+              {filters.yourFamilies ? '✓ ' : ''}Your families
+            </button>
+          )}
+          <label style={chip(filters.maxAge != null)} title="Hide airframes older than this many years. Leave blank for any age.">
+            Up to
+            <input
+              type="number"
+              min={0}
+              max={60}
+              data-used-max-age=""
+              placeholder="any"
+              value={filters.maxAge ?? ''}
+              onChange={e => setFilters({ maxAge: e.target.value })}
+              aria-label="Hide airframes older than this many years"
+              style={{
+                width: 44, padding: '1px 4px', fontSize: 11.5, textAlign: 'center',
+                background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 10,
+              }}
+            />
+            yrs old
+          </label>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {Object.entries(SORTS).map(([k, s]) => (
@@ -161,6 +225,7 @@ export default function UsedMarket() {
               <tr><td colSpan={6} style={{ padding: 22, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12.5 }}>
                 {loading ? 'Loading the market…'
                   : error ? `Couldn't load the market: ${error}`
+                  : hidden > 0 ? `${hidden} used aircraft on the market, none matching your filters.`
                   : 'No used aircraft on the market right now. When an airline sells an owned jet, it appears here at its depreciated value — cheaper than new and delivered in a week.'}
               </td></tr>
             )}

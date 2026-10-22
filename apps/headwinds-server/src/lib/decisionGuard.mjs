@@ -282,7 +282,9 @@ function guardBulkFrequency(payload, state) {
   const ids = Array.isArray(payload?.routeIds) ? payload.routeIds : [];
   if (ids.length === 0) throw new GuardError('No routes selected.');
   if (ids.length > BULK_FREQUENCY_BATCH) throw new GuardError('Too many routes in one batch.');
-  const own = new Set((state.routes ?? []).map((r) => r.id));
+  // Passenger and freight alike: Fleet's "Flights/wk" changes a freighter's
+  // routes through the same action (the reducer guards each by its own stepper).
+  const own = new Set([...(state.routes ?? []), ...(state.cargoRoutes ?? [])].map((r) => r.id));
   const routeIds = [...new Set(ids.map(String))].filter((id) => own.has(id));
   if (routeIds.length === 0) throw new GuardError('Unknown routes.');
   const mode = ['delta', 'set', 'max'].includes(payload?.mode) ? payload.mode : null;

@@ -30,6 +30,7 @@ import {
 import { consumeNavFilter } from '../utils/navIntent.js';
 import { useToast } from './ToastSystem.jsx';
 import NumberStepper from './NumberStepper.jsx';
+import RouteFrequencyControls, { FREQ_MODES, MAX_FREQ_UI, FrequencyPlanSummary } from './FrequencyControls.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { projectRouteAddition, rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
@@ -2578,149 +2579,17 @@ function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGrou
 //
 // Frequency is per AIRCRAFT (each tail on a pair is its own route), so "+2"
 // means two more flights a week on every aircraft on the matching pairs.
-const MAX_FREQ_UI = 99;   // the per-route stepper's ceiling (MAX_ROUTE_FREQUENCY in the engine)
-const FREQ_MODES = [
-  { id: 'delta', label: 'Add / remove' },
-  { id: 'set',   label: 'Set to' },
-  { id: 'max',   label: 'Fill spare hours' },
-];
-
 function routeIdsOf(groups) {
   return groups.flatMap(g => g.routes.map(r => r.id));
 }
 
-/** One line per reason a route got less than it asked for: "Aircraft's weekly block-hour limit ×3". */
-function cappedReasons(plan) {
-  const counts = new Map();
-  for (const e of plan.plan) {
-    const why = e.reason ?? null;
-    if (!why) continue;
-    // "No free gate slots at LHR" → group by the sentence, airports included:
-    // that names exactly which gate to lease.
-    counts.set(why, (counts.get(why) ?? 0) + 1);
-  }
-  return [...counts].sort((a, b) => b[1] - a[1]);
-}
-
-function FrequencyPlanSummary({ plan, mode }) {
-  if (!plan) return null;
-  const reasons = cappedReasons(plan);
-  const none = plan.changed === 0;
-  return (
-    <div data-freq-plan="" style={{
-      padding: '8px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.5,
-      background: none ? 'var(--surface2)' : 'rgba(56,139,253,0.10)',
-      border: `1px solid ${none ? 'var(--border)' : 'rgba(56,139,253,0.3)'}`,
-    }}>
-      {none ? (
-        <span style={{ color: 'var(--text-muted)' }}>
-          {mode === 'max' || plan.capped > 0 ? 'None of these aircraft has room for another flight.' : 'Nothing would change.'}
-        </span>
-      ) : (
-        <span>
-          <b>{plan.changed}</b> aircraft change
-          {plan.added > 0 && <> · <span style={{ color: 'var(--green)', fontWeight: 700 }}>+{plan.added}</span> flight{plan.added !== 1 ? 's' : ''}/wk</>}
-          {plan.removed > 0 && <> · <span style={{ color: 'var(--red)', fontWeight: 700 }}>−{plan.removed}</span> flight{plan.removed !== 1 ? 's' : ''}/wk</>}
-        </span>
-      )}
-      {plan.capped > 0 && (
-        <div style={{ color: 'var(--yellow)', marginTop: 4 }}>
-          {none ? 'What stops them:' : `${plan.capped} got less than asked — each takes the most that fits:`}
-          {reasons.slice(0, 4).map(([why, n]) => (
-            <div key={why} style={{ color: 'var(--text-muted)', paddingLeft: 10 }}>· {why}{n > 1 ? ` ×${n}` : ''}</div>
-          ))}
-          {reasons.length > 4 && <div style={{ color: 'var(--text-dim)', paddingLeft: 10 }}>· and {reasons.length - 4} more reasons</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * The selection bar's frequency row: mode + value and the live plan for the
- * ticked `groups`. `onApply(plan, spec)` receives the plan the player was shown.
+ * ticked `groups` — components/FrequencyControls.jsx, shared with Fleet.
+ * `onApply(plan, spec)` receives the plan the player was shown.
  */
 function BulkFrequencyControls({ groups, onApply }) {
-  const { state } = useGame();
-  const [mode, setMode]   = useState('delta');
-  const [delta, setDelta] = useState(1);
-  const [target, setTarget] = useState(7);
-  const value = mode === 'delta' ? delta : mode === 'set' ? target : 0;
-  // The selection is rebuilt every render; key the plan on the ids it holds.
-  const idsKey = routeIdsOf(groups).join(',');
-  const routeIds = useMemo(() => (idsKey ? idsKey.split(',') : []), [idsKey]);
-  const ready = routeIds.length > 0 && (mode !== 'delta' || delta !== 0);
-  // The engine's plan — the same call BULK_ADJUST_FREQUENCY makes. Keyed on
-  // what the guard reads rather than the whole state, so a rival re-pricing
-  // somewhere in the world doesn't re-plan a big selection.
-  const plan = useMemo(
-    () => (ready ? planBulkFrequencyBatched(state, routeIds, { mode, value }) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.routes, state.fleet, state.cargoRoutes, state.gates, state.allianceSlotPool, routeIds, mode, value, ready]);
-
-  const modeButtons = (
-    <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', width: 'fit-content' }}>
-      {FREQ_MODES.map(m => (
-        <button
-          key={m.id}
-          type="button"
-          data-freq-mode={m.id}
-          onClick={() => setMode(m.id)}
-          style={{
-            padding: '4px 8px', fontSize: 11, fontWeight: 600,
-            cursor: 'pointer', border: 'none',
-            background: mode === m.id ? 'var(--accent)' : 'transparent',
-            color: mode === m.id ? '#fff' : 'var(--text-muted)',
-          }}
-        >
-          {m.label}
-        </button>
-      ))}
-    </div>
-  );
-
-  const valueControl = mode === 'delta' ? (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-      <NumberStepper size="sm" live value={delta} min={-98} max={98} onChange={setDelta}
-        ariaLabel="flights per week to add or remove on each aircraft"
-        decTitle="One fewer" incTitle="One more" />
-      <span style={{ color: 'var(--text-muted)' }}>flights/wk per aircraft</span>
-    </span>
-  ) : mode === 'set' ? (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-      <NumberStepper size="sm" live value={target} min={1} max={MAX_FREQ_UI} onChange={setTarget}
-        ariaLabel="flights per week on each aircraft"
-        decTitle="One fewer" incTitle="One more" />
-      <span style={{ color: 'var(--text-muted)' }}>flights/wk on each aircraft</span>
-    </span>
-  ) : (
-    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-      as many flights as each aircraft's hours and the gate slots allow
-    </span>
-  );
-
-  const button = (
-    <button
-      className="btn btn-primary"
-      style={{ fontSize: 13 }}
-      disabled={!plan || plan.changed === 0}
-      onClick={() => onApply(plan, { routeIds, mode, value })}
-    >
-      Apply
-    </button>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexBasis: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Flights/wk</span>
-        {modeButtons}
-        {valueControl}
-        {button}
-      </div>
-      {plan && <FrequencyPlanSummary plan={plan} mode={mode} />}
-    </div>
-  );
+  return <RouteFrequencyControls routeIds={routeIdsOf(groups)} onApply={onApply} />;
 }
 function BulkFrequencyModal({ allGroups, onApply, onClose }) {
   const { state } = useGame();
