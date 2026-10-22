@@ -16,7 +16,7 @@
 //   • projectRivalState touches ONLY the four named keys (deny-list); every
 //     other key passes through untouched, and survives missing / null / short
 //     / wrong-typed values exactly like the SQL's jsonb_typeof guards
-//   • the SQL in humanRivals.mjs and its JS twin trim the SAME keys to the
+//   • the SQL (rival_state_of, in its migration) and its JS twin trim the SAME keys to the
 //     SAME depth — editing one without the other fails here
 //
 //   node tools/rival-projection-test.mjs
@@ -276,10 +276,14 @@ await test('missing / null / short / wrong-typed values match the SQL guards', (
 console.log('\n── SQL and its JS twin cannot drift ──────────────────────');
 
 await test('the SQL subtracts, rebuilds and bounds exactly what the twin does', () => {
+  // Since 2026-10-22 the SQL projection lives in the migration that defines
+  // rival_state_of() (it fills Airline."rivalState"); tools/rival-state-column-test.mjs
+  // also RUNS it in PGlite against this twin. These source checks pin it to the
+  // constants, so changing a RIVAL_* constant without a new migration is red.
   const src = readFileSync(
-    fileURLToPath(new URL('../apps/headwinds-server/src/lib/humanRivals.mjs', import.meta.url)),
+    fileURLToPath(new URL('../apps/headwinds-server/prisma/migrations/20261022000000_airline_rival_state/migration.sql', import.meta.url)),
     'utf8');
-  assert.ok(src.includes("- 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo'"),
+  assert.ok(src.includes("(s - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo')"),
     'the SQL no longer subtracts the same five keys the twin touches');
   for (const f of RIVAL_FLEET_FIELDS) {
     assert.ok(src.includes(`'${f}', e->'${f}'`), `the SQL fleet projection dropped field ${f}`);
@@ -292,15 +296,13 @@ await test('the SQL subtracts, rebuilds and bounds exactly what the twin does', 
   }
   assert.ok((src.match(/WITH ORDINALITY/g) ?? []).length >= 3 && (src.match(/ORDER BY ord/g) ?? []).length >= 3,
     'an array projection lost its ORDER BY ord — jsonb_agg over SRF output does not guarantee element order');
-  assert.ok(src.includes('`[last-${RIVAL_FIN_KEEP - 1} to last]`'),
-    'the financialHistory tail is no longer derived from RIVAL_FIN_KEEP');
-  assert.ok(src.includes('`[last-${RIVAL_STATS_KEEP - 1} to last]`'),
-    'the statsHistory tail is no longer derived from RIVAL_STATS_KEEP');
-  assert.ok(src.includes("'$.financialHistory' + finTail") && src.includes("'$.statsHistory' + statsTail"),
-    'a bounded jsonpath is no longer built for one of the history series');
-  assert.ok(src.includes(`a.state#>'{lastReport,reputation}'`)
-         && src.includes(`a.state#>'{lastReport,reputationScore}'`)
-         && src.includes(`a.state#>'{lastReport,totalPassengers}'`),
+  assert.ok(src.includes(`'$.financialHistory[last-${RIVAL_FIN_KEEP - 1} to last]'::jsonpath`),
+    'the financialHistory tail in rival_state_of() no longer matches RIVAL_FIN_KEEP');
+  assert.ok(src.includes(`'$.statsHistory[last-${RIVAL_STATS_KEEP - 1} to last]'::jsonpath`),
+    'the statsHistory tail in rival_state_of() no longer matches RIVAL_STATS_KEEP');
+  assert.ok(src.includes(`s#>'{lastReport,reputation}'`)
+         && src.includes(`s#>'{lastReport,reputationScore}'`)
+         && src.includes(`s#>'{lastReport,totalPassengers}'`),
     'the SQL no longer preserves the three lastReport fields the rival path reads');
   assert.deepStrictEqual(RIVAL_DROPPED_KEYS, ['customLogo'],
     'RIVAL_DROPPED_KEYS changed — update the SQL subtraction AND this test together');

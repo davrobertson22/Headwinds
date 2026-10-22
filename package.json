@@ -117,5 +117,8 @@
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11"
+  }
 }

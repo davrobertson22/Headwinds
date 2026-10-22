@@ -192,6 +192,14 @@ model Airline {
   // SET_BRANDING, and unchanged-column TOAST chunks are never rewritten.
   // lib/logoColumn.mjs is the single read/write contract.
   customLogo  String?
+  // The rival-facing trim of `state` (humanRivals.mjs projectRivalState / SQL
+  // rival_state_of), kept by a trigger on every `state` write — migration
+  // 20261022000000_airline_rival_state. loadRivalRows reads it so a rival
+  // rebuild never detoasts whole blobs (the Postgres OOM crashes of Oct 2026).
+  // @ignore: the Prisma client never selects it, so ordinary airline reads
+  // don't pay for a second copy. Only raw SQL reads it; only the trigger and
+  // tools/backfill-rival-state.mjs write it.
+  rivalState  Json? @ignore
   cash        BigInt        @default(0)
   marketCap   BigInt        @default(0)
   // Shares outstanding. Per-airline since the capital-markets rework: issuance

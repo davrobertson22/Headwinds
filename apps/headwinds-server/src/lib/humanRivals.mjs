@@ -804,7 +804,9 @@ export const RIVAL_DROPPED_KEYS = ['customLogo'];
 const pickFields = (fields) => (e) =>
   Object.fromEntries(fields.map((f) => [f, (e?.[f] ?? null)]));
 
-// JS twin of the SQL projection in loadRivalRows(). Two jobs: it IS the
+// JS twin of the SQL projection rival_state_of() (prisma/migrations/
+// 20261022000000_airline_rival_state), which fills Airline."rivalState" and
+// which loadRivalRows() reads. Two jobs: it IS the
 // implementation for callers that hand us a prisma double with no $queryRaw
 // (the test harnesses), and it is what tools/rival-projection-test.mjs drives to
 // prove that trimming changes no rival view. Keep the two in lockstep — each
@@ -849,58 +851,23 @@ export async function loadRivalRows(prisma, worldId) {
       ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(r.state),
     }));
   }
-  // `last-N to last` is clamped by Postgres on short arrays (a 3-entry series
-  // returns all 3, not an error), and lax mode means a missing key yields no
-  // rows rather than throwing — but a non-array value would be auto-wrapped into
-  // a 1-element array, so the jsonb_typeof guards keep this exactly equal to the
-  // JS twin above. `WITH ORDINALITY ... ORDER BY ord` pins element order —
-  // jsonb_agg over unordered SRF output is not guaranteed to preserve it. Paths
-  // are built from module constants, never user input, and are passed as bound
-  // parameters regardless.
-  const finTail = `[last-${RIVAL_FIN_KEEP - 1} to last]`;
-  const statsTail = `[last-${RIVAL_STATS_KEEP - 1} to last]`;
+  // The trimmed blob is a COLUMN now (migration 20261022000000_airline_rival_state):
+  // a trigger writes rival_state_of(state) into "rivalState" whenever `state`
+  // is written. Trimming in the query meant detoasting every rival's WHOLE blob
+  // inside Postgres on every rebuild (~70 MB for Scarce Assets), and that is
+  // what kept running Postgres out of memory (crashes 2026-10-03, 10-18,
+  // 10-21). COALESCE only evaluates the fallback for a row the backfill
+  // (tools/backfill-rival-state.mjs) has not reached yet, so a filled row never
+  // touches `state`. rival_state_of() is the SQL twin of projectRivalState()
+  // above; tools/rival-state-column-test.mjs runs the migration in PGlite and
+  // proves they agree.
   const rows = await prisma.$queryRaw`
     SELECT a.id, a."worldId", a.name, a.hub, a.status, a.restarts, a.version,
            a."rankScore", a."weeklyProfit", a."netAssets", a."paxWeek", a."flightsWeek", a."fleetSize",
            acc."isOG" AS "accountIsOG", acc."isSupporter" AS "accountIsSupporter",
            acc.email AS "accountEmail",
            left(md5(a."customLogo"), 12) AS "logoHash",  -- = LOGO_HASH_LEN (lib/logoColumn.mjs); a literal, since a bound JS number may arrive as int8 and left() takes int4
-           (a.state - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo')
-             || jsonb_build_object(
-                  'financialHistory',
-                    CASE WHEN jsonb_typeof(a.state->'financialHistory') = 'array'
-                         THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                                        'profit', e->'profit', 'revenue', e->'revenue',
-                                        'passengers', e->'passengers',
-                                        'fuelIndex', e->'fuelIndex', 'fuelMultiplier', e->'fuelMultiplier',
-                                        'depreciation', e->'depreciation', 'loanPayments', e->'loanPayments',
-                                        'loanInterest', e->'loanInterest', 'leaseDepositReturned', e->'leaseDepositReturned') ORDER BY ord), '[]'::jsonb)
-                                 FROM jsonb_array_elements(jsonb_path_query_array(a.state, ${'$.financialHistory' + finTail}::jsonpath))
-                                      WITH ORDINALITY AS fh(e, ord))
-                         ELSE '[]'::jsonb END,
-                  'statsHistory',
-                    CASE WHEN jsonb_typeof(a.state->'statsHistory') = 'array'
-                         THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                                        'sharePrice', e->'sharePrice') ORDER BY ord), '[]'::jsonb)
-                                 FROM jsonb_array_elements(jsonb_path_query_array(a.state, ${'$.statsHistory' + statsTail}::jsonpath))
-                                      WITH ORDINALITY AS sh(e, ord))
-                         ELSE '[]'::jsonb END,
-                  'fleet',
-                    CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
-                         THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                                        'id', e->'id', 'typeId', e->'typeId', 'config', e->'config',
-                                        'ageWeeks', e->'ageWeeks', 'status', e->'status') ORDER BY ord), '[]'::jsonb)
-                                 FROM jsonb_array_elements(a.state->'fleet') WITH ORDINALITY AS fl(e, ord))
-                         ELSE '[]'::jsonb END,
-                  'lastReport',
-                    CASE WHEN jsonb_typeof(a.state->'lastReport') = 'object'
-                         THEN jsonb_build_object(
-                                'reputation',      a.state#>'{lastReport,reputation}',
-                                'reputationScore', a.state#>'{lastReport,reputationScore}',
-                                'totalPassengers', a.state#>'{lastReport,totalPassengers}'
-                              )
-                         ELSE NULL END
-                ) AS state
+           COALESCE(a."rivalState", public.rival_state_of(a.state)) AS state
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
      WHERE a."worldId" = ${worldId} AND a.status = 'ACTIVE'
