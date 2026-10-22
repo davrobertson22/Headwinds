@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { clearFinderFigureCache } from './finderFigures.js';
 
 /**
  * The Route Finder's search, kept while you go and open the route it found.
@@ -45,6 +46,7 @@ export function finderForecastStore() {
 export function clearFinderMemory() {
   memory.clear();
   forecasts.clear();
+  clearFinderFigureCache();
 }
 
 /**

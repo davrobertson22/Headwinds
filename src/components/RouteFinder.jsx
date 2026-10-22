@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
@@ -15,6 +15,8 @@ import OriginPicker from './OriginPicker.jsx';
 import { useSlotPosition, SlotCell, OriginSlotsLine } from './FinderSlots.jsx';
 import BatchOpenReview from './BatchOpenReview.jsx';
 import { useRememberedState, finderMemoryKey, finderForecastStore } from '../utils/finderMemory.js';
+import { loadFigures, saveFigures } from '../utils/finderFigures.js';
+import { getForecastPool } from '../utils/finderWorkerPool.js';
 import { idleTailsOfType, pickKey, MAX_BATCH } from '../../packages/engine/src/models/routeBatch.js';
 
 const PAGE_SIZE = 25;
@@ -57,6 +59,30 @@ function ctxIdentity(ctx) {
   return ctx ? `${ctx.type.id}|${ctx.frame.id}|${ctx.frameLease}|${ctx.weeklyFrequency}` : '';
 }
 
+/** finderForecastContext's input for a context — what a worker rebuilds it from. */
+function ctxInput(ctx) {
+  return {
+    aircraftTypeId: ctx.type.id,
+    aircraft: ctx.frame.id === '__finder__' ? null : ctx.frame,
+    weeklyFrequency: ctx.weeklyFrequency,
+    gameDate: ctx.gameDate,
+    capHours: ctx.capHours,
+  };
+}
+
+/** Tooltip for a dimmed (stale) forecast cell. */
+function staleTip(r) {
+  if (!r.refreshing) return undefined;
+  return r.staleAsOf
+    ? `Updating — this is your last forecast for this route (${r.staleAsOf})`
+    : 'Updating — your network changed, this is the previous forecast';
+}
+
+/** "week 12, 2031" — the week a saved figure was priced in. */
+function asOfLabel(asOf) {
+  return asOf && asOf.week != null && asOf.year != null ? `week ${asOf.week}, ${asOf.year}` : 'an earlier visit';
+}
+
 /**
  * Route Finder — scans every airport reachable from a chosen origin and ranks
  * the markets you don't serve yet.
@@ -77,7 +103,7 @@ function ctxIdentity(ctx) {
  * this screen rather than the next step of a form.
  */
 export default function RouteFinder({ onPick, standalone = false }) {
-  const { state } = useGame();
+  const { state, remoteChrome } = useGame();
   // Free gate slots per airport, counted the way the engine's guards count them.
   const slotPosition = useSlotPosition();
 
@@ -216,16 +242,34 @@ export default function RouteFinder({ onPick, standalone = false }) {
   const ctxId = ctxIdentity(forecastCtx);
   const cacheDeps = [state.routes, rivalKey, state.fleet, state.gates, state.hubs, state.allianceSlotPool,
                      `${ctxId}|${gameDate.month}|${capNow}`];
+  // Saved figures belong to one airline (Headwinds' airline id is unique across
+  // worlds; solo has one airline) and one finder panel.
+  const figureScope = `${remoteChrome?.airlineId ?? ''}|${mem}`;
   let entry = forecastCaches.get(mem);
   if (!entry || !sameDeps(entry.deps, cacheDeps)) {
     // Out of date: start a fresh map, and keep what we had as stale figures
     // when it is still the same airframe being priced.
     let stale = new Map();
+    const savedAsOf = new Map();
     if (entry && ctxId && entry.ctxId === ctxId) {
       stale = entry.stale.size + entry.map.size > MAX_STALE ? new Map(entry.map) : new Map(entry.stale);
       for (const [k, v] of entry.map) stale.set(k, v);
+      for (const [k, label] of entry.savedAsOf ?? []) if (!entry.map.has(k) && stale.has(k)) savedAsOf.set(k, label);
     }
-    entry = { deps: cacheDeps, ctxId, map: new Map(), stale };
+    // The last visit's figures (utils/finderFigures.js) — a reload, a new week,
+    // or this aircraft priced earlier — stand in behind anything priced since,
+    // so the finder opens ranked instead of "forecasting 0 of 150…".
+    const saved = ctxId ? loadFigures(figureScope, ctxId) : null;
+    if (saved) {
+      const label = asOfLabel(saved.asOf);
+      for (const [k, v] of saved.map) {
+        if (stale.size >= MAX_STALE) break;
+        if (stale.has(k)) continue;
+        stale.set(k, v);
+        savedAsOf.set(k, label);
+      }
+    }
+    entry = { deps: cacheDeps, ctxId, map: new Map(), stale, savedAsOf, savedSize: 0 };
     forecastCaches.set(mem, entry);
   }
   const cache = entry.map;
@@ -244,8 +288,13 @@ export default function RouteFinder({ onPick, standalone = false }) {
     return list.filter(r => !r.block);
   }, [forecastCtx, rows, sortedRows, forecastSort, limit]);
 
+  // Who prices: the worker pool (utils/finderWorkerPool.js) where the browser
+  // has one — off the main thread, on several cores — else this render, a
+  // slice at a time. A pool that breaks hands back to the slices.
+  const pool = forecastCtx ? getForecastPool() : null;
+
   // Price what's missing, up to the slice budget.
-  {
+  if (!pool) {
     const t0 = now();
     for (const r of targets) {
       const k = keyOf(r);
@@ -260,10 +309,45 @@ export default function RouteFinder({ onPick, standalone = false }) {
   // next slice. A change of search simply re-targets; nothing priced is lost.
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (pending === 0) return undefined;
+    if (pool || pending === 0) return undefined;
     const t = setTimeout(() => setTick(v => v + 1), 0);
     return () => clearTimeout(t);
   });
+
+  // Worker results arrive a few rows at a time; repaint at most once a frame.
+  const repaint = useRef(null);
+  const bump = () => {
+    if (repaint.current) return;
+    const later = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f) => setTimeout(f, 16);
+    repaint.current = later(() => { repaint.current = null; setTick(v => v + 1); });
+  };
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  useEffect(() => {
+    if (!pool || !forecastCtx) return;
+    const e = entry;
+    const tasks = [];
+    for (const r of targets) {
+      const k = keyOf(r);
+      if (e.map.has(k)) continue;
+      tasks.push({ key: k, row: { origin: r.origin, code: r.code, distKm: r.distKm, refPrice: r.refPrice, block: r.block } });
+    }
+    // Replaces this panel's queue: a new search drops the old one's rows.
+    pool.submit(mem, {
+      state: stateRef.current, ctx: ctxInput(forecastCtx), token: e,
+      onResult: (k, projection) => { e.map.set(k, projection); bump(); },
+      onFail: () => bump(),
+    }, tasks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, entry, targets, forecastCtx]);
+
+  // Everything this view needs is priced: keep it for the next visit.
+  useEffect(() => {
+    if (!ctxId || pending > 0 || cache.size === 0 || entry.savedSize === cache.size) return;
+    entry.savedSize = cache.size;
+    saveFigures(figureScope, ctxId, cache, { year: calendarYear(state), week: state.week ?? null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry, pending, cache.size, ctxId, figureScope]);
 
   const withForecast = (r) => {
     if (!forecastCtx || r.block) return r;
@@ -274,7 +358,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
     }
     if (!stale.has(k)) return r;
     const projection = stale.get(k);
-    return projection ? { ...r, scored: true, projection, refreshing: true } : r;
+    return projection ? { ...r, scored: true, projection, refreshing: true, staleAsOf: entry.savedAsOf?.get(k) ?? null } : r;
   };
   // Under a forecast sort the order is only meaningful once the field is
   // priced; until then the list holds its demand order and says it's working.
@@ -593,7 +677,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               : <span style={{ fontSize: 12, color: 'var(--yellow)' }}>{r.laneRivalCount} airline{r.laneRivalCount !== 1 ? 's' : ''}</span>}
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', opacity: r.refreshing ? 0.55 : 1 }}
-                              title={r.refreshing ? 'Updating — your network changed, this is the previous forecast' : undefined}>
+                              title={staleTip(r)}>
                             {proj
                               ? <span style={{ color: proj.loadFactor >= 0.75 ? 'var(--green)' : proj.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' }}>
                                   {Math.round(proj.loadFactor * 100)}%
@@ -601,7 +685,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               : <span style={{ color: 'var(--text-dim)' }} title={r.block ? 'This aircraft cannot fly here' : forecastReady && !known(keyOf(r)) && pending > 0 ? 'Forecasting…' : forecastReady ? `Outside the ${DEFAULT_SCORE_LIMIT} markets forecast — narrow the search to price it` : 'Pick an aircraft to forecast this market'}>{forecastReady && !r.block && !known(keyOf(r)) && pending > 0 ? '…' : '–'}</span>}
                           </td>
                           <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, opacity: r.refreshing ? 0.55 : 1 }}
-                              title={r.refreshing ? 'Updating — your network changed, this is the previous forecast' : undefined}>
+                              title={staleTip(r)}>
                             {proj
                               ? <span style={{ color: proj.netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
                                   {proj.netProfit >= 0 ? '+' : ''}{formatMoney(proj.netProfit)}

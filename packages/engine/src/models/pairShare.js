@@ -512,7 +512,17 @@ function sliceForRoute(pooled, route, aircraft, pairRoutes, fleet) {
 // impossible. Nothing in the tick reads the probe's aircraft: the memo is
 // exact, not approximate, and planner-memo-test is what says so.
 const NETWORK_TICK_MEMO = new WeakMap();
-const NETWORK_TICK_MEMO_CAP = 64;   // per state — the planner touches a handful of lanes at a time
+// Per state. 64 was sized for the planner, which touches a handful of lanes at
+// a time — but the Route Finder prices 150 on a profit sort, so the memo cleared
+// itself twice a pass and switching the aircraft re-ran every one of those ticks
+// (the tick never sees the aircraft; the answer was the same each time). The memo
+// now keeps only the slice of the tick a projection reads (networkSliceFor), a few
+// hundred bytes rather than the whole network, so it can hold every lane the
+// finder asks about. Discord, 2026-10-21 (VodkaOnFire): 4-8 s per filter change.
+const NETWORK_TICK_MEMO_CAP = 2048;
+let networkTickRuns = 0;
+/** Test seam: how many network ticks projections have actually run (memo misses). */
+export function networkTickRunCount() { return networkTickRuns; }
 
 function memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPrice, gameDate, replacesRouteId }, compute) {
   if (!state || typeof state !== 'object') return compute();
@@ -529,6 +539,30 @@ function memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPr
   if (perState.size >= NETWORK_TICK_MEMO_CAP) perState.clear();
   perState.set(key, value);
   return value;
+}
+
+/**
+ * The part of a network tick one lane's projection reads — what the memo keeps.
+ * Built from the full tick exactly as projectConnectingFeed used to read it
+ * inline (same fields, same summation order), so a memo hit returns the very
+ * numbers a fresh tick would. `key` is the probed lane's pairKeyOf.
+ */
+function networkSliceFor(net, key) {
+  const contestFactors = {};
+  for (const [code, c] of Object.entries(net.hubContestMap ?? {})) contestFactors[code] = c.contestFactor;
+  // Partner-fed passengers seated on this leg (before this tail's feed share).
+  let partnerPaxOnLeg = 0;
+  for (const e of net.partnerODRevenue?.entries ?? []) {
+    if (!e.origin || !e.dest || !e.hub) continue;
+    const legKey = e.partnerLeg === 'leg2' ? pairKeyOf(e.origin, e.hub) : pairKeyOf(e.hub, e.dest);
+    if (legKey === key) partnerPaxOnLeg += e.pax;
+  }
+  return {
+    contestFactors,
+    cannib: net.cannibalizationMap?.[key],
+    ownLeg: net.ownMetalOD?.byRouteKey?.[key] ?? null,
+    partnerPaxOnLeg,
+  };
 }
 
 export function projectConnectingFeed(state, spec) {
@@ -594,22 +628,22 @@ export function projectConnectingFeed(state, spec) {
   // of it here (TheCookiesGuy, Discord, 14 Sep 2026; the same shape as the
   // 11–12 Sep lag reports on Headwinds). Remember the answer per (state, lane,
   // frequency, fare, calendar) and hand it back.
-  const net = memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPrice, gameDate, replacesRouteId }, () =>
-    runNetworkTick({
+  const key = pairKeyOf(origin, destination);
+  const net = memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPrice, gameDate, replacesRouteId }, () => {
+    networkTickRuns++;
+    return networkSliceFor(runNetworkTick({
       routes, competitors, allianceMembership, codeshareAgreements, allianceDef,
       gameDate, hubs, gates, routeCountByAirport, slotsByAirport, demandMultFor, rivalIndex,
-    }));
-  const contestFactors = {};
-  for (const [code, c] of Object.entries(net.hubContestMap ?? {})) contestFactors[code] = c.contestFactor;
-
-  const key = pairKeyOf(origin, destination);
+    }), key);
+  });
+  const contestFactors = net.contestFactors;
   const raw = computeConnectingDemand(
     origin, destination, hubs,
     slotsByAirport[origin] ?? 0, slotsByAirport[destination] ?? 0,
     ticketPrice,
     { weeklyFrequency, partnerHubCodes, gates, contestFactors },
   );
-  const cannib = Math.min(1.0, net.cannibalizationMap?.[key] ?? 1.0);
+  const cannib = Math.min(1.0, net.cannib ?? 1.0);
   const evConn = eventDemandMult * worldMult;
   let extPax     = Math.round(raw.totalPax     * cannib * evConn);
   let extRevenue = Math.round(raw.totalRevenue * cannib * evConn);
@@ -623,20 +657,13 @@ export function projectConnectingFeed(state, spec) {
     pairSeats += configBodies(ac.config ?? {}) * (r.weeklyFrequency ?? 7);
   }
   const feedShare = legacy ? 1 : (pairSeats > 0 ? Math.min(1, (configuredSeatsOneWay ?? 0) / pairSeats) : 1);
-  const ownLeg    = net.ownMetalOD?.byRouteKey?.[key] ?? null;
+  const ownLeg    = net.ownLeg;
   let itinPax     = Math.round((ownLeg?.pax     ?? 0) * feedShare);
   let itinRevenue = Math.round((ownLeg?.revenue ?? 0) * feedShare);
 
   // Partner-fed passengers seated on this leg compete for the same headroom.
   let partnerPaxRaw = 0;
-  if (!legacy) {
-    for (const e of net.partnerODRevenue?.entries ?? []) {
-      if (!e.origin || !e.dest || !e.hub) continue;
-      const legKey = e.partnerLeg === 'leg2' ? pairKeyOf(e.origin, e.hub) : pairKeyOf(e.hub, e.dest);
-      if (legKey === key) partnerPaxRaw += e.pax;
-    }
-    partnerPaxRaw = Math.round(partnerPaxRaw * feedShare);
-  }
+  if (!legacy) partnerPaxRaw = Math.round(net.partnerPaxOnLeg * feedShare);
 
   const seatHeadroom = Math.max(0, Math.round((configuredSeatsOneWay ?? 0) * 0.95) - (odPassengers ?? 0));
   const wantPax  = extPax + itinPax + partnerPaxRaw;
