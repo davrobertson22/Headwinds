@@ -21,6 +21,7 @@ import FuelBasisChip, { fuelBasisTitle } from './FuelBasisChip.jsx';
 import FuelFarmControls from './FuelFarmControls.jsx';
 import { stationFuelBasis, stationFuelDriver, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 import { useConfirm } from './ConfirmModal.jsx';
+import useIsMobile from '../hooks/useIsMobile.js';
 import {
   canBuildLounge, isLoungeOpen, loungeCloseRefund,
   LOUNGE_BUILD_COST, LOUNGE_BUILD_WEEKS, LOUNGE_WEEKLY_OPEX,
@@ -500,6 +501,10 @@ function LoungeCard({ code }) {
 
 export default function AirportDetail({ code, onBack }) {
   const { state } = useGame();
+  // Below ~960px the card grid holds at most two columns, where "the whole row"
+  // and "two cards" are the same thing — except on a phone, where there is ONE
+  // column and `span 2` invents a second, pushing half the page off-screen.
+  const narrow    = useIsMobile(960);
   const airport   = getAirport(code);
   const gates     = state.gates ?? {};
   const hubs      = state.hubs  ?? (state.hub ? { [state.hub]: { tier: 1 } } : {});
@@ -824,7 +829,7 @@ export default function AirportDetail({ code, onBack }) {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 12 }}>
 
         {/* GATE_SITUATION_CARD — who holds the gates here (scarcity worlds) */}
         {scarcity && (
@@ -1176,7 +1181,7 @@ export default function AirportDetail({ code, onBack }) {
         </div>
 
         {/* Passenger flows — top pairs */}
-        <div className="card" style={{ gridColumn: 'span 2' }}>
+        <div className="card" style={{ gridColumn: narrow ? '1 / -1' : 'span 2' }}>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>
             Passenger Flows
             <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>
