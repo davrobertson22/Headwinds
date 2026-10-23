@@ -17,6 +17,7 @@ import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf, eventRulesOfWorld } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
+import { beginAppRivalStates, rivalStateFor, writeRivalStates } from './rivalStateWrite.mjs';
 import { farmFeeOn } from '@tailwinds/engine/data/fuelFarm.js';
 import { splitLogo } from './logoColumn.mjs';
 import {
@@ -376,9 +377,16 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         data: { worldId: world.id, week: toIndex, status: 'ok', finishedAt: new Date() },
       });
 
+      // Airline."rivalState" for the rows this week writes comes from JS, not
+      // from the per-row trigger (~0.15 s per MB of state inside Postgres; ~10 s
+      // of Scarce Assets' commit on 2026-10-22). See lib/rivalStateWrite.mjs.
+      const appRivalStates = await beginAppRivalStates(tx);
+      const rivalStates = new Map();
+
       // Version compare-and-set: never clobber a player decision that landed
       // between our read and this write. Returns whether the row was taken.
       const writeAirline = async (c) => {
+        const persisted = splitLogo(stripRivals(c.next)).state;
         const res = await tx.airline.updateMany({
           where: { id: c.airline.id, version: c.airline.version ?? 0 },
           data: {
@@ -388,7 +396,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             // customLogo key that reaches here (a pre-migration blob) is simply
             // dropped — the column already holds the value (backfilled by
             // migration 20260824000000) and the tick never writes that column.
-            state: splitLogo(stripRivals(c.next)).state,
+            state: persisted,
             cash: BigInt(c.cash),
             marketCap: BigInt(c.marketCap),
             shares: BigInt(c.shares > 0 ? c.shares : 100_000_000),
@@ -399,6 +407,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
           },
         });
+        if (res.count > 0 && appRivalStates) rivalStates.set(c.airline.id, rivalStateFor(persisted));
         return res.count > 0;
       };
       const writtenRow = (c) => ({
@@ -485,6 +494,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           log.error(`[tick] world ${world.id} airline ${id} recompute failed — skipped, loses this week:`, err?.message ?? err);
         }
       }
+
+      // Every airline row written above (first pass and recomputes) gets its
+      // "rivalState" in one statement — the trigger stood aside for them.
+      if (appRivalStates) await writeRivalStates(tx, rivalStates);
 
       // ── Fleet renewal sales → world used market ─────────────────────────
       // A tail the renewal sold is listed exactly as a SELL_AIRCRAFT decision

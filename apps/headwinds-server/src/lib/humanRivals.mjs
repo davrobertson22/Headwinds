@@ -853,7 +853,9 @@ export async function loadRivalRows(prisma, worldId) {
   }
   // The trimmed blob is a COLUMN now (migration 20261022000000_airline_rival_state):
   // a trigger writes rival_state_of(state) into "rivalState" whenever `state`
-  // is written. Trimming in the query meant detoasting every rival's WHOLE blob
+  // is written — except in the weekly tick, which writes the same value from
+  // projectRivalState() in JS (lib/rivalStateWrite.mjs, migration
+  // 20261023000000_rival_state_app_writer). Trimming in the query meant detoasting every rival's WHOLE blob
   // inside Postgres on every rebuild (~70 MB for Scarce Assets), and that is
   // what kept running Postgres out of memory (crashes 2026-10-03, 10-18,
   // 10-21). COALESCE only evaluates the fallback for a row the backfill
