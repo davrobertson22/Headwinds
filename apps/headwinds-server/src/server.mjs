@@ -11,6 +11,7 @@ import compress from '@fastify/compress';
 import { env } from './env.mjs';
 import { prisma } from './db.mjs';
 import { errorHandler } from './lib/errorHandler.mjs';
+import { installProcessGuards } from './lib/processGuard.mjs';
 import { probeDatabase, healthReport } from './lib/health.mjs';
 import meRoutes from './routes/me.mjs';
 import playerRoutes from './routes/players.mjs';
@@ -92,6 +93,10 @@ export function buildServer() {
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const app = buildServer();
+  // A transaction that times out on a dead socket used to crash the process
+  // from inside Prisma's own timer — 11 times on 2026-10-23, then 3h down once
+  // Railway stopped restarting. See lib/processGuard.mjs.
+  installProcessGuards({ log: app.log, label: 'api' });
   app.listen({ port: env.port, host: '0.0.0.0' })
     .then(() => app.log.info(`Headwinds API on :${env.port}`))
     .catch((err) => { app.log.error(err); process.exit(1); });

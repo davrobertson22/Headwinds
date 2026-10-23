@@ -13,8 +13,12 @@ import { prisma } from '../src/db.mjs';
 import { getHeapStatistics } from 'node:v8';
 import { runDueTicks, TICK_TX_OPTS } from '../src/lib/tickService.mjs';
 import { createTickGuard } from '../src/lib/tickGuard.mjs';
+import { installProcessGuards } from '../src/lib/processGuard.mjs';
 
 const log = console;
+// Same Prisma tx-timer rejection that crashed the API 11 times on 2026-10-23
+// (lib/processGuard.mjs). A crashed worker stops every world's clock.
+installProcessGuards({ log, label: 'worker' });
 const TICK_CHECK_MS = env.tickCheckSeconds * 1000;
 
 // Simple in-process lock so overlapping runs can't double up.

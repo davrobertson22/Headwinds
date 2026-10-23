@@ -172,7 +172,7 @@ await test('tickService: mark before the writes, column after the recompute pass
   assert.ok(begin > 0 && firstWrite > begin, 'marked before the first airline write');
   assert.ok(flush > recompute && flush < renewals, 'flushed after the recompute pass');
   const wa = src.slice(src.indexOf('const writeAirline = async (c) => {'), firstWrite);
-  assert.match(wa, /const persisted = splitLogo\(stripRivals\(c\.next\)\)\.state;/);
+  assert.match(wa, /const persisted = splitLogo\(compactReportForStorage\(stripRivals\(c\.next\)\)\)\.state;/);
   assert.match(wa, /state: persisted,/);
   assert.match(wa, /rivalStates\.set\(c\.airline\.id, rivalStateFor\(persisted\)\)/);
 });

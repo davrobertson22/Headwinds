@@ -32,6 +32,7 @@ import { fireSaleAirline } from './fireSaleService.mjs';
 import { tombstoneAirline } from './tombstone.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
+import { compactReportForStorage } from './reportStorage.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
@@ -386,7 +387,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Version compare-and-set: never clobber a player decision that landed
       // between our read and this write. Returns whether the row was taken.
       const writeAirline = async (c) => {
-        const persisted = splitLogo(stripRivals(c.next)).state;
+        // compactReportForStorage: partner O&D itineraries folded to per-hub
+        // sums (5.7 MB of one 15 MB save on 2026-10-23). See lib/reportStorage.mjs.
+        const persisted = splitLogo(compactReportForStorage(stripRivals(c.next))).state;
         const res = await tx.airline.updateMany({
           where: { id: c.airline.id, version: c.airline.version ?? 0 },
           data: {
