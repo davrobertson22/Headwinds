@@ -40,7 +40,27 @@ import {
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
 // default 5s interactive-transaction timeout — at scale that timed out and rolled
 // the whole week back, so the world could never advance. Give it real headroom.
-const TICK_TX_OPTS = { timeout: 30_000, maxWait: 15_000 };
+//
+// The budget is TICK_TX_TIMEOUT_MS (worker env), default 30s. 2026-10-22: the
+// Airline."rivalState" trigger pushed Scarce Assets' commit from ~20s to ~31s, so
+// every attempt expired (P2028), rolled back and was retried until the worker ran
+// out of heap; the worlds queued behind it never ticked. The env var lets the
+// budget move without a code change. A longer budget also means players in that
+// world wait longer on their own writes while the week commits (row locks).
+export const TICK_TX_TIMEOUT_DEFAULT_MS = 30_000;
+export const TICK_TX_TIMEOUT_MIN_MS = 5_000;
+export const TICK_TX_TIMEOUT_MAX_MS = 600_000;
+
+/** Transaction options for the weekly commit, read from `source` (process.env). */
+export function tickTxOpts(source = process.env) {
+  const raw = Number(String(source?.TICK_TX_TIMEOUT_MS ?? '').trim() || NaN);
+  const timeout = Number.isFinite(raw) && raw >= TICK_TX_TIMEOUT_MIN_MS && raw <= TICK_TX_TIMEOUT_MAX_MS
+    ? Math.round(raw)
+    : TICK_TX_TIMEOUT_DEFAULT_MS;
+  return { timeout, maxWait: 15_000 };
+}
+
+export const TICK_TX_OPTS = tickTxOpts();
 
 // How many undrained toasts an airline's blob may carry between ticks. Only
 // reached by an airline nobody has opened in weeks; the news feed is the
@@ -648,7 +668,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     }, {
       ...TICK_TX_OPTS,
       // No client is waiting on the worker, so the player-request deadline in
-      // lib/tx.mjs must not clamp the tick's 30s budget.
+      // lib/tx.mjs must not clamp the tick's budget (TICK_TX_TIMEOUT_MS).
       deadlineMs: null,
       // The world-clock advance at the top is a compare-and-set, so a retried tick
       // that lost a deadlock re-claims the same week or bails as `lostRace` — never

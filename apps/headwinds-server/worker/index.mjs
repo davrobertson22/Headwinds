@@ -10,7 +10,8 @@
 // admin-only, via the "+ Create a world" button / POST /worlds.)
 import { env } from '../src/env.mjs';
 import { prisma } from '../src/db.mjs';
-import { runDueTicks } from '../src/lib/tickService.mjs';
+import { getHeapStatistics } from 'node:v8';
+import { runDueTicks, TICK_TX_OPTS } from '../src/lib/tickService.mjs';
 import { createTickGuard } from '../src/lib/tickGuard.mjs';
 
 const log = console;
@@ -61,6 +62,12 @@ async function tickOnce() {
 log.info(
   `[worker] starting — tick check every ${env.tickCheckSeconds}s ` +
   `(catch-up cap ${env.tickMaxCatchUp}); world creation is admin-only (no spawner)`
+);
+// So the logs show the limits this process actually runs under (TICK_TX_TIMEOUT_MS,
+// NODE_OPTIONS=--max-old-space-size) — 2026-10-22's crash loop was both.
+log.info(
+  `[worker] week commit budget ${Math.round(TICK_TX_OPTS.timeout / 1000)}s; ` +
+  `JS heap limit ${Math.round(getHeapStatistics().heap_size_limit / 1048576)} MB`
 );
 
 await tickOnce(); // run immediately on boot
