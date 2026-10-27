@@ -9,7 +9,14 @@
 //
 // Inventory is fetched from GET /worlds/:id/used-aircraft (remoteApi.fetchUsedAircraft)
 // rather than injected into state, so this whole feature is inert in solo.
-import { useState, useEffect, useCallback, useMemo } from 'react';
+//
+// Bulk buy: "add checkboxes next to aircraft so you can tag a number and then bulk
+// purchase. On a laggy(er) server, it takes minutes rather than seconds to buy
+// aircraft" (VodkaOnFire, Discord 2026-10-25). Tick rows (shift-click ticks a
+// range), and one request buys them all (remoteApi.buyUsedAircraftBatch → POST
+// /worlds/:id/used-aircraft/buy). Any the server can't sell you — bought out from
+// under you, or past your cash — are skipped and named; the rest go through.
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { useToast } from './ToastSystem.jsx';
 import { formatMoney } from '../utils/simulation.js';
@@ -36,6 +43,10 @@ const fmtAge = (weeks) => {
   return `${yrs.toFixed(1)} yr`;
 };
 
+// The most one bulk purchase may name — the server's USED_BATCH_MAX
+// (apps/headwinds-server/src/lib/aircraftMarketService.mjs).
+export const USED_BATCH_MAX = 50;
+
 const SORTS = {
   price: { label: 'Price',    fn: (a, b) => (a.price ?? 0) - (b.price ?? 0) },
   age:   { label: 'Age',      fn: (a, b) => (a.ageWeeks ?? 0) - (b.ageWeeks ?? 0) },
@@ -43,13 +54,17 @@ const SORTS = {
   seats: { label: 'Seats',    fn: (a, b) => (b.seats ?? 0) - (a.seats ?? 0) },
 };
 
-export default function UsedMarket() {
+// initialListings / initialSelected are for server-side render tests only: the
+// live market is fetched in an effect, which a server render never runs.
+export default function UsedMarket({ initialListings = null, initialSelected = null } = {}) {
   const { state, remote, remoteApi } = useGame();
   const addToast = useToast();
-  const [listings, setListings] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [listings, setListings] = useState(() => initialListings ?? []);
+  const [loading, setLoading]   = useState(() => initialListings == null);
   const [error, setError]       = useState(null);
-  const [busyId, setBusyId]     = useState(null);
+  const [busyId, setBusyId]     = useState(null);   // a listing id, or 'batch'
+  const [selected, setSelected] = useState(() => new Set(initialSelected ?? []));
+  const lastTicked = useRef(null);
   const [sortKey, setSortKey]   = useState('price');
   const [filters, setFiltersState] = useState(loadUsedFilters);
   function setFilters(patch) {
@@ -62,6 +77,17 @@ export default function UsedMarket() {
   const ownedFamilies = useMemo(() => ownedFamilyIds(state.fleet, state.pendingOrders), [state.fleet, state.pendingOrders]);
 
   const canUse = remote && typeof remoteApi?.fetchUsedAircraft === 'function';
+  const canBatch = canUse && typeof remoteApi?.buyUsedAircraftBatch === 'function';
+
+  // A listing that has left the market (bought, scrapped) can't stay ticked.
+  useEffect(() => {
+    setSelected(prev => {
+      if (prev.size === 0) return prev;
+      const live = new Set(listings.map(l => l.id));
+      const next = new Set([...prev].filter(id => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [listings]);
 
   const refresh = useCallback(async () => {
     if (!canUse) { setLoading(false); return; }
@@ -102,6 +128,42 @@ export default function UsedMarket() {
     }
   }, [busyId, remoteApi, refresh, addToast]);
 
+  const buyBatch = useCallback(async (rows) => {
+    if (busyId || rows.length === 0) return;
+    setBusyId('batch');
+    try {
+      const res = await remoteApi.buyUsedAircraftBatch(rows.map(l => l.id));
+      if (Array.isArray(res?.usedMarket?.listings)) setListings(res.usedMarket.listings);
+      else await refresh();
+      const bought = Array.isArray(res?.bought) ? res.bought : [];
+      const skipped = Array.isArray(res?.skipped) ? res.skipped : [];
+      const spent = bought.reduce((sum, b) => sum + (b.price ?? 0), 0);
+      setSelected(new Set());
+      lastTicked.current = null;
+      addToast({
+        type: 'success',
+        title: `${bought.length} used aircraft purchased`,
+        message: `${formatMoney(spent)} spent — ${bought.length === 1 ? 'it arrives' : 'they arrive'} next week.`,
+        icon: '✈',
+        duration: 6000,
+      });
+      if (skipped.length > 0) {
+        addToast({
+          type: 'warning',
+          title: `${skipped.length} not bought`,
+          message: skipped.slice(0, 4).map(k => `${k.typeName ?? 'Aircraft'}: ${k.reason}`).join(' ')
+            + (skipped.length > 4 ? ` …and ${skipped.length - 4} more.` : ''),
+          duration: 9000,
+        });
+      }
+    } catch (e) {
+      addToast({ type: 'error', title: 'Purchase failed', message: e?.message || String(e), duration: 6000 });
+      refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }, [busyId, remoteApi, refresh, addToast]);
+
   if (!remote) {
     return (
       <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -114,6 +176,49 @@ export default function UsedMarket() {
   const visible = listings.filter(l => usedListingPasses(l, filters, ownedFamilies));
   const sorted = [...visible].sort(SORTS[sortKey].fn);
   const hidden = listings.length - visible.length;
+
+  // Selection: only what's on screen counts — a ticked jet the filters now hide is
+  // never bought behind the player's back. Bought in the order shown, so if cash
+  // runs short the server skips from the bottom of the list the player is looking at.
+  const cash = state.cash ?? 0;
+  const tickable = (l) => l.price <= cash;
+  const chosen = sorted.filter(l => selected.has(l.id));
+  const chosenTotal = chosen.reduce((sum, l) => sum + (l.price ?? 0), 0);
+  const shortBy = Math.max(0, chosenTotal - cash);
+  const pageTickable = sorted.filter(tickable).slice(0, USED_BATCH_MAX);
+  const allTicked = pageTickable.length > 0 && pageTickable.every(l => selected.has(l.id));
+  const busy = busyId != null;
+
+  const toggleRow = (l, index, shiftKey) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      const on = !prev.has(l.id);
+      // Shift-click: tick (or untick) every row between the last one clicked and this.
+      const from = shiftKey && lastTicked.current != null ? Math.min(lastTicked.current, index) : index;
+      const to   = shiftKey && lastTicked.current != null ? Math.max(lastTicked.current, index) : index;
+      for (let i = from; i <= to; i++) {
+        const row = sorted[i];
+        if (!row || !tickable(row)) continue;
+        if (on) { if (next.size < USED_BATCH_MAX) next.add(row.id); }
+        else next.delete(row.id);
+      }
+      return next;
+    });
+    lastTicked.current = index;
+  };
+  const toggleAll = () => {
+    setSelected(prev => {
+      if (allTicked) {
+        const next = new Set(prev);
+        for (const l of pageTickable) next.delete(l.id);
+        return next;
+      }
+      const next = new Set(chosen.map(l => l.id));
+      for (const l of pageTickable) { if (next.size >= USED_BATCH_MAX) break; next.add(l.id); }
+      return next;
+    });
+    lastTicked.current = null;
+  };
   const chip = (on) => ({
     display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
     padding: '3px 10px', borderRadius: 20, fontSize: 11.5, whiteSpace: 'nowrap', cursor: 'pointer',
@@ -180,10 +285,62 @@ export default function UsedMarket() {
         </div>
       </div>
 
+      {canBatch && chosen.length > 0 && (
+        <div
+          data-used-bulk-bar=""
+          className="card"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '8px 14px', marginBottom: 8, fontSize: 12.5,
+            border: '1px solid var(--accent)', background: 'rgba(56,139,253,0.08)',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <strong>{chosen.length} selected</strong> · {formatMoney(chosenTotal)}
+            {shortBy > 0 && (
+              <span data-used-bulk-short="" style={{ color: 'var(--red)', marginLeft: 6 }}>
+                — {formatMoney(shortBy)} more than your cash
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: 11.5, padding: '4px 10px' }}
+            disabled={busy}
+            onClick={() => { setSelected(new Set()); lastTicked.current = null; }}
+          >Clear</button>
+          <button
+            type="button"
+            data-used-bulk-buy=""
+            className="btn btn-primary"
+            style={{ fontSize: 11.5, padding: '4px 12px' }}
+            disabled={busy || shortBy > 0}
+            title={shortBy > 0 ? 'Not enough cash for all of these' : 'All deliver on the next weekly tick'}
+            onClick={() => buyBatch(chosen)}
+          >
+            {busyId === 'batch' ? 'Buying…' : `Buy ${chosen.length} used`}
+          </button>
+        </div>
+      )}
+
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
           <thead>
             <tr style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {canBatch && (
+                <th style={{ width: 34, padding: '10px 0 10px 14px' }}>
+                  <input
+                    type="checkbox"
+                    data-used-select-all=""
+                    aria-label={`Select every affordable aircraft shown (up to ${USED_BATCH_MAX})`}
+                    title={`Select every aircraft shown that you can afford (up to ${USED_BATCH_MAX})`}
+                    checked={allTicked}
+                    disabled={busy || pageTickable.length === 0}
+                    onChange={toggleAll}
+                  />
+                </th>
+              )}
               <th style={{ textAlign: 'left',  padding: '10px 14px' }}>Aircraft</th>
               <th style={{ textAlign: 'left',  padding: '10px 8px'  }}>Category</th>
               <th style={{ textAlign: 'right', padding: '10px 8px'  }}>Age</th>
@@ -193,10 +350,30 @@ export default function UsedMarket() {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((l) => {
-              const affordable = (state.cash ?? 0) >= l.price;
+            {sorted.map((l, index) => {
+              const affordable = cash >= l.price;
+              const ticked = selected.has(l.id);
+              const full = !ticked && selected.size >= USED_BATCH_MAX;
               return (
-                <tr key={l.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <tr
+                  key={l.id}
+                  style={{ borderTop: '1px solid var(--border)', background: ticked ? 'rgba(56,139,253,0.06)' : undefined }}
+                >
+                  {canBatch && (
+                    <td style={{ padding: '9px 0 9px 14px' }}>
+                      <input
+                        type="checkbox"
+                        data-used-select={l.id}
+                        aria-label={`Select ${l.typeName}`}
+                        title={!affordable ? 'Not enough cash'
+                          : full ? `At most ${USED_BATCH_MAX} at once`
+                          : 'Select to buy several at once (shift-click selects a range)'}
+                        checked={ticked}
+                        disabled={busy || !affordable || full}
+                        onChange={(e) => toggleRow(l, index, !!e.nativeEvent?.shiftKey)}
+                      />
+                    </td>
+                  )}
                   <td style={{ padding: '9px 14px' }}>
                     <div style={{ fontWeight: 600 }}>{l.typeName}</div>
                     <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
@@ -211,7 +388,7 @@ export default function UsedMarket() {
                     <button
                       className="btn btn-primary"
                       style={{ fontSize: 11.5, padding: '4px 12px' }}
-                      disabled={!affordable || busyId != null}
+                      disabled={!affordable || busy}
                       title={affordable ? 'Delivers on the next weekly tick' : 'Not enough cash'}
                       onClick={() => buy(l)}
                     >
@@ -222,7 +399,7 @@ export default function UsedMarket() {
               );
             })}
             {sorted.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 22, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12.5 }}>
+              <tr><td colSpan={canBatch ? 7 : 6} style={{ padding: 22, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12.5 }}>
                 {loading ? 'Loading the market…'
                   : error ? `Couldn't load the market: ${error}`
                   : hidden > 0 ? `${hidden} used aircraft on the market, none matching your filters.`
@@ -235,7 +412,7 @@ export default function UsedMarket() {
 
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
         <GlyphLabel size={11} text={
-          'ℹ Used aircraft come from other airlines selling their fleet. You buy at the jet\'s depreciated value (NAV) — cheaper than a new order — and it arrives on the next weekly tick, carrying its real age, cabin and engines (so it costs a little more to maintain and has less life left). '
+          'ℹ Used aircraft come from other airlines selling their fleet. Tick several to buy them in one go. You buy at the jet\'s depreciated value (NAV) — cheaper than a new order — and it arrives on the next weekly tick, carrying its real age, cabin and engines (so it costs a little more to maintain and has less life left). '
           + 'Selling any owned jet (Fleet ▸ Sell) pays you NAV − 5% instantly and lists it here for others. A jet bought here never sells back, or borrows, for more than you paid for it.'
         } />
       </div>

@@ -12,6 +12,8 @@
 //           shapes (cheatline, swoosh, belly, …) are drawn against
 //   titles  the x-span for the airline name, above the window line
 //   logo    centre and size of the logo box on the fin
+//   fuselageLogo  vertical centre, size and gap to the name of the logo on
+//           the forward fuselage; it starts at titles.x0 and the name moves aft
 //
 // One template today: every aircraft category paints onto the 737-800 until
 // more are bought (see claude/livery-editor.md — a $15 donation funds a type).
@@ -44,6 +46,7 @@ export const LIVERY_TEMPLATES = {
     body: { crown: 793, belly: 1266, windowTop: 942, windowBottom: 988, noseX: 0, tailX: 4447 },
     titles: { x0: 700, x1: 1800 },
     logo: { cx: 4160, cy: 440, size: 290 },
+    fuselageLogo: { cy: 842, size: 84, gap: 32 },
   },
 };
 

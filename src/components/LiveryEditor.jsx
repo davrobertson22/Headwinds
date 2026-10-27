@@ -71,7 +71,7 @@ export default function LiveryEditor({ livery, onChange, onReset, airlineName, l
               onClick={() => set({ style: s })}
               title={LIVERY_STYLE_LABELS[s]}
             >
-              <LiveryPlane livery={{ ...l, style: s, titlesOn: false, logoOnTail: false }} templateId={tpl.id} width={88} style={{ width: '100%', height: 'auto' }} />
+              <LiveryPlane livery={{ ...l, style: s, titlesOn: false, logoOnTail: false, logoOnFuselage: false }} templateId={tpl.id} width={88} style={{ width: '100%', height: 'auto' }} />
               <span>{LIVERY_STYLE_LABELS[s]}</span>
             </button>
           ))}
@@ -111,6 +111,7 @@ export default function LiveryEditor({ livery, onChange, onReset, airlineName, l
         </div>
         <div className="livery-opts">
           <label><input type="checkbox" checked={l.logoOnTail} onChange={e => set({ logoOnTail: e.target.checked })} /> Logo on the tail</label>
+          <label><input type="checkbox" checked={l.logoOnFuselage} onChange={e => set({ logoOnFuselage: e.target.checked })} /> Logo on the fuselage</label>
           <label><input type="checkbox" checked={l.titlesOn} onChange={e => set({ titlesOn: e.target.checked })} /> Airline name on the fuselage</label>
           {onReset && !isDefault && (
             <button type="button" className="livery-link" onClick={onReset}>Reset to default</button>

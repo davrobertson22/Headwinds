@@ -13,6 +13,8 @@
 //   style       one of LIVERY_STYLES
 //   titles      colour of the airline name on the fuselage
 //   logoOnTail  draw the airline's logo on the fin
+//   logoOnFuselage  draw it on the forward fuselage too, ahead of the name
+//               (off by default, so liveries saved before it look the same)
 //   titlesOn    draw the airline name on the fuselage
 
 export const LIVERY_STYLES = ['none', 'classic', 'belly', 'swoosh', 'retro', 'tail-wrap'];
@@ -33,6 +35,7 @@ export const DEFAULT_LIVERY = Object.freeze({
   style:      'none',
   titles:     LIVERY_INK,
   logoOnTail: true,
+  logoOnFuselage: false,
   titlesOn:   true,
 });
 
@@ -74,8 +77,15 @@ export function normalizeLivery(raw, accent) {
     style:      LIVERY_STYLES.includes(src.style) ? src.style : DEFAULT_LIVERY.style,
     titles:     col(src.titles,    DEFAULT_LIVERY.titles),
     logoOnTail: src.logoOnTail !== false,
+    logoOnFuselage: src.logoOnFuselage === true,
     titlesOn:   src.titlesOn !== false,
   };
+}
+
+/** True when the livery paints the airline's logo anywhere (fin or body). */
+export function liveryNeedsLogo(livery) {
+  const l = normalizeLivery(livery, livery?.tail);
+  return l.logoOnTail || l.logoOnFuselage;
 }
 
 /** True when `raw` could be a livery at all (an object); the guard refuses the rest. */
@@ -97,5 +107,5 @@ export function liveryFor(state) {
 /** Stable key for caches: the livery's fields in a fixed order. */
 export function liveryKey(livery) {
   const l = normalizeLivery(livery, livery?.tail);
-  return [l.fuselage, l.tail, l.engines, l.cheatline, l.style, l.titles, l.logoOnTail ? 1 : 0, l.titlesOn ? 1 : 0].join('|');
+  return [l.fuselage, l.tail, l.engines, l.cheatline, l.style, l.titles, l.logoOnTail ? 1 : 0, l.titlesOn ? 1 : 0, l.logoOnFuselage ? 1 : 0].join('|');
 }

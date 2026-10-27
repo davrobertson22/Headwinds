@@ -117,12 +117,25 @@ function drawStyle(p, livery, spec, s, w, h) {
 }
 
 /**
+ * Where the forward-fuselage logo and the airline name go, in template
+ * coordinates. Without a body logo the name has the whole titles span; with
+ * one, the logo takes the front of the span and the name starts after it.
+ *   → { logo: { x, y, size } | null, x0, x1 }
+ */
+export function titlesLayout(spec, livery) {
+  const t = spec.titles, f = spec.fuselageLogo;
+  if (!livery?.logoOnFuselage || !f) return { logo: null, x0: t.x0, x1: t.x1 };
+  return { logo: { x: t.x0, y: f.cy - f.size / 2, size: f.size }, x0: t.x0 + f.size + f.gap, x1: t.x1 };
+}
+
+/**
  * Paint a livery onto a template.
  *   template  { img: HTMLImageElement (decoded), spec }  — see loadLiveryTemplate
  *   livery    anything normalizeLivery accepts
  *   width     output width in px (height follows the template's aspect)
  *   titles    airline name for the fuselage ('' for none)
- *   logo      an image/canvas drawn on the fin when livery.logoOnTail
+ *   logo      an image/canvas drawn on the fin when livery.logoOnTail, and
+ *             on the forward fuselage when livery.logoOnFuselage
  * Returns an HTMLCanvasElement.
  */
 export function paintLivery(template, liveryIn, { width = 1200, titles = '', logo = null, fontFamily = 'Inter, system-ui, -apple-system, sans-serif' } = {}) {
@@ -149,16 +162,17 @@ export function paintLivery(template, liveryIn, { width = 1200, titles = '', log
   drawStyle(p, livery, spec, s, w, h);
 
   const name = livery.titlesOn ? String(titles ?? '').trim() : '';
+  const lay = titlesLayout(spec, livery);
   if (name) {
     const band = (b.windowTop - b.crown) * s;
-    const maxW = (spec.titles.x1 - spec.titles.x0) * s;
+    const maxW = (lay.x1 - lay.x0) * s;
     let fs = band * 0.55;
     p.font = `700 ${fs}px ${fontFamily}`;
     const tw = p.measureText(name).width;
     if (tw > maxW) { fs *= maxW / tw; p.font = `700 ${fs}px ${fontFamily}`; }
     p.fillStyle = livery.titles;
     p.textBaseline = 'alphabetic';
-    p.fillText(name, spec.titles.x0 * s, b.crown * s + band * 0.38 + fs * 0.36);
+    p.fillText(name, lay.x0 * s, b.crown * s + band * 0.38 + fs * 0.36);
   }
 
   const P = p.getImageData(0, 0, w, h);
@@ -174,6 +188,10 @@ export function paintLivery(template, liveryIn, { width = 1200, titles = '', log
   if (logo && livery.logoOnTail && spec.logo) {
     const sz = spec.logo.size * s;
     if (sz >= 3) p.drawImage(logo, spec.logo.cx * s - sz / 2, spec.logo.cy * s - sz / 2, sz, sz);
+  }
+  if (logo && lay.logo) {
+    const sz = lay.logo.size * s;
+    if (sz >= 3) p.drawImage(logo, lay.logo.x * s, lay.logo.y * s, sz, sz);
   }
   const Pf = p.getImageData(0, 0, w, h).data;
 

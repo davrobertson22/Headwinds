@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as LogoModule from './AirlineLogo.jsx';
-import { liveryKey, normalizeLivery } from '../data/livery.js';
+import { liveryKey, liveryNeedsLogo, normalizeLivery } from '../data/livery.js';
 import { liveryTemplateFor, getLiveryTemplate, DEFAULT_LIVERY_TEMPLATE } from '../data/liveryTemplates.js';
 import { paintLivery, loadLiveryTemplate, loadLogoImage } from '../utils/liveryPaint.js';
 
@@ -12,6 +12,7 @@ import { paintLivery, loadLiveryTemplate, loadLogoImage } from '../utils/liveryP
 //   livery     the paint scheme (normalised here; pass liveryFor(state))
 //   titles     airline name on the fuselage ('' / undefined for none)
 //   logo       { id, accentColor, customSrc } — the airline's mark, for the fin
+//              and (when livery.logoOnFuselage) the forward fuselage
 //   category   aircraft category → which template (liveryTemplateFor)
 //   templateId explicit template instead of a category
 //   width      CSS px wide; the canvas paints at device pixel ratio (≤2)
@@ -39,7 +40,7 @@ export default function LiveryPlane({ livery, titles = '', logo = null, category
   const [ready, setReady] = useState(false);
   const norm = normalizeLivery(livery, livery?.tail);
   const lkey = liveryKey(norm);
-  const logoSrc = norm.logoOnTail ? logoSrcFor(logo) : null;
+  const logoSrc = liveryNeedsLogo(norm) ? logoSrcFor(logo) : null;
   const name = norm.titlesOn ? String(titles ?? '').trim() : '';
 
   useEffect(() => {

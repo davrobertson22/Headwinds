@@ -81,6 +81,16 @@ function withStatsBackfill(state) {
   return { ...state, statsHistory: merged };
 }
 
+// A used-aircraft purchase (single or batch) returns the buyer's new state: adopt
+// it, unless a tick has already moved us past the week it was computed in.
+function adoptUsedPurchase(setState, res) {
+  if (res?.state) setState((cur) => {
+    if (res.state.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
+    return withStatsBackfill(res.state);
+  });
+  return res;
+}
+
 export default function GamePlayScreen({ worldId, token, me = null }) {
   const [state, setState] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -334,13 +344,12 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     fetchUsedAircraft: () => authedApi(`/worlds/${worldId}/used-aircraft`, { token }),
     buyUsedAircraft: (listingId) =>
       authedApi(`/worlds/${worldId}/used-aircraft/${listingId}/buy`, { method: 'POST', token })
-        .then((res) => {
-          if (res.state) setState((cur) => {
-            if (res.state.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
-            return withStatsBackfill(res.state);
-          });
-          return res;
-        }),
+        .then((res) => adoptUsedPurchase(setState, res)),
+    // Several at once: one request, one transaction. The response adds
+    // `bought` and `skipped` (each skip carries its reason).
+    buyUsedAircraftBatch: (listingIds) =>
+      authedApi(`/worlds/${worldId}/used-aircraft/buy`, { method: 'POST', token, body: { listingIds } })
+        .then((res) => adoptUsedPurchase(setState, res)),
     // ── Gate scarcity (worlds with the option on) ────────────────────────────
     placeGateBid: (airportCode, amount, quantity = 1) =>
       authedApi(`/worlds/${worldId}/gates/${airportCode}/bid`, { method: 'POST', token, body: { amount, quantity } })

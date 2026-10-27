@@ -44,8 +44,8 @@ const render = (el) => renderToString(React.createElement(GameProvider, null, el
 console.log('\n── 1. Normalisation: every livery that leaves here is valid ─────────');
 
 await test('a full livery passes through lowercased', () => {
-  const l = L.normalizeLivery({ fuselage: '#F5F7FA', tail: '#C8102E', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, titlesOn: true });
-  assert.deepEqual(l, { fuselage: '#f5f7fa', tail: '#c8102e', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, titlesOn: true });
+  const l = L.normalizeLivery({ fuselage: '#F5F7FA', tail: '#C8102E', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, logoOnFuselage: true, titlesOn: true });
+  assert.deepEqual(l, { fuselage: '#f5f7fa', tail: '#c8102e', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, logoOnFuselage: true, titlesOn: true });
 });
 await test('bad colours fall back; the tail and stripe fall back to the accent', () => {
   const l = L.normalizeLivery({ fuselage: 'red', tail: 'url(javascript:1)', style: 'graffiti', engines: 12 }, '#ff8c00');
@@ -248,6 +248,58 @@ await test('markup that already has the namespace is left alone', () => {
   const decoded = decodeURIComponent(svgImageUrl(src).split(',').slice(1).join(','));
   assert.equal(decoded, src);
   assert.equal((decoded.match(/xmlns=/g) || []).length, 1);
+});
+
+console.log('\n── 8. Logo on the fuselage ─────────────────────────────────────────');
+// Players asked for the logo on the body as well as the fin, as most real
+// liveries carry it. Off by default so every saved livery looks the same as
+// before; when on, the logo sits forward on the fuselage in the titles band
+// and the airline name moves aft to make room.
+const { titlesLayout } = await import('../src/utils/liveryPaint.js');
+
+await test('logoOnFuselage is a strict, off-by-default boolean', () => {
+  assert.equal(L.DEFAULT_LIVERY.logoOnFuselage, false);
+  assert.equal(L.normalizeLivery({}).logoOnFuselage, false);
+  assert.equal(L.normalizeLivery({ logoOnFuselage: true }).logoOnFuselage, true);
+  for (const v of ['yes', 1, 'true', {}]) assert.equal(L.normalizeLivery({ logoOnFuselage: v }).logoOnFuselage, false);
+  assert.equal(L.liveryFor({ logoColor: '#1fbf6b' }).logoOnFuselage, false, 'a derived default has no body logo');
+});
+await test('liveryKey changes with it, and a logo is needed for either placement', () => {
+  assert.notEqual(L.liveryKey({ tail: '#c8102e' }), L.liveryKey({ tail: '#c8102e', logoOnFuselage: true }));
+  assert.equal(L.liveryNeedsLogo({ logoOnTail: false, logoOnFuselage: true }), true);
+  assert.equal(L.liveryNeedsLogo({ logoOnTail: true }), true);
+  assert.equal(L.liveryNeedsLogo({ logoOnTail: false }), false);
+});
+await test('the guard forwards it', () => {
+  const out = guard.guardDecision('SET_BRANDING', { livery: { tail: '#c8102e', logoOnFuselage: true } }, {});
+  assert.equal(out.livery.logoOnFuselage, true);
+});
+await test('every template has a body logo box inside the titles band', () => {
+  for (const tpl of Object.values(T.LIVERY_TEMPLATES)) {
+    const f = tpl.fuselageLogo;
+    assert.ok(f && f.size > 0, `${tpl.id}: fuselageLogo spec`);
+    const b = tpl.body;
+    assert.ok(f.cy - f.size / 2 > b.crown && f.cy + f.size / 2 < b.windowTop, `${tpl.id}: between crown and windows`);
+  }
+});
+await test('layout: the logo goes forward, the name moves aft past it', () => {
+  const tpl = T.LIVERY_TEMPLATES['b737-800'];
+  const off = titlesLayout(tpl, { logoOnFuselage: false });
+  assert.equal(off.logo, null);
+  assert.equal(off.x0, tpl.titles.x0);
+  assert.equal(off.x1, tpl.titles.x1);
+  const on = titlesLayout(tpl, { logoOnFuselage: true });
+  assert.ok(on.logo, 'a logo box');
+  assert.equal(on.logo.x, tpl.titles.x0, 'the logo starts where the name used to');
+  assert.equal(on.logo.size, tpl.fuselageLogo.size);
+  assert.ok(on.x0 > on.logo.x + on.logo.size, 'the name starts after the logo');
+  assert.equal(on.x1, tpl.titles.x1, 'and still ends in the same place');
+  assert.ok(on.x1 - on.x0 > 0.6 * (tpl.titles.x1 - tpl.titles.x0), 'leaving most of the span for the name');
+});
+await test('the editor has the toggle beside the tail one', () => {
+  const html = render(React.createElement(BrandingModal, { onClose: () => {}, initialTab: 'livery' }));
+  assert.match(html, /Logo on the tail/);
+  assert.match(html, /Logo on the fuselage/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
