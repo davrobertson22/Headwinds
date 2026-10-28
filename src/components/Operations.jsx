@@ -27,7 +27,7 @@ import { dueInfo, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUD
 import { absoluteWeek } from '../utils/fuel.js';
 import {
   calcHQCost, fleetHQScale, hqBracket, weeklyInsuranceCost,
-  awarenessDemandMultiplier, marketingAwarenessGain,
+  awarenessDemandMultiplier, marketingAwarenessGain, MARKETING_PCT_MAX,
   AWARENESS_PARITY, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
   campaignDemandBoostPct, campaignEquilibriumStrength,
   shareOfVoiceFactor, competitorPressureDrag, getEraCostScale,
@@ -575,11 +575,55 @@ function MoneyInput({ value, onCommit, allowZeroCommit = true, ...rest }) {
   );
 }
 
+// ─── Percent input ────────────────────────────────────────────────────────────
+// Typed as a percentage ("4.5"), committed as a fraction (0.045) on Enter or
+// blur — not per keystroke, so typing "12" never briefly sets 1%.
+function PctInput({ value, onCommit, max = 100, ...rest }) {
+  const shown = v => (v == null ? '' : String(+(v * 100).toFixed(2)));
+  const [text, setText]       = useState(shown(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => { if (!focused) setText(shown(value)); }, [value, focused]);
+  const commit = () => {
+    const n = parseFloat(text);
+    if (Number.isFinite(n) && n >= 0) onCommit(Math.min(n, max) / 100);
+    else setText(shown(value));
+  };
+  return (
+    <input
+      type="number"
+      value={text}
+      onFocus={() => setFocused(true)}
+      onChange={e => setText(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      onBlur={() => { setFocused(false); commit(); }}
+      {...rest}
+    />
+  );
+}
+
 // ─── Marketing budget card ────────────────────────────────────────────────────
 
-function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMarketing, campaignStrength, routes, competitors, dispatch }) {
+function MarketingCard({ budget: fixedBudget, pctOfRevenue = null, weeklyRevenue, weeklyPax, awareness, targetedMarketing, campaignStrength, routes, competitors, dispatch }) {
   const [newAirport, setNewAirport] = useState('');
   const rivalVoice = competitorMarketingSpend(competitors ?? []);
+
+  // % of revenue mode: the tick charges pct × THAT week's revenue, so the best
+  // preview is pct × last week's (labelled "≈"). Everything below — gain,
+  // trend, settles-at — runs on this effective figure, same as the engine.
+  const pctMode = Number.isFinite(pctOfRevenue);
+  const budget  = pctMode ? Math.round(pctOfRevenue * Math.max(0, weeklyRevenue)) : fixedBudget;
+  // Switching modes keeps the current spend level: fixed → % pins today's
+  // share (4% — the model's sweet spot — before there is any revenue); % → fixed
+  // keeps marketingBudget, which the tick leaves at last week's actual spend.
+  const switchToPct = () => {
+    const share = weeklyRevenue > 0 && fixedBudget > 0
+      ? Math.min(MARKETING_PCT_MAX, Math.round(fixedBudget / weeklyRevenue * 1000) / 1000)
+      : 0.04;
+    dispatch({ type: 'SET_MARKETING_PCT', pct: share });
+  };
+  const switchToFixed = () => dispatch({ type: 'SET_MARKETING_PCT', pct: null });
+  const pctPresets = [0, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08];
+  const fmtPct = p => `${+(p * 100).toFixed(2)}%`;
 
   // Brand (adstock): spend builds awareness over time; lift derives from awareness.
   // This MIRRORS the engine's weekly awareness step exactly (see the awareness
@@ -643,8 +687,13 @@ function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMa
         {budget > 0 && (
           <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 16 }}>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--red)' }}>
-              −{formatMoney(budget)}/wk
+              {pctMode ? '≈' : ''}−{formatMoney(budget)}/wk
             </div>
+            {pctMode && (
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>
+                {fmtPct(pctOfRevenue)} of revenue · resized every week
+              </div>
+            )}
             <div style={{ fontSize: 11, color: mktGain > 0 ? 'var(--green)' : 'var(--text-muted)', marginTop: 1, fontWeight: 600 }}>
               +{fmtPts(mktGain)} awareness/wk from spend
             </div>
@@ -655,7 +704,58 @@ function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMa
         )}
       </div>
 
+      {/* Budget mode: a fixed weekly figure, or a share of revenue that follows the airline */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap', fontSize: 12 }}>
+        <span style={{ color: 'var(--text-dim)' }}>Budget</span>
+        <button
+          className={`btn ${pctMode ? 'btn-ghost' : 'btn-primary'}`}
+          style={{ fontSize: 12, padding: '3px 10px' }}
+          aria-pressed={!pctMode}
+          onClick={() => { if (pctMode) switchToFixed(); }}
+        >
+          Fixed $/wk
+        </button>
+        <button
+          className={`btn ${pctMode ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: 12, padding: '3px 10px' }}
+          aria-pressed={pctMode}
+          onClick={() => { if (!pctMode) switchToPct(); }}
+        >
+          % of revenue
+        </button>
+        {pctMode && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Each week brand spend is set to {fmtPct(pctOfRevenue)} of that week's revenue, so it grows (and shrinks) with the airline.
+          </span>
+        )}
+      </div>
+
       {/* Quick presets */}
+      {pctMode ? (
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {pctPresets.map(p => (
+          <button
+            key={p}
+            className={`btn ${Math.abs(pctOfRevenue - p) < 1e-9 ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: 12, padding: '4px 10px' }}
+            onClick={() => dispatch({ type: 'SET_MARKETING_PCT', pct: p })}
+          >
+            {p === 0 ? 'None' : fmtPct(p)}
+          </button>
+        ))}
+        <PctInput
+          className="input"
+          placeholder="Custom %"
+          min="0"
+          max={MARKETING_PCT_MAX * 100}
+          step="0.1"
+          value={pctOfRevenue}
+          onCommit={pct => dispatch({ type: 'SET_MARKETING_PCT', pct })}
+          style={{ width: 100, fontSize: 12, padding: '4px 8px' }}
+          aria-label="Brand spend as % of revenue"
+        />
+      </div>
+      ) : (
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         {presets.map(v => (
           <button
@@ -677,6 +777,7 @@ function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMa
           style={{ width: 120, fontSize: 12, padding: '4px 8px' }}
         />
       </div>
+      )}
 
       {/* Effect summary */}
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12 }}>
@@ -710,9 +811,15 @@ function MarketingCard({ budget, weeklyRevenue, weeklyPax, awareness, targetedMa
         </div>
         <div>
           <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Spend as % revenue</div>
+          {pctMode ? (
+            <div style={{ fontWeight: 600, color: pctOfRevenue > 0.15 ? 'var(--yellow)' : 'var(--text-muted)' }}>
+              {fmtPct(pctOfRevenue)} <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-dim)' }}>held</span>
+            </div>
+          ) : (
           <div style={{ fontWeight: 600, color: weeklyRevenue > 0 && budget / weeklyRevenue > 0.15 ? 'var(--yellow)' : 'var(--text-muted)' }}>
             {weeklyRevenue > 0 ? `${(budget / weeklyRevenue * 100).toFixed(1)}%` : '—'}
           </div>
+          )}
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ color: 'var(--text-dim)', marginBottom: 2 }}>Adstock note</div>
@@ -1167,6 +1274,7 @@ export default function Operations() {
 
       <MarketingCard
         budget={marketingBudget}
+        pctOfRevenue={state.marketingPctOfRevenue ?? null}
         weeklyRevenue={state.lastReport?.totalRevenue ?? 0}
         weeklyPax={state.lastReport?.totalPassengers ?? 0}
         awareness={state.awareness ?? 5}

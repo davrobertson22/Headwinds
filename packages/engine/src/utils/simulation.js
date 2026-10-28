@@ -3924,6 +3924,9 @@ export function weeklyTick(state) {
     lounges = {}, loungePolicy = null,
     groundStations = {},
     marketingBudget = 0,
+    // Brand spend pinned to a share of revenue (0–0.25). Absent/null = the fixed
+    // marketingBudget above. Resolved below, once the week's revenue is known.
+    marketingPctOfRevenue = null,
     targetedMarketing = {},
     campaignStrength = {},
     loyalty = { weeklyInvestment: 0, members: 0 },
@@ -5390,10 +5393,12 @@ export function weeklyTick(state) {
   }
 
   // 9. Marketing spend — brand budget + targeted campaigns. Deducted as a cost;
-  // demand effect flows through awareness / campaign-strength stocks.
+  // demand effect flows through awareness / campaign-strength stocks. The brand
+  // half is resolved after distribution below: in % mode it needs the week's
+  // full reported revenue (incl. partner and fuel-farm income), which isn't
+  // known yet here.
   const totalTargetedSpend  = Object.values(targetedMarketing ?? {})
     .reduce((s, v) => s + Math.max(0, v || 0), 0);
-  const totalMarketingSpend = Math.round(Math.max(0, marketingBudget) + totalTargetedSpend);
 
   // 10. Loyalty program costs:
   //   - Weekly investment (technology, partnerships, admin)
@@ -5431,6 +5436,17 @@ export function weeklyTick(state) {
 
   // Distribution: GDS fees, OTA commissions, credit-card processing (~2.5% of revenue)
   const totalDistributionCost = Math.round((totalRevenue + totalPartnerRevenue) * DISTRIBUTION_COST_PCT);
+
+  // Brand marketing: a fixed weekly figure, or a share of THIS week's reported
+  // revenue (the same total the report shows) so the P&L line is exactly the
+  // chosen share. Brand spend has no same-week demand effect (adstock), so this
+  // is not circular. The reducer's awareness step reads brandMarketingSpend.
+  const pctMode = Number.isFinite(marketingPctOfRevenue);
+  const brandMarketingSpend = pctMode
+    ? Math.round(Math.max(0, marketingPctOfRevenue)
+        * Math.max(0, totalRevenue + totalPartnerRevenue + totalFarmFeeIncome))
+    : Math.max(0, marketingBudget);
+  const totalMarketingSpend = Math.round(brandMarketingSpend + totalTargetedSpend);
 
   // Hub throughput: connecting pax over each designated hub this week
   // (own-metal itineraries + attributed external feed). Drives the T3
@@ -5591,6 +5607,8 @@ export function weeklyTick(state) {
     totalHQCost:            Math.round(totalHQCost),
     totalInsurance:         Math.round(totalInsurance),
     totalMarketingSpend:    Math.round(totalMarketingSpend),
+    // % mode only — a fixed-budget airline's report is unchanged (golden parity).
+    ...(pctMode ? { brandMarketingSpend } : {}),
     totalLoyaltyCost:       Math.round(totalLoyaltyCost),
     totalAllianceRevenue:   Math.round(totalAllianceRevenue),
     totalCodeshareRevenue:  Math.round(totalCodeshareRevenue),

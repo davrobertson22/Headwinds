@@ -143,7 +143,7 @@ import {
   unencumberedOwnedFleet, isPledged, loanSecuredOn,
 } from './data/credit.js';
 import { routeLaunchCost, valueRemaining,
-         marketingAwarenessGain, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
+         marketingAwarenessGain, MARKETING_PCT_MAX, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
          campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor, setEraCostScale } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
 import {
@@ -4630,9 +4630,28 @@ function reducer(state, action) {
       // action: { amount } — weekly brand spend in dollars, 0 = no marketing.
       // Coerce first: a missing/non-numeric amount would make Math.max(0, NaN)
       // NaN, which then poisons awareness/demand math (and JSON-degrades to null).
+      // Choosing a fixed figure leaves % of revenue mode.
+      const { marketingPctOfRevenue: _pct, ...rest } = state;
+      return {
+        ...rest,
+        marketingBudget: Math.max(0, Math.round(Number(action.amount) || 0)),
+      };
+    }
+
+    case 'SET_MARKETING_PCT': {
+      // action: { pct } — brand spend as a share of weekly revenue (0.04 = 4%),
+      // re-sized every tick so it grows with the airline. null = back to the
+      // fixed marketingBudget (which by then holds last week's actual spend).
+      // The key is only present in % mode (golden parity for everyone else).
+      if (action.pct == null) {
+        const { marketingPctOfRevenue: _pct, ...rest } = state;
+        return rest;
+      }
+      const pct = Number(action.pct);
+      if (!Number.isFinite(pct)) return state;
       return {
         ...state,
-        marketingBudget: Math.max(0, Math.round(Number(action.amount) || 0)),
+        marketingPctOfRevenue: +Math.max(0, Math.min(MARKETING_PCT_MAX, pct)).toFixed(4),
       };
     }
 
@@ -5243,7 +5262,10 @@ function reducer(state, action) {
       // Adstock: brand spend buys awareness points (revenue-scaled, diminishing),
       // and awareness above the floor decays proportionally each week. Demand
       // lift comes ONLY from this stock — see awarenessDemandMultiplier.
-      const mktGain = marketingAwarenessGain(state.marketingBudget ?? 0, report.totalRevenue ?? 0)
+      // In % of revenue mode the tick resolved the actual brand spend from this
+      // week's revenue — use that, never the (last week's) dollar figure.
+      const brandSpend = report.brandMarketingSpend ?? state.marketingBudget ?? 0;
+      const mktGain = marketingAwarenessGain(brandSpend, report.totalRevenue ?? 0)
         * diminishingFactor;
       const awarenessDecay = state.routes.length === 0
         ? Math.max(0.5, (currentAwareness - AWARENESS_FLOOR) * AWARENESS_DECAY_RATE)
@@ -6857,6 +6879,9 @@ function reducer(state, action) {
         codeshareAgreements: tickedCodeshares,
         awareness:           Math.round(newAwareness * 10) / 10,
         campaignStrength:    newCampaigns,
+        // % mode: the dollar figure tracks what was actually spent, so screens
+        // that read it (and a switch back to fixed) start from a real number.
+        ...(report.brandMarketingSpend != null ? { marketingBudget: report.brandMarketingSpend } : {}),
         // Earned passenger satisfaction (EWMA toward delivered experience);
         // computed by weeklyTick, persisted here, plus any one-time shocks from
         // quality events that triggered this week (catering scandal, viral

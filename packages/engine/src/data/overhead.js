@@ -722,6 +722,7 @@ export const AWARENESS_MAX_LIFT    = 0.12;   // household name (100): +12% above
 export const AWARENESS_DECAY_RATE  = 0.01;   // 1%/wk of awareness above the floor fades
 export const MARKETING_MAX_GAIN    = 3.5;    // max awareness points/week from brand spend
 export const MARKETING_GAIN_SCALE  = 0.04;   // spend = 4% of revenue → ~63% of max gain
+export const MARKETING_PCT_MAX     = 0.25;   // ceiling for brand spend pinned to % of revenue
 // Equilibria (organic + decay included): no marketing settles ≈52 (reach ~89%);
 // sustained heavy spend settles ≈83 (reach ~106%). 100 is asymptotic — household
 // names are earned over years, not bought in a quarter.
