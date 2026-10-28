@@ -90,3 +90,52 @@ export function leaseBuyoutQuote(state, aircraft) {
 export function leaseBuyoutPrice(state, aircraft) {
   return leaseBuyoutQuote(state, aircraft).price;
 }
+
+/**
+ * Plan a bulk buyout of a Fleet selection: what all of the leases cost, the
+ * most of them the cash covers, and what is left in the bank afterwards.
+ *
+ * Cheapest first, so a player who is short buys as many tails as the cash
+ * stretches to rather than one expensive one. Only `lease` tails are quoted
+ * (owned tails in the selection are ignored, as the reducer ignores them) and
+ * a tail ticked twice is quoted once.
+ *
+ * The Fleet bar's label, the confirm dialog and the dispatched id list all
+ * come from this one result, and every price in it is leaseBuyoutQuote's, so
+ * the "cash left" the dialog promises is the cash BUY_OUT_LEASES leaves
+ * (tools/bulk-lease-buyout-test.mjs). The reducer still re-checks cash per
+ * aircraft; this is the dialog telling the truth, not the guard.
+ */
+export function bulkBuyoutPlan(state, aircraftList) {
+  const cash = Number(state?.cash) || 0;
+  const seen = new Set();
+  const quotes = [];
+  for (const a of aircraftList ?? []) {
+    if (!a || a.ownershipType !== 'lease' || seen.has(a.id)) continue;
+    seen.add(a.id);
+    quotes.push({ aircraft: a, ...leaseBuyoutQuote(state, a) });
+  }
+  quotes.sort((x, y) => x.price - y.price || String(x.aircraft.id).localeCompare(String(y.aircraft.id)));
+
+  const totalCost = quotes.reduce((s, q) => s + q.price, 0);
+  const affordable = [];
+  let affordableCost = 0;
+  for (const q of quotes) {
+    if (affordableCost + q.price > cash) break;   // sorted, so nothing later fits either
+    affordableCost += q.price;
+    affordable.push(q);
+  }
+  return {
+    cash,
+    quotes,
+    totalCost,
+    canAffordAll: quotes.length > 0 && affordable.length === quotes.length,
+    shortBy: Math.max(0, totalCost - cash),
+    affordable,
+    affordableCost,
+    cashAfter: cash - affordableCost,
+    weeklyRentSaved: affordable.reduce((s, q) => s + (q.aircraft.weeklyLease ?? 0), 0),
+    remainingRentSaved: affordable.reduce((s, q) =>
+      s + Math.round((q.aircraft.weeklyLease ?? 0) * (q.aircraft.leaseRemainingWeeks ?? 0)), 0),
+  };
+}

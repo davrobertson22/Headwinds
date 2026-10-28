@@ -6,7 +6,7 @@ import { designAgeQualityPts } from '../models/demand.js';
 import { useGame, transferCompatibility, frequencyChangeBlockReason, cargoFrequencyChangeBlockReason } from '../store/GameContext.jsx';
 import RouteFrequencyControls from './FrequencyControls.jsx';
 import { getAircraftType, LEASE_TERM_OPTIONS, LEASE_BUYOUT_PREMIUM, AIRCRAFT_CATEGORIES } from '../data/aircraft.js';
-import { leaseBuyoutQuote } from '../models/leaseBuyout.js';
+import { leaseBuyoutQuote, bulkBuyoutPlan } from '../models/leaseBuyout.js';
 import { laborEffects, crewStatus } from '../data/labor.js';
 import { getAirport } from '../data/airports.js';
 import {
@@ -1806,7 +1806,9 @@ function FleetLiveryCard({ state }) {
   );
 }
 
-export default function Fleet() {
+// initialCheckedIds is a test seam: the SSR suites render the selection bar
+// with tails already ticked (tools/bulk-lease-buyout-test.mjs).
+export default function Fleet({ initialCheckedIds = [] } = {}) {
   const { state, dispatch } = useGame();
   // Tails the crew pipeline parks this week (severe band) — same set the tick
   // grounds, so the row can say why its routes earned nothing.
@@ -1818,7 +1820,7 @@ export default function Fleet() {
   const nowAbs = absoluteWeek(year, week);
   const [selectedId,    setSelectedId]    = useState(null);
   const [configuringId, setConfiguringId] = useState(null);
-  const [checkedIds,    setCheckedIds]    = useState([]);   // bulk selection
+  const [checkedIds,    setCheckedIds]    = useState(initialCheckedIds);   // bulk selection
   const [bulkFlightsOpen, setBulkFlightsOpen] = useState(false); // selection bar ▸ Flights/wk
   const [bulkConfigIds, setBulkConfigIds] = useState(null); // array of ids → bulk configure modal
   const [bulkReplaceIds, setBulkReplaceIds] = useState(null); // array of ids → bulk replace modal
@@ -2186,13 +2188,14 @@ export default function Fleet() {
   // twenty clicks to avoid twenty route closures.
   const checkedExpiring = checkedAircraft.filter(a => isLeaseAtRisk(state, a));
 
-  // Every leased tail in the selection can be bought out, not just the expiring
-  // ones — but the button only earns its place in the bar when a lease is
-  // actually running out, which is the moment the player is deciding what to do
-  // about it. Quote from the same helper the reducer charges from.
-  const checkedLeased    = checkedAircraft.filter(a => a.ownershipType === 'lease');
-  const bulkBuyoutQuotes = checkedLeased.map(a => ({ a, ...leaseBuyoutQuote(state, a) }));
-  const bulkBuyoutCost   = bulkBuyoutQuotes.reduce((s2, q) => s2 + q.price, 0);
+  // Every leased tail in the selection can be bought out, expiring or not. The
+  // button used to render only when an expiring lease was ticked, which hid it
+  // from anyone buying ahead of the warning window (Discord: VodkaOnFire,
+  // 2026-10-22, "add an option to mass-buyout leases"). The plan carries the
+  // total, the cheapest-first subset the cash covers and the cash left after;
+  // every price in it is the reducer's own quote.
+  const checkedLeased = checkedAircraft.filter(a => a.ownershipType === 'lease');
+  const buyoutPlan    = bulkBuyoutPlan(state, checkedLeased);
 
   async function handleBulkFitWingtips() {
     if (checkedNoWingtips.length === 0) return;
@@ -2263,47 +2266,40 @@ export default function Fleet() {
   }
 
   async function handleBulkBuyout() {
-    if (bulkBuyoutQuotes.length === 0) return;
-    const affordable = [];
-    let running = 0;
-    // Cheapest first, so a short player buys out as many as the cash covers
-    // rather than one expensive tail. The reducer applies the same per-aircraft
-    // affordability guard; this is only so the dialog can tell the truth.
-    for (const q of [...bulkBuyoutQuotes].sort((x, y) => x.price - y.price)) {
-      if (running + q.price > state.cash) break;
-      running += q.price;
-      affordable.push(q);
-    }
-    const short = bulkBuyoutQuotes.length - affordable.length;
-    if (affordable.length === 0) {
+    const p = buyoutPlan;
+    if (p.quotes.length === 0) return;
+    if (p.affordable.length === 0) {
       await confirm.alert({
         title: 'Not enough cash',
-        body: `Buying out the cheapest of the selected leases costs `
-            + `${formatMoney(Math.min(...bulkBuyoutQuotes.map(q => q.price)))}, `
-            + `but you have ${formatMoney(state.cash)}.`,
+        body: `The cheapest of the selected leases costs ${formatMoney(p.quotes[0].price)} to buy out, `
+            + `and you have ${formatMoney(p.cash)}.`
+            + (p.quotes.length > 1 ? ` All ${p.quotes.length} would cost ${formatMoney(p.totalCost)}.` : ''),
       });
       return;
     }
-    const names = affordable.slice(0, 8).map(q => `${q.a.name} (${formatMoney(q.price)})`).join(', ')
-                + (affordable.length > 8 ? `, +${affordable.length - 8} more` : '');
-    const rentSaved = affordable.reduce((s2, q) =>
-      s2 + Math.round((q.a.weeklyLease ?? 0) * (q.a.leaseRemainingWeeks ?? 0)), 0);
+    const n    = p.affordable.length;
+    const left = p.quotes.length - n;
+    const list = (qs) => qs.slice(0, 8).map(q => `${q.aircraft.name} (${formatMoney(q.price)})`).join(', ')
+                       + (qs.length > 8 ? `, +${qs.length - 8} more` : '');
+    // Cheapest first: a player who is short buys as many tails as the cash
+    // covers. The plan is the same one the bar's label came from.
     const body =
-      `${formatMoney(running)} due now — market value plus a `
-      + `${Math.round(LEASE_BUYOUT_PREMIUM * 100)}% early-buyout premium, less the deposits already on file.\n\n`
+      (p.canAffordAll
+        ? `${formatMoney(p.affordableCost)} due now. `
+        : `All ${p.quotes.length} would cost ${formatMoney(p.totalCost)}, ${formatMoney(p.shortBy)} more than you have. `
+          + `Your cash covers ${n === 1 ? 'the cheapest one' : `the ${n} cheapest`}: ${formatMoney(p.affordableCost)} due now. `)
+      + `Market value plus a ${Math.round(LEASE_BUYOUT_PREMIUM * 100)}% early-buyout premium, less the deposits already on file.\n\n`
+      + `Cash: ${formatMoney(p.cash)} now, ${formatMoney(p.cashAfter)} after.\n\n`
       + `They become owned aircraft: no more rent, no return date, no routes closing. `
-      + `You stop paying ${formatMoney(rentSaved)} of remaining rent.\n\n`
-      + `${names}`
-      + (short > 0
-          ? `\n\n${short} more selected lease${short !== 1 ? 's' : ''} `
-            + `${short !== 1 ? 'are' : 'is'} more than your remaining cash covers and won't be bought.`
-          : '');
+      + `Rent falls by ${formatMoney(p.weeklyRentSaved)}/wk (${formatMoney(p.remainingRentSaved)} left to pay on these leases).\n\n`
+      + list(p.affordable)
+      + (left > 0 ? `\n\nStaying leased (${left}): ${list(p.quotes.slice(n))}` : '');
     if (await confirm({
-      title: `Buy out ${affordable.length} lease${affordable.length !== 1 ? 's' : ''}?`,
+      title: `Buy out ${n} lease${n !== 1 ? 's' : ''}?`,
       body,
-      confirmLabel: `Buy out for ${formatMoney(running)}`,
+      confirmLabel: `Buy out for ${formatMoney(p.affordableCost)}`,
     })) {
-      dispatch({ type: 'BUY_OUT_LEASES', aircraftIds: affordable.map(q => q.a.id) });
+      dispatch({ type: 'BUY_OUT_LEASES', aircraftIds: p.affordable.map(q => q.aircraft.id) });
       setCheckedIds([]);
     }
   }
@@ -2848,20 +2844,34 @@ export default function Fleet() {
                 </button>
               );
             })()}
-            {checkedExpiring.length > 0 && checkedLeased.length > 0 && (
-              <button
-                className="btn"
-                style={{
-                  fontSize: 12, padding: '5px 12px',
-                  background: 'rgba(63,185,80,.1)', color: 'var(--green)',
-                  border: '1px solid rgba(63,185,80,.3)', cursor: 'pointer',
-                }}
-                title="Buy the selected leased aircraft outright — they stop paying rent and never go back"
-                onClick={handleBulkBuyout}
-              >
-                <Glyph e="✔" /> Buy out ({checkedLeased.length}) · {formatMoney(bulkBuyoutCost)}
-              </button>
-            )}
+            {buyoutPlan.quotes.length > 0 && (() => {
+              const p   = buyoutPlan;
+              const can = p.affordable.length > 0;
+              return (
+                <button
+                  className="btn"
+                  style={{
+                    fontSize: 12, padding: '5px 12px',
+                    background: can ? 'rgba(63,185,80,.1)' : 'var(--surface3)',
+                    color: can ? 'var(--green)' : 'var(--text-dim)',
+                    border: `1px solid ${can ? 'rgba(63,185,80,.3)' : 'var(--border)'}`,
+                    cursor: 'pointer',
+                  }}
+                  title={!can
+                    ? `The cheapest costs ${formatMoney(p.quotes[0].price)} to buy out; you have ${formatMoney(p.cash)}`
+                    : p.canAffordAll
+                      ? 'Buy the selected leased aircraft outright: they stop paying rent and never go back'
+                      : `All ${p.quotes.length} would cost ${formatMoney(p.totalCost)}; your cash covers the ${p.affordable.length} cheapest`}
+                  onClick={handleBulkBuyout}
+                >
+                  <Glyph e="✔" /> {p.canAffordAll || !can
+                    ? `Buy out (${p.quotes.length})`
+                    : `Buy out ${p.affordable.length} of ${p.quotes.length}`}
+                  {' · '}{formatMoney(can ? p.affordableCost : p.totalCost)}
+                  {can && <span style={{ opacity: 0.75 }}> · {formatMoney(p.cashAfter)} left</span>}
+                </button>
+              );
+            })()}
             {/* Select nothing but propliners and there is no retrofit to offer —
                 but a bar that simply loses its button reads as the selection
                 being ignored. Show the reason in its place. */}
