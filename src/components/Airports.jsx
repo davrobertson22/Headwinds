@@ -179,10 +179,38 @@ function ShowMore({ shown, total, page, onMore, label = 'more' }) {
   );
 }
 
+// The Gates tab remembers how it was last sorted and laid out (Discord,
+// VodkaOnFire 2026-10-23: it fell back to region order every visit). Per
+// browser, like the Routes page's routes_view_prefs_v1. Stored values that no
+// longer make sense fall back to the defaults.
+const GATES_PREFS_KEY = 'gates_view_prefs_v1';
+export function loadGatesViewPrefs() {
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(GATES_PREFS_KEY) ?? 'null'); } catch { raw = null; }
+  const p = raw && typeof raw === 'object' ? raw : {};
+  return {
+    sortCol: p.sortCol in GATE_SORTERS ? p.sortCol : null,
+    sortDir: p.sortDir === 'asc' ? 'asc' : 'desc',
+    view:    p.view === 'table' || p.view === 'cards' ? p.view : null,   // null = screen-size default
+  };
+}
+export function saveGatesViewPrefs(patch) {
+  try {
+    localStorage.setItem(GATES_PREFS_KEY, JSON.stringify({ ...loadGatesViewPrefs(), ...patch }));
+  } catch { /* private mode */ }
+}
+
 function GateTable({ rows, onAdd, onRemove, onDetails }) {
   const { state } = useGame();
-  const [sortCol, setSortCol] = useState(null);   // null = default order (region → hub → congestion)
-  const [sortDir, setSortDir] = useState('desc');
+  const [prefs] = useState(loadGatesViewPrefs);
+  const [sortCol, setSortColState] = useState(prefs.sortCol);   // null = default order (region → hub → congestion)
+  const [sortDir, setSortDirState] = useState(prefs.sortDir);
+  const setSortCol = v => { setSortColState(v); saveGatesViewPrefs({ sortCol: v }); };
+  const setSortDir = f => setSortDirState(d => {
+    const next = typeof f === 'function' ? f(d) : f;
+    saveGatesViewPrefs({ sortDir: next });
+    return next;
+  });
   const [shown, setShown]     = useState(GATE_PAGE_SIZE);
   const columns = fuelStationsOn(state) ? GATE_COLUMNS : GATE_COLUMNS.filter(c => !c.fuel);
 
@@ -735,10 +763,18 @@ export default function Airports({ initialRegion = null }) {
   const [selectedAirport, setSelectedAirport]     = useState(null);
   // 'table' scales to a big network (30+ airports of gates); phones default to
   // the card view, same convention as the Routes page.
-  const [gatesView, setGatesView] = useState(() => {
+  // A Table/Cards click is remembered (gates_view_prefs_v1); until then, the
+  // screen-size default.
+  const [gatesView, setGatesViewState] = useState(() => {
+    const saved = loadGatesViewPrefs().view;
+    if (saved) return saved;
     try { return window.matchMedia('(max-width: 640px)').matches ? 'cards' : 'table'; }
     catch { return 'table'; }
   });
+  function setGatesView(v) {
+    setGatesViewState(v);
+    saveGatesViewPrefs({ view: v });
+  }
 
   // Browse section: the region picker, or every airport in one sortable table
   // (Discord, 2026-10-12: "you can't sort ALL airports by PAX"). Remembered.
