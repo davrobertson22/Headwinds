@@ -183,25 +183,6 @@ export default function Reputation() {
             detail={`${formatPercent(awarenessMultiplier)} of ${awarenessMultiplier > 1 ? 'baseline demand (strong branding amplifies reach past 100%)' : 'potential demand'} reached. Grows via passengers flown + brand marketing (with a lag); fades slowly without upkeep.`}
             tip={awareness < 40 ? 'Increase marketing budget or fly more passengers to build awareness' : undefined}
           />
-          {rep.partners !== undefined && (
-            <div style={{ marginBottom: 14 }} data-rep-partners>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ display: 'inline-flex' }}><Glyph e="🤝" size={14} /></span>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>Travel Partners</span>
-                </div>
-                <span style={{ fontWeight: 700, fontSize: 15,
-                  color: rep.partners > 0 ? 'var(--green)' : rep.partners < 0 ? 'var(--red)' : 'var(--text-muted)' }}>
-                  {rep.partners > 0 ? '+' : rep.partners < 0 ? '−' : ''}{Math.abs(rep.partners).toFixed(1)} pts
-                </span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Delighted partners (75+) add a little to your reputation; frustrated ones (below 35) take it
-                away, more for the big names. Range +2 to −8, added straight onto the overall score.
-              </div>
-              {rep.partners < 0 && <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2 }}>→ See Company → Partnerships for which targets you are missing</div>}
-            </div>
-          )}
         </div>
       </div>
 

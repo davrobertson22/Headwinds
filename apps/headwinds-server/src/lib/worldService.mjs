@@ -69,12 +69,6 @@ export async function createWorld(prisma, {
   newWorldRestrictions,
   crewPipeline,
   productionLines,
-  // Travel partnerships (PARTNERSHIPS_PLAN.md): ON for new worlds unless the
-  // creator passes false.
-  partnerships,
-  // Demand model (engine utils/market.js "Demand model v2"): 2 for new worlds
-  // unless the creator passes 1 (classic).
-  demandModel,
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
@@ -117,7 +111,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -164,18 +158,6 @@ export async function createWorld(prisma, {
     // like the scale: re-rating a live line would re-time order books.
     ...(productionLines !== false && normalizeLineRates(productionLineRates)
       ? { productionLineRates: normalizeLineRates(productionLineRates) } : {}),
-    // Travel partnerships (cruise lines, tour operators, hotels, ride share —
-    // engine data/travelPartners.js). New worlds only (Dave, 2026-10-29): ON
-    // for every world created from now on unless the creator unticks it;
-    // worlds without the key never get the feature. Fixed at creation.
-    ...(partnerships !== false ? { partnerships: true } : {}),
-    // Demand model v2 (Dave, 2026-10-29): passenger demand recalibrated against
-    // real US and Australian O&D. New worlds only: ON for every world created
-    // from now on unless the creator passes demandModel 1; worlds without the
-    // key stay on the classic model for life. Fixed at creation — every airline
-    // in a world fights over the same demand pools, so all of them must price
-    // them the same way.
-    ...(demandModel !== 1 ? { demandModel: 2 } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Part of the
     // game, not a setup option (Dave, 2026-10-17): every world created from
@@ -328,11 +310,6 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     } : {}),
     // Production lines, baked at join like the other rule flags. The line rate
     // scales with the world's player cap (capacityScale), fixed at join.
-    // Travel partnerships, baked at join like the other rule flags.
-    ...(tc.partnerships === true ? { partnershipsWorld: true } : {}),
-    // Demand model, baked at join like the other rule flags (engine reads
-    // state.demandModel at the reducer entry and in weeklyTick).
-    ...(tc.demandModel === 2 ? { demandModel: 2 } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),

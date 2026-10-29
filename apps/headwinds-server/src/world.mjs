@@ -81,10 +81,6 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // the reducer and the break penalty from the airline's own last report; the
   // guard only checks the supplier, term and contract id.
   'SIGN_CATERING_CONTRACT', 'BREAK_CATERING_CONTRACT',
-  // Travel partnerships. The fee comes from the world's calendar-keyed book and
-  // every rule (world flag, reputation gate, 5-year cooldown, cash, renewal
-  // window) is the reducer's; the guard only checks the partner id.
-  'SIGN_TRAVEL_PARTNER', 'RENEW_TRAVEL_PARTNER', 'BREAK_TRAVEL_PARTNER', 'SET_TRAVEL_PARTNER_AUTORENEW',
   // Money & market
   'TAKE_LOAN', 'REPAY_LOAN', 'BUY_HEDGE', 'UNWIND_HEDGE', 'ACQUIRE_COMPETITOR',
   // Stock market — the reducer prices trades from the server-injected rival

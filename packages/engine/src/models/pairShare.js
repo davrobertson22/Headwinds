@@ -63,7 +63,6 @@ import {
   stateLoungeFields,
   stateGroundHandlingFields,
   stateCateringFields,
-  stateTravelPartnerFields,
 } from '../utils/simulation.js';
 
 
@@ -173,10 +172,6 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     // for one that has none (or vice versa), which is exactly the preview/tick
     // divergence this module exists to prevent.
     loungeAppeal:     stateLoungeFields(state, r0.origin, r0.destination).loungeAppeal,
-    // Travel partners (cruise / tours lift leisure, hotels / ride share lift
-    // business). Same reason again: an offer without them previews a partnered
-    // airline as if it had none.
-    ...stateTravelPartnerFields(state, r0.origin, r0.destination),
   };
 }
 
@@ -907,10 +902,6 @@ export function projectRouteAddition(state, spec) {
       // ground rate on a route the tick discounts — a launch forecast that is
       // wrong in both directions at once.
       ...stateLoungeFields(state, origin, destination),
-      // Travel-partner segment lifts, for the month being projected — the tick
-      // attaches the same fields.
-      ...stateTravelPartnerFields(state, origin, destination, gameDate?.month ?? null),
-      ...(state.partnershipsWorld === true ? { travelPartnerTrack: true } : {}),
       // Hub station / layover / maintenance discounts, exactly as the tick
       // attaches them (hubCostFactorsAt). Spread conditionally like the tick.
       ...(hcf ? { hubCostFactors: hcf } : {}),

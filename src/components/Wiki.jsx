@@ -406,32 +406,6 @@ const WIKI = [
     ],
   },
   {
-    id: 'travelpartners',
-    icon: '🛳️',
-    title: 'Travel Partnerships',
-    blurb: 'Cruise lines, tour operators, hotels and ride share',
-    blocks: [
-      { p: 'In worlds created with them, you can sign **travel partners** in **Company → Partnerships**. Each one brings extra travellers to the airports it works in, and wants something back.' },
-      { ul: [
-        '**Cruise lines** and **tour operators** lift **leisure** demand. Cruise lines only sail in their season (Caribbean Nov–Apr, Alaska May–Sep and so on), and lift nothing out of it.',
-        '**Hotel chains** and **ride share** lift **business** demand.',
-        'The lift applies to routes touching the partner\'s airports: up to +8% for one partner, and at most **+15% per segment** from all of them together. On a route you fly alone it grows the market; against a rival it wins you share. If the rival has signed the same partner, the two cancel out.',
-      ] },
-      { h: 'What partners want' },
-      { p: 'Every partner sets its own **targets**: passengers delivered into its airports, how many of them you serve, departures, on-time rate, route quality, a business cabin. A new partner gives you **8 weeks** to add flights, then judges you every week.' },
-      { ul: [
-        '**Happiness** (0–100) heads 10% of the way towards a target each week. Meet the brief exactly and it settles around **80**; beat it to push towards 100; miss badly and it sinks.',
-        'Below **50** a partner promotes you less, and by **20** the lift is gone.',
-        'Delighted partners (75+) add up to **+2 reputation**; frustrated ones (below 35) take up to **8 off**, more for the big names.',
-        'Below **15** for **4 weeks** in a row, a partner **walks out**. It costs reputation, it makes the world news, and that partner **won\'t work with you again for 5 years**.',
-      ] },
-      { h: 'Contracts and renewal' },
-      { p: 'Every contract runs **2 years**, paid as two yearly instalments. Renewal opens 8 weeks before the end and is priced by happiness: **delighted** partners renew at 40% off on the same terms, **content** ones at 15% off, **frustrated** ones charge 35% more and raise their targets. Below 15 they **refuse**, and that counts as losing them for 5 years. Auto-renew handles it for you as long as the partner is at least lukewarm (35+).' },
-      { p: 'Ending a deal early costs half of what is still unpaid and some reputation, and the partner remembers: sign again and they start at 40 happiness instead of 60.' },
-      { tip: 'Pick partners whose airports you already fly to. The book shows last week\'s figures against every target and where each partner would settle, so you can see a bad fit before you sign.' },
-    ],
-  },
-  {
     id: 'alliances',
     icon: '🤝',
     title: 'Alliances',

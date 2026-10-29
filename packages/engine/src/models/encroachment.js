@@ -177,11 +177,6 @@ export function buildEncroachmentOffer(spec, market) {
     // encroachers carry no figure and stay at parity, which is correct — the AI
     // bank has no lounge network to model.
     loungeAppeal:      spec.loungeAppeal ?? 1,
-    // Travel partners — same plumbing as loungeAppeal: a human rival's own
-    // partner lift must reach every other player's tick, or the two ticks score
-    // the same pair differently. AI carriers sign no partners and stay at 1.
-    travelLeisureAppeal:  spec.travelLeisureAppeal ?? 1,
-    travelBusinessAppeal: spec.travelBusinessAppeal ?? 1,
   };
 }
 

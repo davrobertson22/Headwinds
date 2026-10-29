@@ -188,19 +188,9 @@ export function connectingPriceFactor(price, refPrice, quality = 50) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0, travelLeisure: 1.0, travelBusiness: 0 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0, travelLeisure: 0,   travelBusiness: 1.0 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0 },
 };
-
-/**
- * `travelLeisure` / `travelBusiness` are the travel-partnership terms
- * (data/travelPartners.js): cruise lines and tour operators lift the LEISURE
- * segment, hotels and ride share the BUSINESS segment. Each is the lounge
- * identity again — weight 1.0 on its own segment so log(appeal) multiplies the
- * offer's softmax weight by exactly `appeal`, and 0 on the other so that
- * segment's softmax is byte-identical. _monopolyResult and _soloCeiling apply
- * the same multiplier to the matching POOL.
- */
 
 /**
  * `brand` weight 1.0 is the FAITHFUL translation of a multiplicative demand
@@ -934,12 +924,7 @@ export function computeUtility(offer, market, segment) {
   // scored exactly as before.
   const appealUtil  = Math.log(Math.max(offerAirportAppeal(offer), 0.001)) * (w.appeal ?? 0);
 
-  // Travel partnerships — one segment each, the lounge identity again (see the
-  // UTILITY_WEIGHTS note). Offers without the fields sit at log(1) = 0.
-  const travelUtil  = Math.log(Math.max(offer.travelLeisureAppeal ?? 1, 0.01)) * (w.travelLeisure ?? 0)
-                    + Math.log(Math.max(offer.travelBusinessAppeal ?? 1, 0.01)) * (w.travelBusiness ?? 0);
-
-  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil + travelUtil;
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil;
 }
 
 /**
@@ -1543,20 +1528,15 @@ function _soloCeiling(market, offer, ref, { foldBusiness = false } = {}) {
   // segment, which an economy-only offer never draws from, so its leisure
   // ceiling is the leisure-only figure, as before.
   const noBusiness = offer.businessPrice == null || !((offer.businessSeats ?? 0) > 0);
-  // Travel partners scale their own segment's pool, as in _monopolyResult —
-  // folded business travellers keep the business appeal.
-  const tpL = Math.max(0, offer.travelLeisureAppeal ?? 1);
-  const tpB = Math.max(0, offer.travelBusinessAppeal ?? 1);
   const leisurePool = foldBusiness && noBusiness
-    ? market.leisureDemand * tpL + market.businessDemand * tpB
-    : market.leisureDemand * tpL;
+    ? market.leisureDemand + market.businessDemand
+    : market.leisureDemand;
   const leisure = leisurePool * poolMult
     * Math.min(1.5, Math.pow(ref / Math.max(offer.economyPrice, 1), ELASTICITY.leisure * sens))
     * priceChokeFactor(offer.economyPrice, ref, offer.qualityScore);
   const bizRef     = ref * BUSINESS_PRICE_MULTIPLIER * businessFareTolerance(offer.qualityScore);
   const business = noBusiness ? 0 : market.businessDemand * poolMult
     * Math.max(0, offer.loungeAppeal ?? 1)
-    * tpB
     * businessQualityCapture(offer.qualityScore)
     * Math.min(1.5, Math.pow(bizRef / Math.max(offer.businessPrice, 1), ELASTICITY.business * sens))
     * priceChokeFactor(offer.businessPrice, bizRef, offer.qualityScore);
@@ -1611,19 +1591,12 @@ function _monopolyResult(market, offer) {
   // precisely the inversion brandReach used to have. Never applied to the
   // leisure pool, and never to revenue.
   const loungePool = Math.max(0, offer.loungeAppeal ?? 1);
-  // Travel partners on an UNCONTESTED pair: the package brings travellers who
-  // would not otherwise have flown. Each scales its own segment's pool only —
-  // before elasticity and the capacity cap, like loungePool — and business
-  // travellers folded into economy keep the business appeal.
-  const travelLeisurePool  = Math.max(0, offer.travelLeisureAppeal ?? 1);
-  const travelBusinessPool = Math.max(0, offer.travelBusinessAppeal ?? 1);
 
   const businessAdj = noBusiness
     ? 0
     : Math.round(market.businessDemand
         * poolMult
         * loungePool
-        * travelBusinessPool
         * businessQualityCapture(offer.qualityScore)
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
         * priceChokeFactor(offer.businessPrice, businessRef, offer.qualityScore));
@@ -1640,8 +1613,8 @@ function _monopolyResult(market, offer) {
   // boosting it again here would compound them against themselves (a 10%
   // campaign read as 13% before this was split out).
   const leisurePool = noBusiness
-    ? (market.leisureDemand * travelLeisurePool + market.businessDemand * travelBusinessPool) * poolMult
-    : market.leisureDemand * travelLeisurePool * poolMult + businessOverflow;
+    ? (market.leisureDemand + market.businessDemand) * poolMult
+    : market.leisureDemand * poolMult + businessOverflow;
 
   // Demand with price elasticity applied
   const leisureAdj  = Math.round(

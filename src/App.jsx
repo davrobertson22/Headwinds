@@ -13,7 +13,7 @@ import Fleet from './components/Fleet.jsx';
 import Routes from './components/Routes.jsx';
 import Marketplace from './components/Marketplace.jsx';
 import Finance from './components/Finance.jsx';
-import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
+import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
   WrenchIcon, SearchIcon, GlobeIcon,
 } from './components/Icons.jsx';
 import HubManagement from './components/HubManagement.jsx';
@@ -30,7 +30,6 @@ import Operations from './components/Operations.jsx';
 import Maintenance from './components/Maintenance.jsx';
 import Ancillaries from './components/Ancillaries.jsx';
 import Loyalty from './components/Loyalty.jsx';
-import Partnerships from './components/Partnerships.jsx';
 import Alliances from './components/Alliances.jsx';
 import Wiki from './components/Wiki.jsx';
 import AirportSelect from './components/AirportSelect.jsx';
@@ -40,7 +39,7 @@ import BrandingModal from './components/BrandingModal.jsx';
 import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
-import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite, resolveMapPage } from './components/MapShell.jsx';
+import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite } from './components/MapShell.jsx';
 import useNavFavourites from './hooks/useNavFavourites.js';
 import { toggleNavFavourite, NAV_FAVOURITES_LIMIT } from './utils/navFavourites.js';
 
@@ -150,7 +149,6 @@ const TABS = [
   { id: 'ancillaries', label: 'Ancillaries',  Icon: AncillaryIcon     },
   { id: 'reputation',  label: 'Reputation',    Icon: RepIcon         },
   { id: 'loyalty',     label: 'Loyalty',       Icon: LoyaltyIcon     },
-  { id: 'partners',    label: 'Partnerships',  Icon: PartnerIcon     },
   { id: 'alliances',   label: 'Alliances',    Icon: AllianceIcon    },
   { id: 'competition', label: 'Competition',  Icon: CompetitionIcon   },
   { id: 'stocks',      label: 'Stocks',       Icon: TrendUpIcon       },
@@ -170,7 +168,7 @@ const NAV_GROUPS = [
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'finder', 'planner', 'routes'] },
   { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market', 'used'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
-  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'maintenance', 'ancillaries', 'reputation', 'loyalty', 'partners', 'alliances', 'competition', 'stocks'] },
+  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'maintenance', 'ancillaries', 'reputation', 'loyalty', 'alliances', 'competition', 'stocks'] },
   { id: 'finance' },
   { id: 'wiki' },
 ];
@@ -480,8 +478,7 @@ function AppInner() {
       const d = e?.detail;
       const id = typeof d === 'string' ? d : d?.tab;
       if (typeof id !== 'string' || !TABS_BY_ID[id]) return;
-      // Map view: a classic tab id lands on its map page (MapShell).
-      setActiveTab(layoutRef.current === 'map' ? resolveMapPage(id) : id);
+      setActiveTab(id);
       setOpenGroup(null);
       const focus = typeof d === 'object' && d ? d.focus : null;
       if (focus) focusSection(focus);
@@ -521,12 +518,8 @@ function AppInner() {
 
   // News is a multiplayer surface: it reports what OTHER players are doing, and
   // solo has no other players. Hidden entirely rather than shown empty.
-  // Travel partnerships exist only in worlds created with them (new worlds from
-  // 2026-10-29); everywhere else the page is hidden rather than shown empty.
-  const navGroups = (remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news'))
-    .map((g) => (g.children && state.partnershipsWorld !== true
-      ? { ...g, children: g.children.filter((c) => c !== 'partners') } : g));
-  const navigate = (id) => { setActiveTab(layout === 'map' ? resolveMapPage(id) : id); setOpenGroup(null); };
+  const navGroups = remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news');
+  const navigate = (id) => { setActiveTab(id); setOpenGroup(null); };
   const switchLayout = (next) => {
     const l = writeLayout(next);
     setLayout(l);
@@ -552,7 +545,6 @@ function AppInner() {
     ancillaries: <Ancillaries />,
     reputation:  <Reputation />,
     loyalty:     <Loyalty />,
-    partners:    <Partnerships />,
     alliances:   <Alliances />,
     competition: <Competition />,
     stocks:      <StockMarket />,
@@ -560,21 +552,6 @@ function AppInner() {
     news:        <News />,
     wiki:        <Wiki />,
   };
-
-  // Map view pages: the classic pages, plus the parts of Operations and Finance
-  // the map view gives tabs of their own (see MapShell's MAP_GROUPS).
-  const mapPages = layout === 'map' ? {
-    ...tabContent,
-    operations:       <Operations section="crew" />,
-    departures:       <Operations section="board" />,
-    marketing:        <Operations section="marketing" />,
-    catering:         <Operations section="catering" />,
-    fuel:             <Finance group="fuel" />,
-    'fin-statements': <Finance group="statements" />,
-    'fin-planning':   <Finance group="planning" />,
-    'fin-analysis':   <Finance group="analysis" />,
-    'fin-breakdown':  <Finance group="breakdown" />,
-  } : null;
 
   // The footer closes every page (classic) or panel (map-first).
   const footer = (
@@ -743,10 +720,11 @@ function AppInner() {
           remote={remote}
           remoteChrome={remoteChrome}
           tabs={TABS_BY_ID}
+          navGroups={navGroups}
           tabLabel={tabLabel}
           activeTab={activeTab}
           navigate={navigate}
-          pages={mapPages}
+          content={activeTab !== MAP_TAB ? tabContent[activeTab] : null}
           footer={footer}
           onAdvance={handleAdvanceWeek}
           countdown={formatCountdown(timeUntilNextWeek)}

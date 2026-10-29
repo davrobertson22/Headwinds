@@ -122,16 +122,6 @@ export function RepIcon({ size = 15 }) {
   );
 }
 
-export function PartnerIcon({ size = 15 }) {
-  // Two linked rings — a partnership.
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <circle cx="9" cy="12" r="5" />
-      <circle cx="15" cy="12" r="5" />
-    </svg>
-  );
-}
-
 export function LoyaltyIcon({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>

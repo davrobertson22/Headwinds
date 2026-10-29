@@ -24,8 +24,6 @@ import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
 import { normalizeLineRates } from '../../../packages/engine/src/data/productionLines.js';
-import { TRAVEL_PARTNER_MAP } from '../../../packages/engine/src/data/travelPartners.js';
-const travelPartnerNameOf = (id) => TRAVEL_PARTNER_MAP[id]?.name ?? null;
 import ProductionRates, { EMPTY_LINE_RATES } from './ProductionRates.jsx';
 import { nextSort, loadStandingsSort, saveStandingsSort } from '../../../src/utils/standingsView.js';
 import { describeFleetMove } from '../../../src/utils/fleetNews.js';
@@ -392,10 +390,6 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [crewPipeline, setCrewPipeline] = useState(false);
   // Shared production lines — on by default (the server defaults it on too).
   const [productionLines, setProductionLines] = useState(true);
-  // Travel partnerships — on by default (the server defaults it on too).
-  const [partnerships, setPartnerships] = useState(true);
-  // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
-  const [demandV2, setDemandV2] = useState(true);
   // Per-world frames a week (blank = default); sent only when something is set.
   const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
   const [stage, setStage] = useState('beta');
@@ -451,10 +445,6 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           ...(crewPipeline ? { crewPipeline: true } : {}),
           // Always explicit: the server treats an absent field as ON.
           productionLines,
-          // Always explicit: the server treats an absent field as ON.
-          partnerships,
-          // Always explicit: the server treats an absent field as v2.
-          demandModel: demandV2 ? 2 : 1,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -675,32 +665,6 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         {productionLines && (
           <ProductionRates rates={lineRates} onChange={setLineRates} maxPlayers={maxPlayers} />
         )}
-        <label style={{ alignItems: 'flex-start' }}>Travel partnerships
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={partnerships}
-              onChange={(e) => setPartnerships(e.target.checked)} />
-            <span className="muted">{partnerships ? 'ON (default) — cruise, tour, hotel and ride-share partners' : 'Off — no travel partners'}</span>
-          </span>
-          <span className="muted small">
-            Airlines sign 2-year partnerships with cruise lines and tour operators (more leisure
-            demand at their airports) and hotel chains and ride share (more business demand). Each
-            partner has its own targets. Hit them and it renews cheaply; miss them and it costs
-            reputation, and a partner that walks out won't come back for five years.
-          </span>
-        </label>
-        <label style={{ alignItems: 'flex-start' }}>Passenger demand
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={demandV2}
-              onChange={(e) => setDemandV2(e.target.checked)} />
-            <span className="muted">{demandV2 ? 'Recalibrated (default) — checked against real traffic' : 'Classic — the original gravity model'}</span>
-          </span>
-          <span className="muted small">
-            Demand recalibrated against real US and Australian ticket data. Short US and Australian
-            hops lose demand to driving, small US airports near a big one lose travellers to it,
-            small US cities and drive-to resorts are thinner, and long Australian routes are busier.
-            About two-thirds of the way to real numbers.
-          </span>
-        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -865,22 +829,6 @@ const WORLD_FEATURES = [
     label: (w) => (w?.productionLineRates ? 'Production lines · custom rates' : 'Production lines'),
     rgb: '210,153,34',
     blurb: 'One factory line per aircraft family, shared by every airline. Your deliveries from a line are spaced 1–5 weeks apart by size, early slots cost extra, and in historical worlds launch customers order first.',
-  },
-  {
-    key: 'partners',
-    on: (w) => !!w.partnerships,
-    icon: '🤝',
-    label: () => 'Travel partners',
-    rgb: '232,121,160',
-    blurb: 'Sign cruise lines, tour operators, hotel chains and ride share. Each lifts leisure or business demand at its airports in return for targets you have to keep hitting; unhappy partners cost reputation and can walk out for five years.',
-  },
-  {
-    key: 'demand',
-    on: (w) => w.demandModel === 2,
-    icon: '📊',
-    label: () => 'Real-world demand',
-    rgb: '240,180,80',
-    blurb: 'Passenger demand recalibrated against real ticket data. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Small US cities are thinner, and long Australian routes are busier.',
   },
   {
     key: 'hubs',
@@ -1268,9 +1216,6 @@ const MOVE_LABELS = {
   CLOSE_GROUND_STATION: (p) => `Closed the ground station at ${p.code ?? p.airportCode ?? '?'}`,
   SIGN_CATERING_CONTRACT: (p) => `Signed a ${p.years ?? '?'}-year catering contract`,
   BREAK_CATERING_CONTRACT: () => 'Broke a catering contract early',
-  SIGN_TRAVEL_PARTNER: (p) => `Signed a travel partnership${travelPartnerNameOf(p.partnerId) ? ` with ${travelPartnerNameOf(p.partnerId)}` : ''}`,
-  RENEW_TRAVEL_PARTNER: (p) => `Renewed${travelPartnerNameOf(p.partnerId) ? ` ${travelPartnerNameOf(p.partnerId)}` : ' a travel partnership'}`,
-  BREAK_TRAVEL_PARTNER: (p) => `Ended${travelPartnerNameOf(p.partnerId) ? ` its partnership with ${travelPartnerNameOf(p.partnerId)}` : ' a travel partnership'} early`,
   SET_LOUNGE_POLICY: () => 'Changed lounge access',
   INSTALL_WIFI: (p) => {
     const n = p.aircraftIds?.length ?? 1;
