@@ -36,6 +36,10 @@
     footer.site { border-top:1px solid var(--line); }
     .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
     .footwrap a { color:var(--teal-light); text-decoration:none; }
+    .byline { color:var(--muted); font-size:0.88rem; margin:-18px 0 28px; }
+    figure.shot { margin:8px 0 32px; }
+    figure.shot img { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:10px; }
+    figure.shot figcaption { color:var(--muted); font-size:0.9rem; line-height:1.55; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -55,6 +59,7 @@
   <main>
     <h1>How to Play Headwinds</h1>
     <p class="lede">Headwinds is a free, browser-based multiplayer airline game. You join a world shared with other real people and grow a startup carrier into a global airline — while a server clock ticks the whole world forward, online or not. This guide takes you from sign-in to a working airline.</p>
+    <p class="byline">By the Headwinds team · Last updated October 29, 2026</p>
 
     <p>There's nothing to download. You sign in once, join a world, and start flying. The one thing to understand before anything else: every other airline on the map belongs to a real person. There are no computer opponents to farm — your rivals scout, adapt, form alliances, and hold grudges, and the world doesn't pause when you close the tab.</p>
 
@@ -80,6 +85,11 @@
       <p>This is what makes Headwinds different from a solo tycoon game: time runs on the server, not on your turns. Every world sets its own pace, and the world list spells it out — "a game year every 2 days", for instance, is a game week roughly every hour — and the clock keeps running whether you're watching or asleep. You don't grind through weeks — you set up a network, let it run, and come back to a debrief of what happened while you were gone.</p>
     </div>
 
+    <figure class="shot">
+      <img src="/img/guide/dashboard.webp" width="1200" height="792" loading="lazy" alt="A Headwinds airline dashboard with the server clock and next-tick countdown in the header, above cash, profit, revenue, fleet, fleet age, network, load factor and yield tiles and a weekly P&amp;L" />
+      <figcaption>The Dashboard of a Headwinds airline 43 game years into its world. The server clock at the top shows the game date and the countdown to the next weekly tick, which runs whether you're signed in or not. Below it: $12.5B in cash, $34.49M of weekly revenue and a 93.5% load factor, and a fleet averaging 32.7 years old that costs 537% more to maintain than new aircraft would.</figcaption>
+    </figure>
+
     <h2>Your first moves</h2>
 
     <div class="step">
@@ -97,6 +107,11 @@
       <p>Start with two or three routes out of your hub. The best early targets are city pairs with healthy demand that no rival is serving yet — claim them before someone else does. Every departure needs a gate slot at both ends: you start with a gate at your hub, and the Route Finder shows your free slots at each airport, with a <strong>+ Gate</strong> button wherever you're short. Price each route to clear its costs with room to spare, then watch your load factor: above 80% and it's working; stuck near 40% and it's bleeding you.</p>
     </div>
 
+    <figure class="shot">
+      <img src="/img/guide/planner-demand.webp" width="1200" height="350" loading="lazy" alt="Route Planner analysis of San Francisco to Honolulu in a Headwinds world, showing market demand, the leisure and business split, reference price, seasonality and a note that no competitors fly the pair" />
+      <figcaption>The Route Planner sizing San Francisco–Honolulu in the same world: 69,216 passengers a week one way, 85% of them leisure travellers, and a $353 reference fare. For now, no other airline flies the pair.</figcaption>
+    </figure>
+
     <div class="step">
       <span class="num">4</span><h3>Let the clock run, then read the debrief</h3>
       <p>Step away and let a few game weeks pass. When you return, review what changed: which routes earned, which lost, where your cash landed, and — crucially — what your rivals did. Maybe a competitor opened against you; maybe one abandoned a market you can now take. This read-and-respond loop is the core of the game.</p>
@@ -106,6 +121,11 @@
       <span class="num">5</span><h3>Respond to your rivals</h3>
       <p>When another player moves onto one of your routes, the passengers split between you based on fare, frequency, service, brand awareness and loyalty. You can defend the route by matching fares and adding flights, differentiate with more departures, or redeploy that aircraft somewhere you have the edge. Choosing well is most of the skill.</p>
     </div>
+
+    <figure class="shot">
+      <img src="/img/guide/map.webp" width="1200" height="489" loading="lazy" alt="Route network map of a Headwinds airline with 26 routes, mostly spokes from San Francisco plus routes from Los Angeles" />
+      <figcaption>Network › Map for the same airline: 26 routes, almost all of them spokes from a San Francisco Major Hub, plus a Los Angeles focus city. Green lines are profitable routes and red ones lose money.</figcaption>
+    </figure>
 
     <h2>Numbers to watch</h2>
     <p>A handful of figures tell you where you stand — against the market and against the people in it:</p>

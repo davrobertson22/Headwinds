@@ -494,7 +494,8 @@ for (const f of readdirSync(SRC)) {
 // Static asset trees that ship as-is. The loop above takes top-level files
 // only (the shared pages and icons); these directories are copied whole.
 //   tiles/bluemarble/ — the self-hosted NASA satellite basemap (mapCore.js).
-const ASSET_DIRS = ['tiles'];
+// tiles/ is the satellite map; img/guide/ holds the screenshots in the guide pages.
+const ASSET_DIRS = ['tiles', 'img'];
 let assetFiles = 0;
 for (const d of ASSET_DIRS) {
   const from = path.join(SRC, d);

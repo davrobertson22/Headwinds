@@ -33,6 +33,10 @@
     footer.site { border-top:1px solid var(--line); }
     .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
     .footwrap a { color:var(--teal-light); text-decoration:none; }
+    .byline { color:var(--muted); font-size:0.88rem; margin:-18px 0 28px; }
+    figure.shot { margin:8px 0 32px; }
+    figure.shot img { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:10px; }
+    figure.shot figcaption { color:var(--muted); font-size:0.9rem; line-height:1.55; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -52,11 +56,17 @@
   <main>
     <h1>Territory: Hub Strategy on a Shared Map</h1>
     <p class="lede">In solo airline games, a hub is an engineering project. In Headwinds it's a land claim. Every airport on the map is available to every player in the world, your rivals can see where you've planted your flag, and the best hub you'll ever have is one another player wanted too — but you got there first, dug in, and made attacking it pointless. This is a guide to thinking about hubs as territory.</p>
+    <p class="byline">By the Headwinds team · Last updated October 29, 2026</p>
 
     <h2>The opening: claim before you optimize</h2>
     <p>A fresh world is a brief window where the map is empty and every player is making the same decision at once. Your starter fleet arrives instantly — Headwinds hands you your first two aircraft with no delivery wait, and crews them from day one, precisely so these opening moves happen at speed. Use that speed. The perfect spreadsheet-optimal hub chosen in week three is worth less than a very good hub claimed in week one, because by week three the very good hubs are taken.</p>
     <p>What makes a claim defensible isn't raw airport size — it's the mismatch between how much the location is worth to <em>you</em> and how much it would cost a rival to contest. A dense catchment of nearby cities you can ring with short spokes, solid local demand to earn from before connections spin up, and no other player already committed there: that combination lets a modest airline become locked-in faster than a giant can be dislodged from anywhere.</p>
     <div class="tip">Check the News tab and the standings before you commit — the join form even tells you how many airlines are already based at the airport you type. If two players have already opened routes from the airport you're eyeing, you're not choosing a hub — you're choosing a battlefield.</div>
+
+    <figure class="shot">
+      <img src="/img/guide/map.webp" width="1200" height="489" loading="lazy" alt="Route network map of a Headwinds airline with 26 routes, mostly spokes from San Francisco plus routes from Los Angeles" />
+      <figcaption>Network › Map for the same airline: 26 routes, almost all of them spokes from a San Francisco Major Hub, plus a Los Angeles focus city. Green lines are profitable routes and red ones lose money.</figcaption>
+    </figure>
 
     <h2>Gates are the deed</h2>
     <p>A claim is only as real as the gates behind it. A gate handles up to 50 departures a week, every route uses slots at both of its ends, and an airport can't be designated as a hub at all until you hold enough gates there — five for a focus city, ten for a full hub, more for each tier above. In a standard world gates never run out, but each extra gate at the same airport costs more than the last, up to a ceiling, so a dominant presence at a big airport is genuinely expensive to hold.</p>
@@ -64,6 +74,11 @@
 
     <h2>What a hub designation buys</h2>
     <p>Connecting traffic only exists where you've built for it. Passengers change planes between your own flights only at an airport you've designated: the airport you founded at starts as a Hub, and anywhere else is designated from the Hubs screen. There are four tiers — Focus City, Hub, Major Hub and International Gateway. Each step up needs more gates and more routes at the airport, a construction bill and a bigger weekly running cost; the top two also need international destinations, and a Gateway must have run as a Major Hub for half a year and be moving real connecting volume. In return the airport becomes a better place to change planes: passengers mind the connection less, more of the airport's transfer traffic finds your flights, every route touching it scores higher on quality, station and layover costs there fall, and each gate takes more departures before the hub congests. A full hub must be in your home country; abroad you're limited to focus cities, one per country.</p>
+
+    <figure class="shot">
+      <img src="/img/guide/hub.webp" width="1200" height="743" loading="lazy" alt="Hub management card for a San Francisco Major Hub showing gates, routes, connecting passengers, quality boost, cost efficiency, top connecting markets and the checklist for an International Gateway" />
+      <figcaption>Airports › Hubs for San Francisco as a Major Hub: 20 gates, 25 routes and 62,439 connecting passengers a week across 150 markets, plus +12 quality on hub routes and lower station and crew costs. The checklist shows what an International Gateway would still need: 50 routes and six international destinations.</figcaption>
+    </figure>
 
     <h2>Why fortresses hold</h2>
     <p>A developed hub defends itself through the connecting bank. Once a dozen spokes exchange passengers through your schedule, each spoke earns from dozens of onward markets that a point-to-point invader can't touch. A rival entering one of your spokes competes for that pair's local travellers only — while your aircraft on the same pair also carries everyone connecting to the rest of your network. You can profitably match a fare that loses them money, indefinitely. Most players learn to read this. The ones who don't, fund your next fleet order.</p>

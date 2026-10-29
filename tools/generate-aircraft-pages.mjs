@@ -177,7 +177,13 @@ const CSS = `
     .card .specs b { color:var(--text); font-weight:600; }
     .note { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:10px 0 0; font-size:0.92rem; }
     .crumbs { font-size:0.85rem; color:var(--muted); margin:0 0 20px; }
-    .crumbs a { color:var(--muted); }`;
+    .crumbs a { color:var(--muted); }
+    .byline { color:var(--muted); font-size:0.88rem; margin:-24px 0 32px; }`;
+
+// Shown under every page's lede. Bump it when the pages' content changes
+// (new aircraft, rebalanced stats, rewritten advice), not on every regeneration.
+// headwinds-public.mjs rebrands "Tailwinds" to "Headwinds" on the way out.
+const UPDATED = 'October 29, 2026';
 
 function pageShell({ title, description, canonical, h1, lede, body }) {
   return `<!DOCTYPE html>
@@ -202,6 +208,7 @@ ${NAV}
     <p class="crumbs"><a href="/">Home</a> › <a href="/aircraft.html">Aircraft</a>${h1 === 'Aircraft in Tailwinds' ? '' : ` › ${esc(h1)}`}</p>
     <h1>${esc(h1)}</h1>
     <p class="lede">${lede}</p>
+    <p class="byline">By the Tailwinds team · Last updated ${UPDATED}</p>
 ${body}
     <a class="cta" href="/">Play Tailwinds — It's Free →</a>
   </main>

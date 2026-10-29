@@ -33,6 +33,10 @@
     footer.site { border-top:1px solid var(--line); }
     .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
     .footwrap a { color:var(--teal-light); text-decoration:none; }
+    .byline { color:var(--muted); font-size:0.88rem; margin:-18px 0 28px; }
+    figure.shot { margin:8px 0 32px; }
+    figure.shot img { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:10px; }
+    figure.shot figcaption { color:var(--muted); font-size:0.9rem; line-height:1.55; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -52,15 +56,26 @@
   <main>
     <h1>Pricing Against People: Route Economics in Headwinds</h1>
     <p class="lede">In a Headwinds world, every fare you publish is a message to a human being who can read it, undercut it, or call your bluff. The demand model underneath is the same rigorous simulation as the solo game — but the moment a real rival enters your market, route economics stops being an optimization problem and becomes a negotiation you conduct through prices. This guide covers how contested routes actually divide their passengers, and how to come out of that division profitable.</p>
+    <p class="byline">By the Headwinds team · Last updated October 29, 2026</p>
 
     <h2>The pool is mostly fixed. Your share isn't.</h2>
     <p>A city pair generates a certain number of people who want to fly it each week — driven by the populations at both ends, how much tourist and business pull each city has, how much each country flies, the distance between them, and the time of year. A city counts once: New York to London is one pool of travellers whether it's flown from JFK, Newark or LaGuardia, and secondary fields reach fewer of them than the main airport does. Fares move the size of the pool — cheap tickets coax more people into the air, up to a point, and dear ones price them out — but on a pair you share, what you're mostly fighting over is the <em>split</em>.</p>
     <p>When two airlines fly the same city pair, from any airport in either city, the simulation divides travellers based on what each carrier offers: fares, how often the flights go, the quality of the product (cabins, catering, lounges, the age of the fleet), brand awareness and reputation, local advertising, and how well each airline's airports serve the trip. There's no seniority rule in the split itself, but time still counts. A newly opened route takes around four months to build up its full market, and an airline's brand travels with it onto every pair it enters — a start-up nobody has heard of reaches less than half the market whatever it charges, while a well-known carrier is dangerous from its first week. That cuts both ways: your fortress can be stormed by an established rival, and theirs can be stormed by you.</p>
     <div class="tip">Monopoly weeks are the exception in a Headwinds world, not the rule. Your route profits and loads stay private, but your economy fare, frequency, weekly seats and aircraft on every route are on show in your rival dossier — price every route knowing other players are reading it.</div>
 
+    <figure class="shot">
+      <img src="/img/guide/planner-demand.webp" width="1200" height="350" loading="lazy" alt="Route Planner analysis of San Francisco to Honolulu in a Headwinds world, showing market demand, the leisure and business split, reference price, seasonality and a note that no competitors fly the pair" />
+      <figcaption>The Route Planner sizing San Francisco–Honolulu in the same world: 69,216 passengers a week one way, 85% of them leisure travellers, and a $353 reference fare. For now, no other airline flies the pair.</figcaption>
+    </figure>
+
     <h2>Know their fares before you set yours</h2>
     <p>Solo players price against a model. You price against a person — so scout them. The Rivals tab shows you every airline in the world, and clicking one opens their full dossier: fleet, every route with its economy fare, frequency, weekly seats and aircraft, and how they've been trending. Each route you share with them also gets a head-to-head card showing the projected split, straight from the model that books your passengers. Before you publish fares on a contested pair, know what the other carrier charges, what equipment they fly, and whether the route is a core artery of their network or a stray experiment.</p>
     <p>That last distinction drives everything. A player defending a trunk route that feeds their hub will match your cuts all the way to the floor, because losing the route unravels their bank structure. A player with one aircraft moonlighting on the pair will fold and redeploy the moment it stops paying. Same fare chart, opposite correct strategies.</p>
+
+    <figure class="shot">
+      <img src="/img/guide/planner-economics.webp" width="1200" height="530" loading="lazy" alt="Route Planner estimate for San Francisco to Honolulu: a best-aircraft ranking and the estimated capacity, load factor, revenue, operating cost and net profit" />
+      <figcaption>Further down, the Planner prices the route on an owned Airbus A220-100 flying seven times a week: an estimated 95% load, $839K of revenue and $466K of net profit a week. It also ranks every type that can fly the route and flags the ones you would have to lease first.</figcaption>
+    </figure>
 
     <h2>The arithmetic of a fare war</h2>
     <p>Here's the trap in numbers. Suppose a contested pair splits demand roughly evenly and both carriers are modestly profitable. You cut fares 20% to take share. Two things happen: your yield drops on every passenger you were already carrying, and your rival — who watches their dashboard as closely as you watch yours — matches within a week. The split returns to roughly where it was. Cheaper fares do tempt some extra travellers onto the pair, but only into seats someone has spare — if you were both flying fairly full, they have nowhere to sit, and now both of you fly the same passengers for 20% less revenue. The pool doesn't care about your feud.</p>

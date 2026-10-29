@@ -35,6 +35,10 @@
     footer.site { border-top:1px solid var(--line); }
     .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
     .footwrap a { color:var(--teal-light); text-decoration:none; }
+    .byline { color:var(--muted); font-size:0.88rem; margin:-18px 0 28px; }
+    figure.shot { margin:8px 0 32px; }
+    figure.shot img { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:10px; }
+    figure.shot figcaption { color:var(--muted); font-size:0.9rem; line-height:1.55; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -54,6 +58,7 @@
   <main>
     <h1>Headwinds Strategy Guide</h1>
     <p class="lede">Headwinds runs the same deep simulation as its solo sibling — but the airlines across the table are people, not code. They scout you, adapt, cooperate, and occasionally act out of spite. That single fact reshapes every decision, and this guide is about playing the map <em>and</em> the players on it.</p>
+    <p class="byline">By the Headwinds team · Last updated October 29, 2026</p>
 
     <p>If you're still learning the fundamentals — hubs, fleet, routes, load factor — start with the <a href="/how-to-play.html">how-to-play guide</a> and the <a href="/glossary.html">glossary</a>, then come back here. And whatever you do, do it inside the <a href="/rules.html">Fair Play Rules</a>: competing hard is the whole point, cheating isn't.</p>
 
@@ -74,6 +79,11 @@
 
     <h2 id="scout">Scout before you fly</h2>
     <p>In a world of real opponents, information is an edge you can act on. Before you commit aircraft, use the Rivals tab, the standings and the News tab to read the room: who's already big, where their networks are concentrated, which hubs are crowded, and who's climbing fast. The Market's world order board adds what's coming: how many of each aircraft type are flying and on order across the world, and which airlines hold them. An airline that's expanding aggressively is a different threat from one sitting still on a fat home market. The map tells you where the fights will be — scout it, then choose battles you can win.</p>
+
+    <figure class="shot">
+      <img src="/img/guide/route-finder.webp" width="1200" height="579" loading="lazy" alt="Route Finder listing unserved markets from San Francisco for an Airbus A320neo, with distance, market size, reference fare, rivals, estimated load and estimated profit" />
+      <figcaption>Network › Route Finder lists the markets you don't serve yet that your aircraft can reach, with each one's size, reference fare, how many rivals already fly it, and an estimated weekly profit. From this San Francisco hub, Honolulu, New York and Orlando top the list, and none of them has a rival yet.</figcaption>
+    </figure>
 
     <h2 id="territory">Claim territory early</h2>
     <p>Open demand is a finite resource in a shared world, and early movers lock it up. The best opening isn't the flashiest market — it's the profitable one nobody has taken yet. Establish yourself in space where you're unopposed, bank the cash, and build a base before you ever pick a fight. Attacking an entrenched rival at their fortress hub in week two is how new airlines burn their runway; growing where they aren't is how you build one big enough to attack from later.</p>
@@ -105,6 +115,11 @@
 
     <h2 id="finance">Finance under pressure</h2>
     <p>Cash is survival; debt is a tool — and in a live world, both are read against what your rivals might do. A thin cash balance that's fine in a quiet market becomes dangerous the moment a well-funded competitor opens a price war on your best route. Keep a deeper cushion than a solo player would, because you don't control when the pressure comes. Borrow to seize a genuine opening — a fleet for a new hub, an expansion before a rival beats you to it — but only against cash flow your existing network reliably produces. The bank holds you to that: new borrowing is capped by your recent earnings and your equity, and aircraft finance lends against owned metal valued at no more than you paid for it. Own the metal on your proven core routes to lower costs; lease for the experiments and the land-grabs — though in worlds with New World Restrictions, lessors stock only previous-generation single-deck types and cap how many leased aircraft you can have on order at once, so a land-grab fleet may have to be bought.</p>
+
+    <figure class="shot">
+      <img src="/img/guide/finance.webp" width="1200" height="575" loading="lazy" alt="Finance cost bridge stepping from route revenue through direct flying costs, leases, gates, staff, overheads and marketing to weekly operating profit and net cash flow" />
+      <figcaption>The cost bridge under Finance › Statements starts from route revenue and walks down to cash. For this airline the routes run at a 47.1% margin, but gates, staff, marketing and overheads that no single route carries bring the company margin down to 9.8%.</figcaption>
+    </figure>
 
     <h2 id="winning">Winning a world</h2>
     <p>Every world runs for a fixed span of game-years and ends with a final ranking, so there's an actual finish line — and everyone on the leaderboard is a person you out-flew or didn't. Play the scoreboard. The standings rank every airline still flying on its average weekly net profit over the last 52 weeks, and the title goes to the best average over the final 52 — listed or private alike, so going public is a financing decision, not an entry ticket. That makes a world's last year a season of its own: track your 52-week average against the field, consolidate your strongest markets as it approaches, and resist the classic blunder of a huge, debt-fuelled expansion inside that window, where every new route's slow first weeks, every extra lease and every interest payment comes straight off the number that decides the title. The airline that finishes on top is usually the one that claimed good ground early, defended it intelligently, partnered wisely, and grew at a pace it could always digest.</p>

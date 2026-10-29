@@ -33,6 +33,10 @@
     footer.site { border-top:1px solid var(--line); }
     .footwrap { max-width:880px; margin:0 auto; padding:28px 24px; color:var(--muted); font-size:0.9rem; display:flex; flex-wrap:wrap; gap:16px; }
     .footwrap a { color:var(--teal-light); text-decoration:none; }
+    .byline { color:var(--muted); font-size:0.88rem; margin:-18px 0 28px; }
+    figure.shot { margin:8px 0 32px; }
+    figure.shot img { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:10px; }
+    figure.shot figcaption { color:var(--muted); font-size:0.9rem; line-height:1.55; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -52,6 +56,7 @@
   <main>
     <h1>Fleet Planning: Building a Fleet You Can Defend</h1>
     <p class="lede">Solo airline games ask one question of a fleet: is it efficient? A shared world asks two more. Can you keep flying when something breaks, and can you still afford to react when a rival forces your hand? Most airlines that fail in Headwinds fail on those two, not on cents per seat-kilometre — and both are decided months earlier, at the moment you sign for aircraft.</p>
+    <p class="byline">By the Headwinds team · Last updated October 29, 2026</p>
 
     <h2>Routes first, still</h2>
     <p>The oldest rule in the genre survives contact with multiplayer: find the demand, then buy the aircraft that fits it. An aircraft bought because it looked good in the table and then given a route to justify it is how airlines go bankrupt in every version of this game.</p>
@@ -79,9 +84,19 @@
     <h3>The Used Market</h3>
     <p>When an airline sells an aircraft the game buys it at its current valuation — capped at what the seller paid for it — less 5%, and lists that exact tail — age, cabin and maintenance history included — on the Used Market for anyone in the world to buy at its valuation, one tail or several at once. A used purchase skips the factory queue and arrives on the next weekly tick, which makes it the fastest way to answer a move, and a cheap way into a type that would otherwise have to be bought new. Listings nobody wants are scrapped after two game years.</p>
 
+    <figure class="shot">
+      <img src="/img/guide/used-market.webp" width="1200" height="500" loading="lazy" alt="The Used Market in a Headwinds world, listing secondhand aircraft with age, seats and price and a Buy used button" />
+      <figcaption>The Used Market under Fleet › Market lists secondhand tails that anyone in the world can buy, each with its age, seats and price. A used aircraft arrives on the next weekly tick, so it's the fastest way to add capacity when a rival moves.</figcaption>
+    </figure>
+
     <h2>The classics carry a risk they don't carry solo</h2>
     <p>Older aircraft lease for a fraction of their modern equivalents and remain a legitimate value play. But mechanical failures in Headwinds cost money as well as downtime, and the repair bill is a share of the airframe's purchase price scaled by an age curve — roughly three times the base rate at twenty years, five and a half at thirty, with genuinely elderly aircraft occasionally written off outright. And a classic is rarely new: most out-of-production types arrive already six to sixteen years old depending on their vintage, so they start partway up that curve, and the longest-closed lines arrive older still.</p>
     <p>In a solo save that's an inconvenience you absorb at your own pace. In a live world the grounding arrives while somebody is actively contesting your market, and the clock doesn't stop. Fly the classics where a lost week is survivable, keep them dense enough that a standby can cover them, and base the family properly before the first failure rather than after it.</p>
+
+    <figure class="shot">
+      <img src="/img/guide/fleet.webp" width="1200" height="650" loading="lazy" alt="Fleet screen for an ageing all-Airbus fleet showing weekly maintenance, idle aircraft, utilisation, aircraft ages over 32 years and several aircraft grounded for checks" />
+      <figcaption>The fleet behind that dashboard: 29 owned Airbus A220-100s and A320neos, most of them more than 32 years old. Together they cost $9.95M a week in maintenance, and seven are grounded for checks or repairs. This is what keeping classics flying looks like in a live world.</figcaption>
+    </figure>
 
     <h2>Your orders are public. Plan the sequence.</h2>
     <p>Every rival's profile shows their fleet by type and their moves week by week — leases, orders, routes opened and closed. Orders also run in the world's News feed, and every aircraft card in the market counts how many of that type the world's airlines fly and have on order, airline by airline. New-build aircraft arrive on a delivery lead time that grows with the aircraft's size, so an order broadcasts your intentions long before the aircraft can act on them.</p>
