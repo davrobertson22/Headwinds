@@ -284,7 +284,7 @@ test('the 8/4-week expiry toast offers all three ways out', () => {
 });
 
 test('the Dashboard lease alert names it', () => {
-  assert.match(readSrc('src/components/Dashboard.jsx'), /expiring within[\s\S]{0,200}buy out/,
+  assert.match(readSrc('src/utils/airlineAlerts.js'), /expiring within[\s\S]{0,200}buy out/,
     'the Dashboard alert sends the player to Fleet without saying buying out is an option');
 });
 

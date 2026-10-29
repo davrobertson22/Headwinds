@@ -43,6 +43,12 @@ export function requestDepartureBoard(airport) {
   window.dispatchEvent(new CustomEvent('hw:navigate', { detail: { tab: 'operations' } }));
 }
 
+/** Is a request parked? (The map view routes 'operations' to its Departures tab
+ *  when one is — without taking it, so the board still reads it on mount.) */
+export function peekDepartureBoardRequest() {
+  return pendingAirport;
+}
+
 /** Claim a parked request, if any. Reading it clears it. */
 export function takeDepartureBoardRequest() {
   const a = pendingAirport;

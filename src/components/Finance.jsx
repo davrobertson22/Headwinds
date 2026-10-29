@@ -160,10 +160,32 @@ function futureMonth(currentAbsWeek, offsetWeeks) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-function FinanceInner({ initialView }) {
+// The map view splits Finance across tabs: Statements, Loans & Forecast,
+// Analysis and Breakdown under Finance, and Fuel under Operations (Barca,
+// Discord 2026-10-29). `group` picks one; omitted, it is the classic page.
+export const FINANCE_GROUP_VIEWS = {
+  statements: ['pl', 'cashflow', 'bs'],
+  planning:   ['forecast', 'loans'],
+  analysis:   ['uniteco', 'trends', 'stats'],
+  breakdown:  ['routes', 'airports'],
+  fuel:       ['fuel'],
+};
+
+/** Which map-view Finance group shows `view` (the classic view ids). */
+export function financeGroupOf(view) {
+  for (const [g, views] of Object.entries(FINANCE_GROUP_VIEWS)) if (views.includes(view)) return g;
+  return null;
+}
+
+function FinanceInner({ initialView, group = null }) {
+  const allowed = group ? (FINANCE_GROUP_VIEWS[group] ?? null) : null;
   // A deep link (the Dashboard's Fuel tile → requestNav('finance', { filter:
   // { view: 'fuel' } })) lands on the named view; read once, on mount.
-  const [view, setView] = useState(() => consumeNavFilter('finance')?.view ?? initialView ?? 'pl');
+  const [view, setView] = useState(() => {
+    const want = consumeNavFilter('finance')?.view ?? initialView ?? null;
+    if (allowed) return allowed.includes(want) ? want : allowed[0];
+    return want ?? 'pl';
+  });
   const { state } = useGame();
   // Compute the canonical weekly projection ONCE and share it across tabs (runs a
   // full engine tick incl. network/connection enumeration, so we don't want each
@@ -198,7 +220,7 @@ function FinanceInner({ initialView }) {
 
   return (
     <div>
-      <div className="fin-group-tabs">
+      {!allowed && <div className="fin-group-tabs">
         {GROUPS.map(g => (
           <button
             key={g.id}
@@ -208,9 +230,9 @@ function FinanceInner({ initialView }) {
             {g.label}
           </button>
         ))}
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
-        {activeGroup.views.map(id => (
+      </div>}
+      {(!allowed || allowed.length > 1) && <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+        {(allowed ?? activeGroup.views).map(id => (
           <button
             key={id}
             className={`btn ${view === id ? 'btn-primary' : 'btn-ghost'}`}
@@ -220,7 +242,7 @@ function FinanceInner({ initialView }) {
             <GlyphLabel text={VIEW_BY_ID[id].label} size={13} />
           </button>
         ))}
-      </div>
+      </div>}
 
       {view === 'pl'       && <PLStatement proj={proj} />}
       {view === 'cashflow' && <CashFlow proj={proj} />}
@@ -237,10 +259,10 @@ function FinanceInner({ initialView }) {
   );
 }
 
-export default function Finance({ initialView }) {
+export default function Finance({ initialView, group = null }) {
   return (
     <FinanceErrorBoundary>
-      <FinanceInner initialView={initialView} />
+      <FinanceInner initialView={initialView} group={group} />
     </FinanceErrorBoundary>
   );
 }

@@ -214,7 +214,7 @@ test('an empty or missing fleet is not a crash', () => {
 
 // ── 5. The surfaces actually use the shared helper ───────────────────────────
 for (const [file, what] of [
-  ['src/components/Dashboard.jsx', 'the Dashboard alert strip'],
+  ['src/utils/airlineAlerts.js', 'the Dashboard alert strip (and the map view\'s alert column)'],
   ['src/components/Fleet.jsx', 'the Fleet filter chips'],
   ['src/components/WeeklyDebrief.jsx', 'the weekly debrief'],
 ]) {

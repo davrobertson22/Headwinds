@@ -947,7 +947,15 @@ const CREW_HOW_IT_WORKS =
   + `${Math.round(CREW_SEVERE_SHORTFALL * 100)}% or more short on pilots or cabin crew: aircraft are parked — their routes earn nothing while lease and maintenance still bill. `
   + 'Hire ahead of new deliveries; the hire buttons already allow for training time and attrition.';
 
-export default function Operations() {
+/**
+ * `section` (map view only — App.jsx's map pages) shows one part of the page:
+ *   'crew'       Labour & Costs without marketing or catering
+ *   'board'      the Departure Board and Schedule tabs
+ *   'marketing'  the marketing card
+ *   'catering'   default catering + catering contracts
+ * Omitted, it is the classic page with all three sub-tabs.
+ */
+export default function Operations({ section = null } = {}) {
   const { state, dispatch } = useGame();
   const {
     fleet, routes = [], labor = DEFAULT_LABOR_STATE,
@@ -959,7 +967,9 @@ export default function Operations() {
   const currentAbsWeek = ((state.year ?? 1) - 1) * 52 + (state.week ?? 1);
   // An airport screen may have asked for the board on a specific airport.
   const [requestedAirport] = useState(() => takeDepartureBoardRequest());
-  const [subTab, setSubTab] = useState(requestedAirport ? 'departures' : 'labor');
+  const [subTab, setSubTab] = useState(requestedAirport || section === 'board' ? 'departures' : 'labor');
+  const subTabs = section === 'board' ? SUB_TABS.filter(t => t.id !== 'labor') : SUB_TABS;
+  const showSubTabs = !section || section === 'board';
 
   // ── Crew pipeline (A7) ──────────────────────────────────────────────────
   // Only in worlds/saves running the pipeline. `required` and `available` are
@@ -1064,13 +1074,67 @@ export default function Operations() {
   // Use last tick's maintenance total for display
   const fleetMaintTotal = state.lastReport?.totalMaintenance ?? 0;
 
+  // Marketing and catering: part of the Labour & Costs page in the classic
+  // layout; their own tabs under Service in the map view (section prop).
+  const marketingBlock = (<>
+      {/* Marketing budget section */}
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
+      }}>
+        Marketing Budget
+      </div>
+
+      <MarketingCard
+        budget={marketingBudget}
+        pctOfRevenue={state.marketingPctOfRevenue ?? null}
+        weeklyRevenue={state.lastReport?.totalRevenue ?? 0}
+        weeklyPax={state.lastReport?.totalPassengers ?? 0}
+        awareness={state.awareness ?? 5}
+        targetedMarketing={state.targetedMarketing ?? {}}
+        campaignStrength={state.campaignStrength ?? {}}
+        routes={routes}
+        competitors={state.competitors ?? []}
+        dispatch={dispatch}
+      />
+  </>);
+  const cateringBlock = (<>
+      {/* Default catering section */}
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
+      }}>
+        Default Catering Service
+      </div>
+
+      <div className="card" style={{ padding: '14px 18px' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+          The catering level applied to every newly-opened route. You can still override it
+          per route on the Routes page. Existing routes are unaffected.
+        </div>
+        <CateringSelector
+          value={normalizeCateringLevel(state.defaultCateringLevel)}
+          onChange={(level) => dispatch({ type: 'SET_DEFAULT_CATERING', level })}
+          label={null}
+        />
+      </div>
+
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
+      }}>
+        Catering Contracts
+      </div>
+      <CateringContracts />
+  </>);
+
   return (
     <div>
       {/* Sub-tabs. Labour and the departure board are both "how the operation is
           running", and the board needs a home with room for an airport picker —
           the airport screen shows one airport, this shows any of them. */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        {SUB_TABS.map(t => (
+      {showSubTabs && <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        {subTabs.map(t => (
           <button
             key={t.id}
             onClick={() => setSubTab(t.id)}
@@ -1086,9 +1150,10 @@ export default function Operations() {
             {t.label}
           </button>
         ))}
-      </div>
+      </div>}
 
-      {subTab === 'schedule' ? <ScheduleTimeline /> : subTab === 'departures' ? <Departures initialAirport={requestedAirport} /> : (<>
+      {section === 'marketing' ? marketingBlock : section === 'catering' ? cateringBlock
+        : subTab === 'schedule' ? <ScheduleTimeline /> : subTab === 'departures' ? <Departures initialAirport={requestedAirport} /> : (<>
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
@@ -1264,54 +1329,8 @@ export default function Operations() {
         );
       })()}
 
-      {/* Marketing budget section */}
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
-      }}>
-        Marketing Budget
-      </div>
-
-      <MarketingCard
-        budget={marketingBudget}
-        pctOfRevenue={state.marketingPctOfRevenue ?? null}
-        weeklyRevenue={state.lastReport?.totalRevenue ?? 0}
-        weeklyPax={state.lastReport?.totalPassengers ?? 0}
-        awareness={state.awareness ?? 5}
-        targetedMarketing={state.targetedMarketing ?? {}}
-        campaignStrength={state.campaignStrength ?? {}}
-        routes={routes}
-        competitors={state.competitors ?? []}
-        dispatch={dispatch}
-      />
-
-      {/* Default catering section */}
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
-      }}>
-        Default Catering Service
-      </div>
-
-      <div className="card" style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-          The catering level applied to every newly-opened route. You can still override it
-          per route on the Routes page. Existing routes are unaffected.
-        </div>
-        <CateringSelector
-          value={normalizeCateringLevel(state.defaultCateringLevel)}
-          onChange={(level) => dispatch({ type: 'SET_DEFAULT_CATERING', level })}
-          label={null}
-        />
-      </div>
-
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
-      }}>
-        Catering Contracts
-      </div>
-      <CateringContracts />
+      {!section && marketingBlock}
+      {!section && cateringBlock}
 
       {/* HQ & Corporate overhead section */}
       {fleet.length > 0 && (() => {

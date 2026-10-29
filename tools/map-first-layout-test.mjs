@@ -9,8 +9,8 @@
 //      missing file can't leave a black square in the ocean;
 //   3. the map-first shell, SSR-rendered through the REAL App (not MapShell in
 //      isolation): the map is the background, every page in the nav is still
-//      reachable from a rail, the dock or a group menu, and a page opens in a
-//      panel over the map;
+//      reachable from the dock or the chrome, and a page opens in a panel over
+//      the map (the 2026-10-29 rework: tools/map-view-feedback-test.mjs);
 //   4. the classic layout is unchanged apart from its new "Map view" switch.
 
 import assert from 'node:assert/strict';
@@ -131,7 +131,7 @@ const React = (await import('react')).default;
 const { renderToString } = await import('react-dom/server');
 const { default: App } = await import('../src/App.jsx');
 const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
-const { LAYOUT_KEY, SHELL_SLOTS, readLayout, writeLayout, LAYOUT_INVITE_KEY, MAP_HINT_KEY } = await import('../src/components/MapShell.jsx');
+const { LAYOUT_KEY, MAP_GROUPS, MAP_PAGES, MAP_CHROME_PAGES, resolveMapPage, readLayout, writeLayout, LAYOUT_INVITE_KEY, MAP_HINT_KEY } = await import('../src/components/MapShell.jsx');
 const { TAB_LABELS, TAB_GROUP } = await import('../src/navPath.js');
 
 store.set('bbae_save_v2', JSON.stringify({
@@ -180,7 +180,7 @@ await test('first visit to map-first explains how to get back; once only', () =>
   store.set(LAYOUT_KEY, 'map'); store.delete(MAP_HINT_KEY);
   let html = render();
   assert.ok(html.includes('class="ms-beta-hint"'), 'first-visit hint');
-  assert.ok(html.includes('Classic layout'), 'names the way back');
+  assert.ok(html.includes('Back to classic layout'), 'names the way back');
   store.set(MAP_HINT_KEY, '1');
   html = render();
   assert.ok(!html.includes('class="ms-beta-hint"'), 'gone after Got it');
@@ -199,32 +199,29 @@ await test('map-first: the map is the background and the HUD floats over it', ()
   assert.ok(!html.includes('All Routes'), 'the Map tab route table is not drawn in full-bleed');
   assert.ok(!html.includes('empty-state'), 'a new airline with no routes still gets the world map');
   assert.ok(html.includes('map-bleed-hint'), '…with a nudge toward Search');
-  for (const label of ['Company', 'Search', 'Network', 'Market']) {
-    assert.ok(new RegExp(`<span>${label}</span>`).test(html), `dock: ${label}`);
+  for (const label of ['Search', 'Network', 'Fleet', 'World', 'Operations', 'Service', 'Finance']) {
+    assert.ok(new RegExp(`<span class="ms-lbl-long">${label}</span>`).test(html), `dock: ${label}`);
   }
-  assert.ok(/data-basemap="satellite"[^>]*aria-pressed="true"|aria-pressed="true"[^>]*data-basemap="satellite"|class="active" aria-pressed="true">Satellite/.test(html)
-    || /aria-pressed="true"[^>]*>Satellite</.test(html), 'Satellite pressed by default');
+  assert.ok(/aria-pressed="true"[^>]*>Satellite</.test(html), 'Satellite pressed by default');
 });
 
 await test('every page in the nav is reachable from the map-first layout', () => {
-  const direct = new Set([...SHELL_SLOTS.left, ...SHELL_SLOTS.right, ...SHELL_SLOTS.dock, ...SHELL_SLOTS.corner]);
+  const inDock = new Set(MAP_GROUPS.flatMap(g => g.pages));
+  const reachable = (p) => inDock.has(p) || MAP_CHROME_PAGES.includes(p);
   const unreachable = Object.keys(TAB_LABELS).filter(id => {
     if (id === 'map') return false;                 // the background itself
-    if (direct.has(id)) return false;
-    const g = TAB_GROUP[id];
-    return !(g && direct.has(`group:${g}`));
+    return !reachable(resolveMapPage(id));
   });
   assert.deepEqual(unreachable, []);
+  // and every map page has a way in
+  assert.deepEqual(Object.keys(MAP_PAGES).filter(p => !reachable(p)), []);
 });
 
-await test('every rendered control is a real slot (solo hides News)', () => {
+await test('every rendered control is a real group or chrome button (solo hides News)', () => {
   const html = render();
-  for (const e of [...SHELL_SLOTS.left, ...SHELL_SLOTS.right, ...SHELL_SLOTS.dock, ...SHELL_SLOTS.corner]) {
-    const shown = html.includes(`data-shell="${e}"`);
-    if (e === 'news') assert.ok(!shown, 'News is multiplayer-only');
-    else assert.ok(shown, `missing control ${e}`);
-  }
-  assert.ok(html.includes('data-shell="settings"'));
+  for (const g of MAP_GROUPS) assert.ok(html.includes(`data-shell="group:${g.id}"`), `missing group ${g.id}`);
+  for (const c of ['dashboard', 'wiki', 'tutorial', 'discord', 'settings']) assert.ok(html.includes(`data-shell="${c}"`), `missing ${c}`);
+  assert.ok(!/data-page="news"/.test(html), 'News is multiplayer-only');
 });
 
 store.delete(LAYOUT_KEY);

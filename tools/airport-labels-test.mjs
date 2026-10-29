@@ -80,8 +80,8 @@ await test('the stylesheet hides every airport label inside a labels-off map', (
 });
 
 await test('both renderers draw their codes as .airport-label', () => {
-  assert.match(src('../src/components/GlobeMap.jsx'), /className = 'airport-label globe-label'/);
-  assert.match(src('../src/components/RouteMap.jsx'), /className: 'airport-label'/);
+  assert.match(src('../src/components/GlobeMap.jsx'), /className = 'airport-label globe-label/);
+  assert.match(src('../src/components/RouteMap.jsx'), /className: 'airport-label[ ']/);
 });
 
 console.log(`\nairport-labels-test: ${passed} passed, ${failed} failed`);

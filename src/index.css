@@ -1194,11 +1194,18 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 }
 /* Labels toggle on the network map (flat map and globe alike) */
 .map-labels-off .airport-label { display: none !important; }
+/* A click on a code lights every route at that airport (RouteMap / GlobeMap). */
+.airport-label-click { pointer-events: auto !important; }
+.airport-label-click span { pointer-events: auto; cursor: pointer; padding: 2px 3px; margin: -2px -3px; border-radius: 3px; }
+.airport-label-click span:hover { color: #fff; background: rgba(2, 5, 26, .55); }
 
-/* Route lines — glow + animated flow */
-.route-glow {
-  filter: blur(2px);
-}
+/* Route lines — glow + animated flow.
+   The glow is NOT blurred. A CSS filter on hundreds of SVG paths made the flat
+   map re-rasterise every one of them on each frame of a pan or zoom; measured
+   in a 250-route airline it more than halved the frame rate, and it is most of
+   why the flat map lagged where the (WebGL) globe did not (Barca, Discord
+   2026-10-29). The wide low-opacity halo reads as a glow without it. */
+.route-glow { }
 .route-line {
   cursor: pointer;
   transition: stroke-width .15s ease, stroke-opacity .15s ease;
@@ -2033,7 +2040,7 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 .map-bleed .maplibregl-ctrl-attrib a { color: rgba(255,255,255,.7); }
 .map-bleed .globe-clock { top: auto; bottom: 96px; left: 50%; transform: translateX(-50%); }
 .map-bleed-controls {
-  position: absolute; left: 14px; top: 64px; z-index: 500;
+  position: absolute; left: 14px; top: 90px; z-index: 500;
   display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-width: calc(100% - 28px);
 }
 .map-bleed-controls .map-view-toggle {
@@ -2054,93 +2061,159 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 }
 .map-bleed-hint strong { color: var(--text); }
 
-/* Glass used by every floating control. The page panel is NOT glass: a 10px
-   backdrop blur over a full-screen map is recomputed on every frame the map or
-   the panel's own content moves, and it halved the frame rate with a page open
-   (Discord, Fonnesx, 2026-10-29). The panel was 96% opaque anyway. */
-.ms-airline, .ms-cash, .ms-rail-btn, .ms-dock, .ms-top-right:not(:empty), .ms-menu {
-  background: rgba(8, 10, 16, .84);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-.ms-airline, .ms-cash, .ms-rail-btn, .ms-dock, .ms-top-right:not(:empty), .ms-menu, .ms-panel {
+/* Glass used by every floating control.
+   No backdrop-filter anywhere in the map view: blurring the moving map under
+   the page panel halved the frame rate with a page open (Fonnesx, 044e14e),
+   and blurring it under every floating control was the other half of the flat
+   map's lag with no page open (Barca, Discord 2026-10-29). The near-opaque fill
+   reads the same over satellite imagery. */
+.ms-crest-logo, .ms-crest-plate, .ms-status, .ms-top-btn, .ms-remote-chrome:not(:empty), .ms-alert, .ms-home,
+.ms-dock, .ms-menu, .ms-panel {
+  background: rgba(8, 10, 16, .9);
   border: 1px solid rgba(255,255,255,.12);
   box-shadow: 0 6px 24px rgba(0,0,0,.45);
 }
+.map-bleed-controls .map-view-toggle, .map-bleed-chip { backdrop-filter: none !important; background: rgba(8, 10, 16, .88); }
 /* With a page open the map underneath is frozen (RouteMap `paused`), so stop
-   its CSS animations too — a pulsing hub would otherwise repaint the map, and
-   every blurred control over it, 60 times a second for nothing. */
+   its CSS animations too — a pulsing hub would otherwise repaint the map 60
+   times a second for nothing. */
 .ms-panel-open .ms-map * { animation-play-state: paused !important; }
 
-/* Top HUD */
+/* If the map itself throws, the HUD stays and offers a reload. */
+.ms-map-failed {
+  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px;
+  align-items: center; justify-content: center; color: var(--text-muted); font-size: 14px; background: #02051a;
+}
+.ms-map-failed button {
+  border: 1px solid var(--border-strong); background: var(--surface2); color: var(--text);
+  border-radius: 999px; padding: 6px 16px; cursor: pointer; font: inherit;
+}
+
+/* ── Top HUD ── */
 .ms-top {
-  position: absolute; top: 10px; left: 12px; right: 12px; z-index: 30;
-  display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 10px;
+  position: absolute; top: 12px; left: 14px; right: 14px; z-index: 30;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 12px;
   pointer-events: none;
 }
 .ms-top > * { pointer-events: auto; }
-.ms-airline {
-  justify-self: start; display: inline-flex; align-items: center; gap: 8px;
-  padding: 4px 12px 4px 4px; border-radius: 999px; cursor: pointer; color: var(--text);
-  max-width: 100%; min-width: 0;
+
+/* The airline's crest, big, like a Paradox game's flag */
+.ms-crest {
+  justify-self: start; display: inline-flex; align-items: center; gap: 0; min-width: 0; max-width: 100%;
+  background: none; border: none; padding: 0; cursor: pointer; color: var(--text); text-align: left; font: inherit;
 }
-.ms-airline-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ms-centre { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.ms-cash {
-  display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 999px;
-  color: var(--text); white-space: nowrap;
+.ms-crest-logo {
+  position: relative; z-index: 1; flex-shrink: 0; width: 64px; height: 64px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  border-color: rgba(199, 154, 75, .55) !important; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  transition: border-color .12s ease, transform .12s ease;
 }
-.ms-cash svg { color: var(--accent); }
-.ms-cash-value { font-family: var(--font-mono); font-weight: 700; font-size: 16px; letter-spacing: .01em; }
+.ms-crest:hover .ms-crest-logo { border-color: var(--accent) !important; transform: scale(1.03); }
+.ms-crest-plate {
+  display: flex; flex-direction: column; min-width: 0; margin-left: -10px; padding: 6px 14px 6px 20px;
+  border-radius: 0 12px 12px 0; border-left: none !important;
+}
+.ms-crest-name { font-family: var(--font-display); font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-crest-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); letter-spacing: .06em; }
+
+/* Cash · last week · date · clock — one row */
+.ms-status {
+  display: inline-flex; align-items: center; gap: 12px; padding: 7px 7px 7px 18px; border-radius: 999px;
+  white-space: nowrap; color: var(--text); min-height: 48px;
+}
+.ms-status.no-next { padding-right: 18px; }
+.ms-status-sep { width: 1px; align-self: stretch; margin: 4px 0; background: rgba(255,255,255,.14); }
+.ms-cash { display: inline-flex; align-items: baseline; gap: 8px; }
+.ms-cash svg { color: var(--accent); align-self: center; }
+.ms-cash-value { font-family: var(--font-mono); font-weight: 700; font-size: 20px; letter-spacing: .01em; }
 .ms-cash-value.negative { color: var(--red); }
-.ms-date { font-size: 11px; color: var(--text-muted); padding-left: 8px; border-left: 1px solid rgba(255,255,255,.15); }
+.ms-delta { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
+.ms-delta.up { color: var(--green); }
+.ms-delta.down { color: var(--red); }
+.ms-delta-sub { font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--text-dim); }
+.ms-date { font-size: 15px; font-weight: 600; color: var(--text); }
+.ms-clock { font-size: 14px; color: var(--text-muted); display: inline-flex; align-items: center; }
 .ms-next {
-  padding: 8px 28px; border-radius: 999px; font-weight: 600; font-size: 14px; color: #fff; cursor: pointer;
-  background: linear-gradient(180deg, rgba(160, 125, 70, .92), rgba(110, 84, 45, .92));
-  border: 1px solid rgba(255, 220, 160, .35); box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  padding: 8px 18px; border-radius: 999px; font-weight: 600; font-size: 14px; color: #fff; cursor: pointer; font-family: inherit;
+  background: linear-gradient(180deg, rgba(160, 125, 70, .95), rgba(110, 84, 45, .95));
+  border: 1px solid rgba(255, 220, 160, .35);
   display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap;
 }
 .ms-next:hover { filter: brightness(1.1); }
 .ms-next-sub { font-size: 11px; opacity: .75; font-weight: 500; }
-.ms-clock { cursor: default; font-size: 12px; padding: 6px 18px; }
+
+/* Top right: multiplayer chrome, then Guide · Tutorial · Discord · Settings */
 .ms-top-right {
   justify-self: end; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
-  border-radius: 999px; padding: 4px 10px; font-size: 12px;
+  min-width: 0; font-size: 12px;
 }
-.ms-top-right:empty { display: none; }
+.ms-remote-chrome { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 5px 12px; }
+.ms-remote-chrome:empty { display: none; }
+.ms-help-row { display: inline-flex; align-items: center; gap: 6px; }
+.ms-top-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 999px;
+  color: #e9eaec; font-size: 12.5px; font-weight: 500; cursor: pointer; text-decoration: none; font-family: inherit;
+}
+.ms-top-btn:hover { border-color: rgba(255,255,255,.3); color: #fff; }
+.ms-top-btn.active, .ms-top-btn.open { border-color: var(--accent); color: var(--accent); }
+.ms-top-icon { width: 36px; padding: 0; justify-content: center; }
 
-/* Rails and corners */
-.ms-rail {
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 30;
-  display: flex; flex-direction: column; gap: 14px;
+/* ── Alerts down the right edge ── */
+.ms-alerts {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%); z-index: 30;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
 }
-.ms-rail-left  { left: 14px; }
-.ms-rail-right { right: 14px; }
-.ms-corner { position: absolute; bottom: 22px; z-index: 30; }
-.ms-corner-left  { left: 14px; }
-.ms-corner-right { right: 14px; bottom: 26px; }
-.ms-rail-btn {
-  width: 48px; height: 48px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  color: #f2f3f5; cursor: pointer; transition: transform .12s ease, border-color .12s ease, background .12s ease;
+.ms-alerts-sep { width: 20px; height: 1px; background: rgba(255,255,255,.18); }
+.ms-alert {
+  position: relative; width: 42px; height: 42px; border-radius: 50%; padding: 0;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; color: #f2f3f5; font: inherit;
+  transition: transform .12s ease;
 }
-.ms-rail-btn:hover { transform: scale(1.06); border-color: rgba(255,255,255,.3); }
-.ms-rail-btn.active, .ms-rail-btn.open { border-color: var(--accent); color: var(--accent); background: rgba(30, 24, 12, .9); }
+.ms-alert:hover, .ms-alert:focus-visible { transform: scale(1.08); }
+.ms-alert-red { color: var(--red); border-color: rgba(229, 83, 75, .65) !important; }
+.ms-alert-yellow { color: var(--yellow); border-color: rgba(230, 180, 60, .6) !important; }
+.ms-alert-event { border-color: color-mix(in srgb, var(--ev) 60%, transparent) !important; }
+.ms-alert-glyph { font-size: 18px; line-height: 1; display: inline-flex; }
+.ms-alert-badge {
+  position: absolute; right: -5px; bottom: -4px; min-width: 18px; padding: 0 4px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; line-height: 15px; color: var(--text); background: #1a1c22; border: 1px solid rgba(255,255,255,.2);
+}
+.ms-alert-tip {
+  position: absolute; right: calc(100% + 12px); top: 50%; transform: translateY(-50%);
+  width: max-content; max-width: 300px; padding: 10px 12px; border-radius: 10px; text-align: left;
+  display: flex; flex-direction: column; gap: 5px;
+  background: rgb(14, 15, 19); border: 1px solid var(--border-strong); box-shadow: 0 8px 28px rgba(0,0,0,.55);
+  font-size: 12.5px; font-weight: 400; line-height: 1.4; color: var(--text); white-space: normal;
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .1s ease;
+}
+.ms-alert:hover .ms-alert-tip, .ms-alert:focus-visible .ms-alert-tip { opacity: 1; visibility: visible; }
+.ms-alert-tip-title { font-weight: 700; }
+.ms-alert-tip-go { font-size: 11px; color: var(--text-dim); }
 
-/* Bottom dock */
+/* ── Bottom left: Map ⇄ Dashboard ── */
+.ms-home {
+  position: absolute; left: 14px; bottom: 18px; z-index: 30; height: 62px; min-width: 84px; padding: 0 14px; border-radius: 20px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: #f2f3f5; cursor: pointer; font: inherit; font-size: 11px; font-weight: 500;
+}
+.ms-home:hover { border-color: rgba(255,255,255,.3); }
+.ms-home.active { color: var(--accent); border-color: var(--accent); }
+
+/* ── Bottom dock ── */
 .ms-dock {
   position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30;
-  display: flex; gap: 2px; padding: 6px 10px; border-radius: 22px;
+  display: flex; gap: 2px; padding: 6px 8px; border-radius: 22px;
 }
 .ms-dock-btn {
-  background: none; border: none; color: #f2f3f5; cursor: pointer;
+  background: none; border: none; color: #f2f3f5; cursor: pointer; font: inherit;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 6px 12px; border-radius: 14px; font-size: 11px; font-weight: 500; min-width: 64px;
+  padding: 6px 10px; border-radius: 14px; font-size: 11px; font-weight: 500; min-width: 70px;
 }
 .ms-dock-btn:hover { background: rgba(255,255,255,.07); }
-.ms-dock-btn.active, .ms-dock-btn.open { color: var(--accent); background: rgba(255,255,255,.06); }
+.ms-dock-btn.active { color: var(--accent); background: rgba(255,255,255,.06); }
+.ms-lbl-short { display: none; }
 
-/* Popover menus */
+/* ── Settings menu ── */
 .ms-menu-backdrop { position: fixed; inset: 0; z-index: 1190; }
 .ms-menu {
   position: fixed; z-index: 1200; border-radius: 14px; padding: 6px;
@@ -2167,54 +2240,102 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 .ms-menu-seg button + button { border-left: 1px solid var(--border-strong); }
 .ms-menu-seg button.active { background: var(--accent-dim); color: var(--text); }
 
-/* The page panel — leaves the rails and dock reachable */
+/* ── The page panel — leaves the HUD, alerts and dock reachable ── */
 .ms-panel-backdrop { position: absolute; inset: 0; z-index: 20; background: rgba(2, 4, 12, .35); }
 .ms-panel {
-  position: absolute; z-index: 25; top: 108px; bottom: 96px; left: 80px; right: 80px;
-  max-width: 1280px; margin: 0 auto;
+  position: absolute; z-index: 25; top: 92px; bottom: 96px; left: 72px; right: 72px;
+  max-width: 1320px; margin: 0 auto;
   border-radius: 18px; display: flex; flex-direction: column; overflow: hidden;
-  background: rgb(20, 20, 23);   /* opaque: no glass blur here (see above), so no route lines ghosting through */
+  background: rgb(20, 20, 23);   /* opaque: no glass blur here, so no route lines ghosting through */
   animation: ms-panel-in .16s ease-out;
 }
 @keyframes ms-panel-in { from { opacity: 0; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
 .ms-panel-head {
-  display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 20px;
+  display: flex; align-items: center; gap: 10px; padding: 0 14px 0 20px; min-height: 54px;
   border-bottom: 1px solid var(--border); color: var(--accent); flex-shrink: 0;
 }
-.ms-panel-head h2 { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text); margin: 0; flex: 1; }
+.ms-panel-head h2 { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text); margin: 0; flex-shrink: 0; }
+/* The group's pages as tabs, like the Passenger / Freight switch */
+.ms-tabs {
+  display: flex; align-items: stretch; gap: 2px; flex: 1; min-width: 0; align-self: stretch;
+  margin-left: 14px; overflow-x: auto; scrollbar-width: none;
+}
+.ms-tabs::-webkit-scrollbar { display: none; }
+.ms-tabs button {
+  background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted);
+  font: inherit; font-size: 13px; padding: 0 12px; cursor: pointer; white-space: nowrap; margin-bottom: -1px;
+}
+.ms-tabs button:hover { color: var(--text); }
+.ms-tabs button.active { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
 .ms-panel-close {
-  width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-strong);
+  flex-shrink: 0; margin-left: auto; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-strong);
   background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .ms-panel-close:hover { border-color: var(--accent); }
 .ms-panel-body { flex: 1; min-height: 0; }
 .ms-panel-body > .app-footer-inline { margin-bottom: -26px; }
 
+/* Multiplayer puts Lobby · Invite · Feed · Messages in the same corner. */
+@media (max-width: 1600px) {
+  .ms-top-right.is-remote .ms-top-btn-label { display: none; }
+  .ms-top-right.is-remote .ms-top-btn { width: 36px; padding: 0; justify-content: center; }
+}
+@media (max-width: 1180px) {
+  .ms-top-btn-label { display: none; }
+  .ms-top-btn { width: 36px; padding: 0; justify-content: center; }
+  .ms-crest-sub { display: none; }
+}
+
 @media (max-width: 640px) {
-  .ms-top { top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; grid-template-columns: auto 1fr auto; gap: 6px; }
-  .ms-airline { padding: 3px; }
-  .ms-airline-name { display: none; }
-  .ms-centre { gap: 6px; }
-  .ms-cash { padding: 6px 12px; gap: 6px; }
-  .ms-cash-value { font-size: 14px; }
-  .ms-date { display: none; }
-  .ms-next { padding: 6px 20px; font-size: 13px; }
-  .ms-top-right { padding: 3px 6px; gap: 4px; max-width: 46vw; overflow-x: auto; flex-wrap: nowrap; }
-  .ms-top-right .hw-btn-label { display: none; }
-  .ms-rail { gap: 10px; }
-  .ms-rail-left { left: 8px; } .ms-rail-right { right: 8px; }
-  .ms-rail-btn { width: 42px; height: 42px; }
-  .ms-corner-left { left: 8px; } .ms-corner-right { right: 8px; }
-  .ms-corner { bottom: calc(84px + env(safe-area-inset-bottom)); }
-  .ms-dock { left: 8px; right: 8px; transform: none; bottom: calc(8px + env(safe-area-inset-bottom)); justify-content: space-around; padding: 4px; }
-  .ms-dock-btn { min-width: 0; flex: 1; padding: 6px 4px; }
-  .map-bleed-controls { top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); left: 60px; right: 60px; justify-content: center; }
+  .ms-top {
+    top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; gap: 6px 8px;
+    grid-template-columns: auto 1fr; grid-template-areas: "crest status" "crest right";
+  }
+  .ms-crest { grid-area: crest; align-self: start; }
+  .ms-status { grid-area: status; justify-self: end; }
+  .ms-top-right { grid-area: right; }
+  .ms-crest-logo { width: 46px; height: 46px; border-radius: 11px; }
+  .ms-crest-logo > * { transform: scale(.78); }
+  .ms-crest-plate { display: none; }
+  .ms-status { gap: 8px; padding: 4px 4px 4px 12px; min-height: 38px; }
+  .ms-status.no-next { padding-right: 12px; }
+  .ms-cash-value { font-size: 15px; }
+  .ms-delta { font-size: 11px; }
+  .ms-delta-sub, .ms-date, .ms-date-sep { display: none; }
+  .ms-clock { font-size: 11px; }
+  .ms-next { padding: 6px 12px; font-size: 12px; }
+  .ms-top-right { gap: 4px; flex-wrap: nowrap; }
+  .ms-remote-chrome { padding: 3px 8px; gap: 4px; max-width: 52vw; overflow-x: auto; }
+  .ms-remote-chrome .hw-btn-label { display: none; }
+  .ms-top-btn, .ms-top-icon { width: 32px; height: 32px; }
+  .ms-alerts { right: 8px; gap: 8px; }
+  .ms-alert { width: 36px; height: 36px; }
+  .ms-alert-tip { max-width: 64vw; }
+  .ms-home {
+    left: 8px; bottom: calc(76px + env(safe-area-inset-bottom)); width: 44px; min-width: 0; height: 44px; padding: 0; border-radius: 50%;
+  }
+  .ms-home span { display: none; }
+  .ms-dock { left: 8px; right: 8px; transform: none; bottom: calc(8px + env(safe-area-inset-bottom)); justify-content: space-between; padding: 4px; gap: 0; }
+  .ms-dock-btn { min-width: 0; flex: 1; padding: 6px 2px; font-size: 10px; }
+  .ms-lbl-long { display: none; }
+  .ms-lbl-short { display: inline; }
+  .map-bleed-controls { top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); left: 60px; right: 52px; justify-content: center; }
   .map-bleed .globe-clock { bottom: calc(126px + env(safe-area-inset-bottom)); }
   .map-bleed-hint { bottom: calc(132px + env(safe-area-inset-bottom)); white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 32px); }
-  /* A page takes the whole width; the rails hide behind it and the dock stays. */
-  .ms-panel { top: calc(96px + env(safe-area-inset-top)); left: 0; right: 0; bottom: calc(72px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
-  .ms-panel-open .ms-rail, .ms-panel-open .ms-corner, .ms-panel-open .map-bleed-controls { display: none; }
+  /* A page takes the whole width; the alerts hide behind it and the dock stays. */
+  .ms-panel { top: calc(100px + env(safe-area-inset-top)); left: 0; right: 0; bottom: calc(68px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
+  .ms-panel-head { padding: 0 10px 0 14px; min-height: 48px; }
+  .ms-panel-head h2.has-tabs, .ms-panel-head > svg { display: none; }
+  .ms-tabs { margin-left: 0; }
+  .ms-tabs button { padding: 0 9px; }
+  .ms-panel-open .ms-alerts, .ms-panel-open .ms-home, .ms-panel-open .map-bleed-controls { display: none; }
   .ms-panel-body > .app-footer-inline { margin: 26px -12px -12px; }
+}
+
+/* Toasts in the map view sit clear of the alert column and the dock. */
+body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !important; }
+@media (max-width: 640px) {
+  body:has(.app-layout-map) .toast-stack { right: 8px !important; left: 8px; width: auto !important; bottom: calc(126px + env(safe-area-inset-bottom)) !important; }
 }
 
 /* ── Map-first opt-in: invitation strip, Beta chip, first-visit hint ── */

@@ -39,7 +39,7 @@ import BrandingModal from './components/BrandingModal.jsx';
 import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
-import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite } from './components/MapShell.jsx';
+import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite, resolveMapPage } from './components/MapShell.jsx';
 import useNavFavourites from './hooks/useNavFavourites.js';
 import { toggleNavFavourite, NAV_FAVOURITES_LIMIT } from './utils/navFavourites.js';
 
@@ -478,7 +478,8 @@ function AppInner() {
       const d = e?.detail;
       const id = typeof d === 'string' ? d : d?.tab;
       if (typeof id !== 'string' || !TABS_BY_ID[id]) return;
-      setActiveTab(id);
+      // Map view: a classic tab id lands on its map page (MapShell).
+      setActiveTab(layoutRef.current === 'map' ? resolveMapPage(id) : id);
       setOpenGroup(null);
       const focus = typeof d === 'object' && d ? d.focus : null;
       if (focus) focusSection(focus);
@@ -519,7 +520,7 @@ function AppInner() {
   // News is a multiplayer surface: it reports what OTHER players are doing, and
   // solo has no other players. Hidden entirely rather than shown empty.
   const navGroups = remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news');
-  const navigate = (id) => { setActiveTab(id); setOpenGroup(null); };
+  const navigate = (id) => { setActiveTab(layout === 'map' ? resolveMapPage(id) : id); setOpenGroup(null); };
   const switchLayout = (next) => {
     const l = writeLayout(next);
     setLayout(l);
@@ -552,6 +553,21 @@ function AppInner() {
     news:        <News />,
     wiki:        <Wiki />,
   };
+
+  // Map view pages: the classic pages, plus the parts of Operations and Finance
+  // the map view gives tabs of their own (see MapShell's MAP_GROUPS).
+  const mapPages = layout === 'map' ? {
+    ...tabContent,
+    operations:       <Operations section="crew" />,
+    departures:       <Operations section="board" />,
+    marketing:        <Operations section="marketing" />,
+    catering:         <Operations section="catering" />,
+    fuel:             <Finance group="fuel" />,
+    'fin-statements': <Finance group="statements" />,
+    'fin-planning':   <Finance group="planning" />,
+    'fin-analysis':   <Finance group="analysis" />,
+    'fin-breakdown':  <Finance group="breakdown" />,
+  } : null;
 
   // The footer closes every page (classic) or panel (map-first).
   const footer = (
@@ -720,11 +736,10 @@ function AppInner() {
           remote={remote}
           remoteChrome={remoteChrome}
           tabs={TABS_BY_ID}
-          navGroups={navGroups}
           tabLabel={tabLabel}
           activeTab={activeTab}
           navigate={navigate}
-          content={activeTab !== MAP_TAB ? tabContent[activeTab] : null}
+          pages={mapPages}
           footer={footer}
           onAdvance={handleAdvanceWeek}
           countdown={formatCountdown(timeUntilNextWeek)}

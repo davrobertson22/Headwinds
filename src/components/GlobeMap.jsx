@@ -159,6 +159,9 @@ function focusGroupOf(f) {
 
 export default function GlobeMap({
   data, height, home, selectedId, hoveredId, focusChain, onHover, onSelect, onFallback,
+  // An airport focus: every route id it lights, the key the camera flies once
+  // per, and the click that toggles it (an airport pin or its code label).
+  focusIds = null, focusKey = undefined, onSelectAirport = null,
   flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS, basemap = DEFAULT_BASEMAP,
   paused = false,
 }) {
@@ -184,8 +187,8 @@ export default function GlobeMap({
   const labelsRef = useRef([]);
   const activeRef = useRef(new Set());   // route ids carrying feature-state active
   const flownRef = useRef(null);
-  const handlersRef = useRef({ onHover, onSelect });
-  handlersRef.current = { onHover, onSelect };
+  const handlersRef = useRef({ onHover, onSelect, onSelectAirport });
+  handlersRef.current = { onHover, onSelect, onSelectAirport };
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
 
@@ -255,7 +258,10 @@ export default function GlobeMap({
         map.on('click', (e) => {
           const f = pick(e.point);
           const group = focusGroupOf(f);
-          if (group != null) {
+          if (f?.layer?.id === 'airports-hit' && f.properties?.code && handlersRef.current.onSelectAirport) {
+            handlersRef.current.onSelectAirport(f.properties.code);
+            show(f, e.lngLat);
+          } else if (group != null) {
             const id = group;
             handlersRef.current.onSelect(prev => (prev === id ? null : id));
             show(f, e.lngLat);   // a tap on a phone has no hover, so show it now
@@ -321,8 +327,13 @@ export default function GlobeMap({
     labelsRef.current.forEach(m => m.remove());
     labelsRef.current = data.airports.features.map(f => {
       const el = document.createElement('div');
-      el.className = 'airport-label globe-label';
+      el.className = 'airport-label globe-label airport-label-click';
       el.innerHTML = `<span>${f.properties.code}</span>`;
+      el.title = `Show every route at ${f.properties.code}`;
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        handlersRef.current.onSelectAirport?.(f.properties.code);
+      });
       return new window.maplibregl.Marker({
         element: el, anchor: 'left', offset: [8, 0], opacityWhenCovered: '0',
       }).setLngLat(f.geometry.coordinates).addTo(map);
@@ -333,12 +344,13 @@ export default function GlobeMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!loaded || !map) return;
-    const want = new Set([selectedId, hoveredId].filter(v => v != null));
+    const lit = focusIds ?? [];
+    const want = new Set([selectedId, hoveredId, ...lit].filter(v => v != null));
     for (const id of activeRef.current) if (!want.has(id)) map.setFeatureState({ source: 'routes', id }, { active: false });
     for (const id of want) map.setFeatureState({ source: 'routes', id }, { active: true });
     activeRef.current = want;
 
-    const anySel = selectedId != null;
+    const anySel = selectedId != null || lit.length > 0;
     map.setPaintProperty('routes-line', 'line-width',   byState(ROUTE.main, 0, anySel));
     map.setPaintProperty('routes-line', 'line-opacity', byState(ROUTE.main, 1, anySel));
     map.setPaintProperty('routes-glow', 'line-width',   byState(ROUTE.halo, 0, anySel));
@@ -346,10 +358,12 @@ export default function GlobeMap({
     map.setPaintProperty('cargo-line',  'line-opacity', anySel ? 0.27 : 0.9);
     map.setPaintProperty('cargo-glow',  'line-opacity', anySel ? 0.04 : 0.14);
     map.setPaintProperty('partners-line', 'line-opacity', anySel ? 0.14 : 0.55);
-    const onFocus = ['==', ['get', 'group'], selectedId ?? ''];
+    const onFocus = lit.length
+      ? ['in', ['get', 'group'], ['literal', lit]]
+      : ['==', ['get', 'group'], selectedId ?? ''];
     map.setPaintProperty('planes', 'icon-opacity', anySel ? ['case', onFocus, 1, 0.3] : 1);
     map.setPaintProperty('planes-glow', 'circle-opacity', anySel ? ['case', onFocus, 0.7, 0.08] : 0.55);
-  }, [loaded, data, selectedId, hoveredId]);
+  }, [loaded, data, selectedId, hoveredId, focusIds]);
 
   // 5. Day / night and the planes — one animation loop, each redrawn only as
   //    often as it visibly moves. rAF stops by itself in a background tab.
@@ -430,12 +444,19 @@ export default function GlobeMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!loaded || !map) return;
-    if (selectedId == null) { flownRef.current = null; return; }
-    if (flownRef.current === selectedId || !focusChain?.length) return;
-    flownRef.current = selectedId;
-    const b = chainBounds(focusChain.map(a => [a.lat, a.lon]));
-    if (b) map.fitBounds(b, { padding: 90, maxZoom: 6, duration: 900 });
-  }, [loaded, selectedId, focusChain]);
+    const key = focusKey !== undefined ? focusKey : selectedId;
+    if (key == null) { flownRef.current = null; return; }
+    if (flownRef.current === key || !focusChain?.length) return;
+    flownRef.current = key;
+    try {
+      if (focusChain.length === 1) {
+        map.easeTo({ center: [focusChain[0].lon, focusChain[0].lat], duration: 900 });
+      } else {
+        const b = chainBounds(focusChain.map(a => [a.lat, a.lon]));
+        if (b) map.fitBounds(b, { padding: 90, maxZoom: 6, duration: 900 });
+      }
+    } catch { /* a camera move is never worth the page */ }
+  }, [loaded, selectedId, focusKey, focusChain]);
 
   if (error) {
     return (

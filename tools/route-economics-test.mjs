@@ -336,7 +336,11 @@ test('the strip moves with the basis too, and in the same direction as the card'
 // ── The alert counts what the filter it links to counts ─────────────────────
 
 test('the Dashboard alert counts city pairs, on the shared basis', () => {
-  const src = readFileSync(new URL('../src/components/Dashboard.jsx', import.meta.url), 'utf8');
+  // The alert rules moved to utils/airlineAlerts.js (2026-10-29), shared with
+  // the map view's alert column; the Dashboard renders that list.
+  const dash = readFileSync(new URL('../src/components/Dashboard.jsx', import.meta.url), 'utf8');
+  assert.ok(/airlineAlerts\(state, proj, routeResults\)/.test(dash), 'the Dashboard renders the shared alert list');
+  const src = readFileSync(new URL('../src/utils/airlineAlerts.js', import.meta.url), 'utf8');
   assert.ok(/loss-making city pair/.test(src),
     'the alert still counts per-aircraft deployments, but links to a filter over city pairs');
   assert.ok(/loadProfitBasis\(\)/.test(src),

@@ -70,12 +70,31 @@ export function claimViewportFit(ref, airports = []) {
 }
 
 /** True when the map should fly to `selectedId` — i.e. the focus changed. A
- *  redraw of an already-focused route is not a reason to move. */
-export function claimRouteFly(ref, selectedId) {
+ *  redraw of an already-focused route is not a reason to move.
+ *
+ *  `visible` is false while the flat map sits hidden under the globe. A hidden
+ *  map does not fly AND does not claim the focus, so it flies once it is shown.
+ *  Flying it anyway was Barca's "when I click a route sometimes my screen goes
+ *  dark" (Discord, 2026-10-29): a Leaflet map that has never been on screen has
+ *  no size, flyToBounds computes a NaN centre and throws "Invalid LatLng object:
+ *  (NaN, NaN)" from inside a React effect, and the whole game unmounts to a black
+ *  page. It needed the globe to be the first view since the page loaded — the
+ *  map view opens on whichever the player used last, so "sometimes". */
+export function claimRouteFly(ref, selectedId, visible = true) {
   if (selectedId == null) { ref.current = null; return false; }
+  if (!visible) return false;
   if (ref.current === selectedId) return false;
   ref.current = selectedId;
   return true;
+}
+
+/** The route keys an airport focus lights up: every drawn group with the
+ *  airport anywhere on it (an endpoint or a stop of a rotation). */
+export function routeKeysAtAirport(groups = [], code) {
+  if (!code) return [];
+  return groups
+    .filter(g => (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]).some(a => a?.code === code))
+    .map(g => g.key);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -330,7 +349,20 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   const [mapReady, setMapReady] = useState(false);   // true once L.map() is done
   const [error, setError]       = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedIdRaw] = useState(null);
+  // Airport focus (Barca, Discord 2026-10-29: "highlight all routes from a
+  // particular airport — maybe by clicking its label"). One focus at a time:
+  // picking a route drops the airport focus and the other way round.
+  const [focusAirport, setFocusAirportRaw] = useState(null);
+  const setSelectedId = useCallback((v) => {
+    setFocusAirportRaw(null);
+    setSelectedIdRaw(v);
+  }, []);
+  const toggleAirportFocus = useCallback((code) => {
+    setSelectedIdRaw(null);
+    setFocusAirportRaw(prev => (prev === code ? null : code));
+  }, []);
+  const clearFocus = useCallback(() => { setSelectedIdRaw(null); setFocusAirportRaw(null); }, []);
   const [showAlliance,  setShowAlliance]  = useState(true);
   const [showCodeshare, setShowCodeshare] = useState(true);
   const [showCargo,     setShowCargo]     = useState(true);
@@ -373,6 +405,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   // can apply correct styling without being a dependency.
   const selectedIdRef = useRef(null);
   const hoveredIdRef  = useRef(null);
+  const focusKeysRef  = useRef(new Set());   // route keys lit by an airport focus
+  const airportClickRef = useRef(null);      // latest toggleAirportFocus, for Leaflet handlers
+  airportClickRef.current = toggleAirportFocus;
 
   // Viewport bookkeeping — see claimViewportFit / claimRouteFly above.
   const fittedExtentRef = useRef(null);   // airport set the viewport was fitted to
@@ -397,8 +432,8 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     // Full-bleed: wheel / pinch zoom only — the corner belongs to the HUD.
     if (!fullBleed) L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Click empty map → deselect
-    map.on('click', () => setSelectedId(null));
+    // Click empty map → deselect (a route or an airport)
+    map.on('click', () => clearFocus());
 
     mapRef.current = map;
     setMapReady(true);   // ← signals the layers effect to run
@@ -626,16 +661,28 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     if (selectedId != null && !routeGroups.some(g => g.key === selectedId)) setSelectedId(null);
   }, [routeGroups, selectedId]);
 
+  // Routes lit by the airport focus (empty when none, or when no drawn route
+  // touches it — then the focus simply frames the airport).
+  const airportFocusKeys = useMemo(
+    () => routeKeysAtAirport(routeGroups, focusAirport),
+    [routeGroups, focusAirport],
+  );
+
   // ── Style resolver: highlight selected/hovered, dim the rest ─────────────────
   const applyStyles = useCallback(() => {
     const selId = selectedIdRef.current;
     const hovId = hoveredIdRef.current;
-    const anySel = selId != null;
+    const lit = focusKeysRef.current;
+    const anySel = selId != null || lit.size > 0;
 
     lineGroupsRef.current.forEach((group, id) => {
-      const active = id === selId || id === hovId;
+      // A single focused (or hovered) route flows; an airport's routes are lit
+      // solid — dozens of animated dashes at once is what makes a map crawl.
+      const flowing = id === selId || id === hovId;
+      const active = flowing || lit.has(id);
       let mainW, mainO, haloW, haloO;
-      if (active)       { mainW = 4.5; mainO = 1;    haloW = 18; haloO = 0.30; }
+      if (flowing)      { mainW = 4.5; mainO = 1;    haloW = 18; haloO = 0.30; }
+      else if (active)  { mainW = 3.2; mainO = 1;    haloW = 12; haloO = 0.24; }
       else if (anySel)  { mainW = 1.8; mainO = 0.18; haloW = 7;  haloO = 0.03; }
       else              { mainW = 2.5; mainO = 0.85; haloW = 9;  haloO = 0.16; }
 
@@ -644,10 +691,10 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         l.setStyle({
           weight: mainW,
           opacity: mainO,
-          dashArray: active ? '10 16' : null,
+          dashArray: flowing ? '10 16' : null,
         });
         const el = l.getElement && l.getElement();
-        if (el) el.classList.toggle('flowing', active);
+        if (el) el.classList.toggle('flowing', flowing);
       });
     });
   }, []);
@@ -684,7 +731,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
-    const dim = selectedId != null ? 0.25 : 1;   // fade partners when focusing a route
+    const dim = (selectedId != null || focusAirport) ? 0.25 : 1;   // fade partners when focusing
 
     // The airport filter applies to partner overlays too, so "show me JFK"
     // really means only lines touching JFK. (The aircraft-type filter is
@@ -739,17 +786,20 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         partnerLayersRef.current.push(dot);
       }
     }
-  }, [partnerRouteData, showAlliance, showCodeshare, selectedId, mapReady, airportFilter]);
+  }, [partnerRouteData, showAlliance, showCodeshare, selectedId, focusAirport, mapReady, airportFilter]);
 
   // 4c. Sync cargo route overlay (amber, distinct from green/red passenger lines)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
-    const dim = selectedId != null ? 0.3 : 1;   // fade cargo when focusing a passenger route
+    // Fade cargo when focusing a passenger route; an airport focus keeps the
+    // freight lines that touch the airport.
+    const dimFor = (g) => (selectedId != null ? 0.3
+      : focusAirport && g.origin.code !== focusAirport && g.dest.code !== focusAirport ? 0.3 : 1);
 
     // Same lines as last time (a tick or a poll): refresh the tooltips only.
-    const drawKey = showCargo ? `${dim}#${cargoGroups.map(g => g.key).sort().join('|')}` : 'off';
+    const drawKey = showCargo ? `${selectedId != null}:${focusAirport ?? ''}#${cargoGroups.map(g => g.key).sort().join('|')}` : 'off';
     if (drawnRef.current.cargo === drawKey) {
       for (const l of cargoLayersRef.current) {
         if (l._cargoKey) l.setTooltipContent(cargoTipHtml(cargoGroups.find(g => g.key === l._cargoKey)));
@@ -764,6 +814,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
 
     for (const g of cargoGroups) {
       const { origin, dest } = g;
+      const dim = dimFor(g);
       const segments = segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
       const tipHtml = cargoTipHtml(g);
 
@@ -787,7 +838,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         cargoLayersRef.current.push(line);
       }
     }
-  }, [cargoGroups, showCargo, selectedId, mapReady]);
+  }, [cargoGroups, showCargo, selectedId, focusAirport, mapReady]);
 
   // 4. Sync routes + markers to map
   useEffect(() => {
@@ -927,6 +978,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
           airportTipHtml(airport, hubInfo),
           { className: 'game-tooltip', offset: [12, 0] },
         );
+        hubMarker.on('click', (e) => { window.L.DomEvent.stopPropagation(e); airportClickRef.current?.(airport.code); });
         hubMarker.addTo(map);
         layersRef.current.push(hubMarker);
       } else {
@@ -953,20 +1005,25 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
           airportTipHtml(airport, null),
           { className: 'game-tooltip', offset: [10, 0] },
         );
+        marker.on('click', (e) => { window.L.DomEvent.stopPropagation(e); airportClickRef.current?.(airport.code); });
         marker.addTo(map);
         layersRef.current.push(marker);
       }
 
       // Code label (not shown at low zoom — Leaflet handles that via zoom)
+      // Clickable: a click lights every route at this airport.
       const label = L.marker([airport.lat, airport.lon], {
         icon: L.divIcon({
-          className: 'airport-label',
+          className: 'airport-label airport-label-click',
           html: `<span>${airport.code}</span>`,
           iconAnchor: [-10, 4],
         }),
-        interactive: false,
+        interactive: true,
+        keyboard: false,
+        title: `Show every route at ${airport.code}`,
         zIndexOffset: 500,
       });
+      label.on('click', (e) => { window.L.DomEvent.stopPropagation(e); airportClickRef.current?.(airport.code); });
       label.addTo(map);
       layersRef.current.push(label);
     }
@@ -991,24 +1048,53 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     applyStyles();
   }, [hoveredId, applyStyles]);
 
-  // Re-style + fly to selected route when selection changes
+  // What a focus frames: the route's whole chain, or every airport on the
+  // routes at the focused airport (the airport alone when none touch it).
+  const focusKey = selectedId != null ? selectedId : (focusAirport ? `airport:${focusAirport}` : null);
+  const focusChain = useMemo(() => {
+    if (selectedId != null) {
+      const g = routeGroups.find(x => x.key === selectedId);
+      return g ? (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]) : null;
+    }
+    if (!focusAirport) return null;
+    const keys = new Set(airportFocusKeys);
+    const pts = new Map();
+    for (const g of routeGroups) {
+      if (!keys.has(g.key)) continue;
+      for (const a of (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest])) if (a) pts.set(a.code, a);
+    }
+    const self = getAirport(focusAirport);
+    if (self) pts.set(self.code, self);
+    return pts.size ? [...pts.values()] : null;
+  }, [selectedId, focusAirport, airportFocusKeys, routeGroups]);
+
+  // Re-style + fly to the focus when it changes
   useEffect(() => {
     selectedIdRef.current = selectedId;
+    focusKeysRef.current = new Set(airportFocusKeys);
     applyStyles();
 
     // routeGroups is a dependency (the focused route's coordinates live there),
-    // so this effect also fires on the weekly tick. Fly once per focus.
-    const focusChanged = claimRouteFly(flownToRef, selectedId);
+    // so this effect also fires on the weekly tick. Fly once per focus — and
+    // never while the flat map is hidden under the globe (see claimRouteFly).
     const map = mapRef.current;
+    const visible = mapView === 'flat' && !!map && map.getSize().x > 0;
+    const focusChanged = claimRouteFly(flownToRef, focusKey, visible);
     if (!focusChanged || !map || !window.L) return;
-    const g = routeGroups.find(x => x.key === selectedId);
-    if (!g) { flownToRef.current = null; return; }
+    if (!focusChain) { flownToRef.current = null; return; }
     // Frame the WHOLE rotation — flying to the endpoints of MCI–JFK–ORY can
     // leave the stop in the middle off-screen.
-    const bounds = window.L.latLngBounds(
-      (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]).map(a => [a.lat, a.lon]));
-    map.flyToBounds(bounds, { padding: [90, 90], maxZoom: 6, duration: 0.8 });
-  }, [selectedId, routeGroups, applyStyles]);
+    const bounds = window.L.latLngBounds(focusChain.map(a => [a.lat, a.lon]));
+    try {
+      if (focusChain.length === 1) map.flyTo(bounds.getCenter(), Math.max(map.getZoom(), 4), { duration: 0.8 });
+      else map.flyToBounds(bounds, { padding: [90, 90], maxZoom: 6, duration: 0.8 });
+    } catch { /* a fly is never worth the page */ }
+  }, [selectedId, focusKey, focusChain, airportFocusKeys, routeGroups, applyStyles, mapView]);
+
+  // A focused airport that leaves the network (its last route closed) clears.
+  useEffect(() => {
+    if (focusAirport && !airportSet.some(a => a.code === focusAirport)) setFocusAirportRaw(null);
+  }, [airportSet, focusAirport]);
 
   // Globe input — the same groups, colours and tooltips the flat map draws,
   // with the overlay toggles and airport filter already applied. Only built
@@ -1058,10 +1144,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     : null), [gc?.nextTickAt, gc?.weeksPerDay, gc?.preStart, state.week]);
 
   const globeHome = useMemo(() => getAirport(hub) ?? airportSet[0] ?? null, [hub, airportSet]);
-  const globeFocus = useMemo(() => {
-    const g = selectedId != null ? routeGroups.find(x => x.key === selectedId) : null;
-    return g ? (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]) : null;
-  }, [selectedId, routeGroups]);
+  const globeFocus = focusChain;
 
   // Full-bleed is the map-first layout's background, so it always draws the
   // world — a new airline still needs a map to look at.
@@ -1120,8 +1203,11 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         selectedId={selectedId}
         hoveredId={hoveredId}
         focusChain={globeFocus}
+        focusKey={focusKey}
+        focusIds={airportFocusKeys}
         onHover={setHoveredId}
         onSelect={setSelectedId}
+        onSelectAirport={toggleAirportFocus}
         onFallback={() => setMapView('flat')}
         flights={flightPlans}
         clock={clockSpec}
@@ -1175,8 +1261,14 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
             ><Glyph e="✈" /></button>
           )}
           {selectedId != null && (
-            <button className="map-bleed-chip on" onClick={() => setSelectedId(null)}>
+            <button className="map-bleed-chip on" onClick={clearFocus}>
               <Glyph e="✕" /> Focus
+            </button>
+          )}
+          {focusAirport && (
+            <button className="map-bleed-chip on" data-airport-focus={focusAirport} onClick={clearFocus}
+              title={`Stop highlighting ${focusAirport}'s routes`}>
+              <Glyph e="✕" /> {focusAirport} · {airportFocusKeys.length} route{airportFocusKeys.length === 1 ? '' : 's'}
             </button>
           )}
         </div>
@@ -1199,6 +1291,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
               {routeGroups.length} route{routeGroups.length !== 1 ? 's' : ''} · {airportSet.length} airports{filtersActive && <span style={{ color: 'var(--accent)' }}> · filtered</span>}
               {selectedData && (
                 <span style={{ color: 'var(--accent)' }}> · focused {(selectedData.chain ?? [selectedData.origin, selectedData.dest]).map(a => a.code).join('→')}</span>
+              )}
+              {focusAirport && (
+                <span style={{ color: 'var(--accent)' }}> · {focusAirport}: {airportFocusKeys.length} route{airportFocusKeys.length === 1 ? '' : 's'}</span>
               )}
             </span>
           </div>
@@ -1238,9 +1333,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
                 <Glyph e="✕" /> Filters
               </button>
             )}
-            {selectedId != null && (
+            {(selectedId != null || focusAirport) && (
               <button
-                onClick={() => setSelectedId(null)}
+                onClick={clearFocus}
                 className="map-clear-btn"
               >
                 <Glyph e="✕" /> Clear focus
