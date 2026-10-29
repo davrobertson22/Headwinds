@@ -24,7 +24,7 @@
 // Because steps 2's transforms re-run on every build, freshly synced Tailwinds
 // page updates are picked up automatically — edit the SHARED pages in the
 // Tailwinds repo, and the HEADWINDS-ONLY pages in apps/headwinds-web/pages/.
-import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, mkdirSync, copyFileSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, mkdirSync, copyFileSync, statSync, cpSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -427,6 +427,19 @@ for (const f of readdirSync(SRC)) {
   }
 }
 
+// Static asset trees that ship as-is. The loop above takes top-level files
+// only (the shared pages and icons); these directories are copied whole.
+//   tiles/bluemarble/ — the self-hosted NASA satellite basemap (mapCore.js).
+const ASSET_DIRS = ['tiles'];
+let assetFiles = 0;
+for (const d of ASSET_DIRS) {
+  const from = path.join(SRC, d);
+  if (!existsSync(from)) { console.warn(`  \u26a0 ${d}/ missing from public/ — the satellite map would draw nothing`); continue; }
+  cpSync(from, path.join(OUT, d), { recursive: true });
+  const count = (dir) => readdirSync(dir).reduce((n, f) => n + (statSync(path.join(dir, f)).isDirectory() ? count(path.join(dir, f)) : 1), 0);
+  assetFiles += count(from);
+}
+
 // Headwinds brand art (overwrites the recolorable shared bits: favicons, icons).
 let brandFiles = 0;
 if (existsSync(BRAND)) {
@@ -554,4 +567,4 @@ writeFileSync(path.join(OUT, 'sitemap.xml'),
   pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>${p === 'worlds' ? 'hourly' : 'monthly'}</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
   `\n</urlset>\n`);
 
-console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${sectioned} sectioned, ${copied} assets copied, ${brandFiles} brand files, ${linked} pages Rules/Worlds-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''}${sectionMisses ? `, ${sectionMisses} section insert(s) MISSED` : ''}${metaMisses ? `, ${metaMisses} meta override(s) MISSED` : ''} → ${path.relative(HW, OUT)}/`);
+console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${sectioned} sectioned, ${copied} assets copied, ${assetFiles} tile/asset files, ${brandFiles} brand files, ${linked} pages Rules/Worlds-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''}${sectionMisses ? `, ${sectionMisses} section insert(s) MISSED` : ''}${metaMisses ? `, ${metaMisses} meta override(s) MISSED` : ''} → ${path.relative(HW, OUT)}/`);

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { referencePrice } from '../utils/simulation.js';
+import useBasemap from '../hooks/useBasemap.js';
 import {
-  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap, frameLatLngs,
+  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap, frameLatLngs, setMapBasemap,
   HUB_COLOR, CARGO_COLOR, RIVAL_COLOR, CONTESTED_COLOR, TAG_COLOR,
 } from './mapCore.js';
 
@@ -233,6 +234,11 @@ export default function RivalRouteMap({
   const [ready, setReady] = useState(!!window.L);
   const [mapReady, setMapReady] = useState(false);
   const [error, setError] = useState(null);
+  // Same Satellite / Dark choice as the player's own map, switched live.
+  const [basemap] = useBasemap();
+  useEffect(() => {
+    if (mapReady) setMapBasemap(mapRef.current, basemap);
+  }, [mapReady, basemap]);
 
   // Derived every render on purpose. The callers rebuild `playerRouteMap` (and
   // the hub array) fresh each time, so memoising on object identity would never

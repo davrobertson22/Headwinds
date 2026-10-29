@@ -39,7 +39,7 @@ import BrandingModal from './components/BrandingModal.jsx';
 import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
-import MapShell, { readLayout, writeLayout, MAP_TAB } from './components/MapShell.jsx';
+import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite } from './components/MapShell.jsx';
 import useNavFavourites from './hooks/useNavFavourites.js';
 import { toggleNavFavourite, NAV_FAVOURITES_LIMIT } from './utils/navFavourites.js';
 
@@ -342,6 +342,9 @@ function AppInner() {
   // Classic (top bar + tabs) or map-first (components/MapShell.jsx), per
   // browser. In map-first the 'map' tab means "no panel open".
   const [layout, setLayout] = useState(readLayout);
+  // The map-first layout is opt-in: classic invites the player to try it until
+  // they have, or have said no thanks.
+  const [layoutInvite, setLayoutInvite] = useState(readInviteOpen);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const [activeTab, setActiveTab] = useState(() => (readLayout() === 'map' ? MAP_TAB : 'dashboard'));
@@ -520,6 +523,7 @@ function AppInner() {
   const switchLayout = (next) => {
     const l = writeLayout(next);
     setLayout(l);
+    if (l === 'map') setLayoutInvite(false);
     setActiveTab(l === 'map' ? MAP_TAB : 'dashboard');
     setOpenGroup(null);
     setShowMobileMenu(false);
@@ -821,11 +825,12 @@ function AppInner() {
         <button
           className="btn btn-ghost"
           data-layout-switch="map"
-          style={{ fontSize: 12, padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          style={{ fontSize: 12, padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', position: 'relative' }}
           onClick={() => switchLayout('map')}
-          title="Switch to the map-first layout — the world map fills the screen and pages open over it"
+          title="Try the map-first layout (beta) — the world map fills the screen and pages open over it. Switch back any time."
         >
           <GlobeIcon size={13} /> Map view
+          {layoutInvite && <span className="new-dot new-dot-corner" aria-label="new" />}
         </button>
         <button
           className="btn btn-ghost"
@@ -885,7 +890,7 @@ function AppInner() {
                   </button>
                   </>)}
                   <button role="menuitem" data-layout-switch="map" onClick={() => switchLayout('map')}>
-                    <GlobeIcon size={14} /> Map view
+                    <GlobeIcon size={14} /> Try map view <span className="beta-chip">Beta</span>
                   </button>
                   <button role="menuitem" onClick={() => { setShowTour(true); setShowMobileMenu(false); }}>
                     <span style={{ width: 14, textAlign: 'center', fontWeight: 700 }}>?</span> How to play
@@ -1001,6 +1006,27 @@ function AppInner() {
           );
         })}
       </div>
+
+      {/* Invitation to try the map-first layout (opt-in beta) */}
+      {layoutInvite && (
+        <div className="layout-invite" role="note">
+          <GlobeIcon size={15} />
+          <span className="layout-invite-text">
+            <strong>New: Map view</strong> <span className="beta-chip">Beta</span>
+            <span className="layout-invite-more"> — the world map fills the screen and every page opens over it. Switch back any time.</span>
+          </span>
+          <button type="button" className="btn btn-primary layout-invite-try" data-layout-switch="map" onClick={() => switchLayout('map')}>
+            Try it
+          </button>
+          <button
+            type="button"
+            className="layout-invite-x"
+            aria-label="No thanks — hide this"
+            title="No thanks — you can still try it from the Map view button"
+            onClick={() => { closeInvite('dismissed'); setLayoutInvite(false); }}
+          >×</button>
+        </div>
+      )}
 
       {/* Shortcuts bar — the pages pinned with ☆ in the menus above */}
       {favourites.length > 0 && (

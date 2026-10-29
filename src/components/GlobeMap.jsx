@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   loadMaplibre, webglAvailable, globeStyle, globeZoomFor, chainBounds, SPACE_COLOR,
+  globeBasemapVisibility,
 } from './globeCore.js';
-import { HUB_COLOR, SPOKE_COLOR, CARGO_COLOR } from './mapCore.js';
+import { HUB_COLOR, SPOKE_COLOR, CARGO_COLOR, DEFAULT_BASEMAP, SATELLITE_OCEAN } from './mapCore.js';
 import { Glyph } from './Icons.jsx';
 import {
   gameClockAt, formatGameClock, sunPosition, nightOverlayPixels, nightRefreshMs, NIGHT_COORDINATES,
@@ -158,8 +159,10 @@ function focusGroupOf(f) {
 
 export default function GlobeMap({
   data, height, home, selectedId, hoveredId, focusChain, onHover, onSelect, onFallback,
-  flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS,
+  flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS, basemap = DEFAULT_BASEMAP,
 }) {
+  const basemapRef = useRef(basemap);
+  basemapRef.current = basemap;
   const nightCanvasRef = useRef(null);
   const planeColorsRef = useRef(planeColors);
   planeColorsRef.current = planeColors;
@@ -193,7 +196,7 @@ export default function GlobeMap({
       if (cancelled || !elRef.current || mapRef.current) return;
       const map = new maplibregl.Map({
         container: elRef.current,
-        style: globeStyle({ retina: (window.devicePixelRatio ?? 1) > 1 }),
+        style: globeStyle({ retina: (window.devicePixelRatio ?? 1) > 1, basemap: basemapRef.current }),
         center: [home?.lon ?? 10, Math.max(-50, Math.min(50, home?.lat ?? 20))],
         zoom: globeZoomFor(height),
         minZoom: 0,
@@ -283,6 +286,18 @@ export default function GlobeMap({
   }, []);
 
   useEffect(() => { mapRef.current?.resize(); }, [height]);
+
+  // Satellite / Dark → flip which raster layer draws. The hidden source fetches
+  // nothing, and the camera, lines and planes stay exactly where they are.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!loaded || !map) return;
+    const vis = globeBasemapVisibility(basemap);
+    try {
+      for (const [id, v] of Object.entries(vis)) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v);
+      map.setPaintProperty('ocean', 'background-color', vis.bluemarble === 'visible' ? SATELLITE_OCEAN : '#060b18');
+    } catch { /* style not ready */ }
+  }, [loaded, basemap]);
 
   // Livery change → repaint the plane sprite in place (no layer rebuild).
   useEffect(() => {

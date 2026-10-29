@@ -11,7 +11,11 @@
 // so the globe draws the true path. Squashing it would bend it off the sphere's
 // real route.
 
-import { greatCirclePoints, cartoTileUrl, CARTO_KEY, TILE_OPTS } from './mapCore.js';
+import {
+  greatCirclePoints, cartoTileUrl, CARTO_KEY, TILE_OPTS,
+  blueMarbleTileUrl, normalizeBasemap, DEFAULT_BASEMAP, BLUE_MARBLE_MAX_ZOOM,
+  BLUE_MARBLE_ATTRIBUTION, SATELLITE_OCEAN,
+} from './mapCore.js';
 
 // ── MapLibre CDN loader ───────────────────────────────────────────────────────
 // Pinned to the 5.x line: 6.x ships ESM-only with a split worker and no UMD
@@ -180,7 +184,22 @@ export function globeTileUrls(key = CARTO_KEY, retina = false) {
 
 export const SPACE_COLOR = '#03060d';
 
-export function globeStyle({ retina = false } = {}) {
+/** Blue Marble tiles for MapLibre, which needs an absolute URL. */
+export function globeSatelliteTiles(origin = (typeof location !== 'undefined' ? location.origin : '')) {
+  return [blueMarbleTileUrl(origin)];
+}
+
+/** Which raster layer draws for each basemap id. Both sources sit in the style
+ *  and the unused one is hidden — MapLibre requests no tiles for a source whose
+ *  every layer is hidden, so the dark map costs no CARTO tiles while the
+ *  satellite one shows, and switching keeps the camera. */
+export function globeBasemapVisibility(basemap) {
+  const sat = normalizeBasemap(basemap) === 'satellite';
+  return { bluemarble: sat ? 'visible' : 'none', carto: sat ? 'none' : 'visible' };
+}
+
+export function globeStyle({ retina = false, basemap = DEFAULT_BASEMAP, origin } = {}) {
+  const vis = globeBasemapVisibility(basemap);
   return {
     version: 8,
     projection: { type: 'globe' },
@@ -198,10 +217,18 @@ export function globeStyle({ retina = false } = {}) {
         maxzoom: 18,
         attribution: TILE_OPTS.attribution,
       },
+      bluemarble: {
+        type: 'raster',
+        tiles: origin === undefined ? globeSatelliteTiles() : globeSatelliteTiles(origin),
+        tileSize: 256,
+        maxzoom: BLUE_MARBLE_MAX_ZOOM,
+        attribution: BLUE_MARBLE_ATTRIBUTION,
+      },
     },
     layers: [
-      { id: 'ocean', type: 'background', paint: { 'background-color': '#060b18' } },
-      { id: 'carto', type: 'raster', source: 'carto' },
+      { id: 'ocean', type: 'background', paint: { 'background-color': vis.bluemarble === 'visible' ? SATELLITE_OCEAN : '#060b18' } },
+      { id: 'carto', type: 'raster', source: 'carto', layout: { visibility: vis.carto } },
+      { id: 'bluemarble', type: 'raster', source: 'bluemarble', layout: { visibility: vis.bluemarble } },
     ],
   };
 }

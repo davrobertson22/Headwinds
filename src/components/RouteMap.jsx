@@ -14,6 +14,7 @@ import { HUB_TIERS } from '../models/demand.js';
 import { Glyph } from './Icons.jsx';
 import { pairShapes } from './RivalRouteMap.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
+import useBasemap from '../hooks/useBasemap.js';
 import GlobeMap from './GlobeMap.jsx';
 import { liveryFor } from '../data/livery.js';
 import { planeSpriteColors } from '../utils/liveryPaint.js';
@@ -23,7 +24,7 @@ import { airlineWeeks } from '../models/schedule.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
-  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap, frameLatLngs,
+  segmentsForRoute, segmentsForChain, loadLeaflet, createDarkMap, frameLatLngs, setMapBasemap,
   PROFIT_COLOR, LOSS_COLOR, HUB_COLOR, SPOKE_COLOR,
   ALLIANCE_COLOR, CODESHARE_COLOR, CARGO_COLOR, TAG_COLOR,
 } from './mapCore.js';
@@ -256,8 +257,10 @@ export function mapAirportCodes(hubCodes = [], ...routeDataSets) {
   return [...codes];
 }
 
-export default function RouteMap() {
+export default function RouteMap({ fullBleed = false } = {}) {
   const { state, remoteChrome } = useGame();
+  // Satellite (Blue Marble) or Dark (CARTO) — one choice for every map.
+  const [basemap, setBasemap] = useBasemap();
   // Globe plane sprite in the airline's livery (fuselage + tail colours).
   const planeColors = useMemo(() => planeSpriteColors(liveryFor(state)), [state.livery, state.logoColor]);
   const { fleet, routes, cargoRoutes = NO_ROUTES, hub, hubs: hubsState,
@@ -270,8 +273,24 @@ export default function RouteMap() {
   // The map has a fixed inline height that a CSS media query can't reach, so we
   // size it here. Shorter on phones so the route list below is reachable without
   // a long scroll; unchanged (520) on desktop.
+  //
+  // Full-bleed (the map-first layout's background) fills its parent instead, so
+  // the height is measured — GlobeMap's starting zoom and Leaflet's size both
+  // want a number, not '100%'.
   const isMobile = useIsMobile();
-  const mapHeight = isMobile ? 380 : 520;
+  const bleedRef = useRef(null);
+  const [bleedHeight, setBleedHeight] = useState(() =>
+    (typeof window !== 'undefined' ? window.innerHeight : 800));
+  useEffect(() => {
+    if (!fullBleed || !bleedRef.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => {
+      const h = Math.round(e.contentRect.height);
+      if (h > 0) setBleedHeight(h);
+    });
+    ro.observe(bleedRef.current);
+    return () => ro.disconnect();
+  }, [fullBleed]);
+  const mapHeight = fullBleed ? bleedHeight : (isMobile ? 380 : 520);
 
   const mapElRef      = useRef(null);   // DOM node
   const mapRef        = useRef(null);   // Leaflet map instance
@@ -341,9 +360,10 @@ export default function RouteMap() {
     const L = window.L;
 
     // CartoDB Dark Matter — proper dark game-map feel
-    const map = createDarkMap(mapElRef.current);
+    const map = createDarkMap(mapElRef.current, { basemap });
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    // Full-bleed: wheel / pinch zoom only — the corner belongs to the HUD.
+    if (!fullBleed) L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     // Click empty map → deselect
     map.on('click', () => setSelectedId(null));
@@ -362,6 +382,11 @@ export default function RouteMap() {
       setMapReady(false);
     };
   }, [ready]);
+
+  // Satellite / Dark switched (here or from the map-first settings menu).
+  useEffect(() => {
+    if (mapReady) setMapBasemap(mapRef.current, basemap);
+  }, [mapReady, basemap]);
 
   // Leaflet caches the container size, so when the height changes (e.g. crossing
   // the mobile breakpoint or rotating the device) we must tell it to remeasure,
@@ -964,7 +989,10 @@ export default function RouteMap() {
     return g ? (g.chain?.length >= 2 ? g.chain : [g.origin, g.dest]) : null;
   }, [selectedId, routeGroups]);
 
-  if (routes.length === 0 && cargoRoutes.length === 0) {
+  // Full-bleed is the map-first layout's background, so it always draws the
+  // world — a new airline still needs a map to look at.
+  const noRoutes = routes.length === 0 && cargoRoutes.length === 0;
+  if (noRoutes && !fullBleed) {
     return (
       <div className="empty-state" style={{ paddingTop: 80 }}>
         <div className="empty-state-icon"><Glyph e="🗺️" /></div>
@@ -975,6 +1003,111 @@ export default function RouteMap() {
   }
 
   const selectedData = selectedId != null ? routeGroups.find(x => x.key === selectedId) : null;
+
+  // Flat map / globe, and Satellite / Dark. Shared by the Map tab's header and
+  // the full-bleed map's floating controls.
+  const viewToggles = (
+    <>
+      <div className="map-view-toggle" role="group" aria-label="Map view">
+        {[['flat', 'Map'], ['globe', 'Globe']].map(([v, label]) => (
+          <button
+            key={v}
+            className={mapView === v ? 'active' : ''}
+            aria-pressed={mapView === v}
+            onClick={() => setMapView(v)}
+            title={v === 'globe' ? 'Show your network on a 3D globe' : 'Show the flat map'}
+          >{label}</button>
+        ))}
+      </div>
+      <div className="map-view-toggle" role="group" aria-label="Map style">
+        {[['satellite', 'Satellite'], ['dark', 'Dark']].map(([v, label]) => (
+          <button
+            key={v}
+            data-basemap={v}
+            className={basemap === v ? 'active' : ''}
+            aria-pressed={basemap === v}
+            onClick={() => setBasemap(v)}
+            title={v === 'satellite' ? 'NASA Blue Marble satellite imagery' : 'Dark map with coastlines and borders'}
+          >{label}</button>
+        ))}
+      </div>
+    </>
+  );
+
+  // The map itself — the globe sits in front; the flat map stays mounted
+  // underneath so switching back keeps its zoom.
+  const mapBody = (
+    <>
+    {mapView === 'globe' && (
+      <GlobeMap
+        data={globeData}
+        height={mapHeight}
+        home={globeHome}
+        selectedId={selectedId}
+        hoveredId={hoveredId}
+        focusChain={globeFocus}
+        onHover={setHoveredId}
+        onSelect={setSelectedId}
+        onFallback={() => setMapView('flat')}
+        flights={flightPlans}
+        clock={clockSpec}
+        planeColors={planeColors}
+        basemap={basemap}
+      />
+    )}
+    <div style={{ display: mapView === 'globe' ? 'none' : 'block' }}>
+      {error ? (
+        <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--red)', fontSize: 13 }}>
+          <Glyph e="⚠" /> Could not load map: {error}
+        </div>
+      ) : !ready ? (
+        <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--text-muted)', fontSize: 13, gap: 10 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+          Loading map tiles…
+        </div>
+      ) : (
+        <div ref={mapElRef} style={{ height: mapHeight }} />
+      )}
+    </div>
+    </>
+  );
+
+  // Map-first layout: the map IS the screen. No card, no route table — the
+  // Routes page has the table — just the map and a small floating control row.
+  if (fullBleed) {
+    return (
+      <div ref={bleedRef} className={showLabels ? 'map-bleed' : 'map-bleed map-labels-off'}>
+        {mapBody}
+        {noRoutes && (
+          <div className="map-bleed-hint">No routes yet — tap <strong>Search</strong> to find your first one.</div>
+        )}
+        <div className="map-bleed-controls">
+          {viewToggles}
+          <button
+            className={`map-bleed-chip${showLabels ? ' on' : ''}`}
+            aria-pressed={showLabels}
+            onClick={() => setShowLabels(v => !v)}
+            title={showLabels ? 'Hide the airport codes' : 'Show the airport codes'}
+          >ABC</button>
+          {mapView === 'globe' && (
+            <button
+              className={`map-bleed-chip${showPlanes ? ' on' : ''}`}
+              aria-pressed={showPlanes}
+              onClick={() => setShowPlanes(v => !v)}
+              title={showPlanes ? 'Hide the planes in the air' : 'Show your planes in the air'}
+            ><Glyph e="✈" /></button>
+          )}
+          {selectedId != null && (
+            <button className="map-bleed-chip on" onClick={() => setSelectedId(null)}>
+              <Glyph e="✕" /> Focus
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -995,18 +1128,7 @@ export default function RouteMap() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)', alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Flat map / globe */}
-            <div className="map-view-toggle" role="group" aria-label="Map view">
-              {[['flat', 'Map'], ['globe', 'Globe']].map(([v, label]) => (
-                <button
-                  key={v}
-                  className={mapView === v ? 'active' : ''}
-                  aria-pressed={mapView === v}
-                  onClick={() => setMapView(v)}
-                  title={v === 'globe' ? 'Show your network on a 3D globe' : 'Show the flat map'}
-                >{label}</button>
-              ))}
-            </div>
+            {viewToggles}
             {/* Filters: aircraft type + airport */}
             {typesInUse.length > 1 && (
               <select
@@ -1167,40 +1289,7 @@ export default function RouteMap() {
           </div>
         </div>
 
-        {/* Map container — the globe sits in front; the flat map stays mounted
-            underneath so switching back keeps its zoom. */}
-        {mapView === 'globe' && (
-          <GlobeMap
-            data={globeData}
-            height={mapHeight}
-            home={globeHome}
-            selectedId={selectedId}
-            hoveredId={hoveredId}
-            focusChain={globeFocus}
-            onHover={setHoveredId}
-            onSelect={setSelectedId}
-            onFallback={() => setMapView('flat')}
-            flights={flightPlans}
-            clock={clockSpec}
-            planeColors={planeColors}
-          />
-        )}
-        <div style={{ display: mapView === 'globe' ? 'none' : 'block' }}>
-          {error ? (
-            <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--red)', fontSize: 13 }}>
-              <Glyph e="⚠" /> Could not load map: {error}
-            </div>
-          ) : !ready ? (
-            <div style={{ height: mapHeight, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#060b18', color: 'var(--text-muted)', fontSize: 13, gap: 10 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-              </svg>
-              Loading map tiles…
-            </div>
-          ) : (
-            <div ref={mapElRef} style={{ height: mapHeight }} />
-          )}
-        </div>
+        {mapBody}
       </div>
 
       {/* Route summary table */}
