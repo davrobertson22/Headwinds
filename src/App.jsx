@@ -14,7 +14,7 @@ import Routes from './components/Routes.jsx';
 import Marketplace from './components/Marketplace.jsx';
 import Finance from './components/Finance.jsx';
 import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
-  WrenchIcon, SearchIcon,
+  WrenchIcon, SearchIcon, GlobeIcon,
 } from './components/Icons.jsx';
 import HubManagement from './components/HubManagement.jsx';
 import Reputation from './components/Reputation.jsx';
@@ -39,6 +39,7 @@ import BrandingModal from './components/BrandingModal.jsx';
 import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
+import MapShell, { readLayout, writeLayout, MAP_TAB } from './components/MapShell.jsx';
 import useNavFavourites from './hooks/useNavFavourites.js';
 import { toggleNavFavourite, NAV_FAVOURITES_LIMIT } from './utils/navFavourites.js';
 
@@ -338,7 +339,12 @@ function AppInner() {
   // `remoteChrome` carries the multiplayer topbar extras (tick countdown,
   // lobby link, feed + messages) so the game renders ONE header.
   const { state, dispatch, remote, remoteChrome, remoteApi } = useGame();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Classic (top bar + tabs) or map-first (components/MapShell.jsx), per
+  // browser. In map-first the 'map' tab means "no panel open".
+  const [layout, setLayout] = useState(readLayout);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const [activeTab, setActiveTab] = useState(() => (readLayout() === 'map' ? MAP_TAB : 'dashboard'));
   const [openGroup, setOpenGroup] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
   const [showTour, setShowTour] = useState(false);
@@ -406,7 +412,9 @@ function AppInner() {
   advanceWeek.current = () => {
     if (remote) return; // multiplayer: the server owns time — never advance locally
     dispatch({ type: 'ADVANCE_WEEK' });
-    setActiveTab('dashboard');
+    // Classic jumps to the Dashboard; map-first leaves the player where they
+    // are (the weekly debrief still opens over either).
+    if (layoutRef.current !== 'map') setActiveTab('dashboard');
     resetTimer();
 
     weeksSinceAd.current += 1;
@@ -509,6 +517,13 @@ function AppInner() {
   // solo has no other players. Hidden entirely rather than shown empty.
   const navGroups = remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news');
   const navigate = (id) => { setActiveTab(id); setOpenGroup(null); };
+  const switchLayout = (next) => {
+    const l = writeLayout(next);
+    setLayout(l);
+    setActiveTab(l === 'map' ? MAP_TAB : 'dashboard');
+    setOpenGroup(null);
+    setShowMobileMenu(false);
+  };
 
   const tabContent = {
     dashboard:   <Dashboard onNavigate={navigate} />,
@@ -533,6 +548,194 @@ function AppInner() {
     news:        <News />,
     wiki:        <Wiki />,
   };
+
+  // The footer closes every page (classic) or panel (map-first).
+  const footer = (
+    <footer className="app-footer app-footer-inline">
+      <div style={{ marginBottom: 8 }}>
+        {[
+          ['How to Play', '/how-to-play.html'],
+          ['Strategy Guide', '/strategy.html'],
+          ['Glossary', '/glossary.html'],
+          // Headwinds-only: fair-play rules page (no Tailwinds counterpart).
+          ...(remote ? [['Rules', '/rules.html']] : []),
+          ['Devlog', '/devlog.html'],
+          ['About', '/about.html'],
+          ['Privacy', '/privacy.html'],
+        ].map(([label, href]) => (
+          <a
+            key={href}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--accent)', textDecoration: 'none', marginRight: 16, fontSize: 12, fontWeight: 500 }}
+          >
+            {label}
+          </a>
+        ))}
+      </div>
+      AI was used in the development of this game. While core mechanics were designed by humans,
+      much of the coding and scaling of designs were done through the use of LLMs.
+      <div
+        title={BUILD_TIME ? `Built ${BUILD_TIME}` : undefined}
+        style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', letterSpacing: '.02em' }}
+      >
+        {remote ? 'Headwinds' : 'Tailwinds'} v{APP_VERSION} · build {BUILD_ID}
+      </div>
+    </footer>
+  );
+
+  // Modals and overlays — the same in both layouts.
+  const overlays = (
+    <>
+      {/* Weekly debrief modal — suppressed while an away digest is showing */}
+      <WeeklyDebrief />
+
+      {/* "While you were away" — the world does not stop when the tab closes */}
+      <AwayDigest />
+
+      {/* Advance-week error overlay — shows if reducer threw */}
+      {state.advanceWeekError && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+        }}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid var(--red)',
+            borderRadius: 12, padding: 32, maxWidth: 500, width: '90%',
+          }}>
+            <div style={{ fontSize: 24, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><AlertIcon size={24} /> Advance Week Error</div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
+              An error occurred while advancing the week. Please copy this message and report it:
+            </p>
+            <pre style={{
+              background: 'var(--surface2)', padding: 12, borderRadius: 6,
+              fontSize: 11, overflowX: 'auto', color: 'var(--red)', whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+            }}>
+              {state.advanceWeekError}
+            </pre>
+            <button
+              className="btn btn-primary"
+              style={{ marginTop: 16, width: '100%' }}
+              onClick={() => dispatch({ type: 'CLEAR_ERROR' })}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bankrupt overlay */}
+      {state.phase === 'bankrupt' && (
+        <div className="bankrupt-overlay">
+          <div className="bankrupt-card">
+            <div style={{ marginBottom: 16, color: 'var(--red)' }}><SkullIcon size={48} /></div>
+            <h2 style={{ fontSize: 24, marginBottom: 8 }}>Bankruptcy</h2>
+            <p style={{ color: 'var(--text-muted)', marginBottom: 8 }}>
+              {state.airlineName} has been declared bankrupt.
+            </p>
+            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
+              {state.bankruptcyReason === 'missed_loans'
+                ? '3 loan payments were missed. The bank has called in your debt and seized operations.'
+                : state.bankruptcyReason === 'consecutive_negative'
+                ? 'Your cash was negative for 6 consecutive weeks. Unable to sustain operations.'
+                : 'Your airline ran out of cash.'}
+            </p>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 24, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 8 }}>
+              Weeks survived: <strong style={{ color: 'var(--text)' }}>{((state.year - 1) * 52 + state.week)}</strong>
+              {state.missedLoanPayments > 0 && <> · Missed payments: <strong style={{ color: 'var(--red)' }}>{state.missedLoanPayments}</strong></>}
+            </div>
+            {remote ? (
+              /* Multiplayer: no local RESET (it isn't an allowed player action).
+                 Re-founding is a server call — see RestartPanel. */
+              <RestartPanel remoteApi={remoteApi} defaultHub={state.hub} />
+            ) : (
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', padding: 12 }}
+                onClick={handleReset}
+              >
+                Start New Airline
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Victory overlay — all competitors acquired */}
+      {state.gameWon && !state.victoryAcknowledged && (
+        <VictoryOverlay
+          stats={state.victoryStats}
+          airlineName={state.airlineName}
+          logoId={state.logoId}
+          logoColor={state.logoColor}
+          customLogo={state.customLogo}
+          onContinue={() => dispatch({ type: 'ACKNOWLEDGE_VICTORY' })}
+          onNewGame={handleReset}
+        />
+      )}
+
+      {/* Onboarding tour */}
+      {showTour && <OnboardingTour onClose={() => setShowTour(false)} />}
+
+      {/* Save / Load modal */}
+      {saveLoadMode && (
+        <SaveLoadModal mode={saveLoadMode} onClose={() => setSaveLoadMode(null)} />
+      )}
+
+      {/* Edit branding modal */}
+      {showBranding && <BrandingModal initialTab={brandingTab} onClose={() => { setShowBranding(false); setBrandingTab('identity'); }} />}
+
+      {/* New Game confirmation */}
+      {showNewGameConfirm && (
+        <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) setShowNewGameConfirm(false); }}>
+          <div className="confirm-modal">
+            <h2 className="confirm-modal-title">Start a New Game?</h2>
+            <p className="confirm-modal-body">
+              Your current game is auto-saved and can be recovered via <strong>Load Game</strong> if you save it to a slot first.
+              Starting a new game will reset everything.
+            </p>
+            <div className="confirm-modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowNewGameConfirm(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmNewGame}>Start New Game</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const DISCORD_HREF = 'https://discord.com/invite/B7zP8X3YGm';
+
+  if (layout === 'map') {
+    return (
+      <div className="app-layout app-layout-map">
+        <MapShell
+          state={state}
+          remote={remote}
+          remoteChrome={remoteChrome}
+          tabs={TABS_BY_ID}
+          navGroups={navGroups}
+          tabLabel={tabLabel}
+          activeTab={activeTab}
+          navigate={navigate}
+          content={activeTab !== MAP_TAB ? tabContent[activeTab] : null}
+          footer={footer}
+          onAdvance={handleAdvanceWeek}
+          countdown={formatCountdown(timeUntilNextWeek)}
+          onBranding={() => setShowBranding(true)}
+          onTour={() => setShowTour(true)}
+          onSave={() => setSaveLoadMode('save')}
+          onLoad={() => setSaveLoadMode('load')}
+          onNewGame={handleReset}
+          onClassic={() => switchLayout('classic')}
+          discordHref={DISCORD_HREF}
+        />
+        {overlays}
+      </div>
+    );
+  }
 
   return (
     <div className="app-layout">
@@ -617,6 +820,15 @@ function AppInner() {
         </>)}
         <button
           className="btn btn-ghost"
+          data-layout-switch="map"
+          style={{ fontSize: 12, padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          onClick={() => switchLayout('map')}
+          title="Switch to the map-first layout — the world map fills the screen and pages open over it"
+        >
+          <GlobeIcon size={13} /> Map view
+        </button>
+        <button
+          className="btn btn-ghost"
           style={{ fontSize: 12, padding: '5px 10px' }}
           onClick={() => setShowTour(true)}
           title="How to play"
@@ -672,6 +884,9 @@ function AppInner() {
                     <FolderOpenIcon size={14} /> Load game
                   </button>
                   </>)}
+                  <button role="menuitem" data-layout-switch="map" onClick={() => switchLayout('map')}>
+                    <GlobeIcon size={14} /> Map view
+                  </button>
                   <button role="menuitem" onClick={() => { setShowTour(true); setShowMobileMenu(false); }}>
                     <span style={{ width: 14, textAlign: 'center', fontWeight: 700 }}>?</span> How to play
                   </button>
@@ -825,155 +1040,10 @@ function AppInner() {
         {/* Disclaimer lives at the end of the scrollable content (desktop +
             mobile) so it's reachable on scroll without permanently occupying
             screen space. */}
-        <footer className="app-footer app-footer-inline">
-          <div style={{ marginBottom: 8 }}>
-            {[
-              ['How to Play', '/how-to-play.html'],
-              ['Strategy Guide', '/strategy.html'],
-              ['Glossary', '/glossary.html'],
-              // Headwinds-only: fair-play rules page (no Tailwinds counterpart).
-              ...(remote ? [['Rules', '/rules.html']] : []),
-              ['Devlog', '/devlog.html'],
-              ['About', '/about.html'],
-              ['Privacy', '/privacy.html'],
-            ].map(([label, href]) => (
-              <a
-                key={href}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: 'var(--accent)', textDecoration: 'none', marginRight: 16, fontSize: 12, fontWeight: 500 }}
-              >
-                {label}
-              </a>
-            ))}
-          </div>
-          AI was used in the development of this game. While core mechanics were designed by humans,
-          much of the coding and scaling of designs were done through the use of LLMs.
-          <div
-            title={BUILD_TIME ? `Built ${BUILD_TIME}` : undefined}
-            style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', letterSpacing: '.02em' }}
-          >
-            {remote ? 'Headwinds' : 'Tailwinds'} v{APP_VERSION} · build {BUILD_ID}
-          </div>
-        </footer>
+        {footer}
       </div>
 
-      {/* Weekly debrief modal — suppressed while an away digest is showing */}
-      <WeeklyDebrief />
-
-      {/* "While you were away" — the world does not stop when the tab closes */}
-      <AwayDigest />
-
-      {/* Advance-week error overlay — shows if reducer threw */}
-      {state.advanceWeekError && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-        }}>
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--red)',
-            borderRadius: 12, padding: 32, maxWidth: 500, width: '90%',
-          }}>
-            <div style={{ fontSize: 24, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><AlertIcon size={24} /> Advance Week Error</div>
-            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
-              An error occurred while advancing the week. Please copy this message and report it:
-            </p>
-            <pre style={{
-              background: 'var(--surface2)', padding: 12, borderRadius: 6,
-              fontSize: 11, overflowX: 'auto', color: 'var(--red)', whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}>
-              {state.advanceWeekError}
-            </pre>
-            <button
-              className="btn btn-primary"
-              style={{ marginTop: 16, width: '100%' }}
-              onClick={() => dispatch({ type: 'CLEAR_ERROR' })}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Bankrupt overlay */}
-      {state.phase === 'bankrupt' && (
-        <div className="bankrupt-overlay">
-          <div className="bankrupt-card">
-            <div style={{ marginBottom: 16, color: 'var(--red)' }}><SkullIcon size={48} /></div>
-            <h2 style={{ fontSize: 24, marginBottom: 8 }}>Bankruptcy</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: 8 }}>
-              {state.airlineName} has been declared bankrupt.
-            </p>
-            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
-              {state.bankruptcyReason === 'missed_loans'
-                ? '3 loan payments were missed. The bank has called in your debt and seized operations.'
-                : state.bankruptcyReason === 'consecutive_negative'
-                ? 'Your cash was negative for 6 consecutive weeks. Unable to sustain operations.'
-                : 'Your airline ran out of cash.'}
-            </p>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 24, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 8 }}>
-              Weeks survived: <strong style={{ color: 'var(--text)' }}>{((state.year - 1) * 52 + state.week)}</strong>
-              {state.missedLoanPayments > 0 && <> · Missed payments: <strong style={{ color: 'var(--red)' }}>{state.missedLoanPayments}</strong></>}
-            </div>
-            {remote ? (
-              /* Multiplayer: no local RESET (it isn't an allowed player action).
-                 Re-founding is a server call — see RestartPanel. */
-              <RestartPanel remoteApi={remoteApi} defaultHub={state.hub} />
-            ) : (
-              <button
-                className="btn btn-primary"
-                style={{ width: '100%', padding: 12 }}
-                onClick={handleReset}
-              >
-                Start New Airline
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Victory overlay — all competitors acquired */}
-      {state.gameWon && !state.victoryAcknowledged && (
-        <VictoryOverlay
-          stats={state.victoryStats}
-          airlineName={state.airlineName}
-          logoId={state.logoId}
-          logoColor={state.logoColor}
-          customLogo={state.customLogo}
-          onContinue={() => dispatch({ type: 'ACKNOWLEDGE_VICTORY' })}
-          onNewGame={handleReset}
-        />
-      )}
-
-      {/* Onboarding tour */}
-      {showTour && <OnboardingTour onClose={() => setShowTour(false)} />}
-
-      {/* Save / Load modal */}
-      {saveLoadMode && (
-        <SaveLoadModal mode={saveLoadMode} onClose={() => setSaveLoadMode(null)} />
-      )}
-
-      {/* Edit branding modal */}
-      {showBranding && <BrandingModal initialTab={brandingTab} onClose={() => { setShowBranding(false); setBrandingTab('identity'); }} />}
-
-      {/* New Game confirmation */}
-      {showNewGameConfirm && (
-        <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) setShowNewGameConfirm(false); }}>
-          <div className="confirm-modal">
-            <h2 className="confirm-modal-title">Start a New Game?</h2>
-            <p className="confirm-modal-body">
-              Your current game is auto-saved and can be recovered via <strong>Load Game</strong> if you save it to a slot first.
-              Starting a new game will reset everything.
-            </p>
-            <div className="confirm-modal-actions">
-              <button className="btn btn-ghost" onClick={() => setShowNewGameConfirm(false)}>Cancel</button>
-              <button className="btn btn-danger" onClick={confirmNewGame}>Start New Game</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {overlays}
     </div>
   );
 }

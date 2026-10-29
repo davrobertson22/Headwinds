@@ -2011,3 +2011,199 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   .fleet-livery-card { flex-direction: column; align-items: stretch; }
   .fleet-livery-card .fleet-livery-art { width: 100%; max-width: none; }
 }
+
+/* ═══ Map-first layout (components/MapShell.jsx) ══════════════════════════════
+   The world map fills the screen; HUD controls float over it. Everything is
+   scoped under .app-layout-map / .ms-* / .map-bleed, so the classic layout is
+   untouched. */
+.app-layout-map { height: 100vh; height: 100dvh; position: relative; overflow: hidden; background: #02051a; }
+.ms-root { position: absolute; inset: 0; }
+.ms-map { position: absolute; inset: 0; z-index: 0; }  /* own stacking context: Leaflet panes are z 400+ */
+
+/* Full-bleed RouteMap */
+.map-bleed { position: absolute; inset: 0; }
+.map-bleed .leaflet-control-zoom,
+.map-bleed .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group { display: none; }
+.map-bleed .leaflet-control-attribution,
+.map-bleed .maplibregl-ctrl-attrib {
+  background: rgba(2, 5, 26, .55) !important; color: rgba(255,255,255,.55);
+  font-size: 9px; border-radius: 6px 0 0 0;
+}
+.map-bleed .leaflet-control-attribution a,
+.map-bleed .maplibregl-ctrl-attrib a { color: rgba(255,255,255,.7); }
+.map-bleed .globe-clock { top: auto; bottom: 96px; left: 50%; transform: translateX(-50%); }
+.map-bleed-controls {
+  position: absolute; left: 14px; top: 64px; z-index: 500;
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-width: calc(100% - 28px);
+}
+.map-bleed-controls .map-view-toggle {
+  background: rgba(8, 10, 16, .78); backdrop-filter: blur(6px); border-color: rgba(255,255,255,.14); border-radius: 999px;
+}
+.map-bleed-controls .map-view-toggle button { padding: 5px 11px; font-size: 11px; }
+.map-bleed-chip {
+  background: rgba(8, 10, 16, .78); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
+  color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); font-weight: 700;
+  padding: 5px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+}
+.map-bleed-chip.on { color: #fff; border-color: rgba(255,255,255,.3); }
+.map-bleed-hint {
+  position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); z-index: 500;
+  background: rgba(8, 10, 16, .84); border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
+  padding: 8px 16px; font-size: 13px; color: var(--text-muted); white-space: nowrap; pointer-events: none;
+}
+.map-bleed-hint strong { color: var(--text); }
+
+/* Glass used by every floating control */
+.ms-airline, .ms-cash, .ms-rail-btn, .ms-dock, .ms-top-right:not(:empty), .ms-menu, .ms-panel {
+  background: rgba(8, 10, 16, .84);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 6px 24px rgba(0,0,0,.45);
+}
+
+/* Top HUD */
+.ms-top {
+  position: absolute; top: 10px; left: 12px; right: 12px; z-index: 30;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 10px;
+  pointer-events: none;
+}
+.ms-top > * { pointer-events: auto; }
+.ms-airline {
+  justify-self: start; display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 12px 4px 4px; border-radius: 999px; cursor: pointer; color: var(--text);
+  max-width: 100%; min-width: 0;
+}
+.ms-airline-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-centre { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ms-cash {
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 999px;
+  color: var(--text); white-space: nowrap;
+}
+.ms-cash svg { color: var(--accent); }
+.ms-cash-value { font-family: var(--font-mono); font-weight: 700; font-size: 16px; letter-spacing: .01em; }
+.ms-cash-value.negative { color: var(--red); }
+.ms-date { font-size: 11px; color: var(--text-muted); padding-left: 8px; border-left: 1px solid rgba(255,255,255,.15); }
+.ms-next {
+  padding: 8px 28px; border-radius: 999px; font-weight: 600; font-size: 14px; color: #fff; cursor: pointer;
+  background: linear-gradient(180deg, rgba(160, 125, 70, .92), rgba(110, 84, 45, .92));
+  border: 1px solid rgba(255, 220, 160, .35); box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap;
+}
+.ms-next:hover { filter: brightness(1.1); }
+.ms-next-sub { font-size: 11px; opacity: .75; font-weight: 500; }
+.ms-clock { cursor: default; font-size: 12px; padding: 6px 18px; }
+.ms-top-right {
+  justify-self: end; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+  border-radius: 999px; padding: 4px 10px; font-size: 12px;
+}
+.ms-top-right:empty { display: none; }
+
+/* Rails and corners */
+.ms-rail {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 30;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.ms-rail-left  { left: 14px; }
+.ms-rail-right { right: 14px; }
+.ms-corner { position: absolute; bottom: 22px; z-index: 30; }
+.ms-corner-left  { left: 14px; }
+.ms-corner-right { right: 14px; bottom: 26px; }
+.ms-rail-btn {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #f2f3f5; cursor: pointer; transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.ms-rail-btn:hover { transform: scale(1.06); border-color: rgba(255,255,255,.3); }
+.ms-rail-btn.active, .ms-rail-btn.open { border-color: var(--accent); color: var(--accent); background: rgba(30, 24, 12, .9); }
+
+/* Bottom dock */
+.ms-dock {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30;
+  display: flex; gap: 2px; padding: 6px 10px; border-radius: 22px;
+}
+.ms-dock-btn {
+  background: none; border: none; color: #f2f3f5; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 12px; border-radius: 14px; font-size: 11px; font-weight: 500; min-width: 64px;
+}
+.ms-dock-btn:hover { background: rgba(255,255,255,.07); }
+.ms-dock-btn.active, .ms-dock-btn.open { color: var(--accent); background: rgba(255,255,255,.06); }
+
+/* Popover menus */
+.ms-menu-backdrop { position: fixed; inset: 0; z-index: 1190; }
+.ms-menu {
+  position: fixed; z-index: 1200; border-radius: 14px; padding: 6px;
+  display: flex; flex-direction: column; gap: 1px; max-height: 70vh; overflow-y: auto;
+}
+.ms-menu-title {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim);
+  padding: 6px 10px 4px;
+}
+.ms-menu > button, .ms-menu > a {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; border-radius: 9px; padding: 8px 10px;
+  color: var(--text); font-size: 13px; text-align: left; cursor: pointer; text-decoration: none;
+}
+.ms-menu > button:hover, .ms-menu > a:hover { background: rgba(255,255,255,.07); }
+.ms-menu > button.active { color: var(--accent); background: rgba(255,255,255,.05); }
+.ms-menu > button.danger { color: var(--red); }
+.ms-menu-glyph { width: 15px; text-align: center; font-weight: 700; color: var(--text-muted); }
+.ms-menu-sep { height: 1px; background: rgba(255,255,255,.08); margin: 4px 6px; }
+.ms-menu-seg { display: flex; margin: 2px 6px 6px; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+.ms-menu-seg button {
+  flex: 1; background: none; border: none; color: var(--text-muted); font-size: 12px; padding: 6px 0; cursor: pointer;
+}
+.ms-menu-seg button + button { border-left: 1px solid var(--border-strong); }
+.ms-menu-seg button.active { background: var(--accent-dim); color: var(--text); }
+
+/* The page panel — leaves the rails and dock reachable */
+.ms-panel-backdrop { position: absolute; inset: 0; z-index: 20; background: rgba(2, 4, 12, .35); }
+.ms-panel {
+  position: absolute; z-index: 25; top: 108px; bottom: 96px; left: 80px; right: 80px;
+  max-width: 1280px; margin: 0 auto;
+  border-radius: 18px; display: flex; flex-direction: column; overflow: hidden;
+  background: rgba(20, 20, 23, .96);
+  animation: ms-panel-in .16s ease-out;
+}
+@keyframes ms-panel-in { from { opacity: 0; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
+.ms-panel-head {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 20px;
+  border-bottom: 1px solid var(--border); color: var(--accent); flex-shrink: 0;
+}
+.ms-panel-head h2 { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text); margin: 0; flex: 1; }
+.ms-panel-close {
+  width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-strong);
+  background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.ms-panel-close:hover { border-color: var(--accent); }
+.ms-panel-body { flex: 1; min-height: 0; }
+.ms-panel-body > .app-footer-inline { margin-bottom: -26px; }
+
+@media (max-width: 640px) {
+  .ms-top { top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; grid-template-columns: auto 1fr auto; gap: 6px; }
+  .ms-airline { padding: 3px; }
+  .ms-airline-name { display: none; }
+  .ms-centre { gap: 6px; }
+  .ms-cash { padding: 6px 12px; gap: 6px; }
+  .ms-cash-value { font-size: 14px; }
+  .ms-date { display: none; }
+  .ms-next { padding: 6px 20px; font-size: 13px; }
+  .ms-top-right { padding: 3px 6px; gap: 4px; max-width: 46vw; overflow-x: auto; flex-wrap: nowrap; }
+  .ms-top-right .hw-btn-label { display: none; }
+  .ms-rail { gap: 10px; }
+  .ms-rail-left { left: 8px; } .ms-rail-right { right: 8px; }
+  .ms-rail-btn { width: 42px; height: 42px; }
+  .ms-corner-left { left: 8px; } .ms-corner-right { right: 8px; }
+  .ms-corner { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .ms-dock { left: 8px; right: 8px; transform: none; bottom: calc(8px + env(safe-area-inset-bottom)); justify-content: space-around; padding: 4px; }
+  .ms-dock-btn { min-width: 0; flex: 1; padding: 6px 4px; }
+  .map-bleed-controls { top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); left: 60px; right: 60px; justify-content: center; }
+  .map-bleed .globe-clock { bottom: calc(126px + env(safe-area-inset-bottom)); }
+  .map-bleed-hint { bottom: calc(132px + env(safe-area-inset-bottom)); white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 32px); }
+  /* A page takes the whole width; the rails hide behind it and the dock stays. */
+  .ms-panel { top: calc(96px + env(safe-area-inset-top)); left: 0; right: 0; bottom: calc(72px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
+  .ms-panel-open .ms-rail, .ms-panel-open .ms-corner, .ms-panel-open .map-bleed-controls { display: none; }
+  .ms-panel-body > .app-footer-inline { margin: 26px -12px -12px; }
+}
