@@ -14,6 +14,7 @@ import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js'
 import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings.js';
 import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
+import { TRAVEL_PARTNER_MAP } from '@tailwinds/engine/data/travelPartners.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf, eventRulesOfWorld } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
@@ -33,10 +34,12 @@ import { tombstoneAirline } from './tombstone.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
 import { compactReportForStorage } from './reportStorage.mjs';
+import { joinReport, splitReport } from './reportColumn.mjs';
+import { Prisma } from '@prisma/client';
 import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
-  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows,
+  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows, travelPartnerLostNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
@@ -129,6 +132,19 @@ export function ticksDue(world, now = new Date()) {
 
 // Run ONE tick for one world. Returns { ok, week, year, ended, airlines } or
 // { ok: false, reason } when the compare-and-set loses or the world is done.
+/**
+ * The ACTIVE airlines a world-week runs on. joinReport: last week's report lives
+ * in its own column (lib/reportColumn.mjs); everything the tick does with these
+ * rows — the engine, the rival views — sees it back inside `state`.
+ */
+export async function loadTickAirlines(prisma, worldId) {
+  const rows = await prisma.airline.findMany({
+    where: { worldId, status: 'ACTIVE' },
+    include: { account: { select: { isOG: true, isSupporter: true, email: true } } }, // OG + DEV badges (email stays server-side)
+  });
+  return rows.map((a) => ({ ...a, state: joinReport(a.state, a.report) }));
+}
+
 export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const fromIndex = weekIndex(world);
   const toIndex = fromIndex + 1;
@@ -157,10 +173,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // Reads first (outside the transaction): active airlines + their rival views.
   // Humans-only competition — each airline ticks against the OTHER players'
   // current states plus the world's alliance graph. No AI airlines exist.
-  const airlines = await prisma.airline.findMany({
-    where: { worldId: world.id, status: 'ACTIVE' },
-    include: { account: { select: { isOG: true, isSupporter: true, email: true } } }, // OG + DEV badges (email stays server-side)
-  });
+  const airlines = await loadTickAirlines(prisma, world.id);
   const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines, world });
 
   // Dividends owed to these airlines from previous weeks. Read BEFORE the
@@ -247,6 +260,12 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Event worlds: the weird rules, read live from the world like the flags
       // above (engine data/eventRules.js — the bonus airports roll with the year).
       ...(eventRulesOfWorld(world.tickConfig) ? { eventRules: eventRulesOfWorld(world.tickConfig) } : {}),
+      // Travel partnerships: stamped at join; re-stamped here so it can never
+      // be lost from a blob. Only ever written in a partnership world.
+      ...(world.tickConfig?.partnerships === true ? { partnershipsWorld: true } : {}),
+      // Demand model v2: stamped at join, re-stamped here for the same reason.
+      // Only ever written in a v2 world, so a classic world's blobs keep no key.
+      ...(world.tickConfig?.demandModel === 2 ? { demandModel: 2 } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),
@@ -307,6 +326,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       dividend: next.lastReport?.dividend ?? null,
       // Fuel bought by station this week, for fuel-farm fee settlement below.
       fuelByStation: next.lastReport?.fuelByStation ?? null,
+      // Travel partners lost this week (walk-outs, refusals), for the news feed.
+      travelPartnerLosses: (next.lastReport?.travelPartnerEvents ?? []).filter((e) => e.type === 'lost'),
       consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
       // Aircraft whose schedule this tick trimmed, for the news feed below.
       trimNotices,
@@ -389,7 +410,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       const writeAirline = async (c) => {
         // compactReportForStorage: partner O&D itineraries folded to per-hub
         // sums (5.7 MB of one 15 MB save on 2026-10-23). See lib/reportStorage.mjs.
-        const persisted = splitLogo(compactReportForStorage(stripRivals(c.next))).state;
+        // splitReport: the report goes to its own column, the blob is stored
+        // without it, so a decision never has to rewrite it (lib/reportColumn.mjs).
+        const { state: persisted, report } = splitReport(
+          splitLogo(compactReportForStorage(stripRivals(c.next))).state);
         const res = await tx.airline.updateMany({
           where: { id: c.airline.id, version: c.airline.version ?? 0 },
           data: {
@@ -400,6 +424,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             // dropped — the column already holds the value (backfilled by
             // migration 20260824000000) and the tick never writes that column.
             state: persisted,
+            report: report ?? Prisma.DbNull,
             cash: BigInt(c.cash),
             marketCap: BigInt(c.marketCap),
             shares: BigInt(c.shares > 0 ? c.shares : 100_000_000),
@@ -410,7 +435,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
           },
         });
-        if (res.count > 0 && appRivalStates) rivalStates.set(c.airline.id, rivalStateFor(persisted));
+        if (res.count > 0 && appRivalStates) rivalStates.set(c.airline.id, rivalStateFor(joinReport(persisted, report)));
         return res.count > 0;
       };
       const writtenRow = (c) => ({
@@ -474,10 +499,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         const id = stale.airline.id;
         try {
           await tx.$queryRaw`SELECT id FROM "Airline" WHERE id = ${id} FOR UPDATE`;
-          const fresh = await tx.airline.findUnique({
+          const freshRow = await tx.airline.findUnique({
             where: { id },
             include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
           });
+          const fresh = freshRow && { ...freshRow, state: joinReport(freshRow.state, freshRow.report) };
           // Gone or no longer active (bankrupt/abandoned mid-tick): nothing to write.
           if (!fresh || fresh.status !== 'ACTIVE') continue;
           const redone = computeOne(fresh);
@@ -660,6 +686,18 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         // Quarter-end fuel standings: who paid least per unit of fuel this
         // quarter. Outcomes only (the average each airline paid), never the
         // contracts behind them. Empty on any week that is not a quarter-end.
+        // Travel partners that walked out or refused to renew this week.
+        ...travelPartnerLostNewsRows({
+          worldId: world.id, week: toIndex, nameOf,
+          losses: computed
+            .filter((c) => writtenIds.has(c.airline.id))
+            .flatMap((c) => (c.travelPartnerLosses ?? [])
+              .map((e) => ({
+                ...e, airlineId: c.airline.id,
+                partnerName: TRAVEL_PARTNER_MAP[e.partnerId]?.name ?? null,
+                partnerType: TRAVEL_PARTNER_MAP[e.partnerId]?.type ?? null,
+              }))),
+        }),
         ...fuelQuarterNewsRows({
           worldId: world.id, week: toIndex,
           airlines: computed

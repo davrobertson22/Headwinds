@@ -82,7 +82,7 @@ const META = {
   },
   'aircraft-wide-body.html': {
     title: 'Wide-Body Guide — Long-Haul Twins on a Shared Map | Headwinds',
-    description: 'Every wide-body in Headwinds with its real in-game economics, and how twin-aisle strategy changes when rivals see your order months before delivery and the hub has run out of gates.',
+    description: 'Every wide-body in Headwinds with its real in-game economics, and how twin-aisle strategy changes when rivals see your order long before delivery and the hub has run out of gates.',
   },
   'aircraft-regional-jets.html': {
     title: 'Regional Jet Guide — Cheap Frequency, Cheap Territory | Headwinds',
@@ -173,6 +173,70 @@ const CONTENT_PATCHES = [
     file: 'route-economics.html',
     find: "You're never pricing in a vacuum — you're competing for a finite pool.",
     replace: "You're never pricing in a vacuum — in Headwinds you're competing for that finite pool against real players, and they price back.",
+  },
+  // Aircraft category guides — the generator's fuel note predates the $1.45/L
+  // base price its own figures already use (FUEL_PRICE_PER_LITRE, utils/fuel.js).
+  {
+    file: 'aircraft-flagships.html',
+    find: 'base fuel price of $1.20/litre',
+    replace: 'base fuel price of $1.45/litre',
+  },
+  {
+    file: 'aircraft-freighters.html',
+    find: 'base fuel price of $1.20/litre',
+    replace: 'base fuel price of $1.45/litre',
+  },
+  {
+    file: 'aircraft-narrow-body.html',
+    find: 'base fuel price of $1.20/litre',
+    replace: 'base fuel price of $1.45/litre',
+  },
+  {
+    file: 'aircraft-regional-jets.html',
+    find: 'base fuel price of $1.20/litre',
+    replace: 'base fuel price of $1.45/litre',
+  },
+  {
+    file: 'aircraft-turboprops.html',
+    find: 'base fuel price of $1.20/litre',
+    replace: 'base fuel price of $1.45/litre',
+  },
+  {
+    file: 'aircraft-wide-body.html',
+    find: 'base fuel price of $1.20/litre',
+    replace: 'base fuel price of $1.45/litre',
+  },
+  // Ranges corrected in this repo on 2026-10-18 (78dd2dd) after the last sync;
+  // drop these once the shared pages are regenerated with the new figures.
+  {
+    file: 'aircraft-wide-body.html',
+    find: '15,400 km at 325 seats (13,600 km at 440)',
+    replace: '15,750 km at 325 seats (13,900 km at 440)',
+  },
+  {
+    file: 'aircraft-wide-body.html',
+    find: '<b>15,400 km</b> at 325 seats (13,600 km at 440)',
+    replace: '<b>15,750 km</b> at 325 seats (13,900 km at 440)',
+  },
+  {
+    file: 'aircraft-wide-body.html',
+    find: '16,090 km at 395 seats (15,300 km at 445)',
+    replace: '16,190 km at 395 seats (15,400 km at 445)',
+  },
+  {
+    file: 'aircraft-wide-body.html',
+    find: '<b>16,090 km</b> at 395 seats (15,300 km at 445)',
+    replace: '<b>16,190 km</b> at 395 seats (15,400 km at 445)',
+  },
+  {
+    file: 'aircraft-freighters.html',
+    find: '<td>8,200 km</td>',
+    replace: '<td>9,260 km</td>',
+  },
+  {
+    file: 'aircraft-freighters.html',
+    find: 'Range <b>8,200 km</b>',
+    replace: 'Range <b>9,260 km</b>',
   },
 ];
 
@@ -523,9 +587,9 @@ writeFileSync(path.join(OUT, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap:
 // llms.txt for this domain — a plain-language map of the site for AI crawlers/agents.
 writeFileSync(path.join(OUT, 'llms.txt'), `# Headwinds — Multiplayer Airline Management Game
 
-> Headwinds is a free, browser-based multiplayer airline management game. Persistent shared worlds run on a server clock 24/7, and every rival airline is a real player — no AI carriers. Build routes across 1,500+ real airports with 100+ real aircraft, found player-run alliances, and compete to top the final standings. Built on the same engine as the solo game Tailwinds (https://www.tailwindsairlinegame.com).
+> Headwinds is a free, browser-based multiplayer airline management game. Persistent shared worlds run on a server clock 24/7, and every rival airline is a real player — no AI carriers. Build routes across 2,000+ real airports with 190+ real aircraft, found player-run alliances, and compete to top the final standings, ranked on average weekly net profit. Built on the same engine as the solo game Tailwinds (https://www.tailwindsairlinegame.com).
 
-Headwinds is free to play at https://${DOMAIN}/ — sign in with Google or an email link and join a world.
+Headwinds is free to play at https://${DOMAIN}/ — sign in with Google, Discord or an email link and join a world.
 
 ## Start here
 

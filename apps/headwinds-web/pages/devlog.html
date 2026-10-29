@@ -54,6 +54,21 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">October 29, 2026</p>
+      <h2>Passenger demand recalibrated against real traffic (new worlds)</h2>
+      <p>We checked passenger demand against real ticket data: every US city pair in the US Department of Transportation&rsquo;s airfare survey and every Australian domestic route in the government&rsquo;s route statistics. The big routes were close, but the game had about four times as many US domestic passengers as the real world, almost all of them in small cities and short hops. Australia had only about half its real traffic. New worlds now use a recalibrated model:</p>
+      <ul>
+        <li><strong>Short trips are driven, not flown.</strong> In the US and Australia, demand fades on routes under about 650&nbsp;km.</li>
+        <li><strong>Small towns lose travellers to big airports nearby.</strong> A small US airport within a few hours&rsquo; drive of a major one has a smaller market of its own.</li>
+        <li><strong>US city size matters more.</strong> Small US cities generate fewer trips per person, so regional routes are thinner.</li>
+        <li><strong>Theme-park and casino cities are sized more realistically.</strong> Most visitors to places like Orlando and Las Vegas drive there, so they count for less air demand than visitors to island resorts like Hawaii.</li>
+        <li><strong>Australia flies more.</strong> Long domestic routes like Sydney&ndash;Melbourne and Brisbane&ndash;Cairns get substantially more demand.</li>
+        <li><strong>Double-counted cities fixed.</strong> St. Petersburg, Sanford, Mesa, Newport News, Everett and a few smaller airports no longer carry their whole metro&rsquo;s population a second time.</li>
+      </ul>
+      <p>It goes about two-thirds of the way to the real numbers, so regional flying stays playable. Routes outside the US and Australia are unchanged. Worlds already running keep the demand they started with. A world shows a <em>Real-world demand</em> tag when it uses the new model. Added to Tailwinds as well (new games).</p>
+    </div>
+
+    <div class="entry">
       <p class="date">October 27, 2026</p>
       <h2>The Gates list remembers how you sorted it</h2>
       <p>Airports &rarr; Your Gates now keeps the column and direction you last sorted by, and whether you picked Table or Cards. Leave the tab, advance the week or reload, and it comes back the way you left it instead of falling back to region order. Until you sort, the list starts in the usual order.</p>

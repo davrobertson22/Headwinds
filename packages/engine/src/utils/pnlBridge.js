@@ -108,7 +108,10 @@ export function costBridge(proj, state = {}) {
                      + n(r.totalFuelProgrammeCosts) + n(r.totalFuelFarmCosts)
                      + n(r.totalRefineryCosts)
                      + n(r.totalGroundStationCosts);
-  const brand        = n(r.totalMarketingSpend) + n(r.totalLoyaltyCost) + n(r.totalHubInvestment);
+  // Travel partnership fees (cruise lines, tour operators, hotels, ride share)
+  // are a demand lever bought like marketing, so they sit in this bucket.
+  const brand        = n(r.totalMarketingSpend) + n(r.totalLoyaltyCost) + n(r.totalHubInvestment)
+                     + n(r.totalTravelPartnerFees);
   const distribution = n(r.totalDistributionCost) + n(r.totalPartnerFees);
   // A strike forfeits revenue but SAVES the variable cost of the flights it
   // cancelled, and the engine credits that saving back. Only the net number

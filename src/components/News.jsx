@@ -262,6 +262,16 @@ export function compose(item, startYear = null) {
         standalone: true,
       };
     }
+    case 'travel_partner_lost':
+      // A travel partner walked out or refused to renew (engine
+      // data/travelPartners.js). Public on purpose: a falling-out is news.
+      return {
+        icon: '💥',
+        headline: d.reason === 'refused'
+          ? `was refused a renewal by ${d.partner ?? 'a travel partner'}`
+          : `was dropped by ${d.partner ?? 'a travel partner'}`,
+        sub: 'Missed targets — no deal between them for 5 years',
+      };
     case 'alliance_founded':
       return { icon: '🤝', subject: d.alliance, headline: 'alliance founded', standalone: true };
     case 'alliance_joined':

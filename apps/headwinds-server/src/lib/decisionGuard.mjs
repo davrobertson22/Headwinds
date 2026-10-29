@@ -25,6 +25,7 @@ import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
 import { BULK_FREQUENCY_BATCH } from '@tailwinds/engine/reducer';
 import { GROUND_STATION_MAX_LEVEL } from '@tailwinds/engine/data/groundStation.js';
 import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data/cateringContracts.js';
+import { TRAVEL_PARTNER_MAP } from '@tailwinds/engine/data/travelPartners.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { normalizeLivery, isLiveryShaped } from '@tailwinds/engine/data/livery.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
@@ -449,6 +450,17 @@ function guardBreakCatering(payload) {
   return { id };
 }
 
+// ── Travel partnerships ──────────────────────────────────────────────────────
+// Only the partner id comes from the client. The fee comes from the world book
+// the reducer reads off the calendar, and the reducer (canSignTravelPartner)
+// enforces the world flag, the reputation gate, the 5-year cooldown and cash.
+function guardTravelPartnerId(payload, { allowAll = false } = {}) {
+  const partnerId = String(payload.partnerId ?? '');
+  if (allowAll && partnerId === 'all') return partnerId;
+  if (!TRAVEL_PARTNER_MAP[partnerId]) throw new GuardError('Unknown travel partner.');
+  return partnerId;
+}
+
 function guardLoungePolicy(payload) {
   const out = {};
   if (payload.loyaltyAccess  !== undefined) out.loyaltyAccess  = !!payload.loyaltyAccess;
@@ -729,6 +741,11 @@ export function guardDecision(type, payload, state) {
     case 'CLOSE_GROUND_STATION':   return guardGroundStation(payload);
     case 'SIGN_CATERING_CONTRACT':  return guardSignCatering(payload);
     case 'BREAK_CATERING_CONTRACT': return guardBreakCatering(payload);
+    case 'SIGN_TRAVEL_PARTNER':
+    case 'RENEW_TRAVEL_PARTNER':
+    case 'BREAK_TRAVEL_PARTNER':    return { partnerId: guardTravelPartnerId(payload) };
+    case 'SET_TRAVEL_PARTNER_AUTORENEW':
+      return { partnerId: guardTravelPartnerId(payload, { allowAll: true }), on: payload.on !== false };
     case 'CLEAR_RESERVE':      return { aircraftId: payload.aircraftId };
     case 'TAKE_LOAN':          return guardTakeLoan(payload, state);
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);

@@ -22,7 +22,7 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
@@ -33,6 +33,7 @@ import { netProfitOf } from '@tailwinds/engine/utils/standings.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
+import { joinReport } from './reportColumn.mjs';
 
 // ── Rival-facing identity, per GENERATION ────────────────────────────────────
 // The id every other player sees this airline as, and the key their portfolio
@@ -541,6 +542,10 @@ export function toRivalSpecs(airlineRow) {
       // helper the tick runs on the player. Per pair, not per airline: a lounge
       // only counts on routes that touch it.
       loungeAppeal: stateLoungeFields(s, r.origin, r.destination).loungeAppeal,
+      // Their travel partners on THIS pair (cruise / tours → leisure, hotels /
+      // ride share → business), resolved by the helper the tick runs on the
+      // player. Empty — and so absent from the spec — without partners.
+      ...stateTravelPartnerFields(s, r.origin, r.destination),
       homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,
@@ -847,8 +852,8 @@ export async function loadRivalRows(prisma, worldId) {
       // against ADMIN_EMAILS here; payloads carry booleans.
       include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
     });
-    return rows.map(({ customLogo, ...r }) => ({
-      ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(r.state),
+    return rows.map(({ customLogo, report, ...r }) => ({
+      ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(joinReport(r.state, report)),
     }));
   }
   // The trimmed blob is a COLUMN now (migration 20261022000000_airline_rival_state):
@@ -1028,6 +1033,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     setFareIndex(_eraFi != null ? _eraFi * (_st?.fareIndex ?? 1) : (_st?.fareIndex ?? 1));
     setEraStartYear(_st?.startYear ?? null);
     setNwrYieldChoke(_st?.newWorldRestrictions === true);
+    setDemandModel(_st?.demandModel);   // one world, one demand model
     setFuelStationsEnabled(fuelStationsOn(_st));
     setFuelStationDiscounts(null);   // rival views carry no airline's farms
     return buildRivalViews(rows, allianceMap);

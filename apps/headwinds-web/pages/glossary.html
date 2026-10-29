@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Airline Glossary — Headwinds Multiplayer Terms &amp; Definitions</title>
-  <meta name="description" content="A plain-English glossary for Headwinds, the multiplayer airline game — worlds, standings, market value, contested routes, alliances, load factor, yield, CASM, RASM and more. The vocabulary of competing against real players." />
+  <meta name="description" content="A plain-English glossary for Headwinds, the multiplayer airline game — worlds, standings, net profit, contested routes, alliances, load factor, yield, CASM, RASM and more. The vocabulary of competing against real players." />
   <link rel="canonical" href="https://www.headwindsairlinegame.com/glossary.html" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -71,10 +71,13 @@
       <dd>A single shared game — one map, one economy, one set of competing airlines — that runs for a fixed span of game-years and then ends with final standings. Every airline in a world belongs to a real player, and you can play in several separate worlds at once, one airline in each. Each world has its own rules, shown as tags on the world list — gate scarcity, restricted leasing, the crew pipeline and so on.</dd>
 
       <dt>Season</dt>
-      <dd>One world's run from its first week to its last. When it ends, the season is scored: a champion, a podium, and awards such as Iron Throne for the most weeks at number one and Best Comeback for the highest finish by a re-founded airline. Every finished season is recorded on your player profile, with badges earned from your record. An airline that never went public finishes unranked rather than last.</dd>
+      <dd>One world's run from its first week to its last. When it ends, the season is scored: a champion, a podium, and awards such as Iron Throne for the most weeks at number one and Best Comeback for the highest finish by a re-founded airline. Every finished season is recorded on your player profile, with badges earned from your record. An airline that went bankrupt or walked away finishes unranked rather than last.</dd>
 
       <dt>Era world</dt>
       <dd>A world that starts in a real historical year and moves forward through the calendar. Aircraft go on sale and out of production on their real dates, ageing designs lose appeal with passengers, and some features (codeshares, lounge networks, onboard Wi-Fi) only appear when they did in real life. Classic worlds instead count Year 1, Year 2 and onward in a present-day setting.</dd>
+
+      <dt>Event world</dt>
+      <dd>A timed competition run by the Headwinds team. It sets its own pace, ends at a fixed date and time rather than after a span of game-years, and can switch on special rules — one aircraft family only, no leasing, set hub cities, domestic-only flying and the like. Joining takes a code, trophies are awarded from the final ranking, and event results stay out of your season record.</dd>
 
       <dt>Server clock / tick</dt>
       <dd>Time in Headwinds advances on the server, not on your turns. A game week passes automatically — a "tick" — whether or not you're online, so a world keeps moving while you're away. Each world sets its own pace, from one week a day to one every 15 minutes; the world list shows it in plain terms, such as how many real days a game year takes.</dd>
@@ -83,10 +86,13 @@
       <dd>The weekly report on how your airline did: what each route earned, what changed in your costs, and anything that needs your attention. If you've missed two or more weeks, a "While you were away" summary comes first and covers the whole gap. For what your rivals did, read the News tab.</dd>
 
       <dt>Standings / leaderboard</dt>
-      <dd>The ranking of every airline still flying in a world, ordered by shareholder value per share. It's the scoreboard of the game, updating as you and your rivals grow, and it's what decides who finishes a world on top. Bankrupt airlines drop off the table and are shown only as a count.</dd>
+      <dd>The ranking of every airline still flying in a world, listed or private, ordered by average weekly net profit over the last 52 weeks, with ties going to the larger net assets. It's the scoreboard of the game, updating every week, and it's what decides who finishes a world on top: the best average over the final 52 weeks takes the title. The same live table shows each airline's last-week profit, net assets, passengers and flights a week and fleet size, and sorts by any of them. Bankrupt airlines drop off the table and are shown only as a count.</dd>
+
+      <dt>Average weekly net profit</dt>
+      <dd>The number the standings rank by: your net profit over the last 52 weeks divided by 52 (by the weeks played so far, in a world's first year). Weeks you weren't flying — because you joined late or re-founded — count as zero, so a short hot streak can't outscore a full year. Net profit here is the accounting figure: operating profit less loan interest and tax, with depreciation charged and loan repayments left out, since repaying principal isn't a cost.</dd>
 
       <dt>Shareholder value per share (SVPS)</dt>
-      <dd>Your share price plus every dividend you have ever paid per share — the number the standings rank by. Market cap measures how big you got; SVPS measures how much value you created for each share, so issuing new shares only helps if the money earns more than the dilution, and paying dividends never costs you rank. Market cap still shows when you hover over a standings row.</dd>
+      <dd>Your share price plus every dividend you have ever paid per share — a measure of what your airline has returned to its shareholders, shown on the Stocks tab. It was the standings metric until October 2026; worlds that ended before then keep their SVPS result.</dd>
 
       <dt>Rival</dt>
       <dd>Any other airline in your world — which means any other player. Rivals scout, adapt, and react, so reading who's around you and what they're doing is a core skill. The in-game rival views show their networks, fleets, and trajectory.</dd>
@@ -158,13 +164,16 @@
       <dd>Small jets and propeller aircraft for short, thin markets. They open cities too small for a mainline jet and feed a hub, trading a higher cost per seat for a lower cost per flight.</dd>
 
       <dt>Range</dt>
-      <dd>How far an aircraft can fly fully loaded. Too little and you can't serve the market; too much and you've paid for capability you never use. Match range to the mission.</dd>
+      <dd>How far an aircraft can fly with its typical cabin. Pack in more seats and the range shrinks; fly a lighter cabin and it stretches further. Too little and you can't serve the market; too much and you've paid for capability you never use. Match range to the mission.</dd>
 
       <dt>Capacity</dt>
       <dd>How many seats an aircraft offers. Capacity has to meet demand: oversupply a thin route and load factor sags, undersupply a busy one and you leave revenue on the table — or hand it to a rival.</dd>
 
       <dt>Lease vs. purchase</dt>
       <dd>The two ways to add an aircraft. Leasing spreads the cost and preserves cash for expansion, which usually suits the early game and any market you might contest and abandon; buying ties up capital up front but lowers long-run cost on routes you're sure of. In worlds with restricted leasing, lessors only carry single-deck, previous-generation types and cap how many leased aircraft you can have on order.</dd>
+
+      <dt>Production line</dt>
+      <dd>A world rule, on by default in new worlds, under which each aircraft family comes off one factory line shared by every airline in the world, building a set number of frames a week. Your own deliveries from a line are spaced one to five weeks apart by size, the earliest slots cost up to 25% extra, and cancelling a purchase forfeits 5–30% of its price, more the closer its slot. In historical worlds new types are announced two years before they enter service, and launch customers can order first, on firm terms.</dd>
 
       <dt>Utilisation</dt>
       <dd>The hours a day your aircraft actually spend flying. Idle metal still costs money, so high utilisation — through tight scheduling and fast turnarounds — is one of the clearest levers on profit.</dd>
@@ -211,6 +220,9 @@
       <dt>Cash</dt>
       <dd>Your liquid money — your runway. It covers leases, fuel, and staff while routes mature, and in a live world it's also your defence: a deep cushion is what lets you weather a rival's price war or an unattended bad stretch while the clock rolls on.</dd>
 
+      <dt>Net assets</dt>
+      <dd>What the airline owns less what it owes, as the Balance Sheet shows it: cash, owned aircraft at book value, shares held in rivals, lease deposits sitting with lessors and aircraft paid for but not yet delivered, minus loans outstanding. It's a standings column and the tie-break when two airlines' average profit is equal.</dd>
+
       <dt>Operating cost</dt>
       <dd>The recurring cost of flying — fuel, crew, maintenance, leases, fees, and overhead. A route only earns its place when revenue clears operating cost with margin to spare.</dd>
 
@@ -227,10 +239,10 @@
       <dd>The share of seats you must sell just to cover a flight's costs. Everything above it is profit, everything below is loss; lower costs or higher fares pull the break-even point down and widen your margin for error in a fight.</dd>
 
       <dt>Debt</dt>
-      <dd>Borrowed money to grow faster than cash allows. Used well it funds a well-timed expansion before a rival beats you to it; used carelessly its repayments become a fixed cost that can sink you when a market turns.</dd>
+      <dd>Borrowed money to grow faster than cash allows. Used well it funds a well-timed expansion before a rival beats you to it; used carelessly its repayments become a fixed cost that can sink you when a market turns. Lenders size what you can borrow to your recent earnings and your equity — repayments can take at most half your operating cash flow, and total debt can't pass four times equity — and aircraft finance is secured on planes you own, valued at no more than you paid for them.</dd>
 
       <dt>Going public</dt>
-      <dd>Listing your airline on the world's share market by selling a slice of it to investors, which raises cash and gives you a traded share price. Once listed, you can raise more with share offerings, buy shares back or pay dividends, and other players can buy up to 20% of you. Every share trade in a world is printed on the News tab.</dd>
+      <dd>Listing your airline on the world's share market by selling a slice of it — 10–35%, from week 26 — to investors, which raises cash and gives you a traded share price. It's a financing choice: private and listed airlines are ranked alike. Once listed, you can raise more with share offerings, buy shares back or pay dividends, and other players can buy up to 20% of you. Every share trade in a world is printed on the News tab.</dd>
 
       <dt>Bankruptcy</dt>
       <dd>Running out of cash and failing to meet your obligations: three missed loan payments, or six weeks in a row with negative cash. The airline is finished — its fleet goes to the used market at a distressed price — but you can re-found a new one in the same world, up to three times. Avoiding it is still the one hard rule: you can grow cautiously or boldly, but you can't run out of money.</dd>

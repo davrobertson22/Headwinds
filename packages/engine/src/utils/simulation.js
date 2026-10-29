@@ -13,7 +13,7 @@ export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          cargoBackhaulFactor, cargoSeasonalFactor,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
-         setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor } from './market.js';
+         setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor, setDemandModel } from './market.js';
 import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
@@ -55,6 +55,10 @@ import {
   hasCateringContracts, airportSeatsMap, resolveCateringContracts, applyCateringContractFields,
   cateringCapReport,
 } from '../data/cateringContracts.js';
+import {
+  hasTravelPartners, travelPartnerFieldsFor, travelPartnerAt, travelAppealForPair,
+  rolloverTravelPartners, dueTravelInstalments, measureTravelPartners, settleTravelPartners,
+} from '../data/travelPartners.js';
 import { absoluteWeek as _absoluteWeek } from './fuel.js';
 import {
   buildRouteMarket,
@@ -852,6 +856,23 @@ export function stateCateringCapReport(state, origin, destination, chosenLevel, 
   const seats = airportSeatsMap(state?.routes ?? [], state?.fleet ?? [], routeStops);
   const hubs = state?.hubs ?? (state?.hub ? { [state.hub]: { tier: 1 } } : {});
   return cateringCapReport(HUB_TIERS, hubs, contracts, stops ?? [origin, destination], seats, chosenLevel);
+}
+
+/**
+ * The travel-partner offer fields for a pair, resolved from STATE — the same
+ * resolution weeklyTick applies, so a preview lifts the leisure / business
+ * segment exactly as the tick will (data/travelPartners.js). Returns {} when no
+ * partner lifts the pair, so spreading it changes nothing for an airline
+ * without partners. `month` defaults to the state's own game month (seasonal
+ * cruise lines lift only in season).
+ *
+ * Spread it into the route or offer: `{ ...route, ...stateTravelPartnerFields(state, o, d) }`.
+ */
+export function stateTravelPartnerFields(state, origin, destination, month = null) {
+  const partners = state?.travelPartners ?? null;
+  if (!hasTravelPartners(partners)) return {};
+  const m = month ?? state?.gameDate?.month ?? weekToGameDate(state?.week ?? 1).monthIndex;
+  return travelPartnerFieldsFor(partners, origin, destination, m);
 }
 
 /**
@@ -2118,6 +2139,10 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // the BUSINESS segment only — a share term on a contested pair, a business
     // pool term on a monopoly. 1 = no lounges, scored as before.
     loungeAppeal: route.loungeAppeal ?? 1,
+    // Travel partners (attached by weeklyTick / stateTravelPartnerFields):
+    // cruise + tours lift leisure, hotels + ride share lift business. 1 = none.
+    travelLeisureAppeal:  route.travelLeisureAppeal ?? 1,
+    travelBusinessAppeal: route.travelBusinessAppeal ?? 1,
   };
 
   // Gather any AI competitors serving this route and compute market share.
@@ -2432,6 +2457,11 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     totalOpCost,
     profit:       Math.round(totalRevenue - totalOpCost),
     passengers:        totalPaxOneWay,  // one-way pax (per direction); revenue already covers both directions
+    // Partnership worlds only (weeklyTick sets travelPartnerTrack): the boarded
+    // one-way passengers split leisure / business, which the travel partners'
+    // requirements count. Absent elsewhere so the report is byte-identical.
+    ...(route.travelPartnerTrack ? { segmentPax: segmentSplit(
+      totalPaxOneWay, leisurePax, businessPax, demandResult, playerOffer, market) } : {}),
     configuredSeatsOneWay: totalCapOneWay, // configured cabin seats × frequency (excludes unassigned physical seats)
     loadFactor,
     distance:     Math.round(dist),
@@ -2448,6 +2478,39 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   }, [route.origin, route.destination]);
 }
 
+
+/**
+ * Boarded one-way passengers split into leisure and business TRAVELLERS — what
+ * the travel partners' requirements count (data/travelPartners.js). Not the
+ * same as cabins: a business traveller with no business seat to buy (no cabin,
+ * or a full one) flies economy, and the demand model folds them into the
+ * leisure pool. They are still business travellers to a hotel chain, so the
+ * share of the economy pool that came from the business segment is credited
+ * back to business:
+ *   no business cabin   the market's business share of the combined pool
+ *                       (each segment at its own travel-partner appeal)
+ *   business cabin      the overflow that could not get a J seat, as a share
+ *                       of the leisure pool it was folded into
+ */
+function segmentSplit(total, leisurePax, businessPax, demandResult, offer, market) {
+  const seated = Math.max(0, businessPax);
+  const econ   = Math.max(0, leisurePax);
+  const hasJ = offer?.businessPrice != null && (offer?.businessSeats ?? 0) > 0;
+  let fold = 0;
+  if (!hasJ) {
+    const L = (market?.leisureDemand ?? 0) * (offer?.travelLeisureAppeal ?? 1);
+    const B = (market?.businessDemand ?? 0) * (offer?.travelBusinessAppeal ?? 1);
+    fold = L + B > 0 ? B / (L + B) : 0;
+  } else {
+    const Bu = demandResult?.businessPaxUncapped ?? seated;
+    const Lu = demandResult?.leisurePaxUncapped ?? econ;
+    fold = Lu > 0 ? Math.min(1, Math.max(0, Bu - (offer.businessSeats ?? 0)) / Lu) : 0;
+  }
+  const pool = seated + econ;
+  if (pool <= 0) return { leisure: total, business: 0 };
+  const biz = Math.min(total, Math.round(total * (seated + fold * econ) / pool));
+  return { leisure: total - biz, business: biz };
+}
 
 // ─── Break-even load factor ──────────────────────────────────────────────────
 //
@@ -2746,6 +2809,12 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       marketingBoost: route.marketingBoost ?? 0,
       brandReach: route.brandReach ?? 1,
       loungeAppeal: route.loungeAppeal ?? 1,
+      // Travel partners per SEGMENT: a cruise port at one stop lifts only the
+      // segments that touch it.
+      ...(route.travelPartnerAt ? (() => {
+        const ap = travelAppealForPair(route.travelPartnerAt, seg.from, seg.to);
+        return { travelLeisureAppeal: ap.leisure, travelBusinessAppeal: ap.business };
+      })() : {}),
     };
     // The LIVE bank, plus whatever contests this SEGMENT — same channel and same
     // one-airline-one-offer merge the single-leg path uses.
@@ -4001,6 +4070,8 @@ export function weeklyTick(state) {
   // the reducer / providers — but tools and server paths call weeklyTick
   // directly, so pin it from THIS state to make every tick self-consistent.
   setNwrYieldChoke(state.newWorldRestrictions === true);
+  // Demand model, pinned from THIS state for the same reason (absent = classic).
+  setDemandModel(state.demandModel);
   // Event worlds: this year's double-profit airports, pinned from THIS state
   // for the same reason as the yield choke above.
   pinEventBonusFrom(state);
@@ -4060,6 +4131,25 @@ export function weeklyTick(state) {
   // Routes operating THIS month. Dormant seasonal routes must not provide network
   // feed, interline adjacency, or cannibalization while they're out of season.
   const activeRoutes = routes.filter(r => isRouteActive(r, gameDate.month));
+
+  // ── Travel partnerships (data/travelPartners.js) ────────────────────────────
+  // Contracts that reached their end renew, lapse or are lost BEFORE the week
+  // is simulated — an expired deal must not lift the week after it ended. This
+  // week's lift is read off last week's happiness; instalments due this week
+  // (a new signing's first, a renewal's first, any contract's second) are
+  // charged here so they land on the P&L. Nothing at all for an airline with no
+  // partners: no keys, no fields, byte-identical report.
+  const tpWorld    = state.partnershipsWorld === true;
+  const tpHad      = hasTravelPartners(state.travelPartners);
+  const tpRoll     = tpHad
+    ? rolloverTravelPartners(state.travelPartners, state.travelPartnerMemory ?? {}, absWeek ?? 0, { cash: state.cash ?? 0 })
+    : null;
+  const tpPartners = tpRoll ? tpRoll.partners : null;
+  const tpActive   = hasTravelPartners(tpPartners);
+  const tpMonth    = gameDate.month;
+  const travelFieldsFor = (o, d) => (tpActive ? travelPartnerFieldsFor(tpPartners, o, d, tpMonth) : {});
+  const tpDue      = tpActive ? dueTravelInstalments(tpPartners, absWeek ?? 0) : [];
+  const totalTravelPartnerFees = tpDue.reduce((sum, d) => sum + (d.amount ?? 0), 0);
 
   // Average fleet block-hour utilization (pax + cargo schedules): fleets flown
   // near the cap lose punctuality; idle spares buffer the schedule. Feeds the
@@ -4621,6 +4711,10 @@ export function weeklyTick(state) {
           // here would exempt every multi-aircraft route from the lounge model —
           // exactly the hole brandReach fell into on this code path.
           loungeAppeal: groupLounge.loungeAppeal,
+          // Travel partners — same reason again: the pooled demand is every
+          // member's demandOverride, so leaving them off would exempt
+          // multi-aircraft pairs from the partner lift.
+          ...travelFieldsFor(pairO, pairD),
         };
 
 
@@ -4756,6 +4850,9 @@ export function weeklyTick(state) {
         // technical stop for most of the people on board, and a lounge there is
         // not what sold them the ticket.
         ...loungeFieldsFor(route.origin, route.destination),
+        // Travel partners per stop; simulateTagRoute resolves each segment.
+        ...(() => { const at = tpActive ? travelPartnerAt(tpPartners, stopsList, tpMonth) : null; return at ? { travelPartnerAt: at } : {}; })(),
+        ...(tpWorld ? { travelPartnerTrack: true } : {}),
         ...(tagHcf ? { hubCostFactors: tagHcf } : {}),
         ...(() => { const g = handlingFactorFor(stopsList); return g != null ? { groundHandlingFactor: g } : {}; })(),
         ...nwrLoadFieldsFor(route),
@@ -4859,6 +4956,10 @@ export function weeklyTick(state) {
       // ground-contract discount. Spread conditionally so a game with no lounges
       // produces a byte-identical route object and the golden master is unmoved.
       ...loungeFieldsFor(route.origin, route.destination),
+      // Travel partners: the segment lifts, and (partnership worlds) the
+      // leisure/business split on the result that their requirements count.
+      ...travelFieldsFor(route.origin, route.destination),
+      ...(tpWorld ? { travelPartnerTrack: true } : {}),
       ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
       ...(() => { const g = handlingFactorFor([route.origin, route.destination]); return g != null ? { groundHandlingFactor: g } : {}; })(),
       ...nwrLoadFieldsFor(route),
@@ -5465,13 +5566,23 @@ export function weeklyTick(state) {
   const hubConnectingPax   = Object.values(hubThroughput).reduce((a, v) => a + (v ?? 0), 0);
   const gatewayResidualPax = Math.max(0, Math.round(totalConnectingPax) - hubConnectingPax);
 
+  // Travel partners: score this week's delivery against every requirement,
+  // move happiness, walk out the ones that have had enough (data/travelPartners.js).
+  const tpSettle = tpActive
+    ? settleTravelPartners(tpPartners, tpRoll.memory, measureTravelPartners(Object.keys(tpPartners), {
+        routes, routeResults, fleet, month: tpMonth, stopsOf: routeStops,
+        onTimeRate: laborEffects(labor, avgUtilization, satisfaction).onTimeRate,
+      }), absWeek ?? 0, tpDue.map(d => d.partnerId))
+    : null;
+
   const totalOpCost = totalFuel + totalCrew + totalQuality + totalCatering + totalAncillaryCost + totalGroundHandling + totalLounge + totalLayover + totalCompensation + totalLandingFees;
   const totalCost   = totalLeases + totalMaintenance + totalOpCost + totalGateFees
     + totalLaborCosts + totalFamilyBaseCosts + totalMroBaseCosts + totalHubInvestment
     + totalHQCost + totalInsurance + totalMarketingSpend + totalLoyaltyCost + totalPartnerFees
     + totalDistributionCost + totalReserveParking + totalWifiCosts + totalLoungeCosts
     + totalGroundStationCosts
-    + totalFuelProgrammeCosts + totalFuelFarmCosts + totalRefineryCosts;
+    + totalFuelProgrammeCosts + totalFuelFarmCosts + totalRefineryCosts
+    + totalTravelPartnerFees;
   const cashDelta   = totalRevenue + totalPartnerRevenue + totalFarmFeeIncome - totalCost;
 
   // ── Pooling invariant self-check (diagnostic only — changes no economics) ─────
@@ -5616,6 +5727,17 @@ export function weeklyTick(state) {
     totalAllianceFee:       Math.round(totalAllianceFee),
     totalCodeshareFees:     Math.round(totalCodeshareFees),
     totalPartnerFees:       Math.round(totalPartnerFees),
+    // Travel partnerships: the post-week contracts for the reducer to persist,
+    // this week's scores for the UI, and what happened. Only for an airline
+    // that had partners, so every other report is byte-identical.
+    ...(tpHad ? {
+      travelPartnersNext:      tpSettle?.partners ?? {},
+      travelPartnerMemoryNext: tpSettle?.memory ?? tpRoll.memory,
+      travelPartnerScores:     tpSettle?.scores ?? {},
+      travelPartnerEvents:     [...(tpRoll.events ?? []), ...(tpSettle?.events ?? [])],
+      travelPartnerRepHit:     tpSettle?.repHit ?? 0,
+    } : {}),
+    ...(totalTravelPartnerFees > 0 ? { totalTravelPartnerFees: Math.round(totalTravelPartnerFees) } : {}),
     // Network / O&D data for the UI and GameContext
     partnerODRevenue,        // { totalRevenue, entries[] } — detailed O&D breakdown
     partnerHealthDecay,      // { [competitorId]: hpLost } — for partnership state updates
