@@ -160,6 +160,7 @@ function focusGroupOf(f) {
 export default function GlobeMap({
   data, height, home, selectedId, hoveredId, focusChain, onHover, onSelect, onFallback,
   flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS, basemap = DEFAULT_BASEMAP,
+  paused = false,
 }) {
   const basemapRef = useRef(basemap);
   basemapRef.current = basemap;
@@ -355,6 +356,8 @@ export default function GlobeMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!loaded || !map) return;
+    // Covered by a page in map view: planes and night hold where they are.
+    if (paused) return undefined;
     const reduce = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const nightSrc = map.getSource('night');
@@ -421,7 +424,7 @@ export default function GlobeMap({
     const onZoom = () => { clearTimeout(timer); frame(); };
     map.on('zoomend', onZoom);
     return () => { clearTimeout(timer); map.off('zoomend', onZoom); };
-  }, [loaded, flights, clock]);
+  }, [loaded, flights, clock, paused]);
 
   // 4. Fly to a newly focused route — once per focus, like the flat map.
   useEffect(() => {

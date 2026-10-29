@@ -168,6 +168,27 @@ export function routeGroupColor(g) {
   return g.multi ? TAG_COLOR : ((g.hasResult ? g.profit : 0) >= 0 ? PROFIT_COLOR : LOSS_COLOR);
 }
 
+/**
+ * The shape of what the flat map's route layer draws, as one string: every line
+ * (its group key fixes the geometry) and every pin with its hub badge. A weekly
+ * tick or a rival poll usually leaves all of that alone and moves only the
+ * numbers in the tooltips, and now and then flips a break-even route between
+ * green and red. So when this is unchanged the layer effect recolours and
+ * re-labels the lines in place instead of tearing down and re-adding every
+ * polyline and marker (a few hundred ms on a big airline, on every poll, in map
+ * view where the map is always on screen).
+ */
+export function networkDrawKey(routeGroups, airportSet, hubs) {
+  // Sorted: the engine may hand the routes back in a different order after a
+  // tick, which redraws nothing.
+  const lines = routeGroups.map(g => g.key).sort().join('|');
+  const pins = airportSet.map((a) => {
+    const h = hubs[a.code];
+    return h ? `${a.code}*${h.tier ?? ''}*${h.name ?? ''}` : a.code;
+  }).sort().join(',');
+  return `${lines}#${pins}`;
+}
+
 /** Marker geometry for a hub tier — bigger pin the higher the tier. */
 export function hubMarkerSize(tier) {
   const core = 9 + 2 * Math.max(0, Math.min(3, tier ?? 1));
@@ -257,8 +278,16 @@ export function mapAirportCodes(hubCodes = [], ...routeDataSets) {
   return [...codes];
 }
 
-export default function RouteMap({ fullBleed = false } = {}) {
-  const { state, remoteChrome } = useGame();
+export default function RouteMap({ fullBleed = false, paused = false } = {}) {
+  // Map view keeps this map mounted under every page. While a page covers it
+  // (`paused`) it holds the state it last drew, so a weekly tick, a rival poll
+  // or any click inside the page doesn't re-project the week and rebuild every
+  // Leaflet layer behind the panel, and the globe stops animating. It catches
+  // up once, when the panel closes.
+  const live = useGame();
+  const heldRef = useRef(live);
+  if (!paused) heldRef.current = live;
+  const { state, remoteChrome } = heldRef.current;
   // Satellite (Blue Marble) or Dark (CARTO) — one choice for every map.
   const [basemap, setBasemap] = useBasemap();
   // Globe plane sprite in the airline's livery (fuselage + tail colours).
@@ -308,6 +337,9 @@ export default function RouteMap({ fullBleed = false } = {}) {
   const [acTypeFilter,  setAcTypeFilter]  = useState('all');  // 'all' | aircraft typeId
   const [airportFilter, setAirportFilter] = useState('all');  // 'all' | IATA code
   const cargoLayersRef = useRef([]);   // amber cargo route overlay layers
+  // Signatures of what each layer effect last drew (see networkDrawKey), so an
+  // update that changes no line can skip the rebuild.
+  const drawnRef = useRef({ routes: null, cargo: null, partners: null });
 
   // Flat map or 3D globe. Remembered per browser; the flat map stays the
   // default. The Leaflet map stays mounted (hidden) under the globe, so
@@ -379,6 +411,7 @@ export default function RouteMap({ fullBleed = false } = {}) {
       // draw must frame the network even if nothing about it changed.
       fittedExtentRef.current = null;
       flownToRef.current = null;
+      drawnRef.current = { routes: null, cargo: null, partners: null };
       setMapReady(false);
     };
   }, [ready]);
@@ -653,17 +686,24 @@ export default function RouteMap({ fullBleed = false } = {}) {
     const L = window.L;
     const dim = selectedId != null ? 0.25 : 1;   // fade partners when focusing a route
 
+    // The airport filter applies to partner overlays too, so "show me JFK"
+    // really means only lines touching JFK. (The aircraft-type filter is
+    // ours-only — we don't know what partners fly.)
+    const shown = partnerRouteData.filter(({ type, origin, dest, chain = [origin, dest] }) =>
+      (type === 'alliance' ? showAlliance : showCodeshare)
+      && (airportFilter === 'all' || chain.some(ap => ap.code === airportFilter)));
+    // A rival poll hands over new competitor objects even when no partner
+    // route moved; everything a partner line shows is in this key.
+    const drawKey = `${dim}#` + shown.map(({ comp, type, origin, dest, chain = [origin, dest] }) =>
+      `${comp.id}:${comp.name}:${type}:${chain.map(ap => ap.code).join('-')}`).sort().join('|');
+    if (drawnRef.current.partners === drawKey) return;
+    drawnRef.current.partners = drawKey;
+
     // Clear previous partner layers
     partnerLayersRef.current.forEach(l => map.removeLayer(l));
     partnerLayersRef.current = [];
 
-    for (const { comp, type, color, origin, dest, chain = [origin, dest] } of partnerRouteData) {
-      const show = type === 'alliance' ? showAlliance : showCodeshare;
-      if (!show) continue;
-      // The airport filter applies to partner overlays too, so "show me JFK"
-      // really means only lines touching JFK. (The aircraft-type filter is
-      // ours-only — we don't know what partners fly.)
-      if (airportFilter !== 'all' && !chain.some(ap => ap.code === airportFilter)) continue;
+    for (const { comp, type, color, origin, dest, chain = [origin, dest] } of shown) {
 
       const segments = chain.length > 2
         ? segmentsForChain(chain.map(ap => [ap.lat, ap.lon]))
@@ -708,6 +748,16 @@ export default function RouteMap({ fullBleed = false } = {}) {
     const L = window.L;
     const dim = selectedId != null ? 0.3 : 1;   // fade cargo when focusing a passenger route
 
+    // Same lines as last time (a tick or a poll): refresh the tooltips only.
+    const drawKey = showCargo ? `${dim}#${cargoGroups.map(g => g.key).sort().join('|')}` : 'off';
+    if (drawnRef.current.cargo === drawKey) {
+      for (const l of cargoLayersRef.current) {
+        if (l._cargoKey) l.setTooltipContent(cargoTipHtml(cargoGroups.find(g => g.key === l._cargoKey)));
+      }
+      return;
+    }
+    drawnRef.current.cargo = drawKey;
+
     cargoLayersRef.current.forEach(l => map.removeLayer(l));
     cargoLayersRef.current = [];
     if (!showCargo) return;
@@ -730,6 +780,7 @@ export default function RouteMap({ fullBleed = false } = {}) {
           lineCap: 'round', smoothFactor: 1,
         });
         line.bindTooltip(tipHtml, { sticky: true, className: 'game-tooltip', offset: [15, 0] });
+        line._cargoKey = g.key;
         line.on('mouseover', () => line.setStyle({ weight: 4, opacity: 1 }));
         line.on('mouseout',  () => line.setStyle({ weight: 2.5, opacity: 0.9 * dim }));
         line.addTo(map);
@@ -743,6 +794,27 @@ export default function RouteMap({ fullBleed = false } = {}) {
     const map = mapRef.current;
     if (!map || !window.L) return;
     const L = window.L;
+
+    // Same lines and pins (the usual weekly tick or rival poll): recolour any
+    // route that crossed break-even, put the new numbers in the tooltips, and
+    // keep every layer, the hover/focus styles and the view.
+    const drawKey = networkDrawKey(routeGroups, airportSet, hubs);
+    if (drawnRef.current.routes === drawKey) {
+      for (const g of routeGroups) {
+        const group = lineGroupsRef.current.get(g.key);
+        if (!group) continue;
+        const color = routeGroupColor(g);
+        if (color !== group.color) {
+          group.halo.forEach(l => l.setStyle({ color }));
+          group.main.forEach(l => l.setStyle({ color }));
+          group.color = color;
+        }
+        const tip = routeTipHtml(g);
+        group.hits.forEach(h => h.setTooltipContent(tip));
+      }
+      return;
+    }
+    drawnRef.current.routes = drawKey;
 
     // Clear previous layers
     layersRef.current.forEach(l => map.removeLayer(l));
@@ -771,6 +843,7 @@ export default function RouteMap({ fullBleed = false } = {}) {
 
       const halo = [];
       const main = [];
+      const hits = [];
 
       for (const pts of segments) {
         // Glow halo (non-interactive, sits beneath the main line)
@@ -826,10 +899,11 @@ export default function RouteMap({ fullBleed = false } = {}) {
           setSelectedId(prev => (prev === g.key ? null : g.key));
         });
         hit.addTo(map);
+        hits.push(hit);
         layersRef.current.push(hit);
       }
 
-      lineGroupsRef.current.set(g.key, { halo, main, color });
+      lineGroupsRef.current.set(g.key, { halo, main, hits, color });
     }
 
     // Airport markers
@@ -1053,6 +1127,7 @@ export default function RouteMap({ fullBleed = false } = {}) {
         clock={clockSpec}
         planeColors={planeColors}
         basemap={basemap}
+        paused={paused}
       />
     )}
     <div style={{ display: mapView === 'globe' ? 'none' : 'block' }}>

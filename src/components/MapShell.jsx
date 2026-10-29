@@ -204,7 +204,7 @@ export default function MapShell({
       {/* The map — always mounted, so closing a panel is instant and keeps
           the zoom the player left it at. */}
       <div className="ms-map" aria-hidden={panelOpen ? 'true' : undefined}>
-        <RouteMap fullBleed />
+        <RouteMap fullBleed paused={!!panelOpen} />
       </div>
 
       {/* Top HUD */}

@@ -2054,14 +2054,23 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 }
 .map-bleed-hint strong { color: var(--text); }
 
-/* Glass used by every floating control */
-.ms-airline, .ms-cash, .ms-rail-btn, .ms-dock, .ms-top-right:not(:empty), .ms-menu, .ms-panel {
+/* Glass used by every floating control. The page panel is NOT glass: a 10px
+   backdrop blur over a full-screen map is recomputed on every frame the map or
+   the panel's own content moves, and it halved the frame rate with a page open
+   (Discord, Fonnesx, 2026-10-29). The panel was 96% opaque anyway. */
+.ms-airline, .ms-cash, .ms-rail-btn, .ms-dock, .ms-top-right:not(:empty), .ms-menu {
   background: rgba(8, 10, 16, .84);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+.ms-airline, .ms-cash, .ms-rail-btn, .ms-dock, .ms-top-right:not(:empty), .ms-menu, .ms-panel {
   border: 1px solid rgba(255,255,255,.12);
   box-shadow: 0 6px 24px rgba(0,0,0,.45);
 }
+/* With a page open the map underneath is frozen (RouteMap `paused`), so stop
+   its CSS animations too — a pulsing hub would otherwise repaint the map, and
+   every blurred control over it, 60 times a second for nothing. */
+.ms-panel-open .ms-map * { animation-play-state: paused !important; }
 
 /* Top HUD */
 .ms-top {
@@ -2164,7 +2173,7 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   position: absolute; z-index: 25; top: 108px; bottom: 96px; left: 80px; right: 80px;
   max-width: 1280px; margin: 0 auto;
   border-radius: 18px; display: flex; flex-direction: column; overflow: hidden;
-  background: rgba(20, 20, 23, .96);
+  background: rgb(20, 20, 23);   /* opaque: no glass blur here (see above), so no route lines ghosting through */
   animation: ms-panel-in .16s ease-out;
 }
 @keyframes ms-panel-in { from { opacity: 0; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
