@@ -37,6 +37,7 @@ import { isLeaseAtRisk, leaseRemainingWeeks, leaseWarnWeeks, leaseWarnPhrase, le
 import { LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from '../models/leaseRenewal.js';
 import { useConfirm } from './ConfirmModal.jsx';
 import FleetConfig from './FleetConfig.jsx';
+import { fleetTypeSummary, sortSummaryRows, readSummarySort, writeSummarySort } from './fleetSummary.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { canRetrofitWifi, isWifiEquipped, WIFI_WEEKLY_OPEX, canFitWifiTo, wifiAirframeReason } from '../data/wifi.js';
 import { canRetrofitWingtips, wingtipDefFor, hasWingtips as tailHasWingtips, wingtipRetrofitCost } from '../../packages/engine/src/data/retrofits.js';
@@ -1767,6 +1768,181 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
   );
 }
 
+// ─── Summary view ─────────────────────────────────────────────────────────────
+// One compact row per aircraft type — how many, how old, how they're held, how
+// hard they're worked and what they cost — with a fleet total underneath. The
+// cards in By Type say the same things one type at a time; this is the view to
+// scan and sort. Figures come from fleetTypeSummary() (fleetSummary.js), which
+// uses the same expressions as the stat boxes and the UTIL. column.
+
+const yrs = (wks) => (wks == null ? '—' : wks < 52 ? '<1 yr' : `${(wks / 52).toFixed(1)} yrs`);
+const ageColorFor = (wks) => {
+  if (wks == null) return 'var(--text-dim)';
+  const y = wks / 52;
+  return y < 5 ? 'var(--green)' : y < 12 ? 'var(--yellow)' : 'var(--red)';
+};
+const utilColorForRow = (r) => (r.avgUtilPct == null ? 'var(--text-dim)'
+  : r.anyOver ? OVER_CAP_COLOR
+  : r.avgUtilPct >= 0.8 ? 'var(--red)' : r.avgUtilPct >= 0.5 ? 'var(--yellow)'
+  : r.avgUtilPct > 0 ? 'var(--accent)' : 'var(--text-dim)');
+
+function SummaryCapacity({ r }) {
+  const parts = [];
+  if (r.seats > 0) parts.push(`${r.seats.toLocaleString()} seats`);
+  if (r.tonnes > 0) parts.push(`${r.tonnes.toLocaleString(undefined, { maximumFractionDigits: 1 })} t`);
+  return <>{parts.length ? parts.join(' · ') : '—'}</>;
+}
+
+function SummaryNotFlying({ r }) {
+  if (r.count === 0) return <span style={{ color: 'var(--text-dim)' }}>—</span>;
+  if (r.idle + r.reserve + r.down === 0) return <span style={{ color: 'var(--text-dim)' }}>all flying</span>;
+  return (
+    <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+      {r.idle > 0 && <span style={{ color: 'var(--yellow)' }}>{r.idle} idle</span>}
+      {r.reserve > 0 && <span style={{ color: 'var(--accent)' }}>{r.reserve} reserve</span>}
+      {r.down > 0 && <span style={{ color: 'var(--red)' }}>{r.down} down</span>}
+    </span>
+  );
+}
+
+function SummaryRow({ r, total = false, onPick }) {
+  const catColor = CAT_COLORS[r.category] || '#93a4ba';
+  const clickable = !total && r.count > 0 && onPick;
+  const num = { textAlign: 'right', whiteSpace: 'nowrap' };
+  return (
+    <tr
+      data-summary-type={total ? 'total' : r.typeId}
+      onClick={clickable ? () => onPick(r.typeId) : undefined}
+      title={clickable ? `Show the ${r.count} ${r.name}${r.count !== 1 ? 's' : ''} in the list` : undefined}
+      style={{
+        cursor: clickable ? 'pointer' : undefined,
+        fontWeight: total ? 700 : undefined,
+        background: total ? 'var(--surface2)' : undefined,
+      }}
+    >
+      <td>
+        {total ? 'Fleet total' : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: catColor, flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{r.name}</div>
+              <div style={{ fontSize: 11, color: catColor }}>{r.category}</div>
+            </div>
+          </div>
+        )}
+      </td>
+      <td style={num}>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>{r.count}</span>
+        {!total && r.count > 0 && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{Math.round(r.share * 100)}%</span>
+        )}
+      </td>
+      <td style={num}>
+        {r.count === 0 ? <span style={{ color: 'var(--text-dim)' }}>—</span> : <>
+          <span style={{ color: r.owned ? 'var(--green)' : 'var(--text-dim)' }}>{r.owned}</span>
+          <span style={{ color: 'var(--text-dim)' }}> / </span>
+          <span style={{ color: r.leased ? 'var(--accent)' : 'var(--text-dim)' }}>{r.leased}</span>
+        </>}
+      </td>
+      <td style={{ ...num, color: r.onOrder ? 'var(--yellow)' : 'var(--text-dim)' }}>{r.onOrder || '—'}</td>
+      <td style={{ ...num, color: ageColorFor(r.avgAgeWks), fontWeight: 600 }}>{yrs(r.avgAgeWks)}</td>
+      <td style={{ ...num, fontSize: 12, color: 'var(--text-muted)' }}>
+        {r.count === 0 ? '—' : r.count === 1 ? '' : `${yrs(r.minAgeWks)} – ${yrs(r.maxAgeWks)}`}
+      </td>
+      <td style={{ fontSize: 12 }}><SummaryNotFlying r={r} /></td>
+      <td style={{ ...num, fontSize: 12 }}><SummaryCapacity r={r} /></td>
+      <td style={num}>
+        {r.avgUtilPct == null ? <span style={{ color: 'var(--text-dim)' }}>—</span> : (
+          <span style={{ color: utilColorForRow(r), fontWeight: 600 }}>
+            {r.avgHours.toFixed(0)}h <span style={{ fontSize: 11, opacity: 0.8 }}>({Math.round(r.avgUtilPct * 100)}%)</span>{r.anyOver ? ' ⚠' : ''}
+          </span>
+        )}
+      </td>
+      <td style={{ ...num, color: r.fixedPerWk > 0 ? 'var(--red)' : 'var(--text-dim)' }}>
+        {r.fixedPerWk > 0 ? `−${formatMoney(r.fixedPerWk)}` : '—'}
+      </td>
+      <td style={{ ...num, color: r.bookValue > 0 ? undefined : 'var(--text-dim)' }}>
+        {r.bookValue > 0 ? formatMoney(r.bookValue) : '—'}
+      </td>
+    </tr>
+  );
+}
+
+export function FleetSummary({ onPickType }) {
+  const { state } = useGame();
+  const bhCap     = maxWeeklyBlockHoursFor(state);
+  const gameMonth = currentGameDate(state).month;
+  const absWeek   = absoluteWeek(state.year, state.week);
+  const [sort, setSortState] = useState(readSummarySort);
+  const setSort = (next) => { setSortState(next); writeSummarySort(next); };
+
+  const { rows, totals } = useMemo(() => fleetTypeSummary({
+    fleet:         state.fleet ?? [],
+    pendingOrders: state.pendingOrders ?? [],
+    typeOf:        getAircraftType,
+    utilOf:        (a) => utilFor(state, a, gameMonth),
+    capHours:      bhCap,
+    absWeek,
+    categoryOrder: CATEGORY_ORDER,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [state.fleet, state.pendingOrders, state.routes, state.cargoRoutes, gameMonth, bhCap, absWeek]);
+  const shown = sortSummaryRows(rows, sort.key, sort.dir);
+
+  // Names read A→Z first; numbers read biggest first, which is what you sort them for.
+  const onSort = (k) => setSort(sort.key === k
+    ? { key: k, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
+    : { key: k, dir: k === 'name' ? 'asc' : 'desc' });
+  const th = (label, k, extra = {}) => (
+    <SortableTh label={label} k={k} sortKey={sort.key} sortDir={sort.dir} onSort={onSort}
+      style={{ textAlign: k === 'name' || k === 'idle' ? 'left' : 'right', ...extra }} />
+  );
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }} data-fleet-summary>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead>
+            <tr>
+              {th('Type', 'name')}
+              {th('Aircraft', 'count')}
+              {th('Owned / Leased', 'owned')}
+              {th('On order', 'onOrder')}
+              {th('Avg age', 'avgAge')}
+              {th('Newest – oldest', 'oldest')}
+              {th('Not flying', 'idle')}
+              {th('Capacity', 'capacity')}
+              {th('Avg util', 'util')}
+              {th('Fixed / wk', 'fixed')}
+              <th style={{ textAlign: 'right', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} onClick={() => onSort('value')} title="Book value of the owned airframes — what a sale is priced on. Leased tails aren't yours to sell.">
+                <span style={{ color: sort.key === 'value' ? 'var(--accent)' : undefined }}>Book value</span>
+                <span style={{ fontSize: 9, marginLeft: 4, opacity: sort.key === 'value' ? 1 : 0.35, color: sort.key === 'value' ? 'var(--accent)' : undefined }}>
+                  {sort.key === 'value' ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map(r => <SummaryRow key={r.typeId} r={r} onPick={onPickType} />)}
+          </tbody>
+          {rows.length > 1 && (
+            <tfoot>
+              <SummaryRow r={totals} total />
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '8px 14px', fontSize: 11, color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>
+        <span>Click a type to see its aircraft in the list. Avg util is block hours this month against the {bhCap}h weekly limit; fixed / wk is lease plus maintenance.</span>
+        {sort.key && (
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => setSort({ key: null, dir: 'asc' })}>
+            Default order
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Fleet page ──────────────────────────────────────────────────────────
 
 // ─── Livery card ─────────────────────────────────────────────────────────────
@@ -1828,7 +2004,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | reserve | grounded | leased | owned
   const [filterTypeId,  setFilterTypeId]  = useState(null); // null = all types, or a typeId string
   const [filterBase,    setFilterBase]    = useState(null); // Reserve chip only: null = every base, or an airport code
-  const [viewMode,      setViewMode]      = useState('list'); // list | byType | byCategory
+  const [viewMode,      setViewMode]      = useState('list'); // list | summary | byType | byCategory
   const [sortKey,       setSortKey]       = useState(null);   // null = default order | name | type | cabin | age | util | fixed | status
   const [sortDir,       setSortDir]       = useState('asc');  // asc | desc
 
@@ -2522,6 +2698,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
           <div style={{ display: 'flex', gap: 2, background: 'var(--surface2)', borderRadius: 8, padding: 3 }}>
             {[
               { id: 'list',        label: '☰ List'       },
+              { id: 'summary',     label: '📋 Summary'    },
               { id: 'byType',      label: '✈ By Type'    },
               { id: 'byCategory',  label: '◈ By Category'},
             ].map(v => (
@@ -2691,6 +2868,13 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
           </table>
           )}
         </div>
+      )}
+
+      {/* Summary view — a row per type; clicking one lands on the list filtered to it */}
+      {viewMode === 'summary' && (
+        <FleetSummary onPickType={(typeId) => {
+          setFilterTypeId(typeId); setFilterChip('all'); setFilterBase(null); setSearch(''); setViewMode('list');
+        }} />
       )}
 
       {/* By Type view */}
