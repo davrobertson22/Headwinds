@@ -9,7 +9,8 @@
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
 import { gameReducer } from '@tailwinds/engine/reducer';
-import { applyScheduleTrimMigration } from '@tailwinds/engine/utils/simulation.js';
+import { applyScheduleTrimMigration, weekToGameDate } from '@tailwinds/engine/utils/simulation.js';
+import { collectWorldService, advanceMarketDevPairs } from '@tailwinds/engine/models/marketDev.js';
 import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
 import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings.js';
 import { liveStatColumnsFrom } from './liveStats.mjs';
@@ -254,6 +255,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Demand model v2: stamped at join, re-stamped here for the same reason.
       // Only ever written in a v2 world, so a classic world's blobs keep no key.
       ...(world.tickConfig?.demandModel === 2 ? { demandModel: 2 } : {}),
+      // Market development: stamped at join, re-stamped here for the same
+      // reason. The table itself rides in on the rival overlay (withRivals).
+      ...(world.tickConfig?.marketDev === true ? { marketDevWorld: true } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),
@@ -348,6 +352,29 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
     }
   }
 
+  // ── Market development (market-development worlds only) ─────────────────
+  // D is the world's, not an airline's: ONE step a week, from every active
+  // airline's service this week (the pre-tick routes and fares that just flew),
+  // written in the commit below with the clock advance — so a retried or raced
+  // tick can never step it twice. Every airline ticked above on the SAME table
+  // (this week's, from the rival overlay), whatever order they ran in.
+  let marketDevNext = null;
+  if (world.tickConfig?.marketDev === true) {
+    try {
+      const prevPairs = rivalViews.values().next().value?.marketDev?.pairs
+        ?? (typeof prisma.worldMarketDev?.findUnique === 'function'
+          ? (await prisma.worldMarketDev.findUnique({ where: { worldId: world.id } }))?.pairs
+          : null)
+        ?? {};
+      const service = collectWorldService(airlines.map((a) => a.state),
+        { month: weekToGameDate(world.currentWeek).monthIndex });
+      marketDevNext = advanceMarketDevPairs(prevPairs, service);
+    } catch (err) {
+      // A bad step must not cost the world its week: markets hold still.
+      log.error(`[tick] world ${world.id} market development step failed — table held:`, err?.message ?? err);
+    }
+  }
+
   // Last week's top 5, for the news feed's rank-change items. Read outside the
   // transaction: it is one tiny indexed query and the commit stays short.
   const prevTop5 = (await prisma.standing.findMany({
@@ -382,6 +409,16 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         },
       });
       if (claimed.count === 0) return { lostRace: true };
+
+      // Next week's market development table (computed above), in the same
+      // transaction as the clock it belongs to.
+      if (marketDevNext && typeof tx.worldMarketDev?.upsert === 'function') {
+        await tx.worldMarketDev.upsert({
+          where: { worldId: world.id },
+          create: { worldId: world.id, week: toIndex, pairs: marketDevNext },
+          update: { week: toIndex, pairs: marketDevNext },
+        });
+      }
 
       await tx.tickLog.create({
         data: { worldId: world.id, week: toIndex, status: 'ok', finishedAt: new Date() },

@@ -30,6 +30,7 @@ import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
 import { fleetCounts, bookingsFromStates, sumBookings, minusBookings } from '@tailwinds/engine/data/productionLines.js';
 import { netProfitOf } from '@tailwinds/engine/utils/standings.js';
+import { MARKET_DEV_VERSION } from '@tailwinds/engine/models/marketDev.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
@@ -707,6 +708,11 @@ export function rivalOverlay(view) {
     ...(view?.laborMarket ? { laborMarket: view.laborMarket } : {}),
     // Production lines: rivals' delivery slots (production-line worlds).
     ...(view?.lineBook ? { lineBook: view.lineBook } : {}),
+    // Market development: the WORLD's development table (one per world, in
+    // WorldMarketDev; market-development worlds only). The engine reads it at
+    // the reducer entry and in weeklyTick, so the tick, decisions and the
+    // client's previews all price the same developed markets.
+    ...(view?.marketDev ? { marketDev: view.marketDev } : {}),
     competitors: view?.competitors ?? [],
     humanRivals: view?.humanRivals ?? {},
     encroachments: {},               // AI encroachment never exists in Headwinds
@@ -735,7 +741,7 @@ export function stripRivals(state) {
   const {
     competitors, humanRivals, encroachments,
     allianceMembership, allianceDef, accountOG, accountDev, accountSupporter,
-    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket, selfStanding, lineBook,
+    gateMarket, worldMarket, stockPool, allianceSlotPool, laborMarket, selfStanding, lineBook, marketDev,
     ...rest
   } = state;
   return rest;
@@ -979,11 +985,17 @@ function loadAndCacheRivalRows(prisma, worldId, stamp) {
 }
 
 export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null, maxStaleMs = 0, rowsMaxStaleMs = 0, forAirlineId = null } = {}) {
+  // The world row, read at most once per build (when the caller didn't pass it).
+  let worldRead = null;
+  const worldRow = () => (worldRead ??= world
+    ? Promise.resolve(world)
+    : prisma.world.findUnique({ where: { id: worldId } }));
+
   // Attach per-airline gate-market views on scarcity worlds (one extra world
   // read when the caller didn't pass the row; non-scarcity worlds skip the
   // gate tables entirely).
   const attachGates = async (rows, allianceMap, views) => {
-    const w = world ?? await prisma.world.findUnique({ where: { id: worldId } });
+    const w = await worldRow();
     if (!isGateScarcity(w)) return views;
     const gateViews = await buildGateMarketViews(prisma, worldId, { airlines: rows, allianceMap, world: w });
     for (const [id, view] of views) view.gateMarket = gateViews.get(id) ?? null;
@@ -1010,6 +1022,22 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
         c.poolShares = poolSharesFor(market, c.id, c);
       }
     }
+    return views;
+  };
+
+  // Market development worlds: the world's D table, one shared object in every
+  // view (rivalOverlay injects it; stripRivals keeps it out of the blobs). No
+  // row yet = a world that has not ticked, every pair at the floor. It changes
+  // only at the tick, which bumps every airline's version, so the stamp-keyed
+  // cache above never serves last week's table past the first rebuild.
+  const attachMarketDev = async (views) => {
+    const w = await worldRow();
+    if (w?.tickConfig?.marketDev !== true) return views;
+    const row = typeof prisma.worldMarketDev?.findUnique === 'function'
+      ? await prisma.worldMarketDev.findUnique({ where: { worldId } }).catch(() => null)
+      : null;
+    const marketDev = { v: MARKET_DEV_VERSION, pairs: row?.pairs ?? {} };
+    for (const view of views.values()) view.marketDev = marketDev;
     return views;
   };
 
@@ -1040,7 +1068,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
 
   if (airlines) {
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachStockPool(await attachGates(airlines, allianceMap, priced(airlines, allianceMap)));
+    return attachMarketDev(await attachStockPool(await attachGates(airlines, allianceMap, priced(airlines, allianceMap))));
   }
   const hit = viewCache.get(worldId);
   if (hit && stamp != null) {
@@ -1059,7 +1087,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     const rows = await cachedRows.promise;
     if (forAirlineId == null || rows.some((r) => r.id === forAirlineId)) {
       const allianceMap = await loadAllianceMap(prisma, worldId);
-      const views = await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
+      const views = await attachMarketDev(await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap))));
       const rowsStamp = cachedRows.stamp ?? ROWS_STAMP_UNKNOWN;
       Object.defineProperty(views, 'builtFromStamp', { value: rowsStamp, configurable: true });
       Object.defineProperty(views, 'fromCachedRows', { value: true, configurable: true });
@@ -1069,7 +1097,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
   const promise = (async () => {
     const rows = await loadAndCacheRivalRows(prisma, worldId, stamp);
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    const views = await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap)));
+    const views = await attachMarketDev(await attachStockPool(await attachGates(rows, allianceMap, priced(rows, allianceMap))));
     // Which world stamp this view actually reflects. Non-enumerable so it can
     // never leak into iteration or a JSON payload — it exists purely so a caller
     // serving a stale view can tell the client the truth about what it holds.

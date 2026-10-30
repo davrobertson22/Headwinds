@@ -9,6 +9,7 @@ import { calendarYear, calendarYearFrac } from '../../packages/engine/src/utils/
 import { setFuelStationsEnabled, getFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 import { farmDiscountsOf } from '../../packages/engine/src/data/fuelFarm.js';
 import { absoluteWeek } from '../../packages/engine/src/utils/fuel.js';
+import { setMarketDev } from '../../packages/engine/src/models/marketDev.js';
 
 // The game logic lives in @tailwinds/engine (packages/engine/src/reducer.mjs),
 // the single source of truth shared by the solo app and the multiplayer server.
@@ -54,6 +55,7 @@ export function syncEngineWorldState(state) {
   if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
   if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
   setDemandModel(state?.demandModel);   // idempotent; clears the pair memo only on a change
+  setMarketDev(state);                  // the world's market-development table (rival overlay), or none
   const stationsOn = fuelStationsOn(state);
   if (getFuelStationsEnabled() !== stationsOn) setFuelStationsEnabled(stationsOn);
   setFuelStationDiscounts(stationsOn ? farmDiscountsOf(state, absoluteWeek(state?.year ?? 1, state?.week ?? 1)) : null);

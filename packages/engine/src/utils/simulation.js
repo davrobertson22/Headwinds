@@ -14,6 +14,7 @@ import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          cargoBackhaulFactor, cargoSeasonalFactor,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
          setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor, setDemandModel, sectorCostKm, sectorTaxiHours } from './market.js';
+import { setMarketDev } from '../models/marketDev.js';
 import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
@@ -4079,6 +4080,8 @@ export function weeklyTick(state) {
   setNwrYieldChoke(state.newWorldRestrictions === true);
   // Demand model, pinned from THIS state for the same reason (absent = classic).
   setDemandModel(state.demandModel);
+  // Market development (models/marketDev.js): this state's D table, or none.
+  setMarketDev(state);
   // Event worlds: this year's double-profit airports, pinned from THIS state
   // for the same reason as the yield choke above.
   pinEventBonusFrom(state);

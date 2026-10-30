@@ -165,6 +165,7 @@ model World {
   reports     Report[]
   worldGates  WorldGate[]
   worldMarket WorldMarket?
+  marketDev   WorldMarketDev?
   dividends   DividendCredit[]
   gateAuctions GateAuction[]
   gateListings GateListing[]
@@ -458,6 +459,19 @@ model Report {
 // The world's float pool — the finite counterparty for share trading. Buys pay
 // cash in, sells draw cash out, so net exogenous cash entering a world is bounded
 // by seedCash forever. Same worldId + JSON + version CAS shape as WorldGate.
+// Market development (engine models/marketDev.js): the world's development
+// level D per served metro pair, { "JFK-LHR": { d, t } }. One row per
+// market-development world (tickConfig.marketDev), advanced by the weekly tick
+// inside its commit — `week` is the world-clock index the table is FOR, so a
+// retried tick can never step it twice. No row = every pair at the floor.
+model WorldMarketDev {
+  id      String @id @default(cuid())
+  worldId String @unique
+  week    Int    @default(0)
+  pairs   Json   @default("{}")
+  world   World  @relation(fields: [worldId], references: [id], onDelete: Cascade)
+}
+
 model WorldMarket {
   id       String @id @default(cuid())
   worldId  String @unique

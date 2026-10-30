@@ -33,6 +33,7 @@
  */
 
 import { baseCityPairDemand, routeDistance, referencePrice } from '../utils/market.js';
+import { marketDevForOD } from './marketDev.js';
 import {
   buildRouteMarket,
   buildCompetitorOffer,
@@ -475,8 +476,12 @@ function findConnectionsAtHub(hub, adjacencyIndex, playerRouteKeys, directRouteK
       // Require player to own at least one leg (otherwise irrelevant)
       if (leg1.owner !== 'player' && leg2.owner !== 'player') continue;
 
-      // O&D demand check
-      const odDemand = baseCityPairDemand(origin, dest);
+      // O&D demand check. In a market-development world the O&D pool is the
+      // developed market: the pair's own D when it has (or had) nonstop
+      // service, else the stateless level its connecting frequency implies
+      // (models/marketDev.js). Exactly the gravity pool otherwise.
+      const minFreqOD = Math.min(leg1.weeklyFrequency ?? 0, leg2.weeklyFrequency ?? 0);
+      const odDemand = Math.round(baseCityPairDemand(origin, dest) * marketDevForOD(origin, dest, minFreqOD));
       if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
 
       // Determine best partnership type for penalty
@@ -1485,7 +1490,10 @@ export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}
 
         // Canonical (sorted) O&D so each market is emitted exactly once.
         const [origin, dest] = a.spoke < b.spoke ? [a.spoke, b.spoke] : [b.spoke, a.spoke];
-        const odDemand = baseCityPairDemand(origin, dest);
+        // Developed O&D market (see findConnectionsAtHub): 1× outside a
+        // market-development world.
+        const odDemand = Math.round(baseCityPairDemand(origin, dest)
+          * marketDevForOD(origin, dest, Math.min(a.freq ?? 0, b.freq ?? 0)));
         if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
         cands.push({ a, b, origin, dest, odDemand, n: cands.length });
       }

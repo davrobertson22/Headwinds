@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { baseCityPairDemand, routeDistance, referencePrice, metroPairKeyOf } from '../utils/market.js';
+import { marketDevFor, marketDevTarget, MARKET_DEV_REF_FREQ } from './marketDev.js';
 import { getAircraftType, maxSeatsForRange } from '../data/aircraft.js';
 import { ALLIANCES, applyAllianceEra } from '../data/alliances.js';
 import { featureLive } from '../data/eraFeatures.js';
@@ -927,7 +928,14 @@ function pickExpansionTarget(airline, routes, { incumbents, playerPairs, playerH
       const dist = routeDistance(base, ap.code);
       if (!dist || dist < 300) continue;
       if (!pickCompetitorAircraftType(dist, airline.tier)) continue;
-      const demand = baseCityPairDemand(base, ap.code);
+      // Market development (models/marketDev.js): score a candidate at the
+      // market it would CREATE, not only the one there today — halfway between
+      // today's level and what a well-served pair settles at — or rivals would only
+      // ever enter markets someone else developed. Exactly 1 when the world is
+      // not a market-development world.
+      const devNow = marketDevFor(base, ap.code);
+      const devFactor = (devNow + Math.max(devNow, marketDevTarget(MARKET_DEV_REF_FREQ))) / 2;
+      const demand = baseCityPairDemand(base, ap.code) * devFactor;
       if (!demand || demand < 40) continue;
 
       // Crowding is judged on the METRO LANE the candidate pair belongs to

@@ -396,6 +396,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [partnerships, setPartnerships] = useState(true);
   // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
   const [demandV2, setDemandV2] = useState(true);
+  // Market development — on by default (the server defaults it on too).
+  const [marketDev, setMarketDev] = useState(true);
   // Per-world frames a week (blank = default); sent only when something is set.
   const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
   const [stage, setStage] = useState('beta');
@@ -455,6 +457,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           partnerships,
           // Always explicit: the server treats an absent field as v2.
           demandModel: demandV2 ? 2 : 1,
+          // Always explicit: the server treats an absent field as ON.
+          marketDev,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -701,6 +705,19 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             About two-thirds of the way to real numbers.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Market development
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={marketDev}
+              onChange={(e) => setMarketDev(e.target.checked)} />
+            <span className="muted">{marketDev ? 'ON (default) — markets grow with service' : 'Off — every city pair has a fixed size'}</span>
+          </span>
+          <span className="muted small">
+            A city pair nobody flies starts at 70% of its market and grows with the service every
+            airline gives it: twice daily at the going fare builds it to full size over about a
+            year, more flights or lower fares up to 30% more. Markets fade over months when the
+            flights leave. Replaces the 16-week route ramp-up.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -881,6 +898,14 @@ const WORLD_FEATURES = [
     label: () => 'Real-world demand',
     rgb: '240,180,80',
     blurb: 'Passenger demand recalibrated against real ticket data. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Small US cities are thinner, and long Australian routes are busier.',
+  },
+  {
+    key: 'marketdev',
+    on: (w) => w.marketDev === true,
+    icon: '📈',
+    label: () => 'Growing markets',
+    rgb: '86,190,140',
+    blurb: 'Markets grow with the service they get. A city pair nobody flies starts at 70% of its size; every airline\'s flights on it build it toward full size over about a year (twice daily at the going fare), and up to 30% more with heavy service or low fares. When the flights leave, the market fades over months, and whoever moves in next inherits what is left.',
   },
   {
     key: 'hubs',

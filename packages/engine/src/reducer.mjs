@@ -121,6 +121,7 @@ import {
   hubUpgradeChecklist,
   healAnachronisticCompetitorFleets,
 } from './models/demand.js';
+import { setMarketDev } from './models/marketDev.js';
 import { tickCompetitorAI, retainedProfit, FIRE_SALE_PREMIUM, competitorMarketingSpend } from './models/competitorAI.js';
 import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
 import { tickEncroachment } from './models/encroachment.js';
@@ -1939,6 +1940,10 @@ function reducer(state, action) {
   // Demand model (utils/market.js "Demand model v2"): baked into the airline at
   // join from its world; absent = classic. Every airline in a world shares it.
   setDemandModel(state?.demandModel);
+  // Market development (models/marketDev.js): the WORLD's table, injected by
+  // the rival overlay (server humanRivals.mjs) on every read and tick; absent
+  // or unflagged → off. The server tick advances it, never the reducer.
+  setMarketDev(state);
   // Event worlds: this year's double-profit airports (data/eventRules.js) —
   // a module knob like the yield choke, read by the route simulators.
   pinEventBonusFrom(state);

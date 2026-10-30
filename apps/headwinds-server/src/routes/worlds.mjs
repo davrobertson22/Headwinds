@@ -530,6 +530,8 @@ export default async function worldRoutes(fastify) {
           partnerships: { type: 'boolean' },
           // Demand model (default 2; 1 = classic gravity model).
           demandModel: { type: 'integer', enum: [1, 2] },
+          // Market development (default ON; false = fixed markets).
+          marketDev: { type: 'boolean' },
           // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
           // Contents validated in worldConfig (lineRatesProblem).
           productionLineRates: { type: 'object' },

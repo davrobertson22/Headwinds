@@ -75,6 +75,9 @@ export async function createWorld(prisma, {
   // Demand model (engine utils/market.js "Demand model v2"): 2 for new worlds
   // unless the creator passes 1 (classic).
   demandModel,
+  // Market development (engine models/marketDev.js): ON for new worlds unless
+  // the creator passes false.
+  marketDev,
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
@@ -117,7 +120,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -176,6 +179,12 @@ export async function createWorld(prisma, {
     // in a world fights over the same demand pools, so all of them must price
     // them the same way.
     ...(demandModel !== 1 ? { demandModel: 2 } : {}),
+    // Market development (Dave, 2026-10-30): a city pair's market grows with
+    // the service every airline gives it and fades when that service leaves.
+    // New worlds only: ON unless the creator unticks it; worlds without the key
+    // keep fixed markets for life. No AI airlines to pre-warm from, so a new
+    // world opens with every pair at the 70% floor and players build them.
+    ...(marketDev !== false ? { marketDev: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Part of the
     // game, not a setup option (Dave, 2026-10-17): every world created from
@@ -333,6 +342,9 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     // Demand model, baked at join like the other rule flags (engine reads
     // state.demandModel at the reducer entry and in weeklyTick).
     ...(tc.demandModel === 2 ? { demandModel: 2 } : {}),
+    // Market development, baked at join like the other rule flags. The table
+    // itself is the world's (WorldMarketDev), injected by the rival overlay.
+    ...(tc.marketDev === true ? { marketDevWorld: true } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),
