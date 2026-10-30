@@ -12,6 +12,7 @@
  * worker prices with the identical sum the main thread would.
  */
 import { finderForecastContext, forecastCandidate } from '../models/routeFinder.js';
+import { setDemandModel } from './market.js';
 
 export function createForecastWorkerCore() {
   let heldId = null;
@@ -25,6 +26,9 @@ export function createForecastWorkerCore() {
     }
     if (msg.type === 'price') {
       if (msg.stateId !== heldId || !held) return { type: 'result', jobId: msg.jobId, missing: true };
+      // A worker is its own module world: the page's demand-model knob never
+      // reaches it, so set it from the held state before pricing.
+      setDemandModel(held.demandModel);
       const ctx = finderForecastContext(msg.ctx);
       const results = (msg.rows ?? []).map((r) => {
         try { return [r.key, forecastCandidate(held, r, ctx)]; }

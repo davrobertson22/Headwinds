@@ -10,7 +10,9 @@
  *   simulation.js    ← market.js, demand.js
  */
 
-import { getAirport, getAirportScores, getAirportCargoScore } from '../data/airports.js';
+import { AIRPORTS, getAirport, getAirportScores, getAirportCargoScore } from '../data/airports.js';
+import { AIRPORT_FACTORS as V2_AIRPORT_FACTORS, CORRIDOR_FACTORS as V2_CORRIDOR_FACTORS } from '../data/demandV2Factors.js';
+import { ROAD_ALPHA, ROAD_BETA, ROAD_FACTORS } from '../data/demandV2Roads.js';
 import { eraDemandGrowthFactor } from '../data/era.js';
 import {
   METROS,
@@ -635,6 +637,319 @@ function metroDemandMultiplier(metro) {
   return best;
 }
 
+// ─── Demand model v2 (2026-10, new worlds only) ────────────────────────────────
+// Benchmarked against real O&D (Tailwinds tools/demand-audit/ — us-od-bench.mjs: every
+// contiguous-US city pair in the DOT Consumer Airfare Report, true O&D from the
+// DB1B ticket sample; au-od-data.mjs: BITRE Australian city pairs), the classic
+// gravity model made 4.4x the real US domestic market — small cities 7-15x too
+// big, short hops worse — while Australia came out at about half its real size.
+// Four mechanisms the classic model lacks, each fitted to that data
+// (Tailwinds tools/demand-audit/fit-v2.mjs):
+//
+//   1. Driving. In car-centric countries (US, Australia) people drive trips of
+//      several hours that the classic model only ceded below 200 km. Measured
+//      in driving TIME (real road times, data/demandV2Roads.js), so a mountain
+//      pass or a long way round counts for what it is.
+//   2. Catchment leakage. A small US airport near a much bigger one loses a
+//      share of its residents to it — Charlottesville flies from Dulles. The
+//      share fades with distance and with how lopsided the two are.
+//   3. City size. Below a reference size, US endpoints generate fewer trips
+//      per head than the classic √mass implies (per-end exponent > 0.5).
+//   4. Drive-to tourism. Visitors to a mainland US resort (Orlando, Las Vegas)
+//      mostly arrive by car: their mass weighs less than an island resort's.
+//   plus a domestic level per country, and population fixes for airports that
+//   carried their whole metro's population twice (Tampa + St. Pete...).
+//
+// Everything outside those countries is untouched until there is data for it.
+// The fitted correction C is applied as C^realism: realism 1 would match the
+// data; the game uses 2/3 ("mostly realistic" — regional flying stays viable).
+//
+// The version is a property of the WORLD, set from state like the fare index:
+// a world created with tickConfig.demandModel = 2 (the default for new worlds,
+// worldService.createWorld) bakes state.demandModel = 2 into every airline at
+// join; worlds created before it carry no flag and stay classic for life. All
+// callers price through baseCityPairDemand, so one module-level switch (which
+// clears the pair memo) moves every screen and the tick together. Ported from
+// Tailwinds (same code, same fitted parameters and data files — see its
+// tools/demand-audit/).
+
+export const DEMAND_MODEL_CLASSIC = 1;
+export const DEMAND_MODEL_LATEST = 2;
+let _demandModel = DEMAND_MODEL_CLASSIC;
+
+/** Whether a state.demandModel value names a non-classic model this build knows. */
+export function isDemandModel(v) { return v === 2; }
+
+/** Set the live demand model from a game's state.demandModel (absent = classic). */
+export function setDemandModel(v) {
+  const next = v === 2 ? 2 : DEMAND_MODEL_CLASSIC;
+  if (next === _demandModel) return;
+  _demandModel = next;
+  clearPairDemandMemo();
+}
+export function getDemandModel() { return _demandModel; }
+
+/** Fitted v2 parameters — fitted in the Tailwinds repo (tools/demand-audit/fit-v2.mjs). */
+export const DEMAND_V2 = {
+  realism: 2 / 3,
+  // Car-centric countries: the drive ramp and domestic level apply to their
+  // domestic pairs; size, leakage and visitor weight to their endpoints.
+  driveCountries: ['US', 'AU'],
+  endpointCountries: ['US'],
+  // Fitted 2026-10-29 at realism 1 (fit-v2.mjs: DOT 2025Q2–2026Q1 + BITRE to
+  // 2026-07, traffic-weighted Tobit). floor and radiusKm sit on their bounds.
+  // Drive ramp on DRIVING TIME (OSRM car-profile hours — conservative, about
+  // 20% slower than real traffic; the fit absorbs that), not distance.
+  drive:  { startH: 1.0, fullH: 8.94, floor: 0.02, shape: 2.33 },
+  size:   { refMass: 4.7, exp: 0.631 },
+  leak:   { radiusKm: 300, strength: 0.631 },
+  visitorWeight: 0.39,
+  level:  { US: 1.07, AU: 1.87 },
+  // Demand population for airports that carried a metro's population twice
+  // (each half of a shared catchment gets its own share, summing to the metro).
+  popOverride: {
+    TPA: 2.3, PIE: 1.0,   // Tampa Bay 3.3M
+    PHX: 4.0, AZA: 1.1,   // Phoenix 5.1M (Mesa Gateway serves the East Valley)
+    MCO: 2.2, SFB: 0.5,   // Orlando 2.7M
+    ORF: 1.3, PHF: 0.5,   // Hampton Roads 1.8M
+    SEA: 3.2, PAE: 0.8,   // Seattle 4.0M (Everett = Snohomish County)
+    APA: 0.2,             // Centennial — a Denver-metro GA field, not a second Denver
+    DVN: 0.05,            // Davenport — Quad Cities is served by MLI
+    HRL: 0.2,             // Harlingen shares the Rio Grande Valley with BRO
+  },
+  // Tasmania has no ground link to the mainland: no drive ramp across Bass Strait.
+  extraIsolated: ['HBA', 'LST', 'DPO'],
+  // Mountain resorts and national-park gateways: the road in is a winter pass
+  // or a long mountain drive, so people fly even short hops (Denver–Aspen is
+  // 160 km) and don't drive to the big airport instead. No drive ramp on their
+  // pairs and no leakage. (DOT: Jackson Hole ran ~8x short of real without it.)
+  mountainResorts: ['ASE', 'EGE', 'HDN', 'MTJ', 'JAC', 'SUN', 'TEX', 'MMH', 'BZN', 'FCA', 'DRO', 'CEZ', 'COD', 'WYS'],
+  // Corridors: regions whose INTERNAL short-haul flying the drive ramp gets
+  // wrong, for reasons no distance or driving time captures — California's
+  // traffic and missing rail, the Northwest's mountain passes and dense
+  // commuter network, the Texas Triangle shuttles; the Northeast Corridor's
+  // trains and Florida's drive-everywhere culture the other way. A pair with
+  // both ends in one corridor takes its fitted factor (data/demandV2Factors.js).
+  // Listed by airport; metro members count as their metro.
+  // ── Fares and flight costs (2026-10) ──────────────────────────────────────
+  // Real US domestic economy fares (DOT Table 6, taxes and first class taken
+  // out — tools/demand-audit/fit-fares.mjs) are nearly FLAT with distance:
+  // ~$120 + $37 per 1,000 km, where the classic reference is $70 + $78. A v2
+  // game prices every DOMESTIC pair (any country) on that curve, at realism;
+  // international pairs keep the classic ladder.
+  fares: { base: 119.8, perKm: 0.0372 },
+  // Real flights pay a fixed chunk of fuel and crew time on every departure —
+  // taxi, take-off, climb, approach — and spend it on the clock. The classic
+  // per-km burn is an AVERAGE over a type's typical mission, so v2 splits it:
+  // each sector costs as if it were (cruise share × km + takeoffKm) long, the
+  // cruise share chosen so a pivotKm sector (the typical mission for that size
+  // of aircraft) costs exactly what it does today. Short hops get dearer, long
+  // stages a little cheaper, nothing at the typical mission moves. taxiH is
+  // the extra gate-to-gate time per sector, on the block-hour clock.
+  flight: {
+    'Turboprop':    { pivotKm: 400,  takeoffKm: 200, taxiH: 0.30 },
+    'Regional Jet': { pivotKm: 700,  takeoffKm: 280, taxiH: 0.35 },
+    'Narrow Body':  { pivotKm: 1200, takeoffKm: 330, taxiH: 0.40 },
+    'Wide Body':    { pivotKm: 6000, takeoffKm: 450, taxiH: 0.45 },
+    'Double Deck':  { pivotKm: 8000, takeoffKm: 500, taxiH: 0.50 },
+    'Supersonic':   { pivotKm: 5500, takeoffKm: 600, taxiH: 0.50 },
+  },
+  // Freighters share one category, so they step by payload like their turnarounds.
+  freighterFlight: [
+    { maxTonnes: 20,       pivotKm: 800,  takeoffKm: 250, taxiH: 0.35 },
+    { maxTonnes: 50,       pivotKm: 1500, takeoffKm: 330, taxiH: 0.40 },
+    { maxTonnes: 130,      pivotKm: 5000, takeoffKm: 450, taxiH: 0.45 },
+    { maxTonnes: Infinity, pivotKm: 7000, takeoffKm: 500, taxiH: 0.50 },
+  ],
+  corridors: {
+    california:   ['LAX', 'BUR', 'LGB', 'SNA', 'ONT', 'SFO', 'OAK', 'SJC', 'SMF', 'SAN', 'PSP', 'SBA', 'SBP', 'SMX', 'FAT', 'VIS', 'BFL', 'MRY', 'STS', 'MOD', 'CIC', 'RDD', 'ACV', 'CLD', 'IYK', 'MMH'],
+    northwest:    ['SEA', 'PAE', 'BLI', 'PDX', 'EUG', 'MFR', 'RDM', 'OTH', 'LMT', 'PDT', 'GEG', 'PSC', 'YKM', 'EAT', 'PUW', 'ALW', 'LWS', 'BOI'],
+    texas:        ['DFW', 'DAL', 'IAH', 'HOU', 'AUS', 'SAT'],
+    // Rail-dominated New York–Philadelphia–Washington (Boston–New York stays a
+    // strong air market despite Amtrak, so Boston is not in it).
+    northeast:    ['JFK', 'LGA', 'EWR', 'HPN', 'ISP', 'PHL', 'BWI', 'DCA', 'IAD'],
+    florida:      ['MIA', 'FLL', 'PBI', 'MCO', 'SFB', 'TPA', 'PIE', 'SRQ', 'RSW', 'PGD', 'APF', 'JAX', 'DAB', 'MLB', 'VRB', 'GNV'],
+  },
+};
+
+const _v2Cache = { leak: new Map(), endpoint: new Map(), sets: null, corridor: null };
+/** The v2 corridor a pricing node (metro primary or lone airport) belongs to, or null. */
+export function v2CorridorOf(code) {
+  if (!_v2Cache.corridor) {
+    _v2Cache.corridor = new Map();
+    for (const [name, codes] of Object.entries(DEMAND_V2.corridors)) {
+      for (const c of codes) { const mt = metroOf(c); _v2Cache.corridor.set(mt ? mt.primary : c, name); }
+    }
+  }
+  return _v2Cache.corridor.get(code) ?? null;
+}
+/** Test/fit seam: call after mutating DEMAND_V2. */
+export function resetDemandV2Caches() { _v2Cache.leak.clear(); _v2Cache.endpoint.clear(); _v2Cache.sets = null; _v2Cache.corridor = null; clearPairDemandMemo(); }
+function v2Sets() {
+  if (!_v2Cache.sets) {
+    _v2Cache.sets = {
+      drive: new Set(DEMAND_V2.driveCountries),
+      endpoint: new Set(DEMAND_V2.endpointCountries),
+      isolated: new Set(DEMAND_V2.extraIsolated),
+      mountain: new Set(DEMAND_V2.mountainResorts),
+    };
+  }
+  return _v2Cache.sets;
+}
+function v2Isolated(ap) { return isIsolated(ap) || v2Sets().isolated.has(ap.code); }
+
+/** v2 demand mass of one airport: population fixes + drive-to visitor weight. */
+function v2AirportMass(ap, domesticPair) {
+  if (ap.effectivePop != null) return ap.effectivePop;
+  const pop = DEMAND_V2.popOverride[ap.code] ?? ap.population ?? 0;
+  const vw = (v2Sets().endpoint.has(ap.country) && !v2Isolated(ap)) ? DEMAND_V2.visitorWeight : TOURISM_VISITOR_WEIGHT;
+  return pop
+    + (ap.visitors ?? 0) * vw
+    + (domesticPair ? (ap.domesticVisitors ?? 0) * TOURISM_VISITOR_WEIGHT : 0)
+    + (ap.gateway ?? 0) * GATEWAY_WEIGHT;
+}
+function v2EndpointMass(ap, metro, domesticPair) {
+  if (!metro) return v2AirportMass(ap, domesticPair);
+  let best = 0;
+  for (const m of metroMemberRecords(metro)) { const x = v2AirportMass(m, domesticPair); if (x > best) best = x; }
+  return best;
+}
+function v1EndpointMass(ap, metro, domesticPair) {
+  return metro ? metroDemandMass(metro, domesticPair) : getDemandMass(ap, domesticPair);
+}
+
+let _leakNodes = null;
+function leakNodes() {
+  if (!_leakNodes) {
+    const seen = new Set();
+    _leakNodes = [];
+    for (const ap of AIRPORTS) {
+      const metro = metroOf(ap.code);
+      const node = metro ? (getAirport(metro.primary) ?? ap) : ap;
+      if (seen.has(node.code)) continue;
+      seen.add(node.code);
+      _leakNodes.push({ ap: node, metro });
+    }
+  }
+  return _leakNodes;
+}
+
+/**
+ * Share of a US endpoint's residents who fly from it rather than drive to a
+ * bigger airport: 1 - strength x max over bigger same-country mainland airports
+ * within radiusKm of (1 - mass_i/mass_j)(1 - km/radiusKm). Needs mass_j >= 2x.
+ */
+function v2Leak(ap, metro) {
+  const hit = _v2Cache.leak.get(ap.code);
+  if (hit !== undefined) return hit;
+  let worst = 0;
+  if (!v2Isolated(ap) && !v2Sets().mountain.has(ap.code)) {
+    const R = DEMAND_V2.leak.radiusKm;
+    const mi = v2EndpointMass(ap, metro, true);
+    for (const { ap: b, metro: mb } of leakNodes()) {
+      if (b.code === ap.code || b.country !== ap.country || v2Isolated(b)) continue;
+      const km = distanceKm(ap, b);
+      if (km >= R) continue;
+      const mj = v2EndpointMass(b, mb, true);
+      if (mj < 2 * mi) continue;
+      const x = (1 - mi / mj) * (1 - km / R);
+      if (x > worst) worst = x;
+    }
+  }
+  const v = 1 - Math.min(0.95, DEMAND_V2.leak.strength) * worst;
+  _v2Cache.leak.set(ap.code, v);
+  return v;
+}
+
+/**
+ * Estimated driving time in hours between two airports (data/demandV2Roads.js:
+ * a fit to real OSRM drive times, ~12% error, one road factor per airport).
+ */
+export function v2DriveHours(po, pd, dist) {
+  return ROAD_ALPHA * Math.pow(Math.max(dist, 1), ROAD_BETA) * (ROAD_FACTORS[po.code] ?? 1) * (ROAD_FACTORS[pd.code] ?? 1) / 60;
+}
+
+function v2FlightParams(type) {
+  if (type?.freighter) {
+    const t = type.payloadTonnes ?? 0;
+    return DEMAND_V2.freighterFlight.find((b) => t <= b.maxTonnes);
+  }
+  return DEMAND_V2.flight[type?.category] ?? DEMAND_V2.flight['Narrow Body'];
+}
+
+/**
+ * Distance one sector is BILLED at for fuel and crew (see DEMAND_V2.flight):
+ * the flown km in a classic game; in v2, cruise share × km + the fixed
+ * take-off-and-climb chunk. Every fuel/crew cost site multiplies by this
+ * instead of the raw distance, so the planner, the tick, rivals and charters
+ * all agree.
+ */
+export function sectorCostKm(type, km) {
+  if (_demandModel !== 2 || !(km > 0)) return km;
+  const { pivotKm, takeoffKm } = v2FlightParams(type);
+  return km * (pivotKm - takeoffKm) / pivotKm + takeoffKm;
+}
+
+/** Extra gate-to-gate hours per sector (taxi, climb, approach): 0 in a classic game. */
+export function sectorTaxiHours(type) {
+  return _demandModel === 2 ? v2FlightParams(type).taxiH : 0;
+}
+
+/** Drive ramp (domestic pairs in drive countries): floor at startH hours of driving -> 1 at fullH. */
+export function v2DriveRamp(po, pd, dist) {
+  const { startH, fullH, floor, shape } = DEMAND_V2.drive;
+  const h = v2DriveHours(po, pd, dist);
+  if (h >= fullH) return 1;
+  const t = Math.max(0, (h - startH) / (fullH - startH));
+  return floor + (1 - floor) * Math.pow(t, shape);
+}
+
+/**
+ * Full-strength v2 correction for a pair priced at metro primaries po/pd
+ * (metros mO/mD or null). The caller raises it to DEMAND_V2.realism.
+ */
+/**
+ * One endpoint's share of the correction: its mass fix (under the gravity sqrt,
+ * like every endpoint term) times, in endpoint countries, its size and leakage
+ * factors. Pure in (airport, domestic-or-not), so cached — the tick asks for
+ * tens of thousands of pairs over a few hundred airports.
+ */
+function v2EndpointTerm(ap, metro, domestic) {
+  const key = domestic ? ap.code + '|d' : ap.code + '|i';
+  const hit = _v2Cache.endpoint.get(key);
+  if (hit !== undefined) return hit;
+  const m2 = v2EndpointMass(ap, metro, domestic), m1 = v1EndpointMass(ap, metro, domestic);
+  let t = m1 > 0 && m2 > 0 ? Math.sqrt(m2 / m1) : 1;
+  if (v2Sets().endpoint.has(ap.country)) {
+    const { refMass, exp } = DEMAND_V2.size;
+    if (m2 < refMass) t *= Math.pow(Math.max(m2, 0.005) / refMass, exp);
+    t *= v2Leak(ap, metro);
+  }
+  _v2Cache.endpoint.set(key, t);
+  return t;
+}
+
+export function demandV2Correction(po, pd, mO, mD, dist) {
+  const sets = v2Sets();
+  const domestic = po.country === pd.country;
+  let c = v2EndpointTerm(po, mO, domestic) * v2EndpointTerm(pd, mD, domestic);
+  if (domestic && sets.drive.has(po.country)) {
+    const driveable = !v2Isolated(po) && !v2Isolated(pd) && !sets.mountain.has(po.code) && !sets.mountain.has(pd.code);
+    if (driveable) c *= v2DriveRamp(po, pd, dist) / groundRampFactor(po, pd, dist);
+    c *= DEMAND_V2.level[po.country] ?? 1;
+  }
+  // Per-airport calibration (data/demandV2Factors.js, fitted to real domestic
+  // O&D by Tailwinds tools/demand-audit/fit-airports.mjs): what the gravity terms can't
+  // see about one airport — a sprawling catchment, a big university, a thin
+  // local economy. Domestic pairs only, because that is what it was fitted on.
+  if (domestic) {
+    c *= (V2_AIRPORT_FACTORS[po.code] ?? 1) * (V2_AIRPORT_FACTORS[pd.code] ?? 1);
+    const corridor = v2CorridorOf(po.code);
+    if (corridor && corridor === v2CorridorOf(pd.code)) c *= V2_CORRIDOR_FACTORS[corridor] ?? 1;
+  }
+  return c;
+}
+
 // ── Memo for baseCityPairDemand ───────────────────────────────────────────────
 // The function below is a pure function of two airport codes over static module
 // data: airport records, metros, country tables, coefficients. Nothing about the
@@ -752,10 +1067,13 @@ function computeBaseCityPairDemand(originCode, destCode) {
   //   DAC-DEL  (1,426 km, low propensity + IN-BD 0.45)   →   ~3,500  (real ~2,400)
   const lift = Math.sqrt((mO?.lift ?? 1) * (mD?.lift ?? 1));
 
-  return Math.round(
-    (Math.sqrt(popO * multO * pO * popD * multD * pD) * 1900 * border * captive * ground * lift)
-      / Math.pow(1 + dist / 3000, 1.1)
-  );
+  const raw = (Math.sqrt(popO * multO * pO * popD * multD * pD) * 1900 * border * captive * ground * lift)
+      / Math.pow(1 + dist / 3000, 1.1);
+  // Demand model v2 (new worlds only — see "Demand model v2" above): a
+  // correction on top of the classic figure, never a different formula, so a
+  // classic world prices every pair exactly as it always has.
+  if (_demandModel === 2) return Math.round(raw * Math.pow(demandV2Correction(po, pd, mO, mD, dist), DEMAND_V2.realism));
+  return Math.round(raw);
 }
 
 /** Distance in km between two airport codes. Returns 0 if either unknown. */
@@ -1054,6 +1372,14 @@ export function referencePrice(originCode, destCode) {
   const dist = distanceKm(o, d);
   // Reference fares trimmed 8% below baseline to tighten yields and make
   // sustained profitability harder (was −5%, originally +10%).
+  // Demand model v2: domestic pairs move toward the real fare curve (see
+  // DEMAND_V2.fares), by the same realism as demand. A classic world, and every
+  // international pair, keep the classic ladder to the dollar.
+  if (_demandModel === 2 && o.country === d.country) {
+    const classic = (80 + dist * 0.09) * 0.87;
+    const real = DEMAND_V2.fares.base + DEMAND_V2.fares.perKm * dist;
+    return Math.round(classic * Math.pow(real / classic, DEMAND_V2.realism) * _fareIndex);
+  }
   return Math.round((80 + dist * 0.09) * 0.87 * _fareIndex);
 }
 

@@ -394,6 +394,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [productionLines, setProductionLines] = useState(true);
   // Travel partnerships — on by default (the server defaults it on too).
   const [partnerships, setPartnerships] = useState(true);
+  // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
+  const [demandV2, setDemandV2] = useState(true);
   // Per-world frames a week (blank = default); sent only when something is set.
   const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
   const [stage, setStage] = useState('beta');
@@ -451,6 +453,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           productionLines,
           // Always explicit: the server treats an absent field as ON.
           partnerships,
+          // Always explicit: the server treats an absent field as v2.
+          demandModel: demandV2 ? 2 : 1,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -684,6 +688,19 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             reputation, and a partner that walks out won't come back for five years.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Passenger demand
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={demandV2}
+              onChange={(e) => setDemandV2(e.target.checked)} />
+            <span className="muted">{demandV2 ? 'Recalibrated (default) — checked against real traffic' : 'Classic — the original gravity model'}</span>
+          </span>
+          <span className="muted small">
+            Demand recalibrated against real US and Australian ticket data. Short US and Australian
+            hops lose demand to driving, small US airports near a big one lose travellers to it,
+            small US cities and drive-to resorts are thinner, and long Australian routes are busier.
+            About two-thirds of the way to real numbers.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -856,6 +873,14 @@ const WORLD_FEATURES = [
     label: () => 'Travel partners',
     rgb: '232,121,160',
     blurb: 'Sign cruise lines, tour operators, hotel chains and ride share. Each lifts leisure or business demand at its airports in return for targets you have to keep hitting; unhappy partners cost reputation and can walk out for five years.',
+  },
+  {
+    key: 'demand',
+    on: (w) => w.demandModel === 2,
+    icon: '📊',
+    label: () => 'Real-world demand',
+    rgb: '240,180,80',
+    blurb: 'Passenger demand recalibrated against real ticket data. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Small US cities are thinner, and long Australian routes are busier.',
   },
   {
     key: 'hubs',

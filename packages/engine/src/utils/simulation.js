@@ -13,7 +13,7 @@ export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          cargoBackhaulFactor, cargoSeasonalFactor,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
-         setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor } from './market.js';
+         setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor, setDemandModel, sectorCostKm, sectorTaxiHours } from './market.js';
 import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
@@ -1115,7 +1115,8 @@ export function turnaroundHours(type) {
  * @param {object} type  - aircraft type from AIRCRAFT_TYPES
  */
 export function blockTimeHours(distKm, type) {
-  return distKm / cruiseSpeedKmh(type) + turnaroundHours(type);
+  // + taxi/climb/approach time in a v2 world (market.js sectorTaxiHours; 0 classic).
+  return distKm / cruiseSpeedKmh(type) + turnaroundHours(type) + sectorTaxiHours(type);
 }
 
 /**
@@ -2345,8 +2346,11 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   const stationPlan = routeFuelStations(route, {
     sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type),
   });
-  const fuelCost    = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
-  const crewCost    = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
+  // Billed km per sector: the flown distance in a classic world; with v2's
+  // per-departure take-off chunk in a new one (market.js sectorCostKm).
+  const costKm      = sectorCostKm(type, dist);
+  const fuelCost    = Math.round(costKm * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
+  const crewCost    = Math.round(costKm * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
@@ -2900,8 +2904,10 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   // Station basis averaged over the legs, by leg length; no tankering on a
   // multi-stop route in v1 (data/fuelStations.js). 1 with the knob off.
   const stationPlan = routeFuelStations({ ...route, stops }, { legKm: legDistKm });
-  const fuelCost = Math.round(totalDist * fuelCostPerKm(type) * sectorFactor * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
-  const crewCost = Math.round(totalDist * type.crewCostPerKm * sectorFactor * (labor?.seniorityMult ?? 1));
+  // Every leg is its own departure: v2's take-off chunk is paid per leg.
+  const costKm   = legDistKm.reduce((s, d) => s + sectorCostKm(type, d), 0);
+  const fuelCost = Math.round(costKm * fuelCostPerKm(type) * sectorFactor * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
+  const crewCost = Math.round(costKm * type.crewCostPerKm * sectorFactor * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
     (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
@@ -3138,8 +3144,9 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   const stationPlan = routeFuelStations(route, {
     sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type),
   });
-  const fuelCost  = Math.round(dist * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
-  const crewCost  = Math.round(dist * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
+  const costKm    = sectorCostKm(type, dist);
+  const fuelCost  = Math.round(costKm * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
+  const crewCost  = Math.round(costKm * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const groundHandlingCost = Math.round(tonnesOneWay * 2 * CARGO_HANDLING_PER_TONNE);
 
   const totalOpCost = fuelCost + crewCost + groundHandlingCost;
@@ -4070,6 +4077,8 @@ export function weeklyTick(state) {
   // the reducer / providers — but tools and server paths call weeklyTick
   // directly, so pin it from THIS state to make every tick self-consistent.
   setNwrYieldChoke(state.newWorldRestrictions === true);
+  // Demand model, pinned from THIS state for the same reason (absent = classic).
+  setDemandModel(state.demandModel);
   // Event worlds: this year's double-profit airports, pinned from THIS state
   // for the same reason as the yield choke above.
   pinEventBonusFrom(state);

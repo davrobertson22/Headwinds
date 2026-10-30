@@ -26,7 +26,7 @@ import {
   calcReconfCost, refitWeeks,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
-         setFareIndex, setNwrYieldChoke, setEraStartYear, setEraCalendarYear,
+         setFareIndex, setNwrYieldChoke, setEraStartYear, setEraCalendarYear, setDemandModel,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
          tickMarketIndex, marketValuationFactor, MARKET_BASE_INDEX,
          emptyEquity, migratedEquity, sharesOf, svpsOf,
@@ -1936,6 +1936,9 @@ function reducer(state, action) {
   setEraCostScale(eraOverheadScale(calendarYearFrac(state)) ?? 1);
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
   setNwrYieldChoke(state?.newWorldRestrictions === true);
+  // Demand model (utils/market.js "Demand model v2"): baked into the airline at
+  // join from its world; absent = classic. Every airline in a world shares it.
+  setDemandModel(state?.demandModel);
   // Event worlds: this year's double-profit airports (data/eventRules.js) —
   // a module knob like the yield choke, read by the route simulators.
   pinEventBonusFrom(state);

@@ -251,6 +251,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Travel partnerships: stamped at join; re-stamped here so it can never
       // be lost from a blob. Only ever written in a partnership world.
       ...(world.tickConfig?.partnerships === true ? { partnershipsWorld: true } : {}),
+      // Demand model v2: stamped at join, re-stamped here for the same reason.
+      // Only ever written in a v2 world, so a classic world's blobs keep no key.
+      ...(world.tickConfig?.demandModel === 2 ? { demandModel: 2 } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

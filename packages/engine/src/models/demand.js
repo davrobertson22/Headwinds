@@ -29,7 +29,8 @@
  * needed — they capture min(adjustedDemand, capacity).
  */
 
-import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear } from '../utils/market.js';
+import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear, getDemandModel, metroPrimary, sectorCostKm } from '../utils/market.js';
+import { SEASONS as V2_SEASONS } from '../data/demandV2Seasons.js';
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
 import { sameSovereign, sovereignCountry } from '../data/territories.js';
@@ -395,6 +396,34 @@ const _profileCache = new Map();
  * arithmetic and no allocation, exactly as before.
  */
 export function seasonalProfileForAirport(code) {
+  if (getDemandModel() === 2) {
+    const v2 = v2SeasonalProfile(code);
+    if (v2) return v2;
+  }
+  return classicSeasonalProfileForAirport(code);
+}
+
+// ── Demand model v2: fitted seasons ─────────────────────────────────────────
+// A v2 game (utils/market.js "Demand model v2") flies each US / Australian
+// airport on a profile fitted to real traffic (data/demandV2Seasons.js —
+// tools/demand-audit/fit-seasons.mjs): Florida and the desert Southwest peak in
+// winter, the Northeast and Northwest in summer, ski towns in Q1, Darwin and
+// Cairns in the dry season. Keyed on the metro primary, like demand. Airports
+// without a fitted profile (and every classic game) keep the archetype curve.
+const _v2Profiles = new Map();
+function v2SeasonalProfile(code) {
+  const node = metroPrimary(code);
+  let p = _v2Profiles.get(node);
+  if (p === undefined) {
+    const v = V2_SEASONS[node];
+    p = v ? [null, ...v] : null;
+    _v2Profiles.set(node, p);
+  }
+  return p;
+}
+
+/** The archetype curve an airport flies in a classic game (and in v2 where no profile was fitted). */
+export function classicSeasonalProfileForAirport(code) {
   const id   = seasonalProfileIdFor(code);
   const base = SEASONAL_PROFILES[id] ?? SEASONAL_PROFILES.generic;
   const twin = SEASONAL_PROFILES[SOUTHERN_TWIN[id]];
@@ -432,11 +461,20 @@ export function getSeasonalProfile(originCode, destCode) {
 
   if (oP === dP) return oP;
 
+  // v2 gives nearly every domestic pair two distinct fitted curves, so the
+  // blend — once rare — is now the common case: memoise it (pure in the pair).
+  const v2 = getDemandModel() === 2;
+  const key = v2 ? originCode + '|' + destCode : null;
+  if (v2) { const hit = _v2Blends.get(key); if (hit) return hit; }
+
   // Blend origin + destination profiles
-  return [null, ...MONTH_INDEX.map(m =>
+  const out = [null, ...MONTH_INDEX.map(m =>
     Math.round(((oP[m] + dP[m]) / 2) * 1000) / 1000
   )];
+  if (v2) { if (_v2Blends.size > 100_000) _v2Blends.clear(); _v2Blends.set(key, out); }
+  return out;
 }
+const _v2Blends = new Map();
 
 // ── Directional seasonal skew ──────────────────────────────────────────────
 // getSeasonalProfile averages the two endpoints, and that average is what the
@@ -462,8 +500,11 @@ export const SEASONAL_SKEW_CAP = 0.35;
  * @returns {number} −SEASONAL_SKEW_CAP … +SEASONAL_SKEW_CAP
  */
 export function directionalSeasonalSkew(originCode, destCode, month) {
-  const oP = seasonalProfileForAirport(originCode);
-  const dP = seasonalProfileForAirport(destCode);
+  // Always the archetype curves: v2's fitted profiles measure how much an
+  // airport's TOTAL traffic swings, not which way people are travelling, so
+  // they say nothing about directional imbalance.
+  const oP = classicSeasonalProfileForAirport(originCode);
+  const dP = classicSeasonalProfileForAirport(destCode);
   if (oP === dP) return 0;
   const m = Math.round(Number(month));
   if (!Number.isFinite(m) || m < 1 || m > 12) return 0;
@@ -3708,7 +3749,8 @@ export function computeCompetitorRoutePnL(competitor, routeKey, cfg, month = 1, 
 
   const tier        = competitor.tier ?? 'legacy';
   const revenue     = weeklyPax * (price + (PAX_ANCILLARY_REVENUE[tier] ?? 4));
-  const opCost      = dist * opPerKm * (OP_COST_UPLIFT[tier] ?? 1.55) * flightsPerWk;
+  // Billed per sector like the player's (market.js sectorCostKm; = dist classic).
+  const opCost      = sectorCostKm(type ?? { category: 'Narrow Body' }, dist) * opPerKm * (OP_COST_UPLIFT[tier] ?? 1.55) * flightsPerWk;
   const airportCost = seats * (AIRPORT_COST_PER_SEAT[tier] ?? 16) * flightsPerWk;
   const paxCost     = weeklyPax * (PAX_SERVICE_COST[tier] ?? 28);
   const fixed       = type ? tails * ((type.weeklyLease ?? 0) + (type.baseMaintenancePerWk ?? 0)) : fixedPR;

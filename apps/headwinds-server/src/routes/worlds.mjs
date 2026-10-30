@@ -528,6 +528,8 @@ export default async function worldRoutes(fastify) {
           productionLines: { type: 'boolean' },
           // Travel partnerships (default ON; false = a world without them).
           partnerships: { type: 'boolean' },
+          // Demand model (default 2; 1 = classic gravity model).
+          demandModel: { type: 'integer', enum: [1, 2] },
           // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
           // Contents validated in worldConfig (lineRatesProblem).
           productionLineRates: { type: 'object' },

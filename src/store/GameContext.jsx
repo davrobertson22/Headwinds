@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useMemo, useRef } from 'react';
 import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
-import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke, setEraStartYear, getEraStartYear } from '../../packages/engine/src/utils/market.js';
+import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke, setEraStartYear, getEraStartYear, setDemandModel } from '../../packages/engine/src/utils/market.js';
 import { setEraCostScale, getEraCostScale } from '../../packages/engine/src/data/overhead.js';
 import { setEraPriceYear, getEraPriceYear } from '../../packages/engine/src/data/aircraft.js';
 import { eraFareIndex, eraOverheadScale } from '../../packages/engine/src/data/era.js';
@@ -53,6 +53,7 @@ export function syncEngineWorldState(state) {
   const costScale = eraOverheadScale(calendarYearFrac(state)) ?? 1;
   if (getFareIndex() !== fareIndex) setFareIndex(fareIndex);
   if (getNwrYieldChoke() !== nwrOn) setNwrYieldChoke(nwrOn);
+  setDemandModel(state?.demandModel);   // idempotent; clears the pair memo only on a change
   const stationsOn = fuelStationsOn(state);
   if (getFuelStationsEnabled() !== stationsOn) setFuelStationsEnabled(stationsOn);
   setFuelStationDiscounts(stationsOn ? farmDiscountsOf(state, absoluteWeek(state?.year ?? 1, state?.week ?? 1)) : null);
