@@ -2160,7 +2160,7 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 
 /* ── Alerts down the right edge ── */
 .ms-alerts {
-  position: absolute; right: 14px; top: 50%; transform: translateY(-50%); z-index: 30;
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%); z-index: 32;   /* tooltips over an open page */
   display: flex; flex-direction: column; align-items: center; gap: 10px;
 }
 .ms-alerts-sep { width: 20px; height: 1px; background: rgba(255,255,255,.18); }
@@ -2243,7 +2243,13 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 /* ── The page panel — leaves the HUD, alerts and dock reachable ── */
 .ms-panel-backdrop { position: absolute; inset: 0; z-index: 20; background: rgba(2, 4, 12, .35); }
 .ms-panel {
-  position: absolute; z-index: 25; top: 92px; bottom: 96px; left: 72px; right: 72px;
+  /* Above the dock and top bar (30). They sit outside the panel, so nothing of
+     theirs is covered; what this changes is that a modal opened from a page
+     (lease checkout, confirmations — position: fixed inside the panel) can
+     cover them. At 25 the panel's stacking context capped every such modal
+     under the dock, which hid the lease form's Confirm button on phones
+     (Xen, Tailwinds Discord, 2026-10-30). */
+  position: absolute; z-index: 31; top: 92px; bottom: 96px; left: 72px; right: 72px;
   max-width: 1320px; margin: 0 auto;
   border-radius: 18px; display: flex; flex-direction: column; overflow: hidden;
   background: rgb(20, 20, 23);   /* opaque: no glass blur here, so no route lines ghosting through */

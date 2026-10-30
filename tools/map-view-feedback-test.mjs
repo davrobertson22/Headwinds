@@ -233,5 +233,21 @@ await test('lag: no blur filter on route glows, no backdrop blur on map-view con
   assert.ok(!/backdrop-filter:\s*blur/.test(ms), 'map view CSS blurs nothing behind its controls');
 });
 
+await test('a modal opened from a page covers the dock (lease checkout, Xen 2026-10-30)', () => {
+  // A page's modals are position: fixed INSIDE .ms-panel, so the panel's own
+  // z-index is their ceiling. Below the dock's, the dock sat on top of the
+  // lease form and hid its Confirm button.
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const z = (sel) => {
+    const m = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(r => r[1].split(',').some(x => x.trim() === sel) && /z-index/.test(r[2]));
+    return m ? Number(m[2].match(/z-index:\s*(\d+)/)[1]) : null;
+  };
+  const panel = z('.ms-panel');
+  for (const sel of ['.ms-dock', '.ms-top', '.ms-home']) {
+    assert.ok(z(sel) != null, `${sel} has a z-index`);
+    assert.ok(panel > z(sel), `.ms-panel (${panel}) must sit above ${sel} (${z(sel)})`);
+  }
+});
+
 console.log(`\nmap-view-feedback-test: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
