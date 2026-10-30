@@ -14,6 +14,7 @@ import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js'
 import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings.js';
 import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
+import { TRAVEL_PARTNER_MAP } from '@tailwinds/engine/data/travelPartners.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf, eventRulesOfWorld } from './worldConfig.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, fuelPaidOf, loadAllianceMap } from './humanRivals.mjs';
@@ -36,7 +37,7 @@ import { compactReportForStorage } from './reportStorage.mjs';
 import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
-  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows,
+  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows, travelPartnerLostNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
@@ -247,6 +248,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Event worlds: the weird rules, read live from the world like the flags
       // above (engine data/eventRules.js — the bonus airports roll with the year).
       ...(eventRulesOfWorld(world.tickConfig) ? { eventRules: eventRulesOfWorld(world.tickConfig) } : {}),
+      // Travel partnerships: stamped at join; re-stamped here so it can never
+      // be lost from a blob. Only ever written in a partnership world.
+      ...(world.tickConfig?.partnerships === true ? { partnershipsWorld: true } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),
@@ -307,6 +311,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       dividend: next.lastReport?.dividend ?? null,
       // Fuel bought by station this week, for fuel-farm fee settlement below.
       fuelByStation: next.lastReport?.fuelByStation ?? null,
+      // Travel partners lost this week (walk-outs, refusals), for the news feed.
+      travelPartnerLosses: (next.lastReport?.travelPartnerEvents ?? []).filter((e) => e.type === 'lost'),
       consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
       // Aircraft whose schedule this tick trimmed, for the news feed below.
       trimNotices,
@@ -660,6 +666,18 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         // Quarter-end fuel standings: who paid least per unit of fuel this
         // quarter. Outcomes only (the average each airline paid), never the
         // contracts behind them. Empty on any week that is not a quarter-end.
+        // Travel partners that walked out or refused to renew this week.
+        ...travelPartnerLostNewsRows({
+          worldId: world.id, week: toIndex, nameOf,
+          losses: computed
+            .filter((c) => writtenIds.has(c.airline.id))
+            .flatMap((c) => (c.travelPartnerLosses ?? [])
+              .map((e) => ({
+                ...e, airlineId: c.airline.id,
+                partnerName: TRAVEL_PARTNER_MAP[e.partnerId]?.name ?? null,
+                partnerType: TRAVEL_PARTNER_MAP[e.partnerId]?.type ?? null,
+              }))),
+        }),
         ...fuelQuarterNewsRows({
           worldId: world.id, week: toIndex,
           airlines: computed

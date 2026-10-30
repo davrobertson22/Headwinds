@@ -90,6 +90,12 @@ import {
   coverageLabel, contractWeeksLeft,
 } from './data/cateringContracts.js';
 import {
+  TRAVEL_PARTNER_MAP, canSignTravelPartner, makeTravelPartnerContract, travelSignHappiness,
+  travelBreakCost, travelRenewalOffer, inTravelRenewalWindow, dueTravelInstalments,
+  requirementLabel, formatRequirementValue, TP_REP_BREAK_PER_PROM, TP_REJOIN_HAPPINESS,
+  TP_AUTORENEW_MIN_HAPPINESS,
+} from './data/travelPartners.js';
+import {
   DEFAULT_LABOR_RELATIONS, tickUnrest, rollStrike, settlementPayMultiplier,
   scheduleNextNegotiation,
   MAX_PAY_MULTIPLIER,
@@ -3075,6 +3081,92 @@ function reducer(state, action) {
       };
     }
 
+    // ─── Travel partnerships (data/travelPartners.js) ───────────────────────
+    // Partnership worlds only. A signing records the contract; the first
+    // instalment is charged by the week's tick so it lands on the P&L. Keys are
+    // written only when non-empty, like cateringContracts, for golden parity.
+    case 'SIGN_TRAVEL_PARTNER': {
+      const id = action.partnerId;
+      const absWeek = absoluteWeek(state.year, state.week);
+      const partners = state.travelPartners ?? {};
+      // Fees already signed for but not yet charged are spoken for.
+      const pending = dueTravelInstalments(partners, absWeek).reduce((s, d) => s + d.amount, 0);
+      const check = canSignTravelPartner(id, {
+        partners, memory: state.travelPartnerMemory, absWeek,
+        reputation: state.lastReport?.reputationScore ?? 0,
+        cash: (state.cash ?? 0) - pending,
+        worldOn: state.partnershipsWorld === true,
+      });
+      if (!check.ok) return { ...state, error: check.reasons[0] };
+      const c = makeTravelPartnerContract(id, absWeek, {
+        annualFee: check.fee, happiness: travelSignHappiness(state.travelPartnerMemory, id),
+      });
+      if (!c) return state;
+      const memory = { ...(state.travelPartnerMemory ?? {}) };
+      delete memory[id];
+      const { travelPartnerMemory: _m, ...rest } = state;
+      return {
+        ...rest,
+        ...(Object.keys(memory).length > 0 ? { travelPartnerMemory: memory } : {}),
+        travelPartners: { ...partners, [id]: c },
+      };
+    }
+
+    case 'RENEW_TRAVEL_PARTNER': {
+      // Inside the renewal window only. Locks today's offer (priced by today's
+      // happiness); the new 2-year term starts when the current one ends.
+      const c = state.travelPartners?.[action.partnerId];
+      if (!c) return state;
+      const absWeek = absoluteWeek(state.year, state.week);
+      if (!inTravelRenewalWindow(c, absWeek)) {
+        return { ...state, error: 'Renewals open 8 weeks before the contract ends.' };
+      }
+      const offer = travelRenewalOffer(c, absWeek);
+      if (offer.refuses) {
+        return { ...state, error: `${TRAVEL_PARTNER_MAP[c.partnerId]?.name ?? 'The partner'} won’t renew.` };
+      }
+      return {
+        ...state,
+        travelPartners: { ...state.travelPartners,
+          [action.partnerId]: { ...c, renewal: { annualFee: offer.annualFee, tighten: offer.tighten } } },
+      };
+    }
+
+    case 'BREAK_TRAVEL_PARTNER': {
+      // Half the unpaid instalment(s), a reputation hit weighted by prominence,
+      // and the partner remembers (re-signing starts at 40). Breaking is the
+      // airline's choice, so no 5-year cooldown — that is for a partner that
+      // leaves YOU.
+      const c = state.travelPartners?.[action.partnerId];
+      if (!c) return state;
+      const p = TRAVEL_PARTNER_MAP[c.partnerId];
+      const cost = travelBreakCost(c);
+      const rest = { ...state.travelPartners };
+      delete rest[action.partnerId];
+      const { travelPartners: _drop, ...without } = state;
+      return {
+        ...(Object.keys(rest).length > 0 ? { ...state, travelPartners: rest } : without),
+        cash: state.cash - cost,
+        reputationPenalty: Math.min(REP_PENALTY_MAX,
+          (state.reputationPenalty ?? 0) + TP_REP_BREAK_PER_PROM * (p?.prominence ?? 1)),
+        travelPartnerMemory: {
+          ...(state.travelPartnerMemory ?? {}),
+          [action.partnerId]: { rejoinHappiness: Math.min(TP_REJOIN_HAPPINESS, Math.round(c.happiness ?? TP_REJOIN_HAPPINESS)) },
+        },
+      };
+    }
+
+    case 'SET_TRAVEL_PARTNER_AUTORENEW': {
+      // { partnerId | 'all', on }
+      const partners = state.travelPartners;
+      if (!partners) return state;
+      const on = action.on !== false;
+      const ids = action.partnerId === 'all' ? Object.keys(partners) : [action.partnerId];
+      const next = { ...partners };
+      for (const id of ids) if (next[id]) next[id] = { ...next[id], autoRenew: on };
+      return { ...state, travelPartners: next };
+    }
+
     case 'SET_LOUNGE_POLICY': {
       // Partial updates: the UI toggles one switch at a time.
       const current = normalizeLoungePolicy(state.loungePolicy);
@@ -5678,6 +5770,7 @@ function reducer(state, action) {
           message: `Your ${coverageLabel(c.coverage)} contract has run its term. Those airports are back on the `
                  + `standard catering rate. Sign a new one on the Operations page.`,
         })),
+        ...travelPartnerToasts(report.travelPartnerEvents, report.travelPartnersNext, curAbsWeek),
       ];
 
       // 5. Build recovery toasts (aircraft that just came back from grounding).
@@ -6808,6 +6901,8 @@ function reducer(state, action) {
         newSlotSqueeze = squeeze;
       }
 
+      // A travel partner walking out is a public falling-out (data/travelPartners.js).
+      forcedRepHit += report.travelPartnerRepHit ?? 0;
       let newReputationPenalty = (state.reputationPenalty ?? 0) * REP_PENALTY_DECAY + forcedRepHit;
       newReputationPenalty = newReputationPenalty < 0.1 ? 0 : Math.min(REP_PENALTY_MAX, newReputationPenalty);
 
@@ -6868,6 +6963,19 @@ function reducer(state, action) {
         ...(cateringTick?.contracts && Object.keys(cateringTick.contracts).length > 0
           ? { cateringContracts: cateringTick.contracts }
           : (state.cateringContracts ? { cateringContracts: undefined } : {})),
+        // Travel partners: weeklyTick settled them (renewals, instalments,
+        // happiness, walk-outs); persist its result. Cleared, not left to
+        // `...state`, when the last one lapses or walks.
+        ...(report.travelPartnersNext
+          ? (Object.keys(report.travelPartnersNext).length > 0
+              ? { travelPartners: report.travelPartnersNext }
+              : { travelPartners: undefined })
+          : {}),
+        ...(report.travelPartnerMemoryNext
+          ? (Object.keys(report.travelPartnerMemoryNext).length > 0
+              ? { travelPartnerMemory: report.travelPartnerMemoryNext }
+              : { travelPartnerMemory: undefined })
+          : {}),
         activeEvents:      allEvents,
         fuelPrice:         { index: nextFuelIndex, history: fuelPriceHistory,
                              ...(nextCrackIndex != null ? { crack: nextCrackIndex } : {}) },
@@ -7939,6 +8047,13 @@ function reconcileState(parsed) {
     // Catering contracts — carried only when the save has one (golden parity).
     ...(parsed.cateringContracts && Object.keys(parsed.cateringContracts).length > 0
       ? { cateringContracts: parsed.cateringContracts } : {}),
+    // Travel partnerships — the world flag and the contracts, carried only when
+    // present (golden parity).
+    ...(parsed.partnershipsWorld === true ? { partnershipsWorld: true } : {}),
+    ...(parsed.travelPartners && Object.keys(parsed.travelPartners).length > 0
+      ? { travelPartners: parsed.travelPartners } : {}),
+    ...(parsed.travelPartnerMemory && Object.keys(parsed.travelPartnerMemory).length > 0
+      ? { travelPartnerMemory: parsed.travelPartnerMemory } : {}),
     loungePolicy:             parsed.loungePolicy ? normalizeLoungePolicy(parsed.loungePolicy) : null,
     awareness:                parsed.awareness                ?? 5,
     // Labor relations (unrest / strikes / negotiations) — added later; old saves
@@ -7982,4 +8097,67 @@ function reconcileState(parsed) {
     fairValue:   Number.isFinite(parsed.fairValue) ? parsed.fairValue : (parsed.marketCap ?? null),
   };
   return applyScheduleTrimMigration(grandfatherRouteRanges(reconciled));
+}
+
+// ─── Travel partner toasts ───────────────────────────────────────────────────
+function _money(n) {
+  const v = Math.round(n ?? 0);
+  return v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : `$${Math.round(v / 1000)}K`;
+}
+function travelPartnerToasts(events, partnersNext, absWeek) {
+  if (!events?.length) return [];
+  const out = [];
+  for (const e of events) {
+    const p = TRAVEL_PARTNER_MAP[e.partnerId];
+    if (!p) continue;
+    const c = partnersNext?.[e.partnerId];
+    if (e.type === 'lost') {
+      out.push({
+        type: 'danger', icon: '\uD83D\uDCA5', duration: 14000,
+        title: `\uD83D\uDCA5 ${p.name} has ended your partnership`,
+        message: (e.reason === 'refused'
+          ? `${p.name} refused to renew. `
+          : `${p.name} walked out after weeks of missed targets. `)
+          + `It won’t work with you again for 5 years, and the falling-out has cost you reputation.`,
+      });
+    } else if (e.type === 'renewed') {
+      out.push({
+        type: 'success', icon: '\uD83E\uDD1D', duration: 8000,
+        title: `\uD83E\uDD1D ${p.name} renewed for 2 years`,
+        message: `${e.auto ? 'Auto-renewed' : 'Renewed'} at ${_money(e.annualFee)} a year.`,
+      });
+    } else if (e.type === 'lapsed') {
+      out.push({
+        type: e.reason === 'not-renewed' ? 'info' : 'warning', icon: '\uD83E\uDD1D', duration: 10000,
+        title: `\uD83E\uDD1D ${p.name} partnership ended`,
+        message: e.reason === 'cash'
+          ? `There wasn’t enough cash to renew it. You can sign again from the Partnerships tab.`
+          : e.reason === 'unhappy'
+            ? `It didn’t auto-renew: the partner wasn’t happy enough (below ${TP_AUTORENEW_MIN_HAPPINESS}).`
+            : `Its 2-year term has run out.`,
+      });
+    } else if (e.type === 'frustrated') {
+      const req = p.requirements[e.worst];
+      out.push({
+        type: 'warning', icon: '\uD83D\uDE20', duration: 12000,
+        title: `\uD83D\uDE20 ${p.name} is frustrated`,
+        message: req
+          ? `${requirementLabel(req)}: ${formatRequirementValue(req, e.actual)} against ${formatRequirementValue(req, e.target)}. `
+            + `Unhappy partners lift demand less and cost you reputation; below 15 for four weeks they walk out.`
+          : `Unhappy partners lift demand less and cost you reputation.`,
+      });
+    } else if (e.type === 'expiring' && c) {
+      const offer = travelRenewalOffer(c, absWeek);
+      const auto = c.autoRenew !== false && (c.happiness ?? 0) >= TP_AUTORENEW_MIN_HAPPINESS;
+      out.push({
+        type: 'info', icon: '\uD83E\uDD1D', duration: 10000,
+        title: `\uD83E\uDD1D ${p.name} contract ends in ${e.weeksLeft} weeks`,
+        message: offer.refuses
+          ? `${p.name} is too unhappy to renew. Lift its happiness above 15 before the end or you lose it for 5 years.`
+          : `Renewal today: ${_money(offer.annualFee)} a year (${offer.mood.label.toLowerCase()}). `
+            + (auto ? 'It will auto-renew.' : 'It will not auto-renew — renew it from the Partnerships tab.'),
+      });
+    }
+  }
+  return out;
 }

@@ -13,7 +13,7 @@ import Fleet from './components/Fleet.jsx';
 import Routes from './components/Routes.jsx';
 import Marketplace from './components/Marketplace.jsx';
 import Finance from './components/Finance.jsx';
-import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
+import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
   WrenchIcon, SearchIcon, GlobeIcon,
 } from './components/Icons.jsx';
 import HubManagement from './components/HubManagement.jsx';
@@ -30,6 +30,7 @@ import Operations from './components/Operations.jsx';
 import Maintenance from './components/Maintenance.jsx';
 import Ancillaries from './components/Ancillaries.jsx';
 import Loyalty from './components/Loyalty.jsx';
+import Partnerships from './components/Partnerships.jsx';
 import Alliances from './components/Alliances.jsx';
 import Wiki from './components/Wiki.jsx';
 import AirportSelect from './components/AirportSelect.jsx';
@@ -149,6 +150,7 @@ const TABS = [
   { id: 'ancillaries', label: 'Ancillaries',  Icon: AncillaryIcon     },
   { id: 'reputation',  label: 'Reputation',    Icon: RepIcon         },
   { id: 'loyalty',     label: 'Loyalty',       Icon: LoyaltyIcon     },
+  { id: 'partners',    label: 'Partnerships',  Icon: PartnerIcon     },
   { id: 'alliances',   label: 'Alliances',    Icon: AllianceIcon    },
   { id: 'competition', label: 'Competition',  Icon: CompetitionIcon   },
   { id: 'stocks',      label: 'Stocks',       Icon: TrendUpIcon       },
@@ -168,7 +170,7 @@ const NAV_GROUPS = [
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'finder', 'planner', 'routes'] },
   { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market', 'used'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
-  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'maintenance', 'ancillaries', 'reputation', 'loyalty', 'alliances', 'competition', 'stocks'] },
+  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'maintenance', 'ancillaries', 'reputation', 'loyalty', 'partners', 'alliances', 'competition', 'stocks'] },
   { id: 'finance' },
   { id: 'wiki' },
 ];
@@ -519,7 +521,11 @@ function AppInner() {
 
   // News is a multiplayer surface: it reports what OTHER players are doing, and
   // solo has no other players. Hidden entirely rather than shown empty.
-  const navGroups = remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news');
+  // Travel partnerships exist only in worlds created with them (new worlds from
+  // 2026-10-29); everywhere else the page is hidden rather than shown empty.
+  const navGroups = (remote ? NAV_GROUPS : NAV_GROUPS.filter((g) => g.id !== 'news'))
+    .map((g) => (g.children && state.partnershipsWorld !== true
+      ? { ...g, children: g.children.filter((c) => c !== 'partners') } : g));
   const navigate = (id) => { setActiveTab(layout === 'map' ? resolveMapPage(id) : id); setOpenGroup(null); };
   const switchLayout = (next) => {
     const l = writeLayout(next);
@@ -546,6 +552,7 @@ function AppInner() {
     ancillaries: <Ancillaries />,
     reputation:  <Reputation />,
     loyalty:     <Loyalty />,
+    partners:    <Partnerships />,
     alliances:   <Alliances />,
     competition: <Competition />,
     stocks:      <StockMarket />,

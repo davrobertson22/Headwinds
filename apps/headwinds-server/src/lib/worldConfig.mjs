@@ -256,7 +256,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, event = null,
+  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, stage, startYear, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -276,6 +276,9 @@ export function validateWorldConfig({
   }
   if (productionLines != null && typeof productionLines !== 'boolean') {
     throw badRequest('productionLines must be true or false');
+  }
+  if (partnerships != null && typeof partnerships !== 'boolean') {
+    throw badRequest('partnerships must be true or false');
   }
   if (productionLineRates != null) {
     const problem = lineRatesProblem(productionLineRates);
@@ -440,6 +443,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // The rates the creator set (null = every line at its default).
     productionLineRates: world.tickConfig?.productionLines === true
       ? (world.tickConfig?.productionLineRates ?? null) : null,
+    // Travel partnerships (new worlds from 2026-10-29).
+    partnerships: world.tickConfig?.partnerships === true,
     // Station fuel pricing + tankering (fuel-ops v2).
     fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell

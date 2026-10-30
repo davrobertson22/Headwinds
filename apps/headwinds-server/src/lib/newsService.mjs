@@ -717,6 +717,36 @@ export function gateForfeitureNewsRows({ worldId, week, releases, lockoutWeeks, 
   });
 }
 
+/**
+ * Travel partners that ended a partnership this week — walked out after weeks
+ * of missed targets, or refused to renew (engine data/travelPartners.js). Public
+ * on purpose (Dave, 2026-10-29): a falling-out is world news. One row per
+ * airline per partner. `losses` is [{ airlineId, partnerId, partnerName, type,
+ * reason, cooldownUntil }] from each airline's report.
+ */
+export function travelPartnerLostNewsRows({ worldId, week, losses, nameOf }) {
+  const seen = new Set();
+  const rows = [];
+  for (const l of losses ?? []) {
+    if (!l?.airlineId || !l?.partnerId) continue;
+    const key = `${l.airlineId}:${l.partnerId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      worldId, week, category: 'world', kind: 'travel_partner_lost', tier: 2,
+      airlineId: l.airlineId,
+      payload: {
+        partnerId: l.partnerId,
+        partner: l.partnerName ?? null,
+        partnerType: l.partnerType ?? null,
+        reason: l.reason ?? 'walkout',
+        name: nameOf?.get?.(l.airlineId) ?? null,
+      },
+    });
+  }
+  return rows;
+}
+
 /** Rows for events that started or ended this week. */
 export function worldEventNewsRows({ worldId, week, prevEvents, nextEvents }) {
   const prevIds = new Set((prevEvents ?? []).map((e) => e.id));

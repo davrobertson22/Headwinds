@@ -69,6 +69,9 @@ export async function createWorld(prisma, {
   newWorldRestrictions,
   crewPipeline,
   productionLines,
+  // Travel partnerships (PARTNERSHIPS_PLAN.md): ON for new worlds unless the
+  // creator passes false.
+  partnerships,
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
@@ -111,7 +114,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -158,6 +161,11 @@ export async function createWorld(prisma, {
     // like the scale: re-rating a live line would re-time order books.
     ...(productionLines !== false && normalizeLineRates(productionLineRates)
       ? { productionLineRates: normalizeLineRates(productionLineRates) } : {}),
+    // Travel partnerships (cruise lines, tour operators, hotels, ride share —
+    // engine data/travelPartners.js). New worlds only (Dave, 2026-10-29): ON
+    // for every world created from now on unless the creator unticks it;
+    // worlds without the key never get the feature. Fixed at creation.
+    ...(partnerships !== false ? { partnerships: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Part of the
     // game, not a setup option (Dave, 2026-10-17): every world created from
@@ -310,6 +318,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     } : {}),
     // Production lines, baked at join like the other rule flags. The line rate
     // scales with the world's player cap (capacityScale), fixed at join.
+    // Travel partnerships, baked at join like the other rule flags.
+    ...(tc.partnerships === true ? { partnershipsWorld: true } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),

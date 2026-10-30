@@ -22,7 +22,7 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
@@ -541,6 +541,10 @@ export function toRivalSpecs(airlineRow) {
       // helper the tick runs on the player. Per pair, not per airline: a lounge
       // only counts on routes that touch it.
       loungeAppeal: stateLoungeFields(s, r.origin, r.destination).loungeAppeal,
+      // Their travel partners on THIS pair (cruise / tours → leisure, hotels /
+      // ride share → business), resolved by the helper the tick runs on the
+      // player. Empty — and so absent from the spec — without partners.
+      ...stateTravelPartnerFields(s, r.origin, r.destination),
       homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,

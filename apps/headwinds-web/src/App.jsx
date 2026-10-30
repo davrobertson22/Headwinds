@@ -24,6 +24,8 @@ import { AIRPORTS } from '../../../packages/engine/src/data/airports.js';
 import { AIRCRAFT_TYPES } from '../../../packages/engine/src/data/aircraft.js';
 import { eraSeedCapital } from '../../../packages/engine/src/data/era.js';
 import { normalizeLineRates } from '../../../packages/engine/src/data/productionLines.js';
+import { TRAVEL_PARTNER_MAP } from '../../../packages/engine/src/data/travelPartners.js';
+const travelPartnerNameOf = (id) => TRAVEL_PARTNER_MAP[id]?.name ?? null;
 import ProductionRates, { EMPTY_LINE_RATES } from './ProductionRates.jsx';
 import { nextSort, loadStandingsSort, saveStandingsSort } from '../../../src/utils/standingsView.js';
 import { describeFleetMove } from '../../../src/utils/fleetNews.js';
@@ -390,6 +392,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [crewPipeline, setCrewPipeline] = useState(false);
   // Shared production lines — on by default (the server defaults it on too).
   const [productionLines, setProductionLines] = useState(true);
+  // Travel partnerships — on by default (the server defaults it on too).
+  const [partnerships, setPartnerships] = useState(true);
   // Per-world frames a week (blank = default); sent only when something is set.
   const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
   const [stage, setStage] = useState('beta');
@@ -445,6 +449,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           ...(crewPipeline ? { crewPipeline: true } : {}),
           // Always explicit: the server treats an absent field as ON.
           productionLines,
+          // Always explicit: the server treats an absent field as ON.
+          partnerships,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -665,6 +671,19 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         {productionLines && (
           <ProductionRates rates={lineRates} onChange={setLineRates} maxPlayers={maxPlayers} />
         )}
+        <label style={{ alignItems: 'flex-start' }}>Travel partnerships
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={partnerships}
+              onChange={(e) => setPartnerships(e.target.checked)} />
+            <span className="muted">{partnerships ? 'ON (default) — cruise, tour, hotel and ride-share partners' : 'Off — no travel partners'}</span>
+          </span>
+          <span className="muted small">
+            Airlines sign 2-year partnerships with cruise lines and tour operators (more leisure
+            demand at their airports) and hotel chains and ride share (more business demand). Each
+            partner has its own targets. Hit them and it renews cheaply; miss them and it costs
+            reputation, and a partner that walks out won't come back for five years.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -829,6 +848,14 @@ const WORLD_FEATURES = [
     label: (w) => (w?.productionLineRates ? 'Production lines · custom rates' : 'Production lines'),
     rgb: '210,153,34',
     blurb: 'One factory line per aircraft family, shared by every airline. Your deliveries from a line are spaced 1–5 weeks apart by size, early slots cost extra, and in historical worlds launch customers order first.',
+  },
+  {
+    key: 'partners',
+    on: (w) => !!w.partnerships,
+    icon: '🤝',
+    label: () => 'Travel partners',
+    rgb: '232,121,160',
+    blurb: 'Sign cruise lines, tour operators, hotel chains and ride share. Each lifts leisure or business demand at its airports in return for targets you have to keep hitting; unhappy partners cost reputation and can walk out for five years.',
   },
   {
     key: 'hubs',
@@ -1216,6 +1243,9 @@ const MOVE_LABELS = {
   CLOSE_GROUND_STATION: (p) => `Closed the ground station at ${p.code ?? p.airportCode ?? '?'}`,
   SIGN_CATERING_CONTRACT: (p) => `Signed a ${p.years ?? '?'}-year catering contract`,
   BREAK_CATERING_CONTRACT: () => 'Broke a catering contract early',
+  SIGN_TRAVEL_PARTNER: (p) => `Signed a travel partnership${travelPartnerNameOf(p.partnerId) ? ` with ${travelPartnerNameOf(p.partnerId)}` : ''}`,
+  RENEW_TRAVEL_PARTNER: (p) => `Renewed${travelPartnerNameOf(p.partnerId) ? ` ${travelPartnerNameOf(p.partnerId)}` : ' a travel partnership'}`,
+  BREAK_TRAVEL_PARTNER: (p) => `Ended${travelPartnerNameOf(p.partnerId) ? ` its partnership with ${travelPartnerNameOf(p.partnerId)}` : ' a travel partnership'} early`,
   SET_LOUNGE_POLICY: () => 'Changed lounge access',
   INSTALL_WIFI: (p) => {
     const n = p.aircraftIds?.length ?? 1;

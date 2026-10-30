@@ -20,10 +20,13 @@ import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, currentGameDate,
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
-  buildEventDemandModel, CLASS_FARE_MULTIPLIERS,
-  stateLoungeFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
+  buildEventDemandModel, CLASS_FARE_MULTIPLIERS, routeStops,
+  stateLoungeFields, stateTravelPartnerFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
+import {
+  TRAVEL_PARTNER_MAP, TP_TYPES, travelPartnerCovers, travelPartnerInSeason, travelLiftScale, seasonLabel,
+} from '../data/travelPartners.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -59,6 +62,28 @@ function Stat({ label, value, sub, color }) {
 
 /** Where this route's quality score comes from — mirrors the engine exactly
  *  via routeQualityBreakdown, so players can see (and pull) every lever. */
+/** Travel partners covering this route's stops, with what each lifts this month. */
+function travelPartnerRows(state, route) {
+  const partners = state.travelPartners;
+  if (!partners || !route) return [];
+  const month = currentGameDate(state).month;
+  const stops = routeStops(route);
+  const out = [];
+  for (const c of Object.values(partners)) {
+    const p = TRAVEL_PARTNER_MAP[c.partnerId];
+    if (!p || !stops.some(code => travelPartnerCovers(p, code))) continue;
+    const inSeason = travelPartnerInSeason(p, month);
+    const lift = inSeason ? p.lift * travelLiftScale(c.happiness) : 0;
+    out.push({
+      id: p.id, name: p.name, segment: TP_TYPES[p.type].segment, lift,
+      note: !inSeason ? `out of season (${seasonLabel(p)})`
+        : lift < p.lift ? `${TP_TYPES[p.type].label.toLowerCase()} · unhappy, promoting you less`
+        : `${TP_TYPES[p.type].label.toLowerCase()} · ${TP_TYPES[p.type].segment} travellers`,
+    });
+  }
+  return out;
+}
+
 function QualityBreakdownPanel({ route, aircraft, state }) {
   const bd = routeQualityBreakdown(route, aircraft, state);
   if (!bd) return null;
@@ -123,9 +148,21 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
           </span>
         </div>
       )}
+      {/* Travel partners — like lounges, a demand term outside the quality score. */}
+      {travelPartnerRows(state, route).map(t => (
+        <div key={t.id} data-route-partner={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
+          <span>
+            {t.name}
+            <span style={{ color: 'var(--text-dim)', fontSize: 11, marginLeft: 6 }}>{t.note}</span>
+          </span>
+          <span style={{ fontWeight: 600, color: t.lift > 0 ? 'var(--green)' : 'var(--text-dim)', whiteSpace: 'nowrap', marginLeft: 10 }}>
+            {t.lift > 0 ? `+${(t.lift * 100).toFixed(1)}% ${t.segment}` : 'no lift'}
+          </span>
+        </div>
+      ))}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
         Quality drives your share of passengers against competitors — business travelers weigh it heavily.
-        Lounges sit outside this score: they move the business segment on their own.
+        Lounges and travel partners sit outside this score: they move their demand segment on their own.
       </div>
     </div>
   );
@@ -319,6 +356,8 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           // lounge parity while the tick scores it at 1.28 answers the question
           // wrongly on the one screen built to answer it.
           loungeAppeal:      stateLoungeFields(state, origin, dest).loungeAppeal,
+          // Travel partners — the segment lifts the tick attaches.
+          ...stateTravelPartnerFields(state, origin, dest),
           // The three demand terms weeklyTick attaches to every player route and
           // this panel used to omit. computeUtility reads `offer.brandReach ?? 1`,
           // so an offer without it is scored as an ESTABLISHED carrier at parity:
@@ -386,6 +425,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
         const combinedOffer = {
           airlineId: 'player', origin, destination: dest,
           loungeAppeal: stateLoungeFields(state, origin, dest).loungeAppeal,
+          ...stateTravelPartnerFields(state, origin, dest),
           economyPrice: ecoP, businessPrice: bizP,
           weeklyFrequency: totalFreq,
           seatsPerFlight: Math.round((totalEcoSeats + totalBizSeats) / totalFreq),
