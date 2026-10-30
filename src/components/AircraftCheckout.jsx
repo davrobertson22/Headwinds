@@ -470,7 +470,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
               <div style={{ fontWeight: 700, fontSize: 19 }}>{type.name}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                 {type.manufacturer} · <span style={{ color: catColor }}>{type.category}</span>
-                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range{!isFreighter && typicalSeatsOf(type) < type.seats ? ` at ${typicalSeatsOf(type)} seats` : ''} · {cruiseSpeedKmh(type).toLocaleString()} km/h cruise
+                {' · '}{isFreighter ? `${type.payloadTonnes}t payload` : `${type.seats} seats`} · {type.range.toLocaleString()} km range{!isFreighter && (typicalSeatsOf(type) < type.seats ? ` at ${typicalSeatsOf(type)} seats` : ` at all ${type.seats} seats`)} · {cruiseSpeedKmh(type).toLocaleString()} km/h cruise
               </div>
             </div>
             <button className="btn btn-ghost" onClick={onClose} style={{ padding: '4px 10px', marginLeft: 8 }}><Glyph e="✕" /></button>

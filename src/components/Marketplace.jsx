@@ -691,16 +691,23 @@ function MarketTable({ rows, sort, setSort, onCheckout, calYearRef = null }) {
 // Range as the maker quotes it, and the seats it is quoted at. A passenger type's
 // headline range applies at its TYPICAL cabin; packed to the exit limit it flies
 // less (payloadRangeMod in utils/simulation.js), and the tooltip says how much.
+// Some types (DC-8-30, DC-6B, the small turboprops...) are quoted with every seat
+// filled; they still say so, or the figure reads as missing its cabin.
 function RangeValue({ type }) {
   const typical = type.freighter ? 0 : typicalSeatsOf(type);
-  const quoted  = typical > 0 && typical < (type.seats ?? 0);
+  const seats   = type.seats ?? 0;
+  const light   = typical > 0 && typical < seats;
+  const full    = typical > 0 && typical >= seats;
+  const title = light
+    ? `${type.range.toLocaleString()} km with ${typical} seats, the cabin the maker quotes. Packed to all ${seats} seats: ${fullCabinRangeKm(type).toLocaleString()} km.`
+    : `${type.range.toLocaleString()} km with all ${seats} seats filled: the maker quotes this type at full payload. A lighter cabin flies further.`;
   return (
     <>
       {type.range.toLocaleString()} km
-      {quoted && (
+      {(light || full) && (
         <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}
-              title={`${type.range.toLocaleString()} km with ${typical} seats, the cabin the maker quotes. Packed to all ${type.seats} seats: ${fullCabinRangeKm(type).toLocaleString()} km.`}>
-          at {typical} seats
+              title={title}>
+          {light ? `at ${typical} seats` : `at all ${seats} seats`}
         </span>
       )}
     </>

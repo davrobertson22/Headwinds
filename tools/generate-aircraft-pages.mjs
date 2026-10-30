@@ -11,12 +11,14 @@ import { fuelCostPerKm } from '../src/utils/fuel.js';
 import { cruiseSpeedKmh, typicalSeatsOf, fullCabinRangeKm } from '../src/utils/simulation.js';
 
 // A passenger type's headline range is quoted at its typical cabin; say which, and
-// what it flies packed to the exit limit.
+// what it flies packed to the exit limit. A type quoted at full payload says so too.
 const lightCabinNote = (t) => {
   if (t.freighter) return '';
   const typical = typicalSeatsOf(t);
-  return typical > 0 && typical < (t.seats ?? 0)
-    ? ` at ${typical} seats (${fmtIntLite(fullCabinRangeKm(t))} km at ${t.seats})` : '';
+  if (!(typical > 0)) return '';
+  return typical < (t.seats ?? 0)
+    ? ` at ${typical} seats (${fmtIntLite(fullCabinRangeKm(t))} km at ${t.seats})`
+    : ` at all ${t.seats} seats`;
 };
 const fmtIntLite = (n) => Math.round(n).toLocaleString('en-US');
 

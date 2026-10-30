@@ -307,6 +307,17 @@ for (const layout of ['cards', 'table']) {
       assert.ok(html.includes(`at ${typicalSeatsOf(T(id))} seats`), `${id}: "at ${typicalSeatsOf(T(id))} seats"`);
     }
   });
+  // A type the maker quotes at full payload (typicalSeats = seats) said nothing,
+  // so its range read as missing its cabin (Discord, 2026-10-21: DC-8-30).
+  test(`the marketplace (${layout}) says so when the range is quoted with every seat filled`, () => {
+    store.set('market_layout', layout);
+    const html = renderToString(React.createElement(ctx.GameProvider, null, React.createElement(Marketplace)))
+      .replaceAll('<!-- -->', '');
+    for (const id of ['erj145', 'b1900d']) {
+      assert.equal(typicalSeatsOf(T(id)), T(id).seats, `${id} is quoted at full payload`);
+      assert.ok(html.includes(`at all ${T(id).seats} seats`), `${id}: "at all ${T(id).seats} seats"`);
+    }
+  });
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
