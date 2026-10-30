@@ -42,9 +42,10 @@ import {
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
   buildEventDemandModel, committedPeakBlockHours, routesCommittedTo, blockHourFit,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport,
+  routePairKey,
 } from '../utils/simulation.js';
 import { rivalIndexFor } from '../models/network.js';
-import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio, cliffFaresFor } from '../models/fareCliff.js';
+import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio, cliffFaresFor, faresTrimmedUnderCliff, FARE_CLIFF_TRIM_MARGIN } from '../models/fareCliff.js';
 
 // ─── Remembered view settings ────────────────────────────────────────────────
 // How the player likes this page laid out: the card sort, the table's sort
@@ -524,6 +525,8 @@ export default function Routes() {
   const overCliff = useMemo(
     () => networkFareCliff(state, { routeResults: proj.report?.routeResults ?? [] }),
     [state.routes, state.routePricing, state.fleet, proj]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Same key as groupRoutes (sorted "A-B"), for the "Past cliff" filter tab.
+  const overCliffKeys = useMemo(() => new Set(overCliff.map(p => p.key)), [overCliff]);
 
   // If a route detail is selected, render that instead of the list
   if (detailPair) {
@@ -578,6 +581,7 @@ export default function Routes() {
     lowload:      afterScope.filter(g => g.avgLoad < 0.5).length,
     disrupted:    afterScope.filter(g => g.hasDisrupted).length,
     dormant:      afterScope.filter(g => g.hasDormant).length,
+    cliff:        afterScope.filter(g => overCliffKeys.has(g.key)).length,
   };
 
   // Status filter
@@ -587,6 +591,7 @@ export default function Routes() {
     if (filterTab === 'lowload')      return g.avgLoad < 0.5;
     if (filterTab === 'disrupted')    return g.hasDisrupted;
     if (filterTab === 'dormant')      return g.hasDormant;
+    if (filterTab === 'cliff')        return overCliffKeys.has(g.key);
     return true;
   });
 
@@ -657,6 +662,23 @@ export default function Routes() {
       type: 'success',
       title: 'Fares reset',
       message: `${pairCount} route${pairCount !== 1 ? 's' : ''} back to the market reference fare.`,
+    });
+  }
+
+  // Bulk: pull only the cabins priced past the fare cliff back to just under it
+  // (FARE_CLIFF_TRIM_MARGIN), keeping the rest of the markup. The count comes
+  // from the same helper the reducer stores with, so the toast can't disagree.
+  function trimGroupsUnderCliff(groupsToTrim) {
+    trimRouteIdsUnderCliff(groupsToTrim.flatMap(g => g.routes.map(r => r.id)));
+  }
+  function trimRouteIdsUnderCliff(routeIds) {
+    const trimmed = faresTrimmedUnderCliff(state, routeIds);
+    if (trimmed.size === 0) return;
+    dispatch({ type: 'TRIM_FARES_TO_CLIFF', routeIds });
+    addToast({
+      type: 'success',
+      title: 'Fares trimmed',
+      message: `${trimmed.size} route${trimmed.size !== 1 ? 's' : ''}: only the cabins past the cliff, now ${Math.round(FARE_CLIFF_TRIM_MARGIN * 100)}% under it.`,
     });
   }
 
@@ -1003,7 +1025,9 @@ export default function Routes() {
       {overCliff.length > 0 && (
         <FareCliffBanner
           pairs={overCliff}
+          onTrim={(pairs) => trimRouteIdsUnderCliff(pairs.flatMap(p => p.routeIds))}
           onReset={(pairs) => resetRouteIdsToReference(pairs.flatMap(p => p.routeIds), pairs.length)}
+          onShow={() => setFilterTab('cliff')}
         />
       )}
 
@@ -1050,6 +1074,9 @@ export default function Routes() {
               { id: 'lowload',      label: '⚠ Low Load' },
               ...(tabCounts.disrupted > 0 ? [{ id: 'disrupted', label: '🔧 Disrupted' }] : []),
               ...(tabCounts.dormant   > 0 ? [{ id: 'dormant',   label: '🗓 Dormant'   }] : []),
+              // Restricted worlds: routes with a cabin priced past the fare cliff.
+              // Kept while selected so trimming the last one doesn't strand the view.
+              ...(tabCounts.cliff > 0 || filterTab === 'cliff' ? [{ id: 'cliff', label: '📉 Past cliff' }] : []),
             ].map(t => (
               <button
                 key={t.id}
@@ -1144,6 +1171,8 @@ export default function Routes() {
           onApplyToGroups={(g, pct) => { applyPctToGroups(g, pct); clearSelection(); }}
           previewCliff={previewCliff}
           onResetGroups={(g) => { resetGroupsToReference(g); clearSelection(); }}
+          cliffGroupCount={selectedGroups.filter(g => overCliffKeys.has(g.key)).length}
+          onTrimGroups={(g) => { trimGroupsUnderCliff(g.filter(x => overCliffKeys.has(x.key))); clearSelection(); }}
           onSetCatering={bulkSetCatering}
           onApplyFrequency={(plan, spec) => { applyFrequencyPlan(plan, spec); clearSelection(); }}
           onCloseGroups={bulkCloseGroups}
@@ -2238,13 +2267,19 @@ function FareCliffWarning({ preview }) {
 // fare cliff but still have a 90%+ projected load", Discord 2026-09-24):
 //   red   — the cliff is COSTING these routes passengers this week;
 //   amber — past the cliff, but demand still covers the seats, so they are full.
-function FareCliffBanner({ pairs, onReset }) {
+function FareCliffBanner({ pairs, onTrim, onReset, onShow }) {
   const costing = pairs.filter(p => p.costing !== false);
   const full    = pairs.filter(p => p.costing === false);
+  const margin  = Math.round(FARE_CLIFF_TRIM_MARGIN * 100);
   const list = (ps) => ps.slice(0, 4).map(p => {
-    const cab = p.cabins.filter(c => c.costing !== false).map(c => CABIN_SHORT[c.cls] ?? c.cls);
+    // Name the cabins that are costing passengers; on a still-full pair none
+    // are, so name every cabin past the cliff rather than none.
+    const costingCabins = p.cabins.filter(c => c.costing !== false);
+    const cab = (costingCabins.length ? costingCabins : p.cabins).map(c => CABIN_SHORT[c.cls] ?? c.cls);
     return `${p.origin}–${p.destination}${cab.length && cab.join() !== 'Economy' ? ` (${cab.join(', ')})` : ''}`;
   }).join(', ') + (ps.length > 4 ? `, +${ps.length - 4} more` : '');
+  const trimTitle = `Lower only the cabins past the cliff to ${margin}% under it — every other fare, and the rest of your markup, stays as it is`;
+  const resetTitle = 'Put every cabin on these routes back to its market reference fare';
   return (
     <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {costing.length > 0 && (
@@ -2261,12 +2296,24 @@ function FareCliffBanner({ pairs, onReset }) {
             <div style={{ color: 'var(--text-muted)' }}>
               Priced past the point where demand collapses, and it is costing seats this week ({list(costing)}).
               In premium cabins the passengers you price out trade down to economy.
+              The cliff moves: it rises and falls with each route&apos;s quality (on-time, rating, aircraft age),
+              and in economy it drops 5% for every rival on the pair — so a fare set just under it can end up over it.
             </div>
           </div>
-          <button className="btn btn-primary" style={{ fontSize: 12.5 }} onClick={() => onReset(costing)}
-            title="Put every cabin on these routes back to its market reference fare">
-            Reset {costing.length === 1 ? 'it' : `all ${costing.length}`} to reference
-          </button>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" style={{ fontSize: 12.5 }} onClick={() => onTrim(costing)} title={trimTitle}>
+              Trim {costing.length === 1 ? 'it' : `all ${costing.length}`} under the cliff
+            </button>
+            {onShow && (
+              <button className="btn btn-ghost" style={{ fontSize: 12.5 }} onClick={onShow}
+                title="Filter the list to every route priced past the cliff">
+                Show them
+              </button>
+            )}
+            <button className="btn btn-ghost" style={{ fontSize: 12.5 }} onClick={() => onReset(costing)} title={resetTitle}>
+              Reset to reference
+            </button>
+          </div>
         </div>
       )}
       {full.length > 0 && (
@@ -2283,10 +2330,20 @@ function FareCliffBanner({ pairs, onReset }) {
             {' '}({list(full)}). Demand there is far above your seats, so you are not losing passengers yet — but
             each extra 1% on the fare now cuts demand by about 14%, and a rival or a quiet season can tip it over.
           </div>
-          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => onReset(full)}
-            title="Put every cabin on these routes back to its market reference fare">
-            Reset {full.length === 1 ? 'it' : 'these'}
-          </button>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => onTrim(full)} title={trimTitle}>
+              Trim {full.length === 1 ? 'it' : 'these'}
+            </button>
+            {onShow && (
+              <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onShow}
+                title="Filter the list to every route priced past the cliff">
+                Show them
+              </button>
+            )}
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => onReset(full)} title={resetTitle}>
+              Reset {full.length === 1 ? 'it' : 'these'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -2463,7 +2520,7 @@ function BulkPricingModal({ allGroups, onApplyToGroups, previewCliff, onResetGro
 //
 // Appears when the player has ticked one or more route cards. Offers the same
 // per-class % adjustment, applied only to the explicitly selected routes.
-function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGroups, onSetCatering, onApplyFrequency, onCloseGroups, onClear }) {
+function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGroups, cliffGroupCount = 0, onTrimGroups, onSetCatering, onApplyFrequency, onCloseGroups, onClear }) {
   const confirm = useConfirm();
   const [pct, setPct] = useState({});
   const [catering, setCatering] = useState('');
@@ -2518,6 +2575,16 @@ function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGrou
           title="Put every cabin on the selected routes back to its market reference fare"
         >
           Reset to ref
+        </button>
+      )}
+      {onTrimGroups && cliffGroupCount > 0 && (
+        <button
+          className="btn btn-ghost"
+          style={{ fontSize: 13 }}
+          onClick={() => onTrimGroups(groups)}
+          title={`Lower only the cabins past the fare cliff to ${Math.round(FARE_CLIFF_TRIM_MARGIN * 100)}% under it — every other fare stays as it is`}
+        >
+          Trim {cliffGroupCount} under cliff
         </button>
       )}
       {cliff && cliff.over.length > 0 && (
@@ -2715,9 +2782,26 @@ function BulkFrequencyModal({ allGroups, onApply, onClose }) {
 
 // ─── Per-class pricing panel ──────────────────────────────────────────────────
 
-function PricingPanel({ route, aircraft, type }) {
+// Exported for tools/fare-cliff-trim-ui-test.mjs (SSR of the real panel).
+export function PricingPanel({ route, aircraft, type }) {
   const { state, dispatch } = useGame();
   const config = aircraft?.config ?? (type ? { economy: type.seats } : {});
+  // Fares belong to the PAIR, so a cabin another aircraft on the pair sells is
+  // this route's fare too. Showing only this tail's cabins hid them: the cliff
+  // banner named "IST–LHR (First)" while the A321 row's editor offered only
+  // Business / Prem Eco / Economy, all at reference (Discord, Dunno23 2026-10-19).
+  const pairCabins = useMemo(() => {
+    const key = routePairKey(route.origin, route.destination);
+    const fleetById = new Map((state.fleet ?? []).map(a => [a.id, a]));
+    const out = new Set();
+    for (const r of state.routes ?? []) {
+      if (r.id === route.id || routePairKey(r.origin, r.destination) !== key) continue;
+      const a = fleetById.get(r.aircraftId);
+      const cfg = a?.config ?? (a ? { economy: getAircraftType(a.typeId)?.seats ?? 0 } : {});
+      for (const [cls, n] of Object.entries(cfg)) if (n > 0 && !((config[cls] ?? 0) > 0)) out.add(cls);
+    }
+    return [...out];
+  }, [state.routes, state.fleet, route.id, route.origin, route.destination, config]);
   const basis  = loadProfitBasis();
 
   // Forecast the DRAFT fares through the sanctioned shared projection —
@@ -2766,6 +2850,7 @@ function PricingPanel({ route, aircraft, type }) {
         origin={route.origin}
         dest={route.destination}
         config={config}
+        pairCabins={pairCabins}
         fares={route.classPrices}
         project={project}
         cliffFares={cliffFaresFor(state, route.origin, route.destination)}

@@ -314,3 +314,56 @@ export function networkFareCliff(state, opts = {}) {
   }
   return out;
 }
+
+// ─── Trim back under the cliff (Discord, Dunno23, 2026-10-19) ────────────────
+//
+// "I always price my tickets under the fare cliff, but then if I come back
+// later several routes are priced above it." The fares had not moved — the
+// CLIFF had. It sits at 1.10–1.25× reference by the pair's quality, and quality
+// is a live number (on-time and customer rating move week to week, aircraft age
+// every week), and an economy cliff steps 5% lower for each carrier that joins
+// the pair. A fare parked a dollar under the cliff is over it a few weeks later.
+//
+// The only bulk way back was "Reset to reference", which throws away the whole
+// markup the player had earned. This pulls ONLY the cabins that are over the
+// cliff down to just under it, and leaves room for the weekly wobble so the
+// same routes don't come straight back. It is still a player action — the
+// cliff is the yield ceiling of a restricted world, and keeping under it is
+// part of running one — but it is one click for a network, not hundreds.
+
+/** How far under the cliff a trimmed fare lands — room for the weekly quality wobble. */
+export const FARE_CLIFF_TRIM_MARGIN = 0.02;
+
+/**
+ * Exactly what TRIM_FARES_TO_CLIFF stores: for each pair behind `routeIds`,
+ * every seated cabin priced past the pair's cliff is lowered to
+ * floor(cliffFare × (1 − margin)). Cabins under the cliff, and unseated
+ * cabins, are untouched; a fare is never raised.
+ *
+ * @param {object}   state
+ * @param {string[]} routeIds
+ * @param {object}   [opts]  { margin, force: ignore the world flag }
+ * @returns {Map<string, object>} pairKey → next fares, only for pairs that change
+ */
+export function faresTrimmedUnderCliff(state, routeIds, opts = {}) {
+  const out = new Map();
+  if (!(opts.force ?? getNwrYieldChoke())) return out;
+  if (!Array.isArray(routeIds) || routeIds.length === 0) return out;
+  const margin = Math.max(0, Math.min(0.5, Number(opts.margin ?? FARE_CLIFF_TRIM_MARGIN) || 0));
+  const seated = seatedClassesByPair(state);
+  const qualities = pairQualities(state);
+  for (const p of pairsFor(state, routeIds)) {
+    const fares = state.routePricing?.[p.key];
+    if (!fares) continue;
+    const over = faresOverCliff(fares, p.origin, p.destination, {
+      ...pairContext(state, p.key, p.origin, p.destination, qualities),
+      classes: [...(seated.get(p.key) ?? [])],
+      force: opts.force,
+    });
+    if (over.length === 0) continue;
+    const next = { ...fares };
+    for (const c of over) next[c.cls] = Math.max(1, Math.min(c.fare, Math.floor(c.cliffFare * (1 - margin))));
+    out.set(p.key, next);
+  }
+  return out;
+}

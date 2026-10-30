@@ -127,6 +127,7 @@ import { tickEncroachment } from './models/encroachment.js';
 import { leaseBuyoutQuote } from './models/leaseBuyout.js';
 import { leaseAutoRenewSetting, leaseWillAutoRenew, leaseWarnWeeks, LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from './models/leaseRenewal.js';
 import { normalizeStarts } from './models/schedule.js';
+import { faresTrimmedUnderCliff } from './models/fareCliff.js';
 import {
   tickFuelPrice,
   clampFuelIndex, FUEL_BASE_INDEX,
@@ -4377,6 +4378,19 @@ function reducer(state, action) {
         nextPricing[key] = updated;
       }
       return changed ? { ...state, routePricing: nextPricing } : state;
+    }
+
+    // Pull fares that are past the fare cliff back to just under it — only the
+    // cabins that are over, never a raise. action: { routeIds: [...] }
+    // The cliff moves with the pair's quality and its rival count, so fares set
+    // under it drift over it with no player action; RESET_ROUTE_PRICING was the
+    // only bulk way back and it discarded the whole markup. Restricted (NWR)
+    // worlds only — classic worlds have no cliff and this is a no-op there.
+    // The Routes page previews with the same helper (models/fareCliff.js).
+    case 'TRIM_FARES_TO_CLIFF': {
+      const trimmed = faresTrimmedUnderCliff(state, action.routeIds);
+      if (trimmed.size === 0) return state;
+      return { ...state, routePricing: { ...(state.routePricing ?? {}), ...Object.fromEntries(trimmed) } };
     }
 
     case 'UPDATE_FREQUENCY': {

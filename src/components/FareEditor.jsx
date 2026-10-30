@@ -63,13 +63,19 @@ export function referenceClassPrices(origin, dest) {
 // from cliffFaresFor() — quality- and competition-aware. Without it (a route not
 // open yet) the editor falls back to the 1.10× floor, the earliest any route's
 // cliff can start.
-export default function FareEditor({ origin, dest, config, fares, onCommit, onCommitMany, project, showSeats = true, cliffFares = null }) {
+// `pairCabins` (optional): cabins this aircraft has no seats in but another
+// aircraft on the same O&D pair does. Fares are per pair, so those are this
+// route's fares too — shown, labelled "other aircraft", so a cliff warning that
+// names one is never about a cabin the player can't find.
+export default function FareEditor({ origin, dest, config, fares, onCommit, onCommitMany, project, showSeats = true, cliffFares = null, pairCabins = null }) {
   const batched = typeof onCommitMany === 'function';
   const refP      = referencePrice(origin, dest);
   const refPrices = referenceClassPrices(origin, dest);
 
-  // Only cabins the aircraft actually has seats in.
-  const activeClasses = CLASS_ORDER.filter(cls => (config?.[cls] ?? 0) > 0);
+  // Only cabins the aircraft actually has seats in — plus any another aircraft
+  // on the pair sells (same fare, see pairCabins).
+  const ownSeats = (cls) => (config?.[cls] ?? 0) > 0;
+  const activeClasses = CLASS_ORDER.filter(cls => ownSeats(cls) || (pairCabins ?? []).includes(cls));
 
   const initialDraft = () => {
     const result = {};
@@ -157,9 +163,17 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, onCo
           <div key={cls} style={{ minWidth: 110 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: CLASS_COLORS[cls], textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
               {CLASS_LABELS[cls]}
-              {showSeats && (
+              {showSeats && ownSeats(cls) && (
                 <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 4 }}>
                   ({config[cls]} seats)
+                </span>
+              )}
+              {!ownSeats(cls) && (
+                <span
+                  style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 4, textTransform: 'none', letterSpacing: 0 }}
+                  title={`This aircraft has no ${CLASS_LABELS[cls]} seats, but another aircraft on this route does. Fares are set per route, so this is that cabin's fare.`}
+                >
+                  (other aircraft)
                 </span>
               )}
             </div>
