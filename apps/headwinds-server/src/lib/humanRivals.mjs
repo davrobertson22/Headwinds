@@ -427,6 +427,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // Accent colour of a preset mark — without it every rival's preset
     // rendered in the default blue, whatever they picked.
     ...(typeof s.logoColor === 'string' ? { logoColor: s.logoColor } : {}),
+    // Tile colour behind the mark, and the two-character airline code — both
+    // the player's own choice, so every rival view shows them as chosen (and
+    // brandingClash can refuse a second player picking the same).
+    ...(typeof s.logoBg === 'string' ? { logoBg: s.logoBg } : {}),
+    ...(typeof s.airlineCode === 'string' ? { airlineCode: s.airlineCode } : {}),
     // Paint scheme (engine data/livery.js) — a handful of colour strings, so
     // it rides in the view; the client derives a default from logoColor when
     // a rival has never opened the livery editor.

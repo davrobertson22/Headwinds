@@ -112,6 +112,9 @@ export default function LiveryEditor({ livery, onChange, onReset, airlineName, l
         <div className="livery-opts">
           <label><input type="checkbox" checked={l.logoOnTail} onChange={e => set({ logoOnTail: e.target.checked })} /> Logo on the tail</label>
           <label><input type="checkbox" checked={l.logoOnFuselage} onChange={e => set({ logoOnFuselage: e.target.checked })} /> Logo on the fuselage</label>
+          {(l.logoOnTail || l.logoOnFuselage) && !logo?.customSrc && (
+            <label title="Paint the logo on its square tile, as it looks in the app, instead of the bare mark"><input type="checkbox" checked={l.logoTile} onChange={e => set({ logoTile: e.target.checked })} /> Logo on its tile</label>
+          )}
           <label><input type="checkbox" checked={l.titlesOn} onChange={e => set({ titlesOn: e.target.checked })} /> Airline name on the fuselage</label>
           {onReset && !isDefault && (
             <button type="button" className="livery-link" onClick={onReset}>Reset to default</button>

@@ -61,15 +61,32 @@ function codeSeed(name) {
   return (w[0] ?? 'X') + (w[1] ?? 'X');
 }
 
+/** 'qf' → 'QF'; not a two-character code with a letter in it → null. */
+function cleanCode(v) {
+  if (typeof v !== 'string') return null;
+  const s = v.trim().toUpperCase();
+  return /^[A-Z0-9]{2}$/.test(s) && /[A-Z]/.test(s) ? s : null;
+}
+
 /**
  * Assign every airline in the world a unique two-letter code.
- * `airlines` is [{ id, name }]; order must be stable (it is — competitors are a
- * fixed list and the player is pinned first).
+ * `airlines` is [{ id, name, code? }]; order must be stable (it is — competitors
+ * are a fixed list and the player is pinned first).
+ *
+ * An airline that brings its own `code` (the player's chosen designator) keeps
+ * it — explicit codes are reserved before any name is derived, first one wins —
+ * and everyone else walks around them.
  */
 export function assignAirlineCodes(airlines) {
   const used = new Set();
   const out = {};
-  for (const a of airlines ?? []) {
+  const list = airlines ?? [];
+  for (const a of list) {
+    const own = cleanCode(a?.code);
+    if (own && !used.has(own)) { used.add(own); out[a.id] = own; }
+  }
+  for (const a of list) {
+    if (out[a.id] != null) continue;
     let code = codeSeed(a.name);
     if (used.has(code)) {
       // Walk the second letter, then the first, deterministically.
@@ -88,6 +105,26 @@ export function assignAirlineCodes(airlines) {
     out[a.id] = code;
   }
   return out;
+}
+
+const worldCodeCache = new WeakMap();
+
+/**
+ * Codes for the whole world — the player ('__player__', with their chosen
+ * `airlineCode`) and every rival — so a rival prints the same code at every
+ * airport instead of one de-duplicated against whoever shares that board.
+ */
+export function worldAirlineCodes(state) {
+  const comps = Array.isArray(state?.competitors) ? state.competitors : [];
+  const pkey = `${state?.airlineName ?? ''}|${state?.airlineCode ?? ''}`;
+  const hit = worldCodeCache.get(comps);
+  if (hit && hit.pkey === pkey) return hit.codes;
+  const codes = assignAirlineCodes([
+    { id: '__player__', name: state?.airlineName ?? '', code: state?.airlineCode ?? null },
+    ...comps.filter(Boolean).map(c => ({ id: c.id ?? c.name, name: c.name, code: c.airlineCode ?? null })),
+  ]);
+  worldCodeCache.set(comps, { pkey, codes });
+  return codes;
 }
 
 // ─── Schedule synthesis ──────────────────────────────────────────────────────
@@ -265,7 +302,7 @@ export function competitorDepartureLegs(routes, airport) {
  * @param {string} o.airport        airport code to show departures FROM
  * @param {number} o.day            0-6, Monday-based
  * @param {string} o.worldSeed      anything stable per world (id, or name+year)
- * @param {object[]} o.carriers     [{ id, name, isPlayer, logoId, logoColor,
+ * @param {object[]} o.carriers     [{ id, name, code?, isPlayer, logoId, logoColor,
  *                                     customLogo, onTimeRate, legs: [{ to,
  *                                     weeklyFrequency, typeId, typeName,
  *                                     cancelled?, cancelReason?,
@@ -282,7 +319,7 @@ export function competitorDepartureLegs(routes, airport) {
  * @returns {object[]} rows sorted by scheduled time
  */
 export function buildDepartureBoard({ airport, day = 0, worldSeed = 'w', carriers = [] }) {
-  const codes = assignAirlineCodes(carriers.map(c => ({ id: c.id, name: c.name })));
+  const codes = assignAirlineCodes(carriers.map(c => ({ id: c.id, name: c.name, code: c.code ?? null })));
   const taken = new Set();
   const rows = [];
   for (const c of carriers) {
@@ -336,6 +373,7 @@ export function buildDepartureBoard({ airport, day = 0, worldSeed = 'w', carrier
           isPlayer:    !!c.isPlayer,
           logoId:      c.logoId,
           logoColor:   c.logoColor,
+          logoBg:      c.logoBg ?? null,
           customLogo:  c.customLogo,
           typeId:      leg.typeId,
           typeName:    leg.typeName,

@@ -55,6 +55,7 @@ export function metaFromState(state) {
     airlineName: state?.airlineName,
     logoId:      state?.logoId,
     logoColor:   state?.logoColor,
+    logoBg:      state?.logoBg ?? null,
     customLogo:  state?.customLogo ?? null,
     hub:         state?.hub,
     cash:        state?.cash,

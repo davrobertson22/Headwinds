@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import {
-  buildDepartureBoard, DAY_NAMES, departuresFromStops, competitorDepartureLegs,
+  buildDepartureBoard, DAY_NAMES, departuresFromStops, competitorDepartureLegs, worldAirlineCodes,
 } from '../models/departureBoard.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
@@ -12,6 +12,7 @@ import { laborEffects } from '../data/labor.js';
 import { isOutOfService, groundedKind } from '../data/maintenance.js';
 import AirportSelect from './AirportSelect.jsx';
 import AirlineLogo from './AirlineLogo.jsx';
+import { fieldLogoColors } from '../utils/logoBranding.js';
 import { Glyph } from './Icons.jsx';
 
 /**
@@ -157,13 +158,19 @@ export default function Departures({ initialAirport = null }) {
     }
 
     const carriers = [];
+    // Codes and rival colours come from the whole world, so a rival prints the
+    // same code and colour here as at every other airport.
+    const codes = worldAirlineCodes(state);
+    const rivalColors = fieldLogoColors(state);
     if (myLegs.length) {
       carriers.push({
         id: '__player__',
         name: state.airlineName ?? 'Your airline',
+        code: codes.__player__,
         isPlayer: true,
         logoId: state.logoId,
         logoColor: state.logoColor,
+        logoBg: state.logoBg ?? null,
         customLogo: state.customLogo,
         onTimeRate: playerOtp,
         legs: myLegs,
@@ -182,8 +189,10 @@ export default function Departures({ initialAirport = null }) {
         carriers.push({
           id: c.id ?? c.name,
           name: c.name,
+          code: codes[c.id ?? c.name],
           logoId: c.logoId,
-          logoColor: c.logoColor,
+          logoColor: rivalColors[c.id ?? c.name] ?? c.logoColor,
+          logoBg: c.logoBg ?? null,
           customLogo: c.customLogo,
           onTimeRate: competitorOtp(c),
           legs,
@@ -199,7 +208,7 @@ export default function Departures({ initialAirport = null }) {
       carriers,
     });
   }, [airport, day, mineOnly, routes, fleet, weeks, month, state.competitors, state.airlineName,
-      state.logoId, state.logoColor, state.customLogo, state.worldId, state.seed, playerOtp]);
+      state.logoId, state.logoColor, state.logoBg, state.customLogo, state.airlineCode, state.worldId, state.seed, playerOtp]);
 
   const ap = getAirport(airport);
   const mine = rows.filter(r => r.isPlayer).length;
@@ -291,7 +300,7 @@ export default function Departures({ initialAirport = null }) {
                       </td>
                       <td style={{ padding: '8px 12px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                          <AirlineLogo id={r.logoId} accentColor={r.logoColor} customSrc={r.customLogo} size={18} radius={4} />
+                          <AirlineLogo id={r.logoId} accentColor={r.logoColor} bgColor={r.logoBg} customSrc={r.customLogo} size={18} radius={4} />
                           <span style={{ color: r.isPlayer ? 'var(--blue)' : 'var(--text)', fontWeight: r.isPlayer ? 600 : 400 }}>
                             {r.airlineName}
                           </span>

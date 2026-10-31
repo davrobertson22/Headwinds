@@ -1959,7 +1959,7 @@ function FleetLiveryCard({ state }) {
         <LiveryPlane
           livery={livery}
           titles={state.airlineName}
-          logo={{ id: state.logoId, accentColor: state.logoColor, customSrc: state.customLogo }}
+          logo={{ id: state.logoId, accentColor: state.logoColor, bgColor: state.logoBg, customSrc: state.customLogo }}
           templateId={tpl.id}
           width={276}
           style={{ width: '100%', height: 'auto' }}

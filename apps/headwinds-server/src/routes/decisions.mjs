@@ -17,6 +17,7 @@ import { journalledPayload, withFleetFacts } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld } from '../lib/worldConfig.mjs';
 import { eventActionDenial } from '@tailwinds/engine/data/eventRules.js';
+import { brandingClash } from '@tailwinds/engine/utils/logoBranding.js';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
          RIVAL_VIEW_POLL_MAX_STALE_MS, RIVAL_ROWS_MAX_STALE_MS } from '../lib/humanRivals.mjs';
 import { guardDecision } from '../lib/decisionGuard.mjs';
@@ -385,6 +386,14 @@ export default async function decisionRoutes(fastify) {
     // the reducer sees it back in place, exactly as it always did.
     const injected = withRivals(joinReport(airline.state, airline.report), view);
     const readReport = injected.lastReport;
+    // One look and one code per player: a rebrand onto another player's preset
+    // + colour + tile, or their airline code, is refused here, where the
+    // rival view is to hand. `injected` carries this airline's own customLogo
+    // only via the column, so pass it in for the "do I have an upload" test.
+    if (type === 'SET_BRANDING') {
+      const clash = brandingClash({ ...injected, customLogo: airline.customLogo ?? null }, guarded);
+      if (clash) throw httpError(409, clash);
+    }
     // Event worlds: the rules come from the WORLD, never the blob a client
     // round-tripped, and a broken rule is a readable 400 before the reducer
     // (which would otherwise answer with a toast and a 201).

@@ -370,7 +370,7 @@ export default function MapShell({
       <div className="ms-top">
         <button type="button" className="ms-crest" onClick={onBranding} title="Edit airline branding">
           <span className="ms-crest-logo">
-            <AirlineLogo id={state.logoId} customSrc={state.customLogo} size={52} radius={10} accentColor={state.logoColor} />
+            <AirlineLogo id={state.logoId} customSrc={state.customLogo} size={52} radius={10} accentColor={state.logoColor} bgColor={state.logoBg} />
           </span>
           <span className="ms-crest-plate">
             <span className="ms-crest-name">{state.airlineName}</span>

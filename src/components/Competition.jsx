@@ -13,6 +13,7 @@ import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { describeFleetMove } from '../utils/fleetNews.js';
 import AirlineLogo from './AirlineLogo.jsx';
+import { worldAirlineCodes } from '../models/departureBoard.js';
 import RivalRouteMap from './RivalRouteMap.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { compareStandings, netProfitOf } from '../utils/standings.js';
@@ -254,7 +255,7 @@ export default function Competition() {
         <PlayerStandings
           competitors={competitors}
           self={{
-            name: state.airlineName, logoId: state.logoId, logoColor: state.logoColor,
+            name: state.airlineName, logoId: state.logoId, logoColor: state.logoColor, logoBg: state.logoBg ?? null,
             customLogo: state.customLogo ?? null, hub: state.hub,
             og: state.accountOG === true, sup: state.accountSupporter === true, dev: state.accountDev === true,
             standing: state.selfStanding ?? null,
@@ -269,6 +270,7 @@ export default function Competition() {
         playerName={state.airlineName}
         playerLogoId={state.logoId}
         playerLogoColor={state.logoColor}
+        playerLogoBg={state.logoBg ?? null}
         playerCustomLogo={state.customLogo ?? null}
         playerHub={state.hub}
         playerCash={state.cash}
@@ -333,7 +335,7 @@ export default function Competition() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerLogoColor, playerCustomLogo, playerHub, playerCash,
+function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, playerLogoColor, playerLogoBg = null, playerCustomLogo, playerHub, playerCash,
                         playerMarketCap, playerSharePrice, playerProfitHistory = [], playerOG = false,
                         playerDev = false, playerSupporter = false, remote = false, onSelect = null }) {
   // Build unified list with player + competitors
@@ -343,6 +345,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       name:        playerName,
       logoId:      playerLogoId,
       logoColor:   playerLogoColor,
+      logoBg:      playerLogoBg,
       customLogo:  playerCustomLogo,
       hub:         playerHub,
       cash:        playerCash,
@@ -362,6 +365,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
       name:        c.name,
       logoId:      c.logoId,
       logoColor:   c.logoColor,
+      logoBg:      c.logoBg ?? null,
       customLogo:  c.customLogo ?? null,
       hub:         c.homeHub,
       cash:        c.cash ?? null,
@@ -448,7 +452,7 @@ function Leaderboard({ competitors, playerLastWeek, playerName, playerLogoId, pl
               </div>
 
               {/* Logo */}
-              <AirlineLogo id={entry.logoId} accentColor={entry.logoColor} customSrc={entry.customLogo} size={32} />
+              <AirlineLogo id={entry.logoId} accentColor={entry.logoColor} bgColor={entry.logoBg} customSrc={entry.customLogo} size={32} />
 
               {/* Name + hub */}
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -535,12 +539,12 @@ function PlayerStandings({ competitors, self, onSelect }) {
   });
   const rows = [
     toRow(self.standing, {
-      id: '__player__', name: self.name, logoId: self.logoId, logoColor: self.logoColor,
+      id: '__player__', name: self.name, logoId: self.logoId, logoColor: self.logoColor, logoBg: self.logoBg ?? null,
       customLogo: self.customLogo, hub: self.hub, og: self.og, sup: self.sup, dev: self.dev,
       netProfitHistory: self.netProfitHistory, isPlayer: true, carrier: null,
     }),
     ...competitors.map((c) => toRow(c.standing, {
-      id: c.id, name: c.name, logoId: c.logoId, logoColor: c.logoColor, customLogo: c.customLogo ?? null,
+      id: c.id, name: c.name, logoId: c.logoId, logoColor: c.logoColor, logoBg: c.logoBg ?? null, customLogo: c.customLogo ?? null,
       hub: c.homeHub, og: c.og === true, sup: c.sup === true, dev: c.dev === true,
       netProfitHistory: c.netProfitHistory ?? [], isPlayer: false, carrier: c,
     })),
@@ -619,7 +623,7 @@ function PlayerStandings({ competitors, self, onSelect }) {
               <div style={{ width: 28, display: 'flex', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: idx < 3 ? ['#e0b341', '#b8bcc4', '#c8853f'][idx] : 'var(--text-muted)', flexShrink: 0 }}>
                 <Glyph e={rankBadge} size={idx < 3 ? 18 : 13} />
               </div>
-              <AirlineLogo id={entry.logoId} accentColor={entry.logoColor} customSrc={entry.customLogo} size={32} />
+              <AirlineLogo id={entry.logoId} accentColor={entry.logoColor} bgColor={entry.logoBg} customSrc={entry.customLogo} size={32} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{entry.name}</span>
@@ -702,6 +706,8 @@ function SectionHeader({ children }) {
 }
 
 function CompetitorCard({ carrier, playerRouteMap }) {
+  const { state } = useGame();
+  const code = worldAirlineCodes(state)[carrier.id ?? carrier.name];
   const tier        = TIER_META[carrier.tier] ?? { label: carrier.tier, color: 'var(--text-muted)' };
   const totalRoutes  = Object.keys(carrier.routes).length;
   const sharedRoutes = Object.keys(carrier.routes).filter(k => k in playerRouteMap).length;
@@ -711,9 +717,12 @@ function CompetitorCard({ carrier, playerRouteMap }) {
     <div className="card" style={{ padding: '14px 16px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} customSrc={carrier.customLogo} size={36} />
+        <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} bgColor={carrier.logoBg} customSrc={carrier.customLogo} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>{carrier.name}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>
+            {carrier.name}
+            {code && <span title="Airline code" style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{code}</span>}
+          </div>
           <span style={{
             fontSize: 10, padding: '1px 7px', borderRadius: 99,
             background: 'var(--surface2)', color: tier.color, fontWeight: 600,
@@ -1634,7 +1643,7 @@ function RivalDetailView({ carrier, onClose }) {
           display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px',
           borderBottom: '1px solid var(--border)', flexShrink: 0,
         }}>
-          <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} customSrc={carrier.customLogo} size={44} />
+          <AirlineLogo id={carrier.logoId} accentColor={carrier.logoColor} bgColor={carrier.logoBg} customSrc={carrier.customLogo} size={44} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 800, fontSize: 18 }}>{carrier.name}</span>
@@ -1965,7 +1974,7 @@ function AcquisitionModal({ target, playerCash, onConfirm, onCancel }) {
       <div className="card" style={{ width: '100%', maxWidth: 420, padding: '24px 24px 20px' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-          <AirlineLogo id={target.logoId} accentColor={target.logoColor} customSrc={target.customLogo} size={44} />
+          <AirlineLogo id={target.logoId} accentColor={target.logoColor} bgColor={target.logoBg} customSrc={target.customLogo} size={44} />
           <div>
             <div style={{ fontWeight: 800, fontSize: 17 }}>{target.name}</div>
             <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 99, background: 'var(--surface2)', color: tier.color, fontWeight: 600 }}>

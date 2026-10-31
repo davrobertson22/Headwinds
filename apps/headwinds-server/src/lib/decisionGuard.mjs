@@ -28,6 +28,7 @@ import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data
 import { TRAVEL_PARTNER_MAP } from '@tailwinds/engine/data/travelPartners.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { normalizeLivery, isLiveryShaped } from '@tailwinds/engine/data/livery.js';
+import { cleanHex, normalizeAirlineCode } from '@tailwinds/engine/utils/logoBranding.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
 import { normalizeStarts } from '@tailwinds/engine/models/schedule.js';
@@ -640,6 +641,21 @@ function guardBranding(payload) {
   }
   if (typeof payload.logoId === 'string')      out.logoId = payload.logoId.slice(0, 40);
   if (typeof payload.logoColor === 'string')   out.logoColor = payload.logoColor.slice(0, 32);
+  // Tile colour and airline code: forwarded only when sent (same contract as
+  // customLogo). null clears; anything that isn't a hex colour / a valid
+  // two-character code is a malformed request rather than something to store.
+  // Whether ANOTHER PLAYER already has the look or the code is checked in
+  // routes/decisions.mjs, which has the rival view this guard does not.
+  if ('logoBg' in payload) {
+    if (payload.logoBg == null) out.logoBg = null;
+    else if (cleanHex(payload.logoBg)) out.logoBg = cleanHex(payload.logoBg);
+    else throw new GuardError('That tile colour could not be read — please pick it again.');
+  }
+  if ('airlineCode' in payload) {
+    if (payload.airlineCode == null || payload.airlineCode === '') out.airlineCode = null;
+    else if (normalizeAirlineCode(payload.airlineCode)) out.airlineCode = normalizeAirlineCode(payload.airlineCode);
+    else throw new GuardError('An airline code is two characters: letters, or a letter and a digit (like QF or 9W).');
+  }
   // `'customLogo' in action` is the reducer's contract: only forward the key
   // when the client sent one, so a name-only rebrand never touches the logo.
   if ('customLogo' in payload) {

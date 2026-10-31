@@ -1,13 +1,20 @@
 import { useId, useState } from 'react';
 
-// ── Neutral background ────────────────────────────────────────────────────────
-// Every preset shares the same greyscale base so the user-chosen accent colour
-// is the ONLY colour in the mark and reads cleanly on top. Each instance is
-// passed a unique `gid` so the gradient defs never collide on a page.
+// ── Background tile ───────────────────────────────────────────────────────────
+// By default every preset shares the same greyscale base so the user-chosen
+// accent colour is the only colour in the mark. A player can instead pick a
+// solid tile colour (`bg`, a hex — utils/logoBranding.js TILE_COLORS), or
+// `bg = 'none'` draws the bare mark with no tile at all (how the logo is
+// painted on a livery's fin and fuselage). Each instance is passed a unique
+// `gid` so the gradient defs never collide on a page.
 const BG_TOP = '#2b3441';
 const BG_BOT = '#151a22';
 
-function NeutralBG({ gid, r }) {
+function NeutralBG({ gid, r, bg = null }) {
+  if (bg === 'none') return null;
+  if (typeof bg === 'string' && /^#[0-9a-f]{6}$/i.test(bg)) {
+    return <rect width="40" height="40" rx={r} fill={bg} />;
+  }
   return (
     <>
       <defs>
@@ -22,11 +29,12 @@ function NeutralBG({ gid, r }) {
 }
 
 // ── Logo catalogue ────────────────────────────────────────────────────────────
-// Each entry: id, name, and a render(gid, r, color) function where
+// Each entry: id, name, and a render(gid, r, color, bg) function where
 //   gid   = unique gradient/defs ID prefix for this instance
 //   r     = corner radius of the background rect
 //   color = user-chosen accent color (hex string) — drives the motif on top of
-//           the shared greyscale base. White is reserved for small highlights.
+//           the tile. White is reserved for small highlights.
+//   bg    = tile: null (shared greyscale base), a hex, or 'none' (bare mark)
 
 const DEFAULT_ACCENT = '#1e9bff';
 
@@ -34,10 +42,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'horizon',
     name: 'Horizon',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <line x1="6" y1="26" x2="34" y2="26" stroke="rgba(255,255,255,.18)" strokeWidth="0.8" />
           <path d="M 12 26 A 8 8 0 0 1 28 26" fill="none" stroke={color} strokeWidth="2.8" strokeLinecap="round" />
           <line x1="20" y1="26" x2="20" y2="11" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
@@ -50,10 +58,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'eagle',
     name: 'Eagle',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <path d="M 5 29 C 9 20 16 13 22 15 C 27 17 25 26 30 23 C 34 21 37 16 37 16"
             fill="none" stroke={color} strokeWidth="2.8" strokeLinecap="round" />
           <path d="M 5 29 C 11 25 20 23 30 27"
@@ -65,10 +73,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'compass',
     name: 'Compass',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="20,7  22,18  20,20  18,18" fill={color} />
           <polygon points="20,33 22,22  20,20  18,22" fill={color} />
           <polygon points="7,20  18,22  20,20  18,18" fill={color} />
@@ -85,10 +93,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'jade',
     name: 'Jade',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <path d="M 6 30 C 10 18 20 11 35 14"
             fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
           <path d="M 6 30 C 13 25 24 23 35 26"
@@ -100,10 +108,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'arctic',
     name: 'Arctic',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <line x1="20" y1="7"  x2="20" y2="33" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
           <line x1="7"  y1="20" x2="33" y2="20" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
           <line x1="10" y1="10" x2="30" y2="30" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
@@ -120,10 +128,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'sapphire',
     name: 'Sapphire',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="20,7  33,20  20,33  7,20"
             fill="none" stroke={color} strokeWidth="2.5" />
           <polygon points="20,13 27,20  20,27  13,20"
@@ -137,10 +145,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'crown',
     name: 'Crown',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <path d="M 8 29 L 8 18 L 14 24 L 20 11 L 26 24 L 32 18 L 32 29 Z"
             fill={color} />
           <rect x="8" y="28" width="24" height="3.5" rx="1.5" fill={color} />
@@ -154,10 +162,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'bolt',
     name: 'Bolt',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="23,6 12,22 19.5,22 17,34 28,18 20.5,18" fill={color} />
         </>
       );
@@ -166,10 +174,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'phoenix',
     name: 'Phoenix',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <path d="M 7 33 C 7 22 12 14 20 9 C 28 14 33 22 33 33"
             fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
           <path d="M 13 33 C 14 22 17 15 20 9 C 23 15 26 22 27 33 Z"
@@ -182,10 +190,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'comet',
     name: 'Comet',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <line x1="26" y1="16" x2="7"  y2="35" stroke="rgba(255,255,255,.85)" strokeWidth="2.5" strokeLinecap="round" />
           <line x1="24" y1="18" x2="9"  y2="36" stroke="rgba(255,255,255,.5)"  strokeWidth="1.5" strokeLinecap="round" />
           <line x1="22" y1="15" x2="6"  y2="30" stroke="rgba(255,255,255,.3)"  strokeWidth="1"   strokeLinecap="round" />
@@ -198,10 +206,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'summit',
     name: 'Summit',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="28,13 37,30 19,30" fill={color} opacity="0.35" />
           <polygon points="20,8 32,30 8,30" fill={color} opacity="0.85" />
           <polygon points="20,8 24.5,17 15.5,17" fill="rgba(255,255,255,.9)" />
@@ -212,12 +220,12 @@ export const AIRLINE_LOGOS = [
   {
     id: 'prism',
     name: 'Prism',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       // Prism is intentionally multi-colour (light dispersion); the accent
       // tints the glass outline while the spectrum stays fixed.
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="20,7 34,31 6,31"
             fill="none" stroke={color} strokeWidth="1.8" strokeOpacity="0.85" />
           <line x1="20" y1="7" x2="34" y2="31" stroke="#ff5555" strokeWidth="1.2" opacity=".8" />
@@ -233,10 +241,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'jet',
     name: 'Jet',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <path d="M 7 30 L 31 9 L 27 19 L 33 17 L 18 31 L 21 22 Z" fill={color} />
           <path d="M 7 30 L 18 31 L 14 34 Z" fill={color} opacity="0.45" />
         </>
@@ -246,10 +254,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'orbit',
     name: 'Orbit',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <circle cx="20" cy="20" r="4" fill={color} />
           <ellipse cx="20" cy="20" rx="13" ry="6" fill="none" stroke={color} strokeWidth="1.6" opacity="0.85" />
           <ellipse cx="20" cy="20" rx="13" ry="6" fill="none" stroke={color} strokeWidth="1.2" opacity="0.4"
@@ -264,10 +272,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'delta',
     name: 'Delta',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="20,8 31,30 20,24 9,30" fill={color} />
           <polygon points="20,8 25.5,19 20,17 14.5,19" fill={color} opacity="0.45" />
         </>
@@ -277,7 +285,7 @@ export const AIRLINE_LOGOS = [
   {
     id: 'sunburst',
     name: 'Sunburst',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       const rays = Array.from({ length: 12 }, (_, i) => {
         const a = (i * 30 * Math.PI) / 180;
         return (
@@ -289,7 +297,7 @@ export const AIRLINE_LOGOS = [
       });
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           {rays}
           <circle cx="20" cy="20" r="6.5" fill={color} />
         </>
@@ -299,10 +307,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'globe',
     name: 'Globe',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <circle cx="20" cy="20" r="13" fill="none" stroke={color} strokeWidth="1.8" />
           <ellipse cx="20" cy="20" rx="5" ry="13" fill="none" stroke={color} strokeWidth="1.1" opacity="0.7" />
           <line x1="7" y1="20" x2="33" y2="20" stroke={color} strokeWidth="1.1" opacity="0.7" />
@@ -315,10 +323,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'wing',
     name: 'Wing',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <path d="M 6 28 C 18 27 27 22 34 11" fill="none" stroke={color} strokeWidth="2.8" strokeLinecap="round" />
           <path d="M 9 31 C 19 30 26 26 31 19" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" opacity="0.55" />
           <path d="M 12 33 C 20 33 25 30 29 25" fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" opacity="0.3" />
@@ -329,10 +337,10 @@ export const AIRLINE_LOGOS = [
   {
     id: 'star',
     name: 'Star',
-    render(gid, r, color = DEFAULT_ACCENT) {
+    render(gid, r, color = DEFAULT_ACCENT, bg = null) {
       return (
         <>
-          <NeutralBG gid={gid} r={r} />
+          <NeutralBG gid={gid} r={r} bg={bg} />
           <polygon points="20,6 23.5,16 34,16 25.5,22.5 28.8,33 20,26.5 11.2,33 14.5,22.5 6,16 16.5,16"
             fill={color} />
         </>
@@ -366,12 +374,14 @@ export function resolveLogoSrc(src) {
  *   size        — px size (width = height, default 40)
  *   radius      — corner radius; default 20% of size
  *   accentColor — hex color applied to the logo's main accent elements
+ *   bgColor     — the tile behind the mark: null/undefined for the default
+ *                 dark gradient, a hex for a solid tile, 'none' for no tile
  *   customSrc   — data/image URL of a user-uploaded logo; when set it
  *                 overrides the preset and is drawn clipped to the rounded
  *                 square (so it matches the look of the built-in logos)
  *   style       — extra inline styles on the wrapping <svg>
  */
-export default function AirlineLogo({ id, size = 40, radius, accentColor, customSrc: rawSrc, style, className }) {
+export default function AirlineLogo({ id, size = 40, radius, accentColor, bgColor = null, customSrc: rawSrc, style, className }) {
   // A hosted logo that fails to load (deleted, offline) falls back to the
   // preset rather than leaving an empty square. Keyed on the src, so a new
   // upload gets a fresh attempt.
@@ -399,7 +409,9 @@ export default function AirlineLogo({ id, size = 40, radius, accentColor, custom
             <rect width="40" height="40" rx={r} />
           </clipPath>
         </defs>
-        <rect width="40" height="40" rx={r} fill="#15202f" />
+        {bgColor !== 'none' && (
+          <rect width="40" height="40" rx={r} fill={typeof bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(bgColor) ? bgColor : '#15202f'} />
+        )}
         <image
           href={customSrc}
           width="40"
@@ -432,7 +444,7 @@ export default function AirlineLogo({ id, size = 40, radius, accentColor, custom
       style={{ flexShrink: 0, display: 'block', ...style }}
       className={className}
     >
-      {logo.render(gid, r, accentColor)}
+      {logo.render(gid, r, accentColor, bgColor)}
     </svg>
   );
 }

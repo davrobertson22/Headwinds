@@ -65,6 +65,7 @@ export function memberProfile(comp) {
     tier: comp?.tier ?? 'legacy',
     logoId: comp?.logoId ?? null,
     logoColor: comp?.logoColor ?? null,
+    logoBg: comp?.logoBg ?? null,
     customLogo: comp?.customLogo ?? null,
     quality: num(comp?.baseQualityScore),
     marketCap: num(comp?.marketCap),

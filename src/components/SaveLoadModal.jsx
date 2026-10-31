@@ -35,6 +35,7 @@ export function writeSlot(i, state, storage = (typeof localStorage !== 'undefine
     airlineName: state.airlineName,
     logoId:      state.logoId,
     logoColor:   state.logoColor,
+    logoBg:      state.logoBg ?? null,
     customLogo:  state.customLogo ?? null,
     hub:         state.hub,
     cash:        state.cash,
@@ -94,7 +95,7 @@ function SlotCard({ index, slot, mode, onSave, onLoad, onDelete }) {
       ) : (
         <div className="save-slot-body">
           <div className="save-slot-airline">
-            <AirlineLogo id={slot.logoId} customSrc={slot.customLogo} size={26} radius={5} accentColor={slot.logoColor} />
+            <AirlineLogo id={slot.logoId} customSrc={slot.customLogo} size={26} radius={5} accentColor={slot.logoColor} bgColor={slot.logoBg} />
             <div>
               <div className="save-slot-airline-name">{slot.airlineName}</div>
               <div className="save-slot-hub">{slot.hub}</div>

@@ -136,9 +136,11 @@ export function titlesLayout(spec, livery) {
  *   titles    airline name for the fuselage ('' for none)
  *   logo      an image/canvas drawn on the fin when livery.logoOnTail, and
  *             on the forward fuselage when livery.logoOnFuselage
+ *   bodyLogo  the fuselage's own version of it (a bare mark recoloured for
+ *             the body paint); defaults to `logo`
  * Returns an HTMLCanvasElement.
  */
-export function paintLivery(template, liveryIn, { width = 1200, titles = '', logo = null, fontFamily = 'Inter, system-ui, -apple-system, sans-serif' } = {}) {
+export function paintLivery(template, liveryIn, { width = 1200, titles = '', logo = null, bodyLogo = logo, fontFamily = 'Inter, system-ui, -apple-system, sans-serif' } = {}) {
   const { img, spec } = template;
   const livery = normalizeLivery(liveryIn, liveryIn?.tail);
   const s = width / spec.size[0];
@@ -189,9 +191,9 @@ export function paintLivery(template, liveryIn, { width = 1200, titles = '', log
     const sz = spec.logo.size * s;
     if (sz >= 3) p.drawImage(logo, spec.logo.cx * s - sz / 2, spec.logo.cy * s - sz / 2, sz, sz);
   }
-  if (logo && lay.logo) {
+  if (bodyLogo && lay.logo) {
     const sz = lay.logo.size * s;
-    if (sz >= 3) p.drawImage(logo, lay.logo.x * s, lay.logo.y * s, sz, sz);
+    if (sz >= 3) p.drawImage(bodyLogo, lay.logo.x * s, lay.logo.y * s, sz, sz);
   }
   const Pf = p.getImageData(0, 0, w, h).data;
 

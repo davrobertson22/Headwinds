@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
-import AirlineLogo, { AIRLINE_LOGOS } from './AirlineLogo.jsx';
-import { ACCENT_COLORS } from './SetupScreen.jsx';
-import { fileToLogoDataURL, LOGO_UPLOAD_HINT } from '../utils/logoImage.js';
+import { AIRLINE_LOGOS } from './AirlineLogo.jsx';
+import LogoPicker, { AirlineCodeField } from './LogoPicker.jsx';
+import { LOGO_COLORS, normalizeAirlineCode, cleanHex, brandingClash, takenBranding } from '../utils/logoBranding.js';
 import { Glyph } from './Icons.jsx';
 import { CloseIcon } from './Icons.jsx';
 import LiveryEditor from './LiveryEditor.jsx';
@@ -17,10 +17,10 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
 
   const [name,        setName]        = useState(state.airlineName ?? '');
   const [logoId,      setLogoId]      = useState(state.customLogo ? 'custom' : (state.logoId ?? AIRLINE_LOGOS[0].id));
-  const [accentColor, setAccentColor] = useState(state.logoColor ?? ACCENT_COLORS[0].hex);
+  const [accentColor, setAccentColor] = useState(state.logoColor ?? LOGO_COLORS[0].hex);
   const [customLogo,  setCustomLogo]  = useState(state.customLogo ?? null);
-  const [logoError,   setLogoError]   = useState('');
-  const fileInputRef = useRef(null);
+  const [logoBg,      setLogoBg]      = useState(cleanHex(state.logoBg));
+  const [airlineCode, setAirlineCode] = useState(state.airlineCode ?? '');
   // Livery: edits are local until Save. `liveryDirty` keeps a name-only rebrand
   // from freezing the default (logo-colour-derived) paint into the blob;
   // `livery: null` on save clears a saved scheme back to that default.
@@ -30,21 +30,19 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
   const hasSavedLivery = isLiveryShaped(state.livery);
 
   const usingCustom = logoId === 'custom' && customLogo;
-  const canSave = name.trim().length > 0;
-
-  async function handleLogoFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setLogoError('');
-    try {
-      const dataUrl = await fileToLogoDataURL(file);
-      setCustomLogo(dataUrl);
-      setLogoId('custom');
-    } catch (err) {
-      setLogoError(err.message || 'Could not use that image.');
-    }
-  }
+  const codeInvalid = airlineCode.trim() !== '' && !normalizeAirlineCode(airlineCode);
+  // Multiplayer: another player's look or code can't be copied (the server
+  // refuses it too — this just says so before Save). Solo rivals step aside.
+  const takenAll = takenBranding(state);
+  // A look you already fly (from before this rule) is yours to keep.
+  const ownLook = (id, color, bg) => !state.customLogo && id === state.logoId
+    && cleanHex(color) === cleanHex(state.logoColor) && cleanHex(bg) === cleanHex(state.logoBg);
+  const taken = { ...takenAll, look: (id, color, bg) => (ownLook(id, color, bg) ? null : takenAll.look(id, color, bg)) };
+  const clash = brandingClash(state, {
+    logoId: usingCustom ? 'horizon' : logoId, logoColor: accentColor, logoBg: cleanHex(logoBg),
+    customLogo: usingCustom ? customLogo : null, airlineCode: normalizeAirlineCode(airlineCode),
+  });
+  const canSave = name.trim().length > 0 && !codeInvalid && !clash;
 
   function handleSave() {
     if (!canSave) return;
@@ -54,6 +52,8 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
       logoId:      usingCustom ? 'horizon' : logoId,
       logoColor:   accentColor,
       customLogo:  usingCustom ? customLogo : null,
+      logoBg:      cleanHex(logoBg),
+      airlineCode: normalizeAirlineCode(airlineCode),
       ...(liveryReset ? { livery: null } : liveryDirty ? { livery } : {}),
     });
     onClose();
@@ -85,7 +85,7 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
             onReset={hasSavedLivery || liveryDirty ? resetLivery : null}
             isDefault={!hasSavedLivery && !liveryDirty}
             airlineName={name.trim() || 'Your airline'}
-            logo={{ id: usingCustom ? null : logoId, accentColor, customSrc: usingCustom ? customLogo : null }}
+            logo={{ id: usingCustom ? null : logoId, accentColor, bgColor: cleanHex(logoBg), customSrc: usingCustom ? customLogo : null }}
           />
         ) : (<>
         <p className="saveload-hint">
@@ -104,154 +104,22 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
           />
         </div>
 
-        {/* ── Logo grid ── */}
+        <AirlineCodeField value={airlineCode} onChange={setAirlineCode} name={name}
+          takenBy={airlineCode !== (state.airlineCode ?? '') ? taken.code(airlineCode) : null} />
+
+        {/* ── Logo maker (shared with the new-game screen) ── */}
         <div className="form-group">
           <label className="form-label">Airline Logo</label>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 10,
-            padding: '14px',
-            background: 'var(--surface2)',
-            borderRadius: 'var(--radius)',
-            border: '1px solid var(--border)',
-            maxHeight: 280,
-            overflowY: 'auto',
-          }}>
-            {/* Upload tile */}
-            <button
-              type="button"
-              title="Upload your own logo"
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                padding: '10px 6px',
-                background: usingCustom ? 'var(--accent-dim)' : 'transparent',
-                border: `2px solid ${usingCustom ? 'var(--accent)' : 'transparent'}`,
-                borderRadius: 10, cursor: 'pointer',
-                transition: 'border-color .12s, background .12s',
-              }}
-            >
-              {usingCustom ? (
-                <AirlineLogo customSrc={customLogo} size={52} radius={10} />
-              ) : (
-                <div style={{
-                  width: 52, height: 52, borderRadius: 10,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: '2px dashed var(--border)',
-                  color: 'var(--text-dim)', fontSize: 22, fontWeight: 300,
-                }}>
-                  <Glyph e="＋" />
-                </div>
-              )}
-              <span style={{
-                fontSize: 10,
-                color: usingCustom ? 'var(--accent)' : 'var(--text-dim)',
-                fontWeight: usingCustom ? 600 : 400, letterSpacing: '.3px',
-              }}>
-                {usingCustom ? 'Custom' : 'Upload'}
-              </span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleLogoFile}
-              style={{ display: 'none' }}
-            />
-
-            {AIRLINE_LOGOS.map(logo => {
-              const selected = logoId === logo.id;
-              return (
-                <button
-                  key={logo.id}
-                  type="button"
-                  title={logo.name}
-                  onClick={() => setLogoId(logo.id)}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                    padding: '10px 6px',
-                    background: selected ? 'var(--accent-dim)' : 'transparent',
-                    border: `2px solid ${selected ? 'var(--accent)' : 'transparent'}`,
-                    borderRadius: 10, cursor: 'pointer',
-                    transition: 'border-color .12s, background .12s',
-                  }}
-                >
-                  <AirlineLogo id={logo.id} size={52} accentColor={accentColor} />
-                  <span style={{
-                    fontSize: 10,
-                    color: selected ? 'var(--accent)' : 'var(--text-dim)',
-                    fontWeight: selected ? 600 : 400, letterSpacing: '.3px',
-                  }}>
-                    {logo.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-            {LOGO_UPLOAD_HINT}
-          </div>
-          {logoError && (
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--red)' }}>{logoError}</div>
-          )}
-          {usingCustom && (
-            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-              Using your uploaded logo. Pick any preset above to switch back.
-            </div>
-          )}
-
-          {/* ── Colour picker ── */}
-          <div style={{ marginTop: 10, opacity: usingCustom ? 0.5 : 1 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              Logo colour {usingCustom && <span style={{ fontStyle: 'italic' }}>(presets only)</span>}
-            </div>
-            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-              {ACCENT_COLORS.map(c => {
-                const sel = accentColor === c.hex;
-                return (
-                  <button
-                    key={c.hex}
-                    type="button"
-                    title={c.label}
-                    onClick={() => setAccentColor(c.hex)}
-                    style={{
-                      width: 28, height: 28, borderRadius: '50%', background: c.hex,
-                      border: sel ? '3px solid var(--text)' : '2px solid var(--border)',
-                      cursor: 'pointer',
-                      outline: sel ? '2px solid var(--accent)' : 'none', outlineOffset: 2,
-                      transition: 'border .1s, outline .1s', flexShrink: 0,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Preview */}
-          <div style={{
-            marginTop: 12, padding: '10px 14px',
-            background: 'var(--surface2)', borderRadius: 8,
-            border: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <AirlineLogo
-              id={logoId}
-              customSrc={usingCustom ? customLogo : null}
-              size={38}
-              accentColor={accentColor}
-            />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{name.trim() || 'Your airline'}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                {usingCustom
-                  ? 'Custom uploaded logo'
-                  : <>{AIRLINE_LOGOS.find(l => l.id === logoId)?.name} livery ·{' '}
-                      {ACCENT_COLORS.find(c => c.hex === accentColor)?.label ?? 'Custom'} accent</>}
-              </div>
-            </div>
-          </div>
+          <LogoPicker
+            name={name}
+            airlineCode={airlineCode}
+            logoId={logoId} onLogoId={setLogoId}
+            accentColor={accentColor} onAccentColor={setAccentColor}
+            logoBg={logoBg} onLogoBg={setLogoBg}
+            customLogo={customLogo} onCustomLogo={setCustomLogo}
+            maxHeight={280}
+            taken={taken}
+          />
         </div>
         </>)}
 

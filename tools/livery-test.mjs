@@ -45,7 +45,7 @@ console.log('\n── 1. Normalisation: every livery that leaves here is valid �
 
 await test('a full livery passes through lowercased', () => {
   const l = L.normalizeLivery({ fuselage: '#F5F7FA', tail: '#C8102E', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, logoOnFuselage: true, titlesOn: true });
-  assert.deepEqual(l, { fuselage: '#f5f7fa', tail: '#c8102e', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, logoOnFuselage: true, titlesOn: true });
+  assert.deepEqual(l, { fuselage: '#f5f7fa', tail: '#c8102e', engines: '#f5f7fa', cheatline: '#c8102e', style: 'swoosh', titles: '#15202f', logoOnTail: false, logoOnFuselage: true, logoTile: false, titlesOn: true });
 });
 await test('bad colours fall back; the tail and stripe fall back to the accent', () => {
   const l = L.normalizeLivery({ fuselage: 'red', tail: 'url(javascript:1)', style: 'graffiti', engines: 12 }, '#ff8c00');
