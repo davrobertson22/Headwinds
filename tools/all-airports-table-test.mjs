@@ -25,8 +25,9 @@ globalThis.window.matchMedia ??= () => ({ matches: false, addEventListener() {},
 const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
 const Airports = (await import('../src/components/Airports.jsx')).default;
 const {
-  loadAirportMarkets, airlinesByAirport, sortAllAirportRows, ALL_AIRPORTS_PAGE_SIZE,
+  loadAirportMarkets, airlinesByAirport, sortAllAirportRows, ALL_AIRPORTS_PAGE_SIZE, gatewayScoreOf,
 } = await import('../src/components/AllAirportsTable.jsx');
+const { AIRPORT_GATEWAY_SCORES } = await import('../src/models/demand.js');
 const { AIRPORTS } = await import('../src/data/airports.js');
 const { airportMarketNow } = await import('../src/utils/airportMarket.js');
 
@@ -149,6 +150,42 @@ test('scarcity world: a sold-out airport reads FULL and its + button is refused,
   assert.match(lhr, /<span title="[^"]+"[^>]*cursor:not-allowed[^>]*><button[^>]*disabled=""/, 'the + is disabled under a hover reason');
   const nrt = rowHtml(html, 'NRT');
   assert.doesNotMatch(nrt, /disabled=""/, 'an airport with free gates stays leasable');
+});
+
+section('5. Gateway score (Discord, VodkaOnFire 2026-10-26)');
+
+test('a Gateway column shows the score the airport screen shows, with the 20% default dimmed', () => {
+  const html = render(base());
+  assert.match(html, />Gateway</, 'column header');
+  const cell = (code) => {
+    const m = rowHtml(html, code).match(/<td data-gateway="true"[^>]*title="([^"]*)"[^>]*>(\d+)%</);
+    assert.ok(m, `${code} has a gateway cell`);
+    return { title: m[1], pct: Number(m[2]), html: m[0] };
+  };
+  assert.equal(cell('LHR').pct, 65);
+  assert.equal(cell('JFK').pct, 50);
+  const big = html.match(/data-airport="([A-Z]{3})"/g).map(m => m.slice(14, 17))
+    .find(c => !(c in AIRPORT_GATEWAY_SCORES));
+  const unrated = cell(big);
+  assert.equal(unrated.pct, 20);
+  assert.match(unrated.title, /Not individually rated/);
+  assert.match(unrated.html, /var\(--text-dim\)/);
+});
+
+test('sorting by gateway: the transit hubs first, then ties by passenger market, and back', () => {
+  const rows = [
+    { code: 'AAA', gateway: 0.20, pax: 900 }, { code: 'DXB', gateway: 0.85, pax: 100 },
+    { code: 'BBB', gateway: 0.20, pax: 5000 }, { code: 'LAX', gateway: 0.45, pax: 9000 },
+  ];
+  assert.deepEqual(sortAllAirportRows(rows, 'gateway', 'desc').map(r => r.code), ['DXB', 'LAX', 'BBB', 'AAA']);
+  assert.deepEqual(sortAllAirportRows(rows, 'gateway', 'asc').map(r => r.code), ['AAA', 'BBB', 'LAX', 'DXB']);
+});
+
+test('the gateway sort ranks every rated airport above the unrated ones', () => {
+  const rows = AIRPORTS.map(a => ({ code: a.code, gateway: gatewayScoreOf(a.code).score, pax: 0 }));
+  const top = sortAllAirportRows(rows, 'gateway', 'desc').slice(0, Object.keys(AIRPORT_GATEWAY_SCORES).length);
+  assert.equal(top[0].code, 'DXB');
+  assert.deepEqual(new Set(top.map(r => r.code)), new Set(Object.keys(AIRPORT_GATEWAY_SCORES).filter(c => AIRPORTS.some(a => a.code === c))));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

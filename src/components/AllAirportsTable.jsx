@@ -7,6 +7,11 @@
 // airlines operating there, and the passenger and freight markets each airport
 // sits in, for every airport at once.
 //
+// Gateway column (Discord, VodkaOnFire 2026-10-26): sort by gateway score to
+// see where an international hub would draw the most outside connecting feed.
+// It reads the engine's own AIRPORT_GATEWAY_SCORES, the figure the airport
+// screen shows and the tick uses, with the same 20% default for unrated airports.
+//
 // The market columns read packages/engine/src/data/airportMarkets.js (generated
 // — see packages/engine/src/utils/airportMarket.js). It is ~200 KB, so it is loaded on demand when this
 // table first opens rather than shipped in the main bundle.
@@ -17,6 +22,7 @@ import { AIRPORTS, REGIONS, getRegion, getCountryName, gateMonthlyFee } from '..
 import { formatMoney, routeLegs } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { airportMarketNow, computeAirportMarkets } from '../utils/airportMarket.js';
+import { AIRPORT_GATEWAY_SCORES } from '../models/demand.js';
 import { stationFuelBasis, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
 import FuelBasisChip from './FuelBasisChip.jsx';
 import { DisabledHint } from './GateDenial.jsx';
@@ -24,6 +30,14 @@ import TierBadge from './TierBadge.jsx';
 import InfoTip from './InfoTip.jsx';
 
 export const ALL_AIRPORTS_PAGE_SIZE = 50;
+
+// Airports the engine doesn't rate individually count as this (models/demand.js).
+export const DEFAULT_GATEWAY_SCORE = 0.20;
+/** Gateway score (0–1) and whether the airport is individually rated. */
+export function gatewayScoreOf(code) {
+  const s = AIRPORT_GATEWAY_SCORES[code];
+  return s == null ? { score: DEFAULT_GATEWAY_SCORE, rated: false } : { score: s, rated: true };
+}
 
 // ── Market tables, each loaded once per page load ───────────────────────────
 // One per demand model: a classic world sorts on classic markets, a v2 world on
@@ -80,6 +94,8 @@ const COLUMNS = [
     tip: 'Passengers a week across every city pair from this airport — the same markets the Route Planner prices, added up, at this point in your game. Airports in one city share its market (every New York airport shows New York\'s), and passengers split between them. A typical week: seasonal swings are left out.' },
   { id: 'cargo',   label: 'Cargo market', align: 'right', first: 'desc',
     tip: 'Freight tonnes a week across every city pair from this airport, as the Cargo Planner prices them (annual average).' },
+  { id: 'gateway', label: 'Gateway',   align: 'right', first: 'desc',
+    tip: 'Gateway score: the share of this airport\'s traffic that is transit. A hub here draws outside connecting feed in proportion to it, on top of the connections your own network creates. Only the world\'s big transit hubs are rated individually; every other airport counts as 20%. Ties sort by passenger market.' },
   { id: 'metro',   label: 'Metro',     align: 'right', first: 'desc', tip: 'Metro-area population, as shown when you pick a hub.' },
   { id: 'runway',  label: 'Runway',    align: 'right', first: 'desc', tip: 'Longest runway. Aircraft that need more cannot operate here.' },
   { id: 'airlines', label: 'Airlines', align: 'right', first: 'desc', tip: 'Airlines flying here now, you included. Hover a number for the names.' },
@@ -96,6 +112,8 @@ export const ALL_AIRPORT_SORTERS = {
   country:  (a, b) => a.countryName.localeCompare(b.countryName) || a.code.localeCompare(b.code),
   pax:      by(r => r.pax),
   cargo:    by(r => r.cargo),
+  // Most airports share the 20% default, so ties go to the bigger passenger market.
+  gateway:  (a, b) => (a.gateway - b.gateway) || (a.pax - b.pax) || a.code.localeCompare(b.code),
   metro:    by(r => r.metro),
   runway:   by(r => r.runway ?? 0),
   airlines: by(r => r.airlines.length),
@@ -173,10 +191,12 @@ export default function AllAirportsTable({ onDetails, onAddGate, addDenialFor = 
         ? airportMarketNow(a.code, markets[a.code] ?? patched[a.code], table.GROWTH_BUCKETS, { absWeek, eraStartYear })
         : null;
       const held = gates[a.code] ?? 0;
+      const gw = gatewayScoreOf(a.code);
       return {
         code: a.code, city: a.city, name: a.name, tier: a.tier,
         country: a.country, countryName: getCountryName(a.country), region: getRegion(a.country),
         pax: m?.pax ?? 0, cargo: m?.cargo ?? 0,
+        gateway: gw.score, gatewayRated: gw.rated,
         metro: Math.max(a.population ?? 0, 0),
         runway: a.runwayFt ?? null,
         airlines: flyers.get(a.code) ?? [],
@@ -296,6 +316,14 @@ export default function AllAirportsTable({ onDetails, onAddGate, addDenialFor = 
                   <td style={{ ...TD, color: 'var(--text-muted)' }}>{r.countryName}</td>
                   <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{table ? compact(r.pax) : '…'}</td>
                   <td style={{ ...TD, textAlign: 'right' }}>{table ? `${compact(r.cargo)} t` : '…'}</td>
+                  <td data-gateway style={{
+                    ...TD, textAlign: 'right',
+                    color: r.gateway >= 0.65 ? 'var(--purple)' : r.gateway >= 0.45 ? 'var(--accent)' : r.gatewayRated ? 'var(--text)' : 'var(--text-dim)',
+                    fontWeight: r.gatewayRated ? 600 : 400,
+                  }}
+                    title={r.gatewayRated ? `${Math.round(r.gateway * 100)}% of traffic here is transit` : 'Not individually rated: the 20% default'}>
+                    {Math.round(r.gateway * 100)}%
+                  </td>
                   <td style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{r.metro.toFixed(1)}M</td>
                   <td style={{ ...TD, textAlign: 'right' }}>{r.runway ? `${r.runway.toLocaleString()} ft` : '—'}</td>
                   <td style={{ ...TD, textAlign: 'right' }}
