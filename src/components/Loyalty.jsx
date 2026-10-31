@@ -1,4 +1,5 @@
 import { Glyph } from './Icons.jsx';
+import CityLoyalty from './CityLoyalty.jsx';
 import { useState, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import {
@@ -41,7 +42,7 @@ function loyaltyTierLabel(investment) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function Loyalty() {
+function LegacyLoyalty() {
   const { state, dispatch } = useGame();
   const { loyalty = { weeklyInvestment: 0, members: 0, maturity: 0, pointsLiability: 0 }, lastReport, financialHistory } = state;
 
@@ -319,6 +320,13 @@ export default function Loyalty() {
       </div>
     </div>
   );
+}
+
+// Loyalty-pools worlds get the city program (CityLoyalty.jsx); every other
+// world keeps the budget-and-tier page above, unchanged.
+export default function Loyalty() {
+  const { state } = useGame();
+  return state.loyaltyPoolsWorld === true ? <CityLoyalty /> : <LegacyLoyalty />;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────

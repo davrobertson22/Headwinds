@@ -747,6 +747,37 @@ export function travelPartnerLostNewsRows({ worldId, week, losses, nameOf }) {
   return rows;
 }
 
+/**
+ * Loyalty-pools programs (engine models/loyaltyPools.js): an airline that cut
+ * its program's generosity, and an airline that status-matched a rival's
+ * members after one. Both public — a devaluation's outcry is the point, and the
+ * match is the one moment of direct loyalty PvP. `items` is
+ * [{ airlineId, type: 'devalued'|'matched', cut, generosity, rival, rivalId, members }].
+ */
+export function loyaltyNewsRows({ worldId, week, items, nameOf }) {
+  const rows = [];
+  const seen = new Set();
+  for (const it of items ?? []) {
+    if (!it?.airlineId || (it.type !== 'devalued' && it.type !== 'matched')) continue;
+    const key = `${it.airlineId}:${it.type}:${it.rivalId ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(it.type === 'devalued'
+      ? {
+          worldId, week, category: 'world', kind: 'loyalty_devalued', tier: 2,
+          airlineId: it.airlineId,
+          payload: { cut: it.cut ?? null, generosity: it.generosity ?? null, name: nameOf?.get?.(it.airlineId) ?? null },
+        }
+      : {
+          worldId, week, category: 'world', kind: 'status_match', tier: 2,
+          airlineId: it.airlineId,
+          payload: { rival: it.rival ?? null, rivalId: it.rivalId ?? null, members: it.members ?? null,
+                     name: nameOf?.get?.(it.airlineId) ?? null },
+        });
+  }
+  return rows;
+}
+
 /** Rows for events that started or ended this week. */
 export function worldEventNewsRows({ worldId, week, prevEvents, nextEvents }) {
   const prevIds = new Set((prevEvents ?? []).map((e) => e.id));

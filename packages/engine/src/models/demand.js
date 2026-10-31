@@ -191,9 +191,19 @@ export function connectingPriceFactor(price, refPrice, quality = 50) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0, travelLeisure: 1.0, travelBusiness: 0 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0, travelLeisure: 0,   travelBusiness: 1.0 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0, travelLeisure: 1.0, travelBusiness: 0,   loyalty: 0.5 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0, travelLeisure: 0,   travelBusiness: 1.0, loyalty: 1.0 },
 };
+
+/**
+ * `loyalty` is the loyalty-pools share term (models/loyaltyPools.js), and it is
+ * the one term in this table that has NO pool twin: _monopolyResult,
+ * _soloCeiling and offersBrandCapture never read offer.loyaltyAppeal or
+ * offer.loyaltySensReduction. Loyalty decides who travellers fly with, never
+ * whether they fly — so on a pair nobody contests it does nothing, and on a
+ * contested one it only moves passengers between the carriers there. Frequent
+ * flyers are mostly business travellers, so it bites half as hard on leisure.
+ */
 
 /**
  * `travelLeisure` / `travelBusiness` are the travel-partnership terms
@@ -981,7 +991,9 @@ export function computeUtility(offer, market, segment) {
   // scales how much price matters to THIS airline's passengers: loyal members
   // and a trusted brand blunt undercutting rivals; a poor reputation makes
   // passengers more price-driven.
-  const sens        = 1 - (offer.priceSensitivityReduction ?? 0);
+  // Loyalty-pools members shrug off a rival's undercut too — but only here,
+  // inside the share fight (loyaltySensReduction is never read by the pools).
+  const sens        = 1 - (offer.priceSensitivityReduction ?? 0) - (offer.loyaltySensReduction ?? 0);
   const priceUtil   = -(price / refPrice) * w.price * sens;
   const qualityUtil = (offer.qualityScore / 100) * w.quality;
   const freqUtil    = Math.log1p(offer.weeklyFrequency) * w.frequency;
@@ -1035,7 +1047,10 @@ export function computeUtility(offer, market, segment) {
   const travelUtil  = Math.log(Math.max(offer.travelLeisureAppeal ?? 1, 0.01)) * (w.travelLeisure ?? 0)
                     + Math.log(Math.max(offer.travelBusinessAppeal ?? 1, 0.01)) * (w.travelBusiness ?? 0);
 
-  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil + travelUtil;
+  // Loyalty pools: the airline's member standing on this pair. Share only.
+  const loyaltyUtil = Math.log(Math.max(offer.loyaltyAppeal ?? 1, 0.01)) * (w.loyalty ?? 0);
+
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil + travelUtil + loyaltyUtil;
 }
 
 /**

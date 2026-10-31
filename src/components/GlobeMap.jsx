@@ -29,7 +29,7 @@ const isActive = ['boolean', ['feature-state', 'active'], false];
 const byState = (spec, idx, anySel) =>
   ['case', isActive, spec.active[idx], anySel ? spec.dimmed[idx] : spec.normal[idx]];
 
-const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'partners-line'];
+const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'partners-line', 'loyalty-ring'];
 
 // ── Day / night and planes ────────────────────────────────────────────────────
 // Night is a small canvas raster over the whole world (gameClock.js draws the
@@ -81,10 +81,21 @@ function addLayers(map, nightCanvas, planeColors) {
   const src = (id) => map.addSource(id, {
     type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id',
   });
-  ['partners', 'partnerStops', 'cargo', 'routes', 'airports'].forEach(src);
+  ['loyalty', 'partners', 'partnerStops', 'cargo', 'routes', 'airports'].forEach(src);
   map.addSource('planes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
   const round = { 'line-cap': 'round', 'line-join': 'round' };
+
+  // Loyalty layer: city circles under every line (loyaltyMapCore.js). A
+  // shopping city's ring is drawn thinner and fainter — MapLibre circles have no
+  // dash, so the flat map's dashed ring becomes a softer one here.
+  map.addLayer({ id: 'loyalty-ring', type: 'circle', source: 'loyalty',
+    paint: { 'circle-radius': ['get', 'radius'], 'circle-color': ['get', 'fill'],
+             'circle-opacity': ['get', 'fillOpacity'],
+             'circle-stroke-color': ['get', 'stroke'],
+             'circle-stroke-width': ['case', ['get', 'dashed'], 1.2, 2],
+             'circle-stroke-opacity': ['case', ['get', 'dashed'], 0.55, 0.9],
+             'circle-pitch-alignment': 'map' } });
 
   map.addLayer({ id: 'partners-line', type: 'line', source: 'partners', layout: round,
     paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.55, 'line-dasharray': [2, 2.4] } });
@@ -317,8 +328,8 @@ export default function GlobeMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!loaded || !map || !data) return;
-    for (const id of ['routes', 'cargo', 'partners', 'partnerStops', 'airports']) {
-      map.getSource(id)?.setData(data[id]);
+    for (const id of ['routes', 'cargo', 'partners', 'partnerStops', 'airports', 'loyalty']) {
+      map.getSource(id)?.setData(data[id] ?? { type: 'FeatureCollection', features: [] });
     }
     // Start feature-state from clean on every rebuild; effect 3 re-applies it.
     map.removeFeatureState({ source: 'routes' });

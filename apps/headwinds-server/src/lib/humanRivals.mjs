@@ -22,7 +22,7 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, loyaltyPresence, stateDevaluationNotice, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
@@ -500,6 +500,15 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     // no cargo network at all, so client code must still tolerate its absence
     // there.
     cargoRoutes: cargoRoutesOf(s),
+    // Loyalty pools (engine models/loyaltyPools.js): the cities this rival's
+    // program pulls on, as { [pool]: [seats, value‰, members, elites] }. Every
+    // other airline's member step weighs it against its own program, and the
+    // Loyalty page shows who holds a city's flyers. Only in pools worlds with
+    // the program on (or members still lapsing).
+    ...((() => { const lp = loyaltyPresence(s, { allianceMember: !!allianceId }); return lp ? { loyaltyPools: lp } : {}; })()),
+    // A devaluation in the last few weeks: { cut, absWeek }. Public — the
+    // outcry is — and it is what opens a status match for everyone else.
+    ...((() => { const d = stateDevaluationNotice(s); return d ? { loyaltyDevaluation: d } : {}; })()),
   };
 }
 
@@ -552,6 +561,9 @@ export function toRivalSpecs(airlineRow) {
       // ride share → business), resolved by the helper the tick runs on the
       // player. Empty — and so absent from the spec — without partners.
       ...stateTravelPartnerFields(s, r.origin, r.destination),
+      // Their loyalty-pools standing on THIS pair (share term only), through
+      // the helper their own tick runs. Absent outside pools worlds.
+      ...stateLoyaltyFields(s, r.origin, r.destination),
       homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,

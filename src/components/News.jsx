@@ -272,6 +272,19 @@ export function compose(item, startYear = null) {
           : `was dropped by ${d.partner ?? 'a travel partner'}`,
         sub: 'Missed targets — no deal between them for 5 years',
       };
+    case 'loyalty_devalued':
+      // Cut its loyalty program's generosity (engine models/loyaltyPools.js).
+      return {
+        icon: '📉',
+        headline: `devalued its loyalty program${d.cut ? ` by ${(d.cut * 100).toFixed(1)} points` : ''}`,
+        sub: `Members now earn ${((d.generosity ?? 0) * 100).toFixed(1)}% · rivals in its cities can status-match for 3 weeks`,
+      };
+    case 'status_match':
+      return {
+        icon: '🎟️',
+        headline: `status-matched ${(d.members ?? 0).toLocaleString()} of ${d.rival ?? 'a rival'}'s members`,
+        sub: 'Honouring their status after a devaluation',
+      };
     case 'alliance_founded':
       return { icon: '🤝', subject: d.alliance, headline: 'alliance founded', standalone: true };
     case 'alliance_joined':

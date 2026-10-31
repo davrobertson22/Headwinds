@@ -18,6 +18,7 @@ export const ERA_FEATURE_FROM = {
   globalAlliances: 1997,   // Star Alliance founds; oneworld/SkyTeam follow
   lounges:         1985,   // branded contract-lounge networks (clubs existed, the NETWORK product didn't)
   gateAuctions:    1990,   // formalised slot/gate trading and auction mechanisms
+  loyaltyPrograms: 1981,   // AAdvantage launches May 1981 (loyalty-pools worlds only)
 };
 
 export const ERA_FEATURE_MESSAGE = {
@@ -27,6 +28,7 @@ export const ERA_FEATURE_MESSAGE = {
   globalAlliances: 'Global airline alliances do not exist yet — the first forms in 1997.',
   lounges:         'Branded lounge networks do not exist yet — they arrive around 1985.',
   gateAuctions:    'Formal gate auctions do not exist yet — they arrive around 1990.',
+  loyaltyPrograms: 'Frequent-flyer programs do not exist yet — the first launches in 1981.',
 };
 
 /**

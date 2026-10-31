@@ -447,6 +447,12 @@ export default function WeeklyDebrief() {
                 color="var(--red)"
               />
             </div>
+            {state.loyaltyPoolsWorld === true && state.loyalty?.lastWeek && (state.loyalty.lastWeek.joined > 0 || state.loyalty.lastWeek.defected > 0) && (
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }} data-debrief-loyalty-week>
+                {state.loyalty.lastWeek.joined.toLocaleString()} joined
+                {state.loyalty.lastWeek.defected > 0 && <>, <span style={{ color: 'var(--red)' }}>{state.loyalty.lastWeek.defected.toLocaleString()} left</span> (late flights, a devaluation, or cut routes)</>}.
+              </div>
+            )}
             {loyaltyBoost > 0 && (
               <div style={{
                 marginTop: 8, padding: '6px 10px',

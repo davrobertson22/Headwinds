@@ -89,6 +89,13 @@ import {
 import { runNetworkTick, trimOwnMetalEntries, rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../models/network.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
+import {
+  isLoyaltyPoolsWorld, loyaltyFieldsFromLoyalty, loyaltyStandingAt, loyaltyFieldsForSegment,
+  loyaltyPoolOf, loyaltyPoolWeight, loyaltyPoolSize, loyaltyPoolName, loyaltyTargetShare, programValueParts,
+  loyaltyProgramOn, loyaltyPoolFlows, devaluationRepPenalty, advanceLoyaltyPools, poolEntry as loyaltyPoolEntry,
+  LP_RELIABLE_AT, LP_ONTIME_EMA, LP_REQUAL_WEEK, LP_MATURITY_WEEKS, LP_MATURITY_DECAY,
+  statusMatchOffer, applyStatusMatch, devaluationNotice, LP_MATCH_MEMORY_WEEKS,
+} from '../models/loyaltyPools.js';
 import { buildEncroachmentOffer } from '../models/encroachment.js';
 
 // ─────────────────────────────────────────────
@@ -874,6 +881,260 @@ export function stateTravelPartnerFields(state, origin, destination, month = nul
   if (!hasTravelPartners(partners)) return {};
   const m = month ?? state?.gameDate?.month ?? weekToGameDate(state?.week ?? 1).monthIndex;
   return travelPartnerFieldsFor(partners, origin, destination, m);
+}
+
+// ── Loyalty pools (models/loyaltyPools.js; loyalty v2, new worlds only) ──────
+// The state glue for the pure pool model: what the airline flies, what its
+// program is worth in each city, and what its rivals' programs pull. Every
+// caller — weeklyTick, the reducer's member step, pairShare previews, Route
+// Detail, the Loyalty page and the server's rival specs — goes through these,
+// so a preview cannot quote a loyalty share the tick would not give.
+
+/**
+ * The loyalty offer fields for a pair, resolved from STATE. Returns {} outside a
+ * loyalty-pools world or without members, so spreading it changes nothing for
+ * anyone else. Spread it next to stateTravelPartnerFields.
+ */
+export function stateLoyaltyFields(state, origin, destination) {
+  if (!isLoyaltyPoolsWorld(state)) return {};
+  return loyaltyFieldsFromLoyalty(state?.loyalty, origin, destination);
+}
+
+/** Departing seats this week per loyalty pool (every stop of every flying route). */
+export function loyaltySeatsByPool(state) {
+  const month = weekToGameDate(state?.week ?? 1).monthIndex;
+  const fleet = new Map((state?.fleet ?? []).map(a => [a.id, a]));
+  const out = {};
+  for (const r of state?.routes ?? []) {
+    const f = r?.weeklyFrequency ?? 0;
+    if (!(f > 0) || !isRouteActive(r, month)) continue;
+    const a = fleet.get(r.aircraftId);
+    if (!a || a.status === 'retired' || isOutOfService(a)) continue;
+    const type = getAircraftType(a.typeId);
+    const seats = configBodies(a.config ?? defaultConfig(type?.seats ?? 0)) * f;
+    if (!(seats > 0)) continue;
+    for (const pool of new Set(routeStops(r).map(loyaltyPoolOf))) {
+      out[pool] = (out[pool] ?? 0) + seats;
+    }
+  }
+  return out;
+}
+
+/** Distinct destination cities reachable nonstop from each pool. */
+export function loyaltyDestinationsByPool(state) {
+  const month = weekToGameDate(state?.week ?? 1).monthIndex;
+  const sets = {};
+  for (const r of state?.routes ?? []) {
+    if (!((r?.weeklyFrequency ?? 0) > 0) || !isRouteActive(r, month)) continue;
+    const pools = [...new Set(routeStops(r).map(loyaltyPoolOf))];
+    for (const p of pools) {
+      const s = (sets[p] = sets[p] ?? new Set());
+      for (const q of pools) if (q !== p) s.add(q);
+    }
+  }
+  return Object.fromEntries(Object.entries(sets).map(([p, s]) => [p, s.size]));
+}
+
+/** Premium seats (business + first) as a share of every seat on the flying fleet. */
+export function loyaltyPremiumShare(state) {
+  const assigned = new Set((state?.routes ?? []).map(r => r.aircraftId));
+  let prem = 0, all = 0;
+  for (const a of state?.fleet ?? []) {
+    if (!assigned.has(a.id) || a.status === 'retired') continue;
+    const type = getAircraftType(a.typeId);
+    const c = a.config ?? defaultConfig(type?.seats ?? 0);
+    prem += (c.businessClass ?? 0) + (c.firstClass ?? 0);
+    all += configBodies(c);
+  }
+  return all > 0 ? prem / all : 0;
+}
+
+/** Everything programValueParts reads, from STATE. */
+export function loyaltyValueContext(state, { allianceMember = null, onTime = null } = {}) {
+  return {
+    generosity:     state?.loyalty?.generosity ?? 0,
+    lounges:        state?.lounges ?? {},
+    loungePolicy:   state?.loungePolicy ?? null,
+    ancillaries:    state?.ancillaries ?? null,
+    premiumShare:   loyaltyPremiumShare(state),
+    allianceMember: allianceMember ?? !!state?.allianceMembership,
+    destinations:   loyaltyDestinationsByPool(state),
+    travelPartners: state?.travelPartners ?? {},
+    onTime:         onTime ?? state?.loyalty?.onTimeEma ?? null,
+  };
+}
+
+/**
+ * What a rival sees of this airline's program: { [pool]: [seats, value‰,
+ * members, elites] }. null outside a pools world or with the program off and
+ * no members left. Built by the server once per tick per airline.
+ */
+export function loyaltyPresence(state, opts = {}) {
+  if (!isLoyaltyPoolsWorld(state)) return null;
+  const lo = state?.loyalty ?? {};
+  const on = loyaltyProgramOn(lo);
+  if (!on && !((lo.members ?? 0) > 0)) return null;
+  const seats = on ? loyaltySeatsByPool(state) : {};
+  const ctx = loyaltyValueContext(state, opts);
+  const out = {};
+  for (const pool of new Set([...Object.keys(seats), ...Object.keys(lo.pools ?? {})])) {
+    const { members, elites } = loyaltyPoolEntry(lo.pools, pool);
+    const s = seats[pool] ?? 0;
+    if (!(s > 0) && !(members > 0)) continue;
+    const v = on && s > 0 ? programValueParts(ctx, pool).value : 0;
+    out[pool] = [Math.round(s), Math.round(v * 1000), members, elites];
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Σ rival pull per pool, from the competitors' published presence. */
+export function loyaltyRivalWeights(competitors) {
+  const out = {};
+  for (const c of competitors ?? []) {
+    for (const [pool, row] of Object.entries(c?.loyaltyPools ?? {})) {
+      const w = loyaltyPoolWeight(row?.[0] ?? 0, loyaltyPoolSize(pool), (row?.[1] ?? 0) / 1000);
+      if (w > 0) out[pool] = (out[pool] ?? 0) + w;
+    }
+  }
+  return out;
+}
+
+/**
+ * One week of the program, for the reducer: members drift, elites build,
+ * leave or requalify, maturity steps. `report` is this week's tick report
+ * (liability, on-time). Returns the next loyalty object.
+ */
+export function advanceLoyaltyProgram(state, report, absWeek) {
+  const lo = state?.loyalty ?? {};
+  const on = loyaltyProgramOn(lo);
+  const seats = on ? loyaltySeatsByPool(state) : {};
+  const onTime = Number.isFinite(report?.loyaltyOnTime) ? report.loyaltyOnTime : (lo.onTimeEma ?? LP_RELIABLE_AT);
+  const onTimeEma = Number.isFinite(lo.onTimeEma) ? lo.onTimeEma + LP_ONTIME_EMA * (onTime - lo.onTimeEma) : onTime;
+  const ctx = loyaltyValueContext(state, { onTime: onTimeEma });
+  const values = {};
+  for (const pool of Object.keys(seats)) values[pool] = programValueParts(ctx, pool).value;
+  const requal = state?.week === LP_REQUAL_WEEK && lo.requalYear !== state?.year
+    && Object.keys(lo.pools ?? {}).length > 0;
+  const devaluation = lo.devaluation && !lo.devaluation.applied ? lo.devaluation : null;
+  // A status match paid for last week: those members arrive now.
+  const match = on ? lo.pendingMatch ?? null : null;
+  const poolsIn = match ? applyStatusMatch(lo.pools ?? {}, match) : (lo.pools ?? {});
+  const step = advanceLoyaltyPools(poolsIn, {
+    on, maturity: lo.maturity ?? 0, seats, values,
+    rivals: loyaltyRivalWeights(state?.competitors), onTime, onTimeEma, requal, devaluation, absWeek,
+  });
+  const maturity = on
+    ? Math.min(1, (lo.maturity ?? 0) + 1 / LP_MATURITY_WEEKS)
+    : Math.max(0, (lo.maturity ?? 0) - LP_MATURITY_DECAY);
+  const next = {
+    ...lo,
+    members: step.members,
+    elites: step.elites,
+    pools: step.pools,
+    maturity: +maturity.toFixed(4),
+    onTimeEma: +onTimeEma.toFixed(4),
+    pointsLiability: report?.loyaltyLiability ?? lo.pointsLiability ?? 0,
+    lastWeek: { joined: step.joined, defected: step.defected },
+  };
+  if (requal) {
+    next.requalYear = state.year;
+    next.lastRequal = { year: calendarYear(state) ?? state.year, ...step.requal };
+  }
+  if (devaluation) next.devaluation = { ...devaluation, applied: true };
+  if (next.devaluation?.applied && !((next.devaluation.until ?? 0) > absWeek)) delete next.devaluation;
+  if (next.promo && !((next.promo.until ?? 0) >= absWeek)) delete next.promo;
+  if (lo.pendingMatch) {
+    delete next.pendingMatch;
+    if (match) next.lastMatch = { rivalId: match.rivalId, name: match.name, members: match.members, cost: match.cost, absWeek };
+  }
+  // Rivals whose devaluation we've been told about, and matched; forget old ones.
+  for (const k of ['matched', 'seenDevaluations']) {
+    if (!next[k]) continue;
+    const kept = Object.fromEntries(Object.entries(next[k]).filter(([, w]) => absWeek - w <= LP_MATCH_MEMORY_WEEKS));
+    if (Object.keys(kept).length) next[k] = kept; else delete next[k];
+  }
+  return next;
+}
+
+/**
+ * Status matches on offer this week: one per rival that devalued in the last
+ * few weeks, at the cities you both fly (models/loyaltyPools.js). [] outside a
+ * pools world or with your program closed. The reducer's LOYALTY_STATUS_MATCH
+ * and the Loyalty page both read this, so the price on the button is the price.
+ */
+export function loyaltyMatchOffers(state) {
+  if (!isLoyaltyPoolsWorld(state)) return [];
+  const lo = state?.loyalty ?? {};
+  const on = loyaltyProgramOn(lo);
+  if (!on) return [];
+  const rivals = (state?.competitors ?? []).filter(c => c?.loyaltyDevaluation && c?.loyaltyPools);
+  if (!rivals.length) return [];
+  const seats = loyaltySeatsByPool(state);
+  const ctx = loyaltyValueContext(state);
+  const values = {};
+  for (const pool of Object.keys(seats)) values[pool] = programValueParts(ctx, pool).value;
+  const mine = { on, seats, values, matched: lo.matched ?? {}, absWeek: absoluteWeekOf(state), costScale: getEraCostScale() };
+  return rivals
+    .map(c => statusMatchOffer({ id: c.id, name: c.name, devaluation: c.loyaltyDevaluation, pools: c.loyaltyPools }, mine))
+    .filter(Boolean);
+}
+
+/** This airline's recent devaluation as rivals see it (for the server's competitor view). */
+export function stateDevaluationNotice(state) {
+  return isLoyaltyPoolsWorld(state) ? devaluationNotice(state?.loyalty, absoluteWeekOf(state)) : null;
+}
+
+/**
+ * The Loyalty page's city table: every pool the airline flies or holds members
+ * in, with its standing, the checklist of what its program is worth there, and
+ * the rivals pulling on the same flyers.
+ */
+export function loyaltyCityTable(state) {
+  if (!isLoyaltyPoolsWorld(state)) return [];
+  const lo = state?.loyalty ?? {};
+  const on = loyaltyProgramOn(lo);
+  const seats = loyaltySeatsByPool(state);
+  const ctx = loyaltyValueContext(state);
+  const rivalsAt = {};
+  for (const c of state?.competitors ?? []) {
+    for (const [pool, row] of Object.entries(c?.loyaltyPools ?? {})) {
+      (rivalsAt[pool] = rivalsAt[pool] ?? []).push({
+        id: c.id, name: c.name, seats: row[0] ?? 0, value: (row[1] ?? 0) / 1000,
+        members: row[2] ?? 0, elites: row[3] ?? 0,
+      });
+    }
+  }
+  const rows = [];
+  for (const pool of new Set([...Object.keys(seats), ...Object.keys(lo.pools ?? {})])) {
+    const F = loyaltyPoolSize(pool);
+    const { members, elites, shopUntil } = loyaltyPoolEntry(lo.pools, pool);
+    const { value, parts } = programValueParts(ctx, pool);
+    const rivals = (rivalsAt[pool] ?? []).sort((a, b) => b.members - a.members);
+    const rivalW = rivals.reduce((s, r) => s + loyaltyPoolWeight(r.seats, F, r.value), 0);
+    const target = on ? F * loyaltyTargetShare(loyaltyPoolWeight(seats[pool] ?? 0, F, value), rivalW) : 0;
+    rows.push({
+      pool, name: loyaltyPoolName(pool), poolSize: F, seats: seats[pool] ?? 0,
+      members, elites, share: members / F, target: Math.round(target),
+      value, parts, rivals, shopping: shopUntil > absoluteWeekOf(state),
+    });
+  }
+  return rows.sort((a, b) => b.members - a.members || b.seats - a.seats);
+}
+
+const absoluteWeekOf = (state) => _absoluteWeek(state?.year ?? 1, state?.week ?? 1);
+
+/**
+ * The loyalty term calcReputation takes, from STATE, as the tick resolves it:
+ * the old mature-program bonus (0…+8) in classic worlds; in loyalty-pools
+ * worlds only a recent devaluation's penalty (0…−6) — a program there buys
+ * passengers from rivals, not prestige.
+ */
+export function stateLoyaltyReputationBonus(state) {
+  if (isLoyaltyPoolsWorld(state)) return devaluationRepPenalty(state?.loyalty, absoluteWeekOf(state));
+  return loyaltyReputationBonus(loyaltyEffectiveStrength(
+    loyaltyPenetration(state?.loyalty?.members ?? 0, loyaltyPaxBase(state) || (state?.lastReport?.totalPassengers ?? 0)),
+    state?.loyalty?.maturity ?? 0,
+  ));
 }
 
 /**
@@ -2145,6 +2406,10 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // cruise + tours lift leisure, hotels + ride share lift business. 1 = none.
     travelLeisureAppeal:  route.travelLeisureAppeal ?? 1,
     travelBusinessAppeal: route.travelBusinessAppeal ?? 1,
+    // Loyalty pools (models/loyaltyPools.js): a share term BETWEEN carriers and
+    // a price shield inside the same softmax. Never the pool. 1 / 0 = parity.
+    loyaltyAppeal:        route.loyaltyAppeal ?? 1,
+    loyaltySensReduction: route.loyaltySensReduction ?? 0,
   };
 
   // Gather any AI competitors serving this route and compute market share.
@@ -2814,6 +3079,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       marketingBoost: route.marketingBoost ?? 0,
       brandReach: route.brandReach ?? 1,
       loungeAppeal: route.loungeAppeal ?? 1,
+      // Loyalty standing per SEGMENT, like the travel partners below.
+      ...loyaltyFieldsForSegment(route.loyaltyAt, seg.from, seg.to),
       // Travel partners per SEGMENT: a cruise port at one stop lifts only the
       // segments that touch it.
       ...(route.travelPartnerAt ? (() => {
@@ -3486,7 +3753,8 @@ const STATE_REP_MEMO = new WeakMap();
 
 function projectionReputation(state, avgUtilizationOverride) {
   const loyalty = state.loyalty ?? { weeklyInvestment: 0, members: 0 };
-  const strength = loyaltyEffectiveStrength(
+  const poolsWorld = isLoyaltyPoolsWorld(state);
+  const strength = poolsWorld ? 0 : loyaltyEffectiveStrength(
     loyaltyPenetration(loyalty.members ?? 0, loyaltyPaxBase(state)),
     loyalty.maturity ?? 0,
   );
@@ -3498,7 +3766,9 @@ function projectionReputation(state, avgUtilizationOverride) {
   const avgUtilization = avgUtilizationOverride
     ?? (Number.isFinite(state._avgUtilization) ? state._avgUtilization : null)
     ?? fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
-  const loyaltyBonus = loyaltyReputationBonus(strength);
+  const loyaltyBonus = poolsWorld
+    ? devaluationRepPenalty(loyalty, _absoluteWeek(state.year ?? 1, state.week ?? 1))
+    : loyaltyReputationBonus(strength);
   const key = `${loyaltyBonus}|${avgUtilization}`;
   let perState = STATE_REP_MEMO.get(state);
   if (!perState) { perState = new Map(); STATE_REP_MEMO.set(state, perState); }
@@ -4158,6 +4428,14 @@ export function weeklyTick(state) {
   const tpActive   = hasTravelPartners(tpPartners);
   const tpMonth    = gameDate.month;
   const travelFieldsFor = (o, d) => (tpActive ? travelPartnerFieldsFor(tpPartners, o, d, tpMonth) : {});
+  // Loyalty pools: the pair's member standing as two offer fields ({} elsewhere).
+  const lpWorld = isLoyaltyPoolsWorld(state);
+  const loyaltyFieldsFor = (o, d) => (lpWorld ? loyaltyFieldsFromLoyalty(loyalty, o, d) : {});
+  const loyaltyAtFor = (stops) => {
+    if (!lpWorld) return {};
+    const at = loyaltyStandingAt(loyalty, stops);
+    return at ? { loyaltyAt: at } : {};
+  };
   const tpDue      = tpActive ? dueTravelInstalments(tpPartners, absWeek ?? 0) : [];
   const totalTravelPartnerFees = tpDue.reduce((sum, d) => sum + (d.amount ?? 0), 0);
 
@@ -4399,7 +4677,11 @@ export function weeklyTick(state) {
   const loyaltyPaxSmoothed  = loyaltyPaxBase(state);
   const loyaltyPenet        = loyaltyPenetration(loyaltyMembers, loyaltyPaxSmoothed);
   const loyaltyMaturity     = loyalty?.maturity ?? 0;
-  const loyaltyStrength     = loyaltyEffectiveStrength(loyaltyPenet, loyaltyMaturity);
+  // Loyalty-pools worlds: the old hub-proxy channels (brand reach lift, the
+  // all-pairs price shield, the reputation bonus) are OFF. Loyalty there is a
+  // zero-sum share term per pair (loyaltyFieldsFor below), nothing else.
+  const loyaltyPoolsOn      = isLoyaltyPoolsWorld(state);
+  const loyaltyStrength     = loyaltyPoolsOn ? 0 : loyaltyEffectiveStrength(loyaltyPenet, loyaltyMaturity);
   const loyaltyTierNow      = loyaltyTier(loyalty?.effInvestment ?? loyalty?.weeklyInvestment ?? 0);
   const loyaltyBoostHub     = loyaltyDemandBoostPct(loyaltyStrength, loyaltyTierNow); // full, hub routes
   const loyaltyBoostOffHub  = loyaltyBoostHub * 0.4;                                  // diluted, off-hub
@@ -4410,7 +4692,9 @@ export function weeklyTick(state) {
   // Reputation: brand trust nudges demand (±7.5%) and — together with the
   // loyalty program — blunts passengers' price sensitivity. These are the same
   // figures the Reputation page displays; they now actually feed the engine.
-  const repInfo          = calcReputation(state, loyaltyReputationBonus(loyaltyStrength), avgUtilization);
+  const repInfo          = calcReputation(state, loyaltyPoolsOn
+    ? devaluationRepPenalty(loyalty, absWeek ?? 0)
+    : loyaltyReputationBonus(loyaltyStrength), avgUtilization);
   const reputationMult   = reputationDemandMultiplier(repInfo.overall);
   const repElasticityRed = reputationElasticityReduction(repInfo.overall);
   // Combined price-sensitivity reduction for player offers. Loyalty's share is
@@ -4725,6 +5009,8 @@ export function weeklyTick(state) {
           // member's demandOverride, so leaving them off would exempt
           // multi-aircraft pairs from the partner lift.
           ...travelFieldsFor(pairO, pairD),
+          // Loyalty standing — same reason again.
+          ...loyaltyFieldsFor(pairO, pairD),
         };
 
 
@@ -4860,6 +5146,8 @@ export function weeklyTick(state) {
         // technical stop for most of the people on board, and a lounge there is
         // not what sold them the ticket.
         ...loungeFieldsFor(route.origin, route.destination),
+        // Loyalty standing per stop; simulateTagRoute resolves each segment.
+        ...loyaltyAtFor(stopsList),
         // Travel partners per stop; simulateTagRoute resolves each segment.
         ...(() => { const at = tpActive ? travelPartnerAt(tpPartners, stopsList, tpMonth) : null; return at ? { travelPartnerAt: at } : {}; })(),
         ...(tpWorld ? { travelPartnerTrack: true } : {}),
@@ -4969,6 +5257,7 @@ export function weeklyTick(state) {
       // Travel partners: the segment lifts, and (partnership worlds) the
       // leisure/business split on the result that their requirements count.
       ...travelFieldsFor(route.origin, route.destination),
+      ...loyaltyFieldsFor(route.origin, route.destination),
       ...(tpWorld ? { travelPartnerTrack: true } : {}),
       ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
       ...(() => { const g = handlingFactorFor([route.origin, route.destination]); return g != null ? { groundHandlingFactor: g } : {}; })(),
@@ -5517,15 +5806,30 @@ export function weeklyTick(state) {
   //     and outstanding points are REDEEMED over the following months as award
   //     seats — that draw-down (minus breakage) is the real weekly cost.
   //   A program that stops being funded still owes its outstanding points.
-  const loyaltyInvestment = loyalty?.weeklyInvestment ?? 0;
+  //   Loyalty-pools worlds have no budget: members earn `generosity` of the fare
+  //   on the revenue they fly, breakage falls as the program matures, and
+  //   running it costs admin per member (models/loyaltyPools.js).
+  const loyaltyInvestment = loyaltyPoolsOn ? 0 : (loyalty?.weeklyInvestment ?? 0);
   const loyaltyGenerosity = loyaltyTier(loyaltyInvestment).generosity
     || (loyaltyMembers > 0 ? 0.85 : 0);
   const loyaltyPrevLiability = Math.max(0, loyalty?.pointsLiability ?? 0);
-  const loyaltyFlows = (loyaltyMembers > 0 || loyaltyPrevLiability > 0)
-    ? loyaltyPointsFlows(loyaltyPrevLiability, totalRevenue, loyaltyPenet, loyaltyGenerosity)
-    : { earned: 0, redeemedCost: 0, expired: 0, newLiability: 0 };
+  const loyaltyFlows = loyaltyPoolsOn
+    ? ((loyaltyMembers > 0 || loyaltyPrevLiability > 0)
+        ? loyaltyPoolFlows({
+            liability: loyaltyPrevLiability, revenue: totalRevenue, memberShare: loyaltyPenet,
+            generosity: loyalty?.generosity ?? 0, maturity: loyaltyMaturity,
+            members: loyaltyProgramOn(loyalty) ? loyaltyMembers : 0, costScale: getEraCostScale(),
+          })
+        : { earned: 0, redeemedCost: 0, expired: 0, admin: 0, newLiability: 0 })
+    : ((loyaltyMembers > 0 || loyaltyPrevLiability > 0)
+        ? loyaltyPointsFlows(loyaltyPrevLiability, totalRevenue, loyaltyPenet, loyaltyGenerosity)
+        : { earned: 0, redeemedCost: 0, expired: 0, newLiability: 0 });
   const loyaltyPointsCost = loyaltyFlows.redeemedCost;
-  const totalLoyaltyCost  = loyaltyInvestment + loyaltyPointsCost;
+  const loyaltyAdminCost  = loyaltyFlows.admin ?? 0;
+  // A status match paid this week (LOYALTY_STATUS_MATCH): the members arrive in
+  // the reducer's member step, the bill lands here on the same tick.
+  const loyaltyMatchCost  = loyaltyPoolsOn && loyaltyProgramOn(loyalty) ? Math.max(0, loyalty?.pendingMatch?.cost ?? 0) : 0;
+  const totalLoyaltyCost  = loyaltyInvestment + loyaltyPointsCost + loyaltyAdminCost + loyaltyMatchCost;
 
   // 11. Alliance & codeshare partnerships
   // O&D-based partner revenue (replaces the old flat per-adjacent-route model).
@@ -5773,6 +6077,12 @@ export function weeklyTick(state) {
     loyaltyPointsCost:      Math.round(loyaltyPointsCost),
     loyaltyPointsExpired:   Math.round(loyaltyFlows.expired),
     loyaltyLiability:       Math.round(loyaltyFlows.newLiability), // for the reducer to persist
+    // Loyalty-pools worlds only, so every other report is byte-identical.
+    ...(loyaltyPoolsOn ? {
+      loyaltyAdminCost: Math.round(loyaltyAdminCost),
+      ...(loyaltyMatchCost > 0 ? { loyaltyStatusMatchCost: Math.round(loyaltyMatchCost) } : {}),
+      loyaltyOnTime:    +laborEffects(labor, avgUtilization, satisfaction).onTimeRate.toFixed(4),
+    } : {}),
     awarenessMultiplier,
     reputationMultiplier:   reputationMult,
     reputationScore:        repInfo.overall,

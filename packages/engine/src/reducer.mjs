@@ -18,7 +18,7 @@ import {
   routeStops, routeLegs, routeSegments, routeSegmentKey, isMultiStop,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
   MAX_ROUTE_STOPS,
-  loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase,
+  loyaltyTier, loyaltyEnrollPull, loyaltyPaxBase, advanceLoyaltyProgram, loyaltyMatchOffers,
   isRouteActive, routeActiveMonths, aircraftHubMaintFactor, routesCommittedTo,
   blockHourFit, blockTimeHours,
   applyScheduleTrimMigration, rangeStrandedRoutes,
@@ -122,6 +122,10 @@ import {
   healAnachronisticCompetitorFleets,
 } from './models/demand.js';
 import { setMarketDev } from './models/marketDev.js';
+import {
+  isLoyaltyPoolsWorld, normalizeGenerosity, generosityChange, loyaltyPoolName,
+  LP_PROMO_GRACE_WEEKS, LP_DEVALUE_REP_WEEKS,
+} from './models/loyaltyPools.js';
 import { tickCompetitorAI, retainedProfit, FIRE_SALE_PREMIUM, competitorMarketingSpend } from './models/competitorAI.js';
 import { rollEvents, tickEvents, rollMechanicalFailures } from './data/events.js';
 import { tickEncroachment } from './models/encroachment.js';
@@ -4907,7 +4911,85 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_LOYALTY_GENEROSITY': {
+      // Loyalty-pools worlds (models/loyaltyPools.js). action: { generosity }
+      // — the share of fare members earn back, 0.03–0.12; 0 switches the
+      // program off. Raising is free. A cut is a DEVALUATION: members defect,
+      // every city starts shopping around, reputation takes a hit for 12 weeks.
+      // Outstanding points keep their value either way. A raise can be taken
+      // back within LP_PROMO_GRACE_WEEKS without penalty (a promotion).
+      if (!isLoyaltyPoolsWorld(state)) return state;
+      const refusedEra = refuseEraFeature(state, 'loyaltyPrograms');
+      if (refusedEra) return refusedEra;
+      const lo   = state.loyalty ?? { members: 0 };
+      const prev = lo.generosity ?? 0;
+      const next = normalizeGenerosity(action.generosity);
+      if (next === prev) return state;
+      const absWk = absoluteWeek(state.year ?? 1, state.week ?? 1);
+      const ch = generosityChange(lo, next, absWk);
+      const loyaltyNext = { ...lo, generosity: next };
+      const toasts = [];
+      if (ch.promo) {
+        loyaltyNext.promo = lo.promo && (lo.promo.until ?? 0) >= absWk
+          ? lo.promo : { from: prev, until: absWk + LP_PROMO_GRACE_WEEKS };
+      }
+      if (ch.graced) delete loyaltyNext.promo;
+      if (ch.off) {
+        delete loyaltyNext.promo;
+        toasts.push({ type: 'warning', icon: '🎟️', title: 'Loyalty program closed',
+          message: 'Members will drift away over the coming months. Points already earned must still be honoured.', duration: 8000 });
+      }
+      if (ch.cut > 0) {
+        const pending = lo.devaluation && !lo.devaluation.applied ? lo.devaluation.cut ?? 0 : 0;
+        loyaltyNext.devaluation = {
+          cut: +(pending + ch.cut).toFixed(4), absWeek: absWk,
+          until: absWk + LP_DEVALUE_REP_WEEKS, maturity: lo.maturity ?? 0, applied: false,
+        };
+        delete loyaltyNext.promo;
+        toasts.push({ type: 'warning', icon: '📉', title: 'Program devalued',
+          message: `Members earn ${(next * 100).toFixed(1)}% instead of ${(prev * 100).toFixed(1)}%. Expect defections at next week's tick, and every city you fly to will shop around for a while.`, duration: 9000 });
+      }
+      if (prev === 0 && next > 0) {
+        if (lo.foundedAbsWeek == null) loyaltyNext.foundedAbsWeek = absWk;
+        toasts.push({ type: 'success', icon: '🎟️', title: 'Loyalty program open',
+          message: 'Frequent flyers in the cities you fly will start joining from next week.', duration: 7000 });
+      }
+      return {
+        ...state,
+        loyalty: loyaltyNext,
+        ...(toasts.length ? { pendingToasts: [...(state.pendingToasts ?? []), ...toasts] } : {}),
+      };
+    }
+
+    case 'LOYALTY_STATUS_MATCH': {
+      // action: { rivalId } — honour the status of a rival's members after it
+      // devalued (models/loyaltyPools.js statusMatchOffer). Priced and sized by
+      // loyaltyMatchOffers, never by the payload. Paid and delivered at the next
+      // tick; one per rival per devaluation, one pending at a time.
+      if (!isLoyaltyPoolsWorld(state)) return state;
+      const lo = state.loyalty ?? {};
+      const offer = loyaltyMatchOffers(state).find(o => o.rivalId === action.rivalId);
+      if (!offer) return { ...state, error: 'That status match is no longer on offer.' };
+      if (lo.pendingMatch) return { ...state, error: 'You already have a status match going through this week.' };
+      if ((state.cash ?? 0) < offer.cost) return { ...state, error: `A status match costs ${formatMoney(offer.cost)} — not enough cash.` };
+      return {
+        ...state,
+        loyalty: {
+          ...lo,
+          pendingMatch: { rivalId: offer.rivalId, name: offer.name, cities: offer.cities, members: offer.members, cost: offer.cost },
+          matched: { ...(lo.matched ?? {}), [offer.rivalId]: offer.devaluedAbsWeek },
+        },
+        pendingToasts: [...(state.pendingToasts ?? []), {
+          type: 'success', icon: '🎟️', title: 'Status match offered',
+          message: `${offer.members.toLocaleString()} of ${offer.name}'s members can keep their status with you. They join at the next tick, for ${formatMoney(offer.cost)}.`,
+          duration: 8000,
+        }],
+      };
+    }
+
     case 'SET_LOYALTY_INVESTMENT': {
+      // Loyalty-pools worlds have no budget (SET_LOYALTY_GENEROSITY instead).
+      if (isLoyaltyPoolsWorld(state)) return state;
       // action: { amount } — weekly spend in dollars, 0 = no program.
       // Coerce first so a missing/non-numeric amount can't inject NaN.
       return {
@@ -5392,13 +5474,68 @@ function reducer(state, action) {
       // Outstanding points liability was advanced by the engine this week
       // (earn accrual minus redemptions/breakage) — persist the new stock.
       const newPointsLiability = report.loyaltyLiability ?? currentLoyalty.pointsLiability ?? 0;
-      const updatedLoyalty = {
+      const legacyUpdatedLoyalty = {
         ...currentLoyalty,
         members: Math.max(0, newLoyaltyMembers),
         effInvestment,
         maturity: newMaturity,
         pointsLiability: newPointsLiability,
       };
+      // Loyalty-pools worlds replace all of the above (models/loyaltyPools.js):
+      // members per city drift toward the share the program is worth there
+      // against every rival's, elites build / leave / requalify, maturity steps.
+      const loyaltyPoolsTick = isLoyaltyPoolsWorld(state);
+      const updatedLoyalty = loyaltyPoolsTick
+        ? advanceLoyaltyProgram(state, report, curAbsWeek)
+        : legacyUpdatedLoyalty;
+      const loyaltyToasts = [];
+      const loyaltyNews = [];
+      if (loyaltyPoolsTick) {
+        const rq = updatedLoyalty.lastRequal;
+        if (rq && updatedLoyalty.requalYear === state.year && currentLoyalty.requalYear !== state.year) {
+          const worst = rq.cities?.[0];
+          loyaltyToasts.push({
+            type: (rq.left ?? 0) > 0 ? 'warning' : 'info', icon: '🎟️', title: 'Elite requalification',
+            message: `${(rq.kept ?? 0).toLocaleString()} elites kept their status, ${(rq.dropped ?? 0).toLocaleString()} dropped a tier`
+              + ((rq.left ?? 0) > 0 ? `, ${(rq.left ?? 0).toLocaleString()} left with the routes you cut` : '')
+              + (worst && (worst.left ?? 0) > 0 ? ` (most in ${loyaltyPoolName(worst.pool)})` : '')
+              + '. Cities shop around for the next 12 weeks.',
+            duration: 10000,
+          });
+        }
+        if (currentLoyalty.devaluation && !currentLoyalty.devaluation.applied && (updatedLoyalty.lastWeek?.defected ?? 0) > 0) {
+          loyaltyToasts.push({
+            type: 'warning', icon: '📉', title: 'Devaluation backlash',
+            message: `${updatedLoyalty.lastWeek.defected.toLocaleString()} members walked after the cut.`,
+            duration: 8000,
+          });
+        }
+        // A rival just devalued: tell the player once, while the match is on.
+        const seen = { ...(updatedLoyalty.seenDevaluations ?? {}) };
+        for (const o of loyaltyMatchOffers(state)) {
+          if (seen[o.rivalId] === o.devaluedAbsWeek) continue;
+          seen[o.rivalId] = o.devaluedAbsWeek;
+          loyaltyToasts.push({
+            type: 'info', icon: '🎟️', title: `${o.name} devalued its program`,
+            message: `Its members are shopping around. Status-match ${o.members.toLocaleString()} of them at ${o.cities.length} ${o.cities.length === 1 ? 'city' : 'cities'} you both fly, for ${formatMoney(o.cost)} (Company → Loyalty, until week ${((o.until - 1) % 52) + 1}).`,
+            duration: 10000,
+          });
+        }
+        if (Object.keys(seen).length) updatedLoyalty.seenDevaluations = seen;
+        if (currentLoyalty.devaluation && !currentLoyalty.devaluation.applied) {
+          loyaltyNews.push({ type: 'devalued', cut: currentLoyalty.devaluation.cut, generosity: currentLoyalty.generosity ?? 0 });
+        }
+        if (currentLoyalty.pendingMatch && updatedLoyalty.lastMatch) {
+          loyaltyNews.push({ type: 'matched', rivalId: currentLoyalty.pendingMatch.rivalId,
+            rival: currentLoyalty.pendingMatch.name, members: currentLoyalty.pendingMatch.members });
+        }
+        for (const m of [10_000, 100_000, 1_000_000]) {
+          if ((currentLoyalty.members ?? 0) < m && (updatedLoyalty.members ?? 0) >= m) {
+            loyaltyToasts.push({ type: 'success', icon: '🎟️', title: 'Loyalty milestone',
+              message: `${m.toLocaleString()} frequent flyers now carry your card.`, duration: 7000 });
+          }
+        }
+      }
 
       // ── Awareness: grows from operations + marketing, decays without activity ──
       // Organic: passengers flying builds word-of-mouth. Marketing accelerates growth.
@@ -5891,7 +6028,7 @@ function reducer(state, action) {
           duration: 7000,
         });
       }
-      newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts, ...coverToasts);
+      newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts, ...coverToasts, ...loyaltyToasts);
 
       // Encroachment notifications — a rival entering or leaving one of your routes.
       for (const ev of encroachEvents ?? []) {
@@ -6998,7 +7135,8 @@ function reducer(state, action) {
           loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, leaseDepositReturned: leaseDepositRefund, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, strikeVariableSaved, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, mro: { jobs: mroJobs, aogSpend, aogInsurance, baseCosts: report.totalMroBaseCosts ?? 0, contractSavings: report.mroContractSavings ?? 0, opened: baseBuild.opened, upgraded: baseBuild.upgraded }, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
       dividend: dividendPaid > 0
         ? { perShare: dividendPerSh, total: dividendPaid, payableShares: divPayable }
-        : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members },
+        : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members,
+          ...(loyaltyNews.length ? { loyaltyNews } : {}) },
         competitors:       updatedCompetitors,
         encroachments:     updatedEncroachments,
         hubs:              hubsAfterBuild,

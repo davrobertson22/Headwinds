@@ -182,6 +182,11 @@ export function buildEncroachmentOffer(spec, market) {
     // the same pair differently. AI carriers sign no partners and stay at 1.
     travelLeisureAppeal:  spec.travelLeisureAppeal ?? 1,
     travelBusinessAppeal: spec.travelBusinessAppeal ?? 1,
+    // Loyalty pools — a human rival's member standing on this pair, from the
+    // same helper their own tick uses (stateLoyaltyFields). Without it the two
+    // ticks would split the same pair differently. AI carriers: parity.
+    loyaltyAppeal:        spec.loyaltyAppeal ?? 1,
+    loyaltySensReduction: spec.loyaltySensReduction ?? 0,
   };
 }
 

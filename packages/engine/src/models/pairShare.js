@@ -64,6 +64,7 @@ import {
   stateGroundHandlingFields,
   stateCateringFields,
   stateTravelPartnerFields,
+  stateLoyaltyFields,
 } from '../utils/simulation.js';
 
 
@@ -177,6 +178,8 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     // business). Same reason again: an offer without them previews a partnered
     // airline as if it had none.
     ...stateTravelPartnerFields(state, r0.origin, r0.destination),
+    // Loyalty-pools member standing (share term only) — the tick attaches it.
+    ...stateLoyaltyFields(state, r0.origin, r0.destination),
   };
 }
 
@@ -910,6 +913,7 @@ export function projectRouteAddition(state, spec) {
       // Travel-partner segment lifts, for the month being projected — the tick
       // attaches the same fields.
       ...stateTravelPartnerFields(state, origin, destination, gameDate?.month ?? null),
+      ...stateLoyaltyFields(state, origin, destination),
       ...(state.partnershipsWorld === true ? { travelPartnerTrack: true } : {}),
       // Hub station / layover / maintenance discounts, exactly as the tick
       // attaches them (hubCostFactorsAt). Spread conditionally like the tick.

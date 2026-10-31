@@ -140,7 +140,7 @@ export function chainBounds(points) {
 // promoted so hover and focus can be set through feature-state.
 const ll = (a) => [a.lat, a.lon];
 
-export function buildGlobeData({ routes = [], cargo = [], partners = [], airports = [] } = {}) {
+export function buildGlobeData({ routes = [], cargo = [], partners = [], airports = [], loyalty = [] } = {}) {
   const lineFC = (items) => ({
     type: 'FeatureCollection',
     features: items
@@ -162,6 +162,16 @@ export function buildGlobeData({ routes = [], cargo = [], partners = [], airport
         properties: { color: p.color },
         geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
       }))),
+    },
+    // Loyalty layer (loyaltyMapCore.js): one circle per city.
+    loyalty: {
+      type: 'FeatureCollection',
+      features: loyalty.map(p => ({
+        type: 'Feature',
+        properties: { id: p.id, radius: p.radius, fill: p.fill, fillOpacity: p.fillOpacity,
+                      stroke: p.stroke, dashed: !!p.dashed, tip: p.tip ?? '' },
+        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      })),
     },
     airports: {
       type: 'FeatureCollection',

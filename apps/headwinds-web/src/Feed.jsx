@@ -81,6 +81,16 @@ function describe(e) {
       what: `${d.reason === 'refused' ? 'was refused a renewal by' : 'was dropped by'} ${d.partner ?? 'a travel partner'} — no deal for 5 years`,
       icon: '\u{1F4A5}',
     };
+    case 'loyalty_devalued':    return {
+      who: e.airline,
+      what: `devalued its loyalty program${d.cut ? ` by ${(d.cut * 100).toFixed(1)} points` : ''} — rivals can status-match its members`,
+      icon: '📉',
+    };
+    case 'status_match':        return {
+      who: e.airline,
+      what: `status-matched ${(d.members ?? 0).toLocaleString()} of ${d.rival ?? 'a rival'}'s members`,
+      icon: '🎟️',
+    };
     case 'used_aircraft_sold':  return { who: e.airline, what: `picked up a used ${typeName(d.typeId)}`, icon: '🏷️' };
     case 'joined':              return { who: e.airline, what: `joined the world${d.hub ? ` · hub ${d.hub}` : ''}`, icon: '🛬' };
     case 'fuel_quarter':        return {

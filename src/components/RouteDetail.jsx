@@ -21,7 +21,7 @@ import {
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS, routeStops,
-  stateLoungeFields, stateTravelPartnerFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
+  stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import {
@@ -358,6 +358,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           loungeAppeal:      stateLoungeFields(state, origin, dest).loungeAppeal,
           // Travel partners — the segment lifts the tick attaches.
           ...stateTravelPartnerFields(state, origin, dest),
+          ...stateLoyaltyFields(state, origin, dest),
           // The three demand terms weeklyTick attaches to every player route and
           // this panel used to omit. computeUtility reads `offer.brandReach ?? 1`,
           // so an offer without it is scored as an ESTABLISHED carrier at parity:
@@ -426,6 +427,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           airlineId: 'player', origin, destination: dest,
           loungeAppeal: stateLoungeFields(state, origin, dest).loungeAppeal,
           ...stateTravelPartnerFields(state, origin, dest),
+          ...stateLoyaltyFields(state, origin, dest),
           economyPrice: ecoP, businessPrice: bizP,
           weeklyFrequency: totalFreq,
           seatsPerFlight: Math.round((totalEcoSeats + totalBizSeats) / totalFreq),

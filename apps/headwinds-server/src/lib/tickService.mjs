@@ -40,7 +40,7 @@ import { Prisma } from '@prisma/client';
 import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
-  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows, travelPartnerLostNewsRows,
+  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows, travelPartnerLostNewsRows, loyaltyNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
@@ -270,6 +270,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Market development: stamped at join, re-stamped here for the same
       // reason. The table itself rides in on the rival overlay (withRivals).
       ...(world.tickConfig?.marketDev === true ? { marketDevWorld: true } : {}),
+      // Loyalty pools: stamped at join, re-stamped here for the same reason.
+      ...(world.tickConfig?.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),
@@ -332,6 +334,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       fuelByStation: next.lastReport?.fuelByStation ?? null,
       // Travel partners lost this week (walk-outs, refusals), for the news feed.
       travelPartnerLosses: (next.lastReport?.travelPartnerEvents ?? []).filter((e) => e.type === 'lost'),
+      // Loyalty devaluations and status matches this week, for the news feed.
+      loyaltyNews: next.lastReport?.loyaltyNews ?? [],
       consumedCreditIds: creditsByAirline.get(airline.id)?.ids ?? [],
       // Aircraft whose schedule this tick trimmed, for the news feed below.
       trimNotices,
@@ -734,6 +738,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
                 partnerName: TRAVEL_PARTNER_MAP[e.partnerId]?.name ?? null,
                 partnerType: TRAVEL_PARTNER_MAP[e.partnerId]?.type ?? null,
               }))),
+        }),
+        // Loyalty programs devalued, and rivals' members status-matched.
+        ...loyaltyNewsRows({
+          worldId: world.id, week: toIndex, nameOf,
+          items: computed
+            .filter((c) => writtenIds.has(c.airline.id))
+            .flatMap((c) => (c.loyaltyNews ?? []).map((e) => ({ ...e, airlineId: c.airline.id }))),
         }),
         ...fuelQuarterNewsRows({
           worldId: world.id, week: toIndex,

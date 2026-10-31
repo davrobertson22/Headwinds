@@ -28,7 +28,7 @@ export const ALERT_CATEGORIES = [
   { id: 'fleet',       label: 'Fleet, orders & leases',   hint: 'Deliveries, order changes, lease expiries and renewals, retrofits' },
   { id: 'rivals',      label: 'Rivals & competition',     hint: 'Rivals entering or leaving your routes, fare wars, codeshares, collapses' },
   { id: 'finance',     label: 'Cash, loans & shares',     hint: 'Cash warnings, missed loan payments, dividends, hedges, fuel' },
-  { id: 'operations',  label: 'Bases, gates, crew & contracts', hint: 'Lounges, bases, ground stations, gates, strikes, catering, partners' },
+  { id: 'operations',  label: 'Bases, gates, crew & contracts', hint: 'Lounges, bases, ground stations, gates, strikes, catering, partners, loyalty' },
   { id: 'events',      label: 'World events & milestones', hint: 'World events starting and ending, objectives completed' },
   { id: 'other',       label: 'Everything else',          hint: 'Anything not listed above' },
 ];
@@ -44,7 +44,7 @@ const RULES = [
   ['rivals',      /\bentered\b|backed off|contesting|new entrant|consolidation|collapses|in trouble|ceases operations|competes for your freight|fare war|competitor|codeshare|^\W*acquired\b|delisted|\brival/i],
   ['fleet',       /deliver|\border\b|launch customer|\blease|wi-?fi|wingtips|\breplaces?\b|waiting to replace|take over from|nothing to replace|out of range/i],
   ['finance',     /cash|weeks negative|\bloan\b|dividend|buyback|share offering|on the exchange|hedge|refinery|collateral|fuel farm|consortium seat/i],
-  ['operations',  /lounge|jet base|\bbase\b|upgraded|ground station|complete —|catering|contract|partner|frustrated|renewed for|\bgates?\b|auction|alliance slots|flights cut|strike|\bcrew\b|seasonal route|started$/i],
+  ['operations',  /lounge|jet base|\bbase\b|upgraded|ground station|complete —|catering|contract|partner|frustrated|renewed for|\bgates?\b|auction|alliance slots|flights cut|strike|\bcrew\b|seasonal route|started$|loyalty|elite requalification|devalu|status match/i],
 ];
 
 /** Which category a pop-up belongs to: one of ALERT_CATEGORIES' ids, or 'system'. */

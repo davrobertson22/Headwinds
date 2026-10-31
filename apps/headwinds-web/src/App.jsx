@@ -394,6 +394,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [productionLines, setProductionLines] = useState(true);
   // Travel partnerships — on by default (the server defaults it on too).
   const [partnerships, setPartnerships] = useState(true);
+  const [loyaltyPools, setLoyaltyPools] = useState(true);
   // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
   const [demandV2, setDemandV2] = useState(true);
   // Market development — on by default (the server defaults it on too).
@@ -459,6 +460,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           demandModel: demandV2 ? 3 : 1,
           // Always explicit: the server treats an absent field as ON.
           marketDev,
+          // Always explicit: the server treats an absent field as ON.
+          loyaltyPools,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -719,6 +722,18 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             flights leave. Replaces the 16-week route ramp-up.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>City loyalty
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={loyaltyPools}
+              onChange={(e) => setLoyaltyPools(e.target.checked)} />
+            <span className="muted">{loyaltyPools ? 'ON (default) — airlines compete for each city\u2019s frequent flyers' : 'Off — the budget-and-tier loyalty program'}</span>
+          </span>
+          <span className="muted small">
+            Frequent flyers in every city join the best program there, and loyalty only moves
+            passengers between airlines. Elites requalify every December, and leave unreliable
+            airlines first.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -907,6 +922,14 @@ const WORLD_FEATURES = [
     label: () => 'Growing markets',
     rgb: '86,190,140',
     blurb: 'Markets grow with the service they get. A city pair nobody flies starts at 70% of its size; every airline\'s flights on it build it toward full size over about a year (twice daily at the going fare), and up to 30% more with heavy service or low fares. When the flights leave, the market fades over months, and whoever moves in next inherits what is left.',
+  },
+  {
+    key: 'loyaltypools',
+    on: (w) => w.loyaltyPools === true,
+    icon: '🎟️',
+    label: () => 'City loyalty',
+    rgb: '188,140,255',
+    blurb: 'Frequent flyers live in cities, and every airline flying there competes for them. A program is worth joining for what the airline is \u2014 generosity, lounges members can use, free bags, premium cabins, an alliance, the places it flies, travel partners and being on time. Members only decide which airline people fly; they never add travellers to a market. Elites requalify every December against the service you kept up, and leave unreliable airlines first. Cutting generosity is a devaluation.',
   },
   {
     key: 'hubs',

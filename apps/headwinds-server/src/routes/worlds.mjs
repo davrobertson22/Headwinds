@@ -532,6 +532,8 @@ export default async function worldRoutes(fastify) {
           demandModel: { type: 'integer', enum: [1, 2, 3] },
           // Market development (default ON; false = fixed markets).
           marketDev: { type: 'boolean' },
+          // Loyalty pools (default ON; false = the budget-and-tier program).
+          loyaltyPools: { type: 'boolean' },
           // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
           // Contents validated in worldConfig (lineRatesProblem).
           productionLineRates: { type: 'object' },

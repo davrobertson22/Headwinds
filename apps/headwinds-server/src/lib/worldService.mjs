@@ -78,6 +78,9 @@ export async function createWorld(prisma, {
   // Market development (engine models/marketDev.js): ON for new worlds unless
   // the creator passes false.
   marketDev,
+  // Loyalty pools (engine models/loyaltyPools.js): ON for new worlds unless the
+  // creator passes false.
+  loyaltyPools,
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
@@ -120,7 +123,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -187,6 +190,11 @@ export async function createWorld(prisma, {
     // keep fixed markets for life. No AI airlines to pre-warm from, so a new
     // world opens with every pair at the 70% floor and players build them.
     ...(marketDev !== false ? { marketDev: true } : {}),
+    // Loyalty pools (Dave, 2026-10-30): frequent flyers in every city join the
+    // best program there, and loyalty only moves passengers between airlines.
+    // New worlds only: ON unless the creator unticks it; older worlds keep the
+    // budget-and-tier program for life.
+    ...(loyaltyPools !== false ? { loyaltyPools: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Part of the
     // game, not a setup option (Dave, 2026-10-17): every world created from
@@ -347,6 +355,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     // Market development, baked at join like the other rule flags. The table
     // itself is the world's (WorldMarketDev), injected by the rival overlay.
     ...(tc.marketDev === true ? { marketDevWorld: true } : {}),
+    // Loyalty pools, baked at join like the other rule flags.
+    ...(tc.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),
