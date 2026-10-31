@@ -188,7 +188,9 @@ await test('the recruiting queue counts as on the way: auto-replace does not hir
   // and exactly that, not the queue again on top of it.
   const g = st.cabinCrew;
   const cover = labor.crewReplaceCover('cabinCrew', need, g.payMultiplier ?? 1, g.morale ?? 80);
-  assert.equal(plan.bodies, Math.floor(cover * labor.CREW_PER_UNIT.cabinCrew + 1e-9),
+  // Cover rounds UP to whole people since 2026-10-30 (rounding down left a
+  // small airline one person short for good).
+  assert.equal(plan.bodies, Math.ceil(cover * labor.CREW_PER_UNIT.cabinCrew - 1e-6),
     'nothing to replace when the gap is already being recruited — only the cover');
 });
 

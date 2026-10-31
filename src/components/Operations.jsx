@@ -5,7 +5,7 @@ import {
   CREW_LEAD_WEEKS, CREW_SEVERE_SHORTFALL, CREW_INSTANT_AIRCRAFT, crewRequired,
   crewAvailable, crewInTraining, crewRecruiting, crewShortfall, crewHireCost, splitStarterHire,
   CREW_PER_UNIT, crewBodies, crewRequiredAhead, deliveriesWithinLeadTime,
-  crewRequiredForOrderBook, weeksUntilHiringDue,
+  crewRequiredForOrderBook, weeksUntilHiringDue, nextDeliveryQueueWeeks,
   crewHiresNeeded, crewExpectedLeavers, weeksToOrderBookComplete,
   crewStatus,
   erodePayPremium, PAY_MARKET_CATCHUP_PER_YEAR,
@@ -329,7 +329,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
               const covered = bookGap <= 0;
               return (
                 <div style={{ fontSize: 11, color: covered ? 'var(--text-dim)' : 'var(--yellow)', marginBottom: 4 }}>
-                  🛬 {crew.hiringDueIn === 0
+                  🛬 {crew.hiringDueIn === 0 && crew.arriving.length > 0
                     ? <>{crew.arriving.length} of {crew.onOrder} aircraft arriving inside the {CREW_LEAD_WEEKS[group.id]}-week training window</>
                     : <>{crew.onOrder} aircraft on order</>}
                   {' — '}
@@ -1007,7 +1007,6 @@ export default function Operations({ section = null } = {}) {
     // shorter than the wait for the next delivery showed nothing at all, which
     // reads as a missing indicator rather than "not yet".
     const orderBookRequired = crewRequiredForOrderBook(g.id, fleet, state.pendingOrders, typeOfAircraft);
-    const hiringDueIn = weeksUntilHiringDue(g.id, state.pendingOrders, currentAbsWeek);
     // Hiring recommendations are ATTRITION-AWARE. Crew leave every week, so a
     // hire sized to today's gap is already short by the time an aircraft ten
     // weeks out arrives — which is what "i order staff for my whole orderbook
@@ -1033,6 +1032,14 @@ export default function Operations({ section = null } = {}) {
       need: orderBookRequired, onLine: available, inTraining: onTheWay,
       payMultiplier: relPay, morale: mor, weeksToTarget: weeksToBook,
     });
+    // When to start hiring for the next delivery. A hire bigger than one week's
+    // intake waits in the recruiting queue before it can start training, so
+    // "hire by week N" counts that wait too: the crew the NEXT delivery needs,
+    // behind anyone already queued. Hiring exactly on the old date landed the
+    // crew a week or two after the aircraft (Discord 2026-10-21).
+    const hiringDueIn = weeksUntilHiringDue(g.id, state.pendingOrders, currentAbsWeek,
+      nextDeliveryQueueWeeks(g.id, { fleet, pendingOrders: state.pendingOrders, typeOf: typeOfAircraft,
+        absWeek: currentAbsWeek, onLine: available, onTheWay, recruiting, relPay, morale: mor, intakePerWeek }));
     const leaversPerWeek = crewExpectedLeavers(available, relPay, mor, 1);
     return [g.id, { required, available, training, recruiting, onTheWay, nextReady, instantRoom,
                     market, relPay, intakePerWeek, intakeLeft, recruitWeeks,

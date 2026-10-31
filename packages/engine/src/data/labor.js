@@ -23,6 +23,8 @@
 // justifies its anchor points. Both modules are dependency-free leaves and
 // overhead.js does not import this file, so this direction adds no cycle.
 import { scaleBySeats } from './overhead.js';
+// talentMarket.js is a dependency-free leaf, so this adds no cycle either.
+import { weeklyIntakeUnits, weeksToRecruit } from '../models/talentMarket.js';
 
 export const LABOR_GROUPS = [
   {
@@ -621,13 +623,18 @@ export function crewRequiredForOrderBook(groupId, fleet, pendingOrders, typeOf) 
  * Zero (or negative) means hire now — the delivery is already inside the
  * training window. `null` means nothing is on order.
  */
-export function weeksUntilHiringDue(groupId, pendingOrders, absWeek) {
+export function weeksUntilHiringDue(groupId, pendingOrders, absWeek, recruitWeeks = 0) {
   const due = (pendingOrders ?? [])
     .map(o => Number(o?.deliverAbsWeek) || 0)
     .filter(w => w > 0)
     .sort((a, b) => a - b)[0];
   if (due == null) return null;
-  return Math.max(0, due - (CREW_LEAD_WEEKS[groupId] ?? 0) - (Number(absWeek) || 0));
+  // `recruitWeeks`: extra weeks the hire will sit in the recruiting queue before
+  // training can start (talentMarket.js). A hire bigger than one week's intake
+  // placed on the due date used to land a week or two AFTER the aircraft did
+  // (Discord, 2026-10-21), so the due date moves earlier by that wait.
+  const queue = Math.max(0, Math.ceil(Number(recruitWeeks) || 0));
+  return Math.max(0, due - (CREW_LEAD_WEEKS[groupId] ?? 0) - queue - (Number(absWeek) || 0));
 }
 
 // ─── Attrition-aware hiring ──────────────────────────────────────────────────
@@ -686,6 +693,32 @@ export function crewHiresNeeded(groupId, {
   const covered = (Number(onLine) || 0) * sAll + (Number(inTraining) || 0) * sHire;
   if (sHire <= 0) return Math.max(0, (Number(need) || 0) - covered);
   return Math.max(0, ((Number(need) || 0) - covered) / sHire);
+}
+
+/**
+ * Weeks the crew for the NEXT delivery would wait in the recruiting queue if
+ * hired now, behind anyone already queued (0 when it all fits in this week's
+ * intake). Feeds `weeksUntilHiringDue`, so the due date leaves room for it.
+ */
+export function nextDeliveryQueueWeeks(groupId, {
+  fleet, pendingOrders, typeOf, absWeek, onLine = 0, onTheWay = 0, recruiting = 0,
+  relPay = 1.0, morale = 80, intakePerWeek,
+}) {
+  const due = (pendingOrders ?? [])
+    .map(o => Number(o?.deliverAbsWeek) || 0)
+    .filter(w => w > 0)
+    .sort((a, b) => a - b)[0];
+  if (due == null) return 0;
+  const landing = (pendingOrders ?? []).filter(o => (Number(o?.deliverAbsWeek) || 0) <= due);
+  const hire = crewHiresNeeded(groupId, {
+    need: crewRequired(groupId, [...(fleet ?? []), ...landing], typeOf),
+    onLine, inTraining: onTheWay, payMultiplier: relPay, morale,
+    weeksToTarget: Math.max(0, due - (Number(absWeek) || 0)),
+  });
+  const intake = Number(intakePerWeek) > 0
+    ? Number(intakePerWeek) : weeklyIntakeUnits(crewRequired(groupId, fleet, typeOf), relPay);
+  const queued = Math.max(0, Number(recruiting) || 0);
+  return weeksToRecruit(Math.max(0, queued + hire - intake), intake);
 }
 
 /** Weeks until the LAST aircraft on order arrives (0 when nothing is on order). */
@@ -992,6 +1025,22 @@ export function erodePayPremium(payMultiplier, weeks = 1) {
 // `relPayOf(groupId)` is pay RELATIVE to the going rate (what attrition reads).
 // Solo has no going rate, so it defaults to the group's own pay.
 //
+// It counts aircraft whose crews are ALREADY TRAINING (2026-10-30). The gap
+// used to be measured against the fleet on the ramp only, so crew hired for a
+// delivery read as a SURPLUS: "already covered", nothing to replace. For the
+// whole of that training wait it stopped replacing leavers and stopped topping
+// up its cover, the cover drained out of the pipeline, and a few weeks after
+// the new aircraft landed the line ran short until one big catch-up batch
+// graduated ("auto-hiring staff does not always guarantee the staff will appear
+// before leavers. I regularly see 1-2 weeks where I am short" — Discord,
+// 2026-10-21). A growing airline nearly always has crew in training for
+// something, so it hit this over and over. With `ahead` ({ pendingOrders,
+// absWeek }) the requirement includes the deliveries landing before anyone it
+// hires today could graduate (plus the recruiting queue's wait), so those
+// trainees are matched to their aircraft instead of read as spare. It still
+// never hires FOR those aircraft — if the player has not hired their crew the
+// gap is open, and an open gap only ever gets its leavers replaced.
+//
 // @returns {{ group: string, bodies: number, owedAfter: number }[]} hires to make
 /** Weeks between a leaver going and an auto-replacement reaching the line. */
 export function crewReplaceLagWeeks(groupId) {
@@ -1004,25 +1053,47 @@ export function crewReplaceCover(groupId, need, payMultiplier, morale) {
     * (1 - crewSurvival(payMultiplier, morale, crewReplaceLagWeeks(groupId)));
 }
 
-export function autoReplacePlan(labor, fleet, typeOf, relPayOf = null) {
+/** How far ahead auto-replace looks for deliveries whose crews are in training:
+ *  the replacement lag plus however long the recruiting queue still has to run. */
+export function crewReplaceHorizonWeeks(groupId, groupState, needUnits, relPay) {
+  const queued = Math.max(0, Number(groupState?.recruiting) || 0);
+  return crewReplaceLagWeeks(groupId) + weeksToRecruit(queued, weeklyIntakeUnits(needUnits, relPay));
+}
+
+export function autoReplacePlan(labor, fleet, typeOf, relPayOf = null, ahead = null) {
   const out = [];
   for (const g of LABOR_GROUPS) {
     const s = labor?.[g.id];
     if (!s?.autoReplace) continue;
     const per = CREW_PER_UNIT[g.id] ?? 1;
     const need = crewRequired(g.id, fleet, typeOf);
+    const pay = relPayOf ? relPayOf(g.id) : (s.payMultiplier ?? 1.0);
+    // Aircraft landing before a hire made today could graduate: crew already
+    // training for them are THEIR crew, not a surplus (see header).
+    let needAhead = need;
+    if (ahead?.pendingOrders?.length) {
+      const horizon = (Number(ahead.absWeek) || 0) + crewReplaceHorizonWeeks(g.id, s, need, pay);
+      const landing = ahead.pendingOrders.filter(o => (Number(o?.deliverAbsWeek) || 0) <= horizon);
+      if (landing.length) needAhead = crewRequired(g.id, [...(fleet ?? []), ...landing], typeOf);
+    }
     // The recruiting queue is a hire already made — replacing it again would
     // pay for the same people twice.
-    const gap = need - crewAvailable(labor, g.id) - crewOnTheWay(labor, g.id);
+    const gap = needAhead - crewAvailable(labor, g.id) - crewOnTheWay(labor, g.id);
     const owed = Math.min(Math.max(0, gap), (Number(s.replaceOwed) || 0) + (Number(s.lastLeavers) || 0));
     // Cover: only once the gap is closed (gap − owed ≤ 0), and only the part of
     // it not already sitting in the pipeline as a surplus over the need.
     const after = gap - owed;
-    const pay = relPayOf ? relPayOf(g.id) : (s.payMultiplier ?? 1.0);
     const cover = after <= 1e-9
-      ? Math.max(0, crewReplaceCover(g.id, need, pay, s.morale ?? 80) - Math.max(0, -after))
+      ? Math.max(0, crewReplaceCover(g.id, needAhead, pay, s.morale ?? 80) - Math.max(0, -after))
       : 0;
-    const bodies = Math.floor((owed + cover) * per + 1e-9);
+    // Whole people. While a growth gap is open, round DOWN — rounding up there
+    // would slip a fraction of a person into the player's gap every week. With
+    // no gap, round the cover UP: rounding it down left the line up to one
+    // person under the requirement for good, and on a small airline one pilot
+    // in eighty is past the reserve band ("Short-handed" for a single person).
+    const bodies = after <= 1e-9 && cover > 0
+      ? Math.ceil((owed + cover) * per - 1e-6)
+      : Math.floor((owed + cover) * per + 1e-9);
     out.push({ group: g.id, bodies, owedAfter: Math.max(0, owed - bodies / per) });
   }
   return out;
