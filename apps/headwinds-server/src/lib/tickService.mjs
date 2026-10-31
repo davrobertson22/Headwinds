@@ -35,6 +35,8 @@ import { tombstoneAirline } from './tombstone.mjs';
 import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
 import { compactReportForStorage } from './reportStorage.mjs';
+import { joinReport, splitReport } from './reportColumn.mjs';
+import { Prisma } from '@prisma/client';
 import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
@@ -131,6 +133,19 @@ export function ticksDue(world, now = new Date()) {
 
 // Run ONE tick for one world. Returns { ok, week, year, ended, airlines } or
 // { ok: false, reason } when the compare-and-set loses or the world is done.
+/**
+ * The ACTIVE airlines a world-week runs on. joinReport: last week's report lives
+ * in its own column (lib/reportColumn.mjs); everything the tick does with these
+ * rows — the engine, the rival views — sees it back inside `state`.
+ */
+export async function loadTickAirlines(prisma, worldId) {
+  const rows = await prisma.airline.findMany({
+    where: { worldId, status: 'ACTIVE' },
+    include: { account: { select: { isOG: true, isSupporter: true, email: true } } }, // OG + DEV badges (email stays server-side)
+  });
+  return rows.map((a) => ({ ...a, state: joinReport(a.state, a.report) }));
+}
+
 export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   const fromIndex = weekIndex(world);
   const toIndex = fromIndex + 1;
@@ -159,10 +174,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // Reads first (outside the transaction): active airlines + their rival views.
   // Humans-only competition — each airline ticks against the OTHER players'
   // current states plus the world's alliance graph. No AI airlines exist.
-  const airlines = await prisma.airline.findMany({
-    where: { worldId: world.id, status: 'ACTIVE' },
-    include: { account: { select: { isOG: true, isSupporter: true, email: true } } }, // OG + DEV badges (email stays server-side)
-  });
+  const airlines = await loadTickAirlines(prisma, world.id);
   const rivalViews = await buildWorldRivalViews(prisma, world.id, { airlines, world });
 
   // Dividends owed to these airlines from previous weeks. Read BEFORE the
@@ -435,7 +447,10 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       const writeAirline = async (c) => {
         // compactReportForStorage: partner O&D itineraries folded to per-hub
         // sums (5.7 MB of one 15 MB save on 2026-10-23). See lib/reportStorage.mjs.
-        const persisted = splitLogo(compactReportForStorage(stripRivals(c.next))).state;
+        // splitReport: the report goes to its own column, the blob is stored
+        // without it, so a decision never has to rewrite it (lib/reportColumn.mjs).
+        const { state: persisted, report } = splitReport(
+          splitLogo(compactReportForStorage(stripRivals(c.next))).state);
         const res = await tx.airline.updateMany({
           where: { id: c.airline.id, version: c.airline.version ?? 0 },
           data: {
@@ -446,6 +461,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             // dropped — the column already holds the value (backfilled by
             // migration 20260824000000) and the tick never writes that column.
             state: persisted,
+            report: report ?? Prisma.DbNull,
             cash: BigInt(c.cash),
             marketCap: BigInt(c.marketCap),
             shares: BigInt(c.shares > 0 ? c.shares : 100_000_000),
@@ -456,7 +472,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
             ...(c.bankrupt ? { status: 'BANKRUPT' } : {}),
           },
         });
-        if (res.count > 0 && appRivalStates) rivalStates.set(c.airline.id, rivalStateFor(persisted));
+        if (res.count > 0 && appRivalStates) rivalStates.set(c.airline.id, rivalStateFor(joinReport(persisted, report)));
         return res.count > 0;
       };
       const writtenRow = (c) => ({
@@ -520,10 +536,11 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         const id = stale.airline.id;
         try {
           await tx.$queryRaw`SELECT id FROM "Airline" WHERE id = ${id} FOR UPDATE`;
-          const fresh = await tx.airline.findUnique({
+          const freshRow = await tx.airline.findUnique({
             where: { id },
             include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
           });
+          const fresh = freshRow && { ...freshRow, state: joinReport(freshRow.state, freshRow.report) };
           // Gone or no longer active (bankrupt/abandoned mid-tick): nothing to write.
           if (!fresh || fresh.status !== 'ACTIVE') continue;
           const redone = computeOne(fresh);

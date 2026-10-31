@@ -74,7 +74,7 @@ test('nothing to fold returns the same object; folding twice is a no-op', () => 
 });
 test('the tick folds the report before every airline blob write', () => {
   const src = read('../apps/headwinds-server/src/lib/tickService.mjs');
-  assert.match(src, /const persisted = splitLogo\(compactReportForStorage\(stripRivals\(c\.next\)\)\)\.state;/);
+  assert.match(src, /splitLogo\(compactReportForStorage\(stripRivals\(c\.next\)\)\)\.state/);
 });
 
 // ── The screen that reads it, rendered for real ─────────────────────────────

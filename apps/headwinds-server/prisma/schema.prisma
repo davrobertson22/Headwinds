@@ -193,6 +193,13 @@ model Airline {
   // SET_BRANDING, and unchanged-column TOAST chunks are never rewritten.
   // lib/logoColumn.mjs is the single read/write contract.
   customLogo  String?
+  // The weekly report (`lastReport`), pulled OUT of `state` on 2026-10-23: a
+  // decision rewrote the whole blob, and for the big airlines the report was
+  // most of it (10.9 MB of a 15 MB save) — Postgres was being killed under the
+  // write load. Only the tick writes it. NULL on a row whose `state` still
+  // carries `lastReport` (written before the change; its next tick moves it).
+  // lib/reportColumn.mjs is the single read/write contract.
+  report      Json?
   // The rival-facing trim of `state` (humanRivals.mjs projectRivalState / SQL
   // rival_state_of), kept by a trigger on every `state` write — migration
   // 20261022000000_airline_rival_state. loadRivalRows reads it so a rival

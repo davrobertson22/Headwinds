@@ -34,6 +34,7 @@ import { MARKET_DEV_VERSION } from '@tailwinds/engine/models/marketDev.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
+import { joinReport } from './reportColumn.mjs';
 
 // ── Rival-facing identity, per GENERATION ────────────────────────────────────
 // The id every other player sees this airline as, and the key their portfolio
@@ -857,8 +858,8 @@ export async function loadRivalRows(prisma, worldId) {
       // against ADMIN_EMAILS here; payloads carry booleans.
       include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
     });
-    return rows.map(({ customLogo, ...r }) => ({
-      ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(r.state),
+    return rows.map(({ customLogo, report, ...r }) => ({
+      ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(joinReport(r.state, report)),
     }));
   }
   // The trimmed blob is a COLUMN now (migration 20261022000000_airline_rival_state):

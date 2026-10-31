@@ -27,6 +27,8 @@ import { allow } from '../lib/rateLimit.mjs';
 import { withTx, assertWithinDeadline } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
 import { splitLogo, injectLogo } from '../lib/logoColumn.mjs';
+import { joinReport, reportWriteFor } from '../lib/reportColumn.mjs';
+import { Prisma } from '@prisma/client';
 import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
 import {
   ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
@@ -270,7 +272,7 @@ export default async function decisionRoutes(fastify) {
       return {
         ...base,
         stamp: `${slim.version}:${served}`,
-        state: withRivals(injectLogo(airline.state, airline.customLogo), null),
+        state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo), null),
         rivals: rivalOverlay(view),
       };
     }
@@ -282,7 +284,7 @@ export default async function decisionRoutes(fastify) {
     const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
     const { view, worldStamp: served } = await rivalViewFor(airline, worldStamp,
       { maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS });
-    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(injectLogo(airline.state, airline.customLogo), view) };
+    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo), view) };
   });
 
   // ── Submit a decision (validated intent → authoritative reducer) ───────────
@@ -379,7 +381,10 @@ export default async function decisionRoutes(fastify) {
     // 2026-10-18; see RIVAL_ROWS_MAX_STALE_MS in lib/humanRivals.mjs.
     const { view, worldStamp: rivalsStamp, fromCachedRows } = await rivalViewFor(
       airline, await worldStampOf(airline.worldId), { rowsMaxStaleMs: RIVAL_ROWS_MAX_STALE_MS });
-    const injected = withRivals(airline.state, view);
+    // joinReport: last week's report is its own column (lib/reportColumn.mjs);
+    // the reducer sees it back in place, exactly as it always did.
+    const injected = withRivals(joinReport(airline.state, airline.report), view);
+    const readReport = injected.lastReport;
     // Event worlds: the rules come from the WORLD, never the blob a client
     // round-tripped, and a broken rule is a readable 400 before the reducer
     // (which would otherwise answer with a toast and a 201).
@@ -630,7 +635,12 @@ export default async function decisionRoutes(fastify) {
         // carried one (the DB state it was computed from is key-free), so
         // `logo` is undefined on every other decision and the column is left
         // alone. null (branding cleared the upload) nulls the column.
-        const { state: persistedState, logo } = splitLogo(stripRivals(next));
+        const { state: blob, logo } = splitLogo(stripRivals(next));
+        // The blob is written WITHOUT the report — for the big airlines that was
+        // most of every decision's write (lib/reportColumn.mjs). The column is
+        // written only when the reducer replaced the report, or to move a
+        // legacy row's report out of the blob.
+        const { state: persistedState, writeReport, report } = reportWriteFor(airline, readReport, blob);
         const updated = await tx.airline.updateMany({
           where: { id: airline.id, version: airline.version },
           data: {
@@ -638,6 +648,7 @@ export default async function decisionRoutes(fastify) {
             // The client still gets the full `next` (with rivals) in the response.
             state: persistedState,
             ...(logo !== undefined ? { customLogo: logo } : {}),
+            ...(writeReport ? { report: report ?? Prisma.DbNull } : {}),
             cash: toBig(next.cash),
             marketCap: toBig(next.marketCap),
             // Issuance and buybacks move the share count, and the share count is the

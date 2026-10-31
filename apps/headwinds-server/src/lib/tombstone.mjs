@@ -25,6 +25,8 @@
 // anyone a badge.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { Prisma } from '@prisma/client';
+
 /** Heavy keys a dead airline gives up, and the empty shape each collapses to.
  *  null = "never ticked yet"; [] = "no history yet" — both are the seed-state
  *  values a brand-new airline carries, so no client guard is new. */
@@ -89,7 +91,10 @@ export async function tombstoneAirline(prisma, { airlineId, weekIndex = null, lo
 
   const before = JSON.stringify(row.state)?.length ?? 0;
   const after = JSON.stringify(state)?.length ?? 0;
-  await prisma.airline.update({ where: { id: row.id }, data: { state } });
+  // The blob now carries `lastReport: null`, which wins over the report column
+  // (lib/reportColumn.mjs) — so clear the column too rather than keep a dead
+  // airline's last report (megabytes for a big one) on disk for nothing.
+  await prisma.airline.update({ where: { id: row.id }, data: { state, report: Prisma.DbNull } });
   log.info?.(`[tombstone] airline ${row.id}: ${Math.round(before / 1024)}kB → ${Math.round(after / 1024)}kB`);
   return { changed: true, before, after };
 }
