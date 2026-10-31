@@ -11,7 +11,7 @@
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { applyScheduleTrimMigration, weekToGameDate } from '@tailwinds/engine/utils/simulation.js';
 import { collectWorldService, advanceMarketDevPairs } from '@tailwinds/engine/models/marketDev.js';
-import { VALUATION, svpsOf, svpsScore } from '@tailwinds/engine/utils/market.js';
+import { VALUATION, svpsOf, svpsScore, isDemandModel } from '@tailwinds/engine/utils/market.js';
 import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings.js';
 import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
@@ -252,9 +252,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       // Travel partnerships: stamped at join; re-stamped here so it can never
       // be lost from a blob. Only ever written in a partnership world.
       ...(world.tickConfig?.partnerships === true ? { partnershipsWorld: true } : {}),
-      // Demand model v2: stamped at join, re-stamped here for the same reason.
-      // Only ever written in a v2 world, so a classic world's blobs keep no key.
-      ...(world.tickConfig?.demandModel === 2 ? { demandModel: 2 } : {}),
+      // Demand model: stamped at join, re-stamped here for the same reason.
+      // Only ever written in a v2/v3 world, so a classic world's blobs keep no key.
+      ...(isDemandModel(world.tickConfig?.demandModel) ? { demandModel: world.tickConfig.demandModel } : {}),
       // Market development: stamped at join, re-stamped here for the same
       // reason. The table itself rides in on the rival overlay (withRivals).
       ...(world.tickConfig?.marketDev === true ? { marketDevWorld: true } : {}),

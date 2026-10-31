@@ -34,8 +34,9 @@ const MARKET_PROMISES = new Map();
 const MARKET_IMPORTS = {
   1: () => import('../data/airportMarkets.js'),
   2: () => import('../data/airportMarketsV2.js'),
+  3: () => import('../data/airportMarketsV3.js'),
 };
-const tableVersion = (v) => (v === 2 ? 2 : 1);
+const tableVersion = (v) => (v === 2 || v === 3 ? v : 1);
 /** Load a demand model's generated market table (resolves to { AIRPORT_MARKETS, GROWTH_BUCKETS }). */
 export function loadAirportMarkets(demandModel) {
   const v = tableVersion(demandModel);

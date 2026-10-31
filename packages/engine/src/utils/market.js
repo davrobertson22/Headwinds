@@ -13,6 +13,7 @@
 import { AIRPORTS, getAirport, getAirportScores, getAirportCargoScore } from '../data/airports.js';
 import { AIRPORT_FACTORS as V2_AIRPORT_FACTORS, CORRIDOR_FACTORS as V2_CORRIDOR_FACTORS } from '../data/demandV2Factors.js';
 import { ROAD_ALPHA, ROAD_BETA, ROAD_FACTORS } from '../data/demandV2Roads.js';
+import { AIRPORT_FACTORS as V3_AIRPORT_FACTORS, LINK_FACTORS as V3_LINK_FACTORS } from '../data/demandV3Factors.js';
 import { eraDemandGrowthFactor } from '../data/era.js';
 import {
   METROS,
@@ -665,24 +666,27 @@ function metroDemandMultiplier(metro) {
 // data; the game uses 2/3 ("mostly realistic" — regional flying stays viable).
 //
 // The version is a property of the WORLD, set from state like the fare index:
-// a world created with tickConfig.demandModel = 2 (the default for new worlds,
-// worldService.createWorld) bakes state.demandModel = 2 into every airline at
-// join; worlds created before it carry no flag and stay classic for life. All
+// a world created with tickConfig.demandModel = 2 or 3 (3, "Demand model v3"
+// below, is the default for new worlds — worldService.createWorld) bakes it
+// into every airline at join and keeps it for life; worlds created before v2
+// carry no flag and stay classic for life. All
 // callers price through baseCityPairDemand, so one module-level switch (which
 // clears the pair memo) moves every screen and the tick together. Ported from
 // Tailwinds (same code, same fitted parameters and data files — see its
 // tools/demand-audit/).
 
 export const DEMAND_MODEL_CLASSIC = 1;
-export const DEMAND_MODEL_LATEST = 2;
+// v3 (2026-10-30): v2 plus the rest of the world — see "Demand model v3" below.
+// A v2 game stays v2 for life; only a game started after v3 shipped runs it.
+export const DEMAND_MODEL_LATEST = 3;
 let _demandModel = DEMAND_MODEL_CLASSIC;
 
 /** Whether a state.demandModel value names a non-classic model this build knows. */
-export function isDemandModel(v) { return v === 2; }
+export function isDemandModel(v) { return v === 2 || v === 3; }
 
 /** Set the live demand model from a game's state.demandModel (absent = classic). */
 export function setDemandModel(v) {
-  const next = v === 2 ? 2 : DEMAND_MODEL_CLASSIC;
+  const next = isDemandModel(v) ? v : DEMAND_MODEL_CLASSIC;
   if (next === _demandModel) return;
   _demandModel = next;
   clearPairDemandMemo();
@@ -802,7 +806,10 @@ function v2Isolated(ap) { return isIsolated(ap) || v2Sets().isolated.has(ap.code
 function v2AirportMass(ap, domesticPair) {
   if (ap.effectivePop != null) return ap.effectivePop;
   const pop = DEMAND_V2.popOverride[ap.code] ?? ap.population ?? 0;
-  const vw = (v2Sets().endpoint.has(ap.country) && !v2Isolated(ap)) ? DEMAND_V2.visitorWeight : TOURISM_VISITOR_WEIGHT;
+  // The drive-to visitor weight was fitted on domestic trips (visitors who
+  // came by car); v3 keeps it off international pairs, whose visitors flew.
+  const vw = (v2Sets().endpoint.has(ap.country) && !v2Isolated(ap) && (domesticPair || _demandModel < 3))
+    ? DEMAND_V2.visitorWeight : TOURISM_VISITOR_WEIGHT;
   return pop
     + (ap.visitors ?? 0) * vw
     + (domesticPair ? (ap.domesticVisitors ?? 0) * TOURISM_VISITOR_WEIGHT : 0)
@@ -885,14 +892,14 @@ function v2FlightParams(type) {
  * all agree.
  */
 export function sectorCostKm(type, km) {
-  if (_demandModel !== 2 || !(km > 0)) return km;
+  if (_demandModel < 2 || !(km > 0)) return km;
   const { pivotKm, takeoffKm } = v2FlightParams(type);
   return km * (pivotKm - takeoffKm) / pivotKm + takeoffKm;
 }
 
 /** Extra gate-to-gate hours per sector (taxi, climb, approach): 0 in a classic game. */
 export function sectorTaxiHours(type) {
-  return _demandModel === 2 ? v2FlightParams(type).taxiH : 0;
+  return _demandModel >= 2 ? v2FlightParams(type).taxiH : 0;
 }
 
 /** Drive ramp (domestic pairs in drive countries): floor at startH hours of driving -> 1 at fullH. */
@@ -915,12 +922,14 @@ export function v2DriveRamp(po, pd, dist) {
  * tens of thousands of pairs over a few hundred airports.
  */
 function v2EndpointTerm(ap, metro, domestic) {
-  const key = domestic ? ap.code + '|d' : ap.code + '|i';
+  const key = (domestic ? ap.code + '|d' : ap.code + '|i') + _demandModel;
   const hit = _v2Cache.endpoint.get(key);
   if (hit !== undefined) return hit;
   const m2 = v2EndpointMass(ap, metro, domestic), m1 = v1EndpointMass(ap, metro, domestic);
   let t = m1 > 0 && m2 > 0 ? Math.sqrt(m2 / m1) : 1;
-  if (v2Sets().endpoint.has(ap.country)) {
+  // City size and leakage were fitted on domestic trips; v3 applies them there
+  // only (v2 also applied them to an endpoint's international pairs).
+  if (v2Sets().endpoint.has(ap.country) && (domestic || _demandModel < 3)) {
     const { refMass, exp } = DEMAND_V2.size;
     if (m2 < refMass) t *= Math.pow(Math.max(m2, 0.005) / refMass, exp);
     t *= v2Leak(ap, metro);
@@ -947,7 +956,44 @@ export function demandV2Correction(po, pd, mO, mD, dist) {
     const corridor = v2CorridorOf(po.code);
     if (corridor && corridor === v2CorridorOf(pd.code)) c *= V2_CORRIDOR_FACTORS[corridor] ?? 1;
   }
+  if (_demandModel >= 3) c *= demandV3Correction(po, pd, domestic);
   return c;
+}
+
+// ─── Demand model v3 (2026-10-30, new games/worlds only) ─────────────────────
+// v2 calibrated the US and Australia. v3 extends the same idea to every region
+// with published route traffic (tools/demand-audit/v3/: Eurostat airport pairs
+// for the EU/EEA/CH/TR, UK CAA, US DOT T-100 international, BITRE international,
+// and the domestic statistics of Brazil, Canada, Mexico, India and Japan), as a
+// further correction on top of v2 — still C^realism, still the classic formula
+// underneath:
+//   * an airport factor for every airport in a newly covered region (all its
+//     pairs), and for US / Australian airports on their INTERNATIONAL pairs
+//     (v2's factors already calibrate their domestic ones);
+//   * a link factor per country pair — the domestic level of a new country,
+//     and the international pull between two countries, holiday flows above all
+//     (northern Europe to the Mediterranean and the Canaries, North America to
+//     the Caribbean and Mexico). Shrunk toward 1 where the data is thin; 1 for
+//     any pair of countries with no data.
+// Tables are generated (src/data/demandV3Factors.js). Also v3: v2's US
+// size/leakage/visitor terms are domestic-only (see v2EndpointTerm).
+const V2_FACTOR_COUNTRIES = new Set(['US', 'AU']);
+export const linkKey = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
+// Countries whose data covers only DOMESTIC routes (Japan: MLIT publishes no
+// international airport pairs) — their factors stay on domestic pairs.
+const DOMESTIC_FACTOR_COUNTRIES = new Set(['JP']);
+const v3FactorApplies = (ap, domestic) => (domestic
+  ? !V2_FACTOR_COUNTRIES.has(ap.country)
+  : !DOMESTIC_FACTOR_COUNTRIES.has(ap.country));
+function demandV3Correction(po, pd, domestic) {
+  // A US / Australian airport's v3 factor is for its INTERNATIONAL pairs (v2's
+  // factors already calibrate its domestic ones); a Japanese airport's for its
+  // domestic ones; everyone else's for all of them.
+  const fo = V3_AIRPORT_FACTORS[po.code], fd = V3_AIRPORT_FACTORS[pd.code];
+  let c = 1;
+  if (fo != null && v3FactorApplies(po, domestic)) c *= fo;
+  if (fd != null && v3FactorApplies(pd, domestic)) c *= fd;
+  return c * (V3_LINK_FACTORS[linkKey(po.country, pd.country)] ?? 1);
 }
 
 // ── Memo for baseCityPairDemand ───────────────────────────────────────────────
@@ -1072,7 +1118,7 @@ function computeBaseCityPairDemand(originCode, destCode) {
   // Demand model v2 (new worlds only — see "Demand model v2" above): a
   // correction on top of the classic figure, never a different formula, so a
   // classic world prices every pair exactly as it always has.
-  if (_demandModel === 2) return Math.round(raw * Math.pow(demandV2Correction(po, pd, mO, mD, dist), DEMAND_V2.realism));
+  if (_demandModel >= 2) return Math.round(raw * Math.pow(demandV2Correction(po, pd, mO, mD, dist), DEMAND_V2.realism));
   return Math.round(raw);
 }
 
@@ -1375,7 +1421,7 @@ export function referencePrice(originCode, destCode) {
   // Demand model v2: domestic pairs move toward the real fare curve (see
   // DEMAND_V2.fares), by the same realism as demand. A classic world, and every
   // international pair, keep the classic ladder to the dollar.
-  if (_demandModel === 2 && o.country === d.country) {
+  if (_demandModel >= 2 && o.country === d.country) {
     const classic = (80 + dist * 0.09) * 0.87;
     const real = DEMAND_V2.fares.base + DEMAND_V2.fares.perKm * dist;
     return Math.round(classic * Math.pow(real / classic, DEMAND_V2.realism) * _fareIndex);

@@ -2,7 +2,7 @@
 // (the admin-only POST /worlds — the auto-spawner is gone). All gameplay
 // state is produced by the SHARED engine — never reinvented here.
 import { gameReducer, freshState } from '@tailwinds/engine/reducer';
-import { NWR_FARE_INDEX } from '@tailwinds/engine/utils/market.js';
+import { NWR_FARE_INDEX, isDemandModel, DEMAND_MODEL_LATEST } from '@tailwinds/engine/utils/market.js';
 import { eraJoinCapital } from '@tailwinds/engine/data/era.js';
 import { seedCrewFor, DEFAULT_LABOR_STATE } from '@tailwinds/engine/data/labor.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
@@ -72,8 +72,8 @@ export async function createWorld(prisma, {
   // Travel partnerships (PARTNERSHIPS_PLAN.md): ON for new worlds unless the
   // creator passes false.
   partnerships,
-  // Demand model (engine utils/market.js "Demand model v2"): 2 for new worlds
-  // unless the creator passes 1 (classic).
+  // Demand model (engine utils/market.js): the latest (3) for new worlds unless
+  // the creator passes 1 (classic) or 2.
   demandModel,
   // Market development (engine models/marketDev.js): ON for new worlds unless
   // the creator passes false.
@@ -172,13 +172,15 @@ export async function createWorld(prisma, {
     // for every world created from now on unless the creator unticks it;
     // worlds without the key never get the feature. Fixed at creation.
     ...(partnerships !== false ? { partnerships: true } : {}),
-    // Demand model v2 (Dave, 2026-10-29): passenger demand recalibrated against
-    // real US and Australian O&D. New worlds only: ON for every world created
-    // from now on unless the creator passes demandModel 1; worlds without the
-    // key stay on the classic model for life. Fixed at creation — every airline
-    // in a world fights over the same demand pools, so all of them must price
-    // them the same way.
-    ...(demandModel !== 1 ? { demandModel: 2 } : {}),
+    // Demand model (engine utils/market.js): passenger demand recalibrated
+    // against real traffic — v2 (2026-10-29) the US and Australia, v3
+    // (2026-10-30) Europe, the UK, Brazil, Mexico, India, Japan and every
+    // international route touching the US or Australia. New worlds get the
+    // latest unless the creator passes demandModel 1 (classic) or names an
+    // older version; a world keeps its model for life. Fixed at creation —
+    // every airline in a world fights over the same demand pools, so all of
+    // them must price them the same way.
+    ...(demandModel !== 1 ? { demandModel: isDemandModel(demandModel) ? demandModel : DEMAND_MODEL_LATEST } : {}),
     // Market development (Dave, 2026-10-30): a city pair's market grows with
     // the service every airline gives it and fades when that service leaves.
     // New worlds only: ON unless the creator unticks it; worlds without the key
@@ -341,7 +343,7 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.partnerships === true ? { partnershipsWorld: true } : {}),
     // Demand model, baked at join like the other rule flags (engine reads
     // state.demandModel at the reducer entry and in weeklyTick).
-    ...(tc.demandModel === 2 ? { demandModel: 2 } : {}),
+    ...(isDemandModel(tc.demandModel) ? { demandModel: tc.demandModel } : {}),
     // Market development, baked at join like the other rule flags. The table
     // itself is the world's (WorldMarketDev), injected by the rival overlay.
     ...(tc.marketDev === true ? { marketDevWorld: true } : {}),

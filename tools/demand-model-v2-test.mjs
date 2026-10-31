@@ -50,14 +50,14 @@ const V2_TAILWINDS = { 'JFK-LAX': 27861, 'JFK-ORF': 4248, 'SYD-MEL': 46596, 'LHR
 
 console.log('\nDemand model v2 — new worlds only\n');
 
-await test('a new world defaults to demand model 2', async () => {
-  assert.equal((await tcOf({ ...BASE })).demandModel, 2);
+await test('demandModel 2 still creates a v2 world (the default is now v3 — demand-model-v3-test)', async () => {
+  assert.equal((await tcOf({ ...BASE, demandModel: 2 })).demandModel, 2);
 });
 await test('demandModel 1 creates a classic world (no key stored)', async () => {
   assert.equal((await tcOf({ ...BASE, demandModel: 1 })).demandModel, undefined);
 });
 await test('any other demandModel is refused', async () => {
-  for (const bad of [0, 3, '2', true]) {
+  for (const bad of [0, 4, '2', true]) {
     assert.throws(() => validateWorldConfig({ ...BASE, demandModel: bad }), /demandModel/, String(bad));
   }
 });
@@ -65,9 +65,9 @@ await test('the world JSON says which model a world runs (keyless = classic)', (
   assert.equal(serializeWorld({ id: 'w', name: 'T', tickConfig: { demandModel: 2 } }, { playerCount: 0 }).demandModel, 2);
   assert.equal(serializeWorld({ id: 'w', name: 'T', tickConfig: {} }, { playerCount: 0 }).demandModel, 1);
 });
-await test('the create-world form sends demandModel explicitly, defaulting to v2', () => {
+await test('the create-world form sends demandModel explicitly, defaulting to on', () => {
   const src = read('../apps/headwinds-web/src/App.jsx');
-  assert.ok(/demandModel: demandV2 \? 2 : 1,/.test(src), 'form does not send an explicit demandModel');
+  assert.ok(/demandModel: demandV2 \? 3 : 1,/.test(src), 'form does not send an explicit demandModel');
   assert.ok(/const \[demandV2, setDemandV2\] = useState\(true\)/.test(src), 'the checkbox no longer defaults to on');
 });
 await test('joining a v2 world bakes demandModel 2 into the airline; a classic world bakes nothing', () => {
@@ -76,7 +76,7 @@ await test('joining a v2 world bakes demandModel 2 into the airline; a classic w
 });
 await test('the tick re-stamps the flag from the world (it can never fall out of a blob)', () => {
   const src = read('../apps/headwinds-server/src/lib/tickService.mjs');
-  assert.ok(/\.\.\.\(world\.tickConfig\?\.demandModel === 2 \? \{ demandModel: 2 \} : \{\}\)/.test(src));
+  assert.ok(/\.\.\.\(isDemandModel\(world\.tickConfig\?\.demandModel\) \? \{ demandModel: world\.tickConfig\.demandModel \} : \{\}\)/.test(src));
 });
 await test('rival views are priced on the world\'s model', () => {
   const src = read('../apps/headwinds-server/src/lib/humanRivals.mjs');

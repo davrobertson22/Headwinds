@@ -18,6 +18,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TABLES = [
   { model: 1, file: 'airportMarkets.js', note: 'classic demand model (worlds without demandModel)' },
   { model: 2, file: 'airportMarketsV2.js', note: 'demand model v2 (worlds with tickConfig.demandModel === 2)' },
+  { model: 3, file: 'airportMarketsV3.js', note: 'demand model v3 (worlds with tickConfig.demandModel === 3)' },
 ];
 
 for (const { model, file, note } of TABLES) {

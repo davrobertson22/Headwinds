@@ -280,8 +280,8 @@ export function validateWorldConfig({
   if (partnerships != null && typeof partnerships !== 'boolean') {
     throw badRequest('partnerships must be true or false');
   }
-  if (demandModel != null && demandModel !== 1 && demandModel !== 2) {
-    throw badRequest('demandModel must be 1 (classic) or 2');
+  if (demandModel != null && demandModel !== 1 && demandModel !== 2 && demandModel !== 3) {
+    throw badRequest('demandModel must be 1 (classic), 2 or 3');
   }
   if (marketDev != null && typeof marketDev !== 'boolean') {
     throw badRequest('marketDev must be true or false');
@@ -451,8 +451,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
       ? (world.tickConfig?.productionLineRates ?? null) : null,
     // Travel partnerships (new worlds from 2026-10-29).
     partnerships: world.tickConfig?.partnerships === true,
-    // Demand model v2 (new worlds from 2026-10-29): 1 = classic.
-    demandModel: world.tickConfig?.demandModel === 2 ? 2 : 1,
+    // Demand model: 1 = classic, 2 = v2 (worlds from 2026-10-29), 3 = v3 (from 2026-10-30).
+    demandModel: [2, 3].includes(world.tickConfig?.demandModel) ? world.tickConfig.demandModel : 1,
     // Market development (new worlds from 2026-10-30).
     marketDev: world.tickConfig?.marketDev === true,
     // Station fuel pricing + tankering (fuel-ops v2).

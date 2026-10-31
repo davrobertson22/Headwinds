@@ -31,6 +31,7 @@
 
 import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear, getDemandModel, metroPrimary, sectorCostKm } from '../utils/market.js';
 import { SEASONS as V2_SEASONS } from '../data/demandV2Seasons.js';
+import { SEASONS as V3_SEASONS, CLASS_SEASONS as V3_CLASS_SEASONS } from '../data/demandV3Seasons.js';
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
 import { marketDevFor, marketDevActive } from './marketDev.js';
 import { AIRPORTS, getAirport, getAirportScores } from '../data/airports.js';
@@ -397,12 +398,36 @@ const _profileCache = new Map();
  * arithmetic and no allocation, exactly as before.
  */
 export function seasonalProfileForAirport(code) {
-  if (getDemandModel() === 2) {
+  const model = getDemandModel();
+  if (model >= 3) {
+    const v3 = v3SeasonalProfile(code);
+    if (v3) return v3;
+  }
+  if (model >= 2) {
     const v2 = v2SeasonalProfile(code);
     if (v2) return v2;
   }
   return classicSeasonalProfileForAirport(code);
 }
+
+// ── Demand model v3: fitted seasons, blended as a product ───────────────────
+// A v3 game flies every airport in a country with published monthly route
+// traffic on a profile fitted to it (data/demandV3Seasons.js —
+// tools/demand-audit/v3/fit-v3-seasons.mjs). Those profiles were fitted for a
+// PRODUCT blend (getSeasonalProfile), so a summer-only island route from a
+// year-round hub is quiet in winter rather than half-full.
+const _v3Profiles = new Map();
+function v3SeasonalProfile(code) {
+  const node = metroPrimary(code);
+  let p = _v3Profiles.get(node);
+  if (p === undefined) {
+    const v = V3_SEASONS[node];
+    p = v ? [null, ...v] : null;
+    _v3Profiles.set(node, p);
+  }
+  return p;
+}
+const hasV3Profile = (code) => v3SeasonalProfile(code) != null;
 
 // ── Demand model v2: fitted seasons ─────────────────────────────────────────
 // A v2 game (utils/market.js "Demand model v2") flies each US / Australian
@@ -464,14 +489,29 @@ export function getSeasonalProfile(originCode, destCode) {
 
   // v2 gives nearly every domestic pair two distinct fitted curves, so the
   // blend — once rare — is now the common case: memoise it (pure in the pair).
-  const v2 = getDemandModel() === 2;
-  const key = v2 ? originCode + '|' + destCode : null;
+  const model = getDemandModel();
+  const v2 = model >= 2;
+  // Keyed on the model too: one process can price v2 and v3 games (a server
+  // ticking several worlds, a page that loads a v2 save after a v3 one).
+  const key = v2 ? model + '|' + originCode + '|' + destCode : null;
   if (v2) { const hit = _v2Blends.get(key); if (hit) return hit; }
 
-  // Blend origin + destination profiles
-  const out = [null, ...MONTH_INDEX.map(m =>
-    Math.round(((oP[m] + dP[m]) / 2) * 1000) / 1000
-  )];
+  // v3: a pair with a v3-fitted endpoint blends as the normalised PRODUCT of
+  // the two profiles — what those profiles were fitted for.
+  let out;
+  if (model >= 3 && (hasV3Profile(originCode) || hasV3Profile(destCode))) {
+    // …times the profile every route of its class shares (domestic routes
+    // run flatter than international ones, which peak in the northern summer).
+    const cls = V3_CLASS_SEASONS[getAirport(originCode)?.country === getAirport(destCode)?.country ? 'dom' : 'intl'];
+    const prod = MONTH_INDEX.map(m => oP[m] * dP[m] * cls[m - 1]);
+    const mean = prod.reduce((a, x) => a + x, 0) / 12;
+    out = [null, ...prod.map(x => Math.round((x / mean) * 1000) / 1000)];
+  } else {
+    // Blend origin + destination profiles
+    out = [null, ...MONTH_INDEX.map(m =>
+      Math.round(((oP[m] + dP[m]) / 2) * 1000) / 1000
+    )];
+  }
   if (v2) { if (_v2Blends.size > 100_000) _v2Blends.clear(); _v2Blends.set(key, out); }
   return out;
 }

@@ -456,7 +456,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           // Always explicit: the server treats an absent field as ON.
           partnerships,
           // Always explicit: the server treats an absent field as v2.
-          demandModel: demandV2 ? 2 : 1,
+          demandModel: demandV2 ? 3 : 1,
           // Always explicit: the server treats an absent field as ON.
           marketDev,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
@@ -699,10 +699,11 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             <span className="muted">{demandV2 ? 'Recalibrated (default) — checked against real traffic' : 'Classic — the original gravity model'}</span>
           </span>
           <span className="muted small">
-            Demand recalibrated against real US and Australian ticket data. Short US and Australian
-            hops lose demand to driving, small US airports near a big one lose travellers to it,
-            small US cities and drive-to resorts are thinner, and long Australian routes are busier.
-            About two-thirds of the way to real numbers.
+            Demand checked against real route traffic in the US, Australia, Europe, the UK,
+            Brazil, Mexico, India and Japan (demand model v3). Short US and Australian hops lose
+            demand to driving, holiday islands draw their real crowds, each country flies its real
+            amount, and about 1,000 airports follow their real seasons. About two-thirds of the way
+            to real numbers.
           </span>
         </label>
         <label style={{ alignItems: 'flex-start' }}>Market development
@@ -893,11 +894,11 @@ const WORLD_FEATURES = [
   },
   {
     key: 'demand',
-    on: (w) => w.demandModel === 2,
+    on: (w) => w.demandModel === 2 || w.demandModel === 3,
     icon: '📊',
-    label: () => 'Real-world demand',
+    label: (w) => (w?.demandModel === 3 ? 'Real-world demand · global' : 'Real-world demand'),
     rgb: '240,180,80',
-    blurb: 'Passenger demand recalibrated against real ticket data. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Small US cities are thinner, and long Australian routes are busier.',
+    blurb: 'Passenger demand checked against real traffic. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Global worlds also calibrate Europe, the UK, Brazil, Mexico, India, Japan and every international route touching the US or Australia: holiday islands draw their real crowds, each country flies its real amount, and about 1,000 airports follow their real seasons.',
   },
   {
     key: 'marketdev',
