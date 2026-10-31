@@ -226,6 +226,28 @@ export default function Dashboard({ onNavigate }) {
 
   const totalWeeklyCosts = costBreakdown.total;
 
+  // ── Brand marketing this week ──────────────────────────────────────────────
+  // Pinned to a % of revenue, brand spend grows with the airline every week
+  // (Discord: VodkaOnFire), so the Dashboard says what it costs. The figure is
+  // the canonical projection's own: in % mode the engine resolves it from the
+  // projected week's revenue, in fixed mode it is the budget. Targeted airport
+  // campaigns are billed on top in both modes and named separately.
+  const brandMarketing = useMemo(() => {
+    const rep      = proj.report ?? {};
+    const brandOf  = (r) => r.brandMarketingSpend
+      ?? Math.max(0, (r.totalMarketingSpend ?? 0) - (r.totalTargetedSpend ?? 0));
+    const pct      = Number.isFinite(state.marketingPctOfRevenue) ? state.marketingPctOfRevenue : null;
+    const brand    = brandOf(rep);
+    const targeted = rep.totalTargetedSpend ?? 0;
+    const revenue  = rep.totalRevenue ?? 0;
+    return {
+      pct, brand, targeted,
+      share:     revenue > 0 ? brand / revenue : null,
+      lastBrand: lastReport ? brandOf(lastReport) : null,
+      show:      pct != null || brand > 0 || targeted > 0,
+    };
+  }, [proj, lastReport, state.marketingPctOfRevenue]);
+
   // ── Weekly P&L bridge (route profit → net profit), last week + projected ──
   // The Top Routes table shows per-route OPERATING profit (revenue − direct
   // route costs − landing fees). That deliberately excludes fleet fixed costs,
@@ -520,6 +542,29 @@ export default function Dashboard({ onNavigate }) {
           trendIsPercent
           onClick={canNavigate ? () => go('finance') : undefined}
         />
+        {brandMarketing.show && (() => {
+          const { pct, brand, targeted, share, lastBrand } = brandMarketing;
+          const fmtShare = (p, dp) => `${+(p * 100).toFixed(dp)}%`;
+          const sub = [
+            pct != null ? `${fmtShare(pct, 2)} of revenue`
+              : share != null ? `fixed · ${fmtShare(share, 1)} of revenue` : 'fixed',
+            lastBrand != null ? `${formatMoney(lastBrand)} last wk` : null,
+            targeted > 0 ? `+${formatMoney(targeted)} campaigns` : null,
+          ].filter(Boolean).join(' · ');
+          return (
+            <KpiBox
+              kpiKey="brand-marketing"
+              exact={brand}
+              label="Brand Marketing / wk"
+              value={formatMoney(brand)}
+              color="blue"
+              sub={sub}
+              onClick={canNavigate
+                ? () => requestNav('operations', { filter: { section: 'marketing' }, focus: 'marketing-budget' })
+                : undefined}
+            />
+          );
+        })()}
         {cargoRoutes.length > 0 && (
           <KpiBox
             label="Cargo / wk"
@@ -1130,11 +1175,13 @@ function EventDetailModal({ event, onClose }) {
 
 // ── KPI box with trend indicator ──────────────────────────────────────────────
 
-function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, sub, subColor, onClick }) {
+function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, sub, subColor, onClick, kpiKey, exact }) {
   const clickable = typeof onClick === 'function';
   return (
     <div
       className="stat-box"
+      data-kpi={kpiKey}
+      data-kpi-exact={exact == null ? undefined : String(exact)}
       onClick={onClick}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       role={clickable ? 'button' : undefined}

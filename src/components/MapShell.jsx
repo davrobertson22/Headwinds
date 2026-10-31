@@ -160,7 +160,11 @@ export function mapGroupOf(page) {
  */
 export function resolveMapPage(id) {
   if (id === MAP_TAB) return MAP_TAB;
-  if (id === 'operations') return peekDepartureBoardRequest() ? 'departures' : 'operations';
+  if (id === 'operations') {
+    if (peekDepartureBoardRequest()) return 'departures';
+    // The Dashboard's brand marketing tile asks for the marketing card.
+    return peekNavFilter('operations')?.section === 'marketing' ? 'marketing' : 'operations';
+  }
   if (id === 'finance') {
     const g = financeGroupOf(peekNavFilter('finance')?.view);
     return g === 'fuel' ? 'fuel' : `fin-${g ?? 'statements'}`;

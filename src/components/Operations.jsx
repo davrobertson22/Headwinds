@@ -40,6 +40,7 @@ import CateringSelector from './CateringSelector.jsx';
 import CateringContracts from './CateringContracts.jsx';
 import InfoTip from './InfoTip.jsx';
 import Departures, { takeDepartureBoardRequest } from './Departures.jsx';
+import { consumeNavFilter } from '../utils/navIntent.js';
 import ScheduleTimeline from './ScheduleTimeline.jsx';
 import { Glyph } from './Icons.jsx';
 
@@ -967,6 +968,9 @@ export default function Operations({ section = null } = {}) {
   const currentAbsWeek = ((state.year ?? 1) - 1) * 52 + (state.week ?? 1);
   // An airport screen may have asked for the board on a specific airport.
   const [requestedAirport] = useState(() => takeDepartureBoardRequest());
+  // The Dashboard's marketing tile parks { section: 'marketing' } so the map
+  // view can open the Marketing page; take it so a later visit is not redirected.
+  useEffect(() => { consumeNavFilter('operations'); }, []);
   const [subTab, setSubTab] = useState(requestedAirport || section === 'board' ? 'departures' : 'labor');
   const subTabs = section === 'board' ? SUB_TABS.filter(t => t.id !== 'labor') : SUB_TABS;
   const showSubTabs = !section || section === 'board';
@@ -1085,7 +1089,7 @@ export default function Operations({ section = null } = {}) {
   // layout; their own tabs under Service in the map view (section prop).
   const marketingBlock = (<>
       {/* Marketing budget section */}
-      <div style={{
+      <div id="marketing-budget" style={{
         fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
         textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 20, marginBottom: 10,
       }}>
