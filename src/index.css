@@ -2092,14 +2092,27 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 /* ── Top HUD ── */
 .ms-top {
   position: absolute; top: 12px; left: 14px; right: 14px; z-index: 30;
-  display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 12px;
   pointer-events: none;
+  /* Crest · status · right, with the status pill centred on screen while both
+     sides fit. A wrapping flex row rather than a 1fr/auto/1fr grid: in the grid
+     the right column could only ever be half the leftover width, and the
+     multiplayer chrome (Lobby · Invite · Activity · Messages · Inbox) is wider
+     than that on most laptops — it spilled left, under the pill. Here each side
+     is flex: 1 1 0 (equal shares → centred pill) but never narrower than its
+     content, so a wide right group nudges the pill left instead, and when the
+     three can't share one line at all the right group wraps to its own row. */
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px;
 }
 .ms-top > * { pointer-events: auto; }
+/* The two sides grow to fill their share of the row; only their contents
+   should catch clicks, so the empty stretch still pans and clicks the map. */
+.ms-top > .ms-crest, .ms-top > .ms-top-right { pointer-events: none; }
+.ms-crest > *, .ms-top-right > * { pointer-events: auto; }
 
 /* The airline's crest, big, like a Paradox game's flag */
 .ms-crest {
-  justify-self: start; display: inline-flex; align-items: center; gap: 0; min-width: 0; max-width: 100%;
+  justify-self: start; display: inline-flex; align-items: center; gap: 0; min-width: 64px; max-width: 100%;
+  flex: 1 1 0;
   background: none; border: none; padding: 0; cursor: pointer; color: var(--text); text-align: left; font: inherit;
 }
 .ms-crest-logo {
@@ -2109,6 +2122,8 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   transition: border-color .12s ease, transform .12s ease;
 }
 .ms-crest:hover .ms-crest-logo { border-color: var(--accent) !important; transform: scale(1.03); }
+.ms-crest:focus-visible { outline: none; }
+.ms-crest:focus-visible .ms-crest-logo { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ms-crest-plate {
   display: flex; flex-direction: column; min-width: 0; margin-left: -10px; padding: 6px 14px 6px 20px;
   border-radius: 0 12px 12px 0; border-left: none !important;
@@ -2118,6 +2133,7 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 
 /* Cash · last week · date · clock — one row */
 .ms-status {
+  flex: 0 0 auto;
   display: inline-flex; align-items: center; gap: 12px; padding: 7px 7px 7px 18px; border-radius: 999px;
   white-space: nowrap; color: var(--text); min-height: 48px;
 }
@@ -2145,9 +2161,11 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 /* Top right: multiplayer chrome, then Guide · Tutorial · Discord · Settings */
 .ms-top-right {
   justify-self: end; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
-  min-width: 0; font-size: 12px;
+  flex: 1 1 0; min-width: min-content; font-size: 12px;
 }
 .ms-remote-chrome { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 5px 12px; }
+/* One unbroken pill: a squeezed button used to stack its icon over its label. */
+.ms-remote-chrome > *, .ms-remote-chrome button, .ms-remote-chrome a { flex-shrink: 0; white-space: nowrap; }
 .ms-remote-chrome:empty { display: none; }
 .ms-help-row { display: inline-flex; align-items: center; gap: 6px; }
 .ms-top-btn {
@@ -2291,12 +2309,23 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   .ms-top-btn { width: 36px; padding: 0; justify-content: center; }
   .ms-crest-sub { display: none; }
 }
+/* Tablet: the full status pill plus the crest no longer share a line, so
+   shed what the phone layout sheds — the name plate, then "last wk" and the
+   date — rather than let the pill run off the edge. */
+@media (max-width: 960px) {
+  .ms-crest-plate, .ms-delta-sub { display: none; }
+}
+@media (max-width: 780px) {
+  .ms-date, .ms-date-sep { display: none; }
+}
 
 @media (max-width: 640px) {
   .ms-top {
     top: calc(8px + env(safe-area-inset-top)); left: 8px; right: 8px; gap: 6px 8px;
-    grid-template-columns: auto 1fr; grid-template-areas: "crest status" "crest right";
+    display: grid; grid-template-columns: auto 1fr; grid-template-areas: "crest status" "crest right";
   }
+  .ms-crest { min-width: 0; }
+  .ms-top-right { min-width: 0; }
   .ms-crest { grid-area: crest; align-self: start; }
   .ms-status { grid-area: status; justify-self: end; }
   .ms-top-right { grid-area: right; }
