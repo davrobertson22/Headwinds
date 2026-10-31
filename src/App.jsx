@@ -13,7 +13,7 @@ import Fleet from './components/Fleet.jsx';
 import Routes from './components/Routes.jsx';
 import Marketplace from './components/Marketplace.jsx';
 import Finance from './components/Finance.jsx';
-import { DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
+import { BellIcon, DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
   WrenchIcon, SearchIcon, GlobeIcon,
 } from './components/Icons.jsx';
 import HubManagement from './components/HubManagement.jsx';
@@ -38,6 +38,7 @@ import AirlineLogo from './components/AirlineLogo.jsx';
 import OnboardingTour, { TOUR_KEY } from './components/OnboardingTour.jsx';
 import BrandingModal from './components/BrandingModal.jsx';
 import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
+import { openAlertSettings, tagWeeklyBatch } from './utils/alertPrefs.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
 import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite, resolveMapPage } from './components/MapShell.jsx';
@@ -380,12 +381,21 @@ function AppInner() {
     }
   }, [state.phase]);
 
-  // Fire pending toasts from the reducer
+  // Fire pending toasts from the reducer.
+  // A batch that arrives WITH a new game week came from the weekly tick: it is
+  // tagged `alert` so the player's pop-up settings can hide it (ToastSystem /
+  // utils/alertPrefs.js). A batch in the same week answers something the player
+  // just did ("Not enough cash") and always shows. The first batch after the
+  // screen mounts counts as weekly — it is what piled up while they were away.
+  const toastWeekRef = useRef(null);
+  const toastWeekKey = `${state.year}:${state.week}`;
   useEffect(() => {
+    const prevWeekKey = toastWeekRef.current;
+    toastWeekRef.current = toastWeekKey;
     if (!state.pendingToasts?.length) return;
-    state.pendingToasts.forEach(t => addToast(t));
+    tagWeeklyBatch(prevWeekKey, toastWeekKey, state.pendingToasts).forEach(t => addToast(t));
     dispatch({ type: 'CLEAR_TOASTS' });
-  }, [state.pendingToasts]);
+  }, [state.pendingToasts, toastWeekKey]);
 
   const WEEK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
   const LS_KEY = 'airline_next_week_at';
@@ -856,6 +866,16 @@ function AppInner() {
         </button>
         <button
           className="btn btn-ghost"
+          data-alert-settings
+          style={{ fontSize: 12, padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}
+          onClick={openAlertSettings}
+          title="Pop-up alerts — choose which weekly pop-ups show (Delete clears them all)"
+          aria-label="Pop-up alerts"
+        >
+          <BellIcon size={13} />
+        </button>
+        <button
+          className="btn btn-ghost"
           style={{ fontSize: 12, padding: '5px 10px' }}
           onClick={() => setShowTour(true)}
           title="How to play"
@@ -913,6 +933,9 @@ function AppInner() {
                   </>)}
                   <button role="menuitem" data-layout-switch="map" onClick={() => switchLayout('map')}>
                     <GlobeIcon size={14} /> Try map view <span className="beta-chip">Beta</span>
+                  </button>
+                  <button role="menuitem" data-alert-settings onClick={() => { setShowMobileMenu(false); openAlertSettings(); }}>
+                    <BellIcon size={14} /> Pop-up alerts
                   </button>
                   <button role="menuitem" onClick={() => { setShowTour(true); setShowMobileMenu(false); }}>
                     <span style={{ width: 14, textAlign: 'center', fontWeight: 700 }}>?</span> How to play

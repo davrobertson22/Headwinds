@@ -8,6 +8,8 @@ import { formatMoney, formatGameDate } from '../utils/simulation.js';
 import { useAirlineAlerts } from '../utils/airlineAlerts.js';
 import { peekNavFilter, requestNav } from '../utils/navIntent.js';
 import { peekDepartureBoardRequest } from './Departures.jsx';
+import { openAlertSettings } from '../utils/alertPrefs.js';
+import { BellIcon } from './Icons.jsx';
 import { financeGroupOf } from './Finance.jsx';
 import {
   CoinsIcon, SettingsIcon, CloseIcon, SaveIcon, FolderOpenIcon,
@@ -497,6 +499,9 @@ export default function MapShell({
           <div className="ms-menu-sep" />
           <button role="menuitem" onClick={() => { setMenu(null); onBranding(); }}>
             <span className="ms-menu-glyph">✎</span><span>Airline branding</span>
+          </button>
+          <button role="menuitem" data-alert-settings onClick={() => { setMenu(null); openAlertSettings(); }}>
+            <BellIcon size={15} /><span>Pop-up alerts</span>
           </button>
           <button role="menuitem" data-layout-switch="classic" onClick={() => { setMenu(null); dismissHint(); onClassic(); }}>
             <span className="ms-menu-glyph">▤</span><span>Back to classic layout</span>
