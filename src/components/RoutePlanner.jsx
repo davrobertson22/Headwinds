@@ -9,7 +9,7 @@ import {
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
   CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS,
   buildEventDemandModel, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor,
-  maxFrequency, routeActiveMonths, effectiveRangeKm, forecastRangeMod,
+  maxFrequency, routeActiveMonths, effectiveRangeKm, forecastRangeMod, committedBlockHoursByMonth,
   calendarYear, stateCateringCapReport,
   newAircraftConfig, typicalSeatsOf,
 } from '../utils/simulation.js';
@@ -57,6 +57,21 @@ const MONTH_SHORT = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const MONTH_ABBR = ['', 'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+
+// [11, 12, 1, 2, 3, 4] → "Nov–Apr"; [1, 2, 6] → "Jan–Feb, Jun". Runs wrap the year.
+export function monthRunsLabel(months) {
+  const on = new Set(months);
+  if (on.size === 0 || on.size === 12) return on.size === 12 ? 'all year' : '';
+  // Start each run where the month before it is off, so Nov–Apr stays one run.
+  const runs = [];
+  for (let m = 1; m <= 12; m++) {
+    if (!on.has(m) || on.has(m === 1 ? 12 : m - 1)) continue;
+    let end = m;
+    while (on.has(end === 12 ? 1 : end + 1)) end = end === 12 ? 1 : end + 1;
+    runs.push(end === m ? MONTH_SHORT[m] : `${MONTH_SHORT[m]}–${MONTH_SHORT[end]}`);
+  }
+  return runs.join(', ');
+}
 const SEASON_PRESETS = [
   { id: 'year',   label: 'Year-round', months: null },
   { id: 'summer', label: 'Summer (Jun–Sep)', months: [6, 7, 8, 9] },
@@ -653,15 +668,19 @@ export default function RoutePlanner() {
       map[t.id] = deployableFleetForRoute({
         fleet:          state.fleet,
         existingRoutes: state.routes,
+        cargoRoutes:    state.cargoRoutes ?? [],
         typeId:         t.id,
         origin, dest,
         distKm:         routeData.dist,
         weeklyFrequency: frequency,
         capHours:       bhCap,
+        // The operating window: a tail full May–Oct has the hours for a Nov–Apr
+        // route, and ADD_ROUTE agrees. Year-round asks for every month's peak.
+        months:         routeActiveMonths({ origin, destination: dest, season }),
       });
     }
     return map;
-  }, [state.fleet, state.routes, reachableTypes, routeData, origin, dest, frequency]);
+  }, [state.fleet, state.routes, state.cargoRoutes, reachableTypes, routeData, origin, dest, frequency, season, bhCap]);
 
   // Types you own, whatever state they're in.
   const ownedTypeIds = useMemo(
@@ -1931,7 +1950,20 @@ export default function RoutePlanner() {
                                 case 'no-hours':
                                   return short.outOfRange > 0
                                     ? <>Only {short.inRange} of your {owned} {name}s ({tailNames(short.reachable)}) reach{short.inRange === 1 ? 'es' : ''} {origin}–{dest} ({laneKm} km) as configured, and {short.inRange === 1 ? 'it is' : 'they are'} at full utilisation ({bhCap}h/wk). The other {short.outOfRange} get{short.outOfRange === 1 ? 's' : ''} {short.bestShortReachKm.toLocaleString()} km at most — lighten a cabin or fit range-extending wingtips to bring one into reach, or lease another {name}.</>
-                                    : <>Your {name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another route. Lease another {name} to open this route.</>;
+                                    : (() => {
+                                        // A seasonal tail is only full in some months. Say which
+                                        // months it is free, so the fix on screen is the operating
+                                        // window rather than another lease (JackG207174, Discord,
+                                        // 2 Nov 2026).
+                                        const add = pool[0]?.newBlockHrs ?? 0;
+                                        const free = short.reachable.map(a => {
+                                          const byM = committedBlockHoursByMonth(a.id, simulation.type, state.routes, state.cargoRoutes ?? []);
+                                          return { a, months: ALL_MONTHS.filter(m => byM[m - 1] + add <= bhCap + 1e-6) };
+                                        }).sort((x, y) => y.months.length - x.months.length)[0];
+                                        return free && free.months.length > 0
+                                          ? <>{free.a.tailNumber || free.a.name} is full in some months but has the hours for this route in {monthRunsLabel(free.months)}. Set the Operating window above to those months to fly it then — or lease another {name} to fly it year-round.</>
+                                          : <>Your {name}{owned > 1 ? 's are' : ' is'} at full utilisation ({bhCap}h/wk) — no spare hours for another route. Lease another {name} to open this route.</>;
+                                      })();
                                 case 'other-networks':
                                   return short.outOfRange > 0
                                     ? <>Only {short.inRange} of your {owned} {name}s ({tailNames(short.reachable)}) reach{short.inRange === 1 ? 'es' : ''} {origin}–{dest} ({laneKm} km) as configured, and {short.inRange === 1 ? 'it is' : 'they are'} flying other networks — an aircraft can only add a route that touches an airport it already serves. Your other {short.outOfRange}{short.idleOutOfRange > 0 ? ` (${short.idleOutOfRange} idle)` : ''} get{short.outOfRange === 1 ? 's' : ''} {short.bestShortReachKm.toLocaleString()} km at most — lighten a cabin or fit range-extending wingtips to bring one into reach, route {tailNames(short.reachable)} through {origin} or {dest} first, or lease another.</>
