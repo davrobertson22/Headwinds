@@ -182,7 +182,10 @@ function ShowMore({ shown, total, page, onMore, label = 'more' }) {
 // The Gates tab remembers how it was last sorted and laid out (Discord,
 // VodkaOnFire 2026-10-23: it fell back to region order every visit). Per
 // browser, like the Routes page's routes_view_prefs_v1. Stored values that no
-// longer make sense fall back to the defaults.
+// longer make sense fall back to the defaults. Table and Cards share one sort;
+// Cards also remembers its region tab (VodkaOnFire again, 2026-11-03: on a
+// phone the cards had no sort and always opened on North America; ported
+// from Tailwinds).
 const GATES_PREFS_KEY = 'gates_view_prefs_v1';
 export function loadGatesViewPrefs() {
   let raw = null;
@@ -192,7 +195,30 @@ export function loadGatesViewPrefs() {
     sortCol: p.sortCol in GATE_SORTERS ? p.sortCol : null,
     sortDir: p.sortDir === 'asc' ? 'asc' : 'desc',
     view:    p.view === 'table' || p.view === 'cards' ? p.view : null,   // null = screen-size default
+    // Cards view's region tab: 'all', a region name, or null = the first region you hold.
+    cardsRegion: p.cardsRegion === 'all' || REGIONS.includes(p.cardsRegion) ? p.cardsRegion : null,
   };
+}
+// Rows in the chosen order; no column = the default order (region → hub → congestion).
+export function sortGateRows(rows, col, dir) {
+  if (!col) return rows;
+  const s = [...rows].sort(GATE_SORTERS[col] ?? GATE_SORTERS.airport);
+  if (dir === 'desc') s.reverse();
+  return s;
+}
+// Picking a column: the same one again flips it; a new one starts A→Z for
+// names and biggest-first for numbers. null goes back to the default order.
+export function nextGateSort(cur, id) {
+  if (!id) return { col: null, dir: cur.dir };
+  if (cur.col === id) return { col: id, dir: cur.dir === 'desc' ? 'asc' : 'desc' };
+  return { col: id, dir: id === 'airport' || id === 'region' ? 'asc' : 'desc' };
+}
+// The region tab the cards open on: the remembered one while you still hold
+// gates there, else the first region.
+export function resolveCardsRegion(saved, heldRegions) {
+  if (heldRegions.length <= 1) return 'all';
+  if (saved === 'all' || heldRegions.includes(saved)) return saved;
+  return heldRegions[0];
 }
 export function saveGatesViewPrefs(patch) {
   try {
@@ -200,34 +226,16 @@ export function saveGatesViewPrefs(patch) {
   } catch { /* private mode */ }
 }
 
-function GateTable({ rows, onAdd, onRemove, onDetails }) {
+function GateTable({ rows, sort, onSort, onAdd, onRemove, onDetails }) {
   const { state } = useGame();
-  const [prefs] = useState(loadGatesViewPrefs);
-  const [sortCol, setSortColState] = useState(prefs.sortCol);   // null = default order (region → hub → congestion)
-  const [sortDir, setSortDirState] = useState(prefs.sortDir);
-  const setSortCol = v => { setSortColState(v); saveGatesViewPrefs({ sortCol: v }); };
-  const setSortDir = f => setSortDirState(d => {
-    const next = typeof f === 'function' ? f(d) : f;
-    saveGatesViewPrefs({ sortDir: next });
-    return next;
-  });
+  const { col: sortCol, dir: sortDir } = sort;   // null col = default order (region → hub → congestion)
   const [shown, setShown]     = useState(GATE_PAGE_SIZE);
   const columns = fuelStationsOn(state) ? GATE_COLUMNS : GATE_COLUMNS.filter(c => !c.fuel);
 
-  const sorted = (() => {
-    if (!sortCol) return rows;
-    const s = [...rows].sort(GATE_SORTERS[sortCol] ?? GATE_SORTERS.airport);
-    if (sortDir === 'desc') s.reverse();
-    return s;
-  })();
+  const sorted = sortGateRows(rows, sortCol, sortDir);
 
   function clickHeader(id) {
-    if (sortCol === id) {
-      setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
-    } else {
-      setSortCol(id);
-      setSortDir(id === 'airport' || id === 'region' ? 'asc' : 'desc');
-    }
+    onSort(nextGateSort(sort, id));
   }
 
   const TH = {
@@ -759,7 +767,21 @@ export default function Airports({ initialRegion = null }) {
   // Discord 2026-08-26).
   const [lookup, setLookup]                       = useState('');
   const [regionFilter, setRegionFilter]           = useState(initialRegion); // null = show picker
-  const [myGatesRegion, setMyGatesRegion]         = useState(null); // null = All
+  const [myGatesRegion, setMyGatesRegionState]    = useState(() => loadGatesViewPrefs().cardsRegion);
+  function setMyGatesRegion(r) {
+    setMyGatesRegionState(r);
+    saveGatesViewPrefs({ cardsRegion: r });
+  }
+  // One sort for both views, remembered (gates_view_prefs_v1).
+  const [gateSort, setGateSortState] = useState(() => {
+    const p = loadGatesViewPrefs();
+    return { col: p.sortCol, dir: p.sortDir };
+  });
+  function setGateSort(next) {
+    setGateSortState(next);
+    saveGatesViewPrefs({ sortCol: next.col, sortDir: next.dir });
+    setCardsShown(GATE_PAGE_SIZE);
+  }
   const [selectedAirport, setSelectedAirport]     = useState(null);
   // 'table' scales to a big network (30+ airports of gates); phones default to
   // the card view, same convention as the Routes page.
@@ -840,6 +862,29 @@ export default function Airports({ initialRegion = null }) {
       // 5. Alphabetical
       return a.code.localeCompare(b.code);
     });
+
+  // One row per held airport, shared by the table and the cards (and their sort).
+  const gateRows = myGateEntries.map(({ code, count, airport }) => {
+    const used     = slotsUsedAt(code);
+    const capacity = count * SLOTS_PER_GATE;
+    return {
+      code, count, airport,
+      city:       airport.city,
+      tier:       airport.tier,
+      region:     getRegion(airport.country),
+      used, capacity,
+      usagePct:   capacity > 0 ? used / capacity : 0,
+      weeklyCost: Math.round(totalGateMonthlyFee(airport, count) / 4),
+      canRemove:  used <= (count - 1) * SLOTS_PER_GATE,
+      isHub:      !!hubs[code],
+      addDenial:  addDenialFor(code),
+      // Use-it-or-lose-it countdown. This is the ONLY place a player can see a
+      // forfeiture coming: the warning toast the engine raises at week 16 does
+      // not survive the next server-side tick.
+      idleWeeks:   idleWeeksAt(state, code),
+      idleWarning: idleWarningFor(state, code),
+    };
+  });
 
   const totalGates       = myGateEntries.reduce((s, { count }) => s + count, 0);
   const totalWeeklyFees  = myGateEntries.reduce((s, { airport, count }) =>
@@ -1056,81 +1101,71 @@ export default function Airports({ initialRegion = null }) {
           {/* Table view: every region at once — dense rows scale to any network */}
           {gatesView === 'table' && (
             <GateTable
-              rows={myGateEntries.map(({ code, count, airport }) => {
-                const used     = slotsUsedAt(code);
-                const capacity = count * SLOTS_PER_GATE;
-                return {
-                  code, count,
-                  city:       airport.city,
-                  tier:       airport.tier,
-                  region:     getRegion(airport.country),
-                  used, capacity,
-                  usagePct:   capacity > 0 ? used / capacity : 0,
-                  weeklyCost: Math.round(totalGateMonthlyFee(airport, count) / 4),
-                  canRemove:  used <= (count - 1) * SLOTS_PER_GATE,
-                  isHub:      !!hubs[code],
-                  addDenial:  addDenialFor(code),
-                  // Use-it-or-lose-it countdown. This is the ONLY place a
-                  // player can see a forfeiture coming: the warning toast the
-                  // engine raises at week 16 does not survive the next
-                  // server-side tick.
-                  idleWeeks:   idleWeeksAt(state, code),
-                  idleWarning: idleWarningFor(state, code),
-                };
-              })}
+              rows={gateRows}
+              sort={gateSort}
+              onSort={setGateSort}
               onAdd={code => dispatch({ type: 'ADD_GATE', airportCode: code })}
               onRemove={code => dispatch({ type: 'REMOVE_GATE', airportCode: code })}
               onDetails={code => setSelectedAirport(code)}
             />
           )}
 
-          {/* Region filter tabs (card view) — gates are shown one region at a
-              time so a large network never has to render every card at once. */}
+          {/* Card view toolbar: region tabs (one region at a time keeps a big
+              network light on phones; "All" pages through everything) and the
+              same sort as the table. Both are remembered. */}
           {gatesView === 'cards' && (() => {
-            const heldRegions = [...new Set(myGateEntries.map(({ airport }) => getRegion(airport.country)))];
-            if (heldRegions.length <= 1) return null;
-            const activeRegion = myGatesRegion ?? heldRegions[0];
+            const heldRegions  = [...new Set(gateRows.map(r => r.region))];
+            const activeRegion = resolveCardsRegion(myGatesRegion, heldRegions);
+            const tabs = heldRegions.length > 1 ? ['all', ...heldRegions] : [];
+            const pill = (active) => ({
+              padding: '3px 10px', fontSize: 12, borderRadius: 20, cursor: 'pointer',
+              fontWeight: active ? 700 : 400,
+              background: active ? 'var(--accent)' : 'var(--surface2)',
+              color: active ? '#fff' : 'var(--text-muted)',
+              border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+              transition: 'all 0.15s',
+            });
+            const sortCols = fuelStationsOn(state) ? GATE_COLUMNS : GATE_COLUMNS.filter(c => !c.fuel);
             return (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                {heldRegions.map(r => {
-                  const active = activeRegion === r;
-                  const regionCount = myGateEntries.filter(({ airport }) => getRegion(airport.country) === r).length;
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                {tabs.map(r => {
+                  const n = r === 'all' ? gateRows.length : gateRows.filter(x => x.region === r).length;
                   return (
-                    <button
-                      key={r}
-                      onClick={() => { setMyGatesRegion(r); setCardsShown(GATE_PAGE_SIZE); }}
-                      style={{
-                        padding: '3px 10px', fontSize: 12, borderRadius: 20, cursor: 'pointer',
-                        fontWeight: active ? 700 : 400,
-                        background: active ? 'var(--accent)' : 'var(--surface2)',
-                        color: active ? '#fff' : 'var(--text-muted)',
-                        border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {r} ({regionCount})
+                    <button key={r} data-cards-region={r} aria-pressed={activeRegion === r} style={pill(activeRegion === r)}
+                      onClick={() => { setMyGatesRegion(r); setCardsShown(GATE_PAGE_SIZE); }}>
+                      {r === 'all' ? 'All' : r} ({n})
                     </button>
                   );
                 })}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)' }} htmlFor="gate-cards-sort">Sort</label>
+                  <select id="gate-cards-sort" data-cards-sort="" value={gateSort.col ?? ''}
+                    onChange={e => setGateSort(nextGateSort({ ...gateSort, col: null }, e.target.value || null))}
+                    style={{ fontSize: 12, padding: '3px 6px', borderRadius: 6, background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}>
+                    <option value="">Default</option>
+                    {sortCols.map(c => <option key={c.id} value={c.id}>{c.id === 'util' ? 'Use %' : c.label}</option>)}
+                  </select>
+                  {gateSort.col && (
+                    <button data-cards-sort-dir="" style={pill(false)}
+                      title={gateSort.dir === 'desc' ? 'Highest first: tap to reverse' : 'Lowest first: tap to reverse'}
+                      onClick={() => setGateSort(nextGateSort(gateSort, gateSort.col))}>
+                      {gateSort.dir === 'desc' ? '▾' : '▴'}
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })()}
 
           {gatesView === 'cards' && (() => {
-            const heldRegions  = [...new Set(myGateEntries.map(({ airport }) => getRegion(airport.country)))];
-            // With multiple regions, only ever render the active one. A single
-            // region renders directly (no filtering needed).
-            const activeRegion = myGatesRegion ?? heldRegions[0];
-            const regionEntries = heldRegions.length > 1
-              ? myGateEntries.filter(({ airport }) => getRegion(airport.country) === activeRegion)
-              : myGateEntries;
+            const heldRegions  = [...new Set(gateRows.map(r => r.region))];
+            // Only the active region is rendered (or every region, paged, on "All").
+            const activeRegion = resolveCardsRegion(myGatesRegion, heldRegions);
+            const regionEntries = sortGateRows(
+              activeRegion === 'all' ? gateRows : gateRows.filter(r => r.region === activeRegion),
+              gateSort.col, gateSort.dir);
             const visibleEntries = regionEntries.slice(0, cardsShown);
-            return (<>{visibleEntries.map(({ code, count, airport }) => {
-            const used       = slotsUsedAt(code);
-            const capacity   = count * SLOTS_PER_GATE;
-            const usagePct   = capacity > 0 ? used / capacity : 0;
-            const weeklyCost = Math.round(totalGateMonthlyFee(airport, count) / 4);
-            const canRemove  = used <= (count - 1) * SLOTS_PER_GATE;
+            return (<>{visibleEntries.map(({ code, count, airport, used, capacity, usagePct, weeklyCost, canRemove }) => {
             const barColor   = usagePct >= 0.9 ? 'var(--red)'
                              : usagePct >= 0.7 ? 'var(--yellow)'
                              : 'var(--green)';

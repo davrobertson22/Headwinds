@@ -1,7 +1,9 @@
 // Airports → Your Gates remembers its sort and its Table/Cards choice
 // (Discord, VodkaOnFire 2026-10-23: "I'd like to have my airports/gates sorted
 // by whatever I previously selected. Currently it seems to default to
-// something based on region with NA first").
+// something based on region with NA first"). The Cards view (the phone
+// default) shares that sort and remembers its region tab (VodkaOnFire,
+// 2026-11-03: "In Tailwinds, it still resets every time").
 //
 // Renders the REAL Airports screen twice — a fresh render is a fresh mount,
 // which is exactly what leaving the tab and coming back looks like.
@@ -32,7 +34,7 @@ console.log('\nAirports → Your Gates remembers its sort\n');
 const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
 const AirportsMod = await import('../src/components/Airports.jsx');
 const Airports = AirportsMod.default;
-const { loadGatesViewPrefs, saveGatesViewPrefs } = AirportsMod;
+const { loadGatesViewPrefs, saveGatesViewPrefs, resolveCardsRegion, nextGateSort } = AirportsMod;
 
 // Gate counts deliberately out of region order: JFK (North America) leads the
 // default order but holds the FEWEST gates.
@@ -80,7 +82,7 @@ test('direction is remembered too: Gates ▴', () => {
 test('saveGatesViewPrefs merges, so saving the column keeps the direction and view', () => {
   reset({ sortCol: 'cost', sortDir: 'asc', view: 'table' });
   saveGatesViewPrefs({ sortCol: 'util' });
-  assert.deepEqual(loadGatesViewPrefs(), { sortCol: 'util', sortDir: 'asc', view: 'table' });
+  assert.deepEqual(loadGatesViewPrefs(), { sortCol: 'util', sortDir: 'asc', view: 'table', cardsRegion: null });
 });
 
 test('a saved Cards choice comes back (no table rendered)', () => {
@@ -91,10 +93,58 @@ test('a saved Cards choice comes back (no table rendered)', () => {
 
 test('junk or stale prefs fall back to the defaults', () => {
   reset('{not json');
-  assert.deepEqual(loadGatesViewPrefs(), { sortCol: null, sortDir: 'desc', view: null });
-  reset({ sortCol: 'gone', sortDir: 'sideways', view: 'grid' });
-  assert.deepEqual(loadGatesViewPrefs(), { sortCol: null, sortDir: 'desc', view: null });
+  assert.deepEqual(loadGatesViewPrefs(), { sortCol: null, sortDir: 'desc', view: null, cardsRegion: null });
+  reset({ sortCol: 'gone', sortDir: 'sideways', view: 'grid', cardsRegion: 'Atlantis' });
+  assert.deepEqual(loadGatesViewPrefs(), { sortCol: null, sortDir: 'desc', view: null, cardsRegion: null });
   assert.equal(tableOrder(render())[0], 'JFK');
+});
+
+// Codes on the cards, top to bottom.
+function cardOrder(html) {
+  return [...html.matchAll(/font-weight:700;font-size:16px">([A-Z]{3})</g)].map(m => m[1]).filter(c => c in GATES);
+}
+const activeTab = (html) => (html.match(/data-cards-region="([^"]+)" aria-pressed="true"/) ?? [])[1];
+
+test('Cards, no saved prefs: opens on the first region you hold, as before', () => {
+  reset({ view: 'cards' });
+  const html = render();
+  assert.equal(activeTab(html), 'North America');
+  assert.deepEqual(cardOrder(html), ['JFK']);
+  assert.match(html, /data-cards-region="all"/, 'with an All tab');
+});
+
+test('Cards remember the region tab', () => {
+  reset({ view: 'cards', cardsRegion: 'Asia' });
+  const html = render();
+  assert.equal(activeTab(html), 'Asia');
+  assert.deepEqual(cardOrder(html), ['NRT']);
+});
+
+test('Cards use the saved sort: All + Gates ▾ puts LHR first, JFK last', () => {
+  reset({ view: 'cards', cardsRegion: 'all', sortCol: 'gates', sortDir: 'desc' });
+  const html = render();
+  assert.deepEqual(cardOrder(html), ['LHR', 'SYD', 'NRT', 'JFK']);
+  assert.match(html, /<option value="gates" selected="">/, 'and the sort picker shows it');
+});
+
+test('a sort picked in one view carries to the other', () => {
+  reset({ view: 'table', sortCol: 'gates', sortDir: 'asc', cardsRegion: 'all' });
+  assert.deepEqual(tableOrder(render()), ['JFK', 'NRT', 'SYD', 'LHR']);
+  saveGatesViewPrefs({ view: 'cards' });
+  assert.deepEqual(cardOrder(render()), ['JFK', 'NRT', 'SYD', 'LHR']);
+});
+
+test('a remembered region you no longer hold gates in falls back to the first one', () => {
+  assert.equal(resolveCardsRegion('Africa', ['North America', 'Europe']), 'North America');
+  assert.equal(resolveCardsRegion('Europe', ['North America', 'Europe']), 'Europe');
+  assert.equal(resolveCardsRegion('Europe', ['Europe']), 'all', 'one region: no tabs, everything shows');
+});
+
+test('picking a sort: new column gets its natural direction, same column flips, none = default', () => {
+  assert.deepEqual(nextGateSort({ col: null, dir: 'desc' }, 'airport'), { col: 'airport', dir: 'asc' });
+  assert.deepEqual(nextGateSort({ col: 'airport', dir: 'asc' }, 'cost'), { col: 'cost', dir: 'desc' });
+  assert.deepEqual(nextGateSort({ col: 'cost', dir: 'desc' }, 'cost'), { col: 'cost', dir: 'asc' });
+  assert.deepEqual(nextGateSort({ col: 'cost', dir: 'asc' }, null), { col: null, dir: 'asc' });
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
