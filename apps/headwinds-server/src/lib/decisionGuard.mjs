@@ -31,7 +31,7 @@ import { normalizeLivery, isLiveryShaped } from '@tailwinds/engine/data/livery.j
 import { cleanHex, normalizeAirlineCode } from '@tailwinds/engine/utils/logoBranding.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
-import { normalizeStarts } from '@tailwinds/engine/models/schedule.js';
+import { normalizeStarts, normalizeHubBankSetting } from '@tailwinds/engine/models/schedule.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
 export class GuardError extends Error {
@@ -338,6 +338,23 @@ function guardSetRouteSchedules(payload, state) {
   }
   if (Object.keys(schedules).length === 0) throw new GuardError('Unknown route.');
   return { schedules };
+}
+
+// Hub banks: only this airline's designated hubs, each setting cleaned (an
+// unusable one means Automatic). Rejected outside a hub-bank world.
+function guardSetHubBanks(payload, state) {
+  if (state?.hubBanksWorld !== true) throw new GuardError('Hub banks are not part of this world.');
+  const want = payload?.banks;
+  if (!want || typeof want !== 'object' || Array.isArray(want)) throw new GuardError('No hub banks.');
+  const codes = Object.keys(want);
+  if (codes.length === 0 || codes.length > 200) throw new GuardError('Too many hubs in one change.');
+  const banks = {};
+  for (const code of codes) {
+    if (state.hubs?.[code]?.tier == null) continue;
+    banks[code] = normalizeHubBankSetting(want[code]);
+  }
+  if (Object.keys(banks).length === 0) throw new GuardError('Not one of your hubs.');
+  return { banks };
 }
 
 // A real airport code; everything else about a fuel farm is the reducer's.
@@ -742,6 +759,7 @@ export function guardDecision(type, payload, state) {
     case 'SET_FUEL_PROGRAMME': return guardSetFuelProgramme(payload);
     case 'SET_ROUTE_TANKERING': return guardSetRouteTankering(payload, state);
     case 'SET_ROUTE_SCHEDULES': return guardSetRouteSchedules(payload, state);
+    case 'SET_HUB_BANKS': return guardSetHubBanks(payload, state);
     case 'BUY_FUEL_STAKE':
     case 'BUILD_FUEL_FARM':
     case 'CLOSE_FUEL_FARM':     return guardFarmCode(payload);

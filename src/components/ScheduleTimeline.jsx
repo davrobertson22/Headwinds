@@ -8,7 +8,9 @@ import { utcOffsetMinutes } from '../data/timezones.js';
 import {
   WEEK_MIN, wrapWeek, snapMin, airlineWeeks, canPlace, pinsAfterMove, pinsAfterUnpin,
   routeRotation, byCodePoint, findBlock, replacedBlock, overlaps,
+  scheduleInputsOf, bankContextOf, hubTimetable, blockHubEvents, snapToBank, connectionsAt,
 } from '../models/schedule.js';
+import HubBanksPanel from './HubBanksPanel.jsx';
 import { gameClockAt } from './gameClock.js';
 import useIsMobile from '../hooks/useIsMobile.js';
 import { Glyph } from './Icons.jsx';
@@ -20,8 +22,10 @@ import { Glyph } from './Icons.jsx';
 // still has a full week. Drag a block to move it, or drag a flight in from the
 // row's tray. Moving a flight sets that route's whole week as shown, with only
 // the moved flight changed, so nothing the player didn't touch shifts under
-// them. The timetable is cosmetic: it drives the departure board and the
-// globe's planes, not demand or costs. The maths is in models/schedule.js.
+// them. The timetable drives the departure board and the globe's planes; in a
+// hub-bank world it also decides which connections work at the player's hubs
+// (HubBanksPanel on top; off-bank flights are marked). The maths is in
+// models/schedule.js.
 //
 // Robustness (audits 2026-10-14):
 //  · blocks are matched by route + start, never object identity — the week is
@@ -132,8 +136,19 @@ export default function ScheduleTimeline() {
   const cargoRoutes = useMemo(() => withPending(stateCargo), [stateCargo, withPending]);
 
   // ── Data ────────────────────────────────────────────────────────────────────
-  const weeks = useMemo(() => airlineWeeks({ fleet, routes, cargoRoutes }, month),
-    [fleet, routes, cargoRoutes, month]);
+  const hubBanksWorld = state.hubBanksWorld === true;
+  const weeks = useMemo(() => airlineWeeks({ ...scheduleInputsOf(state), fleet, routes, cargoRoutes }, month),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fleet, routes, cargoRoutes, month, state.hubs, state.hubBanks, state.hubBanksWorld]);
+  // Hub-bank worlds: the waves, and who meets whom at each hub — built from
+  // the week on screen (pending nudges included), the same way the tick does.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const bankCtx = useMemo(() => bankContextOf(state), [state.hubBanksWorld, state.hubs, state.hubBanks]);
+  const paxIds = useMemo(() => new Set(routes.map(r => r.id)), [routes]);
+  const tt = useMemo(() => (hubBanksWorld
+    ? hubTimetable(weeks, { paxIds, hubs: new Set(Object.keys(state.hubs ?? {})) }) : null),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [hubBanksWorld, weeks, paxIds, state.hubs]);
   const routeById = useMemo(() => {
     const m = new Map();
     for (const r of routes) m.set(r.id, { r, cargo: false });
@@ -277,7 +292,7 @@ export default function ScheduleTimeline() {
   // latest values through `live`), so a memoised row re-renders only when its
   // own data changes.
   const live = useRef({});
-  live.current = { rows, pxPerMin, zoneOff, labelW, flush, queue };
+  live.current = { rows, pxPerMin, zoneOff, labelW, flush, queue, bankCtx };
 
   const [dragView, setDragView] = useState(null);   // what the dragged row draws
   const dragRef = useRef(null);
@@ -367,6 +382,9 @@ export default function ScheduleTimeline() {
       setDragView({ ...d });
     };
     api.current = { select, moveTo, pinHere, unpin, lockRow, resetRow, setTrack, startDrag, rowOf };
+    // Hub-bank worlds: what a flight meets at a hub, read live by the rows'
+    // tooltips without making them re-render when other rows change.
+    api.current.bankCtx = () => live.current.bankCtx;
   }
 
   useEffect(() => {
@@ -388,6 +406,9 @@ export default function ScheduleTimeline() {
       // Anywhere to the right counts, so dragging off Sunday night wraps to Monday.
       const over = d.y >= rect.top - 24 && d.y <= rect.bottom + 24 && d.x >= rect.left - 8;
       const utc = snapMin((d.x - rect.left) / ppm - d.grabMin - off);
+      // A banked rotation's length depends on when it leaves (it may wait at
+      // the far end for the next bank) — preview and check it at the drop time.
+      const dur = row.week.durAt?.(d.routeId, utc) ?? d.dur;
       // The flight as it is in the CURRENT week — state may have changed since
       // the drag began. Gone (closed route, new week): stop.
       if (d.from && !findBlock(row.week, d.from)) { end(); return; }
@@ -396,10 +417,10 @@ export default function ScheduleTimeline() {
       if (over && !valid) {
         const skip = replacedBlock(row.week, d.routeId, d.from, utc);
         blocker = row.week.blocks.find(b => b !== skip && (b.pinned || b.routeId === d.routeId)
-          && overlaps(utc, d.dur, b.start, b.dur)) ?? null;
+          && overlaps(utc, dur, b.start, b.dur)) ?? null;
       }
-      if (utc !== d.utc || valid !== d.valid || over !== d.over || !d.shown || blocker?.key !== d.blocker?.key) {
-        Object.assign(d, { utc, valid, over, shown: true, blocker: blocker ? { key: blocker.key, routeId: blocker.routeId, start: blocker.start } : null });
+      if (utc !== d.utc || valid !== d.valid || over !== d.over || !d.shown || blocker?.key !== d.blocker?.key || dur !== d.dur) {
+        Object.assign(d, { utc, dur, valid, over, shown: true, blocker: blocker ? { key: blocker.key, routeId: blocker.routeId, start: blocker.start } : null });
         setDragView({ ...d });
       }
     };
@@ -531,10 +552,18 @@ export default function ScheduleTimeline() {
         <div className="sched-sub">
           Optional — anything you don&apos;t place is scheduled for you. Moving a flight sets that route&apos;s
           whole week as shown (only the flight you moved changes). Your timetable sets the departure board and
-          the planes on the globe; it doesn&apos;t change demand or costs.
+          the planes on the globe{hubBanksWorld
+            ? <>, and at your hubs it decides who can connect: flights that meet in a bank carry connecting
+              passengers, flights that miss one don&apos;t. The automatic schedule banks every hub for you.</>
+            : <>; it doesn&apos;t change demand or costs.</>}
           {isMobile ? ' Hold a flight for a moment, then drag.' : ''}
         </div>
       </div>
+
+      {hubBanksWorld && (
+        <HubBanksPanel state={state} weeks={weeks} tt={tt} paxIds={paxIds} dispatch={dispatch}
+          onSnap={(schedules) => flush(schedules)} />
+      )}
 
       <div className="sched-toolbar">
         <div className="sched-seg" role="group" aria-label="Time zone">
@@ -601,6 +630,7 @@ export default function ScheduleTimeline() {
               drag={dragView?.acId === row.a.id ? dragView : null}
               selKey={selRow === row && selBlock ? selBlock.key : null}
               api={api.current}
+              bankCtx={bankCtx}
             />
           ))}
 
@@ -615,6 +645,8 @@ export default function ScheduleTimeline() {
         <BlockDetail
           panelRef={panelRef}
           row={selRow} b={selBlock} zoneOff={zoneOff}
+          bankCtx={bankCtx} tt={tt}
+          onSnap={(to) => api.current.moveTo(selRow.a.id, selBlock, to, 'now')}
           onNudge={(d) => api.current.moveTo(selRow.a.id, selBlock, wrapWeek(selBlock.start + d), 'queue')}
           onPin={() => api.current.pinHere(selRow.a.id, selBlock)}
           onUnpin={() => api.current.unpin(selRow.a.id, selBlock)}
@@ -627,7 +659,7 @@ export default function ScheduleTimeline() {
 
 /** One aircraft's row. Memoised: while a flight is dragged only its own row
  *  gets a new `drag`, and an edit only changes the edited aircraft's week. */
-const ScheduleRow = memo(function ScheduleRow({ row, labelW, fullW, pxPerMin, zoneOff, drag, selKey, api }) {
+const ScheduleRow = memo(function ScheduleRow({ row, labelW, fullW, pxPerMin, zoneOff, drag, selKey, api, bankCtx = null }) {
   const autoByRoute = {}, pinnedByRoute = {};
   for (const b of row.week.blocks) {
     const m = b.pinned ? pinnedByRoute : autoByRoute;
@@ -724,6 +756,7 @@ const ScheduleRow = memo(function ScheduleRow({ row, labelW, fullW, pxPerMin, zo
           const beingDragged = drag?.moved && drag.from && drag.from.routeId === b.routeId && drag.from.start === b.start;
           const isSel = i === selIdx;
           const lifted = drag && drag.touch && drag.armed && !drag.moved && drag.from?.routeId === b.routeId && drag.from?.start === b.start;
+          const missed = bankCtx ? blockHubEvents(b, bankCtx).filter(e => !e.made).map(e => e.hub) : [];
           return (
             <BlockPieces
               key={b.key} b={b} x={toX(b.start)} pxPerMin={pxPerMin} fullW={fullW}
@@ -731,8 +764,8 @@ const ScheduleRow = memo(function ScheduleRow({ row, labelW, fullW, pxPerMin, zo
               dataBlock={blockId(row.a.id, b)}
               tabIndex={i === tabIdx ? 0 : -1}
               selected={isSel}
-              className={`sched-block${b.pinned ? ' is-pinned' : ' is-auto'}${isSel ? ' is-selected' : ''}${beingDragged ? ' is-ghost' : ''}${lifted ? ' is-lifted' : ''}${b.key === blockerKey ? ' is-blocking' : ''}`}
-              label={`${pairOf(b.routeId, b)}–${row.meta[b.routeId]?.origin}, leaves ${weekLabel(b.start + zoneOff)}, ${b.pinned ? 'set by you' : 'automatic'}`}
+              className={`sched-block${b.pinned ? ' is-pinned' : ' is-auto'}${isSel ? ' is-selected' : ''}${beingDragged ? ' is-ghost' : ''}${lifted ? ' is-lifted' : ''}${b.key === blockerKey ? ' is-blocking' : ''}${missed.length ? ' is-offbank' : ''}`}
+              label={`${pairOf(b.routeId, b)}–${row.meta[b.routeId]?.origin}, leaves ${weekLabel(b.start + zoneOff)}, ${b.pinned ? 'set by you' : 'automatic'}${missed.length ? `, misses a bank at ${[...new Set(missed)].join(' and ')}` : ''}`}
               hint={`Drag to move · ←/→ 15 min (Shift: 1 h) · ↑/↓ other flights · ${b.pinned ? 'Delete to unpin' : 'P to pin'}`}
               onPointerDown={(e) => api.startDrag(e, row.a.id, b.routeId, b)}
               onKeyDown={(e) => onKey(e, b, i)}
@@ -746,7 +779,7 @@ const ScheduleRow = memo(function ScheduleRow({ row, labelW, fullW, pxPerMin, zo
           return (
             <>
               <BlockPieces
-                b={{ ...(shape ?? { stops: [], legs: [] }), start: drag.utc, dur: drag.dur }}
+                b={{ ...(shape ?? { stops: [], legs: [] }), legs: row.week.legsAt?.(drag.routeId, drag.utc) ?? shape?.legs ?? [], start: drag.utc, dur: drag.dur }}
                 x={x} pxPerMin={pxPerMin} fullW={fullW} color={row.meta[drag.routeId]?.color}
                 className={`sched-block is-preview${drag.valid ? '' : ' is-invalid'}`}
                 text=""
@@ -799,8 +832,14 @@ function BlockPieces({
   ));
 }
 
-function BlockDetail({ panelRef, row, b, zoneOff, onNudge, onPin, onUnpin, onClose }) {
+function BlockDetail({ panelRef, row, b, zoneOff, onNudge, onPin, onUnpin, onClose, bankCtx = null, tt = null, onSnap }) {
   const m = row.meta[b.routeId] ?? {};
+  // Hub-bank worlds: each landing at and departure from a banked hub — does it
+  // make a bank, and how many flights does it meet?
+  const events = bankCtx ? blockHubEvents(b, bankCtx) : [];
+  const localHm = (code, utc) => weekLabel(utc + utcOffsetMinutes(getAirport(code))).slice(4);
+  const bankHm = (code, bank) => (bank == null ? '' : localHm(code, bank));
+  const snapTo = events.some(e => !e.made) && b.pinned ? snapToBank(row.week, b, bankCtx) : null;
   let t = b.start;
   const legs = b.legs.map(l => {
     const dep = t, arr = t + l.flightMin;
@@ -828,6 +867,35 @@ function BlockDetail({ panelRef, row, b, zoneOff, onNudge, onPin, onUnpin, onClo
         ))}
         <div className="sched-meta">Local times at each airport.</div>
       </div>
+      {events.length > 0 && (
+        <div className="sched-banks">
+          {events.map((e, i) => {
+            const n = connectionsAt(tt, e.hub, e.at, e.kind, e.kind === 'arr' ? e.from : e.to);
+            return (
+              <div key={i} className={e.made ? '' : 'is-off'}>
+                {e.kind === 'arr' ? 'Lands' : 'Leaves'} <span className="sched-leg-code">{e.hub}</span> {localHm(e.hub, e.at)}
+                {' — '}
+                {e.made ? `${e.kind === 'arr' ? 'in time for' : 'in'} the ${bankHm(e.hub, e.bank)} bank` : 'between banks'}
+                {' · '}
+                {e.kind === 'arr' ? `${n} onward flight${n === 1 ? '' : 's'} to connect to` : `${n} flight${n === 1 ? '' : 's'} feed it`}
+              </div>
+            );
+          })}
+          {b.legs.filter(l => l.waitMin).map((l, i) => (
+            <div key={`w${i}`} className="sched-meta">
+              Waits {Math.floor(l.waitMin / 60)}h{pad2(l.waitMin % 60)} at {l.to}{l.overnight ? ' overnight' : ''} to make the next bank.
+            </div>
+          ))}
+          {b.plain && <div className="sched-meta">This aircraft&apos;s week is too full to wait for a bank on this flight.</div>}
+          {snapTo != null && (
+            <div>
+              <button className="btn btn-primary sched-btn" onClick={() => onSnap?.(snapTo)}>
+                Snap to the bank (leave {weekLabel(snapTo + zoneOff)})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="sched-detail-actions">
         <button className="btn btn-ghost sched-btn" onClick={() => onNudge(-60)}>−1h</button>
         <button className="btn btn-ghost sched-btn" onClick={() => onNudge(-15)}>−15m</button>

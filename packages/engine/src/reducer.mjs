@@ -132,7 +132,7 @@ import { tickEncroachment } from './models/encroachment.js';
 import { leaseBuyoutQuote } from './models/leaseBuyout.js';
 import { cleanHex, normalizeAirlineCode } from './utils/logoBranding.js';
 import { leaseAutoRenewSetting, leaseWillAutoRenew, leaseWarnWeeks, LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from './models/leaseRenewal.js';
-import { normalizeStarts } from './models/schedule.js';
+import { normalizeStarts, normalizeHubBankSetting } from './models/schedule.js';
 import { faresTrimmedUnderCliff } from './models/fareCliff.js';
 import {
   tickFuelPrice,
@@ -4198,6 +4198,30 @@ function reducer(state, action) {
         routes: routes.some((r, i) => r !== state.routes[i]) ? routes : state.routes,
         cargoRoutes: cargoRoutes.some((r, i) => r !== (state.cargoRoutes ?? [])[i]) ? cargoRoutes : state.cargoRoutes,
       };
+    }
+
+    // action: { banks: { [hubCode]: setting | null } } — hub-bank worlds only.
+    // How each designated hub runs its waves: { mode: 'rolling' },
+    // { mode: 'banks', count: 3|4|6 } or { mode: 'banks', times: [local min] };
+    // null puts the hub back on Automatic. Free, instant, and the tick reads
+    // it: the automatic week re-aims every flight through the hub, and
+    // connections there are counted from the timetable (models/schedule.js).
+    case 'SET_HUB_BANKS': {
+      if (state.hubBanksWorld !== true) return state;
+      const want = action.banks;
+      if (!want || typeof want !== 'object' || Array.isArray(want)) return state;
+      const cur = state.hubBanks ?? {};
+      const next = { ...cur };
+      let changed = false;
+      for (const code of Object.keys(want)) {
+        if (state.hubs?.[code]?.tier == null) continue;   // not one of our hubs
+        const set = normalizeHubBankSetting(want[code]);
+        const before = normalizeHubBankSetting(cur[code]);
+        if (JSON.stringify(set) === JSON.stringify(before)) continue;
+        changed = true;
+        if (set) next[code] = set; else delete next[code];
+      }
+      return changed ? { ...state, hubBanks: next } : state;
     }
 
     // ── Hub management ────────────────────────────────────────────────────────

@@ -87,6 +87,7 @@ import {
   partnerInterlineRevenue,
 } from '../data/alliances.js';
 import { runNetworkTick, trimOwnMetalEntries, rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../models/network.js';
+import { hubTimetableOf } from '../models/schedule.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
 import {
@@ -4917,6 +4918,9 @@ export function weeklyTick(state) {
     demandMultFor: eventDemandMultFor,   // world-event shocks hit itinerary O&Ds too
     rivalIndex,
     seatsByRouteKey,
+    // Hub-bank worlds: connections at designated hubs work when the timetable
+    // says they do (models/schedule.js). Elsewhere null — the old assumption.
+    timetable: hubTimetableOf(state, gameDate.month),
   });
   const {
     cannibalizationMap, partnerODRevenue: partnerODRaw, partnerHealthDecay,

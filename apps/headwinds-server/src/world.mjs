@@ -53,6 +53,9 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Timetable pins (cosmetic — board, schedule editor, globe planes). The
   // guard checks the routes are this airline's and cleans the minute lists.
   'SET_ROUTE_SCHEDULES',
+  // Hub banks (hub-bank worlds): how each designated hub times its waves. The
+  // guard cleans the settings; the reducer ignores non-hubs and other worlds.
+  'SET_HUB_BANKS',
   // Fuel farms (§8): capex, thresholds, the ownership race and the close refund
   // are the reducer's (canTakeFarm); the guard checks the airport code.
   'BUY_FUEL_STAKE', 'BUILD_FUEL_FARM', 'CLOSE_FUEL_FARM',

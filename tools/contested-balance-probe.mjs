@@ -7,6 +7,8 @@
 //
 //   node --import ./tools/_register-loader.mjs tools/contested-balance-probe.mjs [weeks=104]
 //   RIVAL_ITIN=1 … turns rival one-stop itineraries on (HUB_CONNECTIVITY_PLAN.md 1b)
+//   HUB_BANKS=auto|rolling|3|4|6 … a hub-bank world (connections from the
+//     timetable, models/schedule.js), both hubs on that setting
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { getAircraftType } from '../packages/engine/src/data/aircraft.js';
 import { getAirport } from '../packages/engine/src/data/airports.js';
@@ -39,7 +41,13 @@ let st = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Probe', h
 st = { ...st, cash: 500_000_000, fleet, routes, routePricing, gates,
   hubs: { JFK: { tier: 2, tierSince: 0 }, ORD: { tier: 1, tierSince: 0 } },
   fareIndex: NWR_FARE_INDEX, newWorldRestrictions: true,
-  ...(process.env.RIVAL_ITIN ? { rivalItineraries: true } : {}) };
+  ...(process.env.RIVAL_ITIN ? { rivalItineraries: true } : {}),
+  ...(process.env.HUB_BANKS ? {
+    hubBanksWorld: true,
+    hubBanks: process.env.HUB_BANKS === 'auto' ? {}
+      : Object.fromEntries(['JFK', 'ORD'].map(h => [h, process.env.HUB_BANKS === 'rolling'
+        ? { mode: 'rolling' } : { mode: 'banks', count: Number(process.env.HUB_BANKS) }])),
+  } : {}) };
 
 const years = [];
 let acc = { rev: 0, pax: 0, profit: 0 };

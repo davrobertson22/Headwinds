@@ -81,6 +81,9 @@ export async function createWorld(prisma, {
   // Loyalty pools (engine models/loyaltyPools.js): ON for new worlds unless the
   // creator passes false.
   loyaltyPools,
+  // Hub banks (engine models/schedule.js): ON for new worlds unless the
+  // creator passes false.
+  hubBanks,
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
@@ -123,7 +126,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -195,6 +198,11 @@ export async function createWorld(prisma, {
     // New worlds only: ON unless the creator unticks it; older worlds keep the
     // budget-and-tier program for life.
     ...(loyaltyPools !== false ? { loyaltyPools: true } : {}),
+    // Hub banks (Dave, 2026-11-05): designated hubs run on waves and the tick
+    // counts connections from the real timetable instead of assuming every
+    // flight connects in 1.5 h. New worlds only: ON unless the creator unticks
+    // it; older worlds keep the schedule cosmetic for life.
+    ...(hubBanks !== false ? { hubBanks: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Part of the
     // game, not a setup option (Dave, 2026-10-17): every world created from
@@ -357,6 +365,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.marketDev === true ? { marketDevWorld: true } : {}),
     // Loyalty pools, baked at join like the other rule flags.
     ...(tc.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
+    // Hub banks, baked at join like the other rule flags.
+    ...(tc.hubBanks === true ? { hubBanksWorld: true } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),

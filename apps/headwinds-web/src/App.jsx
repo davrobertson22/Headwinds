@@ -395,6 +395,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   // Travel partnerships — on by default (the server defaults it on too).
   const [partnerships, setPartnerships] = useState(true);
   const [loyaltyPools, setLoyaltyPools] = useState(true);
+  const [hubBanks, setHubBanks] = useState(true);
   // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
   const [demandV2, setDemandV2] = useState(true);
   // Market development — on by default (the server defaults it on too).
@@ -462,6 +463,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           marketDev,
           // Always explicit: the server treats an absent field as ON.
           loyaltyPools,
+          // Always explicit: the server treats an absent field as ON.
+          hubBanks,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -734,6 +737,18 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             airlines first.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Hub banks
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={hubBanks}
+              onChange={(e) => setHubBanks(e.target.checked)} />
+            <span className="muted">{hubBanks ? 'ON (default) — connections need the timetable to meet' : 'Off — the schedule is for show; every flight connects'}</span>
+          </span>
+          <span className="muted small">
+            Hubs run on banks (waves of arrivals, then departures) and connections only work
+            when flights meet. The automatic schedule banks every hub; players can change the
+            banks or drag flights.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -930,6 +945,14 @@ const WORLD_FEATURES = [
     label: () => 'City loyalty',
     rgb: '188,140,255',
     blurb: 'Frequent flyers live in cities, and every airline flying there competes for them. A program is worth joining for what the airline is \u2014 generosity, lounges members can use, free bags, premium cabins, an alliance, the places it flies, travel partners and being on time. Members only decide which airline people fly; they never add travellers to a market. Elites requalify every December against the service you kept up, and leave unreliable airlines first. Cutting generosity is a devaluation.',
+  },
+  {
+    key: 'hubbanks',
+    on: (w) => w.hubBanks === true,
+    icon: '🕓',
+    label: () => 'Hub banks',
+    rgb: '90,170,230',
+    blurb: 'Your timetable matters. Connections at your hubs only work when the flights meet: each hub runs on banks — waves of arrivals, then departures — and the automatic schedule aims every flight at them. Set a hub to more or fewer banks, or to Rolling, in Operations → Schedule, and drag flights to fine-tune.',
   },
   {
     key: 'hubs',

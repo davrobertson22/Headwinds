@@ -534,6 +534,8 @@ export default async function worldRoutes(fastify) {
           marketDev: { type: 'boolean' },
           // Loyalty pools (default ON; false = the budget-and-tier program).
           loyaltyPools: { type: 'boolean' },
+          // Hub banks (default ON; false = the timetable stays cosmetic).
+          hubBanks: { type: 'boolean' },
           // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
           // Contents validated in worldConfig (lineRatesProblem).
           productionLineRates: { type: 'object' },

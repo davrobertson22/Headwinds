@@ -23,7 +23,7 @@ import { liveryFor } from '../data/livery.js';
 import { planeSpriteColors } from '../utils/liveryPaint.js';
 import { buildGlobeData } from './globeCore.js';
 import { buildFlightPlan } from './flightsCore.js';
-import { airlineWeeks } from '../models/schedule.js';
+import { airlineWeeks, scheduleInputsOf } from '../models/schedule.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
 // Rivals tab's map — see mapCore.js for why they live in one place.
 import {
@@ -1171,9 +1171,12 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     return tailFlightPlans({
       groups: routeGroups, cargoGroups: showCargo ? cargoGroups : [],
       fleet, month: gd.month, colorOf: routeGroupColor, cargoColor: CARGO_COLOR,
-      weeks: airlineWeeks({ fleet, routes, cargoRoutes }, gd.month),
+      // Hub-bank worlds bank the timetable, so the planes need the hub settings too.
+      weeks: airlineWeeks({ ...scheduleInputsOf(state), fleet, routes, cargoRoutes }, gd.month),
     });
-  }, [mapView, showPlanes, routeGroups, cargoGroups, showCargo, fleet, routes, cargoRoutes, gd.month]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapView, showPlanes, routeGroups, cargoGroups, showCargo, fleet, routes, cargoRoutes, gd.month,
+      state.hubs, state.hubBanks, state.hubBanksWorld]);
 
   // The world's clock (multiplayer only), as primitives so a poll that
   // changes nothing doesn't restart the globe's animation.

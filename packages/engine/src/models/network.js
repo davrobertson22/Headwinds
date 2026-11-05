@@ -1083,10 +1083,10 @@ export function approxBlockHours(km) {
  * this: a longer path is a longer trip. MIA–ATL via MCO ≈ 2.2 (the stop doubles
  * a 90-minute sector); JFK–AMS via FRA ≈ 1.4.
  */
-export function connectionTimeRatio(origin, hub, dest) {
+export function connectionTimeRatio(origin, hub, dest, connectHours = CONNECT_TIME_HOURS) {
   const direct = routeDistance(origin, dest);
   if (!(direct > 0)) return CONNECTION_TIME_BASE;
-  const via = approxBlockHours(routeDistance(origin, hub)) + CONNECT_TIME_HOURS + approxBlockHours(routeDistance(hub, dest));
+  const via = approxBlockHours(routeDistance(origin, hub)) + connectHours + approxBlockHours(routeDistance(hub, dest));
   return via / approxBlockHours(direct);
 }
 
@@ -1550,6 +1550,10 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     gates = {},
     demandMultFor = null,   // (origin, dest) → world-event demand multiplier
     rivalIndex = undefined, // rivalIndexFor(state): RIVALS_OFF = old rules, undefined = modern, no rivals
+    // Hub-bank worlds: schedule.js hubTimetable — how often each A–hub–C
+    // connection really works and how long it waits. Absent: every flight on
+    // the thinner leg connects in CONNECT_TIME_HOURS (the old assumption).
+    timetable = null,
   } = options;
   const legacy = isLegacy(rivalIndex);
 
@@ -1608,15 +1612,29 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
       const tier    = hubs[conn.hub].tier;
       const tierDef = HUB_TIERS[tier] ?? HUB_TIERS[1];
       const basePenalty = tierDef.connPenalty ?? CONNECTION_PENALTY.ownMetal;
+      const legFreq = Math.min(conn.leg1Freq, conn.leg2Freq);
+      // What a traveller sees: how many times a week this connection works and
+      // how long it waits. Without a timetable, every flight on the thinner
+      // leg, in CONNECT_TIME_HOURS. The seats it can sell on stay the legs'
+      // (legFreq): a missed bank makes a connection worse, not smaller.
+      let minFreq = legFreq;
+      let connectHours = CONNECT_TIME_HOURS;
+      if (timetable && !legacy) {
+        const st = timetable.stats(conn.hub, conn.legOneOrigin, conn.legTwoDest);
+        if (st?.known) {
+          minFreq = legFreq * st.ratio;
+          connectHours = st.waitH;
+        }
+        if (!(minFreq > 0)) continue;   // the timetable never connects them
+      }
       const penalty = legacy ? basePenalty : connectionPenaltyFor(basePenalty,
-        connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest));
+        connectionTimeRatio(conn.legOneOrigin, conn.hub, conn.legTwoDest, connectHours));
 
-      const minFreq = Math.min(conn.leg1Freq, conn.leg2Freq);
       // Better transfer products reserve more of each leg's inventory for
       // connections (banked schedules, protected connect blocks) — this keeps
       // tiers differentiated even in capacity-capped markets.
       const seatFraction = ({ 0: 0.10, 1: 0.15, 2: 0.18, 3: 0.22 })[tier] ?? CONNECTING_SEAT_FRACTION;
-      const econSeats = Math.max(1, Math.round(minFreq * ASSUMED_SEATS_PER_FLIGHT * seatFraction));
+      const econSeats = Math.max(1, Math.round(legFreq * ASSUMED_SEATS_PER_FLIGHT * seatFraction));
       const economyPrice = legacy ? conn.totalPrice : throughFare(conn.totalPrice, conn.legOneOrigin, conn.legTwoDest);
 
       const offer = {
@@ -1747,6 +1765,7 @@ export function runNetworkTick(state) {
     demandMultFor        = null, // (origin, dest) → world-event demand multiplier
     rivalIndex           = undefined, // rivalIndexFor(state): RIVALS_OFF = old rules, undefined = modern, no rivals
     seatsByRouteKey      = {},   // { [sorted O&D]: one-way weekly seats } — capacity cap on nonstop diversion
+    timetable            = null, // hub-bank worlds: schedule.js hubTimetableOf — real connection times
   } = state;
 
   // Flag-off beta worlds tick as they did before the hub-connectivity package:
@@ -1793,6 +1812,7 @@ export function runNetworkTick(state) {
     gates,
     demandMultFor,
     rivalIndex,
+    timetable,
   });
 
   return {

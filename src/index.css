@@ -1952,6 +1952,38 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   .sched-label { padding: 4px 6px; }
 }
 
+/* Hub banks (hub-bank worlds) — HubBanksPanel.jsx and the timeline's off-bank marks */
+.hubbanks { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.hubbank { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.hubbank-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hubbank-code { font-family: var(--font-mono); font-size: 14px; }
+.hubbank-mode .form-select { width: auto; font-size: 12px; padding: 4px 8px; }
+.hubbank-times { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hubbank-time { display: inline-flex; align-items: center; gap: 2px; }
+.hubbank-time input { font: 12px var(--font-mono); background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px 5px; }
+.hubbank-strip { position: relative; height: 64px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface2); overflow: hidden; }
+.hubbank-bank { position: absolute; top: 0; bottom: 14px; background: color-mix(in srgb, var(--accent) 16%, transparent); border-left: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); }
+.hubbank-bank-label { position: absolute; top: 1px; left: 3px; font: 9px var(--font-mono); color: var(--accent-bright); }
+.hubbank-bars { position: absolute; left: 0; right: 0; height: calc(50% - 7px); display: flex; align-items: flex-end; }
+.hubbank-bars > span { flex: 1; min-width: 0; margin: 0 .5px; }
+.hubbank-arr { top: 0; }
+.hubbank-arr > span { background: #4f8fd0; opacity: .85; }
+.hubbank-dep { top: calc(50% - 7px); align-items: flex-start; }
+.hubbank-dep > span { background: #c06c35; opacity: .85; }
+.hubbank-axis { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; border-top: 1px solid var(--border-subtle); }
+.hubbank-axis > span { position: absolute; font: 9px var(--font-mono); color: var(--text-dim); padding-left: 2px; }
+.hubbank-legend { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.hubbank-swatch { display: inline-block; width: 10px; height: 8px; border-radius: 2px; margin-left: 6px; }
+.hubbank-swatch-arr { background: #4f8fd0; }
+.hubbank-swatch-dep { background: #c06c35; }
+.hubbank-swatch-bank { background: color-mix(in srgb, var(--accent) 30%, transparent); border: 1px dashed var(--accent); }
+.hubbank-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-muted); }
+.hubbank-stats strong { color: var(--text); font-family: var(--font-mono); }
+.hubbank-fix { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.sched-block.is-offbank { box-shadow: inset 0 -3px 0 #d9a23a; }
+.sched-banks { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.sched-banks .is-off { color: #d9a23a; }
+
 /* =============================================
    Branding — Livery tab (LiveryEditor.jsx) and the Fleet livery card
    ============================================= */
