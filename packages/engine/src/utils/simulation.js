@@ -3619,6 +3619,7 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
   }
   return alloc;
 }
+
 // ─────────────────────────────────────────────
 // FREIGHT CONNECTIONS (docs/cargo-connections-design.md)
 // ─────────────────────────────────────────────

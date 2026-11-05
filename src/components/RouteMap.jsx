@@ -3,7 +3,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
 import {
-  simulateRoute, simulateCargoRoute, cargoLaneAllocations, formatMoney, currentGameDate,
+  simulateRoute, simulateCargoRoute, simulateCargoNetwork, formatMoney, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, routeStops, isMultiStop,
   isRouteActive, routeDistanceKm, cruiseSpeedKmh, turnaroundHours,
@@ -545,15 +545,17 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   // freighter sharing a pair never sees the full-market pool to itself.
   const cargoRouteData = useMemo(() => {
     const needsFallback = cargoRoutes.some(r => !cargoRrById[r.id]);
-    const alloc = needsFallback
-      ? cargoLaneAllocations(cargoRoutes, fleet, 1.0, { gameDate: gd, competitors }) : null;
+    const net = needsFallback
+      ? simulateCargoNetwork(cargoRoutes, fleet, { gameDate: gd, competitors, labor: state.labor ?? null,
+          fuelMultiplier: proj.fuelMultiplier }) : null;
+    const alloc = net?.allocations ?? null;
     return cargoRoutes.map(r => {
       const origin   = getAirport(r.origin);
       const dest     = getAirport(r.destination);
       if (!origin || !dest) return null;
       const aircraft = fleet.find(a => a.id === r.aircraftId);
       const result = !aircraft ? null
-        : (cargoRrById[r.id] ?? simulateCargoRoute(r, aircraft, gd, state.labor ?? null,
+        : (cargoRrById[r.id] ?? net?.results.get(r.id) ?? simulateCargoRoute(r, aircraft, gd, state.labor ?? null,
             proj.fuelMultiplier, 1.0, alloc?.get(r.id) ?? null));
       return { r, origin, dest, result, chain: [origin, dest], multi: false };
     }).filter(Boolean);
