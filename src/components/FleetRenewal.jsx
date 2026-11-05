@@ -12,6 +12,8 @@
 //   RenewalNotice          — Fleet detail panel: being replaced / waiting
 //   RenewalBadge           — Fleet list: a small marker on either end
 //   BulkReplaceModal       — Fleet bulk bar: pick a type for N selected tails
+//   TailFilterBar          — narrow either picker's tail list
+//   OrderFilterBar         — narrow the On Order panel / Orders tab
 import { useMemo, useState } from 'react';
 import { useGame, replacementCompatibility, orderDenial, leaseDenial } from '../store/GameContext.jsx';
 import { getAircraftType, AIRCRAFT_TYPES, effectivePurchasePrice, eraWeeklyLease } from '../data/aircraft.js';
@@ -21,6 +23,10 @@ import { deliverySchedule } from '../data/delivery.js';
 import { leaseWillAutoRenew } from '../models/leaseRenewal.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import { Glyph } from './Icons.jsx';
+import {
+  FILTER_MIN_ROWS, EMPTY_TAIL_FILTER, EMPTY_ORDER_FILTER,
+  filterTailRows, filterOrders, tailFilterActive, orderFilterActive, typeOptions,
+} from '../utils/renewalFilters.js';
 
 const nowAbsOf = (state) => absoluteWeek(state.year, state.week);
 
@@ -88,6 +94,107 @@ function DisposalToggle({ value, onChange }) {
   );
 }
 
+// ── Filters ───────────────────────────────────────────────────────────────────
+const FIELD = {
+  background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)',
+  borderRadius: 6, padding: '4px 6px', fontSize: 12,
+};
+
+function FilterShell({ children, shown, total, active, onClear }) {
+  return (
+    <div className="renewal-filter" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0' }}>
+      {children}
+      <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 'auto' }}>
+        {active ? `${shown} of ${total} shown` : `${total} total`}
+      </span>
+      {active && (
+        <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={onClear}>Clear</button>
+      )}
+    </div>
+  );
+}
+
+function TypeSelect({ value, options, onChange, label }) {
+  return (
+    <select aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={{ ...FIELD, maxWidth: 180 }}>
+      <option value="">All types</option>
+      {options.map(o => <option key={o.id} value={o.id}>{o.name} ({o.count})</option>)}
+    </select>
+  );
+}
+
+function OwnSelect({ value, onChange, ownedLabel = 'Owned', leaseLabel = 'Leased' }) {
+  return (
+    <select aria-label="Ownership" value={value} onChange={e => onChange(e.target.value)} style={FIELD}>
+      <option value="all">Owned + leased</option>
+      <option value="owned">{ownedLabel}</option>
+      <option value="lease">{leaseLabel}</option>
+    </select>
+  );
+}
+
+/**
+ * Search / type / ownership / "can replace" for a list of picker rows
+ * ({ a, t, c }). Renders nothing for short lists. `total` is rows.length.
+ */
+export function TailFilterBar({ rows, filter, setFilter }) {
+  if (rows.length < FILTER_MIN_ROWS) return null;
+  const set = (k, v) => setFilter({ ...filter, [k]: v });
+  const shown = filterTailRows(rows, filter).length;
+  const okCount = rows.filter(r => r.c?.ok).length;
+  return (
+    <FilterShell shown={shown} total={rows.length} active={tailFilterActive(filter)} onClear={() => setFilter(EMPTY_TAIL_FILTER)}>
+      <input
+        className="form-input" placeholder="Search name, tail, type…" aria-label="Search aircraft"
+        value={filter.q} onChange={e => set('q', e.target.value)}
+        style={{ width: 170, fontSize: 12, padding: '4px 8px' }}
+      />
+      <TypeSelect label="Aircraft type" value={filter.typeId} onChange={v => set('typeId', v)}
+        options={typeOptions(rows, r => r.a.typeId, getAircraftType)} />
+      <OwnSelect value={filter.own} onChange={v => set('own', v)} />
+      {okCount < rows.length && (
+        <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
+          <input type="checkbox" checked={filter.okOnly} onChange={e => set('okOnly', e.target.checked)} />
+          Can replace only ({okCount})
+        </label>
+      )}
+    </FilterShell>
+  );
+}
+
+/** Search / type / purchase-lease / replacing for the order lists. */
+export function OrderFilterBar({ orders, filter, setFilter }) {
+  if (orders.length < FILTER_MIN_ROWS) return null;
+  const set = (k, v) => setFilter({ ...filter, [k]: v });
+  const shown = filterOrders(orders, filter, getAircraftType).length;
+  const replacing = orders.filter(o => o.replacesAircraftId).length;
+  return (
+    <FilterShell shown={shown} total={orders.length} active={orderFilterActive(filter)} onClear={() => setFilter(EMPTY_ORDER_FILTER)}>
+      <input
+        className="form-input" placeholder="Search orders…" aria-label="Search orders"
+        value={filter.q} onChange={e => set('q', e.target.value)}
+        style={{ width: 150, fontSize: 12, padding: '4px 8px' }}
+      />
+      <TypeSelect label="Order type" value={filter.typeId} onChange={v => set('typeId', v)}
+        options={typeOptions(orders, o => o.typeId, getAircraftType)} />
+      <OwnSelect value={filter.own} onChange={v => set('own', v)} ownedLabel="Purchases" leaseLabel="Leases" />
+      <select aria-label="Replacement" value={filter.replacing} onChange={e => set('replacing', e.target.value)} style={FIELD}>
+        <option value="all">Any replacement</option>
+        <option value="no">Not replacing yet ({orders.length - replacing})</option>
+        <option value="yes">Replacing a tail ({replacing})</option>
+      </select>
+    </FilterShell>
+  );
+}
+
+/** Shared hook so the two order lists keep their own filter state. */
+export function useOrderFilter(orders) {
+  const [filter, setFilter] = useState(EMPTY_ORDER_FILTER);
+  // A short list hides the bar; don't keep filtering out of sight.
+  const effective = orders.length < FILTER_MIN_ROWS ? EMPTY_ORDER_FILTER : filter;
+  return { filter, setFilter, visible: filterOrders(orders, effective, getAircraftType) };
+}
+
 // ── Order form ────────────────────────────────────────────────────────────────
 /**
  * The order-form block. `draft` is the order as currently configured (type,
@@ -99,6 +206,7 @@ function DisposalToggle({ value, onChange }) {
 export function ReplacesSection({ draft, quantity, setQuantity, selected, setSelected, disposal, setDisposal, deliveryWeeks, defaultOpen = false, firstReplaceable = 0 }) {
   const { state } = useGame();
   const [open, setOpen] = useState(defaultOpen || selected.length > 0);
+  const [filter, setFilter] = useState(EMPTY_TAIL_FILTER);
 
   const rows = useMemo(() => {
     if (!open) return [];
@@ -118,6 +226,12 @@ export function ReplacesSection({ draft, quantity, setQuantity, selected, setSel
   function toggle(id) {
     setSelected(live.includes(id) ? live.filter(x => x !== id) : [...live, id]);
   }
+  // Filtering hides rows; it never drops a selection.
+  const shownRows = rows.length < FILTER_MIN_ROWS ? rows : filterTailRows(rows, filter);
+  const shownOk = shownRows.filter(r => r.c.ok).map(r => r.a.id);
+  const hiddenSelected = live.filter(id => !shownRows.some(r => r.a.id === id)).length;
+  function selectShown() { setSelected([...new Set([...live, ...shownOk])]); }
+  function clearShown() { setSelected(live.filter(id => !shownOk.includes(id))); }
 
   const head = {
     fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
@@ -158,11 +272,28 @@ export function ReplacesSection({ draft, quantity, setQuantity, selected, setSel
               </button>
             </div>
           )}
+          <TailFilterBar rows={rows} filter={filter} setFilter={setFilter} />
+          {rows.length >= FILTER_MIN_ROWS && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 11, color: 'var(--text-dim)' }}>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+                disabled={shownOk.length === 0 || shownOk.every(id => live.includes(id))} onClick={selectShown}>
+                Select all shown ({shownOk.length})
+              </button>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
+                disabled={!shownOk.some(id => live.includes(id))} onClick={clearShown}>
+                Unselect shown
+              </button>
+              {hiddenSelected > 0 && <span>{hiddenSelected} selected aircraft hidden by the filter</span>}
+            </div>
+          )}
           <div style={{ marginTop: 8, maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
             {rows.length === 0 && (
               <div style={{ padding: 10, fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>No aircraft in the fleet.</div>
             )}
-            {rows.map(({ a, t, c, n }) => {
+            {rows.length > 0 && shownRows.length === 0 && (
+              <div style={{ padding: 10, fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>No aircraft match the filter.</div>
+            )}
+            {shownRows.map(({ a, t, c, n }) => {
               const slot = slotOf.get(a.id);
               const dw = slot != null && slot < capacity ? deliveryWeeks[Math.min(firstReplaceable + slot, deliveryWeeks.length - 1)] : null;
               const note = dw != null ? disposalNote(state, a, dw, disposal) : null;
@@ -242,11 +373,13 @@ export function OrderReplacementLine({ order, compact = false }) {
 export function ReplacementPickerModal({ order, onClose }) {
   const { state, dispatch } = useGame();
   const [disposal, setDisposal] = useState(order.replaceDisposal ?? 'dispose');
+  const [filter, setFilter] = useState(EMPTY_TAIL_FILTER);
   const type = getAircraftType(order.typeId);
   const rows = useMemo(() => (state.fleet ?? [])
     .filter(a => a.status !== 'retired')
     .map(a => ({ a, t: getAircraftType(a.typeId), c: replacementCompatibility(state, order, a.id), n: routeCount(state, a.id) }))
     .sort((x, y) => (y.c.ok ? 1 : 0) - (x.c.ok ? 1 : 0) || byAgeDesc(x.a, y.a)), [state, order]);
+  const shownRows = rows.length < FILTER_MIN_ROWS ? rows : filterTailRows(rows, filter);
 
   function pick(aircraftId) {
     dispatch({ type: 'SET_ORDER_REPLACEMENT', orderId: order.id, aircraftId, disposal });
@@ -270,8 +403,12 @@ export function ReplacementPickerModal({ order, onClose }) {
             Don't replace anything
           </button>
         )}
+        <TailFilterBar rows={rows} filter={filter} setFilter={setFilter} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, maxHeight: '52vh', overflowY: 'auto' }}>
-          {rows.map(({ a, t, c, n }) => {
+          {rows.length > 0 && shownRows.length === 0 && (
+            <div style={{ padding: 10, fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>No aircraft match the filter.</div>
+          )}
+          {shownRows.map(({ a, t, c, n }) => {
             const current = a.id === order.replacesAircraftId;
             const note = c.ok ? disposalNote(state, a, order.deliverAbsWeek, disposal) : null;
             return (

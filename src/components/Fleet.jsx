@@ -21,7 +21,7 @@ import {
 } from '../utils/simulation.js';
 import { reserveParkingFee, RESERVE_READINESS_MULT, isReserve } from '../data/reserve.js';
 import { ReserveBadge } from './ReserveNotice.jsx';
-import { RenewalNotice, RenewalBadge, OrderReplacementLine, BulkReplaceModal } from './FleetRenewal.jsx';
+import { RenewalNotice, RenewalBadge, OrderReplacementLine, BulkReplaceModal, OrderFilterBar, useOrderFilter } from './FleetRenewal.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { orderProgress } from '../data/delivery.js';
@@ -2019,6 +2019,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
     if (nav.filterChip === 'expiring') { setSortKey('lease'); setSortDir('asc'); }
   }, []);
   const [showOnOrder,   setShowOnOrder]   = useState(false); // collapsible "On Order" panel
+  const orderFilter = useOrderFilter(pendingOrders);
 
   // What the reserve system will do for each broken tail at the NEXT tick —
   // computed by running the real reserve pass, so the badge on the row agrees
@@ -2784,6 +2785,12 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
             }}>▶</span>
           </div>
           {showOnOrder && (
+          <>
+          {pendingOrders.length >= 5 && (
+            <div style={{ padding: '0 16px' }}>
+              <OrderFilterBar orders={pendingOrders} filter={orderFilter.filter} setFilter={orderFilter.setFilter} />
+            </div>
+          )}
           <table>
             <thead>
               <tr>
@@ -2796,7 +2803,10 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
               </tr>
             </thead>
             <tbody>
-              {pendingOrders.map(order => {
+              {orderFilter.visible.length === 0 && (
+                <tr><td colSpan={6} style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>No orders match the filter.</td></tr>
+              )}
+              {orderFilter.visible.map(order => {
                 const type       = getAircraftType(order.typeId);
                 const catColor   = CAT_COLORS[type?.category] || '#93a4ba';
                 const weeksLeft  = order.deliverAbsWeek - currentAbsWeek;
@@ -2866,6 +2876,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
               })}
             </tbody>
           </table>
+          </>
           )}
         </div>
       )}

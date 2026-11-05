@@ -25,7 +25,7 @@ import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
 import { worldFleetBoard, lineStatus, launchWindow, cancelTerms, slotPremiumPct, MAX_TOTAL_DISCOUNT, lineGapWeeks, lineOf } from '../data/productionLines.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
-import { OrderReplacementLine } from './FleetRenewal.jsx';
+import { OrderReplacementLine, OrderFilterBar, useOrderFilter } from './FleetRenewal.jsx';
 import InfoTip from './InfoTip.jsx';
 import { passesMarketFilters, DEFAULT_MARKET_FILTERS, ownedFamilyIds, normalizeMaxAge, deliveredAgeYears } from '../utils/marketFilters.js';
 import { designAgeQualityPts, DESIGN_AGE_GRACE_YEARS, DESIGN_AGE_CAP_YEARS, DESIGN_AGE_MAX_PENALTY } from '../models/demand.js';
@@ -488,6 +488,8 @@ function OrderCard({ order, currentAbsWeek, onCancel, onRename, linesWorld = fal
 
 function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse, linesWorld = false }) {
   const currentAbsWeek = absoluteWeek(year, week);
+  const sortedAll = useMemo(() => [...(pendingOrders ?? [])].sort((a, b) => a.deliverAbsWeek - b.deliverAbsWeek), [pendingOrders]);
+  const orderFilter = useOrderFilter(sortedAll);
 
   if (!pendingOrders || pendingOrders.length === 0) {
     return (
@@ -532,8 +534,12 @@ function OrdersTab({ pendingOrders, year, week, onCancel, onRename, onBrowse, li
       }}>
         Order Details ({sorted.length})
       </div>
+      <OrderFilterBar orders={sorted} filter={orderFilter.filter} setFilter={orderFilter.setFilter} />
+      {orderFilter.visible.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic', margin: '8px 0' }}>No orders match the filter.</div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 16 }}>
-        {sorted.map(order => (
+        {orderFilter.visible.map(order => (
           <OrderCard key={order.id} order={order} currentAbsWeek={currentAbsWeek} onCancel={onCancel} onRename={onRename} linesWorld={linesWorld} />
         ))}
       </div>
