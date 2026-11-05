@@ -12,7 +12,7 @@ import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, rese
 export { baseCityPairDemand } from './market.js';
 import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          cargoBackhaulFactor, cargoSeasonalFactor,
-         nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING,
+         nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING, expectedCarried,
          setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor, setDemandModel, sectorCostKm, sectorTaxiHours } from './market.js';
 import { setMarketDev } from '../models/marketDev.js';
 import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
@@ -3511,22 +3511,7 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
   // capacity dilutes the player's share, weighted by how aggressively it prices —
   // the only lever cargo has. When no rival flies the lane this adds nothing, so
   // a solo (or purely own-fleet) operator's allocation is byte-identical to before.
-  const rivalByLane = new Map(); // metroKey → { cap, yieldCapSum }
-  for (const c of competitors ?? []) {
-    for (const [pairKey, cr] of Object.entries(c?.cargoRoutes ?? {})) {
-      const cap = cr?.tonnesPerWeek ?? 0;
-      if (!(cap > 0)) continue;
-      // cargoRoutesOf keys by the SORTED airport pair; recover the endpoints to
-      // roll the rival up to the same metro lane the player's routes group on.
-      const [a, b] = String(pairKey).split('-');
-      if (!a || !b) continue;
-      const mk = metroPairKeyOf(a, b);
-      const e = rivalByLane.get(mk) ?? { cap: 0, yieldCapSum: 0 };
-      e.cap += cap;
-      e.yieldCapSum += (cr.yieldPrice ?? 0) * cap; // capacity-weighted blended yield
-      rivalByLane.set(mk, e);
-    }
-  }
+  const rivalByLane = rivalCargoLaneIndex(competitors); // metroKey → { cap, yieldCapSum }
   for (const route of cargoRoutes ?? []) {
     const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
@@ -3632,6 +3617,321 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
     }
   }
   return alloc;
+}
+// ─────────────────────────────────────────────
+// FREIGHT CONNECTIONS (docs/cargo-connections-design.md)
+// ─────────────────────────────────────────────
+// Freight used to be strictly point-to-point: HKG–ANC plus ANC–ORD earned nothing
+// from Hong Kong–Chicago freight. Real freight is, if anything, MORE hub-and-spoke
+// than passengers (Memphis, Leipzig, Anchorage, Dubai). At any airport where the
+// player flies ≥2 freighter routes, freight between the outer cities now
+// connects — local freight loads first, connecting freight fills spare payload.
+
+/** Detour limit: (A→H + H→C) / A→C. Past it, no forwarder routes freight that way. */
+export const CARGO_CONN_MAX_CIRCUITY = 1.3;
+/** Share of an O&D pool a connection reaches at circuity 1.0 (half that at the cap). */
+export const CARGO_CONN_CAPTURE = 0.6;
+/** A connection's weight against nonstop freighter capacity, per tonne of its smaller leg. */
+export const CARGO_CONN_WEIGHT = 0.5;
+/** Transfer (re-handling at the connecting airport), $ per tonne, each way. */
+export const CARGO_TRANSFER_HANDLING_PER_TONNE = 60;
+
+/**
+ * Rival freighter capacity by METRO lane: metroKey → { cap, yieldCapSum }.
+ * `state.competitors[].cargoRoutes` is keyed by the sorted AIRPORT pair; it is
+ * rolled up to the metro lane own routes are contested on.
+ */
+export function rivalCargoLaneIndex(competitors = []) {
+  const rivalByLane = new Map();
+  for (const c of competitors ?? []) {
+    for (const [pairKey, cr] of Object.entries(c?.cargoRoutes ?? {})) {
+      const cap = cr?.tonnesPerWeek ?? 0;
+      if (!(cap > 0)) continue;
+      const [a, b] = String(pairKey).split('-');
+      if (!a || !b) continue;
+      const mk = metroPairKeyOf(a, b);
+      const e = rivalByLane.get(mk) ?? { cap: 0, yieldCapSum: 0 };
+      e.cap += cap;
+      e.yieldCapSum += (cr.yieldPrice ?? 0) * cap; // capacity-weighted blended yield
+      rivalByLane.set(mk, e);
+    }
+  }
+  return rivalByLane;
+}
+
+/** Rival capacity on a lane, weighted by how it prices (elasticity capped at 1.6, choked). */
+function rivalWeightedCargoCap(rivalLane, refYield) {
+  const cap = rivalLane?.cap ?? 0;
+  if (!(cap > 0)) return 0;
+  const rivalYield = rivalLane.yieldCapSum > 0 ? rivalLane.yieldCapSum / cap : 0;
+  const elast = rivalYield > 0
+    ? Math.min(1.6, Math.pow(refYield / rivalYield, CARGO_YIELD_ELASTICITY))
+      * cargoPriceChokeFactor(rivalYield, refYield)
+    : 1;
+  return cap * elast;
+}
+
+/**
+ * Every connecting freight market the player's freighter network offers.
+ *
+ * `segments` — Map sortedAirportPairKey → { a, b, cap, ... } of ACTIVE freighter
+ * capacity (several routes on one pair are one segment). For each airport touched
+ * by ≥2 segments, every pair of its spokes (A, C) within the circuity cap is a
+ * connection A–hub–C. Canonical O&D (A < C) so each market is emitted once per hub.
+ *
+ * @returns {Array<{hub, origin, dest, segA, segC, dAH, dHC, dAC, circuity}>}
+ */
+export function findCargoConnections(segments) {
+  const atAirport = new Map(); // airport → [{ spoke, seg }]
+  for (const seg of segments.values()) {
+    if (!atAirport.has(seg.a)) atAirport.set(seg.a, []);
+    if (!atAirport.has(seg.b)) atAirport.set(seg.b, []);
+    atAirport.get(seg.a).push({ spoke: seg.b, seg });
+    atAirport.get(seg.b).push({ spoke: seg.a, seg });
+  }
+  const out = [];
+  for (const [hub, list] of atAirport) {
+    if (list.length < 2) continue;
+    const H = getAirport(hub);
+    if (!H) continue;
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const x = list[i], y = list[j];
+        if (x.spoke === y.spoke) continue;
+        const [p, q] = x.spoke < y.spoke ? [x, y] : [y, x];
+        const A = getAirport(p.spoke), C = getAirport(q.spoke);
+        if (!A || !C) continue;
+        const dAC = distanceKm(A, C);
+        if (!(dAC > 0)) continue;
+        const dAH = distanceKm(A, H), dHC = distanceKm(H, C);
+        const circuity = (dAH + dHC) / dAC;
+        if (circuity > CARGO_CONN_MAX_CIRCUITY) continue;
+        out.push({ hub, origin: p.spoke, dest: q.spoke, segA: p.seg, segC: q.seg, dAH, dHC, dAC, circuity });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The player's whole freight network for one week — THE entry point for freight
+ * economics. The weekly tick and every freight screen call it, so a preview can
+ * never disagree with the tick about connecting freight.
+ *
+ * 1. Each active route runs exactly as before (cargoLaneAllocations +
+ *    simulateCargoRoute): local freight, loaded first.
+ * 2. Connections (findCargoConnections) are priced per O&D market across every
+ *    hub that offers it, against nonstop freighter capacity on the lane (own and
+ *    rival), never exceeding what the player's own nonstop leaves of the pool.
+ * 3. Connecting demand fills each segment's spare payload through the same spill
+ *    model local freight uses, local first; a connection carries
+ *    demand × min(fill ratio of its two segments).
+ * 4. Revenue (the A–C lane rate at the legs' blended yield) and handling (ends +
+ *    transfer) are split between the two legs by km, and across a segment's
+ *    routes by spare payload.
+ *
+ * Routes that carry connecting freight gain localTonnes / connectingTonnes /
+ * connectingRevenue / connectingHandling / feeds, with tonnes, revenue,
+ * loadFactor, groundHandlingCost, totalOpCost and profit including it. Routes
+ * without any are returned exactly as simulateCargoRoute made them.
+ *
+ * @param {Array}  cargoRoutes   routes as the caller wants them simulated (the tick passes jittered copies)
+ * @param {Array}  fleet
+ * @param {object} [opts]
+ * @param {object} [opts.gameDate]
+ * @param {object} [opts.labor]
+ * @param {number} [opts.fuelMultiplier]
+ * @param {number} [opts.demandMultiplier]  awareness (the tick) — 1 in previews
+ * @param {Function} [opts.demandMultFor]   (o, d) → world-event demand multiplier
+ * @param {Array}  [opts.competitors]
+ * @param {Set|Array} [opts.groundedIds]
+ * @param {boolean} [opts.connections=true]  false = point-to-point only (the old model)
+ * @returns {{ results: Map<string, object>, allocations: Map, flows: Array }}
+ */
+export function simulateCargoNetwork(cargoRoutes = [], fleet = [], opts = {}) {
+  const {
+    gameDate = { month: 6 }, labor = null, fuelMultiplier = 1.0, demandMultiplier = 1.0,
+    demandMultFor = null, competitors = [], groundedIds = null, connections = true,
+  } = opts;
+  const groundedSet = groundedIds instanceof Set ? groundedIds : new Set(groundedIds ?? []);
+  const evMult = (o, d) => (demandMultFor ? demandMultFor(o, d) : 1);
+
+  const allocations = cargoLaneAllocations(cargoRoutes, fleet, demandMultiplier,
+    { gameDate, demandMultFor, competitors, groundedIds: groundedSet });
+
+  const results = new Map();
+  const legs = [];
+  for (const route of cargoRoutes ?? []) {
+    const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
+    if (!aircraft || isOutOfService(aircraft)) continue;
+    if (groundedSet.has(aircraft.id)) continue;
+    const result = simulateCargoRoute(route, aircraft, gameDate, labor, fuelMultiplier,
+      demandMultiplier * evMult(route.origin, route.destination),
+      allocations.get(route.id) ?? null);
+    if (!result) continue;
+    results.set(route.id, result);
+    legs.push({ route, result });
+  }
+  if (!connections || legs.length < 2) return { results, allocations, flows: [] };
+
+  // ── Segments: active capacity per airport pair ──────────────────────────────
+  const segments = new Map();
+  for (const { route, result } of legs) {
+    const [a, b] = [route.origin, route.destination].sort();
+    const key = `${a}-${b}`;
+    let s = segments.get(key);
+    if (!s) {
+      s = { key, a, b, legs: [], cap: 0, localDemand: 0, localCarried: 0,
+            yieldRatioCapSum: 0, maturity: 1,
+            // NWR load realism (null in classic worlds: freight loads to the last tonne).
+            jitter: route.nwrLoadJitter ?? null };
+      segments.set(key, s);
+    }
+    s.legs.push({ route, result });
+    s.cap          += result.capacityTonnes;
+    s.localDemand  += result.demandTonnes;
+    s.localCarried += result.tonnes;
+    s.yieldRatioCapSum += (result.yieldPrice / Math.max(result.refYield, 1e-9)) * result.capacityTonnes;
+    // Maturity: the lane's most established route (cargoLaneAllocations' rule).
+    s.maturity = s.legs.some(l => l.route.weeksOpen == null) ? 1
+      : routeMaturityFactor(Math.max(...s.legs.map(l => l.route.weeksOpen)));
+  }
+  for (const s of segments.values()) s.yieldRatio = s.cap > 0 ? s.yieldRatioCapSum / s.cap : 1;
+
+  const conns = findCargoConnections(segments);
+  if (!conns.length) return { results, allocations, flows: [] };
+
+  // ── Demand per O&D market, across every hub that offers it ─────────────────
+  const rivalByLane = rivalCargoLaneIndex(competitors);
+  const ownByMetro = new Map(); // metro lane → own { cap, localCarried }
+  for (const s of segments.values()) {
+    const mk = metroPairKeyOf(s.a, s.b);
+    const e = ownByMetro.get(mk) ?? { cap: 0, localCarried: 0 };
+    e.cap += s.cap; e.localCarried += s.localCarried;
+    ownByMetro.set(mk, e);
+  }
+  const byOD = new Map();
+  for (const c of conns) {
+    const k = `${c.origin}-${c.dest}`;
+    if (!byOD.has(k)) byOD.set(k, []);
+    byOD.get(k).push(c);
+  }
+  for (const [odKey, list] of byOD) {
+    const { origin, dest } = list[0];
+    const basePool = cargoCityPairDemand(origin, dest, gameDate?.month);
+    if (!(basePool > 0)) { for (const c of list) c.demand = 0; continue; }
+    const pool     = basePool * FREIGHTER_CAPTURE_RATE * demandMultiplier * evMult(origin, dest);
+    const refYield = cargoReferenceYield(origin, dest);
+    // Own nonstop freight on this market: the METRO lane, as own routes are
+    // grouped (a freighter on EWR–LHR flies New York–London freight too).
+    const direct   = ownByMetro.get(metroPairKeyOf(origin, dest)) ?? null;
+    const directCap = (direct?.cap ?? 0)
+      + rivalWeightedCargoCap(rivalByLane.get(metroPairKeyOf(origin, dest)), refYield);
+    let sumW = 0;
+    for (const c of list) {
+      c.weight = CARGO_CONN_WEIGHT * Math.min(c.segA.cap, c.segC.cap);
+      sumW += c.weight;
+    }
+    const backhaul = cargoBackhaulFactor(origin, dest);
+    let total = 0;
+    for (const c of list) {
+      c.throughYieldRatio = (c.dAH * c.segA.yieldRatio + c.dHC * c.segC.yieldRatio) / (c.dAH + c.dHC);
+      const elasticity = Math.min(1.6, Math.pow(1 / Math.max(c.throughYieldRatio, 1e-9), CARGO_YIELD_ELASTICITY))
+                       * cargoPriceChokeFactor(c.throughYieldRatio * refYield, refYield);
+      const capture    = CARGO_CONN_CAPTURE
+        * (1 - 0.5 * Math.max(0, c.circuity - 1) / (CARGO_CONN_MAX_CIRCUITY - 1));
+      const maturity   = Math.min(c.segA.maturity, c.segC.maturity);
+      c.demand = sumW > 0 ? pool * maturity * elasticity * capture * c.weight / (sumW + directCap) : 0;
+      c.revenuePerTonne = (1 + backhaul) * c.dAC * refYield * c.throughYieldRatio;
+      total += c.demand;
+    }
+    // One pool: never more than the player's own nonstop leaves of it.
+    const residual = Math.max(0, pool - (direct?.localCarried ?? 0));
+    if (total > residual && total > 0) {
+      const k = residual / total;
+      for (const c of list) c.demand *= k;
+    }
+  }
+
+  // ── Load onto segments: local first, same spill model as local freight ─────
+  const connDemandOn = new Map();
+  for (const c of conns) {
+    if (!(c.demand > 0)) continue;
+    connDemandOn.set(c.segA, (connDemandOn.get(c.segA) ?? 0) + c.demand);
+    connDemandOn.set(c.segC, (connDemandOn.get(c.segC) ?? 0) + c.demand);
+  }
+  const fillRatio = new Map();
+  for (const [seg, D] of connDemandOn) {
+    const withConn = seg.jitter == null ? seg.cap : Math.min(seg.cap,
+      expectedCarried(seg.localDemand + D, seg.cap * NWR_LF_CEILING) * seg.jitter);
+    const room = Math.max(0, Math.min(withConn, seg.cap) - seg.localCarried);
+    fillRatio.set(seg, D > 0 ? Math.min(1, room / D) : 0);
+  }
+
+  // ── Book flows onto the legs ───────────────────────────────────────────────
+  const perRoute = new Map(); // routeId → { tonnes, revenue, handling, feeds }
+  const book = (seg, share, flow, c) => {
+    // Across a segment's routes by spare payload (capacity if none is spare).
+    const spare = seg.legs.map(l => Math.max(0, l.result.capacityTonnes - l.result.tonnes));
+    const spareSum = spare.reduce((s, x) => s + x, 0);
+    seg.legs.forEach((l, i) => {
+      const w = spareSum > 0 ? spare[i] / spareSum : l.result.capacityTonnes / seg.cap;
+      if (!(w > 0)) return;
+      const e = perRoute.get(l.route.id) ?? { tonnes: 0, revenue: 0, handling: 0, feeds: [] };
+      e.tonnes   += flow.tonnes * w;
+      e.revenue  += flow.revenue * share * w;
+      e.handling += flow.handling * share * w;
+      e.feeds.push({ od: `${c.origin}-${c.dest}`, via: c.hub,
+                     tonnes: flow.tonnes * w, revenue: flow.revenue * share * w });
+      perRoute.set(l.route.id, e);
+    });
+  };
+  const flows = [];
+  for (const c of conns) {
+    if (!(c.demand > 0)) continue;
+    const tonnes = c.demand * Math.min(fillRatio.get(c.segA) ?? 0, fillRatio.get(c.segC) ?? 0);
+    if (!(tonnes > 0)) continue;
+    const flow = {
+      od: `${c.origin}-${c.dest}`, via: c.hub, origin: c.origin, dest: c.dest,
+      tonnes,
+      revenue:  tonnes * c.revenuePerTonne,
+      handling: tonnes * 2 * (CARGO_HANDLING_PER_TONNE + CARGO_TRANSFER_HANDLING_PER_TONNE),
+      circuity: c.circuity,
+    };
+    flows.push(flow);
+    const shareA = c.dAH / (c.dAH + c.dHC);
+    book(c.segA, shareA, flow, c);
+    book(c.segC, 1 - shareA, flow, c);
+  }
+
+  for (const [routeId, e] of perRoute) {
+    const r = results.get(routeId);
+    const connectingTonnes   = Math.round(e.tonnes);
+    const connectingRevenue  = Math.round(e.revenue);
+    const connectingHandling = Math.round(e.handling);
+    if (connectingTonnes <= 0 && connectingRevenue <= 0) continue;
+    const tonnes             = r.tonnes + connectingTonnes;
+    const revenue            = r.revenue + connectingRevenue;
+    const groundHandlingCost = r.groundHandlingCost + connectingHandling;
+    const totalOpCost        = r.totalOpCost + connectingHandling;
+    results.set(routeId, {
+      ...r,
+      localTonnes: r.tonnes,
+      localRevenue: r.revenue,
+      connectingTonnes, connectingRevenue, connectingHandling,
+      feeds: e.feeds
+        .map(f => ({ ...f, tonnes: Math.round(f.tonnes), revenue: Math.round(f.revenue) }))
+        .sort((x, y) => y.revenue - x.revenue),
+      tonnes, revenue, groundHandlingCost, totalOpCost,
+      profit:     revenue - totalOpCost,
+      loadFactor: r.capacityTonnes > 0 ? tonnes / r.capacityTonnes : 0,
+    });
+  }
+  flows.sort((x, y) => y.revenue - x.revenue);
+  return {
+    results, allocations,
+    flows: flows.map(f => ({ ...f, tonnes: Math.round(f.tonnes), revenue: Math.round(f.revenue), handling: Math.round(f.handling) })),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -5486,24 +5786,25 @@ export function weeklyTick(state) {
   let totalCargoProfit  = 0;
   const cargoRouteResults = [];
 
-  // Same-lane pooling: several freighters on one city pair share ONE demand
-  // pool (see cargoLaneAllocations) instead of each claiming the full market.
-  const cargoAllocations = cargoLaneAllocations(cargoRoutes, fleet, awarenessMultiplier,
-    { gameDate, demandMultFor: eventDemandMultFor, competitors, groundedIds: crewGroundedSet });
+  // The whole freight network in one pass (simulateCargoNetwork): each route's
+  // own lane freight exactly as before (NWR load fields on the copy, as the
+  // passenger routes get them), then freight CONNECTING at any airport where
+  // two of your freighter routes meet, filling spare payload. Freight is not
+  // exempt from the world: a recession, a pandemic scare or a closed airspace
+  // moves tonnage exactly as it moves passengers.
+  const freightRoutes = state.newWorldRestrictions
+    ? cargoRoutes.map(r => ({ ...r, ...nwrLoadFieldsFor(r) }))
+    : cargoRoutes;
+  const cargoNetwork = simulateCargoNetwork(freightRoutes, fleet, {
+    gameDate, labor: laborWithSeniority, fuelMultiplier, demandMultiplier: awarenessMultiplier,
+    demandMultFor: eventDemandMultFor, competitors, groundedIds: crewGroundedSet,
+  });
+  const cargoAllocations = cargoNetwork.allocations;
 
-  for (const route of cargoRoutes) {
+  for (const route of freightRoutes) {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
-    if (!aircraft || isOutOfService(aircraft)) continue;
-    if (crewGroundedSet.has(aircraft.id)) continue; // nobody to crew it this week
-
-    const result = simulateCargoRoute(
-      state.newWorldRestrictions ? { ...route, ...nwrLoadFieldsFor(route) } : route,
-      aircraft, gameDate, laborWithSeniority, fuelMultiplier,
-      // Freight is not exempt from the world: a recession, a pandemic scare or a
-      // closed airspace moves tonnage exactly as it moves passengers.
-      awarenessMultiplier * eventDemandMultFor(route.origin, route.destination),
-      cargoAllocations.get(route.id) ?? null);
-    if (!result) continue;
+    const result = cargoNetwork.results.get(route.id);
+    if (!aircraft || !result) continue;   // out of service, uncrewed or out of range
 
     const type     = getAircraftType(aircraft.typeId);
     const originAp = getAirport(route.origin);
