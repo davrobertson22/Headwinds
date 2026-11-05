@@ -159,8 +159,18 @@ export function nightOverlayPixels(sun, width = 256, height = 256) {
 }
 
 /** How often (real ms) the night overlay is worth redrawing: whenever the sun
- *  has moved about half an overlay pixel (two game minutes), within 0.2–30 s. */
-export function nightRefreshMs(rate) {
-  const ms = (120 / Math.max(rate || 0, 1e-6)) * 1000;
-  return Math.min(30_000, Math.max(200, ms));
+ *  has moved about one overlay pixel (360° over the canvas width, at 15° a game
+ *  hour), within 5–30 s.
+ *
+ *  It used to be half a pixel with a 0.2 s floor. In a fast world that redrew
+ *  the 256×256 overlay (65k sun-angle sums), re-uploaded it and repainted the
+ *  whole globe several times a second for as long as the globe was open — the
+ *  globe never went idle (Discord, Fonnesx, 2026-11-04: "reducing background
+ *  processing"). The terminator is a soft twilight gradient; a step of a pixel
+ *  or two every few seconds is invisible. */
+export const NIGHT_MIN_REFRESH_MS = 5_000;
+export function nightRefreshMs(rate, width = 256) {
+  const gameMinutesPerPx = (360 / width) / 15 * 60;
+  const ms = (gameMinutesPerPx * 60 / Math.max(rate || 0, 1e-6)) * 1000;
+  return Math.min(30_000, Math.max(NIGHT_MIN_REFRESH_MS, ms));
 }

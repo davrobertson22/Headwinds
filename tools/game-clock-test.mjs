@@ -140,8 +140,9 @@ test('overlay rows follow Web Mercator (85°N at the top, equator in the middle)
   assert.ok(mercRowLat(255, 256) < -84.5);
 });
 
-test('night redraw cadence scales with pace, within 0.2–30 s', () => {
-  assert.equal(nightRefreshMs(gameRate(96)), 200);
+test('night redraw cadence scales with pace, within 5–30 s', () => {
+  // The floor was 0.2 s until 2026-11-04 (globe-background-work-test.mjs).
+  assert.equal(nightRefreshMs(gameRate(96)), 5_000);
   assert.ok(nightRefreshMs(gameRate(1)) > 10_000);
   assert.equal(nightRefreshMs(0), 30_000);
 });

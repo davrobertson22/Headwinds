@@ -31,6 +31,63 @@ const byState = (spec, idx, anySel) =>
 
 const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'partners-line', 'loyalty-ring'];
 
+// ── Redraw only what changed ──────────────────────────────────────────────────
+// RouteMap hands over a new `data` on every new game state — a week, but also
+// every rival poll, which in a busy world is most of them. Each one used to
+// re-send every source to MapLibre's worker (re-tiling hundreds of great-circle
+// lines) and tear down and re-add an HTML label per airport, although a rival
+// re-pricing somewhere else moves no line and no airport. Now a source is only
+// re-sent when something it DRAWS changed, and the labels only when the set of
+// airports did. Tooltips are the part that does change every time (the numbers
+// in them), so they are read from an index rather than from the drawn features.
+export const GLOBE_SOURCES = ['routes', 'cargo', 'partners', 'partnerStops', 'airports', 'loyalty'];
+const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+
+/** What a source draws: the collection without its tooltip HTML. */
+export function globeSourceKey(fc) {
+  return JSON.stringify(fc ?? EMPTY_FC, (k, v) => (k === 'tip' ? undefined : v));
+}
+
+/** Feature id → tooltip HTML, for one source. */
+export function globeTipIndex(fc) {
+  const m = new Map();
+  for (const f of fc?.features ?? []) {
+    const id = f.properties?.id;
+    if (id != null && f.properties.tip) m.set(id, f.properties.tip);
+  }
+  return m;
+}
+
+/**
+ * Send `data` to the map's GeoJSON sources — only the ones whose drawing
+ * changed since `memo.drawn` (source id → key, updated in place). Returns the
+ * tooltip index for every source, whether the routes source was re-sent, and
+ * whether the airport labels need rebuilding (`memo.labelKey` updated).
+ */
+export function syncGlobeSources(map, data, memo) {
+  const tips = {};
+  let routesSent = false;
+  for (const id of GLOBE_SOURCES) {
+    const fc = data?.[id] ?? EMPTY_FC;
+    tips[id] = globeTipIndex(fc);
+    const key = globeSourceKey(fc);
+    if (memo.drawn[id] === key) continue;   // nothing this source draws moved
+    map.getSource(id)?.setData(fc);
+    memo.drawn[id] = key;
+    if (id === 'routes') routesSent = true;
+  }
+  const labelKey = globeLabelKey(data?.airports);
+  const labelsChanged = labelKey !== memo.labelKey;
+  memo.labelKey = labelKey;
+  return { tips, routesSent, labelsChanged };
+}
+
+/** The airports the HTML code labels are built for: codes and positions. */
+export function globeLabelKey(airportsFc) {
+  return (airportsFc?.features ?? [])
+    .map(f => `${f.properties?.code}@${f.geometry?.coordinates?.join(',')}`).join('|');
+}
+
 // ── Day / night and planes ────────────────────────────────────────────────────
 // Night is a small canvas raster over the whole world (gameClock.js draws the
 // pixels); planes are a symbol layer fed by flightsCore.js. Both are redrawn
@@ -197,6 +254,10 @@ export default function GlobeMap({
   const popupRef = useRef(null);
   const labelsRef = useRef([]);
   const activeRef = useRef(new Set());   // route ids carrying feature-state active
+  const drawnRef = useRef({});           // source id → globeSourceKey last sent
+  const labelKeyRef = useRef(null);      // globeLabelKey the labels were built for
+  const tipsRef = useRef({});            // source id → globeTipIndex
+  const nightAtRef = useRef({ key: null, at: -Infinity });  // when night was last drawn (survives a loop restart)
   const flownRef = useRef(null);
   const handlersRef = useRef({ onHover, onSelect, onSelectAirport });
   handlersRef.current = { onHover, onSelect, onSelectAirport };
@@ -218,6 +279,10 @@ export default function GlobeMap({
         maxZoom: 10,
         maxPitch: 0,          // a globe you spin, not a tilted flight-sim camera
         dragRotate: false,
+        // No symbol cross-fade. The planes are the only symbol layer and they
+        // ignore placement, so the fade showed nothing — but each planes update
+        // kept the globe repainting for the 300 ms fade after it.
+        fadeDuration: 0,
         attributionControl: { compact: true },
       });
       map.touchZoomRotate.disableRotation();
@@ -249,7 +314,8 @@ export default function GlobeMap({
         const show = (f, lngLat) => {
           // A hovered plane's tooltip follows it (effect 5 moves the popup).
           hoveredPlaneRef.current = f?.layer?.id === 'planes' ? f.properties.id : null;
-          const tip = f?.layer?.id === 'planes' ? planTipRef.current(f.properties.id) : f?.properties?.tip;
+          const tip = f?.layer?.id === 'planes' ? planTipRef.current(f.properties.id)
+            : (tipsRef.current[f?.source]?.get(f?.properties?.id) ?? f?.properties?.tip);
           if (!tip) { popupRef.current.remove(); lastTip = null; return; }
           if (tip !== lastTip) { popupRef.current.setHTML(tip); lastTip = tip; }
           popupRef.current.setLngLat(lngLat);
@@ -297,6 +363,8 @@ export default function GlobeMap({
       mapRef.current?.remove();
       mapRef.current = null;
       activeRef.current = new Set();
+      drawnRef.current = {};
+      labelKeyRef.current = null;
       flownRef.current = null;
     };
   // Built once per mount; height changes go through resize below.
@@ -328,13 +396,17 @@ export default function GlobeMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!loaded || !map || !data) return;
-    for (const id of ['routes', 'cargo', 'partners', 'partnerStops', 'airports', 'loyalty']) {
-      map.getSource(id)?.setData(data[id] ?? { type: 'FeatureCollection', features: [] });
+    const memo = { drawn: drawnRef.current, labelKey: labelKeyRef.current };
+    const { tips, routesSent, labelsChanged } = syncGlobeSources(map, data, memo);
+    labelKeyRef.current = memo.labelKey;
+    tipsRef.current = tips;
+    // Start feature-state from clean when the lines were re-sent; effect 3
+    // re-applies it.
+    if (routesSent) {
+      map.removeFeatureState({ source: 'routes' });
+      activeRef.current = new Set();
     }
-    // Start feature-state from clean on every rebuild; effect 3 re-applies it.
-    map.removeFeatureState({ source: 'routes' });
-    activeRef.current = new Set();
-
+    if (!labelsChanged) return;
     labelsRef.current.forEach(m => m.remove());
     labelsRef.current = data.airports.features.map(f => {
       const el = document.createElement('div');
@@ -407,16 +479,28 @@ export default function GlobeMap({
       nightSrc.pause();
     };
 
-    // Wake only when something is due (a 1-week-a-day world redraws night every
-    // ~17 s and its planes every 2 s), not every frame — battery on phones.
-    let timer = 0, lastNight = -Infinity, lastPlanes = -Infinity, lastLabel = -Infinity;
+    // Wake only when something is due (night every 5–30 s, planes about once
+    // a second for a big fleet), not every frame — battery on phones, and the
+    // fan on a laptop with the globe parked in a tab.
+    //
+    // The loop restarts whenever `flights` is rebuilt — which is every new game
+    // state, rival polls included — so when night was last drawn lives in a
+    // ref: a restart redraws the planes at once but leaves night until it is due.
+    let timer = 0, lastPlanes = -Infinity, lastLabel = -Infinity;
+    const nightKey = `${clock?.week}|${clock?.nextTickAt}|${clock?.weeksPerDay}`;
+    if (nightAtRef.current.key !== nightKey) nightAtRef.current = { key: nightKey, at: -Infinity };
+    const planeCount = flights?.length ?? 0;
     const frame = () => {
+      // A background tab (or a minimised window) draws nothing — and MapLibre's
+      // worker re-tiles nothing. The visibility handler below picks up again.
+      if (typeof document !== 'undefined' && document.hidden) { timer = 0; return; }
       const now = Date.now();
       const c = clock ? gameClockAt(now, clock) : null;
       const nightEvery = reduce ? 60_000 : (c ? nightRefreshMs(c.rate) : Infinity);
-      const planesEvery = reduce ? 30_000 : planeRefreshMs(planeRate(c?.rate), map.getZoom());
+      const planesEvery = reduce ? 30_000 : planeRefreshMs(planeRate(c?.rate), map.getZoom(), undefined, planeCount);
+      const lastNight = nightAtRef.current.at;
       if (hasNight && c && now - lastNight >= nightEvery) {
-        lastNight = now;
+        nightAtRef.current = { key: nightKey, at: now };
         drawNight(sunPosition(clock.week, c.weekHours));
       }
       if (planesSrc && flights?.length && now - lastPlanes >= planesEvery) {
@@ -438,7 +522,7 @@ export default function GlobeMap({
         clockLabelRef.current.style.display = c ? '' : 'none';
       }
       const due = Math.min(
-        hasNight && c ? lastNight + nightEvery : Infinity,
+        hasNight && c ? nightAtRef.current.at + nightEvery : Infinity,
         flights?.length ? lastPlanes + planesEvery : Infinity,
         lastLabel + 1000,
       ) - Date.now();
@@ -448,7 +532,13 @@ export default function GlobeMap({
     // Zooming changes how often planes need redrawing — re-plan straight away.
     const onZoom = () => { clearTimeout(timer); frame(); };
     map.on('zoomend', onZoom);
-    return () => { clearTimeout(timer); map.off('zoomend', onZoom); };
+    const onVisible = () => { if (!document.hidden) { clearTimeout(timer); frame(); } };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearTimeout(timer);
+      map.off('zoomend', onZoom);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [loaded, flights, clock, paused]);
 
   // 4. Fly to a newly focused route — once per focus, like the flat map.

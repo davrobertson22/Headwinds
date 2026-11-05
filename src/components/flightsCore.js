@@ -174,12 +174,25 @@ export function planesGeoJSON(plans, weekHours, { tips = true } = {}) {
   return { type: 'FeatureCollection', features };
 }
 
+/** Real ms of redraw interval per plane on the map — the floor below. */
+export const PLANE_MS_PER_TAIL = 1.5;
+/** The slowest the floor gets: a big fleet still moves once a second. */
+export const PLANE_FLOOR_MAX_MS = 1000;
+
 /** Real ms between plane redraws: about half a screen pixel of movement at
- *  this zoom, between 1/30 s and 2 s. (MapLibre's world is 512·2^z px round.) */
-export function planeRefreshMs(rate, zoom, cruiseKmh = 840) {
+ *  this zoom, between a floor and 2 s. (MapLibre's world is 512·2^z px round.)
+ *
+ *  The floor grows with the number of planes (`planes`): 1/30 s for a small
+ *  fleet, ~1 s for a 600-tail one. Every redraw rebuilds the planes GeoJSON,
+ *  re-tiles it in MapLibre's worker and repaints the whole globe — every line,
+ *  glow and pin — so a zoomed-in hub with hundreds of tails was repainting the
+ *  globe 30 times a second, forever (Discord, Fonnesx, 2026-11-04: "reducing
+ *  background processing"). */
+export function planeRefreshMs(rate, zoom, cruiseKmh = 840, planes = 0) {
+  const floor = Math.min(PLANE_FLOOR_MAX_MS, Math.max(33, (planes || 0) * PLANE_MS_PER_TAIL));
   const kmPerRealSec = (cruiseKmh * rate) / 3600;
   const kmPerPx = 40075 / (512 * 2 ** (zoom ?? 1));
   const pxPerSec = kmPerRealSec / kmPerPx;
   if (!(pxPerSec > 0)) return 2000;
-  return Math.min(2000, Math.max(33, 500 / pxPerSec));
+  return Math.min(2000, Math.max(floor, 500 / pxPerSec));
 }
