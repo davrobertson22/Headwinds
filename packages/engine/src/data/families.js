@@ -121,11 +121,11 @@ export const AIRCRAFT_FAMILY = {
   b717: 'boeing_717',
 
   // Boeing 727 ──────────────────────────────────────────────────────────────
-  b727100: 'boeing_727', b727200: 'boeing_727', b727200f: 'boeing_727',
+  b727100: 'boeing_727', b727200: 'boeing_727', b727200f: 'boeing_727', b727100c: 'boeing_727',
 
   // Boeing 707 / 720 ────────────────────────────────────────────────────────
   // The 720 is a shortened, lightened 707 — same cockpit, same JT3D core.
-  b707320: 'boeing_707', b720b: 'boeing_707',
+  b707320: 'boeing_707', b720b: 'boeing_707', b707320c: 'boeing_707',
 
   // Boeing 757 ──────────────────────────────────────────────────────────────
   b757200: 'boeing_757', b757300: 'boeing_757', b757200pf: 'boeing_757',
@@ -147,7 +147,7 @@ export const AIRCRAFT_FAMILY = {
   b747sp:  'boeing_747',                                    // short-body 747, same systems
   b747400: 'boeing_747', b747400d: 'boeing_747',
   b7478i:  'boeing_747',
-  b747400f: 'boeing_747', b7478f: 'boeing_747',
+  b747400f: 'boeing_747', b7478f: 'boeing_747', b747200f: 'boeing_747',
 
   // Embraer ERJ (135 / 145) ─────────────────────────────────────────────────
   erj135: 'embraer_erj', erj145: 'embraer_erj',
@@ -197,7 +197,7 @@ export const AIRCRAFT_FAMILY = {
   md80: 'mcd_md80', dc910: 'mcd_md80', dc930: 'mcd_md80', dc950: 'mcd_md80', md90: 'mcd_md80',   // DC-9 / MD-80 family
   dc1030: 'mcd_dc10', md11: 'mcd_dc10',                     // DC-10 / MD-11 family
   dc1030f: 'mcd_dc10', md11f: 'mcd_dc10',
-  dc863: 'mcd_dc8', dc873f: 'mcd_dc8',                      // DC-8 family
+  dc863: 'mcd_dc8', dc873f: 'mcd_dc8', dc863cf: 'mcd_dc8',                      // DC-8 family
   dc830: 'mcd_dc8',                                         // early -30 shares line and tooling
   dc3: 'douglas_dc3', c47: 'douglas_dc3',   // the C-47 is a DC-3 with a cargo door
 
@@ -222,6 +222,7 @@ export const AIRCRAFT_FAMILY = {
   // Lockheed ────────────────────────────────────────────────────────────────
   l1011: 'lockheed_l1011',
   l188:  'lockheed_l188',
+  l188f: 'lockheed_l188',            // freighter conversion — same airframe, same Allisons
 
   // Convair ─────────────────────────────────────────────────────────────────
   cv580: 'convair_cv580',                                   // turboprop conversion
@@ -249,6 +250,9 @@ export const AIRCRAFT_FAMILY = {
   an148:    'antonov',
   an24:     'antonov_an24',
   an12:     'antonov_an12',
+  cl44:     'canadair_cl44',    // Britannia-derived airframe, but Tynes — the engine shop is the family (North Star precedent)
+  l10030:   'lockheed_c130',
+  il76t:    'ilyushin_il76',
   an124:    'antonov_an124',
   an225:    'antonov_an124',   // An-225 is a stretched An-124 on the same D-18T
 
@@ -371,6 +375,20 @@ export const FAMILY_INFO = {
   // An-12: a 1959 four-turboprop 20-tonne freighter, the Electra's size and era
   // class. Same arithmetic, same result.
   antonov_an12: { name: 'Antonov An-12', category: 'turboprop', weeklyBaseCost: 28_000, note: 'Ageing Soviet quad — scarce parts' },
+  // CL-44: Britannia-size quad turboprop (139-seat-equivalent band, 23k extrapolated
+  // anchor, as bristol_britannia) × 1.15 (1960 design) × 1.15 (39 built, orphaned
+  // Canadair type) = 30.4k. Cross-check: above antonov_an12 28k (a smaller quad of
+  // the same era) and bristol_britannia 26k (the same airframe, a bigger fleet).
+  canadair_cl44: { name: 'Canadair CL-44', category: 'turboprop', weeklyBaseCost: 30_000, note: 'Tyne quad, 39 built — orphaned type' },
+  // L-100 Hercules: 81-110 turboprop anchor 19k × 1.10 (four engines) = 20.9k. NO
+  // out-of-production or orphan bump: the C-130 is still built and the T56 is
+  // supported on every continent. Cross-check: under lockheed_l188 28k, which
+  // carries both bumps on the same engines.
+  lockheed_c130: { name: 'Lockheed L-100 Hercules', category: 'turboprop', weeklyBaseCost: 21_000, note: 'C-130 support network — parts everywhere' },
+  // Il-76: 130-240 narrowbody anchor 42k × 1.15 (Soviet supply chain) × 1.10 (four
+  // engines) = 53.1k. Cross-check: equal to ilyushin_il62 53k, the other Ilyushin
+  // jet quad of the period.
+  ilyushin_il76: { name: 'Ilyushin Il-76', category: 'narrowBody', weeklyBaseCost: 53_000, note: 'Soviet jet quad — specialist supply chain' },
   // DC-3: 32 seats → 11k anchor × 1.15 (1936) × 1.15 (radial piston tooling and
   // skills no modern shop keeps) = 14.5k. It genuinely costs an ATR-72's family
   // to keep a DC-3 airworthy, and that is the point of the entry.

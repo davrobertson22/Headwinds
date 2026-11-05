@@ -86,7 +86,7 @@ export const AIRCRAFT_TYPES = [
     steepApproach: true,
     weeklyLease:       75_000,
     purchasePrice: 38000000,
-    fuelBurnPer100km: 286,
+    fuelBurnPer100km: 266,
     crewCostPerKm: 1.17,
     baseMaintenancePerWk: 37_600,
     description: 'Smaller A220 variant. Excellent economics on thin 100-seat routes.',
@@ -152,7 +152,7 @@ export const AIRCRAFT_TYPES = [
     runwayFt: 5000,
     weeklyLease:       77_000,
     purchasePrice: 42000000,
-    fuelBurnPer100km: 320.75,
+    fuelBurnPer100km: 281,
     crewCostPerKm: 1.22,
     baseMaintenancePerWk: 47_600,
     description: 'Modern, fuel-efficient narrow-body with excellent range for its size.',
@@ -3662,6 +3662,214 @@ export const AIRCRAFT_TYPES = [
     deliveredAgeWeeks: 832,   // arrives 16y old — a used conversion, not a new build
     description: "Soviet turboprop freighter, rugged and utterly basic. Almost free to buy, near-worthless to sell, and delivered with ~16 years already on the clock.",
     image: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Antonov_An-12BK%2C_Russia_-_Air_Force_AN1879625.jpg',
+  },
+
+  // ── 1960s–70s FREIGHTERS (Discord 2026-11-03, "More cargo aircraft") ────────
+  // Before this the only freighters an era world had between 1959 and 1980 were
+  // the C-46 and the An-12 — a 1960 world sat on the An-12 for twenty years
+  // while the real industry went CL-44 → 707-320C/DC-8F → 747-200F. These fill
+  // that gap on the same scale as the 1980s classics above: catalogue price is
+  // what a ~16y-old frame fetches in 2026 (~$0.2–0.4M per tonne, the
+  // 727-200F/DC-10-30F band), lease 13.2% of price a year, maintenance ~$3,000
+  // per tonne a week (the classic-freighter penalty), fuel and crew off the
+  // passenger sibling. In era worlds the factory types sell NEW (2.5× premium)
+  // while their line is open, exactly like every other closed-line type.
+  // Range is quoted at max payload.
+  {
+    // Canadair CL-44D4: the swing-tail Britannia stretch on four RR Tynes. 39
+    // built; Flying Tiger and Seaboard flew the first in 1961. Slow and cheap
+    // per tonne — the first real step up from the An-12.
+    id: 'cl44',
+    name: 'Canadair CL-44D4',
+    manufacturer: 'Canadair',
+    category: 'Freighter',
+    eis: 1961,
+    oop: 1965,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 4_600,
+    runwayFt: 6500,
+    weeklyLease: 16500,
+    purchasePrice: 6500000,
+    fuelBurnPer100km: 600,
+    crewCostPerKm: 1.6,
+    baseMaintenancePerWk: 87_000,
+    freighter: true,
+    payloadTonnes: 29,
+    cruiseKmh: 630,
+    deliveredAgeWeeks: 832,   // arrives 16y old
+    description: "The swing-tail freighter: the whole tail hinges open to load straight down the fuselage. Four Tyne turboprops lift half again an An-12's load further, slowly — and only 39 were ever built.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Flying_Tiger_Line_Canadair_CL-44D4-2_N454T.jpg/960px-Flying_Tiger_Line_Canadair_CL-44D4-2_N454T.jpg',
+  },
+  {
+    // Boeing 707-320C: the convertible 707 with a main-deck cargo door (Pan Am,
+    // 1963). The freighter that built the jet cargo business.
+    id: 'b707320c',
+    name: 'Boeing 707-320C',
+    manufacturer: 'Boeing',
+    category: 'Freighter',
+    eis: 1963,
+    oop: 1978,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 5_600,
+    runwayFt: 10000,
+    weeklyLease: 28000,
+    purchasePrice: 11000000,
+    fuelBurnPer100km: 960,
+    crewCostPerKm: 1.98,
+    baseMaintenancePerWk: 120_000,
+    freighter: true,
+    payloadTonnes: 40,
+    cruiseKmh: 870,
+    deliveredAgeWeeks: 832,   // arrives 16y old
+    description: "The convertible 707 with a big side cargo door — the aircraft that took air freight into the jet age. Fast and long-legged for 1963, loud and thirsty by any later standard, and it wants a long runway.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/TAAG_Angola_Airlines_Cargo_Boeing_707-320C_D2-TOI_FAO_1986.png/960px-TAAG_Angola_Airlines_Cargo_Boeing_707-320C_D2-TOI_FAO_1986.png',
+  },
+  {
+    // Boeing 727-100C: the quick-change 727 (1966). The first small jet
+    // freighter in the catalogue — short sectors, small loads, cheap.
+    id: 'b727100c',
+    name: 'Boeing 727-100C',
+    manufacturer: 'Boeing',
+    category: 'Freighter',
+    eis: 1966,
+    oop: 1972,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 3_000,
+    runwayFt: 7000,
+    weeklyLease: 12700,
+    purchasePrice: 5000000,
+    fuelBurnPer100km: 520,
+    crewCostPerKm: 1.7,
+    baseMaintenancePerWk: 54_000,
+    freighter: true,
+    payloadTonnes: 18,
+    cruiseKmh: 830,
+    deliveredAgeWeeks: 832,   // arrives 16y old
+    description: "The convertible short 727, swapped between passengers and pallets overnight. Small loads on short jet sectors — the original small-package night freighter.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Air_Mali_Boeing_727-173C_TZ-ADR_CDG_1984-8-1.png/960px-Air_Mali_Boeing_727-173C_TZ-ADR_CDG_1984-8-1.png',
+  },
+  {
+    // Douglas DC-8-63CF: the stretched Super Sixty convertible (1968). More
+    // payload than the 707-320C, on JT3Ds — thirstier per tonne than the
+    // CFM56-engined -73F it was later rebuilt into.
+    id: 'dc863cf',
+    name: 'Douglas DC-8-63CF',
+    manufacturer: 'Douglas',
+    category: 'Freighter',
+    eis: 1968,
+    oop: 1972,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 5_000,
+    runwayFt: 10500,
+    weeklyLease: 33000,
+    purchasePrice: 13000000,
+    fuelBurnPer100km: 1150,
+    crewCostPerKm: 2.16,
+    baseMaintenancePerWk: 160_000,
+    freighter: true,
+    payloadTonnes: 50,
+    cruiseKmh: 850,
+    deliveredAgeWeeks: 832,   // arrives 16y old
+    description: "The long Super Sixty DC-8 with a cargo door — the biggest single-aisle freighter of its day. A heavier load than the 707, but on the original JT3D engines it burns more for it than the later re-engined -73F.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Icelandair_McDonnell_Douglas_DC-8-63CF_at_Luxembourg_Airport.jpg/960px-Icelandair_McDonnell_Douglas_DC-8-63CF_at_Luxembourg_Airport.jpg',
+  },
+  {
+    // L-188 Electra freighter: retired Electras converted with a cargo door
+    // from the late 1960s (Zantop, later Atlantic and Fred Olsen). A small,
+    // fast turboprop freighter — the 13-tonne step between the C-46 and jets.
+    id: 'l188f',
+    name: 'Lockheed L-188F Electra',
+    manufacturer: 'Lockheed',
+    category: 'Freighter',
+    eis: 1968,
+    oop: 1990,   // conversions ended (era worlds: second-hand only after this)
+    seats: 0,
+    range: 2_800,
+    runwayFt: 5500,
+    weeklyLease: 8900,
+    purchasePrice: 3500000,
+    fuelBurnPer100km: 375,
+    crewCostPerKm: 1.53,
+    baseMaintenancePerWk: 39_000,
+    freighter: true,
+    payloadTonnes: 13,
+    cruiseKmh: 600,
+    deliveredAgeWeeks: 832,   // arrives 16y old — a used conversion, not a new build
+    description: "Ex-passenger Electras given a cargo door. The fastest of the old turboprops, cheap to buy and happy on short regional fields — and some were still flying mail and parcels into the 2010s.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Lockheed_L-188A%28F%29_Electra%2C_Zantop_International_Airlines_AN0252973.jpg/960px-Lockheed_L-188A%28F%29_Electra%2C_Zantop_International_Airlines_AN0252973.jpg',
+  },
+  {
+    // Lockheed L-100-30 Hercules: the civil, stretched C-130 (certified 1970,
+    // built to 1992). Short, rough strips are its whole case.
+    id: 'l10030',
+    name: 'Lockheed L-100-30 Hercules',
+    manufacturer: 'Lockheed',
+    category: 'Freighter',
+    eis: 1970,
+    oop: 1992,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 2_500,
+    runwayFt: 5000,
+    weeklyLease: 22800,
+    purchasePrice: 9000000,
+    fuelBurnPer100km: 500,
+    crewCostPerKm: 1.5,
+    baseMaintenancePerWk: 69_000,
+    freighter: true,
+    payloadTonnes: 23,
+    cruiseKmh: 540,
+    deliveredAgeWeeks: 832,   // arrives 16y old
+    description: "The civilian Hercules, stretched. A rear ramp, a short-field wing and parts everywhere on earth: it gets 23 tonnes into strips nothing else can use, if not very far or very fast.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Lockheed_L-100-30_Hercules_%28L-382G%29%2C_Safair_AN0788730.jpg/960px-Lockheed_L-100-30_Hercules_%28L-382G%29%2C_Safair_AN0788730.jpg',
+  },
+  {
+    // Boeing 747-200F: the factory nose-door 747 freighter (Lufthansa, 1972).
+    // The first 100-tonne freighter — the 747-400F's payload two decades
+    // earlier, on JT9Ds with a flight engineer and much less range.
+    id: 'b747200f',
+    name: 'Boeing 747-200F',
+    manufacturer: 'Boeing',
+    category: 'Freighter',
+    eis: 1972,
+    oop: 1991,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 5_700,
+    runwayFt: 10500,
+    weeklyLease: 61000,
+    purchasePrice: 24000000,
+    fuelBurnPer100km: 1750,
+    crewCostPerKm: 4.14,
+    baseMaintenancePerWk: 330_000,
+    freighter: true,
+    payloadTonnes: 110,
+    cruiseKmh: 900,
+    deliveredAgeWeeks: 832,   // arrives 16y old
+    description: "The first true jumbo freighter: the nose swings up and whole pallets roll straight in. Around 110 tonnes a trip — a 747-400F's load decades earlier — but with 1970s engines, a three-person cockpit and far less range.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Boeing_747-200F_Geo_Sky_4L-GEO_landing_at_EHAM.jpg/960px-Boeing_747-200F_Geo_Sky_4L-GEO_landing_at_EHAM.jpg',
+  },
+  {
+    // Ilyushin Il-76T: the civil Il-76 (1979), the An-12's jet successor.
+    // Built for rough strips; thirsty per tonne. The Il-76TD (1982) replaced it.
+    id: 'il76t',
+    name: 'Ilyushin Il-76T',
+    manufacturer: 'Ilyushin',
+    category: 'Freighter',
+    eis: 1979,
+    oop: 1982,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 0,
+    range: 3_600,
+    runwayFt: 6600,
+    weeklyLease: 22500,
+    purchasePrice: 9000000,
+    fuelBurnPer100km: 1200,
+    crewCostPerKm: 2.2,
+    baseMaintenancePerWk: 120_000,
+    freighter: true,
+    payloadTonnes: 40,
+    cruiseKmh: 780,
+    deliveredAgeWeeks: 624,   // arrives 12y old
+    description: "The An-12's jet successor: a high-wing quad with a rear ramp and a 20-wheel undercarriage for rough strips. Twice the An-12's load at jet speed off a short runway — and it drinks fuel for it.",
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Ilyushin_Il-76T%2C_Aeroflot_AN0192332.jpg/960px-Ilyushin_Il-76T%2C_Aeroflot_AN0192332.jpg',
   },
 
   // ── PROPLINER ERA (era worlds phase 4, ERA_MODE_PLAN.md §7) ─────────────────

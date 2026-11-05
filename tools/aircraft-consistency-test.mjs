@@ -511,6 +511,8 @@ test('the 767-200SF does not out-burn the newer 767-300F per tonne', () => {
 const CLASSIC_FREIGHTERS = [
   'b727200f', 'dc873f', 'dc1030f', 'md11f', 'an12', 'an124',
   'b737300f', 'b737400f', 'b757200pf', 'a300600f', 'b767200sf', 'b747400f', 'an225',
+  // 1960s-70s additions (Discord 2026-11-03)
+  'cl44', 'b707320c', 'b727100c', 'dc863cf', 'l188f', 'l10030', 'b747200f', 'il76t',
 ];
 
 test('every classic freighter conversion carries an old-airframe maintenance penalty', () => {
@@ -669,7 +671,12 @@ test('payload tonnage matches real max structural payload', () => {
     b737800bcf: 23.9, b727200f: 26, a321p2f: 27.9, b757200pf: 39.8, b767200sf: 42,
     b767300f: 52.7, dc873f: 48, a300600f: 54, a330200f: 70, dc1030f: 77, md11f: 91,
     b777f: 102, a350f: 109, b747400f: 112, b7778f: 112.3, an124: 120, b7478f: 137.7,
-    an225: 250 };
+    an225: 250,
+    // 1960s-70s additions (Discord 2026-11-03): CL-44D4 useful load 29.9t; L-100-30
+    // 23.2t; 747-200F 111.6t; Il-76T 40t; 707-320C ~41t; DC-8-63CF ~50t;
+    // 727-100C ~18t; Electra freighter ~13t.
+    cl44: 29.9, l10030: 23.2, b747200f: 111.6, il76t: 40, b707320c: 41,
+    dc863cf: 50, b727100c: 18, l188f: 13 };
   const off = FREIGHTERS
     .filter(t => REAL[t.id] && Math.abs(t.payloadTonnes - REAL[t.id]) / REAL[t.id] > 0.08)
     .map(t => `${t.name} ${t.payloadTonnes}t vs real ${REAL[t.id]}t`);
@@ -760,7 +767,12 @@ test('no freighter sits in a family of its own invention', () => {
   // The C-46 (2026-09-03) is the third: a war-surplus piston hauler whose
   // airline career was entirely freight, from an OEM that left the aircraft
   // business in 1951 — there is no passenger sibling to group it with.
-  const ALLOWED_FREIGHT_ONLY = new Set(['antonov_an124', 'antonov_an12', 'curtiss_c46']);
+  // The 1960s-70s additions (2026-11-03) bring three more, each a freighter
+  // with no passenger version in the catalogue: the CL-44 (Tynes, not the
+  // Britannia's Proteus — the engine shop is the family), the civil Hercules
+  // and the Il-76.
+  const ALLOWED_FREIGHT_ONLY = new Set(['antonov_an124', 'antonov_an12', 'curtiss_c46',
+    'canadair_cl44', 'lockheed_c130', 'ilyushin_il76']);
   const lonely = AIRCRAFT_TYPES.filter(t => t.freighter).filter((t) => {
     const fam = aircraftFamily(t.id);
     if (ALLOWED_FREIGHT_ONLY.has(fam)) return false;

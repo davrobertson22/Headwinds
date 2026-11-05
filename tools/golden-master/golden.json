@@ -1,18 +1,18 @@
 {
-  "fullHash": "66651fa95000c21b4d34f37aaf49388a68ad8af9408f5fe99af861d763c327d5",
+  "fullHash": "f4e1ad23f55b62f931bfe796c7a3f6b47acc96a41666889cb4e65bc118cd891a",
   "projection": {
     "week": 9,
     "year": 2,
     "phase": "bankrupt",
-    "cash": -44660923,
-    "marketCap": 503856,
-    "sharePrice": 0.005,
-    "awareness": 38.3,
-    "fuelIndex": 0.814,
+    "cash": -45766170,
+    "marketCap": 509711,
+    "sharePrice": 0.0051,
+    "awareness": 37.8,
+    "fuelIndex": 1.184,
     "fleetCount": 1,
     "routeCount": 1,
-    "competitorCount": 18,
-    "activeEvents": 2,
+    "competitorCount": 22,
+    "activeEvents": 0,
     "report": {
       "revenue": 2100
     }
