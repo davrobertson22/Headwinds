@@ -28,6 +28,7 @@ import { formatMoney } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { Glyph } from './Icons.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
+import { inShopLabel } from '../../packages/engine/src/data/conversions.js';
 
 const sliderStyle = { width: '100%' };
 
@@ -663,7 +664,7 @@ function ShopBoard({ state }) {
       const job = jobFor.get(a.id) ?? null;
       return {
         a,
-        kind:  a.status === 'maintenance' ? `${a.checkType ?? 'C'} check` : groundedKind(a),
+        kind:  a.status === 'maintenance' ? inShopLabel(a) : groundedKind(a),
         weeks: a.status === 'maintenance' ? (a.checkWeeksLeft ?? 0) : (a.groundedWeeksLeft ?? 0),
         forced: !!a.checkForced,
         job,

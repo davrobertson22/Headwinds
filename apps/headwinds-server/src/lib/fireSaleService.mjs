@@ -24,8 +24,8 @@
 // because "Nordic Air's slot at LHR" is the part worth reading.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getAircraftType, eraPurchasePrice } from '@tailwinds/engine/data/aircraft.js';
-import { valueRemaining } from '@tailwinds/engine/data/overhead.js';
+import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
+import { tailBookValue } from '@tailwinds/engine/data/overhead.js';
 import { listSoldAircraftTx } from './aircraftMarketService.mjs';
 import { auctionReserveOf, isGateScarcity } from './gateService.mjs';
 import { getAirport } from '@tailwinds/engine/data/airports.js';
@@ -58,7 +58,8 @@ export function distressedNav(aircraft, calYear = null) {
   if (!type) return 0;
   // Era worlds price the frame at the era's market (new-build premium while the
   // line is open) — the same figure SELL_AIRCRAFT would have paid. Null = classic.
-  const nav = eraPurchasePrice(type, calYear) * valueRemaining(aircraft?.ageWeeks, type);
+  // tailBookValue: price × valueRemaining, plus a freighter conversion's capex.
+  const nav = tailBookValue(aircraft, type, { calYear });
   return Math.max(0, Math.round(nav * AIRCRAFT_DISTRESS_FACTOR));
 }
 

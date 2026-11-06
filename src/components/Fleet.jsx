@@ -41,6 +41,10 @@ import { fleetTypeSummary, sortSummaryRows, readSummarySort, writeSummarySort } 
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { canRetrofitWifi, isWifiEquipped, WIFI_WEEKLY_OPEX, canFitWifiTo, wifiAirframeReason } from '../data/wifi.js';
 import { canRetrofitWingtips, wingtipDefFor, hasWingtips as tailHasWingtips, wingtipRetrofitCost } from '../../packages/engine/src/data/retrofits.js';
+import {
+  canConvertToFreighter, conversionFor, conversionRefusal, startConversion, completeConversion, inShopLabel,
+} from '../../packages/engine/src/data/conversions.js';
+import { airframeNAV, effectiveMaintAgeWeeks } from '../../packages/engine/src/data/maintenance.js';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -448,7 +452,7 @@ function ReserveSection({ aircraft, type }) {
   const parkingFor = (code) => reserveParkingFee(feeCat, getAirport(code)?.tier ?? 'major');
   // ≈ readiness premium: +15% on this tail's base weekly line maintenance
   // (the engine also applies budget/labor multipliers — this is a preview).
-  const premium = Math.round((type.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(aircraft.ageWeeks ?? 0) * (RESERVE_READINESS_MULT - 1));
+  const premium = Math.round((type.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft)) * (RESERVE_READINESS_MULT - 1));
   // Coverage preview: same-type tails whose routes touch a base.
   const coverableFor = (code) => {
     const sameType = new Set((state.fleet ?? [])
@@ -660,6 +664,86 @@ function WingtipBadge({ aircraft }) {
   );
 }
 
+/**
+ * Freighter conversion on one tail (data/conversions.js; claude/p2f-conversion.md).
+ * A converted tail shows where it came from; a passenger tail with a freighter
+ * variant gets the convert button. The confirm previews the tail the tick will
+ * hand back — the engine's own startConversion → completeConversion on the
+ * quote canConvertToFreighter makes — so cost, ready week, book value and the
+ * running-cost curve are the reducer's numbers, not a second opinion.
+ */
+export function ConvertToFreighter({ aircraft }) {
+  const { state, dispatch } = useGame();
+  const confirm = useConfirm();
+  if (aircraft.conversion) {
+    const from = getAircraftType(aircraft.conversion.fromTypeId);
+    return (
+      <span className="badge" style={{ background: 'rgba(232,131,58,.10)', color: '#e8833a', border: '1px solid rgba(232,131,58,.35)' }}
+            title={`Converted from a ${from?.name ?? aircraft.conversion.fromTypeId}`
+              + (aircraft.conversion.fromName ? ` (${aircraft.conversion.fromName})` : '')
+              + `. Real age ${Math.round((aircraft.ageWeeks ?? 0) / 52)} years; it runs, and breaks down, like one ${Math.round((aircraft.conversionAgeCreditWeeks ?? 0) / 52)} years younger.`}>
+        <Glyph e="📦" /> Converted
+      </span>
+    );
+  }
+  const conv = conversionFor(aircraft.typeId);
+  if (!conv || aircraft.status === 'retired' || aircraft.pendingConversion) return null;
+  const refusal = conversionRefusal(state, aircraft);
+  const hasRoutes = refusal?.code === 'has_routes';
+  const quote = canConvertToFreighter(state, [aircraft], { closeRoutes: hasRoutes });
+  const entry = quote.byId[aircraft.id];
+  const blocked = (refusal && !hasRoutes) || !quote.ok;
+  const cost = entry?.capex ?? 0;
+  return (
+    <button
+      className="btn"
+      style={{
+        fontSize: 11, padding: '2px 9px', background: 'var(--surface3)',
+        color: blocked ? 'var(--text-dim)' : 'var(--text-muted)',
+        border: '1px solid var(--border)', cursor: blocked ? 'not-allowed' : 'pointer',
+      }}
+      disabled={blocked}
+      title={blocked
+        ? (refusal && !hasRoutes ? refusal.message : quote.reasons[0])
+        : `Convert to a ${conv.toType.name} for ${formatMoney(cost)} — back in ${entry.readyInWeeks} weeks.`}
+      onClick={async () => {
+        if (blocked || !entry) return;
+        const abs = absoluteWeek(state.year, state.week);
+        const after = completeConversion(startConversion(aircraft, entry, abs), entry.doneAbsWeek, false, { fleet: state.fleet ?? [] });
+        const fromType = getAircraftType(aircraft.typeId);
+        const navBefore = airframeNAV(aircraft, fromType, abs);
+        const navAfter = airframeNAV(after, conv.toType, abs);
+        const ageNow = Math.round((aircraft.ageWeeks ?? 0) / 52);
+        const multBefore = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
+        const multAfter = maintenanceMultiplier(effectiveMaintAgeWeeks(after));
+        const wait = entry.readyInWeeks - entry.downtimeWeeks;
+        const n = quote.routesToClose;
+        const body = `${formatMoney(cost)} now. The ${fromType?.name} comes back as a ${conv.toType.name} `
+          + `(${conv.toType.payloadTonnes} t payload) in ${entry.readyInWeeks} weeks`
+          + (wait > 0 ? ` — ${entry.downtimeWeeks} in the hangar plus ${wait} waiting for a slot on the conversion line` : '')
+          + `.\n\n`
+          + `It stays ${ageNow} years old, but the conversion includes a heavy check: it runs and breaks down like a `
+          + `${Math.max(0, ageNow - 10)}-year-old frame (maintenance ${multBefore.toFixed(1)}× → ${multAfter.toFixed(1)}× new), `
+          + `and its C and D clocks reset.\n\n`
+          + `Book value ${formatMoney(navBefore)} → ${formatMoney(navAfter)} (the airframe plus the conversion, written off over 15 years).`
+          + (n > 0 ? `\n\nIt flies ${n} route${n === 1 ? '' : 's'} today. Converting closes ${n === 1 ? 'it' : 'them'}.` : '')
+          + `\n\nThis is one-way: a freighter does not convert back.`;
+        if (await confirm({
+          title: `Convert ${aircraft.name} to a freighter?`,
+          body,
+          confirmLabel: n > 0
+            ? `Close ${n} route${n === 1 ? '' : 's'} and convert for ${formatMoney(cost)}`
+            : `Convert for ${formatMoney(cost)}`,
+        })) {
+          dispatch({ type: 'CONVERT_TO_FREIGHTER', aircraftIds: [aircraft.id], closeRoutes: n > 0 });
+        }
+      }}
+    >
+      <Glyph e="📦" /> Convert to freighter · {formatMoney(cost)}
+    </button>
+  );
+}
+
 export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSell }) {
   const { state, dispatch } = useGame();
   const bhCap = maxWeeklyBlockHoursFor(state);
@@ -797,7 +881,9 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
   const mCheckOpts = { maintMod: aircraft.maintMod ?? 1, laborMult: laborEffects(state.labor).maintenanceCostMultiplier, hubFactor: aircraftHubMaintFactor(aircraft.id, state.routes, state.cargoRoutes, state.hubs) };
   const ageWks   = aircraft.ageWeeks ?? 0;
   const ageYrs   = ageWks / 52;
-  const maintMlt = maintenanceMultiplier(ageWks);
+  // The tick's own age for the running-cost curve: D-check credit and a
+  // freighter conversion's credit both bring it down (data/maintenance.js).
+  const maintMlt = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
   const weeklyMaint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintMlt);
   const weeklyLease = aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
   const ageColor    = ageYrs < 5 ? 'var(--green)' : ageYrs < 12 ? 'var(--yellow)' : 'var(--red)';
@@ -879,6 +965,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
                 )}
                 <WifiBadge aircraft={aircraft} />
                 <WingtipBadge aircraft={aircraft} />
+                <ConvertToFreighter aircraft={aircraft} />
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
                 {type?.name} · {type?.manufacturer}
@@ -901,7 +988,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
               )}
               {aircraft.status === 'maintenance' && (
                 <span className="badge" style={{ background:'rgba(56,139,253,.15)', color:'var(--accent)', border:'1px solid rgba(56,139,253,.4)' }}>
-                  <Glyph e="🔧" /> {aircraft.checkType || 'C'} check {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}
+                  <Glyph e={aircraft.checkType === 'P2F' ? '📦' : '🔧'} /> {inShopLabel(aircraft)} {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}
                 </span>
               )}
               {!isOutOfService(aircraft) && mDue.state !== 'ok' && (
@@ -1268,7 +1355,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Maintenance Checks</div>
         {aircraft.status === 'maintenance' ? (
           <div style={{ fontSize: 13, color: 'var(--accent)' }}>
-            <Glyph e="🔧" /> In {aircraft.checkType || 'C'} check — {aircraft.checkWeeksLeft || 1} week{(aircraft.checkWeeksLeft || 1) !== 1 ? 's' : ''} remaining{aircraft.checkForced ? ' (regulator-forced)' : ''}.
+            <Glyph e={aircraft.checkType === 'P2F' ? '📦' : '🔧'} /> In {aircraft.checkType === 'P2F' ? `freighter conversion to the ${getAircraftType(aircraft.pendingConversion?.toTypeId)?.name ?? 'freighter'}` : `${aircraft.checkType || 'C'} check`} — {aircraft.checkWeeksLeft || 1} week{(aircraft.checkWeeksLeft || 1) !== 1 ? 's' : ''} remaining{aircraft.checkForced ? ' (regulator-forced)' : ''}.
           </div>
         ) : (
           <>
@@ -1492,7 +1579,7 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
         // Total weekly fixed costs
         const totalFixed = aircraft.reduce((s, a) => {
           const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? type?.weeklyLease ?? 0);
-          const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
+          const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
           return s + lease + maint;
         }, 0);
 
@@ -1664,7 +1751,7 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
         const totalFixed = catFleet.reduce((s, a) => {
           const t = getAircraftType(a.typeId);
           const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? t?.weeklyLease ?? 0);
-          const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
+          const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
           return s + lease + maint;
         }, 0);
 
@@ -2131,7 +2218,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   }, 0);
   const weeklyMaintTotal = fleet.reduce((s, a) => {
     const t = getAircraftType(a.typeId);
-    return s + Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks));
+    return s + Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
   }, 0);
 
   const selectedAircraft = fleet.find(a => a.id === selectedId);
@@ -2206,7 +2293,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
         return u.overCap ? Math.max(u.flyingHours, u.peakHours) : u.flyingHours;
       }
       case 'fixed': {
-        const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
+        const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
         const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? t?.weeklyLease ?? 0);
         return lease + maint;
       }
@@ -2252,6 +2339,11 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   // don't already carry one, priced by the engine's canRetrofitWingtips.
   const wingtipQuote      = canRetrofitWingtips(checkedAircraft, cash);
   const checkedNoWingtips = wingtipQuote.eligible;
+  // Freighter conversion, same shape: canConvertToFreighter prices and slots
+  // the selection exactly as CONVERT_TO_FREIGHTER will. Quoted with routes
+  // closing so a tail still flying is counted; the confirm says which go.
+  const checkedConvertible = checkedAircraft.filter(a => conversionFor(a.typeId) && !a.pendingConversion && a.status !== 'retired');
+  const convertQuote       = canConvertToFreighter(state, checkedConvertible, { closeRoutes: true });
 
   function toggleChecked(id) {
     setCheckedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
@@ -2391,6 +2483,30 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
       confirmLabel: `Fit for ${formatMoney(wingtipQuote.capex)}`,
     })) {
       dispatch({ type: 'RETROFIT_WINGTIPS', aircraftIds: checkedNoWingtips.map(a => a.id) });
+      setCheckedIds([]);
+    }
+  }
+
+  async function handleBulkConvert() {
+    const list = convertQuote.eligible;
+    if (list.length === 0 || !convertQuote.ok) return;
+    const names = list.slice(0, 8).map(a => a.name).join(', ') + (list.length > 8 ? `, +${list.length - 8} more` : '');
+    const latest = Math.max(...list.map(a => convertQuote.byId[a.id].readyInWeeks));
+    const n = convertQuote.routesToClose;
+    const refused = convertQuote.refused;
+    const body = `${names}\n\n`
+      + `${formatMoney(convertQuote.capex)} in total, due now. Each comes back as its family's freighter`
+      + (list.length > 1 ? `; the last in ${latest} weeks.` : ` in ${latest} weeks.`)
+      + ` Real age is unchanged, but each runs and breaks down like a frame 10 years younger, and its C and D clocks reset.\n\n`
+      + (n > 0 ? `${n} route${n === 1 ? '' : 's'} flown by these aircraft will close.\n\n` : '')
+      + (refused.length > 0 ? `${refused.length} of the aircraft you selected can't be converted (${refused[0].message}).\n\n` : '')
+      + 'One-way: freighters do not convert back.';
+    if (await confirm({
+      title: `Convert ${list.length} aircraft to freighters?`,
+      body,
+      confirmLabel: `${n > 0 ? `Close ${n} route${n === 1 ? '' : 's'} and convert` : 'Convert'} for ${formatMoney(convertQuote.capex)}`,
+    })) {
+      dispatch({ type: 'CONVERT_TO_FREIGHTER', aircraftIds: list.map(a => a.id), closeRoutes: n > 0 });
       setCheckedIds([]);
     }
   }
@@ -3120,6 +3236,25 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
                 <Glyph e="🪽" /> Fit wingtips ({checkedNoWingtips.length}) · {formatMoney(wingtipQuote.capex)}
               </button>
             )}
+            {checkedConvertible.length > 0 && (
+              <button
+                className="btn"
+                style={{
+                  fontSize: 12, padding: '5px 12px',
+                  background: convertQuote.ok ? 'rgba(232,131,58,0.12)' : 'var(--surface3)',
+                  color: convertQuote.ok ? '#e8833a' : 'var(--text-dim)',
+                  border: `1px solid ${convertQuote.ok ? 'rgba(232,131,58,0.4)' : 'var(--border)'}`,
+                  cursor: convertQuote.ok ? 'pointer' : 'not-allowed',
+                }}
+                disabled={!convertQuote.ok}
+                title={convertQuote.ok
+                  ? `Convert ${convertQuote.eligible.length} aircraft to freighters for ${formatMoney(convertQuote.capex)}`
+                  : convertQuote.reasons[0]}
+                onClick={handleBulkConvert}
+              >
+                <Glyph e="📦" /> Convert to freighter ({convertQuote.eligible.length}) · {formatMoney(convertQuote.capex)}
+              </button>
+            )}
             <button
               className="btn"
               style={{
@@ -3227,7 +3362,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
               const type   = getAircraftType(aircraft.typeId);
               const route  = routes.find(r => r.aircraftId === aircraft.id);
               const ageWks = aircraft.ageWeeks ?? 0;
-              const maintM = maintenanceMultiplier(ageWks);
+              const maintM = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
               const maint  = Math.round((type?.baseMaintenancePerWk ?? 0) * maintM);
               const lease  = aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
               const ageYrs = ageWks / 52;
@@ -3374,7 +3509,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
                         return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--yellow)' }}><Glyph e="🛡️" size={10} /> no cover ({why}) — {ol.ownRoutes} route{ol.ownRoutes !== 1 ? 's' : ''} idle</span>;
                       })()}
                       {aircraft.status === 'maintenance' && (
-                        <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}><Glyph e="🔧" /> {aircraft.checkType || 'C'} check {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}</span>
+                        <span className="badge" style={{ background: 'rgba(56,139,253,.15)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.4)' }}><Glyph e={aircraft.checkType === 'P2F' ? '📦' : '🔧'} /> {inShopLabel(aircraft)} {aircraft.checkWeeksLeft > 0 ? `(${aircraft.checkWeeksLeft}w)` : ''}</span>
                       )}
                       {!isOutOfService(aircraft) && (() => {
                         const di = dueInfo(aircraft, type, nowAbs);

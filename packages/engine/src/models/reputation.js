@@ -61,8 +61,16 @@ export function calcReputation(state, loyaltyBonus = 0, avgUtilization = null) {
   const serviceScore = Math.round(Math.min(100, serviceBase * (cabinMorale / 80)));
 
   // ── Fleet freshness score (20%) ────────────────────────────────────────────
-  const avgAgeYears = fleet.length > 0
-    ? fleet.reduce((s, a) => s + (a.ageWeeks ?? 0) / 52, 0) / fleet.length
+  // What passengers sit in: freighters and retired tails are out of the
+  // average (Discord, Barca 2026-11-03 — an old freighter fleet was dragging
+  // the passenger brand down; a converted 30-year-old 737 still would).
+  // A cargo-only airline has no passenger fleet to judge: it keeps the old
+  // whole-fleet average rather than scoring as brand new.
+  const flying = fleet.filter(a => a && a.status !== 'retired');
+  const paxFleet = flying.filter(a => !getAircraftType(a.typeId)?.freighter);
+  const ageBase = paxFleet.length > 0 ? paxFleet : flying;
+  const avgAgeYears = ageBase.length > 0
+    ? ageBase.reduce((s, a) => s + (a.ageWeeks ?? 0) / 52, 0) / ageBase.length
     : 0;
   const fleetScore = Math.round(Math.max(0, 100 - avgAgeYears * 5));
 

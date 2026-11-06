@@ -149,6 +149,16 @@ export const PRODUCTION_LINES = {
   conv_dc8:        { name: 'DC-8 freighter conversions',   types: ['dc873f'], conversion: true },
   conv_ejet:       { name: 'E-Jet freighter conversions',  types: ['e190f'], conversion: true },
   conv_l188:       { name: 'Electra freighter conversions', types: ['l188f'], conversion: true },
+  // Conversion lines that only convert players' OWN frames (data/conversions.js):
+  // the catalogue's freighter of the family is a factory build sold on its parent
+  // line, so no orderable type sits here. `leadType` sets the spacing between one
+  // airline's frames (lineGapWeeks) the way types[0] does for the other lines.
+  conv_a330:       { name: 'A330 freighter conversions',   types: [], leadType: 'a330200f',  conversion: true },
+  conv_a300:       { name: 'A300 freighter conversions',   types: [], leadType: 'a300600f',  conversion: true },
+  conv_dc10:       { name: 'DC-10 / MD-11 freighter conversions', types: [], leadType: 'md11f', conversion: true },
+  conv_b747:       { name: '747 freighter conversions',    types: [], leadType: 'b747400f',  conversion: true },
+  conv_b757:       { name: '757 freighter conversions',    types: [], leadType: 'b757200pf', conversion: true },
+  conv_b727:       { name: '727 freighter conversions',    types: [], leadType: 'b727200f',  conversion: true },
 };
 
 const LINE_OF_TYPE = (() => {
@@ -170,7 +180,7 @@ export function lineOf(typeOrId) {
 export function lineInfo(lineId) {
   const def = PRODUCTION_LINES[lineId];
   if (def) {
-    const lead = getAircraftType(def.types[0]);
+    const lead = getAircraftType(def.leadType ?? def.types[0]);
     return { id: lineId, ...def, conversion: def.conversion === true,
              cls: def.conversion ? 'Conversion' : deliveryClass(lead) };
   }
@@ -339,13 +349,35 @@ export function linesByClass() {
 const isLineOrder = (o) => o && !o.used && o.typeId && Number.isFinite(o.deliverAbsWeek);
 
 /**
+ * Tails in a freighter conversion that hold a conversion-line slot
+ * (data/conversions.js), as order-shaped bookings. A conversion is not an
+ * order — it lives on the tail, not in pendingOrders — but it takes a frame
+ * of the line's weekly capacity exactly like one.
+ */
+export function conversionLineOrders(fleet) {
+  const out = [];
+  for (const a of fleet ?? []) {
+    const p = a?.pendingConversion;
+    if (!p?.lineId || !Number.isFinite(p.doneAbsWeek)) continue;
+    out.push({ id: `conv:${a.id}`, typeId: p.toTypeId, lineId: p.lineId, deliverAbsWeek: p.doneAbsWeek });
+  }
+  return out;
+}
+
+/** Every booking an airline state holds: its orders plus its conversions. */
+export function lineOrdersOf(state) {
+  const conv = conversionLineOrders(state?.fleet);
+  return conv.length ? [...(state?.pendingOrders ?? []), ...conv] : (state?.pendingOrders ?? []);
+}
+
+/**
  * Bookings per line per week from a set of airline states (server side: every
  * OTHER active airline). { [lineId]: { [absWeek]: frames } }, future weeks only.
  */
 export function bookingsFromStates(states, fromAbsWeek = 0) {
   const out = {};
   for (const s of states ?? []) {
-    for (const o of s?.pendingOrders ?? []) {
+    for (const o of lineOrdersOf(s)) {
       if (!isLineOrder(o) || o.deliverAbsWeek < fromAbsWeek) continue;
       const line = o.lineId ?? lineOf(o.typeId);
       const byWeek = (out[line] ??= {});
@@ -387,7 +419,7 @@ export function lineBookings(state, lineId, fromAbsWeek = 0) {
     const wk = Number(w);
     if (wk >= fromAbsWeek && n > 0) m.set(wk, (m.get(wk) ?? 0) + n);
   }
-  for (const o of state?.pendingOrders ?? []) {
+  for (const o of lineOrdersOf(state)) {
     if (!isLineOrder(o) || (o.lineId ?? lineOf(o.typeId)) !== lineId) continue;
     if (o.deliverAbsWeek < fromAbsWeek) continue;
     m.set(o.deliverAbsWeek, (m.get(o.deliverAbsWeek) ?? 0) + 1);
@@ -402,7 +434,8 @@ export function lineBookings(state, lineId, fromAbsWeek = 0) {
  * the whole family. No airline takes four A380s in a month (Dave, 2026-10-16).
  */
 export function lineGapWeeks(lineId) {
-  return deliveryLead(getAircraftType(lineInfo(lineId).types[0]));
+  const info = lineInfo(lineId);
+  return deliveryLead(getAircraftType(info.leadType ?? info.types[0]));
 }
 
 /** Is `week` within `gap` weeks of one of this airline's slots on the line? */
@@ -414,7 +447,7 @@ export function tooCloseToOwn(mine, week, gap) {
 /** Weeks on this line where THIS airline already holds a slot. */
 export function ownLineWeeks(state, lineId) {
   const s = new Set();
-  for (const o of state?.pendingOrders ?? []) {
+  for (const o of lineOrdersOf(state)) {
     if (isLineOrder(o) && (o.lineId ?? lineOf(o.typeId)) === lineId) s.add(o.deliverAbsWeek);
   }
   return s;
@@ -489,6 +522,31 @@ export function makeSlotAllocator(state, type, { absWeek, fromWeek = null, notBe
       booked.set(w, (booked.get(w) ?? 0) + 1);
       mine.add(w);
       cursor = w + 1;
+      return w;
+    },
+  };
+}
+
+/**
+ * Slot allocator for a line by id (freighter conversions, which are not tied
+ * to an orderable type): `take(notBefore)` books the first week at or after
+ * `notBefore` where the line has room and this airline holds no slot within
+ * the line's gap, same rules as makeSlotAllocator.
+ */
+export function makeLineSlotAllocator(state, lineId, absWeek) {
+  const booked = lineBookings(state, lineId, absWeek);
+  const mine = ownLineWeeks(state, lineId);
+  const capacity = capacityFor(state, lineId, absWeek);
+  const gap = lineGapWeeks(lineId);
+  return {
+    lineId, capacity, gap,
+    take(notBefore) {
+      let w = Math.max(absWeek + 1, Math.floor(notBefore));
+      for (let guard = 0; guard < 52 * 200; guard++, w++) {
+        if (!tooCloseToOwn(mine, w, gap) && (booked.get(w) ?? 0) < capacity) break;
+      }
+      booked.set(w, (booked.get(w) ?? 0) + 1);
+      mine.add(w);
       return w;
     },
   };

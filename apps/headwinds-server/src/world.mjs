@@ -50,6 +50,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // §6). Capex comes from data/retrofits.js and data/fuelProgrammes.js inside
   // the reducer; the guards sanitize the id list and the programme id.
   'RETROFIT_WINGTIPS', 'SET_FUEL_PROGRAMME', 'SET_ROUTE_TANKERING',
+  // Freighter conversions of owned passenger frames (data/conversions.js):
+  // capex, eligibility and conversion-line slots are the reducer's
+  // (canConvertToFreighter); the guard sanitizes the ids and the flag.
+  'CONVERT_TO_FREIGHTER',
   // Timetable pins (cosmetic — board, schedule editor, globe planes). The
   // guard checks the routes are this airline's and cleans the minute lists.
   'SET_ROUTE_SCHEDULES',

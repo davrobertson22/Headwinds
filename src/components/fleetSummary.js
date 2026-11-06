@@ -12,7 +12,7 @@
 // no ages or utilisation, so the summary shows where the fleet is heading too.
 
 import { isReserve } from '../data/reserve.js';
-import { isOutOfService, airframeNAV } from '../data/maintenance.js';
+import { isOutOfService, airframeNAV, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import { maintenanceMultiplier } from '../utils/simulation.js';
 
 const tailSeats = (a, type) => {
@@ -26,7 +26,7 @@ const tailSeats = (a, type) => {
 
 const tailFixed = (a, type) => {
   const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? type?.weeklyLease ?? 0);
-  const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
+  const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
   return lease + maint;
 };
 

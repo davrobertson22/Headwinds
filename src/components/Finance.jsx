@@ -9,7 +9,8 @@ import {
   buildEventDemandModel,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields,
 } from '../utils/simulation.js';
-import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
+import { getAircraftType } from '../data/aircraft.js';
+import { effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import { getAirport, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
 import InfoTip from './InfoTip.jsx';
 import {
@@ -34,7 +35,7 @@ import {
   GROUND_HANDLING_COST_PER_PAX,
   DISTRIBUTION_COST_PCT,
   HULL_INSURANCE_ANNUAL_RATE, LIABILITY_INSURANCE_WEEKLY_PER_AIRCRAFT, liabilityInsuranceWeekly,
-  DEPRECIATION_YEARS,
+  DEPRECIATION_YEARS, tailBookValue,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { netProfitOf, balanceSheetOf } from '../utils/standings.js';
@@ -451,7 +452,7 @@ function PLStatement({ proj }) {
     const lease   = isOwned ? 0 : (a.weeklyLease ?? type?.weeklyLease ?? 0);
     // Match what weeklyTick actually charges: budget × morale multiplier × per-tail mod
     const maint   = Math.round((type?.baseMaintenancePerWk ?? 0)
-      * maintenanceMultiplier(a.ageWeeks) * maintenanceBudget * maintenanceCostMultiplier * (a.maintMod ?? 1.0));
+      * maintenanceMultiplier(effectiveMaintAgeWeeks(a)) * maintenanceBudget * maintenanceCostMultiplier * (a.maintMod ?? 1.0));
     return { aircraft: a, type, lease, maint, isOwned };
   });
   // Canonical fleet costs from the engine.
@@ -499,9 +500,9 @@ function PLStatement({ proj }) {
   // $18k/wk liability) so the sub-lines reconcile to the total.
   const totInsurance  = report.totalInsurance;
   const totHullIns    = fleet.filter(a => a.ownershipType === 'owned').reduce((s, a) => {
-    const t = getAircraftType(a.typeId);
-    const ageYrs = (a.ageWeeks ?? 0) / 52;
-    const bv = eraPurchasePrice(t) * Math.max(0.1, 1 - ageYrs / DEPRECIATION_YEARS);
+    // The engine's own book value (weeklyInsuranceCost reads the same), so the
+    // hull line reconciles for used frames and freighter conversions too.
+    const bv = tailBookValue(a, getAircraftType(a.typeId));
     return s + Math.round(bv * HULL_INSURANCE_ANNUAL_RATE / 52);
   }, 0);
   const totLiabilityIns = fleet.reduce((s, a) => s + liabilityInsuranceWeekly(getAircraftType(a.typeId)), 0);

@@ -142,7 +142,7 @@ export default function Departures({ initialAirport = null }) {
       // covered route already carries the reserve's id, so it shows normally.)
       const cancelled = isOutOfService(ac);
       const cancelReason = !cancelled ? null
-        : ac.status === 'maintenance' ? `Aircraft in ${ac.checkType ?? 'heavy'} check`
+        : ac.status === 'maintenance' ? (ac.checkType === 'P2F' ? 'Aircraft in freighter conversion' : `Aircraft in ${ac.checkType ?? 'heavy'} check`)
         : `Aircraft grounded — ${groundedKind(ac).toLowerCase()}`;
       // A tag rotation can depart here twice toward the same stop (out and
       // back); the timetable already lists both, so take each `to` once.

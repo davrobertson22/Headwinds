@@ -49,6 +49,7 @@ import {
   weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm, routeStops,
 } from './simulation.js';
 import { completeCheck } from '../data/maintenance.js';
+import { completeConversion } from '../data/conversions.js';
 import { crewShortfall, unstaffedCrewScale, unstaffedAircraftIds } from '../data/labor.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { rollEvents, tickEvents } from '../data/events.js';
@@ -174,9 +175,14 @@ export function prepareWeek(state, {
   // forecast built on it writes off every route the aircraft operates.
   const completedChecks = (state.fleet ?? [])
     .filter(a => a.status === 'maintenance' && (a.checkWeeksLeft ?? 1) <= 1)
-    .map(a => ({ id: a.id, name: a.name, tailNumber: a.tailNumber ?? '', checkType: a.checkType ?? 'C', forced: !!a.checkForced }));
+    .map(a => ({ id: a.id, name: a.name, tailNumber: a.tailNumber ?? '', checkType: a.checkType ?? 'C', forced: !!a.checkForced,
+                 ...(a.checkType === 'P2F' ? { toTypeId: a.pendingConversion?.toTypeId ?? null } : {}) }));
 
-  const tickedFleetPre = (state.fleet ?? []).map(a => {
+  // Freighter conversions finishing this week take their new name from the
+  // fleet as it stands, earlier finishers included, so two A321s converted in
+  // the same week come out #3 and #4 rather than both #3.
+  const namingFleet = [...(state.fleet ?? [])];
+  const tickedFleetPre = (state.fleet ?? []).map((a, i) => {
     const hasRoute = (state.routes ?? []).some(r => r.aircraftId === a.id)
       || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
     // Self-heal (saves broken before the reducer guard shipped): several route
@@ -194,6 +200,11 @@ export function prepareWeek(state, {
     }
     if (a.status === 'maintenance') {
       const left = (a.checkWeeksLeft ?? 1) - 1;
+      if (left <= 0 && a.checkType === 'P2F' && a.pendingConversion) {
+        const done = completeConversion(a, curAbsWeek, hasRoute, { fleet: namingFleet, pendingOrders: state.pendingOrders ?? [] });
+        namingFleet[i] = done;
+        return done;
+      }
       if (left <= 0) return completeCheck(a, curAbsWeek, hasRoute);
       return { ...a, checkWeeksLeft: left };
     }

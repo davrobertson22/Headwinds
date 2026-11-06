@@ -24,8 +24,15 @@ const CLASS_LABEL = {
   'Conversion': 'Freighter conversions',
 };
 
-const typesOf = (lineId) => (PRODUCTION_LINES[lineId]?.types ?? [])
-  .map((t) => getAircraftType(t)?.name ?? t).join(', ');
+// A conversion line with no orderable type converts players' own frames only
+// (data/conversions.js) — name the freighter it turns them into.
+const typesOf = (lineId) => {
+  const line = PRODUCTION_LINES[lineId];
+  if (!line?.types?.length && line?.leadType) {
+    return `Players' own frames → ${getAircraftType(line.leadType)?.name ?? line.leadType}`;
+  }
+  return (line?.types ?? []).map((t) => getAircraftType(t)?.name ?? t).join(', ');
+};
 
 function RateInput({ value, placeholder, onChange, label, title }) {
   return (

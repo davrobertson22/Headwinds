@@ -348,7 +348,7 @@ export default function WeeklyDebrief() {
               {maintChecks.completed.map((c, i) => (
                 <div key={'mc' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(63,185,80,.08)', border: '1px solid rgba(63,185,80,.25)', borderRadius: 8, fontSize: 12 }}>
                   <span style={{ fontSize: 16 }}>✅</span>
-                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--green)' }}>{c.name}</span> <span style={{ color: 'var(--text-muted)' }}>{c.checkType} check complete — back in service</span></div>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--green)' }}>{c.name}</span> <span style={{ color: 'var(--text-muted)' }}>{c.checkType === 'P2F' ? 'freighter conversion complete — ready for cargo routes' : `${c.checkType} check complete — back in service`}</span></div>
                 </div>
               ))}
             </div>

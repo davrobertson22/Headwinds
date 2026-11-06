@@ -18,7 +18,7 @@
  */
 
 import { eraPurchasePrice } from './aircraft.js';   // era market price of the frame (catalogue × 1 in classic)
-import { DEPRECIATION_YEARS, valueRemaining, capAtCostBasis } from './overhead.js';
+import { DEPRECIATION_YEARS, valueRemaining, capAtCostBasis, tailBookValue } from './overhead.js';
 
 // ─── Due thresholds (dual trigger — whichever comes first) ────────────────────
 export const C_HOURS_DUE = 4_500;
@@ -141,9 +141,29 @@ export function checkCost(type, checkType, { maintMod = 1, laborMult = 1, hubFac
   return Math.round(base * (forced ? FORCED_COST_MULT : 1));
 }
 
-/** Effective age (weeks) used ONLY for the running-cost curve — D checks credit it down. */
+/**
+ * Operating age (weeks): the airframe's real age less the credit a freighter
+ * conversion earned (claude/p2f-conversion.md — the conversion includes a heavy
+ * structural check, so the frame wears like one 10 years younger). Drives the
+ * AOG repair factor and the failure age term. Real `ageWeeks` is untouched:
+ * book value, the used market and every age display still read it. 0 credit
+ * (every unconverted tail) = real age, exactly as before.
+ */
+export function operatingAgeWeeks(a) {
+  const age = a?.ageWeeks ?? 0;
+  const credit = a?.conversionAgeCreditWeeks ?? 0;
+  return credit > 0 ? Math.max(0, age - credit) : age;
+}
+
+/**
+ * Effective age (weeks) used ONLY for the running-cost curve — D checks credit
+ * it down. A conversion guarantees AT LEAST its credit (real age − 10 years)
+ * but does not stack on top of D-check credit: a well-kept 30-year-old frame
+ * must not come out of the hangar running like a 5-year-old.
+ */
 export function effectiveMaintAgeWeeks(a) {
-  return Math.max(0, (a?.ageWeeks ?? 0) - (a?.maintAgeCredit ?? 0));
+  const dCredited = Math.max(0, (a?.ageWeeks ?? 0) - (a?.maintAgeCredit ?? 0));
+  return (a?.conversionAgeCreditWeeks ?? 0) > 0 ? Math.min(dCredited, operatingAgeWeeks(a)) : dCredited;
 }
 
 /**
@@ -270,7 +290,7 @@ export function completeCheck(a, absWeek, hasRoute) {
 export function weeklyWearFailureProb(a, type, maintenanceBudget = 1.0) {
   const wearC   = (a?.hoursSinceC ?? 0) / C_HOURS_DUE;
   const wearD   = (a?.hoursSinceD ?? 0) / D_HOURS_DUE;
-  const ageYears = (a?.ageWeeks ?? 0) / 52;
+  const ageYears = operatingAgeWeeks(a) / 52;
   const ageTerm = Math.pow(ageYears / 25, 1.2) * 0.02;
   const base = 0.002 + 0.03 * wearC * wearC + 0.06 * wearD * wearD + ageTerm;
   return Math.min(0.35, base / Math.max(0.5, maintenanceBudget));
@@ -308,7 +328,7 @@ export const AOG_COST_PCT = {
  * structural crack costs more to repair than the airframe is worth.
  */
 export function aogAgeFactor(a) {
-  const ageYears = (a?.ageWeeks ?? 0) / 52;
+  const ageYears = operatingAgeWeeks(a) / 52;
   return 1 + Math.pow(ageYears / 20, 2) * 2;
 }
 
@@ -328,8 +348,8 @@ export const AOG_WRITE_OFF_PAYOUT_FRACTION = 0.80;
  * so a write-off can never be worth more than a sale.
  */
 export function airframeNAV(a, type, absWeek = 0) {
-  const remaining = valueRemaining(a?.ageWeeks, type);
-  return Math.round(eraPurchasePrice(type) * remaining * maintNavMultiplier(a, absWeek));
+  // tailBookValue: price × valueRemaining, plus a conversion's capex if any.
+  return Math.round(tailBookValue(a, type) * maintNavMultiplier(a, absWeek));
 }
 
 /** The shop's cut on a sale, as a fraction of the sale value. */

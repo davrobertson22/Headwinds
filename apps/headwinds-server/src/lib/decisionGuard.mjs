@@ -756,6 +756,8 @@ export function guardDecision(type, payload, state) {
     case 'CLOSE_MRO_BASE':     return guardMroBase(payload);
     case 'INSTALL_WIFI':       return { aircraftIds: guardAircraftIds(payload, state) };
     case 'RETROFIT_WINGTIPS':  return { aircraftIds: guardAircraftIds(payload, state) };
+    case 'CONVERT_TO_FREIGHTER':
+      return { aircraftIds: guardAircraftIds(payload, state), closeRoutes: payload.closeRoutes === true };
     case 'SET_FUEL_PROGRAMME': return guardSetFuelProgramme(payload);
     case 'SET_ROUTE_TANKERING': return guardSetRouteTankering(payload, state);
     case 'SET_ROUTE_SCHEDULES': return guardSetRouteSchedules(payload, state);

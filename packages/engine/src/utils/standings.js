@@ -30,7 +30,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
-import { DEPRECIATION_YEARS } from '../data/overhead.js';
+import { DEPRECIATION_YEARS, tailBookValue } from '../data/overhead.js';
 import { LEGACY_STARTING_CAPITAL } from '../data/credit.js';
 import { outstandingLoanBalance } from './financeProjection.js';
 
@@ -81,9 +81,8 @@ export function rankingScore(state, weeksFlown) {
 /** Book value of one airframe, as the Balance Sheet carries it. */
 export function balanceSheetBookValue(aircraft, type = getAircraftType(aircraft?.typeId)) {
   if (aircraft?.ownershipType !== 'owned' || !type?.purchasePrice) return 0;
-  const ageYears = num(aircraft.ageWeeks) / 52;
-  const remaining = Math.max(0, 1 - ageYears / DEPRECIATION_YEARS);
-  return Math.round(eraPurchasePrice(type) * remaining);
+  // Straight line with no 10% floor; a converted tail adds its conversion.
+  return Math.round(tailBookValue(aircraft, type, { floor: false }));
 }
 
 /**

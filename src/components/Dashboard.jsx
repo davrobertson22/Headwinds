@@ -10,7 +10,7 @@ import { fuelImpact } from '../utils/fuelImpact.js';
 import { programmeSavingsFromReport } from '../../packages/engine/src/data/fuelProgrammes.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { crewStatus, crewParkedAlertText } from '../data/labor.js';
-import { isOutOfService } from '../data/maintenance.js';
+import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import { isReserve } from '../data/reserve.js';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
@@ -162,7 +162,7 @@ export default function Dashboard({ onNavigate }) {
       const t    = getAircraftType(a.typeId);
       const base = t?.baseMaintenancePerWk ?? 0;
       baseMaint += base;
-      agedMaint += base * maintenanceMultiplier(a.ageWeeks ?? 0);
+      agedMaint += base * maintenanceMultiplier(effectiveMaintAgeWeeks(a));
       ageWeeks  += a.ageWeeks ?? 0;
     }
     return {
@@ -217,7 +217,7 @@ export default function Dashboard({ onNavigate }) {
     const crew        = routeResults.reduce((s, { result }) => s + (result?.crewCost  ?? 0), 0);
     const maintenance = fleet.reduce((s, a) => {
       const type = getAircraftType(a.typeId);
-      return s + Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(a.ageWeeks ?? 0));
+      return s + Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
     }, 0);
     const service = Math.max(0, projectedOpCost - fuel - crew);
     const total   = fuel + crew + weeklyLeaseCost + maintenance + service;

@@ -23,7 +23,8 @@ import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllian
 import { guardDecision } from '../lib/decisionGuard.mjs';
 import { isGateScarcity, applyGateDecisionTx } from '../lib/gateService.mjs';
 import { listSoldAircraftTx } from '../lib/aircraftMarketService.mjs';
-import { newLineOrdersOf, assertLineSlotsTx, LineSlotConflict } from '../lib/productionLineService.mjs';
+import { newLineOrdersOf, newConversionLineOrdersOf, assertLineSlotsTx, LineSlotConflict } from '../lib/productionLineService.mjs';
+import { lineOrdersOf } from '@tailwinds/engine/data/productionLines.js';
 import { allow } from '../lib/rateLimit.mjs';
 import { withTx, assertWithinDeadline } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
@@ -472,8 +473,12 @@ export default async function decisionRoutes(fastify) {
     // Production lines: the frames this order put on a shared line. They were
     // booked against a rival view that another airline's order may have beaten
     // us to, so the transaction below re-checks them under the world's lock.
-    const newLineOrders = (changed && type === 'ORDER_AIRCRAFT' && injected.productionLinesWorld === true)
-      ? newLineOrdersOf(airline.state?.pendingOrders, next.pendingOrders)
+    // Freighter conversions hold conversion-line slots the same way (they live
+    // on the tail, so they are diffed from the fleet, not the order book).
+    const newLineOrders = (changed && injected.productionLinesWorld === true)
+      ? (type === 'ORDER_AIRCRAFT' ? newLineOrdersOf(airline.state?.pendingOrders, next.pendingOrders)
+        : type === 'CONVERT_TO_FREIGHTER' ? newConversionLineOrdersOf(airline.state?.fleet, next.fleet)
+        : [])
       : [];
 
     // A capital action the pool could not fund comes back unchanged. Explain it
@@ -629,7 +634,8 @@ export default async function decisionRoutes(fastify) {
           await assertLineSlotsTx(tx, {
             worldId: airline.worldId,
             airlineId: airline.id,
-            pendingOrders: next.pendingOrders,
+            // Orders AND conversions: both take frames of a line's week.
+            pendingOrders: lineOrdersOf(next),
             newOrders: newLineOrders,
             scale: injected.productionLineScale ?? 1,
             rates: injected.productionLineRates ?? null,

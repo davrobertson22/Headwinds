@@ -14,7 +14,7 @@
 // and nothing new needs a migration.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { lineConflicts } from '@tailwinds/engine/data/productionLines.js';
+import { lineConflicts, conversionLineOrders } from '@tailwinds/engine/data/productionLines.js';
 
 export class LineSlotConflict extends Error {
   constructor(conflicts) {
@@ -29,6 +29,16 @@ export function newLineOrdersOf(before, after) {
   return (after ?? []).filter((o) => o && !had.has(o.id) && o.lineId && !o.used);
 }
 
+/**
+ * Freighter conversions this decision put on a conversion line, as the
+ * order-shaped bookings lineConflicts reads (engine conversionLineOrders). A
+ * conversion lives on the tail (pendingConversion), not in pendingOrders.
+ */
+export function newConversionLineOrdersOf(beforeFleet, afterFleet) {
+  const had = new Set(conversionLineOrders(beforeFleet).map((o) => o.id));
+  return conversionLineOrders(afterFleet).filter((o) => !had.has(o.id));
+}
+
 const lockKey = (worldId) => `production-lines:${worldId}`;
 
 /** OTHER active airlines' bookings on `lines`, from week `absWeek` on. */
@@ -39,7 +49,7 @@ async function othersBookingsTx(tx, { worldId, airlineId, lines, absWeek }) {
     const rows = await tx.airline.findMany({ where: { worldId, status: 'ACTIVE' } });
     for (const r of rows) {
       if (r.id === airlineId) continue;
-      for (const o of r.state?.pendingOrders ?? []) {
+      for (const o of [...(r.state?.pendingOrders ?? []), ...conversionLineOrders(r.state?.fleet)]) {
         if (!o?.lineId || o.used || !lines.includes(o.lineId) || !(o.deliverAbsWeek >= absWeek)) continue;
         (out[o.lineId] ??= {})[o.deliverAbsWeek] = (out[o.lineId]?.[o.deliverAbsWeek] ?? 0) + 1;
       }
@@ -49,7 +59,9 @@ async function othersBookingsTx(tx, { worldId, airlineId, lines, absWeek }) {
   // The week is read through a CASE so one malformed order anywhere in the
   // world (a non-number deliverAbsWeek) is skipped instead of failing the cast
   // for every order on every line — Postgres may evaluate a WHERE cast before
-  // the lineId filter has thrown the row out.
+  // the lineId filter has thrown the row out. The second arm counts tails in a
+  // freighter conversion (state.fleet[].pendingConversion — data/conversions.js),
+  // which hold a conversion-line slot without being an order.
   const rows = await tx.$queryRaw`
     SELECT line, week::int AS week, count(*)::int AS n FROM (
       SELECT o->>'lineId' AS line,
@@ -64,6 +76,21 @@ async function othersBookingsTx(tx, { worldId, airlineId, lines, absWeek }) {
          AND a.status = 'ACTIVE'
          AND a.id <> ${airlineId}
          AND o->>'lineId' = ANY(${lines}::text[])
+      UNION ALL
+      SELECT c->>'lineId' AS line,
+             CASE WHEN jsonb_typeof(c->'doneAbsWeek') = 'number'
+                  THEN floor((c->>'doneAbsWeek')::numeric) END AS week,
+             'false' AS used
+        FROM "Airline" a
+        CROSS JOIN LATERAL jsonb_path_query(
+          CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
+               THEN a.state->'fleet' ELSE '[]'::jsonb END,
+          'lax $[*].pendingConversion') AS c
+       WHERE a."worldId" = ${worldId}
+         AND a.status = 'ACTIVE'
+         AND a.id <> ${airlineId}
+         AND jsonb_typeof(c) = 'object'
+         AND c->>'lineId' = ANY(${lines}::text[])
     ) b
      WHERE used <> 'true' AND week IS NOT NULL AND week >= ${absWeek}
      GROUP BY 1, 2`;

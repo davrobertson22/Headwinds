@@ -17,7 +17,7 @@
 import { weeklyTick } from './simulation.js';
 import { prepareWeek } from './tickPrep.js';
 import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
-import { DEPRECIATION_YEARS } from '../data/overhead.js';
+import { DEPRECIATION_YEARS, tailWeeklyDepreciation } from '../data/overhead.js';
 
 const CORPORATE_TAX_RATE = 0.21;
 
@@ -43,7 +43,8 @@ export function fleetWeeklyDepreciation(fleet = []) {
     .filter(a => a.ownershipType === 'owned')
     .reduce((s, a) => {
       const t = getAircraftType(a.typeId);
-      return t?.purchasePrice ? s + Math.round(eraPurchasePrice(t) / (DEPRECIATION_YEARS * 52)) : s;
+      // tailWeeklyDepreciation: the same straight line, plus a conversion's capex.
+      return t?.purchasePrice ? s + tailWeeklyDepreciation(a, t) : s;
     }, 0);
 }
 

@@ -10,7 +10,7 @@
 
 // The one import this leaf module carries: aircraft.js is itself a leaf (fuel.js only),
 // so the era market price of a frame can feed the insurance book value without a cycle.
-import { eraPurchasePrice, eraDeliveredAgeWeeks, getEraPriceYear } from './aircraft.js';
+import { eraPurchasePrice, eraDeliveredAgeWeeks, getEraPriceYear, getAircraftType } from './aircraft.js';
 
 // ─── 1. HQ & Corporate overhead ──────────────────────────────────────────────
 //
@@ -393,6 +393,62 @@ export function valueRemaining(ageWeeks, type) {
 /** Years a vintage frame (delivered at the depreciation floor) has left before it books at 10%. */
 export const VINTAGE_NAV_LIFE_YEARS = 10;
 
+// ─── Freighter conversions (claude/p2f-conversion.md) ────────────────────────
+// A converted tail is NOT revalued as its freighter type. The freighter's
+// catalogue price is erratic against the passenger frame it came from (a
+// 12-year-old 767-300 books at $25M; the same age repriced as a factory
+// 767-300F books at $58M — free collateral for a $17M conversion). So:
+//   book value = the PASSENGER airframe, still on its own schedule
+//              + the conversion capex, straight-line over this many years.
+export const CONVERSION_DEPRECIATION_YEARS = 15;
+
+/** The type a tail's AIRFRAME is valued as: its pre-conversion type if converted. */
+export function bookFrameType(aircraft, type) {
+  const from = aircraft?.conversion?.fromTypeId;
+  return from ? (getAircraftType(from) ?? type) : type;
+}
+
+/** Conversion capex not yet written off (0 for an unconverted tail). */
+export function conversionCapexRemaining(aircraft) {
+  const c = aircraft?.conversion;
+  const capex = Number(c?.capex);
+  if (!c || !(capex > 0)) return 0;
+  const age   = Number(aircraft?.ageWeeks) || 0;
+  const since = Math.max(0, age - (Number(c.ageWeeksAtConversion) || age));
+  return capex * Math.max(0, 1 - since / (CONVERSION_DEPRECIATION_YEARS * 52));
+}
+
+/**
+ * Book value of one tail in $ — unrounded, before the maintenance multiplier
+ * and the cost-basis cap. THE one definition every valuation routes through
+ * (sale, collateral, hull insurance, fleet NAV, estates, the balance sheet).
+ *
+ * Unconverted it is exactly what those callers computed inline before:
+ * eraPurchasePrice(type) × valueRemaining(ageWeeks, type). `floor: false` is
+ * the balance sheet's straight line with no 10% floor. `calYear` passes
+ * through to eraPurchasePrice when a caller prices at an explicit year.
+ */
+export function tailBookValue(aircraft, type, { calYear, floor = true } = {}) {
+  const frame = bookFrameType(aircraft, type);
+  if (!frame) return 0;
+  const price = calYear === undefined ? eraPurchasePrice(frame) : eraPurchasePrice(frame, calYear);
+  const remaining = floor
+    ? valueRemaining(aircraft?.ageWeeks, frame)
+    : Math.max(0, 1 - ((Number(aircraft?.ageWeeks) || 0) / 52) / DEPRECIATION_YEARS);
+  const conv = conversionCapexRemaining(aircraft);
+  return conv > 0 ? price * remaining + conv : price * remaining;
+}
+
+/** Weekly straight-line depreciation of one OWNED tail (non-cash). */
+export function tailWeeklyDepreciation(aircraft, type) {
+  const frame = bookFrameType(aircraft, type);
+  if (!frame?.purchasePrice) return 0;
+  const base = Math.round(eraPurchasePrice(frame) / (DEPRECIATION_YEARS * 52));
+  return conversionCapexRemaining(aircraft) > 0
+    ? base + Math.round(Number(aircraft.conversion.capex) / (CONVERSION_DEPRECIATION_YEARS * 52))
+    : base;
+}
+
 /**
  * A tail is never worth more than was paid for it — to the shop or to the bank.
  *
@@ -471,8 +527,8 @@ export function weeklyInsuranceCost(aircraft, aircraftType) {
   }
   // Hull: book value declines linearly over the useful life (same schedule as
   // depreciation and the balance sheet — one definition of "book value").
-  const remaining  = valueRemaining(aircraft.ageWeeks, aircraftType);    // never below 10 % of delivered value
-  const bookValue  = eraPurchasePrice(aircraftType) * remaining;
+  // never below 10 % of delivered value; a converted tail adds its conversion
+  const bookValue  = tailBookValue(aircraft, aircraftType);
   const hullAnnual = bookValue * HULL_INSURANCE_ANNUAL_RATE;
   const hullWeekly = Math.round(hullAnnual / 52);
   return liability + hullWeekly;

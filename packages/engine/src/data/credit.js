@@ -24,7 +24,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getAircraftType, eraPurchasePrice } from './aircraft.js';
-import { valueRemaining, capAtCostBasis } from './overhead.js';
+import { valueRemaining, capAtCostBasis, tailBookValue } from './overhead.js';
 
 /** Paid-in capital a new (classic-default) airline begins with. Prefer
  *  state.paidInCapital where a state is to hand — worlds set their own knob. */
@@ -348,7 +348,7 @@ export function loanRate(state, productId) {
 export function aircraftBookValue(aircraft) {
   const type = getAircraftType(aircraft?.typeId);
   if (!type) return 0;
-  return Math.round(eraPurchasePrice(type) * valueRemaining(aircraft?.ageWeeks, type));
+  return Math.round(tailBookValue(aircraft, type));
 }
 
 /** Every tail currently pledged against a live secured loan. */

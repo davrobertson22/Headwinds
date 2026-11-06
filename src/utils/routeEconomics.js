@@ -1,5 +1,6 @@
 import { getAircraftType } from '../data/aircraft.js';
 import { maintenanceMultiplier, weeklyBlockHours, routeDistanceKm } from './simulation.js';
+import { effectiveMaintAgeWeeks } from '../data/maintenance.js';
 
 /**
  * One definition of what a route earns.
@@ -107,7 +108,7 @@ export function aircraftFixedWeekly(aircraft, resultForAircraft = null) {
   }
   const type  = getAircraftType(aircraft.typeId);
   const lease = aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
-  const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(aircraft.ageWeeks ?? 0));
+  const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft)));
   return lease + maint;
 }
 
