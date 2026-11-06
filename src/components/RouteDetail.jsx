@@ -15,11 +15,12 @@ import {
 // directly too.
 import { playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../../packages/engine/src/models/network.js';
+import { blendJetAgeAppeal, jetAgeFields } from '../../packages/engine/src/models/jetAge.js';
 import { getAlliance } from '../data/alliances.js';
 import {
   simulateRoute, referencePrice, distanceKm, formatMoney, formatPercent, currentGameDate,
   hubSpokeCounts, pairConnectivityBonus,
-  isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
+  isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization, routeDistanceKm,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS, routeStops,
   stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
@@ -64,6 +65,16 @@ function Stat({ label, value, sub, color }) {
 /** Where this route's quality score comes from — mirrors the engine exactly
  *  via routeQualityBreakdown, so players can see (and pull) every lever. */
 /** Travel partners covering this route's stops, with what each lifts this month. */
+// The jet age (engine models/jetAge.js, era worlds): the pair's schedule blended
+// by frequency — the same helper the tick's multi-aircraft pre-pass and the
+// pairShare preview use. {} for jets and classic worlds.
+function pairJetAgeFields(state, pairRoutes, origin, destination) {
+  return jetAgeFields(blendJetAgeAppeal(pairRoutes.map(r => ({
+    type: getAircraftType(state.fleet.find(a => a.id === r.aircraftId)?.typeId),
+    freq: r.weeklyFrequency ?? 7,
+  })), routeDistanceKm(origin, destination)));
+}
+
 function travelPartnerRows(state, route) {
   const partners = state.travelPartners;
   if (!partners || !route) return [];
@@ -146,6 +157,23 @@ function QualityBreakdownPanel({ route, aircraft, state }) {
           </span>
           <span style={{ fontWeight: 600, color: 'var(--green)', whiteSpace: 'nowrap', marginLeft: 10 }}>
             ×{bd.loungeAppeal.toFixed(2)} business pull
+          </span>
+        </div>
+      )}
+      {/* The jet age — like lounges, a demand term outside the quality score:
+          a propeller airliner on a longer sector once jets are flying (era
+          worlds). Shown because nothing else on the page would explain why a
+          full-quality Vanguard is losing passengers to a Caravelle. */}
+      {(bd.jetAgeAppeal ?? 1) < 1 && (
+        <div data-jet-age style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
+          <span>
+            Jet age
+            <span style={{ color: 'var(--text-dim)', fontSize: 11, marginLeft: 6 }}>
+              {bd.designName} is a propeller airliner — on a sector this long, travellers want a jet
+            </span>
+          </span>
+          <span style={{ fontWeight: 600, color: 'var(--red)', whiteSpace: 'nowrap', marginLeft: 10 }}>
+            −{Math.round((1 - bd.jetAgeAppeal) * 100)}% demand
           </span>
         </div>
       )}
@@ -372,6 +400,8 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           priceSensitivityReduction: stateSensReduction(state, maxHubBonus),
           marketingBoost:    playerCampaignBoost(state, origin, dest),
           brandReach:        stateBrandReach(state, maxHubBonus, false, [origin, dest]),
+          // The jet age (era worlds): props on a longer sector — the tick's term.
+          ...pairJetAgeFields(state, playerRoutes, origin, dest),
         };
       }
     }
@@ -428,6 +458,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
         const combinedOffer = {
           airlineId: 'player', origin, destination: dest,
           loungeAppeal: stateLoungeFields(state, origin, dest).loungeAppeal,
+          ...pairJetAgeFields(state, playerRoutes, origin, dest),
           ...stateTravelPartnerFields(state, origin, dest),
           ...stateLoyaltyFields(state, origin, dest),
           ...statePricingFields(state, origin, dest),

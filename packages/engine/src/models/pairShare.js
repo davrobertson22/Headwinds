@@ -36,6 +36,7 @@ import {
   HUB_TIERS,
 } from './demand.js';
 import { buildEncroachmentOffer } from './encroachment.js';
+import { blendJetAgeAppeal, jetAgeFields } from './jetAge.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy, runNetworkTick } from './network.js';
 import { airlineWeeks, hubTimetable, scheduleInputsOf } from './schedule.js';
 import { getAlliance, allianceMembers } from '../data/alliances.js';
@@ -67,6 +68,7 @@ import {
   stateTravelPartnerFields,
   stateLoyaltyFields,
   statePricingFields,
+  routeDistanceKm,
 } from '../utils/simulation.js';
 import { worldDemandMultOf } from './economyCycle.js';
 
@@ -110,6 +112,7 @@ export function buildPlayerPairOffer(state, pairRoutes) {
 
   let totalFreq = 0, totalEcoSeats = 0, totalBizSeats = 0, totalSeatsAll = 0;
   let qualitySum = 0, qualityN = 0, qualityLeisureSum = 0, qualityBusinessSum = 0;
+  const jetItems = [];
   for (const route of pairRoutes) {
     const aircraft = fleet.find((a) => a.id === route.aircraftId);
     if (!aircraft) continue;
@@ -121,6 +124,7 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     totalEcoSeats += (cfg.economy ?? type.seats) * freq;
     totalBizSeats += (cfg.businessClass ?? 0) * freq;
     totalSeatsAll += configBodies(cfg) * freq;
+    jetItems.push({ type, freq });
     // Engine-accurate per-route quality (morale, utilization, cabin product,
     // catering, hub bonus) — the same figure the tick scores the offer with.
     const qb = routeQualityBreakdown(route, aircraft, state);
@@ -194,6 +198,9 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     ...stateLoyaltyFields(state, r0.origin, r0.destination),
     // Earned pricing headroom (demand model v4) — the tick attaches it too.
     ...statePricingFields(state, r0.origin, r0.destination),
+    // The jet age (era worlds): blended over the pair's schedule by frequency,
+    // as the tick's multi-aircraft pre-pass does.
+    ...jetAgeFields(blendJetAgeAppeal(jetItems, routeDistanceKm(r0.origin, r0.destination))),
   };
 }
 

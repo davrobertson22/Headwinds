@@ -61,6 +61,7 @@ export const PLANFORMS = {
   atr42:       [22.67, 24.57, 2.57, 4, 'high T'],
   atr72:       [27.17, 27.05, 2.57, 4, 'high T'],
   b1900d:      [17.63, 17.67, 1.8,  2, 'T'],
+  b737100:     [28.65, 28.35, 3.76, 6, ''],
   b737200:     [30.53, 28.35, 3.76, 6, ''],
   b717:        [37.81, 28.45, 3.34, 5, 'r2 T sw:24'],
   b727100:     [40.59, 32.92, 3.76, 6, 'r3 T sw:32'],
@@ -202,6 +203,11 @@ export const PLANFORMS = {
   dc830:       [45.87, 43.41, 3.73, 6, 'w4 sw:30'],
   vanguard:    [37.45, 36.15, 3.8,  6, 'p4'],
   hs748:       [20.42, 30.02, 2.67, 4, ''],
+  // Business jets (Tailwinds charters): club seating, rear pods, T-tails.
+  cl350:       [20.92, 21.0,  2.3,  2, 'r2 T sw:25 wl'],
+  cj4:         [16.26, 15.49, 1.75, 2, 'r2 T sw:12 wl'],
+  phenom300e:  [15.9,  16.2,  1.75, 2, 'r2 T sw:12 wl'],
+  g650er:      [30.4,  30.36, 2.6,  2, 'r2 T sw:33 wl'],
   // Freighters with no passenger parent below.
   c46:         [23.27, 32.92, 3.0,  4, 'wx:0.3'],
   an124:       [69.1,  73.3,  7.3,  10, 'w4 high c sw:32'],

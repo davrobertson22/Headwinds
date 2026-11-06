@@ -190,6 +190,10 @@ export function buildEncroachmentOffer(spec, market) {
     // Earned pricing headroom (demand model v4): a human rival's hub term on
     // this pair, from the same helper their own tick uses. AI carriers: none.
     ...(spec.pricingHeadroom ? { pricingHeadroom: spec.pricingHeadroom } : {}),
+    // The jet age (models/jetAge.js, era worlds): a human rival's schedule on
+    // this pair blended by frequency, from the same helper their own tick
+    // uses. AI carriers and jet-flown pairs: parity.
+    ...(spec.jetAgeAppeal != null && spec.jetAgeAppeal < 1 ? { jetAgeAppeal: spec.jetAgeAppeal } : {}),
   };
 }
 

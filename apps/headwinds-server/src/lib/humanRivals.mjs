@@ -22,9 +22,10 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, loyaltyPresence, stateDevaluationNotice, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, loyaltyPresence, stateDevaluationNotice, calendarYear, calendarYearFrac, routeDistanceKm, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
+import { blendJetAgeAppeal } from '@tailwinds/engine/models/jetAge.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
@@ -545,6 +546,12 @@ export function toRivalSpecs(airlineRow) {
   const reachOnHub  = stateBrandReach(s, 1, false);
   const reachOffHub = stateBrandReach(s, 0, false);
   const byPair = {};
+  // The jet age (engine models/jetAge.js): what metal flies each pair, blended
+  // by frequency with the helper the rival's own tick uses. Their calendar year
+  // is read off THEIR state — never the module-global the last tick published,
+  // which on a server that ticks many worlds belongs to someone else's world.
+  const jetItems = {};
+  const calYear = calendarYear(s);
   const flies = flyingThisWeek(s);
   for (const r of s.routes ?? []) {
     if (!flies(r)) continue;
@@ -584,6 +591,8 @@ export function toRivalSpecs(airlineRow) {
     };
     const freq = r.weeklyFrequency ?? 0;
     const cabin = cabinForRoute(s, r);
+    const rAircraft = (s.fleet ?? []).find((a) => a.id === r.aircraftId);
+    (jetItems[key] ??= []).push({ type: rAircraft ? getAircraftType(rAircraft.typeId) : null, freq });
     spec.frequency += freq;
     // Mixed fleets: blend seats-per-flight by frequency instead of letting the
     // first aircraft found stand in for every flight on the pair.
@@ -604,6 +613,11 @@ export function toRivalSpecs(airlineRow) {
     delete spec._seatsPerWeek;
     // No premium seats → no premium fare, however their pricing table reads.
     if (!(spec.businessSeatsPerWeek > 0)) spec.businessFare = null;
+  }
+  for (const [key, spec] of Object.entries(byPair)) {
+    const [a, b] = key.split('-');
+    const appeal = blendJetAgeAppeal(jetItems[key], routeDistanceKm(a, b), calYear);
+    if (appeal < 1) spec.jetAgeAppeal = appeal;
   }
   return byPair;
 }

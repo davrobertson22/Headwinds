@@ -109,8 +109,8 @@ export const AIRCRAFT_FAMILY = {
 
   // Boeing 737 (Original + Classic + NG + MAX all share significant commonality)
   // The file's long-standing policy is to hold every 737 in one family; the
-  // -200Adv joins on the same basis as the Classics.
-  b737200: 'boeing_737',
+  // Original series (-100, -200) joins on the same basis as the Classics.
+  b737100: 'boeing_737', b737200: 'boeing_737',
   b737300: 'boeing_737', b737400: 'boeing_737', b737500: 'boeing_737',
   b737700: 'boeing_737', b737800: 'boeing_737', b737900er: 'boeing_737',
   b737max7: 'boeing_737', b737max8: 'boeing_737', b737max8200: 'boeing_737',

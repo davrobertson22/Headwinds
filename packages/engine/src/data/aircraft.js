@@ -700,11 +700,31 @@ export const AIRCRAFT_TYPES = [
 
   // ── BOEING ──────────────────────────────────────────────────────────────────
   {
-    id: 'b737200',
-    name: 'Boeing 737-200Adv',
+    id: 'b737100',
+    name: 'Boeing 737-100',
     manufacturer: 'Boeing',
     category: 'Narrow Body',
-    eis: 1971,
+    eis: 1968,   // Lufthansa, February 1968 — the launch customer
+    oop: 1969,   // only 30 built; the last went to Malaysia-Singapore in October 1969
+    seats: 124,
+    typicalSeats: 103,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
+    range: 2_850,   // Boeing 737-100: 1,540 nmi
+    runwayFt: 5800,
+    weeklyLease:       13_000,
+    purchasePrice: 5_400_000,
+    fuelBurnPer100km: 415,
+    crewCostPerKm: 1.50,
+    baseMaintenancePerWk: 40_000,
+    description: 'The original 737 of 1968, launched by Lufthansa: the shortest and rarest of the family — only 30 built before airlines switched to the -200 stretch. Two-crew short-haul jet economics in a small, short-legged package.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Boeing_737-130,_Lufthansa_AN1039814.jpg?width=960',
+  },
+  {
+    id: 'b737200',
+    name: 'Boeing 737-200',
+    manufacturer: 'Boeing',
+    category: 'Narrow Body',
+    eis: 1968,   // the -200 stretch (United, April 1968); the -200 Advanced followed in 1971 on the same line
     oop: 1988,   // year the production line closed (era worlds: second-hand only after this)
     seats: 136,
     typicalSeats: 120,   // seats the headline range is quoted at
@@ -717,7 +737,7 @@ export const AIRCRAFT_TYPES = [
     fuelBurnPer100km: 431,
     crewCostPerKm: 1.58,
     baseMaintenancePerWk: 45_000,
-    description: 'The original 737. Very cheap on the second-hand market but thirsty and requires a flight engineer as a third crew member. Still flying on budget carriers worldwide.',
+    description: 'The 737-200, built from 1968 to 1988 (as the -200 Advanced from 1971). Very cheap on the second-hand market but thirsty and requires a flight engineer as a third crew member. Still flying on budget carriers worldwide.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Pacific_Western_Airlines_-_Boeing_737-200_%2850445370143%29.jpg/960px-Pacific_Western_Airlines_-_Boeing_737-200_%2850445370143%29.jpg',
   },
   {

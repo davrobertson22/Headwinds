@@ -59,7 +59,7 @@ export const PRODUCTION_LINES = {
   b707:            { name: 'Boeing 707 / 720',            types: ['b707120', 'b707320', 'b720b', 'b707320c'] },
   b717:            { name: 'Boeing 717',                  types: ['b717'] },
   b727:            { name: 'Boeing 727',                  types: ['b727100', 'b727200', 'b727200f', 'b727100c'] },
-  b737orig:        { name: 'Boeing 737-200',              types: ['b737200'] },
+  b737orig:        { name: 'Boeing 737 Original',         types: ['b737100', 'b737200'] },
   b737classic:     { name: 'Boeing 737 Classic',          types: ['b737300', 'b737400', 'b737500'] },
   b737ng:          { name: 'Boeing 737NG',                types: ['b737800', 'b737700', 'b737900er'] },
   b737max:         { name: 'Boeing 737 MAX',              types: ['b737max8', 'b737max7', 'b737max8200', 'b737max9', 'b737max10'] },

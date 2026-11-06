@@ -81,6 +81,7 @@ import {
   CARGO_PRICE_CAP_MULTIPLE,
   cargoPriceChokeFactor,
 } from '../models/demand.js';
+import { jetAgeAppeal, blendJetAgeAppeal, jetAgeFields } from '../models/jetAge.js';
 import {
   ALLIANCES,
   getAlliance,
@@ -1304,6 +1305,9 @@ export function routeQualityBreakdown(route, aircraft, state) {
     wifiEquipped: isWifiEquipped(aircraft),
     loungeCoverage: ancCoverage.lounge,
     loungeAppeal,
+    // Not a quality term either — the jet age (models/jetAge.js) scales this
+    // route's demand and share directly. 1 for a jet or a classic world.
+    jetAgeAppeal: jetAgeAppeal(type, isMultiStop(r) ? routeMaxLegKm(r) : dist),
   };
 }
 
@@ -2471,6 +2475,10 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // Earned pricing headroom (demand model v4; attached by weeklyTick /
     // statePricingFields). Absent = 0 = the plain quality threshold.
     ...(route.pricingHeadroom ? { pricingHeadroom: route.pricingHeadroom } : {}),
+    // The jet age (models/jetAge.js; era worlds only): a propeller on a longer
+    // sector once jets are flying. Read off the metal and the sector, so every
+    // caller — tick or preview — scores it without threading anything in.
+    ...jetAgeFields(jetAgeAppeal(type, dist)),
   };
 
   // Gather any AI competitors serving this route and compute market share.
@@ -3150,6 +3158,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       marketingBoost: route.marketingBoost ?? 0,
       brandReach: route.brandReach ?? 1,
       loungeAppeal: route.loungeAppeal ?? 1,
+      // The jet age per SEGMENT: the traveller's own sector, flown on this metal.
+      ...jetAgeFields(jetAgeAppeal(type, dist)),
       // Loyalty standing per SEGMENT, like the travel partners below.
       ...loyaltyFieldsForSegment(route.loyaltyAt, seg.from, seg.to),
       // Travel partners per SEGMENT: a cruise port at one stop lifts only the
@@ -5415,6 +5425,12 @@ export function weeklyTick(state) {
           // Earned pricing headroom (demand model v4; {} elsewhere) — same
           // reason again (models/pricingPower.js).
           ...statePricingFields(state, pairO, pairD),
+          // The jet age (models/jetAge.js), blended over the group's schedule
+          // by frequency — same reason again, and the same helper pairShare's
+          // preview and the server's rival specs blend with.
+          ...jetAgeFields(blendJetAgeAppeal(group.map(g => ({
+            type: getAircraftType(g.aircraft.typeId), freq: g.route.weeklyFrequency ?? 7,
+          })), groupDist)),
         };
 
 
