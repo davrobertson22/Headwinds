@@ -54,6 +54,145 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>Demand model v4: frequency sells seats, and every world has a business cycle (new worlds)</h2>
+      <p>New worlds now run demand model v4. It keeps v3&rsquo;s real-world demand and seasons, and changes how the market answers what you do. Look for the &ldquo;frequency sells seats&rdquo; tag in the lobby. Worlds already running keep the rules they started with.</p>
+      <ul>
+        <li><strong>Frequency sells seats.</strong> On a route you fly alone, how often you fly now changes how many people travel. Daily service is the baseline. On a 500 km business route, once a week sells about 30% fewer seats, four times a week about 13% fewer, and twice daily about 19% more, up to 25% at most. Leisure travellers care less, and on long haul the gain stops at about daily.</li>
+        <li><strong>Out-flying a rival counts for more.</strong> Flying three times a rival&rsquo;s schedule now wins about 80% of the business travellers, up from about 70%.</li>
+        <li><strong>Pricing headroom you earn.</strong> On a market no rival flies, and where no rival serves both airports, you can charge more before passengers start to walk. Your hub at either end adds a little more, by hub size. Past that point the fall-off is gentler. The planner&rsquo;s fare-cliff warnings use the same figures.</li>
+        <li><strong>The A380 and 747-8 need code-F stands.</strong> They can only use 77 big gateway airports, and opening, reassigning and both route planners respect that. Freighters aren&rsquo;t affected.</li>
+        <li><strong>Flat gate rent.</strong> Each extra gate used to cost more than the last. Rent is now flat by airport tier, with a big-tenant discount: 10% off gates 11&ndash;25 and 20% off from gate 26 on.</li>
+        <li><strong>A business cycle.</strong> Each world has its own booms and slowdowns, about four game years from peak to peak, usually moving demand 3&ndash;5% either way (never more than 15% down or 12% up). New lease rates move with it. Everyone in the world shares the same cycle, and a Dashboard card shows where it is, which way it&rsquo;s heading, and today&rsquo;s demand and lease rates. Demand events come about half as often but hit harder.</li>
+        <li><strong>Meltdowns are earned.</strong> An operational meltdown can only happen if you fly your fleet past 85% of its hours (more likely with no spare aircraft) or let pilot, ground or cabin morale fall below 55. Stay clear of both and the risk is zero. A meltdown costs satisfaction and 3 points of reputation, and makes the world news. Airlines with fewer than 5 aircraft are exempt.</li>
+        <li><strong>Board mandates.</strong> From the second quarter the board sets one goal a quarter, picked from where your airline stands: passengers, margin, load factor, satisfaction, a new country or new routes. Meet it for a $1.5M bonus, scaled to the era. The card stays on your Dashboard after the starter objectives are done.</li>
+      </ul>
+      <p>In every world, including ones already running: the 787 and A350 families now cruise at Mach 0.85 (900 km/h) with corrected fuel burn, so the 787-9 and A350-900 come much closer to the best aircraft for their missions.</p>
+      <p>The in-game Wiki has a new Newer World Rules section. More on frequency and fares in the <a href="/route-economics.html">route economics guide</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>The jet age, and the Original 737s (era worlds)</h2>
+      <p>In era worlds, propliners never went out of fashion: an airline could reach the late 1960s flying only Vanguards and lose nothing for it. Real passengers left propellers for jets fast once the jets arrived. Now they do here too.</p>
+      <ul>
+        <li><strong>Props lose passengers to jets on longer flights.</strong> The jet age ramps in from 1958 and reaches full strength in 1965. On sectors over 400 km, a propeller airliner (turboprops and pistons) loses demand, up to 35% at 1,600 km and beyond. Short hops are untouched, and freighters are exempt.</li>
+        <li><strong>It costs you fare more than seats.</strong> In a deep market a prop still fills; you just can&rsquo;t charge as much. Against a jet at the same fare, a fully affected prop keeps about 40% of the passengers.</li>
+        <li><strong>You can see it.</strong> Route Detail shows a red &ldquo;Jet age&rdquo; line with the demand lost on affected routes, and forecasts and the Route Planner include it.</li>
+        <li><strong>New: Boeing 737-100</strong> (1968), Lufthansa&rsquo;s launch type: 103 seats in a typical layout (124 at most) and 2,850 km of range. Its line closed in 1969 after 30 were built, and as a brand-new type it can only be ordered, not leased.</li>
+        <li><strong>The 737-200 now enters service in 1968</strong> (was 1971), on the same &ldquo;Boeing 737 Original&rdquo; production line.</li>
+      </ul>
+      <p>This applies to every era world, including ones already running, from the next week. Classic worlds aren&rsquo;t affected. More on the type in the <a href="/aircraft.html">aircraft guide</a>.</p>
+      <p>Thanks to Kat the Fox on Discord for the report.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>Design your cabins: a floor plan and seat products</h2>
+      <p>Refitting an aircraft is now something you can see and shape.</p>
+      <ul>
+        <li><strong>See every seat.</strong> The refit screen draws your aircraft from above with every seat on it. Paint cabins onto the floor with a brush, or drag the dividers between them.</li>
+        <li><strong>Choose the seat in each cabin.</strong> Economy: 28&Prime;, 30&Prime;, 32&Prime; or 34&Prime; pitch. Premium Economy: 36&Prime;, 38&Prime; or 40&Prime;, with optional leg rests. Business: recliner, cradle (from 1990), angled lie-flat (1996), fully flat (2000) or a suite with a door (2014). First: recliner, sleeper (1980), suite (1998) or, on widebodies, an apartment (2014).</li>
+        <li><strong>Add extras.</strong> Seatback screens (from 1992), seat power (2005), direct aisle access in Business (2006, drawn 1-2-1), an onboard bar on widebodies (1970) and a shower suite on double-deckers (2008).</li>
+        <li><strong>Bigger seats take more floor.</strong> Tight 28&Prime; economy packs in more rows; lie-flats and suites take more space, so picking one shrinks that cabin to fit. The floor plan redraws as you go.</li>
+        <li><strong>Products reach the right travellers.</strong> What you fit in Business and First wins business travellers; what you fit in Economy wins leisure travellers. The preview shows the quality each group sees.</li>
+        <li><strong>They cost money.</strong> Premium seats carry a fitting fee per seat (a fully flat bed $40k, a Business suite $80k), the bar and shower are priced per aircraft, and products add a little to running costs. Downgrades are free. The aircraft is out of service while it&rsquo;s refitted.</li>
+        <li><strong>Service grade</strong> (basic, standard, premium or luxury) can now be set on the refit screen too. Before, a refit quietly reset it to standard.</li>
+      </ul>
+      <p>Era and airframe limits apply: no lie-flats in 1985 and no shower on a 787, and the screen says why. More on cabins in the <a href="/fleet-planning.html">fleet planning guide</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>Tail fins, custom tails, and your airline everywhere</h2>
+      <p>Your airline now looks like itself all over the game.</p>
+      <ul>
+        <li><strong>Design a tail.</strong> The logo maker (✎ Edit Branding) has a new Tail section: pick one of five designs (solid, stripe, stripes, swoosh or split), choose the tail and design colours, and put your logo on the fin. The striped designs run the length of the fin and carry no logo, as on many real airlines.</li>
+        <li><strong>Or upload your own.</strong> Add your own tail image and it&rsquo;s drawn on the fin wherever tails show. A template with the fin&rsquo;s outline is there to download, and your tail colour shows through any clear areas.</li>
+        <li><strong>Tails on the maps.</strong> Your fin sits over each of your hubs on the flat map and the globe, sized by hub, and each rival&rsquo;s fin sits over theirs on the Rivals map. Tails also appear on the season podium and in player profiles.</li>
+        <li><strong>Logos everywhere.</strong> Rankings, season results, the News tab and the activity ticker now show each airline&rsquo;s logo, with the news event&rsquo;s emoji as a small badge.</li>
+        <li><strong>Rivals in their colours.</strong> On the Rivals map, each rival&rsquo;s own routes and airports are drawn in its livery colour, or a neutral slate when that colour would be hard to read.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>Smaller touches: route width, load-factor colours, a profit waterfall and more</h2>
+      <ul>
+        <li><strong>Route width by passengers.</strong> Turn on Width on the Network map (flat map, globe or map view) and busy routes draw thicker. Off by default.</li>
+        <li><strong>Colour routes by load factor.</strong> A Profit / Load factor switch on the Network map colours routes in five bands from cool to hot, with a key. Planes on the globe follow it, and it&rsquo;s remembered in your browser.</li>
+        <li><strong>Where the money went.</strong> A compact profit waterfall on the Dashboard, above the Weekly P&amp;L: revenue, then flying, fleet, staff, gates and HQ, brand, other, and loans and tax, down to net cash. It shows last week, or this week&rsquo;s projection before your first week, and links to the full version in Finance.</li>
+        <li><strong>Week-on-week arrows</strong> on the Dashboard&rsquo;s load factor, passengers, yield and fleet.</li>
+        <li><strong>Rank arrows.</strong> Rankings show how far each airline has moved since last week.</li>
+        <li><strong>Season progress.</strong> A bar over the lobby standings, and a compact one in the top bar, show how far through the world you are, with the final year shaded.</li>
+        <li><strong>Live side races</strong> above the standings: best newcomer (scored per week flown), regional champions (regions with two or more airlines) and busiest this week.</li>
+        <li><strong>Your place in the queue.</strong> In production-line worlds, each order under Fleet &rarr; On Order shows how many aircraft are ahead of it on its line, counting every airline&rsquo;s bookings.</li>
+        <li><strong>World rule presets.</strong> When creating a world, start from Standard, Hardcore, Sandbox or Classic. Change any switch and it becomes Custom.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>Freight bulk pricing</h2>
+      <p>Freight pricing on Routes &rarr; Freight now works the way passenger pricing does.</p>
+      <ul>
+        <li><strong>Tick and reprice.</strong> Tick lanes (or Select all) and a bar appears: change the rate by a percentage with a live preview, including how many freighters would lose 5% or more of their freight at the new price; reset to the going rate; change flights a week; or close them.</li>
+        <li><strong>⚖️ Bulk Pricing.</strong> Filter your lanes by load factor and by how your rate compares with the going rate, then reprice them by a percentage or reset them to the going rate.</li>
+        <li><strong>Edit the rate in the row.</strong> The yield column is now an editor: a stepper for each freighter, and &minus;/+ for the whole lane where several of your freighters share it.</li>
+      </ul>
+      <p>Thanks to Barca and Dunno23 on Discord for the suggestion.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 6, 2026</p>
+      <h2>Dakar&rsquo;s two airports</h2>
+      <ul>
+        <li><strong>DKR is now Dakar&rsquo;s original L&eacute;opold S&eacute;dar Senghor airport, at its real location.</strong> It used to sit on top of the new Blaise Diagne airport (DSS). The two still share one market, so DKR&ndash;DSS carries no passengers.</li>
+      </ul>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 5, 2026</p>
+      <h2>Hub banks: connections come from your timetable (new worlds)</h2>
+      <p>Until now every connection at your hub was assumed to work, with a flat 1.5-hour wait, whenever the flights actually ran. In new worlds, hubs run on banks, the way real ones do.</p>
+      <ul>
+        <li><strong>Waves of arrivals, then departures.</strong> Every hub you designate, your focus city included, runs in banks: flights land together, passengers change, and flights leave together.</li>
+        <li><strong>Connections come from the timetable.</strong> A connection works when the inbound lands 40 minutes to 6 hours before the onward flight leaves. How many of the possible connections actually work, and the real wait, decide how well it competes with a rival&rsquo;s nonstop or connection. A pair your timetable never connects sells no connecting tickets.</li>
+        <li><strong>The automatic schedule banks for you.</strong> You don&rsquo;t have to touch anything. Each hub gets 3 banks a day (4 at bigger hubs, 6 at the biggest). Aircraft leave on a departure wave and wait at the far end, up to 4 hours (or overnight for the day&rsquo;s first bank), to come back for the next arrival wave.</li>
+        <li><strong>Or set your own</strong> for each hub in Operations &rarr; Schedule: 3, 4 or 6 banks, your own times (up to 8, at least 90 minutes apart, in hub local time), or Rolling with no banks.</li>
+        <li><strong>See how it&rsquo;s working.</strong> Each hub card shows a 24-hour strip of arrivals and departures with the banks shaded, connections a week, the average wait, connecting passengers last week and how long your aircraft wait for banks. Flights you&rsquo;ve moved off a bank get an amber underline, and <strong>Snap to the bank</strong> (one flight or all of them) puts them back.</li>
+      </ul>
+      <p>You don&rsquo;t need the schedule editor for any of this: the automatic banks connect nearly as many passengers as the old assumption did, while a hub left on Rolling connects far fewer. Hub banks are on by default when you create a world, and those worlds show a 🕓 chip in the lobby. Worlds already running keep the old rules. More in the <a href="/hub-strategy.html">hub strategy guide</a>.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 5, 2026</p>
+      <h2>Freighter conversions</h2>
+      <p>Ageing passenger jets can now have a second life as freighters.</p>
+      <ul>
+        <li><strong>Convert from the aircraft&rsquo;s page in Fleet,</strong> or tick several and convert them together. Each converts to its family&rsquo;s freighter: the 737-800, -400 and -300, A321, E190, 767-200 and -300, A330-200, A300-600, MD-11, DC-10-30, 747-400 and -200, 757-200, 727-200, DC-8-63 and Electra. In era worlds a conversion is only offered once its freighter exists.</li>
+        <li><strong>Cost and time.</strong> About 18% of the freighter&rsquo;s new price, and 10 to 20 weeks in the hangar depending on size. In production-line worlds it also needs a slot on a conversion line, which can mean a longer wait; the confirm shows when it will be ready.</li>
+        <li><strong>Ten years younger.</strong> The conversion includes a heavy check, and the airframe then runs like one 10 years younger: a 30-year-old A321 goes from 5.5 times a new aircraft&rsquo;s maintenance cost to 3 times. Its book value carries over, plus the cost of the conversion.</li>
+        <li><strong>It&rsquo;s one-way,</strong> and the aircraft must be owned (buy out a lease first) and off its routes. The confirm can close its routes for you.</li>
+        <li><strong>Freighters no longer count toward fleet age in reputation,</strong> so a cargo arm of older frames doesn&rsquo;t drag your brand down. An all-cargo airline still counts its whole fleet.</li>
+      </ul>
+      <p>More on freighters in the <a href="/fleet-planning.html">fleet planning guide</a>. Thanks to Barca and VodkaOnFire on Discord for the suggestion.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 5, 2026</p>
+      <h2>Priority delivery replaces the early-slot fee (production-line worlds)</h2>
+      <p>The old early-slot fee only ever moved your first aircraft forward, and on a busy line it bought nothing at all, because the near weeks were already taken. Priority delivery replaces it.</p>
+      <ul>
+        <li><strong>A fifth of every line&rsquo;s weekly output is held back</strong> for priority orders (none on lines that build only one or two a week). Standard orders fill the rest, and the held-back slots open to everyone from the standard delivery week.</li>
+        <li><strong>Priority aircraft arrive a week closer together:</strong> every 2 weeks for narrowbodies, 3 for widebodies, 4 for the A380. Still no four A380s in a month.</li>
+        <li><strong>The fee is priced by weeks skipped,</strong> aircraft by aircraft, up to 50% of list. On a quiet line most aircraft after the first cost little extra; on a packed line you pay more, but you really do jump the queue.</li>
+        <li><strong>At checkout, choose Standard · list price or ⚡ Priority.</strong> Each shows its first delivery week, spacing and total fee, and market cards show the next priority week and its fee.</li>
+      </ul>
+      <p>This applies to every world with production lines, including ones already running, so standard buyers there now get four-fifths of each week&rsquo;s output until the week is close. Thanks to Barca on Discord for spotting the problem.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">November 5, 2026</p>
       <h2>The game no longer freezes when rivals move, and pages open faster</h2>
       <p>With a big airline, Headwinds kept stalling for a moment with nobody touching it. Now:</p>
@@ -153,6 +292,15 @@
       <p>In era worlds each one sells new while its real production line was open and second-hand after. They&rsquo;re in every world now, including the ones already running.</p>
       <p>The <strong>A220-300</strong> now burns about 3% less fuel than the A319neo, as it does in real life (281 L per 100 km, down from 321). The <strong>A220-100</strong> drops to 266 L so it still burns less than the bigger -300.</p>
       <p>Freighters requested by The Dragon Overlord and read2much. on Discord. Added to Tailwinds as well.</p>
+    </div>
+
+    <div class="entry">
+      <p class="date">November 2, 2026</p>
+      <h2>Fix: the aircraft picker on a new route</h2>
+      <ul>
+        <li><strong>The picker now checks spare flying hours in the weeks the route will actually fly,</strong> the same way opening the route does. Before, it could offer an aircraft the route then refused.</li>
+      </ul>
+      <p>Thanks to JackG207174 on Discord for the report.</p>
     </div>
 
     <div class="entry">
