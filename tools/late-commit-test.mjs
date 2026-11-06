@@ -147,7 +147,10 @@ await test('GamePlayScreen owes a rollback on every failed write and upgrades lo
   const src = read('../apps/headwinds-web/src/GamePlayScreen.jsx');
   assert.match(src, /resyncOwed\.current = true;\s*\n\s*if \(shouldRollback\(writesInFlight\.current\)\) load\(\{ full: true \}\);/);
   assert.match(src, /const full = wantsFullResync\(\{\s*requested: fullRequested, pending: resyncOwed\.current, writesInFlight: writesInFlight\.current,/);
-  assert.match(src, /setState\(withStatsBackfill\(incoming\)\);\s*\n\s*if \(full\) resyncOwed\.current = false;/);
+  // The adopted blob is projected off-thread first (projection-worker-test);
+  // the debt is still cleared on the line right after it is adopted.
+  assert.match(src, /const next = withStatsBackfill\(incoming\);/);
+  assert.match(src, /setState\(newerRivals \? \{ \.\.\.next, \.\.\.newerRivals \} : next\);\s*\n\s*if \(full\) resyncOwed\.current = false;/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

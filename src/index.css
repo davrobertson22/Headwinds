@@ -2454,3 +2454,11 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
   .ms-beta-hint > span:nth-child(2) { flex: 1 1 200px; }
   .ms-beta-hint button { margin-left: auto; }
 }
+
+/* A page whose code is still loading (utils/lazyPage.jsx) — usually a blink. */
+.page-loading {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}

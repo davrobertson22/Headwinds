@@ -4074,9 +4074,12 @@ function projectionReputation(state, avgUtilizationOverride) {
   // WITH the route it is adding, as the tick will see it; a projection state
   // (pairShare's stateForOffer) carries the same figure as `_avgUtilization`
   // so the pooled-offer builder does not re-derive it per call.
+  // Memoised per (fleet, routes, cargoRoutes): a screen that previews every
+  // contested pair (the Rivals tab) asks once per row, and re-walking every
+  // route each time made that page O(routes²).
   const avgUtilization = avgUtilizationOverride
     ?? (Number.isFinite(state._avgUtilization) ? state._avgUtilization : null)
-    ?? fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
+    ?? fleetAvgUtilizationOf(state.fleet, state.routes, state.cargoRoutes);
   const loyaltyBonus = poolsWorld
     ? devaluationRepPenalty(loyalty, _absoluteWeek(state.year ?? 1, state.week ?? 1))
     : loyaltyReputationBonus(strength);

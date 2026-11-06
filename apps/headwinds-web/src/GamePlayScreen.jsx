@@ -34,6 +34,7 @@ import TickCountdown from './TickCountdown.jsx';
 import SeasonProgress from '../../../src/components/SeasonProgress.jsx';
 import { EventRulesBanner } from './EventRules.jsx';
 import InviteButton from './InviteButton.jsx';
+import { projectOffThread } from './projectionOffThread.js';
 import '../../../src/index.css';
 
 // ── Statistics backfill ─────────────────────────────────────────────────────
@@ -113,6 +114,11 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   const [sessionExpired, setSessionExpired] = useState(false);
   const stateRef = useRef(null);
   stateRef.current = state;
+  // Poll responses are numbered as they arrive; one is adopted only if no later
+  // one has been already (adoption waits on the projection worker).
+  const overlaySeq = useRef(0);
+  const adoptedSeq = useRef(0);
+  const latestRivals = useRef(null);
   const metaRef = useRef(null);
   metaRef.current = meta;
   // Change stamp from the last response — sent back on every poll so the server
@@ -169,19 +175,44 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       // stock pool, alliance, badges) and is stripped before persistence, so
       // adopting it can never stomp an optimistic local edit. Apply it on its
       // own whenever it arrives — including on polls that carry no blob.
-      if (d.rivals) setState((cur) => (cur ? { ...cur, ...d.rivals } : cur));
-
-      if (!d.state) return; // overlay-only poll — the common case between ticks
+      //
+      // Each new state's weekly projection is worked out in a Web Worker FIRST
+      // (projectOffThread) and the state adopted once it's ready, so no screen
+      // runs a full weekly tick on the main thread for it. `overlaySeq` keeps a
+      // slower, older response from landing on top of a newer one.
+      const seq = ++overlaySeq.current;
 
       // Only replace local state when the server has genuinely moved on (a tick
       // landed or first load) — don't stomp optimistic edits between polls.
       // The blob now arrives WITHOUT the overlay, so re-apply whatever overlay
       // came with it; otherwise adopting a blob would blank the Rivals tab.
       const local = stateRef.current;
-      const incoming = d.rivals ? { ...d.state, ...d.rivals } : d.state;
-      if (!local || full || absWeekOfState(incoming) > absWeekOfState(local)) {
-        setState(withStatsBackfill(incoming));
+      const incoming = d.state ? (d.rivals ? { ...d.state, ...d.rivals } : d.state) : null;
+      const adoptBlob = (s) => !stateRef.current || full || absWeekOfState(s) > absWeekOfState(stateRef.current);
+      if (incoming && (!local || full || absWeekOfState(incoming) > absWeekOfState(local))) {
+        const next = withStatsBackfill(incoming);
+        await projectOffThread(next);
+        if (!adoptBlob(next)) return;
+        // A newer overlay-only poll landed while this was projected: keep its
+        // rivals on top (a new week must never be dropped for an overlay).
+        const newerRivals = seq < adoptedSeq.current ? latestRivals.current : null;
+        if (!newerRivals) { adoptedSeq.current = seq; if (d.rivals) latestRivals.current = d.rivals; }
+        setState(newerRivals ? { ...next, ...newerRivals } : next);
         if (full) resyncOwed.current = false;
+        return;
+      }
+      if (!d.rivals) return;
+      if (local) {
+        const next = { ...local, ...d.rivals };
+        await projectOffThread(next, { base: local, overlay: d.rivals });
+        if (seq < adoptedSeq.current) return;
+        adoptedSeq.current = seq;
+        latestRivals.current = d.rivals;
+        setState((cur) => (cur === local ? next : (cur ? { ...cur, ...d.rivals } : cur)));
+      } else {
+        adoptedSeq.current = seq;
+        latestRivals.current = d.rivals;
+        setState((cur) => (cur ? { ...cur, ...d.rivals } : cur));
       }
     } catch (e) {
       if (e instanceof SessionExpiredError) setSessionExpired(true);

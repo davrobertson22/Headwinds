@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { lazyPage, preloadPagesWhenIdle } from './utils/lazyPage.jsx';
 import { createPortal } from 'react-dom';
 import { useGame } from './store/GameContext.jsx';
 import { ToastProvider, useToast } from './components/ToastSystem.jsx';
@@ -9,30 +10,30 @@ import SaveLoadModal from './components/SaveLoadModal.jsx';
 import { formatMoney, formatGameDate, weekToGameDate } from './utils/simulation.js';
 import SetupScreen from './components/SetupScreen.jsx';
 import Dashboard from './components/Dashboard.jsx';
-import Fleet from './components/Fleet.jsx';
-import Routes from './components/Routes.jsx';
-import Marketplace from './components/Marketplace.jsx';
+const Fleet = lazyPage(() => import('./components/Fleet.jsx'), 'Fleet');
+const Routes = lazyPage(() => import('./components/Routes.jsx'), 'Routes');
+const Marketplace = lazyPage(() => import('./components/Marketplace.jsx'), 'Marketplace');
 import Finance from './components/Finance.jsx';
 import { BellIcon, DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
   WrenchIcon, SearchIcon, GlobeIcon,
 } from './components/Icons.jsx';
-import HubManagement from './components/HubManagement.jsx';
-import Reputation from './components/Reputation.jsx';
-import Competition from './components/Competition.jsx';
-import StockMarket from './components/StockMarket.jsx';
-import News from './components/News.jsx';
-import UsedMarket from './components/UsedMarket.jsx';
-import RoutePlanner from './components/RoutePlanner.jsx';
-import RouteFinderScreen from './components/RouteFinderScreen.jsx';
-import Airports from './components/Airports.jsx';
+const HubManagement = lazyPage(() => import('./components/HubManagement.jsx'), 'HubManagement');
+const Reputation = lazyPage(() => import('./components/Reputation.jsx'), 'Reputation');
+const Competition = lazyPage(() => import('./components/Competition.jsx'), 'Competition');
+const StockMarket = lazyPage(() => import('./components/StockMarket.jsx'), 'StockMarket');
+const News = lazyPage(() => import('./components/News.jsx'), 'News');
+const UsedMarket = lazyPage(() => import('./components/UsedMarket.jsx'), 'UsedMarket');
+const RoutePlanner = lazyPage(() => import('./components/RoutePlanner.jsx'), 'RoutePlanner');
+const RouteFinderScreen = lazyPage(() => import('./components/RouteFinderScreen.jsx'), 'RouteFinderScreen');
+const Airports = lazyPage(() => import('./components/Airports.jsx'), 'Airports');
 import RouteMap from './components/RouteMap.jsx';
-import Operations from './components/Operations.jsx';
-import Maintenance from './components/Maintenance.jsx';
-import Ancillaries from './components/Ancillaries.jsx';
-import Loyalty from './components/Loyalty.jsx';
-import Partnerships from './components/Partnerships.jsx';
-import Alliances from './components/Alliances.jsx';
-import Wiki from './components/Wiki.jsx';
+const Operations = lazyPage(() => import('./components/Operations.jsx'), 'Operations');
+const Maintenance = lazyPage(() => import('./components/Maintenance.jsx'), 'Maintenance');
+const Ancillaries = lazyPage(() => import('./components/Ancillaries.jsx'), 'Ancillaries');
+const Loyalty = lazyPage(() => import('./components/Loyalty.jsx'), 'Loyalty');
+const Partnerships = lazyPage(() => import('./components/Partnerships.jsx'), 'Partnerships');
+const Alliances = lazyPage(() => import('./components/Alliances.jsx'), 'Alliances');
+const Wiki = lazyPage(() => import('./components/Wiki.jsx'), 'Wiki');
 import AirportSelect from './components/AirportSelect.jsx';
 import AirlineLogo from './components/AirlineLogo.jsx';
 import OnboardingTour, { TOUR_KEY } from './components/OnboardingTour.jsx';
@@ -342,6 +343,9 @@ function AppInner() {
   // `remoteChrome` carries the multiplayer topbar extras (tick countdown,
   // lobby link, feed + messages) so the game renders ONE header.
   const { state, dispatch, remote, remoteChrome, remoteApi } = useGame();
+  // Pages load on first open (utils/lazyPage.jsx); fetch the rest in the
+  // background once the first screen is up, so a first click rarely waits.
+  useEffect(() => { preloadPagesWhenIdle(); }, []);
   // Classic (top bar + tabs) or map-first (components/MapShell.jsx), per
   // browser. In map-first the 'map' tab means "no panel open".
   const [layout, setLayout] = useState(readLayout);

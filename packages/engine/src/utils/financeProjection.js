@@ -92,6 +92,21 @@ export function projectWeek(state) {
   return computeProjectWeek(state);
 }
 
+/**
+ * Hand projectWeek a result computed elsewhere for this exact state object —
+ * the Headwinds client works out the projection for an incoming server state
+ * in a Web Worker (same engine, same inputs) and primes it here before the
+ * state is adopted, so the screens' synchronous projectWeek(state) calls are
+ * cache hits instead of a full weekly tick on the main thread. Never replaces
+ * a result already computed for the state. Returns whether it was stored.
+ */
+export function primeProjectWeek(state, result) {
+  if (!state || typeof state !== 'object' || !result || typeof result !== 'object') return false;
+  if (_projectionCache.has(state)) return false;
+  _projectionCache.set(state, result);
+  return true;
+}
+
 function computeProjectWeek(state) {
   const fleet = state.fleet ?? [];
 
