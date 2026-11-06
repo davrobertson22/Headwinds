@@ -2263,12 +2263,14 @@ function reducer(state, action) {
         absWeek:   currentAbsWeek,
         fromWeek:  (isLaunch || wantsPriority) ? null : (Number.isFinite(action.slotFromWeek) ? action.slotFromWeek : null),
         notBefore: isLaunch ? eraDenial.eisAbs : null,
+        priority:  wantsPriority,
       }) : null;
 
       for (let i = 0; i < orderQty; i++) {
         // Starter Fleet frames skip the queue entirely (and so take no slot). A
         // launch frame never does: the aeroplane does not exist yet.
         const instantFrame = isMultiplayerWorld && starterUsed < STARTER_DELIVERY_CAP && !isLaunch;
+        const slot = (allocator && !instantFrame) ? allocator.peekSlot() : null;
         const deliverAbsWeek = allocator
           ? (instantFrame ? currentAbsWeek : slot.week)
           : deliverySchedule(type, runningPending, currentAbsWeek, 1)[0];
@@ -2277,14 +2279,12 @@ function reducer(state, action) {
         const premiumPct  = slot?.premiumPct ?? 0;
         const slotPremium = premiumPct > 0 ? Math.round(eraPurchasePrice(type) * enginePriceMod * premiumPct) : 0;
 
-        priority:  wantsPriority,
         // Price: uniform bulk-order discount (orderDisc) applied to every frame in
         // this order. Leases carry no purchase price.
         const unitBasePrice  = action.ownershipType === 'owned'
           ? Math.round(eraPurchasePrice(type) * (1 - orderDisc))
           : 0;
         const unitTotalPrice = action.ownershipType === 'owned'
-        const slot = (allocator && !instantFrame) ? allocator.peekSlot() : null;
           ? Math.round(unitBasePrice * enginePriceMod) + wingtipCost + slotPremium
           : 0;
 
@@ -2339,6 +2339,7 @@ function reducer(state, action) {
           // reads it straight out of the stored order), the premium paid, and
           // whether this is a firm launch-customer frame.
           ...(allocator ? { lineId: allocator.lineId, slotPremium } : {}),
+          ...(slot && wantsPriority ? { priority: true } : {}),
           ...(isLaunch ? { launch: true } : {}),
         };
 
@@ -2353,7 +2354,6 @@ function reducer(state, action) {
           const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
           const deliveredLeaseTerm = order.ownershipType === 'lease'
             ? (order.leaseTermWeeks ?? DELIVERY_LEASE_TERMS[type.category] ?? DEFAULT_LEASE_TERM_WEEKS)
-          ...(slot && wantsPriority ? { priority: true } : {}),
             : undefined;
           const aircraft = {
             id:            uid(),
