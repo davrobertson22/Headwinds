@@ -37,10 +37,10 @@ import { withTx } from './tx.mjs';
 import { compactReportForStorage } from './reportStorage.mjs';
 import { joinReport, splitReport } from './reportColumn.mjs';
 import { Prisma } from '@prisma/client';
-import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex } from './worldEconomy.mjs';
+import { seededRand, worldFuelIndex, worldMarketIndex, worldCrackIndex, worldEconomyCycle } from './worldEconomy.mjs';
 import {
   NEWS_WINDOW_WEEKS, worldEventNewsRows, bankruptcyNewsRows, rankChangeNewsRows, rankingChangedNewsRow,
-  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows, travelPartnerLostNewsRows, loyaltyNewsRows,
+  gateForfeitureNewsRows, scheduleTrimNewsRows, fuelQuarterNewsRows, travelPartnerLostNewsRows, incidentNewsRows, loyaltyNewsRows,
 } from './newsService.mjs';
 
 // A commit that writes N airline blobs sequentially must not be capped by Prisma's
@@ -217,11 +217,17 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // owners (FUEL_OPERATIONS_PLAN.md §9); injected for everyone so the walk is
   // the world's, not the owner's.
   const worldCrack = worldCrackIndex(world.worldSeed ?? world.id, fromIndex);
+  // The world business cycle (demand model v4 worlds only): every airline
+  // stores the same value after this week, and prices next week on it.
+  const cycleWorld = (Number(world.tickConfig?.demandModel) || 1) >= 4;
+  const worldCycle = cycleWorld ? worldEconomyCycle(world.worldSeed ?? world.id, fromIndex) : null;
   const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
     ? world.tickConfig.runtimeEvents : [];
   const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
   const worldEvents = [...survivingWorldEvents, ...rollEvents(survivingWorldEvents, {
     multiplayer: true,
+    // Business-cycle worlds: fewer, bigger demand events (engine data/events.js).
+    ...(cycleWorld ? { macroCycle: true } : {}),
     calendarYear: eraStartYear != null ? eraStartYear + Math.floor((fromIndex - 1) / 52) : null,
   })];
 
@@ -279,6 +285,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       withRivals(preState, rivalViews.get(airline.id)),
       { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldCrackIndex: worldCrack, worldEvents, valuationNoise,
         marketIndex: worldMarket,
+        ...(worldCycle ? { economyCycle: worldCycle } : {}),
         incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0,
         incomingFarmFees:  creditsByAirline.get(airline.id)?.farmFees ?? 0 },
     );
@@ -334,6 +341,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       dividend: next.lastReport?.dividend ?? null,
       // Fuel bought by station this week, for fuel-farm fee settlement below.
       fuelByStation: next.lastReport?.fuelByStation ?? null,
+      // An operational meltdown this airline earned this week (v4 worlds), for the news feed.
+      incident: next.lastReport?.incident ?? null,
       // Travel partners lost this week (walk-outs, refusals), for the news feed.
       travelPartnerLosses: (next.lastReport?.travelPartnerEvents ?? []).filter((e) => e.type === 'lost'),
       // Loyalty devaluations and status matches this week, for the news feed.
@@ -729,6 +738,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         // Quarter-end fuel standings: who paid least per unit of fuel this
         // quarter. Outcomes only (the average each airline paid), never the
         // contracts behind them. Empty on any week that is not a quarter-end.
+        // Operational meltdowns airlines earned this week (v4 worlds).
+        ...incidentNewsRows({
+          worldId: world.id, week: toIndex, nameOf,
+          incidents: computed
+            .filter((c) => writtenIds.has(c.airline.id) && c.incident)
+            .map((c) => ({ ...c.incident, airlineId: c.airline.id })),
+        }),
         // Travel partners that walked out or refused to renew this week.
         ...travelPartnerLostNewsRows({
           worldId: world.id, week: toIndex, nameOf,

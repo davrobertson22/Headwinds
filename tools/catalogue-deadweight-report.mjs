@@ -51,12 +51,18 @@ import { fuelCostPerKm } from '../packages/engine/src/utils/fuel.js';
 import {
   weeklyTick, routeDistanceKm, maxFrequency, MAX_WEEKLY_BLOCK_HOURS, maintenanceMultiplier,
 } from '../packages/engine/src/utils/simulation.js';
-import { referencePrice, expectedCarried } from '../packages/engine/src/utils/market.js';
+import { referencePrice, expectedCarried, setDemandModel, scheduleConvenience } from '../packages/engine/src/utils/market.js';
+import { CODE_F_TYPES, CODE_F_AIRPORTS } from '../packages/engine/src/data/airportRestrictions.js';
 import { pathToFileURL } from 'node:url';
 
 const args    = process.argv.slice(2);
 const VERBOSE = args.includes('--verbose');
 const ONLY_VALIDATE = args.includes('--validate');
+// New worlds run demand model v4 (docs/game-audit-2026-11-06.md): a superjumbo
+// needs a code-F stand at both ends, and a timetable only serves the share of a
+// market its frequency can reach (scheduleConvenience, blended 80% leisure /
+// 20% business). --v3 sweeps the older worlds' rules instead.
+const V4 = !args.includes('--v3');
 const f = (n) => Math.round(n).toLocaleString();
 const pct = (x) => (100 * x).toFixed(1) + '%';
 
@@ -150,7 +156,19 @@ export function variableWeekly(t, s, freq) {
        + weeklyLandingFee(t.category, freq, s.O.tier, s.D.tier);
 }
 
-export function eligible(t, s) { return t.range >= s.km && t.runwayFt <= s.runway; }
+export function eligible(t, s) {
+  if (V4 && CODE_F_TYPES.has(t.id) && !(CODE_F_AIRPORTS.has(s.o) && CODE_F_AIRPORTS.has(s.d))) return false;
+  return t.range >= s.km && t.runwayFt <= s.runway;
+}
+
+/** The share of a mission's market a timetable serves (1 on the --v3 sweep). */
+function schedFor(freq, km) {
+  if (!V4) return 1;
+  setDemandModel(4);
+  const v = 0.8 * scheduleConvenience(freq, 'leisure', km) + 0.2 * scheduleConvenience(freq, 'business', km);
+  setDemandModel(1);
+  return v;
+}
 
 // Best profit this type can reach on this sector against a market of `demand`,
 // choosing its own frequency. Costs per (type, sector, freq) are demand-free, so
@@ -171,7 +189,7 @@ function costsFor(t, s) {
 function bestProfit(t, s, demand) {
   let best = -Infinity;
   for (const r of costsFor(t, s)) {
-    const pax = expectedCarried(demand, r.cap);
+    const pax = expectedCarried(demand * schedFor(r.freq, s.km), r.cap);
     const p = pax * s.fare * (t.ticketPremium ?? 1) - r.cost;
     if (p > best) best = p;
   }

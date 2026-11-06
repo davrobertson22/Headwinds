@@ -29,7 +29,7 @@
  * needed — they capture min(adjustedDemand, capacity).
  */
 
-import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear, getDemandModel, metroPrimary, sectorCostKm } from '../utils/market.js';
+import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear, getDemandModel, metroPrimary, sectorCostKm, scheduleConvenience, scheduleDemandOn } from '../utils/market.js';
 import { cabinProductPoints } from '../data/seatProducts.js';
 import { SEASONS as V2_SEASONS } from '../data/demandV2Seasons.js';
 import { SEASONS as V3_SEASONS, CLASS_SEASONS as V3_CLASS_SEASONS } from '../data/demandV3Seasons.js';
@@ -84,7 +84,7 @@ export const COMPETITIVE_FARE_COMPRESSION_FLOOR    = 0.90;  // max −10%
  * @param {number} refForClass  the reference fare for this class ($)
  * @returns {number} 0–1
  */
-export function priceChokeFactor(price, refForClass, quality = 50) {
+export function priceChokeFactor(price, refForClass, quality = 50, headroom = 0) {
   const ref = Math.max(refForClass, 1);
   const ratio = price / ref;
   if (ratio <= 1) return 1;
@@ -92,8 +92,9 @@ export function priceChokeFactor(price, refForClass, quality = 50) {
   const t = (ratio - 1) / (PRICE_CAP_MULTIPLE - 1); // 0 at ref, 1 at cap
   // Restricted worlds: an extra exp-falloff above a quality-scaled threshold
   // (see nwrYieldChokeFactor in utils/market.js). Exactly 1 in classic worlds,
-  // so the curve below is bit-identical when the flag is off.
-  return Math.max(0, 1 - t * t) * nwrYieldChokeFactor(ratio, quality);
+  // so the curve below is bit-identical when the flag is off. `headroom`
+  // (offer.pricingHeadroom) moves the threshold in demand model v4 only.
+  return Math.max(0, 1 - t * t) * nwrYieldChokeFactor(ratio, quality, headroom);
 }
 
 /**
@@ -1001,6 +1002,9 @@ export function computeConnectivityBonus(airlineHub, origin, destination, spokes
  * @param {'leisure'|'business'} segment
  * @returns {number}
  */
+/** Frequency utility weights in demand model v4 (see computeUtility). */
+export const FREQUENCY_WEIGHT_V4 = { leisure: 0.7, business: 1.4 };
+
 export function computeUtility(offer, market, segment) {
   const w        = UTILITY_WEIGHTS[segment];
   const price    = segment === 'business' && offer.businessPrice != null
@@ -1019,7 +1023,21 @@ export function computeUtility(offer, market, segment) {
   const sens        = 1 - (offer.priceSensitivityReduction ?? 0) - (offer.loyaltySensReduction ?? 0);
   const priceUtil   = -(price / refPrice) * w.price * sens;
   const qualityUtil = (segmentQ(offer, segment) / 100) * w.quality;
-  const freqUtil    = Math.log1p(offer.weeklyFrequency) * w.frequency;
+  // Demand model v4: the frequency S-curve. log1p(f)·w makes share ∝ (1+f)^w,
+  // so a weight above 1 rewards frequency share MORE than proportionally —
+  // three times a rival's departures wins ~80% of business travellers, not
+  // ~70% — which is how real carriers win markets with frequency.
+  //
+  // The connection model's synthetic "outside option" (network.js, airlineId
+  // '__outside__': every alternative a traveller has, at 35 a week) is a
+  // calibration device, not a timetable. It keeps its v3 frequency term plus
+  // the v4 increment a DAILY carrier would get, so a daily connection is
+  // scored against it exactly as before and only a busier or thinner
+  // connection moves.
+  const fw = scheduleDemandOn() ? (FREQUENCY_WEIGHT_V4[segment] ?? w.frequency) : w.frequency;
+  const freqUtil    = (offer.airlineId === '__outside__' && fw !== w.frequency)
+    ? Math.log1p(offer.weeklyFrequency) * w.frequency + (fw - w.frequency) * Math.log1p(7)
+    : Math.log1p(offer.weeklyFrequency) * fw;
   // ?? 0, or an offer built without the field NaN-poisons BOTH softmaxes and
   // every carrier on the pair books NaN passengers.
   const connUtil    = offer.connectivityBonus ?? 0;
@@ -1261,7 +1279,7 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   const weightedAvg = (priceOf, shares, refForChoke, qualityOf) => {
     let num = 0, den = 0;
     offers.forEach((o, i) => {
-      const w = shares[i] * priceChokeFactor(priceOf(o), refForChoke(o), qualityOf(o));
+      const w = shares[i] * priceChokeFactor(priceOf(o), refForChoke(o), qualityOf(o), o.pricingHeadroom);
       num += priceOf(o) * w; den += w;
     });
     // Everyone choked: fall back to the plain share-weighted mean.
@@ -1285,9 +1303,18 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // all-economy carrier appeared on a pair the whole J segment vanished from
   // the market: two identical LCCs together carried ~38% less than one of them
   // alone, and the contested and monopoly paths described two different worlds.
+  // Schedule demand (demand model v4; exactly 1 otherwise): how much of the
+  // pair the COMBINED timetable can serve — two carriers at 7 a week give the
+  // market a 14-a-week schedule. For one offer this is its own frequency, so
+  // the contested and monopoly paths agree where they meet.
+  // The connection model's synthetic outside option is not a timetable.
+  const pairFrequency = offers.reduce((s, o) =>
+    s + (o.airlineId === '__outside__' ? 0 : Math.max(0, o.weeklyFrequency ?? 0)), 0);
+  const schedL = scheduleConvenience(pairFrequency, 'leisure',  market.distanceKm);
+  const schedB = scheduleConvenience(pairFrequency, 'business', market.distanceKm);
   const leisurePool = anyBiz
-    ? market.leisureDemand
-    : market.leisureDemand + market.businessDemand;
+    ? market.leisureDemand * schedL
+    : market.leisureDemand * schedL + market.businessDemand * schedB;
   // How much of the metro pair these offers can reach BETWEEN them. One primary
   // airport in the fight and this is 1.0 — the market is fully served and appeal
   // only decides who wins it, via the utility term. A lane flown solely out of
@@ -1303,7 +1330,7 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // The pool BEFORE brand: everyone these airports and fares could carry.
   const leisureBase  = Math.round(leisurePool * appealCapture * Math.min(1.5, leisureElasticityFactor));
   const businessBase = Math.round(
-    market.businessDemand * appealCapture * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
+    market.businessDemand * schedB * appealCapture * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
   // …of whom this many consider at least one of the carriers (offersBrandCapture).
   const brandCapture = offersBrandCapture(offers);
   const adjustedLeisureDemand  = Math.round(leisureBase  * brandCapture);
@@ -1332,9 +1359,9 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // demand that ceases to exist. Before this, an offer priced past the cap was
   // a sink — it won share and sold nothing, and the passengers vanished.
   const chokeB = offers.map(offer =>
-    priceChokeFactor(bizPriceOf(offer), compressedBizRef * businessFareTolerance(businessQ(offer)), businessQ(offer)));
+    priceChokeFactor(bizPriceOf(offer), compressedBizRef * businessFareTolerance(businessQ(offer)), businessQ(offer), offer.pricingHeadroom));
   const chokeL = offers.map(offer =>
-    priceChokeFactor(offer.economyPrice, compressedRef, leisureQ(offer)));
+    priceChokeFactor(offer.economyPrice, compressedRef, leisureQ(offer), offer.pricingHeadroom));
   const rawBusinessFull = offers.map((offer, i) => adjustedBusinessDemand * businessShares[i]);
   const rawLeisureFull  = offers.map((offer, i) => adjustedLeisureDemand  * leisureShares[i]);
   const rawBusiness = rawBusinessFull.map((v, i) => v * chokeB[i]);
@@ -1689,19 +1716,23 @@ function _soloCeiling(market, offer, ref, { foldBusiness = false } = {}) {
   // folded business travellers keep the business appeal.
   const tpL = Math.max(0, offer.travelLeisureAppeal ?? 1);
   const tpB = Math.max(0, offer.travelBusinessAppeal ?? 1);
+  // Demand model v4: what this offer's own timetable could serve alone — the
+  // same schedule term _monopolyResult applies (1 everywhere else).
+  const sL = scheduleConvenience(offer.weeklyFrequency, 'leisure', market.distanceKm);
+  const sB = scheduleConvenience(offer.weeklyFrequency, 'business', market.distanceKm);
   const leisurePool = foldBusiness && noBusiness
-    ? market.leisureDemand * tpL + market.businessDemand * tpB
-    : market.leisureDemand * tpL;
+    ? market.leisureDemand * tpL * sL + market.businessDemand * tpB * sB
+    : market.leisureDemand * tpL * sL;
   const leisure = leisurePool * poolMult
     * Math.min(1.5, Math.pow(ref / Math.max(offer.economyPrice, 1), ELASTICITY.leisure * sens))
-    * priceChokeFactor(offer.economyPrice, ref, leisureQ(offer));
+    * priceChokeFactor(offer.economyPrice, ref, leisureQ(offer), offer.pricingHeadroom);
   const bizRef     = ref * BUSINESS_PRICE_MULTIPLIER * businessFareTolerance(businessQ(offer));
   const business = noBusiness ? 0 : market.businessDemand * poolMult
     * Math.max(0, offer.loungeAppeal ?? 1)
-    * tpB
+    * tpB * sB
     * businessQualityCapture(businessQ(offer))
     * Math.min(1.5, Math.pow(bizRef / Math.max(offer.businessPrice, 1), ELASTICITY.business * sens))
-    * priceChokeFactor(offer.businessPrice, bizRef, businessQ(offer));
+    * priceChokeFactor(offer.businessPrice, bizRef, businessQ(offer), offer.pricingHeadroom);
   return { leisure: Math.max(0, leisure), business: Math.max(0, business) };
 }
 
@@ -1759,6 +1790,14 @@ function _monopolyResult(market, offer) {
   // travellers folded into economy keep the business appeal.
   const travelLeisurePool  = Math.max(0, offer.travelLeisureAppeal ?? 1);
   const travelBusinessPool = Math.max(0, offer.travelBusinessAppeal ?? 1);
+  // Schedule demand (demand model v4; exactly 1 otherwise): the share of the
+  // pair's travellers this timetable can serve, normalised to a daily service
+  // (utils/market.js scheduleConvenience). A traveller the schedule cannot
+  // serve drives, takes the train, or does not go — so, like brandReach, it
+  // shrinks the pool before elasticity and the capacity cap: a full aircraft
+  // on a deep market is unaffected, a thin timetable on a thin one is not.
+  const schedLeisure  = scheduleConvenience(offer.weeklyFrequency, 'leisure',  market.distanceKm);
+  const schedBusiness = scheduleConvenience(offer.weeklyFrequency, 'business', market.distanceKm);
 
   const businessAdj = noBusiness
     ? 0
@@ -1766,9 +1805,10 @@ function _monopolyResult(market, offer) {
         * poolMult
         * loungePool
         * travelBusinessPool
+        * schedBusiness
         * businessQualityCapture(businessQ(offer))
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
-        * priceChokeFactor(offer.businessPrice, businessRef, businessQ(offer)));
+        * priceChokeFactor(offer.businessPrice, businessRef, businessQ(offer), offer.pricingHeadroom));
   const businessPax = noBusiness ? 0 : Math.min(businessAdj, offer.businessSeats);
 
   // Business travelers who can't get a premium seat downgrade to economy rather
@@ -1782,14 +1822,15 @@ function _monopolyResult(market, offer) {
   // boosting it again here would compound them against themselves (a 10%
   // campaign read as 13% before this was split out).
   const leisurePool = noBusiness
-    ? (market.leisureDemand * travelLeisurePool + market.businessDemand * travelBusinessPool) * poolMult
-    : market.leisureDemand * travelLeisurePool * poolMult + businessOverflow;
+    ? (market.leisureDemand * travelLeisurePool * schedLeisure
+       + market.businessDemand * travelBusinessPool * schedBusiness) * poolMult
+    : market.leisureDemand * travelLeisurePool * schedLeisure * poolMult + businessOverflow;
 
   // Demand with price elasticity applied
   const leisureAdj  = Math.round(
     leisurePool
       * Math.pow(market.referencePrice / offer.economyPrice, ELASTICITY.leisure * sens)
-      * priceChokeFactor(offer.economyPrice, market.referencePrice, leisureQ(offer))
+      * priceChokeFactor(offer.economyPrice, market.referencePrice, leisureQ(offer), offer.pricingHeadroom)
   );
 
   // Cap leisure at TOTAL physical capacity (minus business pax), not just the

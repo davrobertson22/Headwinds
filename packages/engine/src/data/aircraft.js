@@ -468,11 +468,12 @@ export const AIRCRAFT_TYPES = [
     eis: 2015,
     seats: 440,
     typicalSeats: 325,   // seats the headline range is quoted at
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 15_750,   // Airbus A350-900 page, Oct 2026: 8,500 nm, typical 3-class 332-352 (Oct 2024 Facts & Figures said 8,300 nm; 2022 booklet 8,100)
     runwayFt: 8000,
     weeklyLease:      403_000,
     purchasePrice: 185000000,
-    fuelBurnPer100km: 780,
+    fuelBurnPer100km: 740,   // 2026-11-06 audit R3: new-generation burn below the A330neo's (was 780)
     crewCostPerKm: 3.6,
     baseMaintenancePerWk: 250_000,
     description: 'Flagship wide-body. Best fuel economics per seat for ultra-long-haul.',
@@ -487,12 +488,13 @@ export const AIRCRAFT_TYPES = [
     seats: 440,   // same airframe as the A350-900; carriers configure capacity down
     // Airbus' 18,000 km is quoted with Singapore's 161-seat ULR cabin. Packed to 440
     // it is weight-limited and flies far less (payloadRangeMod). tools/payload-range-test.mjs
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 18_000,
     typicalSeats: 161,
     runwayFt: 8900,
     weeklyLease:      423_000,
     purchasePrice: 195000000,
-    fuelBurnPer100km: 813,   // heavier than the -900 (extra centre-tank fuel/weight)
+    fuelBurnPer100km: 770,   // 2026-11-06 audit R3: new-generation burn below the A330neo's (was 813) · heavier than the -900 (extra centre-tank fuel/weight)
     crewCostPerKm: 3.6,      // same crew as the -900
     baseMaintenancePerWk: 255_000,  // marginally higher than the -900
     description: 'Ultra-long-range A350. Flown with a light premium cabin it reaches 18,000 km; pack it with seats and that range is gone.',
@@ -506,11 +508,12 @@ export const AIRCRAFT_TYPES = [
     eis: 2018,
     seats: 480,
     typicalSeats: 380,   // seats the headline range is quoted at
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 16_100,
     runwayFt: 8500,
     weeklyLease:      463_000,
     purchasePrice: 210000000,
-    fuelBurnPer100km: 847.5,
+    fuelBurnPer100km: 825,   // 2026-11-06 audit R3: new-generation burn below the A330neo's (was 847.5)
     crewCostPerKm: 3.83,
     baseMaintenancePerWk: 290_000,
     description: 'Stretched A350. Highest capacity twin-engine aircraft available.',
@@ -525,12 +528,13 @@ export const AIRCRAFT_TYPES = [
     seats: 480,   // same airframe as the A350-1000; Qantas configures 238 for 22-hour sectors
     // ~18,000 km with Qantas' 238-seat Project Sunrise cabin (the -1000's 16,100 km +
     // ~1,000 nm from the rear centre tank). Packed to 480 it flies far less.
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 18_000,
     typicalSeats: 238,
     runwayFt: 9300, // higher MTOW than the -1000 (8,500), as the -900ULR sits over the -900
     weeklyLease:      486_000,  // -1000 x 1.05, the -900ULR's premium over the -900
     purchasePrice: 222000000,   // -1000 x 1.055, likewise
-    fuelBurnPer100km: 883,      // -1000 x 1.042 (heavier: tank structure + fuel), the -900ULR's ratio
+    fuelBurnPer100km: 860,   // 2026-11-06 audit R3: new-generation burn below the A330neo's (was 883) · -1000 x 1.042 (heavier: tank structure + fuel), the -900ULR's ratio
     crewCostPerKm: 3.83,        // same crew as the -1000
     baseMaintenancePerWk: 296_000,  // marginally higher than the -1000
     description: 'Qantas\' Project Sunrise A350. With a light premium cabin its extra fuel tank takes it Sydney to London nonstop; pack it with seats and that range is gone.',
@@ -1133,6 +1137,7 @@ export const AIRCRAFT_TYPES = [
     eis: 2011,
     seats: 381,
     typicalSeats: 242,   // seats the headline range is quoted at
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 13_620,
     runwayFt: 8200,
     weeklyLease:      296_000,
@@ -1177,11 +1182,12 @@ export const AIRCRAFT_TYPES = [
     eis: 2014,
     seats: 420,
     typicalSeats: 290,   // seats the headline range is quoted at
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 14_140,
     runwayFt: 9000,
     weeklyLease:      336_000,
     purchasePrice: 150000000,
-    fuelBurnPer100km: 717.5,
+    fuelBurnPer100km: 690,   // 2026-11-06 audit R3: new-generation burn below the A330neo's (was 717.5)
     crewCostPerKm: 3.33,
     baseMaintenancePerWk: 190_000,
     description: 'Sweet-spot Dreamliner. Most popular long-haul aircraft for a reason.',
@@ -1243,11 +1249,12 @@ export const AIRCRAFT_TYPES = [
     eis: 2018,
     seats: 440,
     typicalSeats: 336,   // seats the headline range is quoted at
+    cruiseKmh: 900,   // Mach 0.85 cruise (A330neo / 777 fly the category's 870)
     range: 11_730,
     runwayFt: 9000,
     weeklyLease:      365_000,
     purchasePrice: 165000000,
-    fuelBurnPer100km: 756.25,
+    fuelBurnPer100km: 725,   // 2026-11-06 audit R3: new-generation burn below the A330neo's (was 756.25)
     crewCostPerKm: 3.42,
     baseMaintenancePerWk: 164_000,
     description: 'Stretched 787, great capacity but shorter range. Best for busy medium-haul.',
@@ -4981,8 +4988,17 @@ export function eraPurchasePrice(type, calYear = _eraPriceYear) {
 }
 
 /** Catalogue weekly lease at `calYear`. */
+// The world business cycle's lease-rate multiplier (models/economyCycle.js,
+// demand model v4 worlds; 1 everywhere else). Module knob like the era price
+// year, set from state at the same choke points, so the Market's quoted rate
+// and the rate LEASE_AIRCRAFT locks are the same number.
+let _leaseCycleMult = 1;
+export function setLeaseCycleMult(m) { _leaseCycleMult = Number.isFinite(m) && m > 0 ? m : 1; }
+export function getLeaseCycleMult() { return _leaseCycleMult; }
+
 export function eraWeeklyLease(type, calYear = _eraPriceYear) {
-  return Math.round((type?.weeklyLease ?? 0) * eraPriceScale(type, calYear));
+  const base = (type?.weeklyLease ?? 0) * eraPriceScale(type, calYear);
+  return Math.round(_leaseCycleMult === 1 ? base : base * _leaseCycleMult);
 }
 
 /** Every type a lessor will offer, in market-display order. */

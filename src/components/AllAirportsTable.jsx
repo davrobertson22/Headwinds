@@ -50,7 +50,8 @@ const MARKET_IMPORTS = {
   2: () => import('../data/airportMarketsV2.js'),
   3: () => import('../data/airportMarketsV3.js'),
 };
-const tableVersion = (v) => (v === 2 || v === 3 ? v : 1);
+// v4 sells v3's demand under new rules (frequency, pricing headroom) — same table.
+const tableVersion = (v) => (v === 4 ? 3 : v === 2 || v === 3 ? v : 1);
 /** Load a demand model's generated market table (resolves to { AIRPORT_MARKETS, GROWTH_BUCKETS }). */
 export function loadAirportMarkets(demandModel) {
   const v = tableVersion(demandModel);

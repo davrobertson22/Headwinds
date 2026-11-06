@@ -116,6 +116,8 @@ export function prepareWeek(state, {
     newEvents = rollNewEvents ? rollEvents(survivingEvents, {
       multiplayer: isMultiplayer,
       calendarYear: state.startYear != null ? state.startYear + (state.year ?? 1) - 1 : null,
+      // Business-cycle worlds roll fewer, bigger demand events (data/events.js).
+      ...((Number(state.demandModel) || 1) >= 4 ? { macroCycle: true } : {}),
     }) : [];
     allEvents = [...survivingEvents, ...newEvents];
   }

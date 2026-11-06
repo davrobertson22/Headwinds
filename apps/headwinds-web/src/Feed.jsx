@@ -77,6 +77,11 @@ function describe(e) {
           + `${d.lockoutWeeks ? `, locked out for ${d.lockoutWeeks} weeks` : ''}`,
       icon: '\u{1F6D1}',
     };
+    case 'operational_meltdown': return {
+      who: e.airline,
+      what: `had an operational meltdown${d.airport ? ` at ${d.airport}` : ''} — passengers stranded`,
+      icon: '\u{1F329}\u{FE0F}',
+    };
     case 'travel_partner_lost': return {
       who: e.airline,
       what: `${d.reason === 'refused' ? 'was refused a renewal by' : 'was dropped by'} ${d.partner ?? 'a travel partner'} — no deal for 5 years`,

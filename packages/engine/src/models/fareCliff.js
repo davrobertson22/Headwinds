@@ -21,6 +21,7 @@ import {
   routeQualityBreakdown, isMultiStop,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
+import { pricingHeadroomFor } from './pricingPower.js';
 import { COMPETITIVE_FARE_COMPRESSION_PER_RIVAL, COMPETITIVE_FARE_COMPRESSION_FLOOR } from './demand.js';
 
 // ─── Where the cliff really is (Discord, 2026-09-24) ─────────────────────────
@@ -69,7 +70,13 @@ export function pairFareCompression(state, origin, destination) {
 
 /** Context for one pair — what faresOverCliff needs to place the cliff. */
 function pairContext(state, key, origin, destination, qualities) {
-  return { quality: qualities.get(key) ?? 50, economyCompression: pairFareCompression(state, origin, destination) };
+  return {
+    quality: qualities.get(key) ?? 50,
+    economyCompression: pairFareCompression(state, origin, destination),
+    // Earned pricing headroom (demand model v4; 0 everywhere else) — the same
+    // helper the tick attaches to the pair's offer (models/pricingPower.js).
+    headroom: pricingHeadroomFor(state, origin, destination),
+  };
 }
 
 /** True when the world has a fare cliff at all (restricted worlds). */
@@ -82,7 +89,9 @@ export function fareCliffActive() { return getNwrYieldChoke(); }
  * Warnings pass the route's real quality: a flat 1.10x fired on fares the
  * engine never punished (Discord, 2026-09-24).
  */
-export function fareCliffRatio(quality = 50) { return nwrChokeThreshold(quality); }
+export function fareCliffRatio(quality = 50, headroom = 0) {
+  return nwrChokeThreshold(quality) + Math.max(0, Number(headroom) || 0);
+}
 
 /** Reference fare per cabin for a pair (economy ref × the engine's multipliers). */
 export function referenceFaresFor(origin, destination) {
@@ -99,7 +108,7 @@ export function referenceFaresFor(origin, destination) {
 export function faresOverCliff(fares, origin, destination, opts = {}) {
   if (!(opts.force ?? getNwrYieldChoke())) return [];
   const refP = referencePrice(origin, destination);
-  const thr  = fareCliffRatio(opts.quality ?? 50);
+  const thr  = fareCliffRatio(opts.quality ?? 50, opts.headroom ?? 0);
   const out  = [];
   for (const cls of opts.classes ?? Object.keys(CLASS_FARE_MULTIPLIERS)) {
     const fare = Number(fares?.[cls]);
@@ -126,10 +135,11 @@ export function cliffFaresFor(state, origin, destination, opts = {}) {
   const key = routePairKey(origin, destination);
   const ctx = pairContext(state, key, origin, destination, pairQualities(state));
   const quality = opts.quality ?? ctx.quality;
+  const headroom = opts.headroom ?? ctx.headroom;
   const refP = referencePrice(origin, destination);
   const out = {};
   for (const cls of Object.keys(CLASS_FARE_MULTIPLIERS)) {
-    out[cls] = Math.floor(refP * CLASS_FARE_MULTIPLIERS[cls] * fareCliffRatio(quality)
+    out[cls] = Math.floor(refP * CLASS_FARE_MULTIPLIERS[cls] * fareCliffRatio(quality, headroom)
       * (cls === 'economy' ? ctx.economyCompression : 1));
   }
   return out;

@@ -21,7 +21,7 @@ import {
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS, routeStops,
-  stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
+  stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import {
@@ -30,6 +30,7 @@ import {
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import { worldDemandMultOf } from '../models/economyCycle.js';
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -267,8 +268,8 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   const market      = useMemo(
     () => buildRouteMarket(origin, dest, gameDate,
       playerRoutes.length ? routeMaturityFactor(laneWeeksOpen) : 1,
-      eventDemand.multFor(origin, dest) * (state.worldDemandMult ?? 1)),
-    [origin, dest, gameDate.month, eventDemand, playerRoutes.length, laneWeeksOpen, state.worldDemandMult]
+      eventDemand.multFor(origin, dest) * worldDemandMultOf(state)),
+    [origin, dest, gameDate.month, eventDemand, playerRoutes.length, laneWeeksOpen, state.worldDemandMult, state.economyCycle]
   );
   const totalDemand = market.leisureDemand + market.businessDemand;
 
@@ -359,6 +360,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           // Travel partners — the segment lifts the tick attaches.
           ...stateTravelPartnerFields(state, origin, dest),
           ...stateLoyaltyFields(state, origin, dest),
+          ...statePricingFields(state, origin, dest),
           // The three demand terms weeklyTick attaches to every player route and
           // this panel used to omit. computeUtility reads `offer.brandReach ?? 1`,
           // so an offer without it is scored as an ESTABLISHED carrier at parity:
@@ -428,6 +430,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           loungeAppeal: stateLoungeFields(state, origin, dest).loungeAppeal,
           ...stateTravelPartnerFields(state, origin, dest),
           ...stateLoyaltyFields(state, origin, dest),
+          ...statePricingFields(state, origin, dest),
           economyPrice: ecoP, businessPrice: bizP,
           weeklyFrequency: totalFreq,
           seatsPerFlight: Math.round((totalEcoSeats + totalBizSeats) / totalFreq),

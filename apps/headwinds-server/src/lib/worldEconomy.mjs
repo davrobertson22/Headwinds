@@ -10,6 +10,7 @@ import { tickFuelPrice, FUEL_BASE_INDEX } from '@tailwinds/engine/utils/fuel.js'
 import { eraFuelMean, ERA_FUEL_MIN_INDEX } from '@tailwinds/engine/data/era.js';
 import { tickMarketIndex, MARKET_BASE_INDEX } from '@tailwinds/engine/utils/market.js';
 import { tickCrackIndex, CRACK_BASE_INDEX } from '@tailwinds/engine/data/refinery.js';
+import { tickEconomyCycle, newEconomyCycle } from '@tailwinds/engine/models/economyCycle.js';
 
 // The reducer keeps at most 52 weeks of fuel history (see ADVANCE_WEEK); the
 // backfill must honour the same cap or a late joiner's blob would carry more
@@ -108,6 +109,22 @@ export function worldCrackIndex(seed, weekIndex) {
   return idx;
 }
 
+// The world BUSINESS CYCLE at a given 1-based week (demand model v4 worlds,
+// engine models/economyCycle.js) — replayed from the world seed on its own salt
+// like the walks above, so every airline lives in the same economy and a
+// retried tick reproduces it. Memoised on the same delta-walk pattern. Week 0
+// is the cycle at trend.
+const _cycleWalkMemo = new Map();
+
+export function worldEconomyCycle(seed, weekIndex) {
+  let m = _cycleWalkMemo.get(seed);
+  if (!m || m.week > weekIndex) m = { week: 0, cycle: newEconomyCycle() };
+  let { week, cycle } = m;
+  for (let w = week + 1; w <= weekIndex; w++) cycle = tickEconomyCycle(cycle, seededRand(seed, `cyc:${w}`));
+  _cycleWalkMemo.set(seed, { week: Math.max(week, weekIndex), cycle });
+  return cycle;
+}
+
 // The economy exactly as a founding member's blob would carry it at world week
 // `worldLinearWeek` (1-based linear week, i.e. (year-1)*52 + week).
 //
@@ -134,6 +151,8 @@ export function worldEconomyAt(seed, worldLinearWeek, { historyCap = FUEL_HISTOR
   let mkt = MARKET_BASE_INDEX;
   for (let w = 1; w <= upto; w++) mkt = tickMarketIndex(mkt, seededRand(seed, `mkt:${w}`));
   return {
+    // The business cycle as it stood after the last tick (only v4 worlds read it).
+    economyCycle: worldEconomyCycle(seed, upto),
     fuelPrice: {
       // No ticks yet: the seed itself — an era world's opening price is the
       // period's, not 2026's (the founding blob prices its first hedge off this).

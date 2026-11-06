@@ -1,6 +1,6 @@
 # Used Aircraft Market — Design & Implementation Plan
 
-**Status:** DRAFT / design exploration (2026-07-24). Nothing built yet. The core model is decided
+**Status:** BUILT — the used aircraft market (src/components/UsedMarket.jsx, apps/headwinds-server/src/lib/aircraftMarketService.mjs). Drafted 2026-07-24; header corrected 2026-11-06. Original draft line: DRAFT / design exploration (2026-07-24). Nothing built yet. The core model is decided
 (see the table below); this mirrors `GATE_SCARCITY_PLAN.md` / `STOCK_MARKET_PLAN.md` so it can
 graduate to an implementation plan once the smaller calls in §7 are settled.
 **Scope:** Headwinds multiplayer only. No solo Tailwinds version (the market is world-shared).

@@ -41,19 +41,22 @@ const V3 = { 'JFK-LAX': 27861, 'JFK-LHR': 18351, 'SYD-MEL': 46596, 'LHR-CDG': 19
 
 console.log('\nDemand model v3 — new worlds only\n');
 
-await test('a new world defaults to v3; 2 makes a v2 world; 1 a classic one (no key)', async () => {
-  assert.equal(DEMAND_MODEL_LATEST, 3);
-  assert.equal((await tcOf({ ...BASE })).demandModel, 3);
+await test('a new world defaults to v4 (v3 tables); 3 and 2 still make those worlds; 1 a classic one', async () => {
+  assert.equal(DEMAND_MODEL_LATEST, 4);
+  // The default moved on to v4 (v3's tables + schedule demand / earned pricing,
+  // tools/schedule-demand-test.mjs); 3 is still accepted explicitly.
+  assert.equal((await tcOf({ ...BASE })).demandModel, 4);
+  assert.equal((await tcOf({ ...BASE, demandModel: 3 })).demandModel, 3);
   assert.equal((await tcOf({ ...BASE, demandModel: 2 })).demandModel, 2);
   assert.equal((await tcOf({ ...BASE, demandModel: 1 })).demandModel, undefined);
-  assert.throws(() => validateWorldConfig({ ...BASE, demandModel: 4 }), /demandModel/);
+  assert.throws(() => validateWorldConfig({ ...BASE, demandModel: 5 }), /demandModel/);
 });
 await test('the world JSON says which model a world runs', () => {
   for (const v of [2, 3]) assert.equal(serializeWorld({ id: 'w', name: 'T', tickConfig: { demandModel: v } }, { playerCount: 0 }).demandModel, v);
   assert.equal(serializeWorld({ id: 'w', name: 'T', tickConfig: {} }, { playerCount: 0 }).demandModel, 1);
 });
 await test('the create-world form sends 3 (or 1) explicitly', () => {
-  assert.ok(/demandModel: demandV2 \? 3 : 1,/.test(read('../apps/headwinds-web/src/App.jsx')));
+  assert.ok(/demandModel: demandV2 \? 4 : 1,/.test(read('../apps/headwinds-web/src/App.jsx')));
 });
 await test('joining bakes the world\'s model — 3, 2, or nothing — and the reducer prices on it', () => {
   for (const v of [2, 3]) {

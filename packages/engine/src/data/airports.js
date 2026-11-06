@@ -2506,8 +2506,31 @@ function lastEscalatingGate(rate) {
 // Era worlds: airport charges are constant-dollar fixed overhead and scale with
 // the era's capital scale (data/era.js) — a 1950 gate at a 1950 airport is a
 // fraction of today's rent. getEraCostScale() is 1 in classic worlds.
+// ─── Gate rent, demand model v4 worlds (docs/game-audit-2026-11-06.md R4) ─────
+//
+// The escalating curve above made every extra gate at one airport dearer than
+// the last — the 80th gate at O'Hare cost four times the 5th — which is the
+// opposite of how hubs work: the carrier with a whole terminal gets the best
+// per-gate terms. In v4 worlds rent is flat by tier with a volume discount for
+// a big tenant, and scarcity (auctions, the gate market, the 60% cap) and
+// congestion do the constraining instead. Set with the demand model
+// (utils/market.js setDemandModel), so every screen and the tick agree.
+export const GATE_VOLUME_DISCOUNTS = [
+  { fromGate: 11, mult: 0.90 },   // gates 11–25 at 90% of the tier rate
+  { fromGate: 26, mult: 0.80 },   // gate 26 onward at 80%
+];
+let _gateRentV4 = false;
+export function setGateRentV4(on) { _gateRentV4 = on === true; }
+export function getGateRentV4() { return _gateRentV4; }
+function v4GateMult(n) {
+  let m = 1;
+  for (const d of GATE_VOLUME_DISCOUNTS) if (n >= d.fromGate) m = d.mult;
+  return m;
+}
+
 export function gateMonthlyFee(airport, n = 1) {
   const base = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
+  if (_gateRentV4) return Math.round(base * v4GateMult(n) * getEraCostScale());
   const rate = GATE_COST_ESCALATION[airport?.tier] ?? 1.05;
   return Math.round(base * gateFeeMultiplier(rate, n) * getEraCostScale());
 }
@@ -2526,6 +2549,11 @@ export function gateMonthlyFee(airport, n = 1) {
 export function totalGateMonthlyFee(airport, count) {
   if (!count || count <= 0) return 0;
   const base = GATE_FEE_BY_TIER[airport?.tier] ?? 50_000;
+  if (_gateRentV4) {
+    let total = 0;
+    for (let n = 1; n <= count; n++) total += base * v4GateMult(n);
+    return Math.round(total * getEraCostScale());
+  }
   const rate = GATE_COST_ESCALATION[airport?.tier] ?? 1.05;
   if (rate <= 1) return Math.round(base * count * getEraCostScale());
 

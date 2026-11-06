@@ -24,7 +24,7 @@ import {
   blockHourFit, blockTimeHours,
   applyScheduleTrimMigration, rangeStrandedRoutes,
   applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
-  calcReconfCost, refitWeeks,
+  calcReconfCost, refitWeeks, fleetAvgUtilizationOf,
 } from './utils/simulation.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          setFareIndex, setNwrYieldChoke, setEraStartYear, setEraCalendarYear, setDemandModel,
@@ -37,7 +37,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          founderSaleProceeds, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
-import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
+import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, setLeaseCycleMult, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF, isVintage, lessorFirstYear, LESSOR_MIN_AGE_YEARS,
          canFitWifi } from './data/aircraft.js';
@@ -107,7 +107,10 @@ import {
   STRIKE_COOLDOWN_WEEKS,
 } from './data/laborRelations.js';
 import { LABOR_GROUP_MAP } from './data/labor.js';
-import { checkRouteRestrictions, runwayShortfall } from './data/airportRestrictions.js';
+import { checkRouteRestrictions, runwayShortfall, standShortfall } from './data/airportRestrictions.js';
+import { economyCycleWorld, newEconomyCycle, tickEconomyCycle, cycleLeaseMult } from './models/economyCycle.js';
+import { rollIncident, incidentCauseLine } from './models/incidents.js';
+import { issueMandate, mandateMet, mandateDesc, mandateTitle, mandateIcon, quarterOf, MANDATE } from './models/boardMandates.js';
 import { deliverySchedule } from './data/delivery.js';
 import { makeSlotAllocator, cancelTerms, launchWindow, launchOrderDiscount } from './data/productionLines.js';
 import {
@@ -220,6 +223,11 @@ function withRouteStatus(a, next, extra = {}) {
 // already on the route is let through, or a like-for-like renewal of such a
 // route would be refused.
 function runwayRefusal(route, toType, fromType) {
+  // Code-F stands (demand model v4 worlds; airportRestrictions.js). The rule
+  // exists from a v4 world's first week, so there is nothing to grandfather.
+  const noStand = standShortfall(routeStops(route), toType);
+  if (noStand) return `No code-F stand at ${noStand}: the ${toType.name} spans more than 65 m `
+    + 'and can only use airports built for it';
   const short = runwayShortfall(routeStops(route), toType);
   if (!short) return null;
   if (fromType?.runwayFt && toType.runwayFt <= fromType.runwayFt) return null;
@@ -1976,6 +1984,8 @@ function reducer(state, action) {
   setEraCalendarYear(calendarYear(state));
   setEraCostScale(eraOverheadScale(calendarYearFrac(state)) ?? 1);
   setEraPriceYear(calendarYear(state));   // era new-build pricing (ERA_MODE_PLAN.md §6); null → catalogue prices
+  // World business cycle (demand model v4): the rate a new lease signs at.
+  setLeaseCycleMult(cycleLeaseMult(state));
   setNwrYieldChoke(state?.newWorldRestrictions === true);
   // Demand model (utils/market.js "Demand model v2"): baked into the airline at
   // join from its world; absent = classic. Every airline in a world shares it.
@@ -5471,6 +5481,17 @@ function reducer(state, action) {
         && Number.isFinite(action.marketIndex))
         ? action.marketIndex : null;
       const currentMarketIndex = injectedMarket ?? state.marketIndex ?? MARKET_BASE_INDEX;
+      // The world business cycle (demand model v4 worlds, models/economyCycle.js).
+      // This week's demand was priced on the STORED value (so a forecast built
+      // from this state matches the tick); the next value is stored for next
+      // week — injected from the world's seeded walk in multiplayer, walked
+      // here in solo. Outside v4 nothing is drawn and no key is written, so the
+      // RNG sequence and every older save are untouched.
+      const nextEconomyCycle = !economyCycleWorld(state) ? null
+        : (state.multiplayer === true && action.economyCycle && Number.isFinite(action.economyCycle.x))
+          ? action.economyCycle
+          : (state.multiplayer === true ? (state.economyCycle ?? newEconomyCycle())
+            : tickEconomyCycle(state.economyCycle ?? newEconomyCycle(), Math.random()));
       const nextMarketIndex    = injectedMarket != null
         ? injectedMarket
         : tickMarketIndex(currentMarketIndex);
@@ -6980,6 +7001,41 @@ function reducer(state, action) {
 
       // ── Deliver pending aircraft orders ──────────────────────────────────────
       const newAbsWeek      = absoluteWeek(newYear, newWeek);
+
+      // ── Board mandates (demand model v4 worlds; models/boardMandates.js) ────
+      // One goal a quarter, set from where the airline stands; a flat board
+      // bonus when met in any week before the quarter ends. No random draw.
+      let boardMandate = state.boardMandate ?? null;
+      let boardMandateHistory = state.boardMandateHistory ?? null;
+      let mandateCashBonus = 0;
+      if (economyCycleWorld(state) && objectivesEnabled) {
+        const mSnap = {
+          report, routes: state.routes, satisfaction: report.satisfaction ?? state.satisfaction ?? null,
+          getCountry: (c) => getAirport(c)?.country ?? null, airlineName: state.airlineName,
+        };
+        const fmtUsd = (v) => v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+        if (boardMandate?.status === 'open') {
+          if (mandateMet(boardMandate, mSnap)) {
+            mandateCashBonus = boardMandate.reward;
+            boardMandate = { ...boardMandate, status: 'met', metAbsWeek: newAbsWeek };
+            newToasts.push({ type: 'success', title: `${mandateIcon(boardMandate)} Board mandate met — ${mandateTitle(boardMandate)}`,
+              message: `${mandateDesc(boardMandate)} · Board bonus: +${fmtUsd(boardMandate.reward)}`, duration: 9000 });
+          } else if (newAbsWeek > boardMandate.endAbsWeek) {
+            boardMandate = { ...boardMandate, status: 'missed' };
+            newToasts.push({ type: 'info', title: `${mandateIcon(boardMandate)} Board mandate missed — ${mandateTitle(boardMandate)}`,
+              message: `${mandateDesc(boardMandate)} — the quarter ended first. A new mandate comes with the new quarter.`, duration: 8000 });
+          }
+        }
+        if (boardMandate?.status !== 'open' && quarterOf(newAbsWeek) !== boardMandate?.quarter) {
+          if (boardMandate) boardMandateHistory = [...(boardMandateHistory ?? []), boardMandate].slice(-MANDATE.historyCap);
+          const next = issueMandate(mSnap, newAbsWeek, _objCap);
+          if (next) {
+            boardMandate = next;
+            newToasts.push({ type: 'info', title: `${mandateIcon(next)} New board mandate — ${mandateTitle(next)}`,
+              message: `${mandateDesc(next)} before the quarter ends · Board bonus: ${fmtUsd(next.reward)}`, duration: 9000 });
+          }
+        }
+      }
       const allPending      = state.pendingOrders ?? [];
       const toDeliver       = allPending.filter(o => o.deliverAbsWeek <= newAbsWeek);
       const remainingOrders = allPending.filter(o => o.deliverAbsWeek >  newAbsWeek);
@@ -7238,12 +7294,31 @@ function reducer(state, action) {
 
       // A travel partner walking out is a public falling-out (data/travelPartners.js).
       forcedRepHit += report.travelPartnerRepHit ?? 0;
+
+      // Operational incidents EARNED by management (demand model v4 worlds,
+      // models/incidents.js): a worked-flat fleet with no spares and unhappy
+      // crews can melt down. Zero risk — and no random draw — for an airline
+      // with slack; nothing at all outside v4.
+      const incident = economyCycleWorld(state)
+        ? rollIncident(state, fleetAvgUtilizationOf(state.fleet, state.routes, state.cargoRoutes), Math.random)
+        : null;
+      if (incident) {
+        forcedRepHit += incident.reputationHit;
+        newToasts.push({
+          type: 'danger', title: `🌩️ Operational meltdown at ${incident.airport}`,
+          message: `A bad week your operation had no slack to absorb: ${incidentCauseLine(incident.causes)}. `
+            + 'Passengers were stranded; satisfaction and reputation took the hit, and it made the world news.',
+          duration: 12000,
+        });
+      }
       let newReputationPenalty = (state.reputationPenalty ?? 0) * REP_PENALTY_DECAY + forcedRepHit;
       newReputationPenalty = newReputationPenalty < 0.1 ? 0 : Math.min(REP_PENALTY_MAX, newReputationPenalty);
 
       return {
         ...state,
-        cash:              cashAfterDividend + objectiveCashBonus,
+        cash:              cashAfterDividend + objectiveCashBonus + mandateCashBonus,
+        ...(boardMandate ? { boardMandate } : {}),
+        ...(boardMandateHistory ? { boardMandateHistory } : {}),
         week:              newWeek,
         year:              newYear,
         portfolio:         newPortfolio,
@@ -7269,6 +7344,7 @@ function reducer(state, action) {
         statsHistory:      newStats,
         ...(newStatsYearly !== state.statsHistoryYearly ? { statsHistoryYearly: newStatsYearly } : {}),
         lastReport:        { ...report, cashDelta: preTaxProfit - corporateTax,
+          ...(incident ? { incident } : {}),
           // Effective revenue includes the world-event demand adjustment that the
           // headline net already reflects; "all-in" cost folds loan payments,
           // lease redelivery, seasonal reactivation fees and corporate tax on top of
@@ -7317,6 +7393,7 @@ function reducer(state, action) {
                              ...(nextCrackIndex != null ? { crack: nextCrackIndex } : {}) },
         ...(tickedRefinery ? { refinery: tickedRefinery } : {}),
         marketIndex:       nextMarketIndex,
+        ...(nextEconomyCycle ? { economyCycle: nextEconomyCycle } : {}),
         hedgeContracts:      hedgeSettlement.contracts,
         ...(hedgeSettlement.stats ? { hedgeStats: hedgeSettlement.stats } : {}),
         loyalty:             updatedLoyalty,
@@ -7333,7 +7410,8 @@ function reducer(state, action) {
         satisfaction:        (() => {
           const base = report.satisfaction ?? state.satisfaction ?? null;
           if (base == null) return null;
-          const shock = newEvents.reduce((s, ev) => s + (ev.effects?.satisfactionShock ?? 0), 0);
+          const shock = newEvents.reduce((s, ev) => s + (ev.effects?.satisfactionShock ?? 0), 0)
+            + (incident?.satisfactionShock ?? 0);
           return Math.max(0, Math.min(100, Math.round((base + shock) * 10) / 10));
         })(),
         objectives:               updatedObjectives,
@@ -7360,7 +7438,7 @@ function reducer(state, action) {
         victoryAcknowledged: (rivalsGone && !state.gameWon) ? false : state.victoryAcknowledged,
         victoryStats:        (rivalsGone && !state.gameWon) ? {
           marketCap:   newMarketCap ?? state.marketCap ?? null,
-          cash:        cashAfterDividend + objectiveCashBonus,
+          cash:        cashAfterDividend + objectiveCashBonus + mandateCashBonus,
           fleetCount:  finalFleet.filter(a => a.status !== 'retired').length,
           routeCount:  finalRoutes.length,
           airports:    Object.values(state.gates ?? {}).filter(n => n > 0).length,

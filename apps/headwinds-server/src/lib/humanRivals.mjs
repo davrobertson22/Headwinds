@@ -22,7 +22,7 @@ import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwr
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
-import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, loyaltyPresence, stateDevaluationNotice, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
+import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, loyaltyPresence, stateDevaluationNotice, calendarYearFrac, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
@@ -564,6 +564,9 @@ export function toRivalSpecs(airlineRow) {
       // Their loyalty-pools standing on THIS pair (share term only), through
       // the helper their own tick runs. Absent outside pools worlds.
       ...stateLoyaltyFields(s, r.origin, r.destination),
+      // Their earned pricing headroom (demand model v4): a rival offer only
+      // exists on a pair someone else flies, so it is the hub term alone.
+      ...statePricingFields(s, r.origin, r.destination, { contested: true }),
       homeHub,
       frequency: 0,
       priceMultiplier: econ && ref ? +(econ / ref).toFixed(3) : 1,

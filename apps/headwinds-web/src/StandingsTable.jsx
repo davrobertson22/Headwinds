@@ -15,6 +15,7 @@ import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import AirlineLogo from '../../../src/components/AirlineLogo.jsx';
 import SeasonProgress from '../../../src/components/SeasonProgress.jsx';
 import { STANDINGS_SORTS, sortStandings, finalStretchLine } from '../../../src/utils/standingsView.js';
+import { liveRaces } from '../../../packages/engine/src/utils/standings.js';
 
 const fmtMoney = (n) => n == null ? '—' :
   Math.abs(n) >= 1e9 ? `$${(n / 1e9).toFixed(2)}B` :
@@ -88,6 +89,32 @@ export function RankMove({ rank, prevRank }) {
   );
 }
 
+// Side races anyone can win while the season runs (engine utils/standings.js
+// liveRaces): best newcomer, each region's champion, the busiest week. Built
+// from the same public rows as the table, so nothing private is shown.
+function LiveRaces({ standings, weeksFlown, mineId }) {
+  const races = liveRaces(standings, { weeksFlown });
+  if (races.length === 0) return null;
+  const val = (race, v) => race.unit === 'pax' ? `${fmtCount(v)} pax` : `${fmtSignedMoney(v)}/wk`;
+  return (
+    <div className="live-races" data-live-races={races.length}
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '6px 0 12px' }}>
+      {races.map((race) => (
+        <div key={race.key} className="card" data-race={race.key}
+          style={{ padding: '8px 10px', minWidth: 170, flex: '1 1 170px' }}>
+          <div className="muted small">{race.title}</div>
+          <div style={{ fontWeight: 600, color: race.leader.id === mineId ? 'var(--accent, #38e1ff)' : undefined }}>
+            {race.leader.name} <span className="muted small">{val(race, race.leader.value)}</span>
+          </div>
+          {race.runnerUp && (
+            <div className="muted small">then {race.runnerUp.name} · {val(race, race.runnerUp.value)}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function StandingsTable({
   world, standings = [], ranking = null, fallen = 0, mineId = null,
   sort = { key: 'rank', dir: 'desc' }, onSort = () => {},
@@ -108,6 +135,7 @@ export default function StandingsTable({
           <> {fallen} airline{fallen === 1 ? ' has' : 's have'} gone bankrupt or bowed out here.</>
         )}
       </p>
+      <LiveRaces standings={standings} weeksFlown={ranking?.weeksFlown ?? 0} mineId={mineId} />
       {standings.length === 0 ? (
         <p className="muted">
           {fallen > 0

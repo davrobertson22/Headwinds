@@ -280,8 +280,8 @@ export function validateWorldConfig({
   if (partnerships != null && typeof partnerships !== 'boolean') {
     throw badRequest('partnerships must be true or false');
   }
-  if (demandModel != null && demandModel !== 1 && demandModel !== 2 && demandModel !== 3) {
-    throw badRequest('demandModel must be 1 (classic), 2 or 3');
+  if (demandModel != null && demandModel !== 1 && demandModel !== 2 && demandModel !== 3 && demandModel !== 4) {
+    throw badRequest('demandModel must be 1 (classic), 2, 3 or 4');
   }
   if (marketDev != null && typeof marketDev !== 'boolean') {
     throw badRequest('marketDev must be true or false');

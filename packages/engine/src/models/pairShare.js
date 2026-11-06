@@ -66,7 +66,9 @@ import {
   stateCateringFields,
   stateTravelPartnerFields,
   stateLoyaltyFields,
+  statePricingFields,
 } from '../utils/simulation.js';
+import { worldDemandMultOf } from './economyCycle.js';
 
 
 export const pairKeyOf = (a, b) => [a, b].sort().join('-');
@@ -89,7 +91,7 @@ export const pairKeyOf = (a, b) => [a, b].sort().join('-');
  */
 export function stateDemandMult(state, origin, destination, eventOnly) {
   const ev = eventOnly ?? buildEventDemandModel(state.activeEvents).multFor(origin, destination);
-  return ev * (state.worldDemandMult ?? 1);
+  return ev * worldDemandMultOf(state);
 }
 
 /**
@@ -190,6 +192,8 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     ...stateTravelPartnerFields(state, r0.origin, r0.destination),
     // Loyalty-pools member standing (share term only) — the tick attaches it.
     ...stateLoyaltyFields(state, r0.origin, r0.destination),
+    // Earned pricing headroom (demand model v4) — the tick attaches it too.
+    ...statePricingFields(state, r0.origin, r0.destination),
   };
 }
 
@@ -632,7 +636,7 @@ export function projectConnectingFeed(state, spec) {
     if (comp?.homeHub) partnerHubCodes.push(comp.homeHub);
   }
 
-  const worldMult  = state.worldDemandMult ?? 1;
+  const worldMult  = worldDemandMultOf(state);
   const eventModel = buildEventDemandModel(state.activeEvents);
   const demandMultFor = (a, b) => eventModel.multFor(a, b) * worldMult;
   const rivalIndex = rivalIndexFor(state);
@@ -946,6 +950,7 @@ export function projectRouteAddition(state, spec) {
       // attaches the same fields.
       ...stateTravelPartnerFields(state, origin, destination, gameDate?.month ?? null),
       ...stateLoyaltyFields(state, origin, destination),
+      ...statePricingFields(state, origin, destination),
       ...(state.partnershipsWorld === true ? { travelPartnerTrack: true } : {}),
       // Hub station / layover / maintenance discounts, exactly as the tick
       // attaches them (hubCostFactorsAt). Spread conditionally like the tick.

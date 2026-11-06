@@ -16,6 +16,7 @@ import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
 import BoardObjectives from './BoardObjectives.jsx';
+import EconomyIndicator from './EconomyIndicator.jsx';
 import CompactWaterfall from './CompactWaterfall.jsx';
 import InfoTip from './InfoTip.jsx';
 import { requestNav } from '../utils/navIntent.js';
@@ -733,6 +734,9 @@ export default function Dashboard({ onNavigate }) {
           onToggleCollapse={() => toggleCollapse('pnl')}
         />
       )}
+
+      {/* ── World business cycle (demand model v4 worlds; nothing elsewhere) ── */}
+      <EconomyIndicator />
 
       {/* ── Board objectives ─────────────────────────────────────────────── */}
       <BoardObjectives />

@@ -19,7 +19,7 @@ import {
   AIRPORT_GATEWAY_SCORES,
 } from '../models/demand.js';
 import { routeLaunchCost } from '../data/overhead.js';
-import { checkRouteRestrictions, runwayShortfall } from '../data/airportRestrictions.js';
+import { checkRouteRestrictions, runwayShortfall, standShortfall } from '../data/airportRestrictions.js';
 import { normalizeCateringLevel } from '../data/catering.js';
 import CateringSelector from './CateringSelector.jsx';
 import CargoRoutePlanner, { ModeToggle } from './CargoRoutePlanner.jsx';
@@ -630,7 +630,10 @@ export default function RoutePlanner() {
     const ok = [], barred = [];
     for (const t of inRange) {
       const short = runwayShortfall([origin, dest], t);
-      if (short) barred.push({ type: t, ...short }); else ok.push(t);
+      if (short) barred.push({ type: t, ...short });
+      // Superjumbos need a code-F stand at both ends (v4 worlds) — ADD_ROUTE
+      // refuses them otherwise, so the picker must not offer them.
+      else if (!standShortfall([origin, dest], t)) ok.push(t);
     }
     return { reachableTypes: ok, runwayBarred: barred };
   }, [routeData, reachByType, origin, dest]);

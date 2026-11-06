@@ -3,7 +3,8 @@ import { hydrateRoute } from '../utils/simulation.js';
 import { gameReducer as reducer, freshState, reconcileState } from '../../packages/engine/src/reducer.mjs';
 import { setFareIndex, getFareIndex, setNwrYieldChoke, getNwrYieldChoke, setEraStartYear, getEraStartYear, setDemandModel } from '../../packages/engine/src/utils/market.js';
 import { setEraCostScale, getEraCostScale } from '../../packages/engine/src/data/overhead.js';
-import { setEraPriceYear, getEraPriceYear } from '../../packages/engine/src/data/aircraft.js';
+import { setEraPriceYear, getEraPriceYear, setLeaseCycleMult, getLeaseCycleMult } from '../../packages/engine/src/data/aircraft.js';
+import { cycleLeaseMult } from '../../packages/engine/src/models/economyCycle.js';
 import { eraFareIndex, eraOverheadScale } from '../../packages/engine/src/data/era.js';
 import { calendarYear, calendarYearFrac } from '../../packages/engine/src/utils/simulation.js';
 import { setFuelStationsEnabled, getFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '../../packages/engine/src/data/fuelStations.js';
@@ -63,6 +64,9 @@ export function syncEngineWorldState(state) {
   if (getEraCostScale() !== costScale) setEraCostScale(costScale);
   const priceYear = calendarYear(state);
   if (getEraPriceYear() !== priceYear) setEraPriceYear(priceYear);
+  // World business cycle (demand model v4): the Market quotes the rate LEASE_AIRCRAFT will lock.
+  const leaseMult = cycleLeaseMult(state);
+  if (getLeaseCycleMult() !== leaseMult) setLeaseCycleMult(leaseMult);
 }
 const SAVE_KEY = 'bbae_save_v2'; // bump version to avoid old-format conflicts
 

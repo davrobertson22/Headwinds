@@ -569,7 +569,7 @@ export default async function worldRoutes(fastify) {
           // Travel partnerships (default ON; false = a world without them).
           partnerships: { type: 'boolean' },
           // Demand model (default the latest, 3; 1 = classic gravity model).
-          demandModel: { type: 'integer', enum: [1, 2, 3] },
+          demandModel: { type: 'integer', enum: [1, 2, 3, 4] },
           // Market development (default ON; false = fixed markets).
           marketDev: { type: 'boolean' },
           // Loyalty pools (default ON; false = the budget-and-tier program).

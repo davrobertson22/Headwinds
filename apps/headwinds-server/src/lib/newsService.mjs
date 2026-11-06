@@ -718,6 +718,31 @@ export function gateForfeitureNewsRows({ worldId, week, releases, lockoutWeeks, 
 }
 
 /**
+ * Operational meltdowns this week (engine models/incidents.js, demand model v4
+ * worlds) — earned by running a fleet flat-out with no spares and unhappy
+ * crews. Public: stranded passengers are news. One row per airline per week.
+ * `incidents` is [{ airlineId, kind, airport, causes }].
+ */
+export function incidentNewsRows({ worldId, week, incidents, nameOf }) {
+  const seen = new Set();
+  const rows = [];
+  for (const i of incidents ?? []) {
+    if (!i?.airlineId || seen.has(i.airlineId)) continue;
+    seen.add(i.airlineId);
+    rows.push({
+      worldId, week, category: 'world', kind: 'operational_meltdown', tier: 2,
+      airlineId: i.airlineId,
+      payload: {
+        airport: i.airport ?? null,
+        causes: (i.causes ?? []).map((c) => c.kind),
+        name: nameOf?.get?.(i.airlineId) ?? null,
+      },
+    });
+  }
+  return rows;
+}
+
+/**
  * Travel partners that ended a partnership this week — walked out after weeks
  * of missed targets, or refused to renew (engine data/travelPartners.js). Public
  * on purpose (Dave, 2026-10-29): a falling-out is world news. One row per

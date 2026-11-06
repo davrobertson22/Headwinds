@@ -400,6 +400,20 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [demandV2, setDemandV2] = useState(true);
   // Market development — on by default (the server defaults it on too).
   const [marketDev, setMarketDev] = useState(true);
+  // Rule presets (docs/game-audit-2026-11-06.md F5): one pick sets every rule
+  // switch below to a named, tested combination; any switch can still be
+  // changed afterwards (the select then reads "Custom").
+  const [rulePreset, setRulePreset] = useState('standard');
+  const applyRulePreset = (key) => {
+    const p = WORLD_RULE_PRESETS[key];
+    setRulePreset(key);
+    if (!p) return;
+    setNewWorldRestrictions(p.nwr); setCrewPipeline(p.crew); setProductionLines(p.lines);
+    setPartnerships(p.partners); setDemandV2(p.demand); setMarketDev(p.marketDev);
+    setLoyaltyPools(p.loyalty); setHubBanks(p.hubBanks); setGateScarcity(p.scarcity);
+    setStartingCapital(p.capital); setDemandMultiplier(p.demandMult);
+  };
+  const customised = (fn) => (e) => { setRulePreset('custom'); fn(e); };
   // Per-world frames a week (blank = default); sent only when something is set.
   const [lineRates, setLineRates] = useState(EMPTY_LINE_RATES);
   const [stage, setStage] = useState('beta');
@@ -457,8 +471,9 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           productionLines,
           // Always explicit: the server treats an absent field as ON.
           partnerships,
-          // Always explicit: the server treats an absent field as v2.
-          demandModel: demandV2 ? 3 : 1,
+          // Always explicit. 4 = v3's real-world demand plus the schedule-demand
+          // and earned-pricing rules (docs/game-audit-2026-11-06.md R1/R2).
+          demandModel: demandV2 ? 4 : 1,
           // Always explicit: the server treats an absent field as ON.
           marketDev,
           // Always explicit: the server treats an absent field as ON.
@@ -639,10 +654,17 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             onChange={(e) => setDemandMultiplier(e.target.value)} />
           <span className="muted">{Number(demandMultiplier).toFixed(1)}× global demand · 1.0× = normal</span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Rule preset
+          <select value={rulePreset} onChange={(e) => applyRulePreset(e.target.value)} data-rule-preset={rulePreset}>
+            {Object.entries(WORLD_RULE_PRESETS).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
+            <option value="custom">Custom</option>
+          </select>
+          <span className="muted small">{WORLD_RULE_PRESETS[rulePreset]?.blurb ?? 'Your own mix of the switches below.'}</span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>New world restrictions
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={newWorldRestrictions}
-              onChange={(e) => setNewWorldRestrictions(e.target.checked)} />
+              onChange={customised((e) => setNewWorldRestrictions(e.target.checked))} />
             <span className="muted">{newWorldRestrictions ? 'ON (default) — restricted leasing' : 'Off — lease anything, any quantity (classic)'}</span>
           </span>
           <span className="muted small">
@@ -656,7 +678,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Crew pipeline
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={crewPipeline}
-              onChange={(e) => setCrewPipeline(e.target.checked)} />
+              onChange={customised((e) => setCrewPipeline(e.target.checked))} />
             <span className="muted">{crewPipeline ? 'ON — crew must be hired and trained' : 'Off — crew are instant (classic)'}</span>
           </span>
           <span className="muted small">
@@ -670,7 +692,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Production lines
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={productionLines}
-              onChange={(e) => setProductionLines(e.target.checked)} />
+              onChange={customised((e) => setProductionLines(e.target.checked))} />
             <span className="muted">{productionLines ? 'ON (default) — shared delivery slots' : 'Off — private delivery queues (classic)'}</span>
           </span>
           <span className="muted small">
@@ -688,7 +710,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Travel partnerships
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={partnerships}
-              onChange={(e) => setPartnerships(e.target.checked)} />
+              onChange={customised((e) => setPartnerships(e.target.checked))} />
             <span className="muted">{partnerships ? 'ON (default) — cruise, tour, hotel and ride-share partners' : 'Off — no travel partners'}</span>
           </span>
           <span className="muted small">
@@ -701,7 +723,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Passenger demand
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={demandV2}
-              onChange={(e) => setDemandV2(e.target.checked)} />
+              onChange={customised((e) => setDemandV2(e.target.checked))} />
             <span className="muted">{demandV2 ? 'Recalibrated (default) — checked against real traffic' : 'Classic — the original gravity model'}</span>
           </span>
           <span className="muted small">
@@ -715,7 +737,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Market development
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={marketDev}
-              onChange={(e) => setMarketDev(e.target.checked)} />
+              onChange={customised((e) => setMarketDev(e.target.checked))} />
             <span className="muted">{marketDev ? 'ON (default) — markets grow with service' : 'Off — every city pair has a fixed size'}</span>
           </span>
           <span className="muted small">
@@ -728,7 +750,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>City loyalty
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={loyaltyPools}
-              onChange={(e) => setLoyaltyPools(e.target.checked)} />
+              onChange={customised((e) => setLoyaltyPools(e.target.checked))} />
             <span className="muted">{loyaltyPools ? 'ON (default) — airlines compete for each city\u2019s frequent flyers' : 'Off — the budget-and-tier loyalty program'}</span>
           </span>
           <span className="muted small">
@@ -740,7 +762,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Hub banks
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={hubBanks}
-              onChange={(e) => setHubBanks(e.target.checked)} />
+              onChange={customised((e) => setHubBanks(e.target.checked))} />
             <span className="muted">{hubBanks ? 'ON (default) — connections need the timetable to meet' : 'Off — the schedule is for show; every flight connects'}</span>
           </span>
           <span className="muted small">
@@ -752,7 +774,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
-              onChange={(e) => setGateScarcity(e.target.checked)} />
+              onChange={customised((e) => setGateScarcity(e.target.checked))} />
             <span className="muted">{gateScarcity ? 'ON — finite gates, auctions, gate market' : 'Off — unlimited gates (classic)'}</span>
           </span>
           <span className="muted small">
@@ -924,11 +946,12 @@ const WORLD_FEATURES = [
   },
   {
     key: 'demand',
-    on: (w) => w.demandModel === 2 || w.demandModel === 3,
+    on: (w) => w.demandModel === 2 || w.demandModel === 3 || w.demandModel === 4,
     icon: '📊',
-    label: (w) => (w?.demandModel === 3 ? 'Real-world demand · global' : 'Real-world demand'),
+    label: (w) => (w?.demandModel === 4 ? 'Real-world demand · global · frequency sells seats'
+      : w?.demandModel === 3 ? 'Real-world demand · global' : 'Real-world demand'),
     rgb: '240,180,80',
-    blurb: 'Passenger demand checked against real traffic. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Global worlds also calibrate Europe, the UK, Brazil, Mexico, India, Japan and every international route touching the US or Australia: holiday islands draw their real crowds, each country flies its real amount, and about 1,000 airports follow their real seasons.',
+    blurb: 'Passenger demand checked against real traffic. In the US and Australia, short hops lose travellers to the car and small airports lose some locals to a big airport nearby. Global worlds also calibrate Europe, the UK, Brazil, Mexico, India, Japan and every international route touching the US or Australia: holiday islands draw their real crowds, each country flies its real amount, and about 1,000 airports follow their real seasons. Worlds tagged "frequency sells seats" also reward timetables: more departures win more travellers, even on a route you fly alone, and a protected market or a strong hub lets you price a little above the going fare.',
   },
   {
     key: 'marketdev',
@@ -971,6 +994,36 @@ const WORLD_FEATURES = [
     blurb: 'Airports have 25–500 gates, capped at 60% per airline. Full airports auction gates once a year by sealed bid, and unused gates are forfeited after 24 weeks.',
   },
 ];
+
+// World rule presets for the create form (docs/game-audit-2026-11-06.md F5).
+// Each is a named, tested combination of the rule switches; "Standard" is the
+// form's own defaults, so picking nothing changes nothing.
+export const WORLD_RULE_PRESETS = {
+  standard: {
+    label: 'Standard (recommended)',
+    blurb: 'The current ruleset: restricted leasing, production lines, partners, loyalty pools, hub banks and real-world demand with frequency and pricing rules.',
+    nwr: true, crew: false, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, scarcity: false,
+    capital: 10_000_000, demandMult: 1,
+  },
+  hardcore: {
+    label: 'Hardcore',
+    blurb: 'Standard, plus finite gates with auctions and a crew pipeline you must hire and train — and less starting capital.',
+    nwr: true, crew: true, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, scarcity: true,
+    capital: 6_000_000, demandMult: 1,
+  },
+  sandbox: {
+    label: 'Sandbox',
+    blurb: 'Lease anything, no production queues or gate limits, more capital and demand — for learning and experimenting.',
+    nwr: false, crew: false, lines: false, partners: true, demand: true, marketDev: false, loyalty: true, hubBanks: true, scarcity: false,
+    capital: 50_000_000, demandMult: 1.5,
+  },
+  classic: {
+    label: 'Classic',
+    blurb: 'The original game: classic demand and none of the newer systems.',
+    nwr: false, crew: false, lines: false, partners: false, demand: false, marketDev: false, loyalty: false, hubBanks: false, scarcity: false,
+    capital: 10_000_000, demandMult: 1,
+  },
+};
 
 const featuresOf = (w) => WORLD_FEATURES.filter((f) => f.on(w));
 

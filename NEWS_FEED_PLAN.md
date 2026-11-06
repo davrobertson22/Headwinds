@@ -1,6 +1,6 @@
 # Headwinds News Feed Plan
 
-**Status:** proposal — not built. Written 2026-07-27.
+**Status:** BUILT — the world News tab and the 🌍 top-bar feed (src/components/News.jsx, apps/headwinds-server/src/lib/newsService.mjs). This plan was written 2026-07-27; the header was stale until 2026-11-06.
 **Scope decision (Dave, 2026-07-27):** dedicated **News tab**, drawer kept as a lightweight ticker.
 Content: rival moves + world economy events + gates/auctions/used market + standings/bankruptcies/stocks.
 Default view: **everything, chronological** (with rollup + filters, not raw firehose).

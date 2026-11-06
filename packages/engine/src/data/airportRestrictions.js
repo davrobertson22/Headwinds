@@ -9,7 +9,7 @@
 // the first violation wins).
 
 import { getAirport } from './airports.js';
-import { distanceKm } from '../utils/market.js';
+import { distanceKm, getDemandModel } from '../utils/market.js';
 
 const MILES_TO_KM = 1.60934;
 
@@ -326,6 +326,64 @@ function runwayViolation(code, type) {
   };
 }
 
+// ─── Code-F stands (demand model v4 worlds) ──────────────────────────────────
+//
+// An A380 or a 747-8I spans more than 65 m, so it needs a code-F stand (and the
+// taxiways and gate bridges that go with it). Only a minority of the world's
+// airports have one, which is why a superjumbo flies between the big gateways
+// and nowhere else. Before this the catalogue's biggest aircraft could fly
+// Boise–Salt Lake or JFK–Boston on any 9,800 ft runway, and the deadweight report
+// had the A380 as the single most-winning type (docs/game-audit-2026-11-06.md
+// R3). New worlds only — the rule rides demand model v4 like the rest of that
+// ruleset, so no live world's routes are refused.
+//
+// The list is the airports that have handled scheduled A380 / 747-8I passenger
+// service or hold code-F stands for it. Freighters (747-8F, An-124, An-225) park
+// on remote cargo aprons and are not affected.
+export const CODE_F_TYPES = new Set(['a380', 'b7478i']);
+export const CODE_F_AIRPORTS = new Set([
+  // Europe
+  'LHR', 'LGW', 'MAN', 'BHX', 'GLA', 'CDG', 'NCE', 'FRA', 'MUC', 'DUS', 'AMS', 'MAD', 'BCN',
+  'FCO', 'MXP', 'ZRH', 'VIE', 'PRG', 'IST', 'DME', 'CPH', 'ATH',
+  // Middle East and North Africa
+  'DXB', 'AUH', 'DOH', 'JED', 'RUH', 'KWI', 'BAH', 'MCT', 'CAI', 'TLV', 'AMM', 'CMN',
+  // Asia
+  'SIN', 'HKG', 'NRT', 'HND', 'KIX', 'ICN', 'PEK', 'PKX', 'PVG', 'CAN', 'TPE', 'BKK', 'KUL',
+  'CGK', 'MNL', 'DEL', 'BOM', 'BLR', 'HYD',
+  // Oceania
+  'SYD', 'MEL', 'BNE', 'PER', 'ADL', 'AKL',
+  // Americas
+  'JFK', 'IAD', 'LAX', 'SFO', 'IAH', 'DFW', 'ATL', 'BOS', 'ORD', 'MIA', 'YYZ', 'YVR', 'GRU',
+  // Africa and the Indian Ocean
+  'JNB', 'CPT', 'MRU',
+]);
+
+/** Whether the code-F stand rule is live (demand model v4 worlds). */
+export function codeFRuleOn() { return getDemandModel() >= 4; }
+
+function standViolation(code, type) {
+  if (!type || !CODE_F_TYPES.has(type.id) || !codeFRuleOn() || CODE_F_AIRPORTS.has(code)) return null;
+  const apt = getAirport(code);
+  const name = apt?.name ?? code;
+  return {
+    restriction: {
+      label: `${code} No Code-F Stand`,
+      shortLabel: 'No superjumbo stand',
+      description: `${name} has no code-F stand. The ${type.name} spans more than 65 m and can only `
+        + 'use airports built for it.',
+      type: 'code_f_stand',
+    },
+    reason: `${code} has no stand for the ${type.name}: it needs a code-F gate, which only the big `
+      + 'international gateways have.',
+  };
+}
+
+/** The first airport in `codes` without a code-F stand for `type` (or null). */
+export function standShortfall(codes, type) {
+  for (const code of codes ?? []) if (standViolation(code, type)) return code;
+  return null;
+}
+
 /**
  * The first airport in `codes` whose longest runway is too short for `type`,
  * as { code, needFt, haveFt }, or null when every one of them can take it.
@@ -347,7 +405,7 @@ export function checkRouteRestrictions(originCode, destCode, distKm, weeklyFreq,
   const acType = context.aircraftType ?? null;
   if (acType) {
     for (const code of [originCode, destCode]) {
-      const v = runwayViolation(code, acType);
+      const v = runwayViolation(code, acType) ?? standViolation(code, acType);
       if (v) return v;
     }
   }

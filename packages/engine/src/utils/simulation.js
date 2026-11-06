@@ -99,6 +99,10 @@ import {
   statusMatchOffer, applyStatusMatch, devaluationNotice, LP_MATCH_MEMORY_WEEKS,
 } from '../models/loyaltyPools.js';
 import { buildEncroachmentOffer } from '../models/encroachment.js';
+import { statePricingFields } from '../models/pricingPower.js';
+import { worldDemandMultOf, cycleLeaseMult } from '../models/economyCycle.js';
+import { setLeaseCycleMult } from '../data/aircraft.js';
+export { statePricingFields };
 
 // ─────────────────────────────────────────────
 // DISTANCE
@@ -2464,6 +2468,9 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // a price shield inside the same softmax. Never the pool. 1 / 0 = parity.
     loyaltyAppeal:        route.loyaltyAppeal ?? 1,
     loyaltySensReduction: route.loyaltySensReduction ?? 0,
+    // Earned pricing headroom (demand model v4; attached by weeklyTick /
+    // statePricingFields). Absent = 0 = the plain quality threshold.
+    ...(route.pricingHeadroom ? { pricingHeadroom: route.pricingHeadroom } : {}),
   };
 
   // Gather any AI competitors serving this route and compute market share.
@@ -2590,7 +2597,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     let cliffLost = 0;
     if (cls !== 'economy' && cp[cls] != null && preferredDemand > 0) {
       const cabinRef = Math.max(1, market.referencePrice * (CLASS_FARE_MULTIPLIERS[cls] ?? 1));
-      const cliff = nwrYieldChokeFactor(cp[cls] / cabinRef, qualityScore);
+      const cliff = nwrYieldChokeFactor(cp[cls] / cabinRef, qualityScore, route.pricingHeadroom ?? 0);
       if (cliff < 1) {
         const kept = Math.round(preferredDemand * cliff);
         const capHere = (config[cls] ?? 0) * route.weeklyFrequency;
@@ -4719,6 +4726,8 @@ export function weeklyTick(state) {
   setNwrYieldChoke(state.newWorldRestrictions === true);
   // Demand model, pinned from THIS state for the same reason (absent = classic).
   setDemandModel(state.demandModel);
+  // The business cycle's lease-rate knob, for the same reason (1 outside v4).
+  setLeaseCycleMult(cycleLeaseMult(state));
   // Market development (models/marketDev.js): this state's D table, or none.
   setMarketDev(state);
   // Event worlds: this year's double-profit airports, pinned from THIS state
@@ -4846,7 +4855,9 @@ export function weeklyTick(state) {
   // function that actually drives bookings; the reported eventGlobalDemandMult
   // stays pure so the Finance "Events ×" chip shows only event shocks. Defaults to
   // 1 → byte-identical to the solo game (state.worldDemandMult is undefined there).
-  const worldDemandMult = state.worldDemandMult ?? 1;
+  // …times the world business cycle in demand model v4 worlds
+  // (models/economyCycle.js; exactly the stored multiplier everywhere else).
+  const worldDemandMult = worldDemandMultOf(state);
   const eventDemandMultFor = worldDemandMult === 1
     ? eventDemandMultFor0
     : (a, b) => eventDemandMultFor0(a, b) * worldDemandMult;
@@ -5401,6 +5412,9 @@ export function weeklyTick(state) {
           ...travelFieldsFor(pairO, pairD),
           // Loyalty standing — same reason again.
           ...loyaltyFieldsFor(pairO, pairD),
+          // Earned pricing headroom (demand model v4; {} elsewhere) — same
+          // reason again (models/pricingPower.js).
+          ...statePricingFields(state, pairO, pairD),
         };
 
 
@@ -5648,6 +5662,9 @@ export function weeklyTick(state) {
       // leisure/business split on the result that their requirements count.
       ...travelFieldsFor(route.origin, route.destination),
       ...loyaltyFieldsFor(route.origin, route.destination),
+      // Earned pricing headroom (demand model v4 / NWR only; {} elsewhere, so
+      // every older world's route object is byte-identical).
+      ...statePricingFields(state, route.origin, route.destination),
       ...(tpWorld ? { travelPartnerTrack: true } : {}),
       ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
       ...(() => { const g = handlingFactorFor([route.origin, route.destination]); return g != null ? { groundHandlingFactor: g } : {}; })(),

@@ -264,6 +264,18 @@ export function compose(item, startYear = null) {
         standalone: true,
       };
     }
+    case 'operational_meltdown':
+      // An operational meltdown the airline earned (engine models/incidents.js):
+      // a fleet flown flat-out, no spares, unhappy crews. Public on purpose.
+      return {
+        icon: '🌩️',
+        headline: `had an operational meltdown${d.airport ? ` at ${d.airport}` : ''}`,
+        sub: `Passengers stranded — ${[
+          (d.causes ?? []).includes('utilisation') ? 'a fleet flown flat-out' : null,
+          (d.causes ?? []).includes('spares') ? 'no spare aircraft' : null,
+          (d.causes ?? []).includes('morale') ? 'unhappy crews' : null,
+        ].filter(Boolean).join(', ') || 'no slack in the operation'}`,
+      };
     case 'travel_partner_lost':
       // A travel partner walked out or refused to renew (engine
       // data/travelPartners.js). Public on purpose: a falling-out is news.

@@ -5,6 +5,32 @@ import { calendarYear } from '../utils/simulation.js';
 import { eraRevenueScale, eraPaxScale, eraCapitalScale } from '../data/era.js';
 import { formatMoney } from '../utils/simulation.js';
 import { Glyph } from './Icons.jsx';
+import { mandateDesc, mandateTitle, mandateIcon, MANDATE } from '../models/boardMandates.js';
+import { absoluteWeek } from '../utils/fuel.js';
+
+// This quarter's board mandate (demand model v4 worlds, models/boardMandates.js).
+// It outlives the starter board: the card stays when every objective is done.
+function MandateCard({ state }) {
+  const m = state.boardMandate;
+  if (!m) return null;
+  const now = absoluteWeek(state.year ?? 1, state.week ?? 1);
+  const left = Math.max(0, (m.endAbsWeek ?? now) - now + 1);
+  const status = m.status === 'met' ? 'Met — bonus paid' : m.status === 'missed' ? 'Missed' : `${left} week${left === 1 ? '' : 's'} left this quarter`;
+  const color = m.status === 'met' ? 'var(--green)' : m.status === 'missed' ? 'var(--text-muted)' : 'var(--yellow)';
+  return (
+    <div className="card board-mandate" data-mandate={m.kind} data-mandate-status={m.status} style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 15, fontWeight: 700 }}><Glyph e={mandateIcon(m)} /> Board mandate · Q{((m.quarter - 1) % 4) + 1}: {mandateTitle(m)}</span>
+        <span style={{ fontSize: 12, color, fontWeight: 600 }}>{status}</span>
+      </div>
+      <div style={{ marginTop: 6 }}>{mandateDesc(m)} in any week before the quarter ends.</div>
+      <div className="muted small" style={{ marginTop: 4 }}>
+        Board bonus {formatMoney(m.reward ?? MANDATE.reward)} — the same for every airline, so it counts most for the smallest.
+        A new mandate comes with each quarter.
+      </div>
+    </div>
+  );
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -25,7 +51,8 @@ export default function BoardObjectives() {
   const objectives = state.objectives ?? [];
 
   // Hidden when objectives are disabled at setup, or not yet initialized
-  if (!state.objectivesEnabled || objectives.length === 0) return null;
+  if (!state.objectivesEnabled) return null;
+  if (objectives.length === 0) return <MandateCard state={state} />;
 
   // Multiplayer worlds run the compact 10-objective starter board; solo runs
   // the full three-phase board. Detect from the ids actually stored in state.
@@ -66,9 +93,11 @@ export default function BoardObjectives() {
   // Board retires itself: once every objective is complete there is nothing
   // left to chase, so drop the card instead of leaving a wall of green ticks
   // parked at the top of the dashboard.
-  if (merged.length > 0 && totalCompleted === merged.length) return null;
+  if (merged.length > 0 && totalCompleted === merged.length) return <MandateCard state={state} />;
 
   return (
+    <>
+    <MandateCard state={state} />
     <div className="card" style={{ marginBottom: 16 }}>
       {/* Header */}
       <div
@@ -109,6 +138,7 @@ export default function BoardObjectives() {
         </div>
       )}
     </div>
+    </>
   );
 }
 

@@ -33,6 +33,8 @@ import { getAircraftType, eraPurchasePrice } from '../data/aircraft.js';
 import { DEPRECIATION_YEARS, tailBookValue } from '../data/overhead.js';
 import { LEGACY_STARTING_CAPITAL } from '../data/credit.js';
 import { outstandingLoanBalance } from './financeProjection.js';
+import { regionOf, regionLabel } from './market.js';
+import { getAirport } from '../data/airports.js';
 
 export const RANKING_WINDOW_WEEKS = 52;
 
@@ -203,4 +205,58 @@ export function finalStretchOf({ totalWeeks, weeksFlown }) {
     weeksUntilFinalStretch: Math.max(0, startsAfter - flown),
     ended: total > 0 && flown >= total,
   };
+}
+
+
+// ─── Live races (docs/game-audit-2026-11-06.md F2) ──────────────────────────
+//
+// The title is one race, and most of a world is not in it. These are the side
+// races a player outside the top five can win while the season runs, built
+// only from the public standings rows the world page already serves (so no
+// new data and nothing private): the best NEWCOMER (joined after the first
+// half-year, scored per week actually flown, since the title average counts a
+// late joiner's missing weeks as $0), the champion of each REGION (by the home
+// hub's region, where at least two airlines are based), and the busiest airline
+// this week. The season awards honour the same spirit at the end.
+export const RACES = { newcomerAfterWeek: 26, minRegionAirlines: 2, maxRegions: 6 };
+
+/**
+ * Side races from standings rows ({ id, name, hub, joinedWeek, avgProfit, paxWeek }).
+ * Returns [{ key, title, leader: { id, name, value }, runnerUp|null, unit }].
+ */
+export function liveRaces(rows, { weeksFlown = 0 } = {}) {
+  const live = (rows ?? []).filter(r => r && r.avgProfit != null);
+  const out = [];
+  const top2 = (arr, val) => {
+    const s = arr.map(r => ({ r, v: val(r) })).filter(x => Number.isFinite(x.v)).sort((a, b) => b.v - a.v);
+    return s.length ? { leader: { id: s[0].r.id, name: s[0].r.name, value: s[0].v },
+      runnerUp: s[1] ? { id: s[1].r.id, name: s[1].r.name, value: s[1].v } : null } : null;
+  };
+  const window = rankingWindow(weeksFlown);
+  const newcomers = live.filter(r => Number(r.joinedWeek) > RACES.newcomerAfterWeek);
+  if (newcomers.length > 0) {
+    const t = top2(newcomers, r => {
+      const flying = Math.max(1, Math.min(window, weeksFlown - Number(r.joinedWeek) + 1));
+      return (r.avgProfit * window) / flying;
+    });
+    if (t) out.push({ key: 'newcomer', title: 'Best newcomer', unit: 'perWeek', ...t });
+  }
+  const byRegion = new Map();
+  for (const r of live) {
+    const reg = regionOf(getAirport(r.hub)?.country ?? null);
+    if (!reg) continue;
+    if (!byRegion.has(reg)) byRegion.set(reg, []);
+    byRegion.get(reg).push(r);
+  }
+  const regions = [...byRegion.entries()]
+    .filter(([, rs]) => rs.length >= RACES.minRegionAirlines)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, RACES.maxRegions);
+  for (const [reg, rs] of regions) {
+    const t = top2(rs, r => r.avgProfit);
+    if (t) out.push({ key: `region:${reg}`, title: `${regionLabel(reg)} champion`, unit: 'perWeek', ...t });
+  }
+  const busiest = top2(live, r => Number(r.paxWeek));
+  if (busiest && busiest.leader.value > 0) out.push({ key: 'busiest', title: 'Busiest this week', unit: 'pax', ...busiest });
+  return out;
 }

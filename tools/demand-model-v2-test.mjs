@@ -57,7 +57,7 @@ await test('demandModel 1 creates a classic world (no key stored)', async () => 
   assert.equal((await tcOf({ ...BASE, demandModel: 1 })).demandModel, undefined);
 });
 await test('any other demandModel is refused', async () => {
-  for (const bad of [0, 4, '2', true]) {
+  for (const bad of [0, 5, '2', true]) {
     assert.throws(() => validateWorldConfig({ ...BASE, demandModel: bad }), /demandModel/, String(bad));
   }
 });
@@ -67,7 +67,7 @@ await test('the world JSON says which model a world runs (keyless = classic)', (
 });
 await test('the create-world form sends demandModel explicitly, defaulting to on', () => {
   const src = read('../apps/headwinds-web/src/App.jsx');
-  assert.ok(/demandModel: demandV2 \? 3 : 1,/.test(src), 'form does not send an explicit demandModel');
+  assert.ok(/demandModel: demandV2 \? 4 : 1,/.test(src), 'form does not send an explicit demandModel');
   assert.ok(/const \[demandV2, setDemandV2\] = useState\(true\)/.test(src), 'the checkbox no longer defaults to on');
 });
 await test('joining a v2 world bakes demandModel 2 into the airline; a classic world bakes nothing', () => {

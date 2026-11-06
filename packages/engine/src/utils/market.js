@@ -10,7 +10,7 @@
  *   simulation.js    ← market.js, demand.js
  */
 
-import { AIRPORTS, getAirport, getAirportScores, getAirportCargoScore } from '../data/airports.js';
+import { AIRPORTS, getAirport, getAirportScores, getAirportCargoScore, setGateRentV4 } from '../data/airports.js';
 import { AIRPORT_FACTORS as V2_AIRPORT_FACTORS, CORRIDOR_FACTORS as V2_CORRIDOR_FACTORS } from '../data/demandV2Factors.js';
 import { ROAD_ALPHA, ROAD_BETA, ROAD_FACTORS } from '../data/demandV2Roads.js';
 import { AIRPORT_FACTORS as V3_AIRPORT_FACTORS, LINK_FACTORS as V3_LINK_FACTORS } from '../data/demandV3Factors.js';
@@ -678,15 +678,31 @@ function metroDemandMultiplier(metro) {
 export const DEMAND_MODEL_CLASSIC = 1;
 // v3 (2026-10-30): v2 plus the rest of the world — see "Demand model v3" below.
 // A v2 game stays v2 for life; only a game started after v3 shipped runs it.
-export const DEMAND_MODEL_LATEST = 3;
+// v4 (2026-11-06, docs/game-audit-2026-11-06.md R1 + R2): v3's demand tables
+// unchanged, plus two rules about how that demand is SOLD —
+//   • schedule demand: frequency sells seats even on a route you fly alone
+//     (scheduleConvenience below), and frequency share wins passengers
+//     super-proportionally on a contested pair (the S-curve, demand.js);
+//   • earned pricing headroom: the yield choke starts later for an airline
+//     with a protected market or a strong hub at either end, and falls off
+//     less steeply (nwrYieldChokeFactor).
+// Every `>= 3` test in the engine treats v4 as v3, so pair demand, seasons and
+// the airport-market table are v3's. Only a game started after v4 runs it.
+export const DEMAND_MODEL_LATEST = 4;
 let _demandModel = DEMAND_MODEL_CLASSIC;
 
 /** Whether a state.demandModel value names a non-classic model this build knows. */
-export function isDemandModel(v) { return v === 2 || v === 3; }
+export function isDemandModel(v) { return v === 2 || v === 3 || v === 4; }
+
+/** Demand model v4's selling rules (schedule demand, earned pricing headroom) are live. */
+export function scheduleDemandOn() { return _demandModel >= 4; }
 
 /** Set the live demand model from a game's state.demandModel (absent = classic). */
 export function setDemandModel(v) {
   const next = isDemandModel(v) ? v : DEMAND_MODEL_CLASSIC;
+  // v4 worlds rent gates flat with a volume discount (data/airports.js); the
+  // knob rides the demand model so every caller that sets one sets both.
+  setGateRentV4(next >= 4);
   if (next === _demandModel) return;
   _demandModel = next;
   clearPairDemandMemo();
@@ -1274,6 +1290,11 @@ export function getFareIndex() { return _fareIndex; }
 export const NWR_CHOKE_THRESHOLD_BASE = 1.10;  // quality <= 50
 export const NWR_CHOKE_THRESHOLD_MAX  = 1.25;  // quality 100
 export const NWR_CHOKE_STEEPNESS      = 15;
+// Demand model v4: a softer fall-off past the threshold. With 15, a fare 20%
+// past it kept 5% of its travellers and pricing was a wall; at 8 it keeps 20%,
+// so an airline that has EARNED headroom (pricingHeadroom below) can live a
+// little above it, and one that has not still cannot hold a monopoly premium.
+export const NWR_CHOKE_STEEPNESS_V4   = 8;
 
 let _nwrYieldChoke = false;
 
@@ -1287,10 +1308,78 @@ export function getNwrYieldChoke() { return _nwrYieldChoke; }
  * @param {number} ratio    price / reference for the class being priced
  * @param {number} quality  offer quality score 0-100 (headroom scales with it)
  */
-export function nwrYieldChokeFactor(ratio, quality = 50) {
+export function nwrYieldChokeFactor(ratio, quality = 50, headroom = 0) {
   if (!_nwrYieldChoke) return 1;
-  const thr = nwrChokeThreshold(quality);
-  return ratio > thr ? Math.exp(-NWR_CHOKE_STEEPNESS * (ratio - thr)) : 1;
+  const v4 = _demandModel >= 4;
+  const thr = nwrChokeThreshold(quality) + (v4 ? Math.max(0, Number(headroom) || 0) : 0);
+  return ratio > thr ? Math.exp(-(v4 ? NWR_CHOKE_STEEPNESS_V4 : NWR_CHOKE_STEEPNESS) * (ratio - thr)) : 1;
+}
+
+// ─── Schedule demand (demand model v4) ────────────────────────────────────────
+//
+// Before v4 a route flown alone sold the same seats at two flights a week as at
+// three a day: frequency only entered the share fight between carriers. Real
+// travellers do not work like that — a business traveller who cannot get there
+// and back in a day drives, takes the train, calls instead, or does not go;
+// leisure travellers care less, and long-haul travellers expect once a day at
+// most. That is why airlines fight with frequency and why a 4-a-week A380 is
+// the wrong answer on LAX–SFO.
+//
+// scheduleConvenience(f) is the share of a pair's travellers a timetable of f
+// one-way departures a week can serve, NORMALISED TO DAILY: exactly 1.0 at 7 a
+// week, below 1 for less than daily, above 1 (capped) for more — frequent
+// shuttles stimulate demand. Shape: floor + (1 − floor)(1 − e^(−f/k)), with k
+// (the frequency at which the schedule stops mattering) falling with distance:
+// a short business hop wants several a day, a long-haul flight once a day.
+//
+//   business, 500 km  : 1/wk 0.69 · 4/wk 0.87 · 7/wk 1.00 · 14/wk 1.19 · 21+/wk 1.25
+//   leisure,  500 km  : 1/wk 0.85 · 4/wk 0.95 · 7/wk 1.00 · 14/wk 1.06 · 21/wk 1.08
+//   business, 10000 km: 1/wk 0.64 · 4/wk 0.90 · 7/wk 1.00 · 14/wk 1.05
+export const SCHEDULE_DEMAND = {
+  business: { floor: 0.45 },
+  leisure:  { floor: 0.75 },
+  // k by sector length (km → departures/week), interpolated linearly between.
+  kBusiness: [[0, 10], [800, 10], [3000, 5], [8000, 3]],
+  leisureKScale: 0.6,          // leisure's k as a fraction of business's
+  cap: 1.25,
+  dailyFrequency: 7,
+};
+
+function _scheduleK(distKm) {
+  const pts = SCHEDULE_DEMAND.kBusiness;
+  const d = Math.max(0, Number(distKm) || 0);
+  if (d >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (d <= pts[i][0]) {
+      const [d0, k0] = pts[i - 1], [d1, k1] = pts[i];
+      return k0 + (k1 - k0) * ((d - d0) / Math.max(1, d1 - d0));
+    }
+  }
+  return pts[pts.length - 1][1];
+}
+
+function _scheduleRaw(f, floor, k) {
+  return floor + (1 - floor) * (1 - Math.exp(-Math.max(0, f) / k));
+}
+
+/**
+ * Share of a pair's travellers (normalised to a daily service = 1) that a
+ * timetable of `weeklyFrequency` one-way departures can serve. Exactly 1 when
+ * demand model v4 is off, so every older world is untouched.
+ * @param {number} weeklyFrequency  one-way departures a week (all carriers, or one)
+ * @param {'business'|'leisure'} segment
+ * @param {number} distKm  sector length
+ */
+export function scheduleConvenience(weeklyFrequency, segment, distKm) {
+  if (_demandModel < 4) return 1;
+  const kB = _scheduleK(distKm);
+  const isBiz = segment === 'business';
+  const k = isBiz ? kB : kB * SCHEDULE_DEMAND.leisureKScale;
+  const floor = isBiz ? SCHEDULE_DEMAND.business.floor : SCHEDULE_DEMAND.leisure.floor;
+  const f = Number(weeklyFrequency);
+  const raw = _scheduleRaw(Number.isFinite(f) ? f : SCHEDULE_DEMAND.dailyFrequency, floor, k);
+  const daily = _scheduleRaw(SCHEDULE_DEMAND.dailyFrequency, floor, k);
+  return Math.min(SCHEDULE_DEMAND.cap, raw / daily);
 }
 
 /**

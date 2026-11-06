@@ -1,6 +1,6 @@
 # Player Profiles — accounts you can click on
 
-**Status: PLAN — not implemented.** Written 2026-08-24.
+**Status: BUILT** — player profiles, account DMs and the career layer (apps/headwinds-web/src/PlayerProfile.jsx, CareerPanel.jsx). Written 2026-08-24; header corrected 2026-11-06.
 
 Players exist in Headwinds today only as airlines inside a world. The account behind
 the airline — the thing that persists across seasons, wins championships, and comes

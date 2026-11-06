@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import NumberStepper from './NumberStepper.jsx';
 import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, addTagRouteBlockReason } from '../store/GameContext.jsx';
-import { runwayShortfall } from '../data/airportRestrictions.js';
+import { runwayShortfall, standShortfall } from '../data/airportRestrictions.js';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType, AIRCRAFT_TYPES } from '../data/aircraft.js';
 import { routeLaunchCost } from '../data/overhead.js';
@@ -124,6 +124,7 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
       if (!t || t.freighter || effectiveRangeKm(a, t) < maxLeg) return false;
       // Every stop must take the type's runway — ADD_TAG_ROUTE checks each leg.
       if (runwayShortfall([...stopSet], t)) return false;
+      if (standShortfall([...stopSet], t)) return false;   // code-F stands (v4 worlds)
       // Everything this tail is on the hook for — its cargo network too, and any
       // rotation a reserve is covering for it (those come home). Filtering on
       // aircraftId alone showed a covered tail as free metal.

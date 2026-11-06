@@ -187,6 +187,9 @@ export function buildEncroachmentOffer(spec, market) {
     // ticks would split the same pair differently. AI carriers: parity.
     loyaltyAppeal:        spec.loyaltyAppeal ?? 1,
     loyaltySensReduction: spec.loyaltySensReduction ?? 0,
+    // Earned pricing headroom (demand model v4): a human rival's hub term on
+    // this pair, from the same helper their own tick uses. AI carriers: none.
+    ...(spec.pricingHeadroom ? { pricingHeadroom: spec.pricingHeadroom } : {}),
   };
 }
 

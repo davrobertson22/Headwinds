@@ -417,6 +417,9 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...rebasedState,
     fuelPrice:   economy.fuelPrice,
     marketIndex: economy.marketIndex,
+    // Demand model v4 worlds share one business cycle (engine
+    // models/economyCycle.js); a late joiner lands in the same economy.
+    ...((Number(tc.demandModel) || 1) >= 4 ? { economyCycle: economy.economyCycle } : {}),
   };
 
   if (fareIndexOverride != null && worldDatedState.fareIndex != null) {
