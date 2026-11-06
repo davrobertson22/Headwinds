@@ -258,6 +258,7 @@ export async function restartAirline(prisma, { account, world, airline, airlineN
       // existed, when the fresh blob's customLogo: null did the clearing.
       state: splitLogo(state).state,
       customLogo: null,
+      customTail: null,
       // The fresh blob carries `lastReport: null`, which already wins over the
       // column (lib/reportColumn.mjs); clear the dead company's report anyway.
       report: Prisma.DbNull,

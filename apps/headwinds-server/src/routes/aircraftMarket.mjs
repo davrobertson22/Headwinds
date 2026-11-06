@@ -116,7 +116,7 @@ async function afterPurchase(world, airline, buyerState) {
   const view = views.get(airline.id) ?? { competitors: [], humanRivals: {}, alliance: null };
   return {
     // injectLogo: buyerState came off the (key-free) DB blob — see gates.mjs.
-    state: withRivals(injectLogo(joinReport(buyerState, airline.report), airline.customLogo), view),
+    state: withRivals(injectLogo(joinReport(buyerState, airline.report), airline.customLogo, airline.customTail), view),
     usedMarket: await buildUsedMarketView(prisma, world.id),
   };
 }

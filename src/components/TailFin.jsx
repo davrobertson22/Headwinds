@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import AirlineLogo from './AirlineLogo.jsx';
+import AirlineLogo, { resolveLogoSrc } from './AirlineLogo.jsx';
 import { normalizeLivery } from '../data/livery.js';
 import { markColorOn } from '../utils/logoBranding.js';
 
@@ -15,6 +15,9 @@ import { markColorOn } from '../utils/logoBranding.js';
 //
 //   livery   the airline's livery (normalised here; liveryFor(state) for yours)
 //   logo     { id, accentColor, bgColor, customSrc } — the AirlineLogo fields
+//   tail     an uploaded tail (state.customTail): a data URL for your own, a
+//            /tails/<id>?v= path for a rival's. Drawn clipped to the fin over
+//            the tail colour, in place of the design and the logo.
 //   height   CSS px tall (width follows FIN_ASPECT)
 //   idPrefix unique id for the clip path in static markup (useId restarts per
 //            renderToStaticMarkup, so two markers would share one id)
@@ -68,13 +71,30 @@ function Design({ design, accent, white }) {
   }
 }
 
-export default function TailFin({ livery, logo = {}, height = 48, title, className, style, idPrefix = null }) {
+/**
+ * The outline template players draw their own tail on: the fin silhouette
+ * at the upload's size (utils/logoImage.js TAIL_W × TAIL_H), the part that
+ * shows left clear and the rest shaded. An SVG string, for a download link.
+ */
+export function tailTemplateSVG(width = 480, height = 372) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${FIN_W} ${FIN_H}">`
+    + `<title>Tail template — only the fin shows</title>`
+    + `<defs><mask id="fin"><rect width="${FIN_W}" height="${FIN_H}" fill="#fff"/><path d="${FIN_PATH}" fill="#000"/></mask></defs>`
+    + `<rect width="${FIN_W}" height="${FIN_H}" fill="#9aa3ad" fill-opacity=".55" mask="url(#fin)"/>`
+    + `<path d="${FIN_PATH}" fill="none" stroke="#1f2937" stroke-width="8" stroke-dasharray="36 24" stroke-linejoin="round"/>`
+    + `<text x="${FIN_W * 0.55}" y="${FIN_H * 0.6}" font-family="Helvetica, Arial, sans-serif" font-size="80" fill="#1f2937" fill-opacity=".6" text-anchor="middle">your tail here</text>`
+    + `<text x="${FIN_W * 0.55}" y="${FIN_H * 0.6 + 90}" font-family="Helvetica, Arial, sans-serif" font-size="52" fill="#1f2937" fill-opacity=".6" text-anchor="middle">nose →</text>`
+    + `</svg>`;
+}
+
+export default function TailFin({ livery, logo = {}, tail = null, height = 48, title, className, style, idPrefix = null }) {
   const rid = useId();
   const uid = String(idPrefix ?? rid).replace(/[^a-zA-Z0-9_-]/g, '');
   const clip = `fin-${uid}`;
   const l = normalizeLivery(livery, livery?.tail ?? logo?.accentColor);
   const custom = typeof logo.customSrc === 'string' && logo.customSrc;
-  const showMark = l.logoOnTail && !LOGO_FREE_DESIGNS.has(l.tailDesign) && (custom || logo.id);
+  const tailSrc = resolveLogoSrc(tail);
+  const showMark = !tailSrc && l.logoOnTail && !LOGO_FREE_DESIGNS.has(l.tailDesign) && (custom || logo.id);
   // A preset sits on the paint as its bare mark, recoloured to read on the
   // tail; an upload, or a livery that asks for the tile, gets its tile.
   const tile = custom || l.logoTile;
@@ -84,14 +104,16 @@ export default function TailFin({ livery, logo = {}, height = 48, title, classNa
     <svg
       width={width} height={height} viewBox={`0 0 ${FIN_W} ${FIN_H}`}
       role="img" aria-label={title ?? 'Airline tail'}
-      data-tail-design={l.tailDesign}
+      data-tail-design={tailSrc ? 'custom' : l.tailDesign}
       className={className} style={{ display: 'block', flexShrink: 0, ...style }}
     >
       {title ? <title>{title}</title> : null}
       <defs><clipPath id={clip}><path d={FIN_PATH} /></clipPath></defs>
       <g clipPath={`url(#${clip})`}>
         <rect x="0" y="0" width={FIN_W} height={FIN_H} fill={l.tail} />
-        <Design design={l.tailDesign} accent={accentOf(l)} white={l.fuselage} />
+        {tailSrc
+          ? <image href={tailSrc} x="0" y="0" width={FIN_W} height={FIN_H} preserveAspectRatio="xMidYMid slice" />
+          : <Design design={l.tailDesign} accent={accentOf(l)} white={l.fuselage} />}
         {showMark ? (
           <g transform={`translate(${cx - size / 2} ${cy - size / 2})`}>
             <AirlineLogo

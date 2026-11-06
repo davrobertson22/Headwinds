@@ -4,7 +4,7 @@ import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { restartAirline, MAX_RESTARTS } from '../lib/restartService.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
-import { logoPathOf } from '../lib/logoColumn.mjs';
+import { logoPathOf, tailPathOf } from '../lib/logoColumn.mjs';
 // The public-move allowlist and payload scrubber are shared with the news feed
 // (lib/newsService.mjs) — one definition of "what a rival may see", not two.
 import { publicPayload, isPublicDecision } from '../lib/publicDecisions.mjs';
@@ -175,7 +175,8 @@ export default async function worldRoutes(fastify) {
              COALESCE(a."rivalState", a.state)->>'logoColor' AS "logoColor",
              COALESCE(a."rivalState", a.state)->>'logoBg'    AS "logoBg",
              COALESCE(a."rivalState", a.state)->'livery'     AS livery,
-             left(md5(a."customLogo"), 12) AS "logoHash"
+             left(md5(a."customLogo"), 12) AS "logoHash",
+             left(md5(a."customTail"), 12) AS "tailHash"
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
@@ -345,8 +346,10 @@ export default async function worldRoutes(fastify) {
         logoColor: a.logoColor ?? null,
         logoBg: a.logoBg ?? null,
         customLogo: logoPathOf(a.id, a.logoHash),
-        // Their paint scheme, for the tail fin on the season podium.
+        // Their paint scheme, for the tail fin on the season podium — and an
+        // uploaded tail as its /tails URL.
         livery: a.livery ?? null,
+        customTail: tailPathOf(a.id, a.tailHash),
         og: a.og === true,
         sup: a.sup === true,
         dev: isDevEmail(a.email),

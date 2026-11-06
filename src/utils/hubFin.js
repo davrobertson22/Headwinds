@@ -26,6 +26,9 @@ export const logoOf = (a) => ({
   customSrc: a?.customLogo ?? null,
 });
 
+/** An uploaded tail (data URL, or a rival's /tails path), or null. */
+export const tailOf = (a) => (typeof a?.customTail === 'string' && a.customTail ? a.customTail : null);
+
 /** Cheap stable hash of a string (FNV-1a), for redraw keys. */
 export function hashStr(s) {
   let h = 2166136261;
@@ -40,8 +43,9 @@ export function hashStr(s) {
 export function hubFinMarkup(who) {
   const livery = liveryFor(who);
   const logo = logoOf(who);
+  const tail = tailOf(who);
   const name = who?.airlineName ?? who?.name ?? 'Airline';
-  const key = hashStr(JSON.stringify([liveryKey(livery), logo]));
+  const key = hashStr(JSON.stringify([liveryKey(livery), logo, tail]));
   const cache = {};
   return {
     key,
@@ -49,7 +53,7 @@ export function hubFinMarkup(who) {
     html(tier = 1) {
       const t = Math.max(0, Math.min(3, Number.isFinite(tier) ? tier : 1));
       return (cache[t] ??= renderToStaticMarkup(createElement(TailFin, {
-        livery, logo, height: hubFinSize(t), idPrefix: `hub-${key}-t${t}`, title: `${name} hub`,
+        livery, logo, tail, height: hubFinSize(t), idPrefix: `hub-${key}-t${t}`, title: `${name} hub`,
       })));
     },
   };

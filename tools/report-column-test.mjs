@@ -249,7 +249,7 @@ await test('decisions: the reducer runs on the joined state; the write splits it
   assert.match(src, /const injected = withRivals\(joinReport\(airline\.state, airline\.report\), view\);/);
   assert.match(src, /reportWriteFor\(airline, readReport, blob\)/);
   assert.match(src, /\.\.\.\(writeReport \? \{ report: report \?\? Prisma\.DbNull \} : \{\}\)/);
-  assert.equal((src.match(/injectLogo\(joinReport\(airline\.state, airline\.report\), airline\.customLogo\)/g) ?? []).length, 2, 'both GET paths');
+  assert.equal((src.match(/injectLogo\(joinReport\(airline\.state, airline\.report\), airline\.customLogo, airline\.customTail\)/g) ?? []).length, 2, 'both GET paths');
 });
 await test('the tick joins at read (first pass and recompute) and splits at write', () => {
   const src = read('../apps/headwinds-server/src/lib/tickService.mjs');

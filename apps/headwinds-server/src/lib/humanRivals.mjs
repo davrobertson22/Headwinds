@@ -32,7 +32,7 @@ import { fleetCounts, bookingsFromStates, sumBookings, minusBookings } from '@ta
 import { netProfitOf } from '@tailwinds/engine/utils/standings.js';
 import { MARKET_DEV_VERSION } from '@tailwinds/engine/models/marketDev.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
-import { logoHashOf, logoPathOf } from './logoColumn.mjs';
+import { logoHashOf, logoPathOf, tailPathOf } from './logoColumn.mjs';
 import { poolSharesFor, poolSummary } from './marketService.mjs';
 import { joinReport } from './reportColumn.mjs';
 
@@ -443,6 +443,11 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
       const path = logoPathOf(airlineRow.id, airlineRow.logoHash ?? logoHashOf(airlineRow.customLogo));
       return path ? { customLogo: path } : {};
     })()),
+    // Uploaded tail, the same way (routes/logos.mjs /tails).
+    ...((() => {
+      const path = tailPathOf(airlineRow.id, airlineRow.tailHash ?? logoHashOf(airlineRow.customTail));
+      return path ? { customTail: path } : {};
+    })()),
     baseQualityScore: qualityOf(s),
     cash: Math.round(s.cash ?? 0),
     marketCap: Math.round(s.marketCap ?? 0),
@@ -826,7 +831,7 @@ export const RIVAL_STATS_FIELDS = ['sharePrice'];
 // Keys the rival path provably never reads, removed outright. customLogo is the
 // player's uploaded logo payload — rivals get a URL to it (logoHash below,
 // lib/logoColumn.mjs RIVALS), never the bytes.
-export const RIVAL_DROPPED_KEYS = ['customLogo'];
+export const RIVAL_DROPPED_KEYS = ['customLogo', 'customTail'];
 
 // Element projector shared by the twin's three array trims. Mirrors the SQL's
 // jsonb_build_object over jsonb_array_elements: any non-object element (scalar,
@@ -878,8 +883,9 @@ export async function loadRivalRows(prisma, worldId) {
       // against ADMIN_EMAILS here; payloads carry booleans.
       include: { account: { select: { isOG: true, isSupporter: true, email: true } } },
     });
-    return rows.map(({ customLogo, report, ...r }) => ({
-      ...r, logoHash: logoHashOf(customLogo), state: projectRivalState(joinReport(r.state, report)),
+    return rows.map(({ customLogo, customTail, report, ...r }) => ({
+      ...r, logoHash: logoHashOf(customLogo), tailHash: logoHashOf(customTail),
+      state: projectRivalState(joinReport(r.state, report)),
     }));
   }
   // The trimmed blob is a COLUMN now (migration 20261022000000_airline_rival_state):
@@ -900,6 +906,7 @@ export async function loadRivalRows(prisma, worldId) {
            acc."isOG" AS "accountIsOG", acc."isSupporter" AS "accountIsSupporter",
            acc.email AS "accountEmail",
            left(md5(a."customLogo"), 12) AS "logoHash",  -- = LOGO_HASH_LEN (lib/logoColumn.mjs); a literal, since a bound JS number may arrive as int8 and left() takes int4
+           left(md5(a."customTail"), 12) AS "tailHash",
            COALESCE(a."rivalState", public.rival_state_of(a.state)) AS state
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
@@ -916,6 +923,7 @@ export async function loadRivalRows(prisma, worldId) {
     rankScore: r.rankScore, weeklyProfit: r.weeklyProfit, netAssets: r.netAssets,
     paxWeek: r.paxWeek, flightsWeek: r.flightsWeek, fleetSize: r.fleetSize,
     logoHash: r.logoHash ?? null,
+    tailHash: r.tailHash ?? null,
     state: r.state,
     account: { isOG: r.accountIsOG === true, isSupporter: r.accountIsSupporter === true,
                email: r.accountEmail },

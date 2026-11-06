@@ -45,7 +45,7 @@ await db.exec(`
     "isSupporter" boolean NOT NULL DEFAULT false, email text);
   CREATE TABLE "Airline" (
     id text PRIMARY KEY, "worldId" text NOT NULL, "accountId" text NOT NULL REFERENCES "Account"(id),
-    name text NOT NULL, hub text NOT NULL, state jsonb NOT NULL, "customLogo" text,
+    name text NOT NULL, hub text NOT NULL, state jsonb NOT NULL, "customLogo" text, "customTail" text,
     cash bigint NOT NULL DEFAULT 0,
     "rankScore" bigint, "weeklyProfit" bigint, "netAssets" bigint,
     "paxWeek" integer, "flightsWeek" integer, "fleetSize" integer,

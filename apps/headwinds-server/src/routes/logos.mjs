@@ -1,4 +1,6 @@
 // GET /logos/:airlineId — an airline's uploaded logo, as an image.
+// GET /tails/:airlineId — their uploaded tail (the `customTail` column), the
+// same way: the maps draw a rival's fin from this URL.
 //
 // Rival views carry `customLogo: '/logos/<id>?v=<hash>'` rather than the data
 // URL (lib/logoColumn.mjs RIVALS): the bytes are fetched once per browser and
@@ -13,7 +15,12 @@ import { prisma } from '../db.mjs';
 import { decodeLogoDataUrl, logoHashOf } from '../lib/logoColumn.mjs';
 
 export default async function logoRoutes(fastify) {
-  fastify.get('/logos/:airlineId', {
+  imageRoute(fastify, '/logos/:airlineId', 'customLogo', 'No logo.');
+  imageRoute(fastify, '/tails/:airlineId', 'customTail', 'No tail.');
+}
+
+function imageRoute(fastify, path, column, missing) {
+  fastify.get(path, {
     schema: {
       params: {
         type: 'object',
@@ -29,14 +36,14 @@ export default async function logoRoutes(fastify) {
     const { airlineId } = request.params;
     const row = await prisma.airline.findUnique({
       where: { id: airlineId },
-      select: { customLogo: true },
+      select: { [column]: true },
     });
-    const img = decodeLogoDataUrl(row?.customLogo);
-    if (!img) return reply.code(404).header('Cache-Control', 'public, max-age=300').send({ error: 'No logo.' });
+    const img = decodeLogoDataUrl(row?.[column]);
+    if (!img) return reply.code(404).header('Cache-Control', 'public, max-age=300').send({ error: missing });
 
     // A request for the CURRENT hash can be cached forever — a new upload is a
     // new URL. A stale or missing ?v= gets the current bytes with a short TTL.
-    const current = request.query?.v && request.query.v === logoHashOf(row.customLogo);
+    const current = request.query?.v && request.query.v === logoHashOf(row[column]);
     return reply
       .header('Content-Type', img.contentType)
       .header('Cache-Control', current ? 'public, max-age=31536000, immutable' : 'public, max-age=300')

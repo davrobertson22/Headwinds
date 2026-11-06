@@ -20,6 +20,7 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
   const [logoId,      setLogoId]      = useState(state.customLogo ? 'custom' : (state.logoId ?? AIRLINE_LOGOS[0].id));
   const [accentColor, setAccentColor] = useState(state.logoColor ?? LOGO_COLORS[0].hex);
   const [customLogo,  setCustomLogo]  = useState(state.customLogo ?? null);
+  const [customTail,  setCustomTail]  = useState(state.customTail ?? null);
   const [logoBg,      setLogoBg]      = useState(cleanHex(state.logoBg));
   const [airlineCode, setAirlineCode] = useState(state.airlineCode ?? '');
   // Livery: edits are local until Save. `liveryDirty` keeps a name-only rebrand
@@ -53,6 +54,10 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
       logoId:      usingCustom ? 'horizon' : logoId,
       logoColor:   accentColor,
       customLogo:  usingCustom ? customLogo : null,
+      // Forwarded only when it changed — the key alone means "write the
+      // column" on the server (lib/logoColumn.mjs), and a rename should not
+      // resend the tail bytes.
+      ...(customTail !== (state.customTail ?? null) ? { customTail } : {}),
       logoBg:      cleanHex(logoBg),
       airlineCode: normalizeAirlineCode(airlineCode),
       ...(liveryReset ? { livery: null } : liveryDirty ? { livery } : {}),
@@ -130,6 +135,8 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
             livery={hasSavedLivery || liveryDirty ? livery : liveryFor({ ...state, livery: undefined, logoColor: accentColor })}
             airlineName={name.trim()}
             onChange={changeLivery}
+            tail={customTail}
+            onTail={setCustomTail}
             onOpenLivery={() => setTab('livery')}
             logo={{ id: usingCustom ? null : logoId, accentColor, bgColor: cleanHex(logoBg), customSrc: usingCustom ? customLogo : null }}
           />

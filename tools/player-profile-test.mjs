@@ -290,8 +290,9 @@ test('the world-standings serializer emits lastMoveAt', () => {
   const at = src.indexOf('standings: airlines.map');
   assert.ok(at >= 0, 'standings serializer not found');
   // Window widened when the rankings rework (2026-10-15) added the live
-  // standings fields to the same serializer.
-  assert.ok(/lastMoveAt:/.test(src.slice(at, at + 2400)),
+  // standings fields to the same serializer, and again for the branding
+  // fields (logo, livery, uploaded tail; 2026-11-06).
+  assert.ok(/lastMoveAt:/.test(src.slice(at, at + 2800)),
     'standings serializer no longer emits the last-active signal');
 });
 

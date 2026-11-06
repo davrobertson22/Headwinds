@@ -89,7 +89,7 @@ export default async function codeshareRoutes(fastify) {
         // than making the client wait a poll to see a deal it just made.
         // injectLogo: myState came off the (key-free) DB blob — without the
         // column value the client would adopt a state missing customLogo.
-        state: injectLogo(joinReport(res.myState ?? null, from.report), from.customLogo),
+        state: injectLogo(joinReport(res.myState ?? null, from.report), from.customLogo, from.customTail),
         partnerName: res.partnerName ?? res.toName ?? null,
       });
     } catch (err) { return rethrow(err); }
@@ -118,7 +118,7 @@ export default async function codeshareRoutes(fastify) {
         const res = await acceptOffer(prisma, {
           world, offer, acceptor: airline, weekIndex: worldWeekIndex(world),
         });
-        return { ok: true, status: 'ACCEPTED', state: injectLogo(joinReport(res.myState, airline.report), airline.customLogo), partnerName: res.partnerName };
+        return { ok: true, status: 'ACCEPTED', state: injectLogo(joinReport(res.myState, airline.report), airline.customLogo, airline.customTail), partnerName: res.partnerName };
       }
       // Declining and withdrawing are the same write: the row goes. Keeping a
       // REJECTED tombstone would only get in the way of offering again later.
@@ -143,7 +143,7 @@ export default async function codeshareRoutes(fastify) {
     const airline = await loadMyAirline(request);
     try {
       const res = await cancelCodeshare(prisma, { world, airline, partnerId: request.body.partnerId });
-      return { ok: true, state: injectLogo(joinReport(res.myState, airline.report), airline.customLogo), partnerName: res.partnerName };
+      return { ok: true, state: injectLogo(joinReport(res.myState, airline.report), airline.customLogo, airline.customTail), partnerName: res.partnerName };
     } catch (err) { return rethrow(err); }
   });
 }

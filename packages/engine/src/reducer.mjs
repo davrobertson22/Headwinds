@@ -3679,6 +3679,9 @@ function reducer(state, action) {
       if (typeof action.logoId === 'string')   next.logoId    = action.logoId;
       if (typeof action.logoColor === 'string') next.logoColor = action.logoColor;
       if ('customLogo' in action)              next.customLogo = action.customLogo ?? null;
+      // Uploaded tail (components/TailPicker.jsx): same contract — null clears
+      // back to the designed fin. The server keeps it in its own column too.
+      if ('customTail' in action)              next.customTail = action.customTail ?? null;
       // Tile colour and airline code: null clears back to the default (dark
       // tile / code derived from the name); anything invalid is ignored. The
       // server refuses another player's look or code before this runs

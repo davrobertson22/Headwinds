@@ -719,6 +719,23 @@ function guardBranding(payload) {
       out.customLogo = logo;
     }
   }
+  // Uploaded tail (TailPicker): same contract and the same column treatment
+  // (lib/logoColumn.mjs). The client sends a fin-shaped raster no bigger
+  // than the logo's budget; an SVG is refused at serve time, so refuse it here.
+  if ('customTail' in payload) {
+    const tail = payload.customTail;
+    if (tail == null) {
+      out.customTail = null;
+    } else {
+      if (typeof tail !== 'string' || !/^data:image\/(png|jpeg|webp);base64,/i.test(tail)) {
+        throw new GuardError('The uploaded tail could not be used — please re-upload it.');
+      }
+      if (tail.length > LOGO_DATAURL_MAX_CHARS) {
+        throw new GuardError('That tail image is too large — please re-upload it.');
+      }
+      out.customTail = tail;
+    }
+  }
   // Livery: same contract as customLogo — forwarded only when the client sent
   // the key. null clears; an object is normalised here (valid hex colours and a
   // known style, nothing else survives) so a forged livery can neither smuggle

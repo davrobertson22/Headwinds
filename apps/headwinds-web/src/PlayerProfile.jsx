@@ -11,7 +11,7 @@ import { api } from './api.js';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { TrophyCard } from './Trophies.jsx';
 import TailFin from '../../../src/components/TailFin.jsx';
-import { logoOf } from '../../../src/utils/hubFin.js';
+import { logoOf, tailOf } from '../../../src/utils/hubFin.js';
 
 const fmtNum = (n) => Math.round(Number(n) || 0).toLocaleString();
 
@@ -183,7 +183,7 @@ export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
                   <td>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, verticalAlign: 'middle' }}>
                       {c.logoId || c.customLogo
-                        ? <TailFin livery={c.livery} logo={logoOf(c)} height={40} title={`${c.airlineName} tail`} />
+                        ? <TailFin livery={c.livery} logo={logoOf(c)} tail={tailOf(c)} height={40} title={`${c.airlineName} tail`} />
                         : null}
                       <span>{c.airlineName}</span>
                     </span>

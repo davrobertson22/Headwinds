@@ -210,8 +210,8 @@ export default async function adminRoutes(fastify) {
     const target = await prisma.account.findUnique({ where: { id: request.params.accountId } });
     if (!target) throw httpError(404, 'No such account');
     const res = await prisma.airline.updateMany({
-      where: { accountId: target.id, NOT: { customLogo: null } },
-      data: { customLogo: null },
+      where: { accountId: target.id, OR: [{ NOT: { customLogo: null } }, { NOT: { customTail: null } }] },
+      data: { customLogo: null, customTail: null },
     });
     return { ok: true, cleared: res.count };
   });

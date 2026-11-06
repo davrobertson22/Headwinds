@@ -40,6 +40,11 @@ async function test(name, fn) {
 
 const MIGRATION = fileURLToPath(new URL(
   '../apps/headwinds-server/prisma/migrations/20261022000000_airline_rival_state/migration.sql', import.meta.url));
+// Custom tails (2026-11-06) replace rival_state_of() with one more dropped key
+// and add the column; the real file runs here too so the twin is checked
+// against what production actually has.
+const TAIL_MIGRATION = fileURLToPath(new URL(
+  '../apps/headwinds-server/prisma/migrations/20261106000000_airline_custom_tail/migration.sql', import.meta.url));
 const SCHEMA = fileURLToPath(new URL('../apps/headwinds-server/prisma/schema.prisma', import.meta.url));
 
 // ── Database: the columns the rival query touches, then the real migration ───
@@ -59,6 +64,7 @@ await db.exec(`
     restarts integer NOT NULL DEFAULT 0);
 `);
 await db.exec(readFileSync(MIGRATION, 'utf8'));
+await db.exec(readFileSync(TAIL_MIGRATION, 'utf8'));
 
 // Prisma's $queryRaw tagged template, over PGlite: interpolations become $n.
 const prisma = {
@@ -82,6 +88,7 @@ const deep = {
   lastReport: { reputation: { overall: 71.5, service: 60 }, reputationScore: 72, totalPassengers: 812345,
     perRoute: range(40, (i) => ({ id: `r${i}`, pax: i * 100 })), notes: 'naïve café ✈' },
   customLogo: 'data:image/png;base64,AAAA',
+  customTail: 'data:image/webp;base64,BBBB',
   nested: { deeper: { arr: [1, 'two', null, true, { x: 1 }] } },
   negativeZeroish: -0.0001, big: 9007199254740991,
 };
@@ -117,6 +124,7 @@ await test('the deep fixture is actually trimmed (the comparison has teeth)', as
   assert.equal(p.financialHistory.length, RIVAL_FIN_KEEP);
   assert.equal(p.statsHistory.length, RIVAL_STATS_KEEP);
   assert.equal(p.customLogo, undefined);
+  assert.equal(p.customTail, undefined);
   assert.equal(p.lastReport.perRoute, undefined);
   assert.equal(p.fleet[0].maintenance, undefined);
   assert.deepStrictEqual(p.financialHistory.at(-1).profit, fixtures.deep.financialHistory.at(-1).profit);

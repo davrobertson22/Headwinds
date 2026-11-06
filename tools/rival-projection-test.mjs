@@ -71,7 +71,7 @@ function makeAirline({ id, name, hub, dest, fare }) {
   for (let w = 0; w < WEEKS; w++) s = gameReducer(s, { type: 'ADVANCE_WEEK' });
   // Production blobs carry a customLogo (avg 4.5 kB, max 55 kB) the sim never
   // creates. Plant one so the drop assertions below are exercised for real.
-  s = { ...s, customLogo: `<svg>${'x'.repeat(4000)}</svg>` };
+  s = { ...s, customLogo: `<svg>${'x'.repeat(4000)}</svg>`, customTail: `data:image/webp;base64,${'y'.repeat(4000)}` };
   // Fatten the array entries the deep projection strips, standing in for the
   // maintenance/mods/valuation bulk real fleet entries carry and the
   // routeRevenues maps real history entries carry — so "stripping them changes
@@ -280,11 +280,13 @@ await test('the SQL subtracts, rebuilds and bounds exactly what the twin does', 
   // rival_state_of() (it fills Airline."rivalState"); tools/rival-state-column-test.mjs
   // also RUNS it in PGlite against this twin. These source checks pin it to the
   // constants, so changing a RIVAL_* constant without a new migration is red.
+  // 20261106000000_airline_custom_tail re-defines rival_state_of() with the
+  // tail in the subtraction; that is the body production runs now.
   const src = readFileSync(
-    fileURLToPath(new URL('../apps/headwinds-server/prisma/migrations/20261022000000_airline_rival_state/migration.sql', import.meta.url)),
+    fileURLToPath(new URL('../apps/headwinds-server/prisma/migrations/20261106000000_airline_custom_tail/migration.sql', import.meta.url)),
     'utf8');
-  assert.ok(src.includes("(s - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - 'customLogo')"),
-    'the SQL no longer subtracts the same five keys the twin touches');
+  assert.ok(src.includes(`(s - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - ${RIVAL_DROPPED_KEYS.map((k) => `'${k}'`).join(' - ')})`),
+    'the SQL no longer subtracts the same keys the twin touches');
   for (const f of RIVAL_FLEET_FIELDS) {
     assert.ok(src.includes(`'${f}', e->'${f}'`), `the SQL fleet projection dropped field ${f}`);
   }
@@ -304,7 +306,7 @@ await test('the SQL subtracts, rebuilds and bounds exactly what the twin does', 
          && src.includes(`s#>'{lastReport,reputationScore}'`)
          && src.includes(`s#>'{lastReport,totalPassengers}'`),
     'the SQL no longer preserves the three lastReport fields the rival path reads');
-  assert.deepStrictEqual(RIVAL_DROPPED_KEYS, ['customLogo'],
+  assert.deepStrictEqual(RIVAL_DROPPED_KEYS, ['customLogo', 'customTail'],
     'RIVAL_DROPPED_KEYS changed — update the SQL subtraction AND this test together');
 });
 

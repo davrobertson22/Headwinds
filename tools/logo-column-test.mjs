@@ -57,8 +57,8 @@ check('splitLogo never mutates its input', () => {
   assert.equal(state.customLogo, LOGO);
 });
 check('null/undefined states pass through', () => {
-  assert.deepEqual(splitLogo(null), { state: null, logo: undefined });
-  assert.deepEqual(splitLogo(undefined), { state: undefined, logo: undefined });
+  assert.deepEqual(splitLogo(null), { state: null, logo: undefined, tail: undefined });
+  assert.deepEqual(splitLogo(undefined), { state: undefined, logo: undefined, tail: undefined });
 });
 
 // ── 2. injectLogo — the serve half ──────────────────────────────────────────

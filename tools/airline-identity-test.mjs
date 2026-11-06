@@ -50,7 +50,7 @@ await db.exec(`
     username text, "displayName" text);
   CREATE TABLE "Airline" (
     id text PRIMARY KEY, "worldId" text NOT NULL, "accountId" text NOT NULL REFERENCES "Account"(id),
-    name text NOT NULL, hub text NOT NULL, state jsonb NOT NULL, "customLogo" text,
+    name text NOT NULL, hub text NOT NULL, state jsonb NOT NULL, "customLogo" text, "customTail" text,
     cash bigint NOT NULL DEFAULT 0, "marketCap" bigint NOT NULL DEFAULT 0,
     shares bigint NOT NULL DEFAULT 0, svps bigint NOT NULL DEFAULT 0,
     "rankScore" bigint, "weeklyProfit" bigint, "netAssets" bigint,
@@ -240,7 +240,7 @@ await test('Admin: account search offers Clear logo, wired to its own route', ()
   assert.match(html, />Clear logo</);
   const admin = read('../apps/headwinds-server/src/routes/admin.mjs');
   assert.match(admin, /fastify\.post\('\/admin\/accounts\/:accountId\/clear-logo'/);
-  assert.match(admin, /preHandler: requireAdmin,\s*schema: \{\s*params: \{ type: 'object', properties: \{ accountId[\s\S]{0,400}data: \{ customLogo: null \}/);
+  assert.match(admin, /preHandler: requireAdmin,\s*schema: \{\s*params: \{ type: 'object', properties: \{ accountId[\s\S]{0,500}data: \{ customLogo: null, customTail: null \}/);
 });
 
 await test('Rivals map legend says "Their network" in their colour', () => {

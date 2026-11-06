@@ -243,7 +243,7 @@ export default async function gateRoutes(fastify) {
       // injectLogo: buyerState came off the (key-free) DB blob — without the
       // column value the client would adopt a state missing customLogo and the
       // player's logo would vanish until the next full GET.
-      state: withRivals(injectLogo(joinReport(buyerState, airline.report), airline.customLogo), view),
+      state: withRivals(injectLogo(joinReport(buyerState, airline.report), airline.customLogo, airline.customTail), view),
       gateMarket: await gateMarketFor(world, airline.id),
     };
   });

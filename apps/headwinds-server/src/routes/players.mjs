@@ -24,7 +24,7 @@ import { prisma } from '../db.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { awardsForAccount } from '../lib/trophies.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
-import { logoPathOf } from '../lib/logoColumn.mjs';
+import { logoPathOf, tailPathOf } from '../lib/logoColumn.mjs';
 import { dmRefusal } from '../lib/accountMessaging.mjs';
 import { sharesWorld } from './accountMessages.mjs';
 
@@ -109,7 +109,8 @@ export default async function playerRoutes(fastify) {
                COALESCE(a."rivalState", a.state)->>'logoColor' AS "logoColor",
                COALESCE(a."rivalState", a.state)->>'logoBg'    AS "logoBg",
                COALESCE(a."rivalState", a.state)->'livery'     AS livery,
-               left(md5(a."customLogo"), 12) AS "logoHash"
+               left(md5(a."customLogo"), 12) AS "logoHash",
+               left(md5(a."customTail"), 12) AS "tailHash"
           FROM "Airline" a
          WHERE a.id = ANY(${ids})`.catch(() => []);
       for (const r of rows ?? []) brandById.set(r.id, r);
@@ -179,6 +180,7 @@ export default async function playerRoutes(fastify) {
           return {
             logoId: b.logoId ?? 'compass', logoColor: b.logoColor ?? null, logoBg: b.logoBg ?? null,
             customLogo: logoPathOf(a.id, b.logoHash), livery: b.livery ?? null,
+            customTail: tailPathOf(a.id, b.tailHash),
           };
         })(),
       })),

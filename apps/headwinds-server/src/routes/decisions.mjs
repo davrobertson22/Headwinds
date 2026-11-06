@@ -277,7 +277,7 @@ export default async function decisionRoutes(fastify) {
       return {
         ...base,
         stamp: `${slim.version}:${served}`,
-        state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo), null),
+        state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo, airline.customTail), null),
         rivals: rivalOverlay(view),
       };
     }
@@ -289,7 +289,7 @@ export default async function decisionRoutes(fastify) {
     const airline = await prisma.airline.findUnique({ where: { id: slim.id } });
     const { view, worldStamp: served } = await rivalViewFor(airline, worldStamp,
       { maxStaleMs: RIVAL_VIEW_POLL_MAX_STALE_MS });
-    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo), view) };
+    return { ...base, stamp: `${slim.version}:${served}`, state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo, airline.customTail), view) };
   });
 
   // ── Submit a decision (validated intent → authoritative reducer) ───────────
@@ -653,7 +653,7 @@ export default async function decisionRoutes(fastify) {
         // carried one (the DB state it was computed from is key-free), so
         // `logo` is undefined on every other decision and the column is left
         // alone. null (branding cleared the upload) nulls the column.
-        const { state: blob, logo } = splitLogo(stripRivals(next));
+        const { state: blob, logo, tail } = splitLogo(stripRivals(next));
         // The blob is written WITHOUT the report — for the big airlines that was
         // most of every decision's write (lib/reportColumn.mjs). The column is
         // written only when the reducer replaced the report, or to move a
@@ -666,6 +666,7 @@ export default async function decisionRoutes(fastify) {
             // The client still gets the full `next` (with rivals) in the response.
             state: persistedState,
             ...(logo !== undefined ? { customLogo: logo } : {}),
+            ...(tail !== undefined ? { customTail: tail } : {}),
             ...(writeReport ? { report: report ?? Prisma.DbNull } : {}),
             cash: toBig(next.cash),
             marketCap: toBig(next.marketCap),
@@ -813,7 +814,7 @@ export default async function decisionRoutes(fastify) {
       // this any ordinary decision's response would adopt a state missing
       // `customLogo` and the player's logo would blink out until the next full
       // GET. A SET_BRANDING `next` carries its own (newer) key and wins.
-      state: injectLogo(next, airline.customLogo),
+      state: injectLogo(next, airline.customLogo, airline.customTail),
       // Engine convention: rejected/no-op intents leave state unchanged and often
       // set state.error / a toast. Surface a hint so the UI can show it.
       //

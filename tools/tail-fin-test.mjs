@@ -169,7 +169,7 @@ await test('season podium and player profile show each airline\'s tail; the payl
   assert.match(html, /aria-label="Silver Air tail"/);
   assert.match(read('../apps/headwinds-server/src/routes/worlds.mjs'), /COALESCE\(a\."rivalState", a\.state\)->'livery'\s+AS livery/);
   assert.match(read('../apps/headwinds-server/src/routes/players.mjs'), /customLogo: logoPathOf\(a\.id, b\.logoHash\), livery: b\.livery \?\? null/);
-  assert.match(read('../apps/headwinds-web/src/PlayerProfile.jsx'), /<TailFin livery=\{c\.livery\} logo=\{logoOf\(c\)\} height=\{40\}/);
+  assert.match(read('../apps/headwinds-web/src/PlayerProfile.jsx'), /<TailFin livery=\{c\.livery\} logo=\{logoOf\(c\)\} tail=\{tailOf\(c\)\} height=\{40\}/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

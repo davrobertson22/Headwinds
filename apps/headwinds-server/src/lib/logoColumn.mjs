@@ -43,33 +43,48 @@
 
 import { createHash } from 'node:crypto';
 
+// The uploaded TAIL (2026-11-06, `customTail`) is the second image column and
+// follows the same contract key for key: split on every persist, injected on
+// owner reads, dropped from rival projections, served to rivals as a
+// `/tails/<id>?v=<hash>` URL by routes/logos.mjs. Both columns are handled by
+// the same two functions below so no persist or serve path can carry one and
+// forget the other.
+export const BRAND_IMAGE_KEYS = ['customLogo', 'customTail'];
+
 /**
- * Split `customLogo` out of a state about to be persisted.
+ * Split `customLogo` and `customTail` out of a state about to be persisted.
  *
- * @returns {{ state: object, logo: string|null|undefined }}
- *   `state` — the blob to store (never carries the key)
- *   `logo`  — undefined when the input had no key (leave the column alone);
- *             null when branding explicitly cleared it (null the column);
- *             the data-URL string when one was set (write the column).
+ * @returns {{ state: object, logo: string|null|undefined, tail: string|null|undefined }}
+ *   `state` — the blob to store (never carries either key)
+ *   `logo`, `tail` — undefined when the input had no key (leave the column
+ *             alone); null when branding explicitly cleared it (null the
+ *             column); the data-URL string when one was set (write the column).
  */
 export function splitLogo(state) {
-  if (!state || typeof state !== 'object' || !('customLogo' in state)) {
-    return { state, logo: undefined };
+  if (!state || typeof state !== 'object' || !BRAND_IMAGE_KEYS.some((k) => k in state)) {
+    return { state, logo: undefined, tail: undefined };
   }
-  const { customLogo, ...rest } = state;
-  return { state: rest, logo: customLogo ?? null };
+  const { customLogo, customTail, ...rest } = state;
+  return {
+    state: rest,
+    logo: 'customLogo' in state ? (customLogo ?? null) : undefined,
+    tail: 'customTail' in state ? (customTail ?? null) : undefined,
+  };
 }
 
 /**
- * Put the column value back into a state being served to its owner. A state
- * that already carries the key wins — that is the SET_BRANDING response path,
+ * Put the column values back into a state being served to its owner. A state
+ * that already carries a key wins — that is the SET_BRANDING response path,
  * where the reducer output is newer than the row that was read before it ran.
+ * Callers that only know the logo (`injectLogo(state, logo)`) still work; the
+ * tail is simply not injected then.
  */
-export function injectLogo(state, logo) {
+export function injectLogo(state, logo, tail = null) {
   if (!state || typeof state !== 'object') return state;
-  if ('customLogo' in state) return state;
-  if (logo == null) return state;
-  return { ...state, customLogo: logo };
+  let out = state;
+  if (!('customLogo' in out) && logo != null) out = { ...out, customLogo: logo };
+  if (!('customTail' in out) && tail != null) out = { ...out, customTail: tail };
+  return out;
 }
 
 // ── Rival-facing logo URL ─────────────────────────────────────────────────────
@@ -88,6 +103,12 @@ export function logoHashOf(dataUrl) {
 export function logoPathOf(airlineId, hash) {
   if (!airlineId || !hash) return null;
   return `/logos/${encodeURIComponent(airlineId)}?v=${hash}`;
+}
+
+/** The tail's URL — same scheme, served by the same route file under /tails. */
+export function tailPathOf(airlineId, hash) {
+  if (!airlineId || !hash) return null;
+  return `/tails/${encodeURIComponent(airlineId)}?v=${hash}`;
 }
 
 // Raster formats only. SVG is refused on purpose: an SVG served from the API

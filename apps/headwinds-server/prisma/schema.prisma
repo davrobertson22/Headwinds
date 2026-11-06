@@ -193,6 +193,10 @@ model Airline {
   // SET_BRANDING, and unchanged-column TOAST chunks are never rewritten.
   // lib/logoColumn.mjs is the single read/write contract.
   customLogo  String?
+  // The player's uploaded TAIL (2026-11-06): a fin-shaped raster data-URL,
+  // kept out of `state` for the same reason and handled by the same contract
+  // (lib/logoColumn.mjs). Rivals get it as /tails/<id>?v=<hash>.
+  customTail  String?
   // The weekly report (`lastReport`), pulled OUT of `state` on 2026-10-23: a
   // decision rewrote the whole blob, and for the big airlines the report was
   // most of it (10.9 MB of a 15 MB save) — Postgres was being killed under the

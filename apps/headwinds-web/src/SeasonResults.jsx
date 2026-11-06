@@ -14,7 +14,7 @@ import { useState, useEffect } from 'react';
 import { api } from './api.js';
 import AirlineLogo from '../../../src/components/AirlineLogo.jsx';
 import TailFin from '../../../src/components/TailFin.jsx';
-import { logoOf } from '../../../src/utils/hubFin.js';
+import { logoOf, tailOf } from '../../../src/utils/hubFin.js';
 import { SeasonSupportPrompt } from './SupportCard.jsx';
 
 const fmtSvps = (n) => n == null ? '—'
@@ -78,7 +78,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
     if (!a || !(a.logoId || a.customLogo)) return null;
     return (
       <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 6px' }}>
-        <TailFin livery={a.livery} logo={logoOf(a)} height={size} title={`${a.name} tail`} />
+        <TailFin livery={a.livery} logo={logoOf(a)} tail={tailOf(a)} height={size} title={`${a.name} tail`} />
       </div>
     );
   };
