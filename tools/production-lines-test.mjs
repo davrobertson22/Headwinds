@@ -129,13 +129,14 @@ test('no four A380s in a month: double-deck frames come at least 5 weeks apart',
   assert.deepEqual(w, [std, std + 5, std + 10, std + 15]);
 });
 
-test('an early slot still respects the gap to a frame you already hold', () => {
+test('a priority slot still respects the (one week tighter) gap to frames you already hold', () => {
+  // Priority delivery (2026-11-05) replaced slotFromWeek-before-standard.
   const s0 = lines();
   const s1 = order(s0, 'b737800', 1);
-  const s2 = order(s1, 'b737800', 1, { slotFromWeek: nowAbs(s0) + 3 });
+  const s2 = order(s1, 'b737800', 1, { priority: true });
   assert.equal(added(s1, s2)[0].deliverAbsWeek, nowAbs(s0) + 3, '3 weeks before the held frame is allowed');
-  const s3 = order(s2, 'b737800', 1, { slotFromWeek: nowAbs(s0) + 4 });
-  assert.equal(added(s2, s3)[0].deliverAbsWeek, nowAbs(s0) + 9, 'squeezed out until 3 weeks past the last one');
+  const s3 = order(s2, 'b737800', 1, { priority: true });
+  assert.equal(added(s2, s3)[0].deliverAbsWeek, nowAbs(s0) + 8, 'squeezed out until 2 weeks past the last one');
 });
 
 test('a different line is independent', () => {
@@ -148,7 +149,9 @@ test('a different line is independent', () => {
 test("rivals' bookings fill the line: a full week is skipped", () => {
   const s = lines();
   const std = nowAbs(s) + 6;
-  const s0 = { ...s, lineBook: { scale: 1, bookings: { b737ng: { [std]: 8, [std + 1]: 7 } } } };
+  // std+1 holds 5: past the standard week a list order sees only 6 of the 8
+  // frames (priority delivery holds 2 back), so 5 still leaves it room.
+  const s0 = { ...s, lineBook: { scale: 1, bookings: { b737ng: { [std]: 8, [std + 1]: 5 } } } };
   const s1 = order(s0, 'b737800', 2);
   assert.deepEqual(weeks(added(s0, s1)), [std + 1, std + 4]);
 });
@@ -167,13 +170,13 @@ test('a requested start more than 26 weeks past the standard week is pulled in',
   assert.equal(added(s0, s1)[0].deliverAbsWeek, nowAbs(s0) + 6 + 26);
 });
 
-section('early slots cost extra');
+section('priority slots cost extra');
 
 test('the earliest slot is +25% of list, the standard week is list', () => {
   const s0 = lines();
   const t = T('b737800');
   const list = eraPurchasePrice(t);
-  const early = order(s0, 'b737800', 1, { slotFromWeek: nowAbs(s0) + 3 });
+  const early = order(s0, 'b737800', 1, { priority: true });
   const o = added(s0, early)[0];
   assert.equal(o.deliverAbsWeek, nowAbs(s0) + 3);
   assert.equal(o.slotPremium, Math.round(list * 0.25));
@@ -184,26 +187,26 @@ test('the earliest slot is +25% of list, the standard week is list', () => {
   assert.equal(added(s0, std)[0].totalPrice, list);
 });
 
-test('the premium falls linearly to zero at the standard week', () => {
+test('the priority fee falls linearly with the weeks saved', () => {
   needL();
   const t = T('b737800');
-  const n = 100;
-  assert.equal(L.slotPremiumPct(t, n + 3, n), 0.25);
-  assert.equal(L.slotPremiumPct(t, n + 4, n), Math.round(0.25 * 2 / 3 * 10000) / 10000);
-  assert.equal(L.slotPremiumPct(t, n + 5, n), Math.round(0.25 * 1 / 3 * 10000) / 10000);
-  assert.equal(L.slotPremiumPct(t, n + 6, n), 0);
-  assert.equal(L.slotPremiumPct(t, n + 1, n), 0.25, 'before the build time clamps to the earliest week');
+  assert.equal(L.priorityFeePct(t, 3), 0.25);
+  assert.equal(L.priorityFeePct(t, 2), Math.round(0.25 * 2 / 3 * 10000) / 10000);
+  assert.equal(L.priorityFeePct(t, 1), Math.round(0.25 * 1 / 3 * 10000) / 10000);
+  assert.equal(L.priorityFeePct(t, 0), 0);
 });
 
 test('a slot can never be earlier than the build time', () => {
   const s0 = lines();
   const s1 = order(s0, 'b737800', 1, { slotFromWeek: nowAbs(s0) - 50 });
-  assert.equal(added(s0, s1)[0].deliverAbsWeek, nowAbs(s0) + 3);
+  assert.equal(added(s0, s1)[0].deliverAbsWeek, nowAbs(s0) + 6, 'a standard order never starts before the standard week');
+  const s2 = order(s0, 'b737800', 1, { priority: true, slotFromWeek: nowAbs(s0) - 50 });
+  assert.equal(added(s0, s2)[0].deliverAbsWeek, nowAbs(s0) + 3);
 });
 
-test('a lease can buy an early slot: the premium is a one-off fee on top of the deposit', () => {
+test('a lease can buy a priority slot: the fee is a one-off fee on top of the deposit', () => {
   const s0 = lines();
-  const s1 = order(s0, 'b737800', 1, { ownershipType: 'lease', slotFromWeek: nowAbs(s0) + 3 });
+  const s1 = order(s0, 'b737800', 1, { ownershipType: 'lease', priority: true });
   const o = added(s0, s1)[0];
   assert.equal(o.slotPremium, Math.round(eraPurchasePrice(T('b737800')) * 0.25));
   assert.equal(s0.cash - s1.cash, o.leaseDeposit + o.slotPremium);
@@ -317,7 +320,9 @@ test('a new order landing on a week the rivals have filled is a conflict', () =>
   const pending = [{ id: 'n1', typeId: 'b7879', deliverAbsWeek: 50, lineId: 'b787' }];
   assert.deepEqual(L.lineConflicts({ othersBookings: { b787: { 50: 5 } }, pendingOrders: pending, newOrderIds: ['n1'], absWeek: 10 }),
     [{ lineId: 'b787', week: 50 }]);
-  assert.deepEqual(L.lineConflicts({ othersBookings: { b787: { 50: 4 } }, pendingOrders: pending, newOrderIds: ['n1'], absWeek: 10 }), []);
+  // 3, not 4: a standard frame past the release week sees 4 of the 5 (one held for priority).
+  assert.deepEqual(L.lineConflicts({ othersBookings: { b787: { 50: 3 } }, pendingOrders: pending, newOrderIds: ['n1'], absWeek: 10 }), []);
+  assert.deepEqual(L.lineConflicts({ othersBookings: { b787: { 50: 4 } }, pendingOrders: [{ ...pending[0], priority: true }], newOrderIds: ['n1'], absWeek: 10 }), []);
 });
 
 test('a new frame inside the gap to one of your own is a conflict', () => {

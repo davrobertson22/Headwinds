@@ -23,7 +23,7 @@ import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruis
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
-import { worldFleetBoard, lineStatus, launchWindow, cancelTerms, slotPremiumPct, MAX_TOTAL_DISCOUNT, lineGapWeeks, lineOf } from '../data/productionLines.js';
+import { worldFleetBoard, lineStatus, launchWindow, cancelTerms, MAX_TOTAL_DISCOUNT, lineGapWeeks, lineOf } from '../data/productionLines.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import { OrderReplacementLine, OrderFilterBar, useOrderFilter } from './FleetRenewal.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -454,10 +454,10 @@ function OrderCard({ order, currentAbsWeek, onCancel, onRename, linesWorld = fal
           <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${progress * 100}%`, background: catColor, borderRadius: 2, transition: 'width 0.3s' }} />
           </div>
-          {(order.launch || order.slotPremium > 0) && (
+          {(order.launch || order.slotPremium > 0 || order.priority) && (
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
               {order.launch && <span className="market-chip market-chip-blue" style={{ marginLeft: 0 }}><Glyph e="🚀" /> Launch customer · firm</span>}
-              {order.slotPremium > 0 && <span className="market-chip market-chip-yellow" style={{ marginLeft: order.launch ? 6 : 0 }}>Early slot +{formatMoney(order.slotPremium)}</span>}
+              {(order.slotPremium > 0 || order.priority) && <span className="market-chip market-chip-yellow" style={{ marginLeft: order.launch ? 6 : 0 }}>{order.priority ? '⚡ Priority' : 'Early slot'}{order.slotPremium > 0 ? ` +${formatMoney(order.slotPremium)}` : ''}</span>}
             </div>
           )}
           <button
@@ -727,7 +727,7 @@ export default function Marketplace() {
   // Crew requirements are only meaningful where hiring has a lead time.
   const crewOn = state.crewPipeline === true;
   // Production lines (data/productionLines.js): shared factory lines, one slot
-  // per airline per line per week, early slots at a premium, launch customers.
+  // per airline per line per week, priority delivery for a fee, launch customers.
   const linesWorld = state.productionLinesWorld === true;
   // Order board (every world): rivals' fleet mix + your own fleet and orders.
   const board = useMemo(() => worldFleetBoard(state),
@@ -1459,10 +1459,10 @@ export default function Marketplace() {
                 )}
                 {ls && (
                   <div style={{ marginTop: 3, fontSize: 11, color: 'var(--text-muted)' }}
-                       title={`One shared line for the whole family. ${ls.capacity} frames a week across every airline; your own deliveries arrive at least ${ls.gap} week${ls.gap === 1 ? '' : 's'} apart.`}>
+                       title={`One shared line for the whole family. ${ls.capacity} frames a week across every airline${ls.reserve > 0 ? `, ${ls.reserve} held back for priority orders` : ''}; your own deliveries arrive at least ${ls.gap} week${ls.gap === 1 ? '' : 's'} apart (${ls.priorityGap} with priority).`}>
                     <Glyph e="🏭" /> {ls.name} line · {ls.capacity}/wk · {Math.round(ls.utilisation26 * 100)}% booked next 26 wks
-                    {ls.nextOpen < ls.nextStandard && (
-                      <> · earliest {ls.nextOpen - currentAbsWeek}w at +{Math.round(slotPremiumPct(type, ls.nextOpen, currentAbsWeek) * 100)}%</>
+                    {ls.nextPriority < ls.nextStandard && (
+                      <> · priority {ls.nextPriority - currentAbsWeek}w at +{Math.round(ls.priorityPct * 100)}%</>
                     )}
                   </div>
                 )}

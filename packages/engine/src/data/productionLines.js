@@ -12,8 +12,14 @@
 //     the world, building a fixed number of frames a week (by size class);
 //   • one airline's deliveries off a line are spaced by the class gap (1–5
 //     weeks: no four A380s in a month), owned + leased together;
-//   • the earliest slots cost extra — +25% at now + lead, falling to list at
-//     the standard week (now + 2 × lead, today's first-frame wait);
+//   • PRIORITY DELIVERY (Discord: Barca, 2026-11-05): each line holds back a
+//     fifth of every week's frames that standard (list) orders cannot book
+//     until the week is close. A priority order may use them, start from the
+//     build time, and space its frames one week tighter than the class gap;
+//     each priority frame pays per week it arrives ahead of where a list order
+//     would have put it (25% of list ÷ lead a week, capped at 50%). On a quiet
+//     line that is the old +25% on the first frame; on a packed line it buys a
+//     real jump past the backlog;
 //   • cancelling forfeits more the closer the slot (5 / 10 / 20 / 30%);
 //   • era worlds: types are ANNOUNCED two years before entry into service and
 //     launch customers (strict terms) may order during the first 26 weeks.
@@ -465,7 +471,12 @@ export function capacityFor(state, lineId, absWeek) {
 }
 
 // ── Slot timing and price ────────────────────────────────────────────────────
+/** 25% of list buys `lead` weeks (the old earliest-slot premium) … */
 export const EARLY_SLOT_MAX_PREMIUM = 0.25;
+/** … and no priority frame pays more than this share of list. */
+export const PRIORITY_FEE_CAP = 0.5;
+/** Share of each week's frames held back for priority orders. */
+export const PRIORITY_SHARE = 0.2;
 /**
  * The furthest ahead a player may ASK to start (slotFromWeek), past the standard
  * week. A big order still spills as far as it needs; this only stops a lease
@@ -474,56 +485,92 @@ export const EARLY_SLOT_MAX_PREMIUM = 0.25;
  */
 export const MAX_START_AHEAD_WEEKS = 26;
 
-/** earliest = now + lead (build time); standard = now + 2 × lead (no premium). */
+const round4 = (x) => Math.round(x * 10000) / 10000;
+
+/**
+ * earliest = now + lead (build time); standard = now + 2 × lead, the first week
+ * a standard order can take. The standard week is also the RELEASE week: from
+ * there in, the held-back share is open to everyone.
+ */
 export function slotWindow(type, absWeek) {
   const lead = deliveryLead(type);
   return { lead, earliest: absWeek + lead, standard: absWeek + 2 * lead };
 }
 
-/** Premium as a share of list price for a frame delivered in `week`. */
-export function slotPremiumPct(type, week, absWeek) {
-  const { earliest, standard } = slotWindow(type, absWeek);
-  if (week >= standard) return 0;
-  const span = Math.max(1, standard - earliest);
-  const ahead = Math.min(span, standard - Math.max(earliest, week));
-  return Math.round(EARLY_SLOT_MAX_PREMIUM * (ahead / span) * 10000) / 10000;
+/** Frames a week held back for priority orders (none on a 1–2 frame line). */
+export function priorityReserve(capacity) {
+  return capacity >= 3 ? Math.max(1, Math.round(capacity * PRIORITY_SHARE)) : 0;
+}
+
+/** Frames a STANDARD order may fill in `week`: all of them once it is released. */
+export function listRoom(capacity, week, releaseWeek) {
+  return week <= releaseWeek ? capacity : capacity - priorityReserve(capacity);
+}
+
+/** Priority frames come one week tighter than the class gap (never under 1). */
+export function priorityGapWeeks(lineId) {
+  return Math.max(1, lineGapWeeks(lineId) - 1);
+}
+
+/** Priority fee, as a share of list, for a frame arriving `weeksAhead` early. */
+export function priorityFeePct(type, weeksAhead) {
+  const lead = deliveryLead(type);
+  return round4(Math.min(PRIORITY_FEE_CAP, Math.max(0, weeksAhead) * EARLY_SLOT_MAX_PREMIUM / lead));
 }
 
 /**
- * Hands out slots one frame at a time: the first week at or after `fromWeek`
- * (never before the earliest buildable week) where the line has room AND this
- * airline holds no slot yet. `take()` books it so the next frame moves on.
+ * Hands out slots one frame at a time. `take()` books and returns the week;
+ * `takeSlot()` / `peekSlot()` also give the frame's priority fee (share of list).
+ *
+ *   standard: from the standard week (or a later slotFromWeek), the class gap
+ *     to your own frames, and only the list share of a week past release;
+ *   priority: from the build time, one week tighter, and the whole week. Each
+ *     frame's fee is priced on how far ahead of its STANDARD counterpart it
+ *     lands — the first week a list frame could take, given the frames you
+ *     hold so far (this order's included) — so a long order pays for its
+ *     tighter spacing frame by frame without compounding.
  */
-export function makeSlotAllocator(state, type, { absWeek, fromWeek = null, notBefore = null } = {}) {
+export function makeSlotAllocator(state, type, { absWeek, fromWeek = null, notBefore = null, priority = false } = {}) {
   const lineId = lineOf(type);
   const { earliest, standard } = slotWindow(type, absWeek);
   const floor = Math.max(earliest, notBefore ?? earliest);
-  const requested = Number.isFinite(fromWeek)
-    ? Math.min(Math.floor(fromWeek), Math.max(floor, standard) + MAX_START_AHEAD_WEEKS)
-    : Math.max(floor, standard);
-  const start = Math.max(floor, requested);
+  const std = Math.max(floor, standard);
+  const listStart = Number.isFinite(fromWeek)
+    ? Math.max(std, Math.min(Math.floor(fromWeek), std + MAX_START_AHEAD_WEEKS))
+    : std;
   const booked = lineBookings(state, lineId, absWeek);
   const mine = ownLineWeeks(state, lineId);
   const capacity = capacityFor(state, lineId, absWeek);
   const gap = lineGapWeeks(lineId);
-  let cursor = start;
-  const scan = () => {
-    let w = cursor;
-    for (let guard = 0; guard < 52 * 200; guard++, w++) {
-      if (!tooCloseToOwn(mine, w, gap) && (booked.get(w) ?? 0) < capacity) return w;
-    }
+  const pgap = priorityGapWeeks(lineId);
+  const fits = (w, prio) => !tooCloseToOwn(mine, w, prio ? pgap : gap)
+    && (booked.get(w) ?? 0) < (prio ? capacity : listRoom(capacity, w, standard));
+  const scan = (from, prio) => {
+    let w = from;
+    for (let guard = 0; guard < 52 * 200; guard++, w++) if (fits(w, prio)) return w;
     return w;
   };
+  let cursor = priority ? floor : listStart;
+  const peekSlot = () => {
+    const week = scan(cursor, priority);
+    if (!priority) return { week, premiumPct: 0 };
+    return { week, premiumPct: priorityFeePct(type, scan(Math.max(listStart, week), false) - week) };
+  };
+  const takeSlot = () => {
+    const slot = peekSlot();
+    booked.set(slot.week, (booked.get(slot.week) ?? 0) + 1);
+    mine.add(slot.week);
+    cursor = slot.week + 1;
+    return slot;
+  };
   return {
-    lineId, capacity, gap, earliest: floor, standard: Math.max(floor, standard),
-    peek: scan,
-    take() {
-      const w = scan();
-      booked.set(w, (booked.get(w) ?? 0) + 1);
-      mine.add(w);
-      cursor = w + 1;
-      return w;
-    },
+    lineId, capacity, gap: priority ? pgap : gap, listGap: gap, priority,
+    reserve: priorityReserve(capacity),
+    earliest: floor, standard: std,
+    peek: () => peekSlot().week,
+    peekSlot,
+    take: () => takeSlot().week,
+    takeSlot,
   };
 }
 
@@ -561,40 +608,46 @@ export function lineStatus(state, typeOrId, absWeek) {
   const booked = lineBookings(state, lineId, absWeek);
   const capacity = capacityFor(state, lineId, absWeek);
   const { earliest, standard } = slotWindow(type, absWeek);
-  const firstFree = (from) => makeSlotAllocator(state, type, { absWeek, fromWeek: from }).peek();
+  const pri = makeSlotAllocator(state, type, { absWeek, priority: true }).peekSlot();
   let next26 = 0;
   for (let w = absWeek + 1; w <= absWeek + 26; w++) next26 += booked.get(w) ?? 0;
   return {
     lineId, name: info.name, cls: info.cls, capacity, gap: lineGapWeeks(lineId),
+    reserve: priorityReserve(capacity), priorityGap: priorityGapWeeks(lineId),
     backlog: sumMap(booked),
     utilisation26: Math.min(1, next26 / (capacity * 26)),
     earliest, standard,
-    nextOpen: firstFree(earliest),
-    nextStandard: firstFree(standard),
+    nextStandard: makeSlotAllocator(state, type, { absWeek }).peek(),
+    nextPriority: pri.week,
+    priorityPct: pri.premiumPct,
   };
 }
 
-/** Open slots per week over the next `weeks` weeks, for the checkout calendar. */
+/**
+ * Open STANDARD slots per week from the standard week, for the checkout's
+ * start-week picker (a priority order always starts at the build time).
+ */
 export function slotCalendar(state, type, absWeek, weeks = 26) {
   const lineId = lineOf(type);
   const booked = lineBookings(state, lineId, absWeek);
   const mine = ownLineWeeks(state, lineId);
   const capacity = capacityFor(state, lineId, absWeek);
   const gap = lineGapWeeks(lineId);
-  const { earliest } = slotWindow(type, absWeek);
+  const { standard } = slotWindow(type, absWeek);
   const rows = [];
-  for (let w = earliest; w < earliest + weeks; w++) {
+  for (let w = standard; w < standard + weeks; w++) {
+    const room = listRoom(capacity, w, standard);
     rows.push({
       week: w,
       booked: booked.get(w) ?? 0,
-      free: Math.max(0, capacity - (booked.get(w) ?? 0)),
+      free: Math.max(0, room - (booked.get(w) ?? 0)),
+      room,
       mine: mine.has(w),
       // Too close to one of your own frames on this line to take another.
       gapBlocked: tooCloseToOwn(mine, w, gap),
-      premiumPct: slotPremiumPct(type, w, absWeek),
     });
   }
-  return { capacity, gap, rows };
+  return { capacity, gap, reserve: priorityReserve(capacity), rows };
 }
 
 // ── Cancelling ───────────────────────────────────────────────────────────────
@@ -605,7 +658,7 @@ export function cancelForfeitPct(weeksOut) {
   if (weeksOut >= 13) return 0.20;
   return 0.30;
 }
-/** Lease deposits (and any early-slot fee) come back only this far out. */
+/** Lease deposits (and any priority fee) come back only this far out. */
 export const LEASE_REFUND_MIN_WEEKS = 26;
 
 /**
@@ -708,11 +761,19 @@ export function lineConflicts({ othersBookings = {}, pendingOrders = [], newOrde
     const booked = lineBookings(state, line, absWeek);
     const cap = capacityFor(state, line, absWeek);
     const gap = lineGapWeeks(line);
+    const pgap = priorityGapWeeks(line);
+    const gapOf = (x) => (x.priority ? pgap : gap);
     const own = pendingOrders.filter(o => isLineOrder(o) && (o.lineId ?? lineOf(o.typeId)) === line);
     for (const o of orders) {
       const w = o.deliverAbsWeek;
-      const crowded = own.some(x => x !== o && Math.abs(x.deliverAbsWeek - w) < gap);
-      if ((booked.get(w) ?? 0) > cap || crowded) conflicts.push({ lineId: line, week: w });
+      // Two of your frames need the tighter of their two gaps between them:
+      // a priority frame may sit a priority gap from a standard one.
+      const crowded = own.some(x => x !== o && Math.abs(x.deliverAbsWeek - w) < Math.min(gapOf(o), gapOf(x)));
+      // A standard frame past the release week may only use the list share.
+      const type = getAircraftType(o.typeId);
+      const release = type ? slotWindow(type, absWeek).standard : Infinity;
+      const limit = o.priority ? cap : listRoom(cap, w, release);
+      if ((booked.get(w) ?? 0) > limit || crowded) conflicts.push({ lineId: line, week: w });
     }
   }
   return conflicts;

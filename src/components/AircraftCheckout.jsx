@@ -19,7 +19,7 @@ import {
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { deliverySchedule, deliveryLead } from '../data/delivery.js';
-import { makeSlotAllocator, slotPremiumPct, slotCalendar, launchWindow, launchOrderDiscount, lineInfo, lineOf } from '../data/productionLines.js';
+import { makeSlotAllocator, slotCalendar, PRIORITY_FEE_CAP, EARLY_SLOT_MAX_PREMIUM, launchWindow, launchOrderDiscount, lineInfo, lineOf } from '../data/productionLines.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import CabinTemplatePicker from './CabinTemplatePicker.jsx';
 import { ReplacesSection, replacesForDispatch } from './FleetRenewal.jsx';
@@ -138,7 +138,7 @@ function ClassRow({ label, color, fareLabel, spaceLabel, value, max, onChange })
 
 // `replaceIds` presets the "Replaces" block (Fleet ▸ bulk replace); `onOrdered`
 // runs after a successful dispatch, before onClose.
-export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = null, onOrdered = null }) {
+export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = null, onOrdered = null, defaultPriority = false }) {
   const { state, dispatch, remote } = useGame();
   const { cash, fleet, pendingOrders = [], year, week } = state;
 
@@ -176,8 +176,9 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const [hasWifi, setHasWifi]                    = useState(false);
 
   // ── Production lines (data/productionLines.js) ───────────────────────────
-  // Shared factory line per family: one slot per airline per week, earlier
-  // slots at a premium. An announced, not-yet-flying type is a launch order.
+  // Shared factory line per family. A standard order queues at list; a
+  // priority order may use the held-back share, starts at the build time and
+  // pays per week saved. An announced, not-yet-flying type is a launch order.
   const linesWorld  = state.productionLinesWorld === true;
   const launchTerms = (() => {
     if (!linesWorld || mode !== 'buy' || !type) return null;
@@ -185,8 +186,9 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
     return lw?.open ? lw : null;
   })();
   const isLaunch = !!launchTerms;
-  // null = the standard week (no premium); an absWeek = start looking there.
+  // null = the standard week; an absWeek = start looking there (standard only).
   const [slotFrom, setSlotFrom] = useState(null);
+  const [priority, setPriority] = useState(defaultPriority === true);
 
   // ── Quantity ──────────────────────────────────────────────────────────────
   const [quantity, setQuantity] = useState(Math.max(launchTerms?.minQty ?? 1, Math.min(100, replaceIds?.length || 1)));
@@ -315,15 +317,24 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   // Production lines: the same allocator ORDER_AIRCRAFT uses, over the same
   // injected rival bookings — so the weeks on screen are the weeks you get
   // unless another airline books first (then the server moves you on).
-  const lineAlloc = linesWorld ? makeSlotAllocator(state, type, {
-    absWeek:   currentAbsWeek,
-    fromWeek:  isLaunch ? null : slotFrom,
-    notBefore: isLaunch ? launchTerms.eisAbs : null,
-  }) : null;
+  const usePriority = linesWorld && !isLaunch && priority;
+  const planLine = (prio) => {
+    const alloc = makeSlotAllocator(state, type, {
+      absWeek:   currentAbsWeek,
+      fromWeek:  (isLaunch || prio) ? null : slotFrom,
+      notBefore: isLaunch ? launchTerms.eisAbs : null,
+      priority:  prio,
+    });
+    return { alloc, slots: Array.from({ length: quantity - instantCount }, () => alloc.takeSlot()) };
+  };
+  const linePlan  = linesWorld ? planLine(usePriority) : null;
+  // The other choice, quoted on its button so the trade is visible up front.
+  const otherPlan = linesWorld && !isLaunch ? planLine(!usePriority) : null;
+  const lineAlloc = linePlan?.alloc ?? null;
   const deliveryWeeks = [
     ...Array(instantCount).fill(currentAbsWeek),
-    ...(lineAlloc
-      ? Array.from({ length: quantity - instantCount }, () => lineAlloc.take())
+    ...(linePlan
+      ? linePlan.slots.map(sl => sl.week)
       : deliverySchedule(type, pendingOrders, currentAbsWeek, quantity - instantCount)),
   ];
   const firstDelivery = deliveryWeeks[0];
@@ -355,12 +366,20 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
     : effectivePurchasePrice(type, mode === 'buy' ? quantity : 1, calYear);
   const enginePriceAdj  = Math.round(baseUnitPrice * (enginePriceMod - 1));
   const unitBuyPrice    = Math.round(baseUnitPrice * enginePriceMod) + wingtipCost;
-  // Early-slot premium per frame, on list price — the reducer's exact formula.
+  // Priority fee per frame, on list price — the reducer's exact formula.
   // Bought: part of the price. Leased: a one-off fee alongside the deposit.
-  const framePremiums   = deliveryWeeks.map((w, i) => (lineAlloc && i >= instantCount)
-    ? Math.round(eraPurchasePrice(type, calYear) * enginePriceMod * slotPremiumPct(type, w, currentAbsWeek))
+  const feeOf           = (pct) => Math.round(eraPurchasePrice(type, calYear) * enginePriceMod * pct);
+  const framePremiums   = deliveryWeeks.map((w, i) => (linePlan && i >= instantCount)
+    ? feeOf(linePlan.slots[i - instantCount].premiumPct)
     : 0);
   const totalSlotPremium = framePremiums.reduce((a, b) => a + b, 0);
+  const planSummary = (plan) => plan && plan.slots.length ? {
+    first: plan.slots[0].week - currentAbsWeek,
+    last:  plan.slots[plan.slots.length - 1].week - currentAbsWeek,
+    fee:   plan.slots.reduce((a, sl) => a + feeOf(sl.premiumPct), 0),
+  } : null;
+  const stdSummary = planSummary(usePriority ? otherPlan : linePlan);
+  const priSummary = planSummary(usePriority ? linePlan : otherPlan);
   const totalBuyPrice   = unitBuyPrice * quantity + (mode === 'buy' ? totalSlotPremium : 0);
 
   const leaseRateMult    = leaseTermRateMultiplier(leaseTermWeeks);
@@ -433,9 +452,10 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
       config:        cabinConfig,
       name:          customName.trim() || null,
       leaseTermWeeks: mode === 'lease' ? leaseTermWeeks : undefined,
-      // Production lines: where to start looking for slots (the reducer does
-      // the rest). Omitted = the standard week, no premium.
-      slotFromWeek:  linesWorld && !isLaunch && slotFrom != null ? slotFrom : undefined,
+      // Production lines: priority, or where a standard order starts looking
+      // (the reducer does the rest). Omitted = the standard week, at list.
+      priority:      usePriority ? true : undefined,
+      slotFromWeek:  linesWorld && !isLaunch && !usePriority && slotFrom != null ? slotFrom : undefined,
       ...(replaces.length ? { replaces, replaceDisposal } : {}),
     });
     onOrdered?.();
@@ -564,45 +584,76 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
             </div>
           )}
 
-          {/* Production line: pick a start week (early slots cost extra) */}
+          {/* Production line: standard (list) or priority delivery */}
           {lineAlloc && !isLaunch && (() => {
             const cal  = slotCalendar(state, type, currentAbsWeek, 12);
             const info = lineInfo(lineOf(type));
-            const chosen = slotFrom ?? lineAlloc.standard;
+            const chosen = slotFrom ?? cal.rows[0]?.week;
+            const pgap = usePriority ? lineAlloc.gap : (otherPlan?.alloc.gap ?? cal.gap);
+            const choice = (on, label, sub, onClick, accent) => (
+              <button type="button" onClick={onClick} style={{
+                flex: 1, padding: '6px 9px', borderRadius: 6, textAlign: 'left', cursor: 'pointer',
+                border: `1px solid ${on ? accent : 'var(--border)'}`,
+                background: on ? 'rgba(56,139,253,0.12)' : 'var(--surface2)',
+                color: on ? 'var(--text)' : 'var(--text-muted)', fontSize: 12, lineHeight: 1.35,
+              }}>
+                <strong style={{ color: on ? accent : 'var(--text)' }}>{label}</strong>
+                <span style={{ display: 'block', fontSize: 11 }}>{sub}</span>
+              </button>
+            );
             return (
               <div style={{ marginTop: 10, fontSize: 12 }}>
                 <div style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-                  <Glyph e="🏭" /> <strong style={{ color: 'var(--text)' }}>{info.name}</strong> line · {cal.capacity} frames a week across every airline,
-                  and yours arrive at least {cal.gap} week{cal.gap === 1 ? '' : 's'} apart. Start from:
+                  <Glyph e="🏭" /> <strong style={{ color: 'var(--text)' }}>{info.name}</strong> line · {cal.capacity} frames a week across every airline
+                  {cal.reserve > 0 ? <>, {cal.reserve} held back for priority orders</> : null}.
                 </div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                  {cal.rows.map(r => {
-                    const full = r.free <= 0 || r.gapBlocked;
-                    const on   = r.week === chosen;
-                    const std  = r.premiumPct === 0;
-                    return (
-                      <button
-                        key={r.week}
-                        type="button"
-                        disabled={full}
-                        onClick={() => setSlotFrom(std && r.week === lineAlloc.standard ? null : r.week)}
-                        title={r.mine ? 'You already take a frame this week' : r.gapBlocked ? `Within ${cal.gap} weeks of another of your frames on this line` : full ? 'Line full this week' : `${r.free} of ${cal.capacity} slots open`}
-                        style={{
-                          padding: '3px 7px', borderRadius: 5, fontSize: 11, lineHeight: 1.3,
-                          cursor: full ? 'not-allowed' : 'pointer', opacity: full ? 0.4 : 1,
-                          border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
-                          background: on ? 'rgba(56,139,253,0.15)' : 'var(--surface2)',
-                          color: on ? 'var(--accent)' : 'var(--text-muted)',
-                        }}
-                      >
-                        {r.week - currentAbsWeek}w
-                        <span style={{ display: 'block', fontSize: 10, color: std ? 'var(--green)' : 'var(--yellow)' }}>
-                          {full ? (r.mine ? 'yours' : r.gapBlocked ? 'gap' : 'full') : std ? 'list' : `+${Math.round(r.premiumPct * 100)}%`}
-                        </span>
-                      </button>
-                    );
-                  })}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                  {choice(!usePriority, 'Standard · list price',
+                    stdSummary ? `First in ${stdSummary.first}w · ${cal.gap}w apart` : `${cal.gap}w apart`,
+                    () => setPriority(false), 'var(--green)')}
+                  {choice(usePriority, '⚡ Priority',
+                    priSummary ? `First in ${priSummary.first}w · ${pgap}w apart · +${formatMoney(priSummary.fee)}` : `${pgap}w apart`,
+                    () => setPriority(true), 'var(--yellow)')}
                 </div>
+                {usePriority ? (
+                  <div style={{ color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                    Priority frames can take the held-back slots, start at the build time and come {pgap} week{pgap === 1 ? '' : 's'} apart.
+                    Each pays for the weeks it arrives ahead of the standard queue: {Math.round(EARLY_SLOT_MAX_PREMIUM * 100)}% of list buys {lead} week{lead === 1 ? '' : 's'}, at most {Math.round(PRIORITY_FEE_CAP * 100)}% a frame.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
+                      Yours arrive at least {cal.gap} week{cal.gap === 1 ? '' : 's'} apart. Start from:
+                    </div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {cal.rows.map((r, idx) => {
+                        const full = r.free <= 0 || r.gapBlocked;
+                        const on   = r.week === chosen;
+                        return (
+                          <button
+                            key={r.week}
+                            type="button"
+                            disabled={full}
+                            onClick={() => setSlotFrom(idx === 0 ? null : r.week)}
+                            title={r.mine ? 'You already take a frame this week' : r.gapBlocked ? `Within ${cal.gap} weeks of another of your frames on this line` : full ? 'No standard slots left this week' : `${r.free} of ${r.room} standard slots open`}
+                            style={{
+                              padding: '3px 7px', borderRadius: 5, fontSize: 11, lineHeight: 1.3,
+                              cursor: full ? 'not-allowed' : 'pointer', opacity: full ? 0.4 : 1,
+                              border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                              background: on ? 'rgba(56,139,253,0.15)' : 'var(--surface2)',
+                              color: on ? 'var(--accent)' : 'var(--text-muted)',
+                            }}
+                          >
+                            {r.week - currentAbsWeek}w
+                            <span style={{ display: 'block', fontSize: 10, color: 'var(--green)' }}>
+                              {full ? (r.mine ? 'yours' : r.gapBlocked ? 'gap' : 'full') : 'list'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             );
           })()}
@@ -921,7 +972,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
                 </div>
                 {totalSlotPremium > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, color: 'var(--text-muted)' }}>
-                    <span>Early-slot premium{framePremiums.filter(x => x > 0).length > 1 ? ` (${framePremiums.filter(x => x > 0).length} frames)` : ''}</span>
+                    <span>Priority fee{framePremiums.filter(x => x > 0).length > 1 ? ` (${framePremiums.filter(x => x > 0).length} frames)` : ''}</span>
                     <span style={{ color: 'var(--yellow)' }}>+{formatMoney(totalSlotPremium)}</span>
                   </div>
                 )}
@@ -1036,7 +1087,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
                 </div>
                 {totalSlotPremium > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontWeight: 700, fontSize: 14 }}>
-                    <span>Early-slot fee, one-off (due now)</span>
+                    <span>Priority fee, one-off (due now)</span>
                     <span style={{ color: 'var(--yellow)' }}>{formatMoney(totalSlotPremium)}</span>
                   </div>
                 )}

@@ -108,7 +108,7 @@ import {
 import { LABOR_GROUP_MAP } from './data/labor.js';
 import { checkRouteRestrictions, runwayShortfall } from './data/airportRestrictions.js';
 import { deliverySchedule } from './data/delivery.js';
-import { makeSlotAllocator, slotPremiumPct, cancelTerms, launchWindow, launchOrderDiscount } from './data/productionLines.js';
+import { makeSlotAllocator, cancelTerms, launchWindow, launchOrderDiscount } from './data/productionLines.js';
 import {
   COMPETITOR_AIRLINES,
   initializeCompetitorRoutes,
@@ -2254,11 +2254,14 @@ function reducer(state, action) {
 
       // Production lines: one allocator per order, so every frame lands on its
       // own week (never two of yours in one week) and later frames move on.
-      // Default start is the standard week (no premium); an earlier
-      // slotFromWeek buys an early slot. Launch frames start at entry into service.
+      // A standard order starts at the standard week (or a later slotFromWeek)
+      // at list. A PRIORITY order starts at the build time, may use the line's
+      // held-back share, comes one week tighter, and pays per week saved.
+      // Launch frames start at entry into service and are never priority.
+      const wantsPriority = linesWorld && !isLaunch && action.priority === true;
       const allocator = linesWorld ? makeSlotAllocator(state, type, {
         absWeek:   currentAbsWeek,
-        fromWeek:  isLaunch ? null : (Number.isFinite(action.slotFromWeek) ? action.slotFromWeek : null),
+        fromWeek:  (isLaunch || wantsPriority) ? null : (Number.isFinite(action.slotFromWeek) ? action.slotFromWeek : null),
         notBefore: isLaunch ? eraDenial.eisAbs : null,
       }) : null;
 
@@ -2267,19 +2270,21 @@ function reducer(state, action) {
         // launch frame never does: the aeroplane does not exist yet.
         const instantFrame = isMultiplayerWorld && starterUsed < STARTER_DELIVERY_CAP && !isLaunch;
         const deliverAbsWeek = allocator
-          ? (instantFrame ? currentAbsWeek : allocator.peek())
+          ? (instantFrame ? currentAbsWeek : slot.week)
           : deliverySchedule(type, runningPending, currentAbsWeek, 1)[0];
-        // Early-slot premium on list price: added to an owned frame's price (so
-        // it is part of the cost basis), or charged as a one-off fee on a lease.
-        const premiumPct  = (allocator && !instantFrame) ? slotPremiumPct(type, deliverAbsWeek, currentAbsWeek) : 0;
+        // Priority fee on list price: added to an owned frame's price (so it is
+        // part of the cost basis), or charged as a one-off fee on a lease.
+        const premiumPct  = slot?.premiumPct ?? 0;
         const slotPremium = premiumPct > 0 ? Math.round(eraPurchasePrice(type) * enginePriceMod * premiumPct) : 0;
 
+        priority:  wantsPriority,
         // Price: uniform bulk-order discount (orderDisc) applied to every frame in
         // this order. Leases carry no purchase price.
         const unitBasePrice  = action.ownershipType === 'owned'
           ? Math.round(eraPurchasePrice(type) * (1 - orderDisc))
           : 0;
         const unitTotalPrice = action.ownershipType === 'owned'
+        const slot = (allocator && !instantFrame) ? allocator.peekSlot() : null;
           ? Math.round(unitBasePrice * enginePriceMod) + wingtipCost + slotPremium
           : 0;
 
@@ -2348,6 +2353,7 @@ function reducer(state, action) {
           const tailNumber = generateTailNumber(state.hub, state.airlineName, usedTails);
           const deliveredLeaseTerm = order.ownershipType === 'lease'
             ? (order.leaseTermWeeks ?? DELIVERY_LEASE_TERMS[type.category] ?? DEFAULT_LEASE_TERM_WEEKS)
+          ...(slot && wantsPriority ? { priority: true } : {}),
             : undefined;
           const aircraft = {
             id:            uid(),

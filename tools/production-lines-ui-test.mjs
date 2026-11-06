@@ -62,7 +62,7 @@ test('production-line world: the card shows the shared line and the list-price s
   const card = cardOf(render(React.createElement(Marketplace)), 'Boeing 737-800');
   assert.match(card, /Boeing 737NG line · 8\/wk/);
   assert.match(card, /Delivery in 6 weeks at list price/);
-  assert.match(card, /earliest 3w at \+25%/);
+  assert.match(card, /priority 3w at \+25%/);
 });
 
 test("rivals' bookings push the list-price slot back", () => {
@@ -84,10 +84,10 @@ test('an announced type is offered to launch customers, buy only', () => {
 
 console.log('\n── checkout agrees with the reducer');
 
-function checkoutAndOrder(save, typeId, mode = 'buy', quantity = 1) {
+function checkoutAndOrder(save, typeId, mode = 'buy', quantity = 1, priority = false) {
   seedSave(save);
-  const html = text(render(React.createElement(AircraftCheckout, { typeId, mode, onClose: () => {} })));
-  const after = gameReducer(save, { type: 'ORDER_AIRCRAFT', typeId, quantity, ownershipType: mode === 'buy' ? 'owned' : 'lease' });
+  const html = text(render(React.createElement(AircraftCheckout, { typeId, mode, onClose: () => {}, defaultPriority: priority })));
+  const after = gameReducer(save, { type: 'ORDER_AIRCRAFT', typeId, quantity, ownershipType: mode === 'buy' ? 'owned' : 'lease', ...(priority ? { priority: true } : {}) });
   return { html, placed: after.pendingOrders.slice(save.pendingOrders.length), paid: save.cash - after.cash };
 }
 
@@ -96,9 +96,24 @@ test('standard slot: the quoted first delivery is the week the reducer books', (
   const { html, placed } = checkoutAndOrder(s, 'b737800');
   const weeks = placed[0].deliverAbsWeek - absoluteWeek(s.year, s.week);
   assert.match(html, new RegExp(`First delivery in ${weeks}w`));
-  assert.match(html, /737NG line · 8 frames a week/);
-  assert.match(html, /3w \+25%/);
+  assert.match(html, /737NG line · 8 frames a week across every airline, 2 held back for priority orders/);
+  assert.match(html, /Standard · list price First in 6w · 3w apart/);
+  assert.match(html, /Priority First in 3w · 2w apart · \+\$/);
   assert.match(html, /6w list/);
+  assert.doesNotMatch(html, / 3w list/, 'the standard calendar starts at the standard week');
+});
+
+test('priority checkout: the quoted weeks and fee are what the reducer books and charges', () => {
+  const s = lines();
+  const { html, placed } = checkoutAndOrder(s, 'b737800', 'buy', 1, true);
+  const weeks = placed[0].deliverAbsWeek - absoluteWeek(s.year, s.week);
+  assert.equal(weeks, 3);
+  assert.equal(placed[0].priority, true);
+  assert.match(html, new RegExp(`First delivery in ${weeks}w`));
+  const fee = html.match(/Priority fee \+\$([\d.,]+)([KMB])/);
+  assert.ok(fee, 'priority fee line shown');
+  const shown = Number(fee[1].replace(/,/g, '')) * { K: 1e3, M: 1e6, B: 1e9 }[fee[2]];
+  assert.ok(Math.abs(shown - placed[0].slotPremium) / placed[0].slotPremium < 0.01, `checkout says ${shown}, reducer charged ${placed[0].slotPremium}`);
 });
 
 test('launch checkout: 20 frames, from January of the EIS year, at the reducer price', () => {

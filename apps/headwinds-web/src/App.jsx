@@ -677,7 +677,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             Every aircraft family comes off one factory line shared by the whole world, building a
             set number of frames a week (more for turboprops, fewer for jumbos — set your own below). Each airline's own
             deliveries from a line are spaced out — a week apart for turboprops, up to five for
-            jumbos — early slots cost up to 25% extra, and cancelling
+            jumbos — a fifth of each week's frames is held back for priority orders, which pay up to 50% extra to jump the queue, and cancelling
             forfeits more the closer the slot. In historical worlds, new types are announced two
             years ahead and launch customers can order first at a discount.
           </span>
@@ -912,7 +912,7 @@ const WORLD_FEATURES = [
     icon: '🏭',
     label: (w) => (w?.productionLineRates ? 'Production lines · custom rates' : 'Production lines'),
     rgb: '210,153,34',
-    blurb: 'One factory line per aircraft family, shared by every airline. Your deliveries from a line are spaced 1–5 weeks apart by size, early slots cost extra, and in historical worlds launch customers order first.',
+    blurb: 'One factory line per aircraft family, shared by every airline. Your deliveries from a line are spaced 1–5 weeks apart by size, priority delivery jumps the queue for a fee, and in historical worlds launch customers order first.',
   },
   {
     key: 'partners',
