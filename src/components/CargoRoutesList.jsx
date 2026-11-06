@@ -12,6 +12,9 @@ import { Glyph, GlyphLabel } from './Icons.jsx';
 import OutOfRangeBadge from './OutOfRangeBadge.jsx';
 import { useToast } from './ToastSystem.jsx';
 import NumberStepper from './NumberStepper.jsx';
+import RouteFrequencyControls from './FrequencyControls.jsx';
+import { cargoReferenceYield } from '../utils/market.js';
+import { planCargoYields, cargoYieldBatches, CARGO_BULK_PCT_MIN, CARGO_BULK_PCT_MAX } from '../../packages/engine/src/models/cargoYieldBulk.js';
 
 const ACCENT = '#e8833a';
 const CARGO_PAGE_SIZE = 60;
@@ -163,6 +166,10 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
     try { return window.matchMedia('(max-width: 640px)').matches ? 'cards' : 'table'; }
     catch { return 'table'; }
   });
+  // Mass pricing: lanes ticked for the selection bar (keyed like the groups),
+  // and the load-factor modal behind the summary bar's Bulk Pricing button.
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [showBulk, setShowBulk] = useState(false);
 
   const allRows = useMemo(() => {
     // Same-lane pooling: mirror the weekly tick so the list shows each route's
@@ -228,21 +235,60 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
   function setYield(route, y) {
     dispatch({ type: 'UPDATE_CARGO_YIELD', routeId: route.id, yieldPrice: Math.max(0.01, +y.toFixed(3)) });
   }
-  function adjYield(route, delta) {
-    dispatch({ type: 'UPDATE_CARGO_YIELD', routeId: route.id, yieldPrice: Math.max(0.01, +(route.yieldPrice + delta).toFixed(3)) });
+  // Many freighters at once: one BULK_SET_CARGO_YIELD per server-sized batch
+  // (models/cargoYieldBulk.js), never one write per freighter.
+  function bulkYield(routeIds, change) {
+    for (const ids of cargoYieldBatches(routeIds)) {
+      dispatch({ type: 'BULK_SET_CARGO_YIELD', routeIds: ids, mode: change.mode, value: change.value });
+    }
   }
+  const idsOf = (groups) => groups.flatMap(g => g.rows.map(r => r.route.id));
   // Lane-wide yield: every freighter on the lane moves together. Each one's
   // yield only prices ITS slice of the pool, so a lane priced unevenly is
   // usually an accident, not a strategy.
   function adjLaneYield(group, delta) {
-    for (const { route } of group.rows) adjYield(route, delta);
+    bulkYield(idsOf([group]), { mode: 'delta', value: delta });
   }
   function alignLaneYield(group) {
     const y = Math.max(0.01, +group.route.yieldPrice.toFixed(3));
-    for (const { route } of group.rows) {
-      dispatch({ type: 'UPDATE_CARGO_YIELD', routeId: route.id, yieldPrice: y });
-    }
+    bulkYield(idsOf([group]), { mode: 'set', value: y });
     addToast({ type: 'success', title: 'Lane yield aligned', message: `${group.rows.length} freighters on ${group.origin} ↔ ${group.destination} now at $${y.toFixed(3)}/t-km` });
+  }
+  // Selection bar and Bulk Pricing modal.
+  function applyYieldToGroups(groupsToPrice, change) {
+    const plan = planCargoYields(state, idsOf(groupsToPrice), change);
+    if (plan.changed === 0) return;
+    bulkYield(idsOf(groupsToPrice), change);
+    addToast({
+      type: 'success',
+      title: change.mode === 'reference' ? 'Freight back to the going rate' : 'Freight repriced',
+      message: `${plan.changed} freighter${plan.changed !== 1 ? 's' : ''} on ${groupsToPrice.length} lane${groupsToPrice.length !== 1 ? 's' : ''}`
+        + (change.mode === 'pct' ? ` · ${change.value > 0 ? '+' : ''}${change.value}%` : ''),
+    });
+  }
+  async function closeGroups(groupsToClose) {
+    const n = groupsToClose.reduce((s, g) => s + g.rows.length, 0);
+    if (!(await confirm({
+      title: `Close ${groupsToClose.length} freight lane${groupsToClose.length !== 1 ? 's' : ''}?`,
+      body: `${n} freighter${n !== 1 ? 's' : ''} return${n === 1 ? 's' : ''} to idle.`,
+      danger: true, confirmLabel: `Close ${n} route${n !== 1 ? 's' : ''}`,
+    }))) return;
+    for (const g of groupsToClose) for (const { route } of g.rows) dispatch({ type: 'CLOSE_CARGO_ROUTE', routeId: route.id });
+    setSelectedKeys(new Set());
+  }
+  function toggleSelect(key) {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+  function setManySelected(keys, on) {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      for (const k of keys) on ? next.add(k) : next.delete(k);
+      return next;
+    });
   }
   async function close(route) {
     if (await confirm({ title: `Close cargo route ${route.origin} → ${route.destination}?`, body: 'The freighter returns to idle.', danger: true, confirmLabel: 'Close route' })) {
@@ -256,7 +302,10 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
     }
   }
 
-  const controls = { setFreq, setYield, adjYield, adjLaneYield, alignLaneYield, close, closeLane, state, onAddFreighter };
+  // Ticked lanes that still exist (a closed lane drops out of the selection).
+  const selectedGroups = groups.filter(g => selectedKeys.has(g.key));
+  const selection = { has: (k) => selectedKeys.has(k), toggle: toggleSelect, setMany: setManySelected };
+  const controls = { setFreq, setYield, adjLaneYield, alignLaneYield, close, closeLane, state, onAddFreighter, selection };
 
   const totalRev    = rows.reduce((s, r) => s + (r.sim?.revenue ?? 0), 0);
   const totalProfit = rows.reduce((s, r) => s + (r.sim?.profit ?? 0), 0);
@@ -286,8 +335,16 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
           </div>
         )}
         <div><span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Var. profit / wk</span><div style={{ fontWeight: 700, fontSize: 15, color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{(totalProfit >= 0 ? '+' : '') + formatMoney(totalProfit)}</div></div>
+        <button
+          className="btn btn-ghost"
+          style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px' }}
+          onClick={() => setShowBulk(true)}
+          title="Reprice many freight lanes at once, filtered by load factor"
+        >
+          <GlyphLabel size={12} text="⚖️ Bulk Pricing" />
+        </button>
         {!hideViewToggle && (
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'var(--surface)', borderRadius: 'var(--radius)', padding: 2 }}>
+          <div style={{ display: 'flex', gap: 2, background: 'var(--surface)', borderRadius: 'var(--radius)', padding: 2 }}>
             {[{ id: 'table', label: '⊟ Table' }, { id: 'cards', label: '⊞ Cards' }].map(v => (
               <button
                 key={v.id}
@@ -302,11 +359,40 @@ export default function CargoRoutesList({ airportFilter = 'all', hideViewToggle 
         )}
       </div>
 
+      {selectedGroups.length > 0 && (
+        <CargoSelectionBar
+          groups={selectedGroups}
+          onApplyYield={applyYieldToGroups}
+          onCloseGroups={closeGroups}
+          onClear={() => setSelectedKeys(new Set())}
+        />
+      )}
+
+      {viewMode === 'cards' && groups.length > 1 && (
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            style={{ accentColor: ACCENT }}
+            checked={groups.every(g => selectedKeys.has(g.key))}
+            onChange={e => setManySelected(groups.map(g => g.key), e.target.checked)}
+          />
+          Select all {groups.length} lanes
+        </label>
+      )}
+
       {viewMode === 'table'
         ? <CargoTable groups={groups} controls={controls} />
         : groups.map(g => g.rows.length === 1
-            ? <CargoRouteCard key={g.key} {...g.rows[0]} controls={controls} />
+            ? <CargoRouteCard key={g.key} {...g.rows[0]} selectKey={g.key} controls={controls} />
             : <CargoLaneCard key={g.key} group={g} controls={controls} />)}
+
+      {showBulk && (
+        <CargoBulkPricingModal
+          allGroups={groups}
+          onApply={applyYieldToGroups}
+          onClose={() => setShowBulk(false)}
+        />
+      )}
     </div>
   );
 }
@@ -350,6 +436,9 @@ function CargoTable({ groups, controls }) {
   }, [groups, sortCol, sortDir]);
 
   const visible = sorted.slice(0, shown);
+  const { selection } = controls;
+  const allSelected  = groups.length > 0 && groups.every(g => selection.has(g.key));
+  const someSelected = groups.some(g => selection.has(g.key));
 
   function clickHeader(colId) {
     if (sortCol === colId) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
@@ -376,6 +465,17 @@ function CargoTable({ groups, controls }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr>
+              <th style={{ ...COL_HEADER, cursor: 'default', width: 28, paddingRight: 0 }}>
+                <input
+                  type="checkbox"
+                  data-cargo-select-all=""
+                  style={{ accentColor: ACCENT, cursor: 'pointer' }}
+                  checked={allSelected}
+                  ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                  onChange={e => selection.setMany(groups.map(g => g.key), e.target.checked)}
+                  title={allSelected ? 'Deselect all' : `Select all ${groups.length} lanes for bulk pricing`}
+                />
+              </th>
               {CARGO_COLUMNS.map(c => (
                 <th
                   key={c.id}
@@ -397,6 +497,7 @@ function CargoTable({ groups, controls }) {
               <CargoTableRow
                 key={g.key}
                 row={g.rows[0]}
+                selectKey={g.key}
                 zebra={i % 2 === 1}
                 expanded={expandedIds.has(g.rows[0].route.id)}
                 onToggleExpand={() => toggleExpand(g.rows[0].route.id)}
@@ -430,6 +531,63 @@ function CargoTable({ groups, controls }) {
   );
 }
 
+// The tick box that puts a lane into the selection bar. Its own cell stops the
+// click, so ticking never expands the row.
+function SelectCell({ selectKey, controls, nested = false }) {
+  const { selection } = controls;
+  return (
+    <td style={{ padding: '0 0 0 10px', width: 28 }} onClick={e => e.stopPropagation()}>
+      {!nested && selectKey && (
+        <input
+          type="checkbox"
+          data-cargo-select={selectKey}
+          style={{ accentColor: ACCENT, cursor: 'pointer' }}
+          checked={selection.has(selectKey)}
+          onChange={() => selection.toggle(selectKey)}
+          title="Select this lane for bulk pricing"
+        />
+      )}
+    </td>
+  );
+}
+
+// Yield, editable where it is shown ("the feature to edit the prices on a
+// route after you've created it is also missing", Dunno23, Discord 2026-11-05:
+// it lived behind a row you had to open first). One freighter gets the same
+// stepper as its controls; a lane gets the lane-wide −/+.
+function YieldCell({ route, group, controls, style }) {
+  const stop = e => e.stopPropagation();
+  if (group) {
+    return (
+      <td style={style} onClick={stop} data-cargo-lane-yield="">
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" style={{ padding: '0 6px', fontSize: 12 }} title="Lower every freighter on this lane by $0.02" onClick={() => controls.adjLaneYield(group, -0.02)}>−</button>
+          <span>{yieldLabel(group)}</span>
+          <button className="btn btn-ghost" style={{ padding: '0 6px', fontSize: 12 }} title="Raise every freighter on this lane by $0.02" onClick={() => controls.adjLaneYield(group, +0.02)}>+</button>
+        </span>
+      </td>
+    );
+  }
+  return (
+    <td style={style} onClick={stop} data-cargo-yield-cell="">
+      <span style={{ display: 'inline-flex', justifyContent: 'flex-end' }}>
+        <NumberStepper
+          size="sm"
+          value={+route.yieldPrice.toFixed(3)}
+          min={0.01}
+          step={0.02}
+          decimals={3}
+          inputWidth={50}
+          onChange={y => controls.setYield(route, y)}
+          ariaLabel={`yield, ${route.origin} to ${route.destination}`}
+          decTitle="Lower by $0.02"
+          incTitle="Raise by $0.02"
+        />
+      </span>
+    </td>
+  );
+}
+
 const lfColorOf = (lf) => lf >= 0.75 ? 'var(--green)' : lf >= 0.45 ? 'var(--yellow)' : 'var(--red)';
 
 /** A lane flown by several freighters: one aggregate row, expanding to the lane
@@ -452,6 +610,7 @@ function CargoLaneRows({ group, zebra, expanded, onToggleExpand, expandedIds, to
         }}
         onClick={onToggleExpand}
       >
+        <SelectCell selectKey={group.key} controls={controls} />
         <td style={{ ...CELL, whiteSpace: 'nowrap' }}>
           <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 13, color: ACCENT }}>
             {route.origin} → {route.destination}
@@ -471,7 +630,7 @@ function CargoLaneRows({ group, zebra, expanded, onToggleExpand, expandedIds, to
         <td style={RIGHT}>{route.weeklyFrequency}×</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: lfColorOf(sim?.loadFactor ?? 0) }}>{sim ? formatPercent(sim.loadFactor) : '—'}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: ACCENT }}>{sim ? sim.tonnes.toLocaleString() : '—'}</td>
-        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>{yieldLabel(group)}</td>
+        <YieldCell group={group} controls={controls} style={{ ...RIGHT, color: 'var(--text-muted)', whiteSpace: 'nowrap' }} />
         <td style={{ ...RIGHT, fontWeight: 600, color: 'var(--green)' }}>{sim ? `+${formatMoney(sim.revenue)}` : '—'}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: (sim?.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
           {sim ? `${sim.profit >= 0 ? '+' : ''}${formatMoney(sim.profit)}` : '—'}
@@ -483,7 +642,7 @@ function CargoLaneRows({ group, zebra, expanded, onToggleExpand, expandedIds, to
       {expanded && (
         <>
           <tr style={{ background: 'var(--surface2)' }}>
-            <td colSpan={CARGO_COLUMNS.length + 1} style={{ padding: '0 14px 10px' }}>
+            <td colSpan={CARGO_COLUMNS.length + 2} style={{ padding: '0 14px 10px' }}>
               <CargoLaneControls group={group} controls={controls} />
             </td>
           </tr>
@@ -504,7 +663,7 @@ function CargoLaneRows({ group, zebra, expanded, onToggleExpand, expandedIds, to
   );
 }
 
-function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls, nested = false, laneOrigin = null }) {
+function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls, nested = false, laneOrigin = null, selectKey = null }) {
   const { route, aircraft, type, sim, pooled } = row;
   const oa = getAirport(route.origin);
   const da = getAirport(route.destination);
@@ -527,6 +686,7 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls, nested 
         }}
         onClick={onToggleExpand}
       >
+        <SelectCell selectKey={selectKey} controls={controls} nested={nested} />
         <td style={{ ...CELL, whiteSpace: 'nowrap', ...(nested ? { paddingLeft: 28 } : null) }}>
           {nested ? (
             <>
@@ -572,7 +732,7 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls, nested 
         <td style={RIGHT}>{route.weeklyFrequency}×</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: lfColor }}>{sim ? formatPercent(lf) : '—'}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: ACCENT }}>{sim ? sim.tonnes.toLocaleString() : '—'}</td>
-        <td style={{ ...RIGHT, color: 'var(--text-muted)' }}>${route.yieldPrice.toFixed(3)}</td>
+        <YieldCell route={route} controls={controls} style={{ ...RIGHT, color: 'var(--text-muted)' }} />
         <td style={{ ...RIGHT, fontWeight: 600, color: 'var(--green)' }}>{sim ? `+${formatMoney(sim.revenue)}` : '—'}</td>
         <td style={{ ...RIGHT, fontWeight: 700, color: profColor }}>
           {sim ? `${sim.profit >= 0 ? '+' : ''}${formatMoney(sim.profit)}` : '—'}
@@ -583,7 +743,7 @@ function CargoTableRow({ row, zebra, expanded, onToggleExpand, controls, nested 
       </tr>
       {expanded && (
         <tr style={{ borderBottom: '1px solid var(--border)', background: nested ? 'var(--surface)' : 'var(--surface2)' }}>
-          <td colSpan={CARGO_COLUMNS.length + 1} style={{ padding: nested ? '0 14px 10px 28px' : '0 14px 12px' }}>
+          <td colSpan={CARGO_COLUMNS.length + 2} style={{ padding: nested ? '0 14px 10px 28px' : '0 14px 12px' }}>
             {!nested && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 10px' }}>
                 {aircraft ? `${aircraft.name}${aircraft.tailNumber ? ` · ${aircraft.tailNumber}` : ''}` : <GlyphLabel size={12} text="⚠ no freighter assigned" />}
@@ -716,7 +876,20 @@ function CargoRouteControls({ route, sim, controls }) {
 
 // ─── Card view (same layout as before, sharing the controls with the table) ─────
 
-function CargoRouteCard({ route, aircraft, type, sim, pooled, controls }) {
+function CardSelectBox({ selectKey, controls }) {
+  return (
+    <input
+      type="checkbox"
+      data-cargo-select={selectKey}
+      style={{ accentColor: ACCENT, cursor: 'pointer', width: 15, height: 15 }}
+      checked={controls.selection.has(selectKey)}
+      onChange={() => controls.selection.toggle(selectKey)}
+      title="Select this lane for bulk pricing"
+    />
+  );
+}
+
+function CargoRouteCard({ route, aircraft, type, sim, pooled, controls, selectKey }) {
   const lf = sim?.loadFactor ?? 0;
   const lfColor = lf >= 0.75 ? 'var(--green)' : lf >= 0.45 ? 'var(--yellow)' : 'var(--red)';
 
@@ -726,6 +899,7 @@ function CargoRouteCard({ route, aircraft, type, sim, pooled, controls }) {
         {/* Left: identity */}
         <div style={{ minWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700 }}>
+            {selectKey && <CardSelectBox selectKey={selectKey} controls={controls} />}
             <AirportLink code={route.origin} /> <span style={{ color: ACCENT }}>→</span> <AirportLink code={route.destination} />
             <FreightBadge />
             {pooled && <SharedLaneBadge />}
@@ -782,6 +956,7 @@ function CargoLaneCard({ group, controls }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ minWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700, flexWrap: 'wrap' }}>
+            <CardSelectBox selectKey={group.key} controls={controls} />
             <AirportLink code={route.origin} /> <span style={{ color: ACCENT }}>→</span> <AirportLink code={route.destination} />
             <FreightBadge />
             <SharedLaneBadge count={rows.length} />
@@ -853,6 +1028,231 @@ function CargoLaneCard({ group, controls }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Mass pricing (Barca, Discord 2026-11-05: "Most importantly mass pricing") ─
+//
+// The passenger page's selection bar and Bulk Pricing modal, for freight. Both
+// preview with planCargoYields and apply through BULK_SET_CARGO_YIELD, so the
+// line under the controls is exactly what Apply writes. Freight has one rate per
+// freighter rather than four cabins, so it is one % box, not a row of them.
+
+/** "12 freighters → $0.412–$0.455 · 3 above the going rate" for a planned change. */
+function CargoYieldPreview({ plan }) {
+  if (!plan) return null;
+  if (plan.changed === 0) {
+    return <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Nothing would change.</span>;
+  }
+  const moved = plan.rows.filter(r => plan.yields.has(r.route.id));
+  const lo = Math.min(...moved.map(r => r.to));
+  const hi = Math.max(...moved.map(r => r.to));
+  // Past the going rate forwarders start booking elsewhere (cargoPriceChokeFactor,
+  // the tick's own curve); count the freighters that would lose 5% or more.
+  const choked = moved.filter(r => (1 - cargoPriceChokeFactor(r.to, r.ref)) >= 0.05).length;
+  const range = hi - lo < 0.0005 ? `$${lo.toFixed(3)}` : `$${lo.toFixed(3)}–$${hi.toFixed(3)}`;
+  return (
+    <span data-cargo-yield-preview="" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+      <b>{plan.changed}</b> freighter{plan.changed !== 1 ? 's' : ''} → {range}/t-km
+      {choked > 0 && (
+        <span style={{ color: 'var(--yellow)', fontWeight: 700 }}
+              title={`Priced past the lane's going rate, forwarders book elsewhere: these lose 5% or more of their freight. Demand reaches zero at ${CARGO_PRICE_CAP_MULTIPLE}x reference.`}>
+          {' '}· {choked} lose freight to price
+        </span>
+      )}
+    </span>
+  );
+}
+
+const parsePct = (v) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? Math.max(CARGO_BULK_PCT_MIN, Math.min(CARGO_BULK_PCT_MAX, n)) : 0;
+};
+
+export function CargoSelectionBar({ groups, onApplyYield, onCloseGroups, onClear }) {
+  const { state } = useGame();
+  const [pct, setPct] = useState('');
+  const routeIds = groups.flatMap(g => g.rows.map(r => r.route.id));
+  const n = parsePct(pct);
+  const plan = n !== 0 ? planCargoYields(state, routeIds, { mode: 'pct', value: n }) : null;
+  const freighters = routeIds.length;
+
+  return (
+    <div data-cargo-selection-bar="" style={{
+      position: 'sticky', top: 8, zIndex: 50, marginBottom: 14,
+      display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap',
+      padding: '12px 16px', borderRadius: 10,
+      background: 'var(--surface2)', border: `1px solid ${ACCENT}`,
+      boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {groups.length} lane{groups.length !== 1 ? 's' : ''} selected
+        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{freighters} freighter{freighters !== 1 ? 's' : ''}</div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Yield change</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="number"
+            className="form-input"
+            data-cargo-bulk-pct=""
+            placeholder="±%"
+            value={pct}
+            onChange={e => setPct(e.target.value)}
+            style={{ width: 70, textAlign: 'center' }}
+            aria-label="yield change, percent"
+          />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>%</span>
+          <button
+            className="btn btn-primary"
+            style={{ fontSize: 12, padding: '4px 12px', background: ACCENT, borderColor: ACCENT }}
+            disabled={!plan || plan.changed === 0}
+            onClick={() => { onApplyYield(groups, { mode: 'pct', value: n }); setPct(''); }}
+          >Apply</button>
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 12, padding: '4px 10px' }}
+            title="Every selected freighter back to its own lane's going rate — the undo for a change that went wrong"
+            onClick={() => onApplyYield(groups, { mode: 'reference' })}
+          >Reset to ref</button>
+        </div>
+        <div style={{ marginTop: 4, minHeight: 14 }}><CargoYieldPreview plan={plan} /></div>
+      </div>
+
+      <div style={{ minWidth: 260 }}>
+        <RouteFrequencyControls routeIds={routeIds} noun="freighter" each="each freighter" />
+      </div>
+
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <button className="btn btn-ghost" style={{ fontSize: 12, color: 'var(--red)' }} onClick={() => onCloseGroups(groups)}>Close</button>
+        <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onClear}>Clear</button>
+      </div>
+    </div>
+  );
+}
+
+// Both exported for tests (tools/cargo-bulk-yield-ui-test.mjs).
+const RATE_FILTERS = [
+  { id: 'any',   label: 'Any rate' },
+  { id: 'above', label: 'Above the going rate' },
+  { id: 'below', label: 'At or below the going rate' },
+];
+
+export function CargoBulkPricingModal({ allGroups, onApply, onClose }) {
+  const { state } = useGame();
+  const [lfOn, setLfOn]   = useState(false);
+  const [lfMin, setLfMin] = useState(0);
+  const [lfMax, setLfMax] = useState(60);
+  const [rate, setRate]   = useState('any');
+  const [mode, setMode]   = useState('pct');
+  const [pct, setPct]     = useState('');
+
+  // A lane's rate against ITS going rate: the capacity-weighted lane yield over
+  // the reference the tick prices it against.
+  const ratioOf = (g) => g.route.yieldPrice / Math.max(0.01, cargoReferenceYield(g.origin, g.destination));
+  const matching = allGroups.filter(g => {
+    if (lfOn) {
+      const lf = (g.sim?.loadFactor ?? 0) * 100;
+      if (lf < lfMin || lf > lfMax) return false;
+    }
+    if (rate === 'above' && !(ratioOf(g) > 1.0005)) return false;
+    if (rate === 'below' && ratioOf(g) > 1.0005) return false;
+    return true;
+  });
+  const routeIds = matching.flatMap(g => g.rows.map(r => r.route.id));
+  const n = parsePct(pct);
+  const change = mode === 'reference' ? { mode: 'reference' } : { mode: 'pct', value: n };
+  const plan = routeIds.length > 0 && (mode === 'reference' || n !== 0) ? planCargoYields(state, routeIds, change) : null;
+
+  function apply() {
+    if (!plan || plan.changed === 0) return;
+    onApply(matching, change);
+    onClose();
+  }
+
+  const label = { fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 };
+  const seg = (on) => ({
+    padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+    background: on ? ACCENT : 'transparent', color: on ? '#fff' : 'var(--text-muted)',
+  });
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2500,
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', overflowY: 'auto',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="card"
+        data-cargo-bulk-modal=""
+        style={{ width: 520, maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto', borderTop: `3px solid ${ACCENT}` }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}><Glyph e="⚖️" /> Freight Bulk Pricing</div>
+          <button className="btn btn-ghost" style={{ padding: '2px 8px' }} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+          Pick lanes by how full they fly and how they are priced against the going rate, then move every
+          freighter on them at once. Raise full lanes; cut or reset the empty ones.
+        </div>
+
+        <div style={label}>Which lanes</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '8px 0 16px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flexWrap: 'wrap' }}>
+            <input type="checkbox" checked={lfOn} onChange={e => setLfOn(e.target.checked)} style={{ accentColor: ACCENT }} />
+            Load factor between
+            <input type="number" className="form-input" min={0} max={100} value={lfMin} disabled={!lfOn}
+                   onChange={e => setLfMin(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} style={{ width: 60, textAlign: 'center' }} aria-label="minimum load factor" />
+            and
+            <input type="number" className="form-input" min={0} max={100} value={lfMax} disabled={!lfOn}
+                   onChange={e => setLfMax(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} style={{ width: 60, textAlign: 'center' }} aria-label="maximum load factor" />
+            %
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            Priced
+            <select className="form-select" value={rate} onChange={e => setRate(e.target.value)} style={{ width: 220 }}>
+              {RATE_FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            <b style={{ color: 'var(--text)' }}>{matching.length}</b> of {allGroups.length} lane{allGroups.length !== 1 ? 's' : ''} match
+            {' · '}{routeIds.length} freighter{routeIds.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <div style={label}>Change</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+            <button type="button" style={seg(mode === 'pct')} onClick={() => setMode('pct')}>By %</button>
+            <button type="button" style={seg(mode === 'reference')} onClick={() => setMode('reference')}>Reset to going rate</button>
+          </div>
+          {mode === 'pct' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <input type="number" className="form-input" placeholder="±%" value={pct} onChange={e => setPct(e.target.value)}
+                     style={{ width: 70, textAlign: 'center' }} aria-label="yield change, percent" />
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>%</span>
+            </span>
+          )}
+        </div>
+        <div style={{ minHeight: 16, marginBottom: 14 }}><CargoYieldPreview plan={plan} /></div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            style={{ background: ACCENT, borderColor: ACCENT }}
+            disabled={!plan || plan.changed === 0}
+            onClick={apply}
+          >
+            {plan?.changed ? `Reprice ${plan.changed} freighter${plan.changed !== 1 ? 's' : ''}` : 'Reprice'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
