@@ -424,7 +424,7 @@ export default function RivalRouteMap({
       const finH = hubFinSize(1), finW = Math.round(finH * tailAspect());
       for (const airport of airports.filter(a => a.isHub)) {
         const fin = window.L.marker([airport.lat, airport.lon], {
-          icon: window.L.divIcon({ className: 'hub-fin-marker', html, iconSize: [finW, finH], iconAnchor: [Math.round(finW * 0.3), finH + 4] }),
+          icon: window.L.divIcon({ className: 'hub-fin-marker', html, iconSize: [finW, finH], iconAnchor: [Math.round(finW * 0.66), finH + 4] }),
           interactive: false, keyboard: false, zIndexOffset: 900,
         });
         fin.addTo(map);

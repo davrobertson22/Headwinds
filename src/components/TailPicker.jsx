@@ -1,4 +1,4 @@
-import TailFin from './TailFin.jsx';
+import TailFin, { LOGO_FREE_DESIGNS } from './TailFin.jsx';
 import { LIVERY_PALETTE } from './LiveryEditor.jsx';
 import { TAIL_DESIGNS, TAIL_DESIGN_LABELS, normalizeLivery } from '../data/livery.js';
 
@@ -8,6 +8,8 @@ import { TAIL_DESIGNS, TAIL_DESIGN_LABELS, normalizeLivery } from '../data/liver
 // onChange(nextLivery); the branding modal saves.
 export default function TailPicker({ livery, logo, airlineName, onChange, onOpenLivery = null }) {
   const l = normalizeLivery(livery, livery?.tail);
+  // The striped designs carry the tail on their own, with no logo.
+  const logoFree = LOGO_FREE_DESIGNS.has(l.tailDesign);
   const set = (patch) => onChange(normalizeLivery({ ...l, ...patch }, l.tail));
   const tileStyle = (on) => ({
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
@@ -55,12 +57,13 @@ export default function TailPicker({ livery, logo, airlineName, onChange, onOpen
         </div>
         {swatches('tail', 'Tail colour')}
         {l.tailDesign !== 'solid' && swatches('cheatline', 'Design colour')}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button type="button" style={toggle(l.logoOnTail)} aria-pressed={l.logoOnTail} data-tail-logo
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" style={toggle(l.logoOnTail, logoFree)} aria-pressed={l.logoOnTail} data-tail-logo disabled={logoFree}
             onClick={() => set({ logoOnTail: !l.logoOnTail })}>Logo on the fin</button>
-          <button type="button" style={toggle(l.logoTile, !l.logoOnTail)} aria-pressed={l.logoTile} data-tail-tile disabled={!l.logoOnTail}
+          <button type="button" style={toggle(l.logoTile, !l.logoOnTail || logoFree)} aria-pressed={l.logoTile} data-tail-tile disabled={!l.logoOnTail || logoFree}
             title="Put the logo on its square tile, the way it looks in the app, instead of as a bare mark"
             onClick={() => set({ logoTile: !l.logoTile })}>On its tile</button>
+          {logoFree && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>the stripes carry this tail — no logo</span>}
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
           Shown at your hubs on the maps, on the season podium and on your profile.

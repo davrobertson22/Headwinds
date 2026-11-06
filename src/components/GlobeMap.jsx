@@ -459,8 +459,8 @@ export default function GlobeMap({
         el.innerHTML = html;
         return new window.maplibregl.Marker({
           element: el, anchor: 'bottom',
-          // The fin's root is at the crop's left; shift so it stands on the pin.
-          offset: [Math.round(hubFinSize(tier) * tailAspect() * 0.2), -Math.round((f.properties.core ?? 11) / 2) - 1], opacityWhenCovered: '0',
+          // The base runs the full bottom; its centre stands on the pin.
+          offset: [-Math.round(hubFinSize(tier) * tailAspect() * 0.16), -Math.round((f.properties.core ?? 11) / 2) - 1], opacityWhenCovered: '0',
         }).setLngLat(f.geometry.coordinates).addTo(map);
       }).filter(Boolean);
     })();

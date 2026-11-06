@@ -1,14 +1,14 @@
 // Tail logos (2026-11-06): an airline's tail is the flat fin silhouette the
-// airline-tail charts use — the licensed template's real fin, traced from
-// its artwork (data/liveryTemplates.js fin.outline) — in the livery's tail
-// colour, with the logo big on the fin and one of TAIL_DESIGNS in the accent
-// colour (TailFin.jsx). Designed in the logo maker's Tail section; shown over
+// airline-tail charts use — measured off the chart Dave sent (a trapezoid,
+// nose to the right, 1.291 wide for 1 tall; TailFin.jsx FIN_PATH) — in the
+// livery's tail colour, with the logo big on the fin and one of TAIL_DESIGNS
+// in the accent colour. Designed in the logo maker's Tail section; shown over
 // your hubs on the maps, each rival's hubs on the Rivals map, the season
 // podium and the player profile. Small list rows keep the square logo.
 //
-// Dave rejected three earlier versions (two hand-drawn fin shapes, then a
-// shaded crop of the template) and sent the chart: flat, big logo, no
-// shading. The bar is that chart.
+// Dave rejected four earlier versions (two hand-drawn fin shapes, a shaded
+// crop of the template, the template's traced fin cut at the crown) and sent
+// the chart: flat, big logo, no shading, that silhouette. The bar is that chart.
 //
 //   node --import ./tools/_register-loader.mjs tools/tail-fin-test.mjs
 
@@ -34,29 +34,23 @@ globalThis.CustomEvent = globalThis.CustomEvent ?? class { constructor(t, i) { t
 globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
 window.localStorage = globalThis.localStorage;
 
-const T = await import('../packages/engine/src/data/liveryTemplates.js');
 const L = await import('../packages/engine/src/data/livery.js');
 const TailFin = (await import('../src/components/TailFin.jsx')).default;
 const { hubFinMarkup, hubFinSize, logoOf, tailAspect } = await import('../src/utils/hubFin.js');
 const { markColorOn } = await import('../src/utils/logoBranding.js');
+const TF = await import('../src/components/TailFin.jsx');
+const await_ = () => TF;
 
 console.log('\nTail logos\n');
 
-await test('the template carries the fin\'s traced outline, inside the fin mask, with the logo box on it', () => {
-  const spec = T.getLiveryTemplate(T.DEFAULT_LIVERY_TEMPLATE);
-  const f = T.finOutlineOf(spec);
-  assert.ok(f.points.length >= 12, 'a traced outline, not a triangle');
-  const [mx0, my0, mx1, my1] = [3300, 0, 4700, spec.body.crown];
-  for (const [x, y] of spec.fin.outline) assert.ok(x >= mx0 && x <= mx1 && y >= my0 && y <= my1, `(${x},${y}) inside the fin mask`);
-  assert.ok(f.aspect > 1 && f.aspect < 1.5, `a swept fin (${f.aspect.toFixed(2)})`);
-  assert.ok(Math.min(...f.points.flat()) === 0, 'normalised to a 0-based box');
-  const { cx, cy, size } = f.logo;
-  assert.ok(cx - size / 2 >= 0 && cx + size / 2 <= f.w && cy - size / 2 >= 0 && cy + size / 2 <= f.h, 'the logo box is in the box');
-  assert.ok(size / f.h > 0.4, 'the logo is big, like the chart');
-  assert.equal(tailAspect(), f.aspect);
-  // A template with no trace gets a generic swept fin.
-  const g = T.finOutlineOf({ size: [1000, 300] });
-  assert.ok(g.points.length >= 6 && g.aspect > 0.9);
+await test('the silhouette is the chart\'s: a 1.291:1 trapezoid, nose right, straight leading edge, short tip', () => {
+  const { FIN_W, FIN_H, FIN_ASPECT, FIN_PATH } = await_(import('../src/components/TailFin.jsx'));
+  assert.equal(FIN_ASPECT, FIN_W / FIN_H);
+  assert.ok(Math.abs(FIN_ASPECT - 1.291) < 0.001);
+  assert.match(FIN_PATH, /^M405 1000 /, 'the trailing edge leans aft 0.405 from base to tip');
+  assert.match(FIN_PATH, / L1291 1000 Z$/, 'one straight leading edge from the tip to the base\'s right corner');
+  assert.equal(tailAspect(), FIN_ASPECT);
+  assert.doesNotMatch(read('../packages/engine/src/data/liveryTemplates.js'), /outline|finOutlineOf|tailCropOf/, 'no per-template fin: one chart shape');
 });
 
 await test('the livery carries tailDesign (and no drawn-fin fields)', () => {
@@ -78,13 +72,12 @@ await test('SET_BRANDING keeps the design on the saved livery (no reducer change
 const fin = (livery, logo = { id: 'eagle', accentColor: '#d71920' }, extra = {}) =>
   strip(renderToStaticMarkup(React.createElement(TailFin, { livery, logo, height: 60, idPrefix: 'x', ...extra })));
 
-await test('TailFin: a flat silhouette clipped to the traced outline, in the tail colour, at the fin\'s aspect', () => {
+await test('TailFin: a flat silhouette clipped to the chart shape, in the tail colour, at the fin\'s aspect', () => {
   const html = fin({ tail: '#0a2a66' });
-  const f = T.finOutlineOf(T.getLiveryTemplate('b737-800'));
-  assert.match(html, /<clipPath id="fin-x"><polygon points="/);
+  assert.match(html, /<clipPath id="fin-x"><path d="M405 1000 /);
   assert.match(html, /<rect x="0" y="0" width="\d+" height="\d+" fill="#0a2a66"/);
-  assert.match(html, new RegExp(`width="${Math.round(60 * f.aspect)}" height="60"`));
-  assert.doesNotMatch(html, /<image|<canvas|rgba\(0,0,0/, 'flat: no artwork, no shading');
+  assert.match(html, new RegExp(`width="${Math.round(60 * TF.FIN_ASPECT)}" height="60"`));
+  assert.doesNotMatch(html, /<image|<canvas|Gradient|filter=/, 'flat: no artwork, no shading');
   assert.match(html, /data-tail-design="solid"/);
 });
 
@@ -99,13 +92,19 @@ await test('designs draw in the accent colour (the fuselage colour when the acce
   assert.match(fin({ tail: '#1e9bff', cheatline: '#1e9bff', fuselage: '#f5f7fa', tailDesign: 'swoosh' }), /fill="#f5f7fa"/, 'default livery: the design still shows');
 });
 
+await test('the striped designs carry no logo (a band the length of the fin leaves no clear paint), the others do', () => {
+  assert.deepEqual([...TF.LOGO_FREE_DESIGNS].sort(), ['stripe', 'stripes']);
+  for (const d of ['solid', 'swoosh', 'split']) assert.match(fin({ tail: '#0a2a66', tailDesign: d }), /<g transform="translate[^>]*><svg/, d);
+  for (const d of ['stripe', 'stripes']) assert.doesNotMatch(fin({ tail: '#0a2a66', tailDesign: d }), /<g transform="translate[^>]*><svg/, d);
+});
+
 await test('the logo is recoloured to read on the tail; an upload sits on its tile; off when the livery says so', () => {
   const red = fin({ tail: '#d71920' }, { id: 'eagle', accentColor: '#d71920' });
   const expected = markColorOn('#d71920', '#d71920');
   assert.notEqual(expected, '#d71920');
   assert.match(red, new RegExp(`stroke="${expected}"`));
   assert.match(fin({ tail: '#0a2a66' }, { id: null, customSrc: 'data:image/png;base64,AAAA' }), /<image[^>]+href="data:image\/png;base64,AAAA"/);
-  assert.doesNotMatch(fin({ tail: '#0a2a66', logoOnTail: false }), /<svg[^>]*><svg/, 'no logo on the tail → no mark');
+  assert.doesNotMatch(fin({ tail: '#0a2a66', logoOnTail: false }), /<g transform="translate[^>]*><svg/, 'no logo on the tail → no mark');
 });
 
 await test('hub markup: sized by tier, keyed on the look, unique clip ids, rendered on demand', async () => {
@@ -151,6 +150,10 @@ await test('logo maker: a Tail section with every design as a live tile, tail + 
   assert.match(html, new RegExp(`aria-checked="true" title="[^"]+" data-tail-swatch="cheatline" data-tail-colour="${LIVERY_PALETTE[6].hex}"`));
   assert.match(html, /aria-pressed="true" data-tail-logo/);
   assert.match(html, /aria-pressed="true" data-tail-tile/);
+  store.set('bbae_save_v2', JSON.stringify({ ...freshState(), phase: 'playing', airlineName: 'Fin Air', logoId: 'eagle', livery: { tailDesign: 'stripe' } }));
+  const striped = strip(renderToString(React.createElement(GameProvider, null, React.createElement(BrandingModal, { onClose() {} }))));
+  assert.match(striped, /data-tail-logo="true" disabled=""/, 'no logo on a striped tail');
+  assert.match(striped, /the stripes carry this tail/);
 });
 
 await test('season podium and player profile show each airline\'s tail; the payloads carry the livery', async () => {

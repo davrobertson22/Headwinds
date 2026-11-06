@@ -9,15 +9,14 @@
 // out from under the outer component and breaks its hooks.
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import TailFin from '../components/TailFin.jsx';
+import TailFin, { FIN_ASPECT } from '../components/TailFin.jsx';
 import { liveryFor, liveryKey } from '../data/livery.js';
-import { getLiveryTemplate, DEFAULT_LIVERY_TEMPLATE, finOutlineOf } from '../data/liveryTemplates.js';
 
 /** Tail height in px for a hub tier (focus city 0 … gateway 3): bigger stations, bigger tails. */
 export const hubFinSize = (tier) => 22 + 4 * Math.max(0, Math.min(3, tier ?? 1));
 
-/** Width ÷ height of a hub marker (the template's fin outline). */
-export const tailAspect = () => finOutlineOf(getLiveryTemplate(DEFAULT_LIVERY_TEMPLATE)).aspect;
+/** Width ÷ height of a hub marker (the fin silhouette). */
+export const tailAspect = () => FIN_ASPECT;
 
 /** The AirlineLogo fields of an airline state or rival view. */
 export const logoOf = (a) => ({

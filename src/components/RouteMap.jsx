@@ -1137,7 +1137,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         const finH = hubFinSize(tier), finW = Math.round(finH * tailAspect());
         const fin = window.L.marker([airport.lat, airport.lon], {
           icon: window.L.divIcon({ className: 'hub-fin-marker', html, iconSize: [finW, finH],
-            iconAnchor: [Math.round(finW * 0.3), finH + Math.round(hubMarkerSize(tier).core / 2) + 1] }),
+            iconAnchor: [Math.round(finW * 0.66), finH + Math.round(hubMarkerSize(tier).core / 2) + 1] }),
           interactive: false, keyboard: false, zIndexOffset: 1100,
         });
         fin.addTo(map);
