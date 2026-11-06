@@ -31,6 +31,7 @@ import { brandIndex } from '../../../src/utils/airlineBrands.js';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import TickCountdown from './TickCountdown.jsx';
+import SeasonProgress from '../../../src/components/SeasonProgress.jsx';
 import { EventRulesBanner } from './EventRules.jsx';
 import InviteButton from './InviteButton.jsx';
 import '../../../src/index.css';
@@ -543,9 +544,16 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // A scheduled world in LOBBY is playable before its start; its clock counts
     // down to week 1 instead of reading "world lobby".
     clock: (meta?.worldStatus === 'RUNNING' || (meta?.worldStatus === 'LOBBY' && meta?.worldClock?.nextTickAt))
-      ? <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost}
-          preStart={meta?.worldStatus === 'LOBBY'} startsAt={meta?.worldClock?.startsAt}
-          weeksPerDay={meta?.worldClock?.weeksPerDay ?? null} />
+      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost}
+            preStart={meta?.worldStatus === 'LOBBY'} startsAt={meta?.worldClock?.startsAt}
+            weeksPerDay={meta?.worldClock?.weeksPerDay ?? null} />
+          {/* Season progress: week of the world's length, final stretch shaded. */}
+          {meta?.worldStatus === 'RUNNING' && meta?.worldClock?.totalWeeks > 0 && (
+            <SeasonProgress compact totalWeeks={meta.worldClock.totalWeeks}
+              weeksFlown={((meta.worldClock.year ?? 1) - 1) * 52 + (meta.worldClock.week ?? 1) - 1} />
+          )}
+        </span>
       : (meta?.worldStatus ? <span>world {String(meta.worldStatus).toLowerCase()}</span> : null),
     // The same clock as data, for the globe's day/night and planes
     // (src/components/gameClock.js). Null when the world isn't ticking.

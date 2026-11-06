@@ -10,6 +10,8 @@ import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { TrophyCard } from './Trophies.jsx';
+import TailFin from '../../../src/components/TailFin.jsx';
+import { logoOf } from '../../../src/utils/hubFin.js';
 
 const fmtNum = (n) => Math.round(Number(n) || 0).toLocaleString();
 
@@ -179,7 +181,12 @@ export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
               {current.map((c) => (
                 <tr key={c.airlineId}>
                   <td>
-                    {c.airlineName}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, verticalAlign: 'middle' }}>
+                      {c.logoId || c.customLogo
+                        ? <TailFin livery={c.livery} logo={logoOf(c)} size={36} title={`${c.airlineName} tail fin`} />
+                        : null}
+                      <span>{c.airlineName}</span>
+                    </span>
                     {c.status && c.status !== 'ACTIVE'
                       ? <span className="muted small"> · {String(c.status).toLowerCase()}</span>
                       : null}

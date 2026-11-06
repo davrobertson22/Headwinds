@@ -23,6 +23,8 @@ import { liveryFor } from '../data/livery.js';
 import { planeSpriteColors } from '../utils/liveryPaint.js';
 import { buildGlobeData } from './globeCore.js';
 import { ROUTE_WIDTH_KEY, routeWidthFactors } from '../utils/routeWidth.js';
+import { ROUTE_COLOUR_KEY, LF_BANDS, loadFactorColor, normalizeColourMode } from '../utils/routeColour.js';
+import { hubFinMarkup, hubFinSize } from '../utils/hubFin.js';
 import { buildFlightPlan } from './flightsCore.js';
 import { airlineWeeks, scheduleInputsOf } from '../models/schedule.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
@@ -186,9 +188,12 @@ export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], mon
   return plans;
 }
 
-/** A passenger line's colour: multi-stop violet, else profit green / loss red. */
-export function routeGroupColor(g) {
-  return g.multi ? TAG_COLOR : ((g.hasResult ? g.profit : 0) >= 0 ? PROFIT_COLOR : LOSS_COLOR);
+/** A passenger line's colour: multi-stop violet, else profit green / loss red —
+ *  or, in load-factor mode (utils/routeColour.js), its load-factor band. */
+export function routeGroupColor(g, mode = 'profit') {
+  if (g.multi) return TAG_COLOR;
+  if (mode === 'lf') return loadFactorColor(g.hasResult ? g.loadFactor : 0);
+  return (g.hasResult ? g.profit : 0) >= 0 ? PROFIT_COLOR : LOSS_COLOR;
 }
 
 /**
@@ -315,6 +320,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   const [basemap, setBasemap] = useBasemap();
   // Globe plane sprite in the airline's livery (fuselage + tail colours).
   const planeColors = useMemo(() => planeSpriteColors(liveryFor(state)), [state.livery, state.logoColor]);
+  // Your tail fin over each of your hubs (logo maker → Tail fin), both views.
+  const hubFin = useMemo(() => hubFinMarkup(state, 'own'),   // eslint-disable-line react-hooks/exhaustive-deps
+    [state.livery, state.logoId, state.logoColor, state.logoBg, state.customLogo, state.airlineName]);
   const { fleet, routes, cargoRoutes = NO_ROUTES, hub, hubs: hubsState,
           competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
@@ -418,6 +426,15 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   useEffect(() => {
     try { localStorage.setItem(ROUTE_WIDTH_KEY, widthByPax ? 'on' : 'off'); } catch { /* private mode */ }
   }, [widthByPax]);
+  // Line colour: profit (default) or load factor, remembered per browser.
+  const [colorMode, setColorMode] = useState(() => {
+    try { return normalizeColourMode(localStorage.getItem(ROUTE_COLOUR_KEY)); } catch { return 'profit'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(ROUTE_COLOUR_KEY, colorMode); } catch { /* private mode */ }
+  }, [colorMode]);
+  const colorModeRef = useRef(colorMode);
+  colorModeRef.current = colorMode;
   const frameRef = useRef(null);         // last fitBounds target, for a re-fit after being hidden
   const fitHiddenRef = useRef(false);    // true when that fit ran while the flat map was hidden
 
@@ -906,12 +923,13 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     // Same lines and pins (the usual weekly tick or rival poll): recolour any
     // route that crossed break-even, put the new numbers in the tooltips, and
     // keep every layer, the hover/focus styles and the view.
-    const drawKey = networkDrawKey(routeGroups, airportSet, hubs);
+    // The fin's look is part of what the pins draw: a new fin redraws them.
+    const drawKey = `${networkDrawKey(routeGroups, airportSet, hubs)}#fin:${hubFin.key}`;
     if (drawnRef.current.routes === drawKey) {
       for (const g of routeGroups) {
         const group = lineGroupsRef.current.get(g.key);
         if (!group) continue;
-        const color = routeGroupColor(g);
+        const color = routeGroupColor(g, colorModeRef.current);
         if (color !== group.color) {
           group.halo.forEach(l => l.setStyle({ color }));
           group.main.forEach(l => l.setStyle({ color }));
@@ -936,12 +954,10 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     for (const g of routeGroups) {
       const { origin, dest } = g;
       const chain    = g.chain?.length >= 2 ? g.chain : [origin, dest];
-      const profit   = g.hasResult ? g.profit : 0;
-      // Profit colour still carries the money; a rotation is purple because the
-      // shape of the line is the thing you cannot read any other way (and purple
-      // is what the Routes page already calls multi-stop).
-      const profitColor = profit >= 0 ? PROFIT_COLOR : LOSS_COLOR;
-      const color    = g.multi ? TAG_COLOR : profitColor;
+      // Profit colour (or the load-factor band) carries the line; a rotation is
+      // purple because the shape of the line is the thing you cannot read any
+      // other way (and purple is what the Routes page already calls multi-stop).
+      const color    = routeGroupColor(g, colorModeRef.current);
       const segments = g.multi
         ? segmentsForChain(chain.map(a => [a.lat, a.lon]))
         : segmentsForRoute(origin.lat, origin.lon, dest.lat, dest.lon);
@@ -1038,6 +1054,22 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         hubMarker.on('click', (e) => { window.L.DomEvent.stopPropagation(e); airportClickRef.current?.(airport.code); });
         hubMarker.addTo(map);
         layersRef.current.push(hubMarker);
+        // Your tail fin standing on the pin. Not interactive: the pin under it
+        // keeps the tooltip and the click.
+        const finH = hubFinSize(hubInfo.tier), finW = Math.round(finH * 40 / 44);
+        const fin = L.marker([airport.lat, airport.lon], {
+          icon: L.divIcon({
+            className: 'hub-fin-marker',
+            html: hubFin.html(hubInfo.tier ?? 1),
+            iconSize: [finW, finH],
+            iconAnchor: [Math.round(finW / 2), finH + Math.round(core / 2) + 1],
+          }),
+          interactive: false,
+          keyboard: false,
+          zIndexOffset: 1100,
+        });
+        fin.addTo(map);
+        layersRef.current.push(fin);
       } else {
         // Glow halo behind spoke airport
         const halo = L.circleMarker([airport.lat, airport.lon], {
@@ -1097,7 +1129,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     }
 
     applyStyles();
-  }, [routeGroups, airportSet, hubs, mapReady, applyStyles]); // mapReady ensures this re-runs after L.map() finishes
+  }, [routeGroups, airportSet, hubs, mapReady, applyStyles, colorMode, hubFin]); // mapReady ensures this re-runs after L.map() finishes
 
   // Re-style when hover changes
   useEffect(() => {
@@ -1167,7 +1199,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
       routes: routeGroups.map(g => ({
         id: g.key,
         chain: g.chain?.length >= 2 ? g.chain : [g.origin, g.dest],
-        color: routeGroupColor(g),
+        color: routeGroupColor(g, colorMode),
         tip: routeTipHtml(g),
         w: widthFactors.get(g.key) ?? 1,
       })),
@@ -1180,12 +1212,12 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
       loyalty: loyaltyPoints,
       airports: airportSet.map(a => {
         const h = hubs[a.code];
-        return { code: a.code, lat: a.lat, lon: a.lon, hub: !!h,
+        return { code: a.code, lat: a.lat, lon: a.lon, hub: !!h, tier: h ? (h.tier ?? 1) : null,
                  core: h ? hubMarkerSize(h.tier).core : 5, tip: airportTipHtml(a, h ?? null) };
       }),
     });
   }, [mapView, routeGroups, cargoGroups, showCargo, partnerRouteData, showAlliance, showCodeshare,
-      airportFilter, airportSet, hubs, loyaltyPoints, widthFactors]);
+      airportFilter, airportSet, hubs, loyaltyPoints, widthFactors, colorMode]);
 
   // Planes: one per flying tail, on the same groups (and so the same filters)
   // as the lines. Only built while the globe is showing with planes on.
@@ -1193,13 +1225,13 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     if (mapView !== 'globe' || !showPlanes) return null;
     return tailFlightPlans({
       groups: routeGroups, cargoGroups: showCargo ? cargoGroups : [],
-      fleet, month: gd.month, colorOf: routeGroupColor, cargoColor: CARGO_COLOR,
+      fleet, month: gd.month, colorOf: (g) => routeGroupColor(g, colorMode), cargoColor: CARGO_COLOR,
       // Hub-bank worlds bank the timetable, so the planes need the hub settings too.
       weeks: airlineWeeks({ ...scheduleInputsOf(state), fleet, routes, cargoRoutes }, gd.month),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapView, showPlanes, routeGroups, cargoGroups, showCargo, fleet, routes, cargoRoutes, gd.month,
-      state.hubs, state.hubBanks, state.hubBanksWorld]);
+      state.hubs, state.hubBanks, state.hubBanksWorld, colorMode]);
 
   // The world's clock (multiplayer only), as primitives so a poll that
   // changes nothing doesn't restart the globe's animation.
@@ -1277,6 +1309,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         flights={flightPlans}
         clock={clockSpec}
         planeColors={planeColors}
+        hubFin={hubFin}
         basemap={basemap}
         paused={paused}
       />
@@ -1324,6 +1357,24 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
             onClick={() => setWidthByPax(v => !v)}
             title={widthByPax ? 'Draw every route the same width' : 'Draw routes thicker the more passengers they carried last week'}
           >Width</button>
+          <button
+            className={`map-bleed-chip${colorMode === 'lf' ? ' on' : ''}`}
+            aria-pressed={colorMode === 'lf'}
+            data-map-colour-toggle
+            onClick={() => setColorMode(m => (m === 'lf' ? 'profit' : 'lf'))}
+            title={colorMode === 'lf'
+              ? 'Colour routes by profit'
+              : `Colour routes by load factor: ${LF_BANDS.map(b => b.label).join(', ')} run cool to hot`}
+          >Load</button>
+          {colorMode === 'lf' && (
+            <span className="map-bleed-chip" data-map-lf-key
+              title={`Load factor last week: ${LF_BANDS.map(b => b.label).join(' · ')}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'default' }}>
+              <span style={{ fontSize: 10, opacity: 0.8 }}>&lt;50%</span>
+              {LF_BANDS.map(b => <span key={b.label} style={{ width: 10, height: 4, borderRadius: 1, background: b.color, display: 'inline-block' }} />)}
+              <span style={{ fontSize: 10, opacity: 0.8 }}>90%+</span>
+            </span>
+          )}
           {mapView === 'globe' && (
             <button
               className={`map-bleed-chip${showPlanes ? ' on' : ''}`}
@@ -1422,7 +1473,26 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
                 <Glyph e="✕" /> Clear focus
               </button>
             )}
-            {/* Static legend items */}
+            {/* Line colour: profit or load factor — the switch, then its key */}
+            <button
+              onClick={() => setColorMode(m => (m === 'lf' ? 'profit' : 'lf'))}
+              aria-pressed={colorMode === 'lf'}
+              data-map-colour-toggle
+              className="map-clear-btn"
+              title={colorMode === 'lf' ? 'Colour routes by profit' : 'Colour routes by how full they flew last week'}
+            >
+              Colour: {colorMode === 'lf' ? 'Load factor' : 'Profit'}
+            </button>
+            {colorMode === 'lf' ? (
+              <span data-map-lf-key style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="Load factor last week: the share of seats filled">
+                {LF_BANDS.map(b => (
+                  <span key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 14, height: 3, background: b.color, display: 'inline-block', borderRadius: 1 }} />
+                    {b.label}
+                  </span>
+                ))}
+              </span>
+            ) : (<>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 18, height: 2, background: PROFIT_COLOR, display: 'inline-block', borderRadius: 1 }} />
               Profitable
@@ -1431,6 +1501,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
               <span style={{ width: 18, height: 2, background: LOSS_COLOR, display: 'inline-block', borderRadius: 1 }} />
               Loss
             </span>
+            </>)}
             {routeGroups.some(g => g.multi) && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }} title="A multi-stop rotation, drawn through every stop it serves">
                 <span style={{ width: 18, height: 2, background: TAG_COLOR, display: 'inline-block', borderRadius: 1 }} />

@@ -13,6 +13,7 @@
 import { Fragment } from 'react';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import AirlineLogo from '../../../src/components/AirlineLogo.jsx';
+import SeasonProgress from '../../../src/components/SeasonProgress.jsx';
 import { STANDINGS_SORTS, sortStandings, finalStretchLine } from '../../../src/utils/standingsView.js';
 
 const fmtMoney = (n) => n == null ? '—' :
@@ -56,12 +57,34 @@ function RulesLine({ world, ranking }) {
   }
   const stretch = world.status === 'ENDED' ? null : finalStretchLine(ranking);
   return (
+    <>
+    {world.status === 'RUNNING' && ranking?.totalWeeks > 0 && (
+      <SeasonProgress weeksFlown={ranking.weeksFlown} totalWeeks={ranking.totalWeeks} />
+    )}
     <p className="small">
       {world.status === 'ENDED'
         ? 'Ranked on average weekly net profit over the final 52 weeks. The highest average took the title.'
         : 'Ranked on average weekly net profit over the last 52 weeks. When the world ends, the best average over the final 52 weeks wins.'}
       {stretch && <> <strong>{stretch}</strong></>}
     </p>
+    </>
+  );
+}
+
+// The move since last week beside the rank: ▲2 up, ▼1 down, nothing when it
+// held or when there is no last week to compare with (a new airline, the first
+// week of a world). `prevRank` comes from last week's Standing snapshot.
+export function RankMove({ rank, prevRank }) {
+  if (!Number.isInteger(rank) || !Number.isInteger(prevRank)) return null;
+  const d = prevRank - rank;
+  if (d === 0) return null;
+  const up = d > 0;
+  return (
+    <span
+      className={`rank-move ${up ? 'up' : 'down'}`}
+      title={`${up ? 'Up' : 'Down'} ${Math.abs(d)} since last week (was #${prevRank})`}
+      style={{ marginLeft: 5, fontSize: 11, fontWeight: 600, color: up ? 'var(--green, #2ee6a0)' : 'var(--red, #ff5d6c)' }}
+    >{up ? '▲' : '▼'}{Math.abs(d)}</span>
   );
 }
 
@@ -127,7 +150,7 @@ export default function StandingsTable({
                     data-airline-id={a.id}
                     onClick={() => onToggleRival(a.id)}
                   >
-                    <td>{a.rank}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{a.rank}<RankMove rank={a.rank} prevRank={a.prevRank} /></td>
                     <td>
                       {/* The airline's mark first — preset or upload (served by
                           /logos, cached forever per hash). Older server payloads

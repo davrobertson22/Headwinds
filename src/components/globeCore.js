@@ -178,7 +178,7 @@ export function buildGlobeData({ routes = [], cargo = [], partners = [], airport
       type: 'FeatureCollection',
       features: airports.map(a => ({
         type: 'Feature',
-        properties: { id: a.code, code: a.code, hub: !!a.hub, core: a.core ?? 5, tip: a.tip ?? '' },
+        properties: { id: a.code, code: a.code, hub: !!a.hub, tier: a.tier ?? null, core: a.core ?? 5, tip: a.tip ?? '' },
         geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
       })),
     },

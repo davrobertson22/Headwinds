@@ -13,6 +13,8 @@
 import { useState, useEffect } from 'react';
 import { api } from './api.js';
 import AirlineLogo from '../../../src/components/AirlineLogo.jsx';
+import TailFin from '../../../src/components/TailFin.jsx';
+import { logoOf } from '../../../src/utils/hubFin.js';
 import { SeasonSupportPrompt } from './SupportCard.jsx';
 
 const fmtSvps = (n) => n == null ? '—'
@@ -70,7 +72,17 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
   // Each finisher's mark, from the standings row (the banked podium carries
   // only ids and names). No standings row → no mark.
   const byId = new Map(standings.map((a) => [a.id, a]));
-  const logoOf = (airlineId, size, style) => {
+  // The podium shows each finisher's tail fin (logo maker → Tail fin).
+  const finOf = (airlineId, size) => {
+    const a = byId.get(airlineId);
+    if (!a || !(a.logoId || a.customLogo)) return null;
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 6px' }}>
+        <TailFin livery={a.livery} logo={logoOf(a)} size={size} title={`${a.name} tail fin`} />
+      </div>
+    );
+  };
+  const markOf = (airlineId, size, style) => {
     const a = byId.get(airlineId);
     if (!a || !(a.logoId || a.customLogo)) return null;
     return (
@@ -107,7 +119,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
             {podium.slice(0, 3).map((p, i) => (
               <div key={p.airlineId ?? i} className="card" style={{ flex: '1 1 160px', margin: 0, textAlign: 'center' }}>
                 <div style={{ fontSize: 24 }} aria-hidden="true">{MEDAL[i] ?? `#${p.rank}`}</div>
-                {logoOf(p.airlineId, 44, { margin: '4px auto 6px' })}
+                {finOf(p.airlineId, 56)}
                 <div><strong>{nameLink(p.accountId, p.name)}</strong></div>
                 <div className="muted small">{byProfit ? `${metricOf(p)} average` : `SVPS ${metricOf(p)}`}</div>
               </div>
@@ -140,7 +152,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
               {standings.map((a) => (
                 <tr key={a.id} className={myAirlineId === a.id ? 'me-row' : ''}>
                   <td>{a.rank}</td>
-                  <td>{logoOf(a.id, 18, { display: 'inline-block', verticalAlign: 'middle', marginRight: 6 })}{nameLink(a.accountId, a.name)}{myAirlineId === a.id ? <span className="muted"> (you)</span> : null}</td>
+                  <td>{markOf(a.id, 18, { display: 'inline-block', verticalAlign: 'middle', marginRight: 6 })}{nameLink(a.accountId, a.name)}{myAirlineId === a.id ? <span className="muted"> (you)</span> : null}</td>
                   <td>{a.hub}</td>
                   <td>{metricOf(a)}</td>
                 </tr>

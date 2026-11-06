@@ -14,6 +14,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { describeFleetMove } from '../utils/fleetNews.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { rivalNetworkColor } from '../utils/airlineBrands.js';
+import { hubFinMarkup } from '../utils/hubFin.js';
 import { worldAirlineCodes } from '../models/departureBoard.js';
 import RivalRouteMap from './RivalRouteMap.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -1254,6 +1255,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCas
             name={carrier.name}
             height={300}
             networkColor={rivalNetworkColor(carrier)}
+            hubFin={hubFinMarkup(carrier, `rival-${carrier.id}`)}
           />
         </div>
       )}
@@ -1800,6 +1802,7 @@ function RivalDetailView({ carrier, onClose }) {
                 name={carrier.name}
                 height={340}
                 networkColor={rivalNetworkColor(carrier)}
+                hubFin={hubFinMarkup(carrier, `rival-${carrier.id}`)}
               />
             </div>
             {routeEntries.length === 0 ? (

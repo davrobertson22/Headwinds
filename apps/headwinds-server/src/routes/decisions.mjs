@@ -15,7 +15,7 @@ import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/red
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
 import { journalledPayload, withFleetFacts } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
-import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld } from '../lib/worldConfig.mjs';
+import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld, worldTotalWeeks } from '../lib/worldConfig.mjs';
 import { eventActionDenial } from '@tailwinds/engine/data/eventRules.js';
 import { brandingClash } from '@tailwinds/engine/utils/logoBranding.js';
 import { buildWorldRivalViews, withRivals, rivalOverlay, stripRivals, loadAllianceMap,
@@ -225,6 +225,9 @@ export default async function decisionRoutes(fastify) {
         // Scheduled worlds: when the clock starts (null otherwise). The game bar
         // shows "first week in …" against it while the world is still in LOBBY.
         startsAt: world.tickConfig?.scheduledStartAt ?? null,
+        // The season's length in weeks, for the top bar's season progress
+        // (week/year above give how far in it is). Cosmetic only.
+        totalWeeks: worldTotalWeeks(world),
       },
       stamp,
     };

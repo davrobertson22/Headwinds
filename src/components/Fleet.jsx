@@ -25,6 +25,8 @@ import { RenewalNotice, RenewalBadge, OrderReplacementLine, BulkReplaceModal, Or
 import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { orderProgress } from '../data/delivery.js';
+import { orderLinePlace } from '../utils/lineQueue.js';
+import LinePlace from './LinePlace.jsx';
 import { saleQuote, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
 import Callout from './Callout.jsx';
@@ -2972,6 +2974,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
                       <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
                         {Math.round(progress * 100)}% complete
                       </div>
+                      <LinePlace place={orderLinePlace(state, order, currentAbsWeek)} />
                     </td>
                     <td>
                       <button

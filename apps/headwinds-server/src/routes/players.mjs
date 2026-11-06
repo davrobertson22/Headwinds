@@ -24,6 +24,7 @@ import { prisma } from '../db.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { awardsForAccount } from '../lib/trophies.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
+import { logoPathOf } from '../lib/logoColumn.mjs';
 import { dmRefusal } from '../lib/accountMessaging.mjs';
 import { sharesWorld } from './accountMessages.mjs';
 
@@ -95,6 +96,25 @@ export default async function playerRoutes(fastify) {
         select: { rank: true },
       }).catch(() => null)));
 
+    // Each airline's tail fin (logo + livery), off the rival projection — a
+    // few short fields per row, never the state blob for a filled row, and
+    // the upload as its cache-forever /logos URL. Best-effort: no brands is
+    // a profile without fins, not a broken profile.
+    const brandById = new Map();
+    if (airlines.length > 0 && typeof prisma.$queryRaw === 'function') {
+      const ids = airlines.map((a) => a.id);
+      const rows = await prisma.$queryRaw`
+        SELECT a.id,
+               COALESCE(a."rivalState", a.state)->>'logoId'    AS "logoId",
+               COALESCE(a."rivalState", a.state)->>'logoColor' AS "logoColor",
+               COALESCE(a."rivalState", a.state)->>'logoBg'    AS "logoBg",
+               COALESCE(a."rivalState", a.state)->'livery'     AS livery,
+               left(md5(a."customLogo"), 12) AS "logoHash"
+          FROM "Airline" a
+         WHERE a.id = ANY(${ids})`.catch(() => []);
+      for (const r of rows ?? []) brandById.set(r.id, r);
+    }
+
     // Career records banked before the profile feature predate the stored
     // `visibility` field — resolve those worlds by primary key. A world that
     // cannot be found resolves to nothing, and publicCareer treats nothing as
@@ -152,6 +172,15 @@ export default async function playerRoutes(fastify) {
         // Average weekly net profit over the last 52 weeks — what `rank` is
         // ordered by since the 2026-10-15 rankings rework.
         avgProfit: a.rankScore == null ? null : toNum(a.rankScore),
+        // Tail fin: AirlineLogo fields + the livery's paint (null when unknown).
+        ...(() => {
+          const b = brandById.get(a.id);
+          if (!b) return {};
+          return {
+            logoId: b.logoId ?? 'compass', logoColor: b.logoColor ?? null, logoBg: b.logoBg ?? null,
+            customLogo: logoPathOf(a.id, b.logoHash), livery: b.livery ?? null,
+          };
+        })(),
       })),
     };
   });

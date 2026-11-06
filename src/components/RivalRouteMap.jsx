@@ -229,6 +229,9 @@ export default function RivalRouteMap({
   // rivalNetworkColor — slate when it wouldn't read or would clash with a
   // colour this map already gives a meaning). Contested stays amber.
   networkColor = RIVAL_COLOR,
+  // Their tail fin over each of their hubs (utils/hubFin.js hubFinMarkup of
+  // the rival view): { html(tier) → SVG, key }, html() called in effects only. Optional.
+  hubFin = null,
 }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
@@ -374,6 +377,25 @@ export default function RivalRouteMap({
       marker.addTo(map);
       layersRef.current.push(marker);
 
+      if (airport.isHub && hubFin) {
+        // Their fin standing on the hub pin (a rival's hubs carry no tier
+        // here, so every one draws at the standard size).
+        const finH = 30, finW = Math.round(finH * 40 / 44);
+        const fin = L.marker([airport.lat, airport.lon], {
+          icon: L.divIcon({
+            className: 'hub-fin-marker',
+            html: hubFin.html(1),
+            iconSize: [finW, finH],
+            iconAnchor: [Math.round(finW / 2), finH + 4],
+          }),
+          interactive: false,
+          keyboard: false,
+          zIndexOffset: 900,
+        });
+        fin.addTo(map);
+        layersRef.current.push(fin);
+      }
+
       if (airport.isHub) {
         const label = L.marker([airport.lat, airport.lon], {
           icon: L.divIcon({
@@ -400,7 +422,7 @@ export default function RivalRouteMap({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, extent, name, mapReady, networkColor]);
+  }, [signature, extent, name, mapReady, networkColor, hubFin?.key]);
 
   // Leaflet caches container size; a panel that opens into a freshly-sized box
   // must be told to remeasure or it tiles into stale dimensions.

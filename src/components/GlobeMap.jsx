@@ -234,6 +234,7 @@ export default function GlobeMap({
   // per, and the click that toggles it (an airport pin or its code label).
   focusIds = null, focusKey = undefined, onSelectAirport = null,
   flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS, basemap = DEFAULT_BASEMAP,
+  hubFin = null,   // { html(tier) → fin SVG, key } (utils/hubFin.js): your fin over each hub
   paused = false,
 }) {
   const basemapRef = useRef(basemap);
@@ -256,6 +257,8 @@ export default function GlobeMap({
   const mapRef = useRef(null);
   const popupRef = useRef(null);
   const labelsRef = useRef([]);
+  const finsRef = useRef([]);            // hub tail-fin markers
+  const finKeyRef = useRef(null);        // hubs + fin look the fins were built for
   const activeRef = useRef(new Set());   // route ids carrying feature-state active
   const drawnRef = useRef({});           // source id → globeSourceKey last sent
   const labelKeyRef = useRef(null);      // globeLabelKey the labels were built for
@@ -362,6 +365,9 @@ export default function GlobeMap({
       cancelled = true;
       labelsRef.current.forEach(m => m.remove());
       labelsRef.current = [];
+      finsRef.current.forEach(m => m.remove());
+      finsRef.current = [];
+      finKeyRef.current = null;
       popupRef.current?.remove();
       mapRef.current?.remove();
       mapRef.current = null;
@@ -425,6 +431,31 @@ export default function GlobeMap({
       }).setLngLat(f.geometry.coordinates).addTo(map);
     });
   }, [loaded, data]);
+
+  // 2b. Your tail fin standing on each hub pin. HTML markers like the labels,
+  // rebuilt only when the set of hubs (or their tiers) or the fin's look
+  // changes — never on a poll that moved nothing. Click-through: the pin under
+  // the fin keeps the hover and the click.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!loaded || !map || !data) return;
+    const hubsF = (data.airports?.features ?? []).filter(f => f.properties?.hub);
+    const key = `${hubFin?.key ?? ''}|${hubsF.map(f => `${f.properties.code}@${f.properties.tier ?? ''}`).join(',')}`;
+    if (key === finKeyRef.current) return;
+    finKeyRef.current = key;
+    finsRef.current.forEach(m => m.remove());
+    finsRef.current = !hubFin ? [] : hubsF.map(f => {
+      const tier = Math.max(0, Math.min(3, f.properties.tier ?? 1));
+      const el = document.createElement('div');
+      el.className = 'hub-fin-marker globe-fin';
+      el.style.pointerEvents = 'none';
+      el.innerHTML = hubFin.html(tier);
+      return new window.maplibregl.Marker({
+        element: el, anchor: 'bottom',
+        offset: [0, -Math.round((f.properties.core ?? 11) / 2) - 1], opacityWhenCovered: '0',
+      }).setLngLat(f.geometry.coordinates).addTo(map);
+    });
+  }, [loaded, data, hubFin]);
 
   // 3. Hover / focus → feature-state and the dimming of everything else.
   useEffect(() => {

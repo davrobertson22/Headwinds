@@ -174,6 +174,7 @@ export default async function worldRoutes(fastify) {
              COALESCE(a."rivalState", a.state)->>'logoId'    AS "logoId",
              COALESCE(a."rivalState", a.state)->>'logoColor' AS "logoColor",
              COALESCE(a."rivalState", a.state)->>'logoBg'    AS "logoBg",
+             COALESCE(a."rivalState", a.state)->'livery'     AS livery,
              left(md5(a."customLogo"), 12) AS "logoHash"
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
@@ -194,6 +195,22 @@ export default async function worldRoutes(fastify) {
         { rankScore: nOrNull(x.rankScore), netAssets: nOrNull(x.netAssets), name: x.name },
         { rankScore: nOrNull(y.rankScore), netAssets: nOrNull(y.netAssets), name: y.name },
       ));
+
+    // Last week's rank per airline, for the ▲/▼ beside each rank. The tick
+    // snapshots the order into Standing at the week it lands on, so this
+    // week's rows are at the clock index and last week's one below it — a
+    // single indexed read ([worldId, week, rank]) of at most one row per
+    // airline. Not across the rankings rework: a rank from before
+    // `rankingSince` is an SVPS order, and the move between them is no move.
+    const thisWeek = (world.currentYear - 1) * 52 + world.currentWeek;
+    const since = rankingSinceOf(world);
+    const prevWeek = thisWeek - 1;
+    const prevRankById = new Map(
+      (since != null && prevWeek < since) || prevWeek < 1 ? [] : (await prisma.standing.findMany({
+        where: { worldId: world.id, week: prevWeek },
+        select: { airlineId: true, rank: true },
+      })).map((r) => [r.airlineId, r.rank]),
+    );
 
     // The fallen are a count, not a list. Nineteen bankrupt rows drowning nine
     // live airlines made a mature world read as a graveyard, and every one of
@@ -278,6 +295,9 @@ export default async function worldRoutes(fastify) {
         windowWeeks: RANKING_WINDOW_WEEKS,
         since: rankingSinceOf(world),
         ...finalStretchOf({ totalWeeks: worldTotalWeeks(world), weeksFlown: weeksFlownOf(world) }),
+        // The season bar over the standings: weeks flown out of the length.
+        totalWeeks: worldTotalWeeks(world),
+        weeksFlown: weeksFlownOf(world),
       },
       // How many airlines went bankrupt or walked away here — flavour and fair
       // warning, without parading the corpses.
@@ -316,12 +336,17 @@ export default async function worldRoutes(fastify) {
         routes: Number(a.routes),
         fleet: Number(a.fleet),
         alliance: allianceNameByAirline.get(a.id) ?? null,
+        // Last week's official rank (null: not ranked then — new, or first
+        // week after the rework). The client draws the move against `rank`.
+        prevRank: prevRankById.get(a.id) ?? null,
         // Logo beside the name (Rankings, season podium): the AirlineLogo
         // fields, with an upload as its /logos URL (lib/logoColumn.mjs).
         logoId: a.logoId ?? 'compass',
         logoColor: a.logoColor ?? null,
         logoBg: a.logoBg ?? null,
         customLogo: logoPathOf(a.id, a.logoHash),
+        // Their paint scheme, for the tail fin on the season podium.
+        livery: a.livery ?? null,
         og: a.og === true,
         sup: a.sup === true,
         dev: isDevEmail(a.email),

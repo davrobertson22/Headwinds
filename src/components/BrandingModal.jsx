@@ -6,6 +6,7 @@ import { LOGO_COLORS, normalizeAirlineCode, cleanHex, brandingClash, takenBrandi
 import { Glyph } from './Icons.jsx';
 import { CloseIcon } from './Icons.jsx';
 import LiveryEditor from './LiveryEditor.jsx';
+import FinPicker from './FinPicker.jsx';
 import { liveryFor, isLiveryShaped } from '../data/livery.js';
 
 // In-game branding editor: change the airline name, logo (preset or uploaded
@@ -119,6 +120,17 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
             customLogo={customLogo} onCustomLogo={setCustomLogo}
             maxHeight={280}
             taken={taken}
+          />
+        </div>
+
+        {/* ── Tail fin: the mark on a fin in livery colours ── */}
+        <div className="form-group">
+          <label className="form-label">Tail Fin</label>
+          <FinPicker
+            livery={hasSavedLivery || liveryDirty ? livery : liveryFor({ ...state, livery: undefined, logoColor: accentColor })}
+            onChange={changeLivery}
+            onOpenLivery={() => setTab('livery')}
+            logo={{ id: usingCustom ? null : logoId, accentColor, bgColor: cleanHex(logoBg), customSrc: usingCustom ? customLogo : null }}
           />
         </div>
         </>)}

@@ -135,23 +135,15 @@ export default function Dashboard({ onNavigate }) {
   // 1.28x on this fleet is $55M/wk (utils/fuelImpact.js).
   const fuelKpi = useMemo(() => fuelImpact(state, { lookbacks: [] }), [state]);
 
-  const networkStats = useMemo(() => {
-    let pax = 0, seats = 0, rpk = 0, rev = 0, tagRoutes = 0;
-    for (const rr of proj.report?.routeResults ?? []) {
-      if (rr.tag || rr.configuredSeatsOneWay == null) { tagRoutes++; continue; }
-      pax   += rr.passengers ?? 0;
-      seats += rr.configuredSeatsOneWay ?? 0;
-      rpk   += (rr.passengers ?? 0) * 2 * (rr.distance ?? 0);
-      rev   += rr.revenue ?? 0;
-    }
-    return {
-      loadFactor:  seats > 0 ? pax / seats : null,
-      boardedPax:  pax * 2,
-      yieldPerPkm: rpk > 0 ? rev / rpk : null,   // $ per passenger-km
-      revPerPax:   pax > 0 ? rev / (pax * 2) : null,
-      tagRoutes,                                 // excluded above; surfaced in the tile
-    };
-  }, [proj]);
+  const networkStats = useMemo(() => networkStatsOf(proj.report), [proj]);
+  // Last week's actuals through the SAME arithmetic, so the tiles' "vs last
+  // week" arrows compare like with like.
+  const lastStats = useMemo(() => (lastReport ? networkStatsOf(lastReport) : null), [lastReport]);
+  const wow = useMemo(() => weekOnWeek(networkStats, lastStats), [networkStats, lastStats]);
+  // Fleet size against last week's close (the tick's statsHistory row counts
+  // the fleet the same way: every tail on the books).
+  const lastFleet = state.statsHistory?.at(-1)?.fleet;
+  const fleetChange = Number.isFinite(lastFleet) ? fleet.length - lastFleet : null;
 
   // Fleet age & the maintenance premium it silently carries. Maintenance rises
   // with age via maintenanceMultiplier(); comparing the aged bill to a
@@ -529,6 +521,7 @@ export default function Dashboard({ onNavigate }) {
           value={(projectedProfit >= 0 ? '+' : '') + formatMoney(projectedProfit)}
           color={projectedProfit >= 0 ? 'green' : 'red'}
           trend={profTrend}
+          trendTitle="Last week's net profit against the week before"
           sub={[
             projectedRevenue > 0 ? `${Math.round((projectedProfit / projectedRevenue) * 100)}% margin` : null,
             `cash flow ${(projectedCash >= 0 ? '+' : '') + formatMoney(projectedCash)}`,
@@ -541,6 +534,7 @@ export default function Dashboard({ onNavigate }) {
           color="green"
           trend={revTrend != null ? revTrend : undefined}
           trendIsPercent
+          trendTitle="Last week's revenue against the week before"
           onClick={canNavigate ? () => go('finance') : undefined}
         />
         {brandMarketing.show && (() => {
@@ -602,7 +596,12 @@ export default function Dashboard({ onNavigate }) {
         })()}
         <KpiBox
           label="Fleet"
+          kpiKey="fleet"
           value={`${fleet.length} aircraft`}
+          trend={fleetChange ? fleetChange : undefined}
+          trendUnit=""
+          trendDecimals={0}
+          trendTitle="Aircraft added or gone since last week"
           color="blue"
           sub={idleAircraft > 0 ? `${idleAircraft} idle` : `${routeCount} route${routeCount !== 1 ? 's' : ''}`}
           subColor={idleAircraft > 0 ? 'var(--yellow)' : 'var(--text-dim)'}
@@ -628,17 +627,33 @@ export default function Dashboard({ onNavigate }) {
         {networkStats.loadFactor != null && (
           <KpiBox
             label="Load Factor"
+            kpiKey="load-factor"
             value={formatPercent(networkStats.loadFactor)}
+            trend={wow.loadFactorPt != null && Math.abs(wow.loadFactorPt) >= 0.05 ? wow.loadFactorPt : undefined}
+            trendUnit="pt"
+            trendTitle="This week (projected) against last week, in percentage points"
             color={networkStats.loadFactor >= 0.75 ? 'green' : networkStats.loadFactor >= 0.5 ? 'blue' : 'yellow'}
-            sub={`${Math.round(networkStats.boardedPax).toLocaleString()} pax/wk${
-              networkStats.tagRoutes > 0 ? ' · point-to-point only' : ''}`}
+            sub={<>
+              {Math.round(networkStats.boardedPax).toLocaleString()} pax/wk
+              {wow.paxPct != null && Math.abs(wow.paxPct) >= 0.05 && (
+                <span data-pax-trend={wow.paxPct} title="Passengers this week (projected) against last week"
+                  style={{ color: wow.paxPct >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                  {' '}{wow.paxPct >= 0 ? '↑' : '↓'} {Math.abs(wow.paxPct).toFixed(1)}%
+                </span>
+              )}
+              {networkStats.tagRoutes > 0 ? ' · point-to-point only' : ''}
+            </>}
             onClick={canNavigate ? () => go('routes') : undefined}
           />
         )}
         {networkStats.yieldPerPkm != null && (
           <KpiBox
             label="Yield"
+            kpiKey="yield"
             value={`${(networkStats.yieldPerPkm * 100).toFixed(1)}¢/pkm`}
+            trend={wow.yieldPct != null && Math.abs(wow.yieldPct) >= 0.05 ? wow.yieldPct : undefined}
+            trendIsPercent
+            trendTitle="This week (projected) against last week"
             color="blue"
             sub={networkStats.revPerPax != null ? `${formatMoney(networkStats.revPerPax)} avg / pax` : undefined}
             onClick={canNavigate ? () => go('routes') : undefined}
@@ -1187,7 +1202,41 @@ function EventDetailModal({ event, onClose }) {
 
 // ── KPI box with trend indicator ──────────────────────────────────────────────
 
-function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, sub, subColor, onClick, kpiKey, exact }) {
+// Network figures from one weekly report (the projection's, or a stored one):
+// passenger routes only — a tag rotation's seats and ground distance are not
+// a load factor or pax-km.
+export function networkStatsOf(report) {
+  let pax = 0, seats = 0, rpk = 0, rev = 0, tagRoutes = 0;
+  for (const rr of report?.routeResults ?? []) {
+    if (rr.tag || rr.configuredSeatsOneWay == null) { tagRoutes++; continue; }
+    pax   += rr.passengers ?? 0;
+    seats += rr.configuredSeatsOneWay ?? 0;
+    rpk   += (rr.passengers ?? 0) * 2 * (rr.distance ?? 0);
+    rev   += rr.revenue ?? 0;
+  }
+  return {
+    loadFactor:  seats > 0 ? pax / seats : null,
+    boardedPax:  pax * 2,
+    yieldPerPkm: rpk > 0 ? rev / rpk : null,   // $ per passenger-km
+    revPerPax:   pax > 0 ? rev / (pax * 2) : null,
+    tagRoutes,                                 // excluded above; surfaced in the tile
+  };
+}
+
+// This week (projected) against last week (actual): load factor in
+// percentage points, passengers and yield in percent. Null where either side
+// is missing (no week flown yet, no passenger routes).
+export function weekOnWeek(now, last) {
+  if (!now || !last) return { loadFactorPt: null, paxPct: null, yieldPct: null };
+  const pct = (a, b) => (a != null && b != null && b > 0 ? ((a - b) / b) * 100 : null);
+  return {
+    loadFactorPt: now.loadFactor != null && last.loadFactor != null ? (now.loadFactor - last.loadFactor) * 100 : null,
+    paxPct: pct(now.boardedPax, last.boardedPax),
+    yieldPct: pct(now.yieldPerPkm, last.yieldPerPkm),
+  };
+}
+
+function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, trendDecimals, trendTitle, sub, subColor, onClick, kpiKey, exact }) {
   const clickable = typeof onClick === 'function';
   return (
     <div
@@ -1205,7 +1254,7 @@ function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, sub, su
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <div className={`stat-value ${color}`}>{value}</div>
         {trend != null && (
-          <TrendBadge value={trend} isPercent={trendIsPercent} unit={trendUnit} />
+          <TrendBadge value={trend} isPercent={trendIsPercent} unit={trendUnit} decimals={trendDecimals} title={trendTitle} />
         )}
       </div>
       {sub && (
@@ -1215,14 +1264,14 @@ function KpiBox({ label, value, color, trend, trendIsPercent, trendUnit, sub, su
   );
 }
 
-function TrendBadge({ value, isPercent, unit }) {
+function TrendBadge({ value, isPercent, unit, decimals = 1, title }) {
   const up    = value >= 0;
   const color = up ? 'var(--green)' : 'var(--red)';
-  const mag   = isPercent ? `${Math.abs(value).toFixed(1)}%`
-              : unit      ? `${Math.abs(value).toFixed(1)}${unit}`
+  const mag   = isPercent ? `${Math.abs(value).toFixed(decimals)}%`
+              : unit != null ? `${Math.abs(value).toFixed(decimals)}${unit}`
               :             formatMoney(Math.abs(value));
   return (
-    <span style={{ fontSize: 11, color, fontWeight: 600 }}>{`${up ? '↑' : '↓'} ${mag}`}</span>
+    <span data-trend={value} title={title} style={{ fontSize: 11, color, fontWeight: 600 }}>{`${up ? '↑' : '↓'} ${mag}`}</span>
   );
 }
 
