@@ -183,7 +183,7 @@ export function PlayerProfileView({ data, onClose = null, onMessage = null }) {
                   <td>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, verticalAlign: 'middle' }}>
                       {c.logoId || c.customLogo
-                        ? <TailFin livery={c.livery} logo={logoOf(c)} size={36} title={`${c.airlineName} tail fin`} />
+                        ? <TailFin livery={c.livery} logo={logoOf(c)} height={40} title={`${c.airlineName} tail`} />
                         : null}
                       <span>{c.airlineName}</span>
                     </span>

@@ -15,7 +15,6 @@
 //   logoOnTail  draw the airline's logo on the fin
 //   logoOnFuselage  draw it on the forward fuselage too, ahead of the name
 //               (off by default, so liveries saved before it look the same)
-//   finShape / finStyle  the tail-fin mark (see FIN_SHAPES below)
 //   logoTile    paint the logo on its square tile, the way it looks in the
 //               app. Off by default: a preset is painted as the bare mark,
 //               recoloured when needed so it reads on the paint under it
@@ -26,18 +25,6 @@ export const LIVERY_STYLES = ['none', 'classic', 'belly', 'swoosh', 'retro', 'ta
 export const LIVERY_STYLE_LABELS = {
   none: 'Plain', classic: 'Cheatline', belly: 'Belly', swoosh: 'Swoosh', retro: 'Retro', 'tail-wrap': 'Tail wrap',
 };
-
-// The airline's tail fin — its mark as a fin in livery colours, designed in
-// the logo maker and drawn on the maps (hub markers), the season podium and
-// the player profile (web: src/components/TailFin.jsx). Shape and paint only;
-// the colours are the livery's own (tail, cheatline, fuselage).
-//   finShape  the fin's outline
-//   finStyle  how the tail colour sits on it: solid, a stripe in the
-//             cheatline colour, or split with the fuselage colour on top
-export const FIN_SHAPES = ['swept', 'tall', 'retro', 't-tail'];
-export const FIN_SHAPE_LABELS = { swept: 'Swept', tall: 'Tall', retro: 'Classic', 't-tail': 'T-tail' };
-export const FIN_STYLES = ['solid', 'stripe', 'split'];
-export const FIN_STYLE_LABELS = { solid: 'Solid', stripe: 'Stripe', split: 'Two-tone' };
 
 export const LIVERY_WHITE = '#f5f7fa';
 export const LIVERY_INK   = '#15202f';
@@ -54,8 +41,6 @@ export const DEFAULT_LIVERY = Object.freeze({
   logoOnFuselage: false,
   logoTile:   false,
   titlesOn:   true,
-  finShape:   'swept',
-  finStyle:   'solid',
 });
 
 const HEX = /^#([0-9a-f]{6})$/i;
@@ -99,8 +84,6 @@ export function normalizeLivery(raw, accent) {
     logoOnFuselage: src.logoOnFuselage === true,
     logoTile:   src.logoTile === true,
     titlesOn:   src.titlesOn !== false,
-    finShape:   FIN_SHAPES.includes(src.finShape) ? src.finShape : DEFAULT_LIVERY.finShape,
-    finStyle:   FIN_STYLES.includes(src.finStyle) ? src.finStyle : DEFAULT_LIVERY.finStyle,
   };
 }
 

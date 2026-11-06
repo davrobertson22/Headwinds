@@ -1,18 +1,15 @@
-// Tail fins (2026-11-05): an airline's mark on a fin in its livery colours,
-// designed in the logo maker (Edit Branding → Name & logo → Tail Fin: shape and
-// paint style, saved on the livery as finShape / finStyle) and drawn where a
-// shape reads — your hubs on the network map (flat and globe), each rival's
-// hubs on the Rivals map, the season podium and the player profile. Small
-// list rows keep the square logo.
+// Tails (2026-11-06): an airline's tail is the licensed template's tail crop
+// — fin, stabiliser, rear fuselage — painted in its livery with its logo on
+// the fin (TailFin.jsx, utils/liveryPaint.js paintTail), the same paint as
+// the Fleet page. Drawn where a tail reads: your hubs on the maps (flat and
+// globe), each rival's hubs on the Rivals map, the season podium, the player
+// profile, and the logo maker's Tail section (tail colour, logo on the fin,
+// on its tile). Small list rows keep the square logo. Dave rejected two
+// rounds of hand-drawn fin shapes before this: the bar is type-accurate art.
 //
-//   · engine data/livery.js — finShape / finStyle normalise like every other
-//     livery field (unknown → default), so the decision guard and SET_BRANDING
-//     carry them with no change of their own
-//   · TailFin (SSR) — one outline per shape, the stripe / two-tone paint, the
-//     mark recoloured to read on the tail, an upload drawn on its tile
-//   · utils/hubFin.js — lazy markup (never rendered during a render), unique
-//     clip ids per map, a key that changes with the look
-//   · BrandingModal, SeasonResults, PlayerProfile (SSR); the maps' wiring
+// Painting needs a browser canvas, so this covers the pure parts (the crop,
+// the sizes, the marker contract) and server-renders the real components;
+// the paint itself is checked by eye in a browser.
 //
 //   node --import ./tools/_register-loader.mjs tools/tail-fin-test.mjs
 
@@ -20,7 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
-import { renderToString, renderToStaticMarkup } from 'react-dom/server';
+import { renderToString } from 'react-dom/server';
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -38,137 +35,129 @@ globalThis.CustomEvent = globalThis.CustomEvent ?? class { constructor(t, i) { t
 globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
 window.localStorage = globalThis.localStorage;
 
+const T = await import('../packages/engine/src/data/liveryTemplates.js');
 const L = await import('../packages/engine/src/data/livery.js');
 const TailFin = (await import('../src/components/TailFin.jsx')).default;
-const { hubFinMarkup, hubFinSize, logoOf } = await import('../src/utils/hubFin.js');
-const { markColorOn } = await import('../src/utils/logoBranding.js');
+const { hubFinMarkup, hubFinSize, logoOf, tailAspect } = await import('../src/utils/hubFin.js');
 
-console.log('\nTail fins\n');
+console.log('\nTails\n');
 
-await test('livery: fin shape and paint normalise, unknown → the defaults', () => {
-  assert.deepEqual(L.FIN_SHAPES, ['swept', 'tall', 'retro', 't-tail']);
-  assert.deepEqual(L.FIN_STYLES, ['solid', 'stripe', 'split']);
-  const d = L.normalizeLivery({});
-  assert.equal(d.finShape, 'swept');
-  assert.equal(d.finStyle, 'solid');
-  const l = L.normalizeLivery({ finShape: 't-tail', finStyle: 'split' });
-  assert.equal(l.finShape, 't-tail');
-  assert.equal(l.finStyle, 'split');
-  const bad = L.normalizeLivery({ finShape: '<script>', finStyle: 42 });
-  assert.equal(bad.finShape, 'swept');
-  assert.equal(bad.finStyle, 'solid');
+await test('the template carries a tail crop inside its own space, fin and stabiliser included', () => {
+  const spec = T.getLiveryTemplate(T.DEFAULT_LIVERY_TEMPLATE);
+  const c = T.tailCropOf(spec);
+  assert.ok(c.x0 >= 0 && c.x0 + c.w <= spec.size[0] && c.y0 >= 0 && c.y0 + c.h <= spec.size[1], 'inside the template');
+  assert.ok(c.x0 <= spec.logo.cx - spec.logo.size / 2, 'the fin logo box is in the crop');
+  // The fin part is a mask rectangle that starts well forward of the fin's
+  // real root (the painter only recolours opaque pixels inside it), so the
+  // crop need only reach the fin's logo box; the stabiliser polygon is tight.
+  for (const poly of spec.parts.stab) for (const [x, y] of poly) assert.ok(x >= c.x0 && y <= c.y0 + c.h, 'the stabiliser is in the crop');
+  assert.ok(c.aspect > 0.8 && c.aspect < 1.3, `a near-square crop (${c.aspect.toFixed(2)})`);
+  // The fin-only crop (the maps' markers): the fin alone, cut above the stabiliser.
+  const f = T.tailCropOf(spec, 'fin');
+  assert.ok(f.x0 >= c.x0 && f.h < c.h, 'inside the tail crop');
+  const stabTop = Math.min(...spec.parts.stab.flat().map(([, y]) => y));
+  assert.ok(f.y0 + f.h <= stabTop, 'no stabiliser in the fin crop');
+  assert.ok(f.x0 <= spec.logo.cx - spec.logo.size / 2, 'the fin logo box is in it');
+  assert.equal(tailAspect(), f.aspect, 'hub markers use the fin crop');
+  // A template with no crop falls back to its aft quarter.
+  const fb = T.tailCropOf({ size: [1000, 300] });
+  assert.deepEqual([fb.x0, fb.w, fb.h], [720, 280, 300]);
+  const ff = T.tailCropOf({ size: [1000, 300], body: { crown: 180 } }, 'fin');
+  assert.deepEqual([ff.x0, ff.w, ff.h], [780, 220, 180]);
 });
 
-await test('SET_BRANDING keeps the fin on the saved livery (no reducer change needed)', async () => {
-  const { gameReducer, freshState } = await import('../packages/engine/src/reducer.mjs');
-  let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: 'Fin Air', hub: 'SYD', enableObjectives: false });
-  s = gameReducer(s, { type: 'SET_BRANDING', airlineName: 'Fin Air', logoId: 'eagle', logoColor: '#d71920',
-    livery: { tail: '#d71920', finShape: 'retro', finStyle: 'stripe' } });
-  assert.equal(s.livery.finShape, 'retro');
-  assert.equal(s.livery.finStyle, 'stripe');
+await test('the livery carries no drawn-fin fields any more', () => {
+  const l = L.normalizeLivery({ finShape: 'retro', finStyle: 'stripe' });
+  assert.equal('finShape' in l, false);
+  assert.equal('finStyle' in l, false);
+  assert.doesNotMatch(read('../packages/engine/src/data/livery.js'), /FIN_SHAPES|finShape/);
 });
 
-const fin = (livery, logo = { id: 'eagle', accentColor: '#d71920' }) =>
-  strip(renderToStaticMarkup(React.createElement(TailFin, { livery, logo, size: 44, idPrefix: 'x' })));
-
-await test('every shape draws its own outline; the T-tail adds its stabiliser', () => {
-  const outlines = new Set();
-  for (const finShape of L.FIN_SHAPES) {
-    const html = fin({ tail: '#1e9bff', finShape });
-    const d = html.match(/<clipPath id="fin-x"><path d="([^"]+)"/)[1];
-    outlines.add(d);
-  }
-  assert.equal(outlines.size, 4);
-  const t = fin({ tail: '#1e9bff', finShape: 't-tail' });
-  assert.equal((t.match(/fill="#1e9bff"/g) ?? []).length >= 2, true, 'fin + stabiliser in the tail colour');
+await test('paintTail scales the airframe so the crop is the asked height, then cuts it out', () => {
+  const src = read('../src/utils/liveryPaint.js');
+  assert.match(src, /export function paintTail\(template, liveryIn, \{ height = 48, logo = null, crop: which = 'tail' \} = \{\}\)/);
+  assert.match(src, /const s = height \/ crop\.h;/);
+  assert.match(src, /paintLivery\(template, liveryIn, \{ width: template\.spec\.size\[0\] \* s, titles: '', logo, bodyLogo: null \}\)/);
+  assert.match(src, /drawImage\(full, Math\.round\(crop\.x0 \* s\), Math\.round\(crop\.y0 \* s\), w, h, 0, 0, w, h\)/);
 });
 
-await test('paint styles: solid, a stripe and a two-tone in the second colour', () => {
-  assert.doesNotMatch(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'solid' }), /<polygon/);
-  assert.match(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'stripe' }), /<polygon points="0,34 60,22 60,27 0,39" fill="#ffcc00"/);
-  assert.match(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'split' }), /<polygon points="0,38 60,28 60,48 0,48" fill="#ffcc00"/);
-  // Default livery paints tail and cheatline alike: the style falls back to
-  // the fuselage colour so it still shows.
-  assert.match(fin({ tail: '#1e9bff', cheatline: '#1e9bff', fuselage: '#f5f7fa', finStyle: 'stripe' }), /fill="#f5f7fa"/);
+await test('TailFin (SSR): an empty canvas of the crop\'s aspect, painted on the client', () => {
+  const html = strip(renderToString(React.createElement(TailFin, { livery: { tail: '#d71920' }, logo: { id: 'eagle', accentColor: '#d71920' }, height: 100, title: 'Southern Cross tail' })));
+  assert.match(html, /<canvas[^>]*data-tail-template="b737-800"/);
+  assert.match(html, /data-ready="0"/);
+  assert.match(html, /data-tail-crop="tail"/);
+  const fin = strip(renderToString(React.createElement(TailFin, { livery: { tail: '#d71920' }, height: 30, crop: 'fin' })));
+  assert.match(fin, /data-tail-crop="fin"/);
+  assert.equal(Number(fin.match(/width:(\d+)px/)[1]), Math.round(30 * T.tailCropOf(T.getLiveryTemplate('b737-800'), 'fin').aspect));
+  assert.match(html, /aria-label="Southern Cross tail"/);
+  const w = Number(html.match(/width:(\d+)px/)[1]);
+  assert.equal(w, Math.round(100 * T.tailCropOf(T.getLiveryTemplate('b737-800'), 'tail').aspect));
 });
 
-await test('the mark is recoloured to read on the tail; an upload sits on its tile', () => {
-  const red = fin({ tail: '#d71920' }, { id: 'eagle', accentColor: '#d71920' });
-  const expected = markColorOn('#d71920', '#d71920');
-  assert.notEqual(expected, '#d71920', 'fixture: a red mark on a red tail must change');
-  assert.match(red, new RegExp(`stroke="${expected}"`));
-  const up = fin({ tail: '#0a2a66' }, { id: null, customSrc: 'data:image/png;base64,AAAA' });
-  assert.match(up, /<image[^>]+href="data:image\/png;base64,AAAA"/);
-  const off = fin({ tail: '#0a2a66', logoOnTail: false }, { id: 'eagle', accentColor: '#fff' });
-  assert.doesNotMatch(off, /<svg[^>]*><svg/, 'no logo on the tail → no mark');
-});
-
-await test('hub markup is lazy, sized by tier, keyed on the look, unique per map', () => {
-  const a = hubFinMarkup({ airlineName: 'A', logoId: 'star', logoColor: '#ff0000' }, 'own');
-  const b = hubFinMarkup({ airlineName: 'A', logoId: 'star', logoColor: '#00ff00' }, 'own');
-  assert.notEqual(a.key, b.key, 'a new colour redraws the pins');
-  assert.equal(a.key, hubFinMarkup({ airlineName: 'A', logoId: 'star', logoColor: '#ff0000' }, 'own').key);
-  assert.equal(typeof a.html, 'function', 'nothing rendered until a map effect asks');
-  assert.match(a.html(3), new RegExp(`height="${hubFinSize(3)}"`));
+await test('hub markup: sized by tier, keyed on the look, nothing until load() has painted', async () => {
+  const a = hubFinMarkup({ airlineName: 'A', logoId: 'star', logoColor: '#ff0000' });
+  const b = hubFinMarkup({ airlineName: 'A', logoId: 'star', logoColor: '#00ff00' });
+  assert.notEqual(a.key, b.key, 'a new colour is a new look');
+  assert.equal(a.key, hubFinMarkup({ airlineName: 'A', logoId: 'star', logoColor: '#ff0000' }).key);
+  assert.equal(a.html(1), '', 'no paint yet → no markup (the pin alone)');
+  assert.equal(await a.load([1]), false, 'no document here → nothing painted, no throw');
+  assert.match(read('../src/utils/hubFin.js'), /crop: 'fin'/, 'markers paint the fin alone');
   assert.ok(hubFinSize(3) > hubFinSize(0));
-  const r = hubFinMarkup({ name: 'R', logoId: 'jade' }, 'rival-human:r1~g2');
-  assert.match(r.html(1), /clipPath id="fin-rival-humanr1g2-t1"/, 'ids safe and distinct from your own');
-  assert.match(a.html(1), /clipPath id="fin-own-t1"/);
   assert.deepEqual(logoOf({ customLogo: '/logos/x?v=1', logoId: 'star' }).id, null);
 });
 
-await test('the maps call html() only inside effects, never while rendering', () => {
+await test('the maps paint tails in their own effects, after load(), never inside the pin sync', () => {
   const flat = read('../src/components/RouteMap.jsx');
-  assert.match(flat, /const hubFin = useMemo\(\(\) => hubFinMarkup\(state, 'own'\)/);
-  assert.match(flat, /html: hubFin\.html\(hubInfo\.tier \?\? 1\)/);
-  assert.match(flat, /#fin:\$\{hubFin\.key\}/, 'a new fin look redraws the pins');
-  assert.match(read('../src/components/GlobeMap.jsx'), /el\.innerHTML = hubFin\.html\(tier\);/);
-  assert.match(read('../src/components/RivalRouteMap.jsx'), /html: hubFin\.html\(1\)/);
-  assert.equal((read('../src/components/Competition.jsx').match(/hubFin=\{hubFinMarkup\(carrier, `rival-\$\{carrier\.id\}`\)\}/g) ?? []).length, 2);
+  assert.match(flat, /const hubFin = useMemo\(\(\) => hubFinMarkup\(state\)/);
+  assert.match(flat, /await hubFin\.load\(/);
+  assert.match(flat, /const html = hubFin\.html\(tier\);\s*if \(!html\) continue;/);
+  assert.doesNotMatch(flat, /#fin:/, 'the pin draw key no longer waits on the tail');
+  const globe = read('../src/components/GlobeMap.jsx');
+  assert.match(globe, /if \(hubFin\) await hubFin\.load\(/);
+  assert.match(globe, /if \(cancelled \|\| mapRef\.current !== map\) return;/);
+  const rival = read('../src/components/RivalRouteMap.jsx');
+  assert.match(rival, /await hubFin\.load\(\[1\]\);/);
+  assert.equal((read('../src/components/Competition.jsx').match(/hubFin=\{hubFinMarkup\(carrier\)\}/g) ?? []).length, 2);
 });
 
-await test('RouteMap still server-renders with your fin wired in', async () => {
+await test('RouteMap still server-renders with the tail wired in', async () => {
   const RouteMap = (await import('../src/components/RouteMap.jsx')).default;
   const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
-  store.set('bbae_save_v2', JSON.stringify({ ...freshState(), phase: 'playing', hub: 'SYD', hubs: { SYD: { tier: 2 } }, livery: { finShape: 'retro' } }));
+  store.set('bbae_save_v2', JSON.stringify({ ...freshState(), phase: 'playing', hub: 'SYD', hubs: { SYD: { tier: 2 } } }));
   const html = renderToString(React.createElement(GameProvider, null, React.createElement(RouteMap)));
   assert.ok(html.length > 0);
 });
 
-await test('logo maker: a Tail Fin section with every shape and paint, previewed live', async () => {
+await test('logo maker: a Tail section with the live tail, tail colours, logo-on-fin and tile toggles', async () => {
   const BrandingModal = (await import('../src/components/BrandingModal.jsx')).default;
   const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
-  store.set('bbae_save_v2', JSON.stringify({ ...freshState(), phase: 'playing', airlineName: 'Fin Air', logoId: 'eagle', logoColor: '#d71920', livery: { finShape: 'tall', finStyle: 'split' } }));
+  const { LIVERY_PALETTE } = await import('../src/components/LiveryEditor.jsx');
+  store.set('bbae_save_v2', JSON.stringify({ ...freshState(), phase: 'playing', airlineName: 'Fin Air', logoId: 'eagle', logoColor: '#d71920', livery: { tail: LIVERY_PALETTE[4].hex, logoTile: true } }));
   const html = strip(renderToString(React.createElement(GameProvider, null, React.createElement(BrandingModal, { onClose() {} }))));
-  assert.match(html, />Tail Fin</);
-  for (const s of L.FIN_SHAPES) assert.match(html, new RegExp(`data-fin-shape="${s}"`));
-  for (const s of L.FIN_STYLES) assert.match(html, new RegExp(`data-fin-style="${s}"`));
-  assert.match(html, /aria-checked="true" data-fin-shape="tall"/, 'the saved shape is selected');
-  assert.match(html, /aria-checked="true" data-fin-style="split"/);
-  assert.match(html, /aria-label="Your tail fin"/);
+  assert.match(html, /<label class="form-label">Tail<\/label>/);
+  assert.match(html, /aria-label="Fin Air tail"/);
+  for (const c of LIVERY_PALETTE) assert.match(html, new RegExp(`data-tail-colour="${c.hex}"`));
+  assert.match(html, new RegExp(`aria-checked="true" title="[^"]+" data-tail-colour="${LIVERY_PALETTE[4].hex}"`), 'the saved tail colour is selected');
+  assert.match(html, /aria-pressed="true" data-tail-logo/);
+  assert.match(html, /aria-pressed="true" data-tail-tile/);
+  assert.match(html, /Aircraft artwork by Norebbo/);
 });
 
-await test('season podium: each finisher on their fin; the standings payload carries the livery', async () => {
+await test('season podium and player profile show each airline\'s tail; the payloads carry the livery', async () => {
   const SeasonResults = (await import('../apps/headwinds-web/src/SeasonResults.jsx')).default;
   const html = strip(renderToString(React.createElement(SeasonResults, {
     worldId: 'w', token: null, myAirlineId: null, me: null,
     preloaded: { ranking: { metric: 'avgProfit' }, seasonAwards: null, standings: [
-      { rank: 1, id: 'a1', name: 'Gold Air', logoId: 'eagle', logoColor: '#d71920', livery: { tail: '#d71920', finShape: 't-tail' } },
+      { rank: 1, id: 'a1', name: 'Gold Air', logoId: 'eagle', logoColor: '#d71920', livery: { tail: '#d71920' } },
       { rank: 2, id: 'a2', name: 'Silver Air', logoId: 'star', logoColor: '#1e9bff', livery: null },
     ] },
   })));
-  assert.match(html, /aria-label="Gold Air tail fin"/);
-  assert.match(html, /aria-label="Silver Air tail fin"/);
-  const worlds = read('../apps/headwinds-server/src/routes/worlds.mjs');
-  assert.match(worlds, /COALESCE\(a\."rivalState", a\.state\)->'livery'\s+AS livery/);
-  assert.match(worlds, /livery: a\.livery \?\? null,/);
-});
-
-await test('player profile: each airline flying now shows its fin', async () => {
-  const players = read('../apps/headwinds-server/src/routes/players.mjs');
-  assert.match(players, /COALESCE\(a\."rivalState", a\.state\)->'livery'\s+AS livery/);
-  assert.match(players, /customLogo: logoPathOf\(a\.id, b\.logoHash\), livery: b\.livery \?\? null/);
-  assert.match(read('../apps/headwinds-web/src/PlayerProfile.jsx'), /<TailFin livery=\{c\.livery\} logo=\{logoOf\(c\)\} size=\{36\}/);
+  assert.match(html, /aria-label="Gold Air tail"/);
+  assert.match(html, /aria-label="Silver Air tail"/);
+  assert.match(read('../apps/headwinds-server/src/routes/worlds.mjs'), /COALESCE\(a\."rivalState", a\.state\)->'livery'\s+AS livery/);
+  assert.match(read('../apps/headwinds-server/src/routes/worlds.mjs'), /livery: a\.livery \?\? null,/);
+  assert.match(read('../apps/headwinds-server/src/routes/players.mjs'), /customLogo: logoPathOf\(a\.id, b\.logoHash\), livery: b\.livery \?\? null/);
+  assert.match(read('../apps/headwinds-web/src/PlayerProfile.jsx'), /<TailFin livery=\{c\.livery\} logo=\{logoOf\(c\)\} height=\{40\}/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

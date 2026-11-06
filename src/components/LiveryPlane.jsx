@@ -29,8 +29,9 @@ const resolveLogoSrc = LogoModule.resolveLogoSrc ?? ((src) => (typeof src === 's
 const painted = new Map();           // key → canvas (bounded)
 const PAINT_CACHE_MAX = 48;
 
-// → { tail, body } image sources (SVG markup or a URL), or null.
-function logoSrcsFor(logo, livery) {
+// → { tail, body } image sources (SVG markup or a URL), or null. Shared with
+// TailFin.jsx, which paints the fin's `tail` source.
+export function logoSrcsFor(logo, livery) {
   if (!logo) return null;
   const custom = resolveLogoSrc(logo.customSrc);
   if (custom) return { tail: custom, body: custom };

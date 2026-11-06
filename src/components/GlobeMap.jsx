@@ -8,6 +8,7 @@ import { Glyph } from './Icons.jsx';
 import {
   gameClockAt, formatGameClock, sunPosition, nightOverlayPixels, nightRefreshMs, NIGHT_COORDINATES,
 } from './gameClock.js';
+import { hubFinSize, tailAspect } from '../utils/hubFin.js';
 import {
   planesGeoJSON, planeWeekHours, planeRate, planeRefreshMs, planePosition, planeTipHtml,
 } from './flightsCore.js';
@@ -234,7 +235,7 @@ export default function GlobeMap({
   // per, and the click that toggles it (an airport pin or its code label).
   focusIds = null, focusKey = undefined, onSelectAirport = null,
   flights = null, clock = null, planeColors = DEFAULT_PLANE_COLORS, basemap = DEFAULT_BASEMAP,
-  hubFin = null,   // { html(tier) → fin SVG, key } (utils/hubFin.js): your fin over each hub
+  hubFin = null,   // { key, load(), html(tier) } (utils/hubFin.js): your painted tail over each hub
   paused = false,
 }) {
   const basemapRef = useRef(basemap);
@@ -443,18 +444,27 @@ export default function GlobeMap({
     const key = `${hubFin?.key ?? ''}|${hubsF.map(f => `${f.properties.code}@${f.properties.tier ?? ''}`).join(',')}`;
     if (key === finKeyRef.current) return;
     finKeyRef.current = key;
-    finsRef.current.forEach(m => m.remove());
-    finsRef.current = !hubFin ? [] : hubsF.map(f => {
-      const tier = Math.max(0, Math.min(3, f.properties.tier ?? 1));
-      const el = document.createElement('div');
-      el.className = 'hub-fin-marker globe-fin';
-      el.style.pointerEvents = 'none';
-      el.innerHTML = hubFin.html(tier);
-      return new window.maplibregl.Marker({
-        element: el, anchor: 'bottom',
-        offset: [0, -Math.round((f.properties.core ?? 11) / 2) - 1], opacityWhenCovered: '0',
-      }).setLngLat(f.geometry.coordinates).addTo(map);
-    });
+    let cancelled = false;
+    (async () => {
+      if (hubFin) await hubFin.load([...new Set(hubsF.map(f => Math.max(0, Math.min(3, f.properties.tier ?? 1))))]);
+      if (cancelled || mapRef.current !== map) return;
+      finsRef.current.forEach(m => m.remove());
+      finsRef.current = !hubFin ? [] : hubsF.map(f => {
+        const tier = Math.max(0, Math.min(3, f.properties.tier ?? 1));
+        const html = hubFin.html(tier);
+        if (!html) return null;
+        const el = document.createElement('div');
+        el.className = 'hub-fin-marker globe-fin';
+        el.style.pointerEvents = 'none';
+        el.innerHTML = html;
+        return new window.maplibregl.Marker({
+          element: el, anchor: 'bottom',
+          // The fin's root is at the crop's left; shift so it stands on the pin.
+          offset: [Math.round(hubFinSize(tier) * tailAspect() * 0.2), -Math.round((f.properties.core ?? 11) / 2) - 1], opacityWhenCovered: '0',
+        }).setLngLat(f.geometry.coordinates).addTo(map);
+      }).filter(Boolean);
+    })();
+    return () => { cancelled = true; };
   }, [loaded, data, hubFin]);
 
   // 3. Hover / focus → feature-state and the dimming of everything else.

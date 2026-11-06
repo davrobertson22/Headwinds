@@ -24,7 +24,7 @@ import { planeSpriteColors } from '../utils/liveryPaint.js';
 import { buildGlobeData } from './globeCore.js';
 import { ROUTE_WIDTH_KEY, routeWidthFactors } from '../utils/routeWidth.js';
 import { ROUTE_COLOUR_KEY, LF_BANDS, loadFactorColor, normalizeColourMode } from '../utils/routeColour.js';
-import { hubFinMarkup, hubFinSize } from '../utils/hubFin.js';
+import { hubFinMarkup, hubFinSize, tailAspect } from '../utils/hubFin.js';
 import { buildFlightPlan } from './flightsCore.js';
 import { airlineWeeks, scheduleInputsOf } from '../models/schedule.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
@@ -321,8 +321,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   // Globe plane sprite in the airline's livery (fuselage + tail colours).
   const planeColors = useMemo(() => planeSpriteColors(liveryFor(state)), [state.livery, state.logoColor]);
   // Your tail fin over each of your hubs (logo maker → Tail fin), both views.
-  const hubFin = useMemo(() => hubFinMarkup(state, 'own'),   // eslint-disable-line react-hooks/exhaustive-deps
+  const hubFin = useMemo(() => hubFinMarkup(state),   // eslint-disable-line react-hooks/exhaustive-deps
     [state.livery, state.logoId, state.logoColor, state.logoBg, state.customLogo, state.airlineName]);
+  const finLayersRef = useRef([]);
   const { fleet, routes, cargoRoutes = NO_ROUTES, hub, hubs: hubsState,
           competitors = [], allianceMembership, codeshareAgreements = [] } = state;
 
@@ -924,7 +925,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     // route that crossed break-even, put the new numbers in the tooltips, and
     // keep every layer, the hover/focus styles and the view.
     // The fin's look is part of what the pins draw: a new fin redraws them.
-    const drawKey = `${networkDrawKey(routeGroups, airportSet, hubs)}#fin:${hubFin.key}`;
+    const drawKey = networkDrawKey(routeGroups, airportSet, hubs);
     if (drawnRef.current.routes === drawKey) {
       for (const g of routeGroups) {
         const group = lineGroupsRef.current.get(g.key);
@@ -1054,22 +1055,6 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         hubMarker.on('click', (e) => { window.L.DomEvent.stopPropagation(e); airportClickRef.current?.(airport.code); });
         hubMarker.addTo(map);
         layersRef.current.push(hubMarker);
-        // Your tail fin standing on the pin. Not interactive: the pin under it
-        // keeps the tooltip and the click.
-        const finH = hubFinSize(hubInfo.tier), finW = Math.round(finH * 60 / 48);
-        const fin = L.marker([airport.lat, airport.lon], {
-          icon: L.divIcon({
-            className: 'hub-fin-marker',
-            html: hubFin.html(hubInfo.tier ?? 1),
-            iconSize: [finW, finH],
-            iconAnchor: [Math.round(finW / 2), finH + Math.round(core / 2) + 1],
-          }),
-          interactive: false,
-          keyboard: false,
-          zIndexOffset: 1100,
-        });
-        fin.addTo(map);
-        layersRef.current.push(fin);
       } else {
         // Glow halo behind spoke airport
         const halo = L.circleMarker([airport.lat, airport.lon], {
@@ -1129,7 +1114,38 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     }
 
     applyStyles();
-  }, [routeGroups, airportSet, hubs, mapReady, applyStyles, colorMode, hubFin]); // mapReady ensures this re-runs after L.map() finishes
+  }, [routeGroups, airportSet, hubs, mapReady, applyStyles, colorMode]); // mapReady ensures this re-runs after L.map() finishes
+
+  // 4a'. Your painted tail standing on each hub pin (utils/hubFin.js). Painted
+  // asynchronously (the template has to decode), so it is its own effect:
+  // the pins never wait for it, and a poll that moved nothing repaints
+  // nothing. Not interactive — the pin under it keeps the tooltip and click.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return undefined;
+    let cancelled = false;
+    const hubList = airportSet.filter(a => hubs[a.code]);
+    (async () => {
+      await hubFin.load([...new Set(hubList.map(a => Math.max(0, Math.min(3, hubs[a.code].tier ?? 1))))]);
+      if (cancelled) return;
+      finLayersRef.current.forEach(l => map.removeLayer(l));
+      finLayersRef.current = [];
+      for (const airport of hubList) {
+        const tier = hubs[airport.code].tier ?? 1;
+        const html = hubFin.html(tier);
+        if (!html) continue;
+        const finH = hubFinSize(tier), finW = Math.round(finH * tailAspect());
+        const fin = window.L.marker([airport.lat, airport.lon], {
+          icon: window.L.divIcon({ className: 'hub-fin-marker', html, iconSize: [finW, finH],
+            iconAnchor: [Math.round(finW * 0.3), finH + Math.round(hubMarkerSize(tier).core / 2) + 1] }),
+          interactive: false, keyboard: false, zIndexOffset: 1100,
+        });
+        fin.addTo(map);
+        finLayersRef.current.push(fin);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [airportSet, hubs, mapReady, hubFin]);
 
   // Re-style when hover changes
   useEffect(() => {

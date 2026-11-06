@@ -6,7 +6,7 @@ import { LOGO_COLORS, normalizeAirlineCode, cleanHex, brandingClash, takenBrandi
 import { Glyph } from './Icons.jsx';
 import { CloseIcon } from './Icons.jsx';
 import LiveryEditor from './LiveryEditor.jsx';
-import FinPicker from './FinPicker.jsx';
+import TailPicker from './TailPicker.jsx';
 import { liveryFor, isLiveryShaped } from '../data/livery.js';
 
 // In-game branding editor: change the airline name, logo (preset or uploaded
@@ -123,11 +123,12 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
           />
         </div>
 
-        {/* ── Tail fin: the mark on a fin in livery colours ── */}
+        {/* ── Tail: the licensed template's tail in your paint, logo on the fin ── */}
         <div className="form-group">
-          <label className="form-label">Tail Fin</label>
-          <FinPicker
+          <label className="form-label">Tail</label>
+          <TailPicker
             livery={hasSavedLivery || liveryDirty ? livery : liveryFor({ ...state, livery: undefined, logoColor: accentColor })}
+            airlineName={name.trim()}
             onChange={changeLivery}
             onOpenLivery={() => setTab('livery')}
             logo={{ id: usingCustom ? null : logoId, accentColor, bgColor: cleanHex(logoBg), customSrc: usingCustom ? customLogo : null }}

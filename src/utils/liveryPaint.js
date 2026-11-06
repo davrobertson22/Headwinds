@@ -11,6 +11,7 @@
 // Browser only (canvas). Nothing here runs on the server: LiveryPlane.jsx
 // renders a placeholder during SSR and paints in an effect.
 
+import { tailCropOf } from '../data/liveryTemplates.js';
 import { normalizeLivery } from '../data/livery.js';
 
 const PART = { fuselage: 0, fin: 1, wing: 2, winglet: 3, engine: 4, stab: 5 };
@@ -214,6 +215,23 @@ export function paintLivery(template, liveryIn, { width = 1200, titles = '', log
   }
   const oc = document.createElement('canvas'); oc.width = w; oc.height = h;
   oc.getContext('2d').putImageData(out, 0, 0);
+  return oc;
+}
+
+// ── The tail alone ──────────────────────────────────────────────────────────
+// The template's tail crop (data/liveryTemplates.js `tail`) painted in the
+// livery, `height` px tall: the fin with the logo on it, the stabiliser and
+// the rear fuselage — or, with crop: 'fin', the fin alone. The whole airframe is painted at the scale that makes
+// the crop this tall (a 30 px fin is a ~110 px airframe, so it is cheap) and
+// the tail cut out of it, so a hub marker is pixel for pixel the same paint
+// as the Fleet page.
+export function paintTail(template, liveryIn, { height = 48, logo = null, crop: which = 'tail' } = {}) {
+  const crop = tailCropOf(template.spec, which);
+  const s = height / crop.h;
+  const full = paintLivery(template, liveryIn, { width: template.spec.size[0] * s, titles: '', logo, bodyLogo: null });
+  const w = Math.max(1, Math.round(crop.w * s)), h = Math.max(1, Math.round(height));
+  const oc = document.createElement('canvas'); oc.width = w; oc.height = h;
+  oc.getContext('2d').drawImage(full, Math.round(crop.x0 * s), Math.round(crop.y0 * s), w, h, 0, 0, w, h);
   return oc;
 }
 

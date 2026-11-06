@@ -1255,7 +1255,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCas
             name={carrier.name}
             height={300}
             networkColor={rivalNetworkColor(carrier)}
-            hubFin={hubFinMarkup(carrier, `rival-${carrier.id}`)}
+            hubFin={hubFinMarkup(carrier)}
           />
         </div>
       )}
@@ -1802,7 +1802,7 @@ function RivalDetailView({ carrier, onClose }) {
                 name={carrier.name}
                 height={340}
                 networkColor={rivalNetworkColor(carrier)}
-                hubFin={hubFinMarkup(carrier, `rival-${carrier.id}`)}
+                hubFin={hubFinMarkup(carrier)}
               />
             </div>
             {routeEntries.length === 0 ? (

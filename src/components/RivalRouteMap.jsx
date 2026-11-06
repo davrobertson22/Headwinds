@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { hubFinSize, tailAspect } from '../utils/hubFin.js';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { referencePrice } from '../utils/simulation.js';
@@ -229,8 +230,8 @@ export default function RivalRouteMap({
   // rivalNetworkColor — slate when it wouldn't read or would clash with a
   // colour this map already gives a meaning). Contested stays amber.
   networkColor = RIVAL_COLOR,
-  // Their tail fin over each of their hubs (utils/hubFin.js hubFinMarkup of
-  // the rival view): { html(tier) → SVG, key }, html() called in effects only. Optional.
+  // Their painted tail over each of their hubs (utils/hubFin.js hubFinMarkup
+  // of the rival view): { key, load(), html(tier) }. Optional.
   hubFin = null,
 }) {
   const mapElRef = useRef(null);
@@ -377,25 +378,6 @@ export default function RivalRouteMap({
       marker.addTo(map);
       layersRef.current.push(marker);
 
-      if (airport.isHub && hubFin) {
-        // Their fin standing on the hub pin (a rival's hubs carry no tier
-        // here, so every one draws at the standard size).
-        const finH = 30, finW = Math.round(finH * 60 / 48);
-        const fin = L.marker([airport.lat, airport.lon], {
-          icon: L.divIcon({
-            className: 'hub-fin-marker',
-            html: hubFin.html(1),
-            iconSize: [finW, finH],
-            iconAnchor: [Math.round(finW / 2), finH + 4],
-          }),
-          interactive: false,
-          keyboard: false,
-          zIndexOffset: 900,
-        });
-        fin.addTo(map);
-        layersRef.current.push(fin);
-      }
-
       if (airport.isHub) {
         const label = L.marker([airport.lat, airport.lon], {
           icon: L.divIcon({
@@ -422,7 +404,36 @@ export default function RivalRouteMap({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, extent, name, mapReady, networkColor, hubFin?.key]);
+  }, [signature, extent, name, mapReady, networkColor]);
+
+  // Their painted tail on each hub pin — asynchronous (the template decodes
+  // once), so the pins never wait for it. A rival's hubs carry no tier here,
+  // so every one draws at the standard size.
+  const finLayersRef = useRef([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L || !hubFin) return undefined;
+    let cancelled = false;
+    (async () => {
+      await hubFin.load([1]);
+      if (cancelled) return;
+      finLayersRef.current.forEach(l => map.removeLayer(l));
+      finLayersRef.current = [];
+      const html = hubFin.html(1);
+      if (!html) return;
+      const finH = hubFinSize(1), finW = Math.round(finH * tailAspect());
+      for (const airport of airports.filter(a => a.isHub)) {
+        const fin = window.L.marker([airport.lat, airport.lon], {
+          icon: window.L.divIcon({ className: 'hub-fin-marker', html, iconSize: [finW, finH], iconAnchor: [Math.round(finW * 0.3), finH + 4] }),
+          interactive: false, keyboard: false, zIndexOffset: 900,
+        });
+        fin.addTo(map);
+        finLayersRef.current.push(fin);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extent, mapReady, hubFin?.key]);
 
   // Leaflet caches container size; a panel that opens into a freshly-sized box
   // must be told to remeasure or it tiles into stale dimensions.

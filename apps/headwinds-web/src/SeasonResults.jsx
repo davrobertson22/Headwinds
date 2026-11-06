@@ -78,7 +78,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
     if (!a || !(a.logoId || a.customLogo)) return null;
     return (
       <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 6px' }}>
-        <TailFin livery={a.livery} logo={logoOf(a)} size={size} title={`${a.name} tail fin`} />
+        <TailFin livery={a.livery} logo={logoOf(a)} height={size} title={`${a.name} tail`} />
       </div>
     );
   };
@@ -119,7 +119,7 @@ export default function SeasonResults({ worldId, token, myAirlineId = null, prel
             {podium.slice(0, 3).map((p, i) => (
               <div key={p.airlineId ?? i} className="card" style={{ flex: '1 1 160px', margin: 0, textAlign: 'center' }}>
                 <div style={{ fontSize: 24 }} aria-hidden="true">{MEDAL[i] ?? `#${p.rank}`}</div>
-                {finOf(p.airlineId, 56)}
+                {finOf(p.airlineId, 72)}
                 <div><strong>{nameLink(p.accountId, p.name)}</strong></div>
                 <div className="muted small">{byProfit ? `${metricOf(p)} average` : `SVPS ${metricOf(p)}`}</div>
               </div>
