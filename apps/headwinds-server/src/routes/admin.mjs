@@ -194,6 +194,28 @@ export default async function adminRoutes(fastify) {
     return { ok: true };
   });
 
+  // ── Clear an account's uploaded logos ─────────────────────────────────────
+  // Logos now sit beside every name in Rankings and the news, so a rude upload
+  // is seen far more than it used to be. This takes the upload off every one of
+  // the account's airlines without a ban: the preset mark they picked shows
+  // again, and every rival view stops carrying the /logos URL at once (the URL
+  // is derived from the column's hash). They can upload again — repeat it, or
+  // ban, if they do.
+  fastify.post('/admin/accounts/:accountId/clear-logo', {
+    preHandler: requireAdmin,
+    schema: {
+      params: { type: 'object', properties: { accountId: { type: 'string' } }, required: ['accountId'] },
+    },
+  }, async (request) => {
+    const target = await prisma.account.findUnique({ where: { id: request.params.accountId } });
+    if (!target) throw httpError(404, 'No such account');
+    const res = await prisma.airline.updateMany({
+      where: { accountId: target.id, NOT: { customLogo: null } },
+      data: { customLogo: null },
+    });
+    return { ok: true, cleared: res.count };
+  });
+
   // ── List banned accounts (for the unban view) ──────────────────────────────
   fastify.get('/admin/bans', { preHandler: requireAdmin }, async () => {
     const banned = await prisma.account.findMany({

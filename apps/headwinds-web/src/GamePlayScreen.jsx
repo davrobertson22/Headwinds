@@ -27,6 +27,7 @@ import { createPortal } from 'react-dom';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import MessagesWidget from './Messages.jsx';
 import FeedWidget from './Feed.jsx';
+import { brandIndex } from '../../../src/utils/airlineBrands.js';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import TickCountdown from './TickCountdown.jsx';
@@ -528,6 +529,13 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // Topbar content the shared App shell renders when remote — the game gets ONE
   // header (brand · airline · date+countdown · cash · lobby/feed/messages)
   // instead of a second bar stacked above its own topbar.
+  // Logos for the Activity ticker — you and every human rival, from the state
+  // this screen already polls. Keyed on the fields it reads, not the whole
+  // state, so a tick doesn't rebuild the ticker.
+  const brands = useMemo(
+    () => brandIndex(state, meta?.airlineId ?? null),
+    [state?.competitors, state?.logoId, state?.logoColor, state?.logoBg, state?.customLogo, meta?.airlineId],
+  );
   const remoteChrome = useMemo(() => ({
     // Maturity label for the shared top bar: alpha | beta | live (live shows
     // no chip at all). Defaults to beta until the first state read lands.
@@ -591,7 +599,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         )}
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
         {meta?.worldStatus !== 'ENDED' && <InviteButton worldId={worldId} token={token} variant="topbar" />}
-        <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} />
+        <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} brands={brands} />
         <MessagesWidget worldId={worldId} token={token} onViewPlayer={openProfile} />
         {/* Account-level DMs (cross-world). The widget was lobby-only, so a DM to
             an actively-playing player was unreachable until they left the game.
@@ -603,7 +611,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         />
       </>
     ),
-  }), [meta, error, connLost, actionNotice, worldId, token, openProfile, messageTo]);
+  }), [meta, error, connLost, actionNotice, worldId, token, openProfile, messageTo, brands]);
 
   if (sessionExpired) {
     return (

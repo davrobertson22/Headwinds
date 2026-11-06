@@ -22,6 +22,7 @@ import GlobeMap from './GlobeMap.jsx';
 import { liveryFor } from '../data/livery.js';
 import { planeSpriteColors } from '../utils/liveryPaint.js';
 import { buildGlobeData } from './globeCore.js';
+import { ROUTE_WIDTH_KEY, routeWidthFactors } from '../utils/routeWidth.js';
 import { buildFlightPlan } from './flightsCore.js';
 import { airlineWeeks, scheduleInputsOf } from '../models/schedule.js';
 // Geometry, the Leaflet loader, the basemap and the palette are shared with the
@@ -409,6 +410,14 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   useEffect(() => {
     try { localStorage.setItem(AIRPORT_LABELS_KEY, showLabels ? 'on' : 'off'); } catch { /* private mode */ }
   }, [showLabels]);
+  // Passenger lines drawn thicker the more people they carried last week
+  // (utils/routeWidth.js). Off by default, remembered per browser, both views.
+  const [widthByPax, setWidthByPax] = useState(() => {
+    try { return localStorage.getItem(ROUTE_WIDTH_KEY) === 'on'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(ROUTE_WIDTH_KEY, widthByPax ? 'on' : 'off'); } catch { /* private mode */ }
+  }, [widthByPax]);
   const frameRef = useRef(null);         // last fitBounds target, for a re-fit after being hidden
   const fitHiddenRef = useRef(false);    // true when that fit ran while the flat map was hidden
 
@@ -681,6 +690,12 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     [routeGroups, focusAirport],
   );
 
+  // Width multiple per route group (empty map = toggle off = 1 everywhere).
+  // Read through a ref so applyStyles stays a stable callback.
+  const widthFactors = useMemo(() => routeWidthFactors(routeGroups, widthByPax), [routeGroups, widthByPax]);
+  const widthRef = useRef(widthFactors);
+  widthRef.current = widthFactors;
+
   // ── Style resolver: highlight selected/hovered, dim the rest ─────────────────
   const applyStyles = useCallback(() => {
     const selId = selectedIdRef.current;
@@ -698,6 +713,8 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
       else if (active)  { mainW = 3.2; mainO = 1;    haloW = 12; haloO = 0.24; }
       else if (anySel)  { mainW = 1.8; mainO = 0.18; haloW = 7;  haloO = 0.03; }
       else              { mainW = 2.5; mainO = 0.85; haloW = 9;  haloO = 0.16; }
+      const w = widthRef.current.get(id) ?? 1;
+      mainW *= w; haloW *= w;
 
       group.halo.forEach(l => l.setStyle({ weight: haloW, opacity: haloO }));
       group.main.forEach(l => {
@@ -1088,6 +1105,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
     applyStyles();
   }, [hoveredId, applyStyles]);
 
+  // Re-style when the width toggle flips (or a tick changes the passengers).
+  useEffect(() => { applyStyles(); }, [widthFactors, applyStyles]);
+
   // What a focus frames: the route's whole chain, or every airport on the
   // routes at the focused airport (the airport alone when none touch it).
   const focusKey = selectedId != null ? selectedId : (focusAirport ? `airport:${focusAirport}` : null);
@@ -1149,6 +1169,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         chain: g.chain?.length >= 2 ? g.chain : [g.origin, g.dest],
         color: routeGroupColor(g),
         tip: routeTipHtml(g),
+        w: widthFactors.get(g.key) ?? 1,
       })),
       cargo: showCargo ? cargoGroups.map(g => ({
         id: `cargo:${g.key}`, chain: [g.origin, g.dest], color: CARGO_COLOR, tip: cargoTipHtml(g),
@@ -1164,7 +1185,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
       }),
     });
   }, [mapView, routeGroups, cargoGroups, showCargo, partnerRouteData, showAlliance, showCodeshare,
-      airportFilter, airportSet, hubs, loyaltyPoints]);
+      airportFilter, airportSet, hubs, loyaltyPoints, widthFactors]);
 
   // Planes: one per flying tail, on the same groups (and so the same filters)
   // as the lines. Only built while the globe is showing with planes on.
@@ -1296,6 +1317,13 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
             onClick={() => setShowLabels(v => !v)}
             title={showLabels ? 'Hide the airport codes' : 'Show the airport codes'}
           >ABC</button>
+          <button
+            className={`map-bleed-chip${widthByPax ? ' on' : ''}`}
+            aria-pressed={widthByPax}
+            data-map-width-toggle
+            onClick={() => setWidthByPax(v => !v)}
+            title={widthByPax ? 'Draw every route the same width' : 'Draw routes thicker the more passengers they carried last week'}
+          >Width</button>
           {mapView === 'globe' && (
             <button
               className={`map-bleed-chip${showPlanes ? ' on' : ''}`}
@@ -1486,6 +1514,28 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
             >
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 9, color: '#6fb0f0', letterSpacing: '.05em' }}>ABC</span>
               Labels
+            </button>
+
+            {/* Route width by passengers — both views */}
+            <button
+              onClick={() => setWidthByPax(v => !v)}
+              aria-pressed={widthByPax}
+              data-map-width-toggle
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                opacity: widthByPax ? 1 : 0.4, transition: 'opacity 0.15s',
+                color: 'var(--text-muted)', fontSize: 11,
+              }}
+              title={widthByPax
+                ? 'Draw every route the same width'
+                : 'Draw routes thicker the more passengers they carried last week'}
+            >
+              <svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true" style={{ display: 'inline-block' }}>
+                <line x1="1" y1="2" x2="17" y2="2" stroke={PROFIT_COLOR} strokeWidth="1" strokeLinecap="round" />
+                <line x1="1" y1="7" x2="17" y2="7" stroke={PROFIT_COLOR} strokeWidth="3.5" strokeLinecap="round" />
+              </svg>
+              Width
             </button>
 
             {/* Divider */}

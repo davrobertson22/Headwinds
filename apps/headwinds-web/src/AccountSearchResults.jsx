@@ -1,14 +1,15 @@
 // Account search results in the admin panel (Admin → Players & badges).
 //
 // One row per matching account, with every account-level action an admin takes
-// by hand: the OG and supporter badges, and ban / unban. Ban used to be
+// by hand: the OG and supporter badges, clearing an uploaded logo, and
+// ban / unban. Ban used to be
 // reachable only from a player report, so a spam account nobody had reported
 // could not be banned from the panel at all. Rendered by ModerationScreen in
 // App.jsx; kept separate so tools/admin-ban-test.mjs can SSR-render it.
 import OgBadge, { SupporterBadge } from './OgBadge.jsx';
 
 export default function AccountSearchResults({
-  accounts, busyId, onSetOg, onSetSupporter, onBan, onUnban,
+  accounts, busyId, onSetOg, onSetSupporter, onBan, onUnban, onClearLogo = null,
 }) {
   if (accounts == null) return null;
   if (accounts.length === 0) {
@@ -46,6 +47,11 @@ export default function AccountSearchResults({
                   <button className="btn primary small" disabled={busyId === a.id}
                     onClick={() => onSetSupporter(a, true)}>Grant supporter</button>
                 )}
+                {onClearLogo ? (
+                  <button className="btn small" disabled={busyId === a.id}
+                    title="Remove the uploaded logo from all their airlines (their preset mark shows instead)"
+                    onClick={() => onClearLogo(a.id, a.displayName)}>Clear logo</button>
+                ) : null}
                 {a.isAdmin ? null : a.bannedAt ? (
                   <button className="btn small" disabled={busyId === a.id}
                     onClick={() => onUnban(a.id, a.displayName)}>Unban</button>

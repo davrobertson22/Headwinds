@@ -15,6 +15,7 @@ import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
 import { useVisibleInterval } from './usePoll.js';
 import { getAircraftType } from '../../../src/data/aircraft.js';
 import { fleetHeadline } from '../../../src/utils/fleetNews.js';
+import EventMark from '../../../src/components/EventMark.jsx';
 
 const TICKER_LIMIT = 8;
 
@@ -123,7 +124,10 @@ const openNewsTab = () => {
   window.dispatchEvent(new CustomEvent('hw:navigate', { detail: 'news' }));
 };
 
-export default function FeedWidget({ worldId, token, myAirlineId = null, onOpenNews = openNewsTab }) {
+// `brands`: Map<airlineId, logo fields> (src/utils/airlineBrands.js brandIndex),
+// built by GamePlayScreen from the state it already polls. Optional — without
+// it every line keeps its emoji.
+export default function FeedWidget({ worldId, token, myAirlineId = null, brands = null, onOpenNews = openNewsTab }) {
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState(null);
   const [error, setError] = useState(null);
@@ -189,7 +193,12 @@ export default function FeedWidget({ worldId, token, myAirlineId = null, onOpenN
                   padding: '7px 4px', borderBottom: '1px solid var(--border, rgba(255,255,255,0.08))',
                   fontSize: 13, lineHeight: 1.5,
                 }}>
-                  <span style={{ flexShrink: 0 }}>{d.icon}</span>
+                  {/* The logo only when the line names the row's own airline —
+                      a fuel-quarter or alliance line names someone else. */}
+                  <EventMark
+                    brand={e.airlineId && d.who === e.airline ? (brands?.get(e.airlineId) ?? null) : null}
+                    icon={d.icon} size={20}
+                  />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <strong>{d.who}</strong>{e.dev ? <DevBadge /> : null}{e.og ? <OgBadge /> : null}{e.sup ? <SupporterBadge /> : null}{mine ? <strong> (you)</strong> : ''}
                     {d.what ? ` ${d.what}` : ''}

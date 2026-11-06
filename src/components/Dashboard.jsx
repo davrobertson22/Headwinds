@@ -16,6 +16,7 @@ import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
 import { getSeasonalProfile } from '../models/demand.js';
 import BoardObjectives from './BoardObjectives.jsx';
+import CompactWaterfall from './CompactWaterfall.jsx';
 import InfoTip from './InfoTip.jsx';
 import { requestNav } from '../utils/navIntent.js';
 import { airlineAlerts, projectedRouteResults, projectWeekShared } from '../utils/airlineAlerts.js';
@@ -680,6 +681,17 @@ export default function Dashboard({ onNavigate }) {
           />
         )}
       </div>
+
+      {/* ── Where the money went: compact waterfall (Finance's cost bridge) ── */}
+      {pnl.projected && (routes.length > 0 || cargoRoutes.length > 0 || pnl.lastWeek) && (
+        <CompactWaterfall
+          proj={proj} state={state}
+          collapsed={!!collapsed.waterfall}
+          onToggleCollapse={() => toggleCollapse('waterfall')}
+          Chevron={CollapseChevron}
+          onOpenFinance={canNavigate ? () => go('finance') : null}
+        />
+      )}
 
       {/* ── Weekly P&L bridge (incl. cost-mix bar) ───────────────────────── */}
       {pnl.projected && (routes.length > 0 || cargoRoutes.length > 0 || pnl.lastWeek) && (

@@ -154,9 +154,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
 ));
 
-function tooltipFor(link, rivalName) {
+function tooltipFor(link, rivalName, networkColor = RIVAL_COLOR) {
   const { origin, dest, cfg, cargo, contested } = link;
-  const color = contested ? CONTESTED_COLOR : cargo ? CARGO_COLOR : RIVAL_COLOR;
+  const color = contested ? CONTESTED_COLOR : cargo ? CARGO_COLOR : networkColor;
   const acTypes = cfg?.aircraftTypes ?? (cfg?.aircraftType ? [cfg.aircraftType] : []);
   const ac = acTypes.length
     ? acTypes.map((t) => getAircraftType(t)?.name ?? t).join(', ')
@@ -225,6 +225,10 @@ export default function RivalRouteMap({
   playerCargoKeys = [],
   name = 'Rival',
   height = 300,
+  // Their own lines in their livery's tail colour (utils/airlineBrands.js
+  // rivalNetworkColor — slate when it wouldn't read or would clash with a
+  // colour this map already gives a meaning). Contested stays amber.
+  networkColor = RIVAL_COLOR,
 }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
@@ -296,7 +300,7 @@ export default function RivalRouteMap({
 
     for (const link of links) {
       const { cargo, contested } = link;
-      const tip = tooltipFor(link, name);
+      const tip = tooltipFor(link, name, networkColor);
       // Each way the pair is flown — a tag rotation draws through its stops.
       const segments = [];
       for (const sh of link.shapes) {
@@ -309,7 +313,7 @@ export default function RivalRouteMap({
       }
 
       for (const { pts, multiStop } of segments) {
-        const color = contested ? CONTESTED_COLOR : cargo ? CARGO_COLOR : multiStop ? TAG_COLOR : RIVAL_COLOR;
+        const color = contested ? CONTESTED_COLOR : cargo ? CARGO_COLOR : multiStop ? TAG_COLOR : networkColor;
         if (contested) {
           // Contested pairs get the glow your own map gives a live route — this
           // is the one thing a player opens a rival's map to find.
@@ -356,7 +360,7 @@ export default function RivalRouteMap({
     for (const airport of airports) {
       const marker = L.circleMarker([airport.lat, airport.lon], {
         radius: airport.isHub ? 6 : 3.5,
-        fillColor: airport.isHub ? HUB_COLOR : RIVAL_COLOR,
+        fillColor: airport.isHub ? HUB_COLOR : networkColor,
         color: airport.isHub ? HUB_COLOR : '#c7d6ea',
         weight: airport.isHub ? 2 : 1,
         fillOpacity: airport.isHub ? 1 : 0.85,
@@ -396,7 +400,7 @@ export default function RivalRouteMap({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, extent, name, mapReady]);
+  }, [signature, extent, name, mapReady, networkColor]);
 
   // Leaflet caches container size; a panel that opens into a freshly-sized box
   // must be told to remeasure or it tiles into stale dimensions.
@@ -429,7 +433,7 @@ export default function RivalRouteMap({
         )}
       </div>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
-        <LegendChip color={RIVAL_COLOR} label="Their network" />
+        <LegendChip color={networkColor} label="Their network" />
         <LegendChip
           color={CONTESTED_COLOR}
           label={contestedCount ? `Contested with you (${contestedCount})` : 'Contested with you'}

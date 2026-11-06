@@ -147,7 +147,8 @@ export function buildGlobeData({ routes = [], cargo = [], partners = [], airport
       .filter(it => (it.chain?.length ?? 0) >= 2)
       .map(it => ({
         type: 'Feature',
-        properties: { id: it.id, color: it.color, tip: it.tip ?? '' },
+        // w: width multiple (RouteMap's width-by-passengers toggle; 1 when off).
+        properties: { id: it.id, color: it.color, tip: it.tip ?? '', w: Number.isFinite(it.w) ? it.w : 1 },
         geometry: chainGeometry(it.chain.map(ll)),
       })),
   });

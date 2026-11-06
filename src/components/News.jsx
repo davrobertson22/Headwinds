@@ -18,6 +18,8 @@ import { getAircraftType } from '../data/aircraft.js';
 import { formatMoney } from '../utils/simulation.js';
 import { NewsIcon } from './Icons.jsx';
 import { fleetHeadline } from '../utils/fleetNews.js';
+import { brandIndex } from '../utils/airlineBrands.js';
+import EventMark from './EventMark.jsx';
 
 const CATEGORIES = [
   { id: 'world',     label: 'World',     icon: '🌍' },
@@ -347,6 +349,12 @@ export default function News() {
   const [expanded, setExpanded] = useState(() => new Set());
   const [hideMine, setHideMine] = useState(false);
   const seenIds = useRef(new Set());
+  // Who moved, by logo: you and every human rival, from the state already
+  // loaded (no extra request). Lines for airlines it can't brand keep the emoji.
+  const brands = useMemo(
+    () => brandIndex(state, myAirlineId),
+    [state?.competitors, state?.logoId, state?.logoColor, state?.logoBg, state?.customLogo, myAirlineId],
+  );
 
   const allOn = active.size === CATEGORIES.length;
   const categoriesParam = allOn ? '' : `&categories=${[...active].join(',')}`;
@@ -493,7 +501,7 @@ export default function News() {
                 cursor: nav ? 'pointer' : undefined,
               }}
             >
-              <span style={{ flexShrink: 0, fontSize: 15 }}>{c.icon}</span>
+              <EventMark brand={c.standalone ? null : (brands.get(it.airlineId) ?? null)} icon={c.icon} size={22} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 {/* In multiplayer the mover's name opens their account profile
                     (remoteApi.onViewPlayer + accountId both exist); in solo

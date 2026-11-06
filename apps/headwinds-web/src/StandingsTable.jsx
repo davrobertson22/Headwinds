@@ -12,6 +12,7 @@
 // keeps its SVPS column, because that is still what its order means.
 import { Fragment } from 'react';
 import OgBadge, { DevBadge, SupporterBadge } from './OgBadge.jsx';
+import AirlineLogo from '../../../src/components/AirlineLogo.jsx';
 import { STANDINGS_SORTS, sortStandings, finalStretchLine } from '../../../src/utils/standingsView.js';
 
 const fmtMoney = (n) => n == null ? '—' :
@@ -128,13 +129,27 @@ export default function StandingsTable({
                   >
                     <td>{a.rank}</td>
                     <td>
+                      {/* The airline's mark first — preset or upload (served by
+                          /logos, cached forever per hash). Older server payloads
+                          carry no logoId, and then there's no mark. */}
+                      {/* Mark and name side by side: the name wraps beside the
+                          logo, never under it. */}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, verticalAlign: 'middle' }}>
+                      {a.logoId || a.customLogo ? (
+                        <AirlineLogo
+                          id={a.logoId} accentColor={a.logoColor} bgColor={a.logoBg}
+                          customSrc={a.customLogo} size={22}
+                          className="standings-logo"
+                        />
+                      ) : null}
                       {/* The name links to the account-level profile; stopPropagation so
                           the click doesn't also toggle the in-row rival panel. Older server
                           payloads carry no accountId — then the name stays plain text. */}
-                      {a.accountId
+                      <span>{a.accountId
                         ? <a href={`#/players/${a.accountId}`} title="View player profile"
                              onClick={(e) => e.stopPropagation()}>{a.name}</a>
-                        : a.name}{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{a.sup ? <SupporterBadge /> : null}{mineId === a.id ? <span className="muted"> (you)</span> : null}
+                        : a.name}</span>
+                      </span>{a.dev ? <DevBadge /> : null}{a.og ? <OgBadge /> : null}{a.sup ? <SupporterBadge /> : null}{mineId === a.id ? <span className="muted"> (you)</span> : null}
                       {a.alliance ? <span className="alliance-tag" title={`Alliance: ${a.alliance}`}>🤝 {a.alliance}</span> : null}
                       {/* Flag a probably-abandoned rival at a glance (idle past ~3
                           real days; never your own row). */}

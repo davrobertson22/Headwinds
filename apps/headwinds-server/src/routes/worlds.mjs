@@ -4,6 +4,7 @@ import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { restartAirline, MAX_RESTARTS } from '../lib/restartService.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
+import { logoPathOf } from '../lib/logoColumn.mjs';
 // The public-move allowlist and payload scrubber are shared with the news feed
 // (lib/newsService.mjs) — one definition of "what a rival may see", not two.
 import { publicPayload, isPublicDecision } from '../lib/publicDecisions.mjs';
@@ -165,7 +166,15 @@ export default async function worldRoutes(fastify) {
              CASE WHEN jsonb_typeof(a.state->'fleet') = 'array'
                   THEN jsonb_array_length(a.state->'fleet') ELSE 0 END AS fleet,
              acc."isOG" AS og, acc."isSupporter" AS sup, acc.email AS email,
-             COALESCE(acc.username, acc."displayName") AS "playerName"
+             COALESCE(acc.username, acc."displayName") AS "playerName",
+             -- Branding for the logo beside each name: three short strings off
+             -- the rival projection (a filled row never touches "state"), and
+             -- the uploaded logo as a hash for its cache-forever URL — the same
+             -- projection loadRivalRows uses, never the bytes.
+             COALESCE(a."rivalState", a.state)->>'logoId'    AS "logoId",
+             COALESCE(a."rivalState", a.state)->>'logoColor' AS "logoColor",
+             COALESCE(a."rivalState", a.state)->>'logoBg'    AS "logoBg",
+             left(md5(a."customLogo"), 12) AS "logoHash"
       FROM "Airline" a
       JOIN "Account" acc ON acc.id = a."accountId"
       WHERE a."worldId" = ${world.id}
@@ -307,6 +316,12 @@ export default async function worldRoutes(fastify) {
         routes: Number(a.routes),
         fleet: Number(a.fleet),
         alliance: allianceNameByAirline.get(a.id) ?? null,
+        // Logo beside the name (Rankings, season podium): the AirlineLogo
+        // fields, with an upload as its /logos URL (lib/logoColumn.mjs).
+        logoId: a.logoId ?? 'compass',
+        logoColor: a.logoColor ?? null,
+        logoBg: a.logoBg ?? null,
+        customLogo: logoPathOf(a.id, a.logoHash),
         og: a.og === true,
         sup: a.sup === true,
         dev: isDevEmail(a.email),

@@ -13,6 +13,7 @@ import { getAlliance, effectiveAllianceId } from '../data/alliances.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { describeFleetMove } from '../utils/fleetNews.js';
 import AirlineLogo from './AirlineLogo.jsx';
+import { rivalNetworkColor } from '../utils/airlineBrands.js';
 import { worldAirlineCodes } from '../models/departureBoard.js';
 import RivalRouteMap from './RivalRouteMap.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
@@ -1252,6 +1253,7 @@ function NetworkPanel({ carrier, playerRouteMap, playerCargoKeys = [], playerCas
             playerCargoKeys={playerCargoKeys}
             name={carrier.name}
             height={300}
+            networkColor={rivalNetworkColor(carrier)}
           />
         </div>
       )}
@@ -1797,6 +1799,7 @@ function RivalDetailView({ carrier, onClose }) {
                 playerCargoKeys={playerCargoKeys}
                 name={carrier.name}
                 height={340}
+                networkColor={rivalNetworkColor(carrier)}
               />
             </div>
             {routeEntries.length === 0 ? (

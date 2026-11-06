@@ -1825,6 +1825,20 @@ function ModerationScreen({ token, me }) {
     setBusyId(null);
   };
 
+  const clearLogo = async (accountId, who) => {
+    if (!(await confirm({
+      title: `Clear ${who}'s uploaded logo?`,
+      body: 'Removes the uploaded logo from all their airlines. Their preset mark shows instead, and they can upload a new one.',
+      danger: true, confirmLabel: 'Clear logo',
+    }))) return;
+    setBusyId(accountId); setError(null); setOgNote(null);
+    try {
+      const res = await api(`/admin/accounts/${accountId}/clear-logo`, { method: 'POST', token });
+      setOgNote(res.cleared ? `Cleared the uploaded logo on ${res.cleared} airline(s) for ${who}` : `${who} has no uploaded logo`);
+    } catch (e) { setError(e); }
+    setBusyId(null);
+  };
+
   const dismiss = async (reportId) => {
     if (!(await confirm({ title: 'Dismiss this report?', body: 'Marks it as not actionable.', confirmLabel: 'Dismiss report' }))) return;
     setBusyId(reportId); setError(null);
@@ -2014,7 +2028,7 @@ function ModerationScreen({ token, me }) {
             </form>
             <AccountSearchResults
               accounts={ogResults} busyId={busyId}
-              onSetOg={setOg} onSetSupporter={setSupporter} onBan={ban} onUnban={unban}
+              onSetOg={setOg} onSetSupporter={setSupporter} onBan={ban} onUnban={unban} onClearLogo={clearLogo}
             />
             {ogNote && <p className="muted small">✓ {ogNote}</p>}
           </div>

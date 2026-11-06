@@ -28,6 +28,9 @@ const ROUTE = {
 const isActive = ['boolean', ['feature-state', 'active'], false];
 const byState = (spec, idx, anySel) =>
   ['case', isActive, spec.active[idx], anySel ? spec.dimmed[idx] : spec.normal[idx]];
+// Line widths also carry each feature's `w` (globeCore: the width-by-passengers
+// multiple, 1 when that toggle is off), so the globe matches the flat map.
+const widthByState = (spec, anySel) => ['*', ['coalesce', ['get', 'w'], 1], byState(spec, 0, anySel)];
 
 const INTERACTIVE = ['airports-hit', 'planes', 'routes-hit', 'cargo-line', 'partners-line', 'loyalty-ring'];
 
@@ -167,10 +170,10 @@ function addLayers(map, nightCanvas, planeColors) {
 
   map.addLayer({ id: 'routes-glow', type: 'line', source: 'routes', layout: round,
     paint: { 'line-color': ['get', 'color'], 'line-blur': 5,
-             'line-width': byState(ROUTE.halo, 0, false), 'line-opacity': byState(ROUTE.halo, 1, false) } });
+             'line-width': widthByState(ROUTE.halo, false), 'line-opacity': byState(ROUTE.halo, 1, false) } });
   map.addLayer({ id: 'routes-line', type: 'line', source: 'routes', layout: round,
     paint: { 'line-color': ['get', 'color'],
-             'line-width': byState(ROUTE.main, 0, false), 'line-opacity': byState(ROUTE.main, 1, false) } });
+             'line-width': widthByState(ROUTE.main, false), 'line-opacity': byState(ROUTE.main, 1, false) } });
   // Wide invisible corridor — what the pointer hits, so a 2.5px line is easy
   // to hover (the flat map's "hit corridor", for the same reason).
   map.addLayer({ id: 'routes-hit', type: 'line', source: 'routes', layout: round,
@@ -434,9 +437,9 @@ export default function GlobeMap({
     activeRef.current = want;
 
     const anySel = selectedId != null || lit.length > 0;
-    map.setPaintProperty('routes-line', 'line-width',   byState(ROUTE.main, 0, anySel));
+    map.setPaintProperty('routes-line', 'line-width',   widthByState(ROUTE.main, anySel));
     map.setPaintProperty('routes-line', 'line-opacity', byState(ROUTE.main, 1, anySel));
-    map.setPaintProperty('routes-glow', 'line-width',   byState(ROUTE.halo, 0, anySel));
+    map.setPaintProperty('routes-glow', 'line-width',   widthByState(ROUTE.halo, anySel));
     map.setPaintProperty('routes-glow', 'line-opacity', byState(ROUTE.halo, 1, anySel));
     map.setPaintProperty('cargo-line',  'line-opacity', anySel ? 0.27 : 0.9);
     map.setPaintProperty('cargo-glow',  'line-opacity', anySel ? 0.04 : 0.14);
