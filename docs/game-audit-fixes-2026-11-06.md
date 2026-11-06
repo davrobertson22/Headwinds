@@ -15,7 +15,6 @@ What was built from `docs/game-audit-2026-11-06.md`, in Headwinds only. Away-fro
 | **R4 Gate rent** | Rent is flat by airport tier, with a big-tenant discount (gates 11–25 at 90%, gate 26 onward at 80%). It replaces the curve that made each extra gate dearer. | `data/airports.js` (`setGateRentV4`, set by `setDemandModel`) |
 | **R5 Business cycle** | One AR(2) cycle per world: about 4 game years peak to peak, a typical swing of ±3–5%, clamped to −15%/+12%. It scales all demand and new-lease rates (1 + 0.6x). Multiplayer replays it from the world seed; a late joiner is backfilled onto it. Demand events come half as often and hit 1.5× as hard. A Dashboard card shows the phase, momentum, demand and lease rates. | `models/economyCycle.js` (new); `worldEconomy.mjs` `worldEconomyCycle`; reducer `economyCycle`; `EconomyIndicator.jsx` (new) |
 | **R6 Earned meltdowns** | Weekly risk rises when the fleet is flown past 85% of its hours (amplified by having no spares) or the lowest of pilot, ground and cabin morale is under 55. Risk is zero otherwise, and no random number is drawn. Airlines under 5 aircraft are exempt. A meltdown costs −6 satisfaction and a 3-point reputation hit, sends a toast, and posts an `operational_meltdown` news row naming the airline. No cash line, so the P&L still reconciles. | `models/incidents.js` (new); reducer; `newsService.mjs` `incidentNewsRows`; News.jsx and Feed.jsx renderers |
-| **F2 Late-joiner capital** | After week 13, a first-time joiner gets 15% of the median active airline's market cap, clamped to 1–5× the world capital. Re-foundings never get it. **Applies to every world** (it only affects newcomers). | `worldConfig.mjs` `lateJoinCapital`; `joinWorld` |
 | **F2 Live races** | Side races shown above the standings: best newcomer (scored per week flown), regional champions (regions with 2+ airlines) and busiest this week. Built from public rows only. | `utils/standings.js` `liveRaces`; `StandingsTable.jsx` |
 | **F2 Board mandates** | One mandate per quarter from Q2, picked from where the airline stands and never already met. Six kinds: passengers, margin, load factor, satisfaction, new country, new routes. A flat $1.5M bonus, era-scaled. The pick is deterministic (a hash, no random draw). The card stays on the Dashboard after the starter board retires. | `models/boardMandates.js` (new); reducer; `BoardObjectives.jsx` |
 | **F5 Rule presets** | The create form gets a preset picker: Standard (the form's defaults), Hardcore, Sandbox and Classic. Touching any switch changes it to "Custom". | `apps/headwinds-web/src/App.jsx` `WORLD_RULE_PRESETS` |
@@ -30,7 +29,6 @@ These new suites were each checked failing on HEAD. Where the new API doesn't ex
 - `gate-rent-v4-test`: 3
 - `economy-cycle-test`: 7, including a Dashboard SSR render
 - `incidents-test`: 6
-- `late-join-capital-test`: 4
 - `live-races-test`: 4, including a StandingsTable SSR render
 - `board-mandates-test`: 6, including a Dashboard SSR render
 - `world-presets-test`: 3
@@ -45,10 +43,13 @@ The deadweight report gives each type one airframe per mission. At 40–60k pass
 
 On a naive 22-tail hub network flying twice daily, v4 carries about 9% more passengers than v3: frequency stimulates demand. Airlines flying less than daily lose some. This is intended.
 
+## Removed
+
+- **Late-joiner capital** (F2) was built, then taken out the same day at Dave's request. Late joiners start on the world's normal capital, as before.
+
 ## Not built yet
 
 - **F3 subsidy tenders and charters.** This needs an exclusive claim across airlines: a world-locked first-come claim, or a sealed bid resolved by the tick like gate auctions. It also needs a P&L subsidy line, obligations, a page and news. It's a design-doc-first item.
 - **F5 progressive disclosure and an advisor line.** UI work across many pages.
-- **DKR/DSS.** Both rows are Blaise Diagne at the same coordinates. The fix (DKR becomes the pre-2017 Léopold Sédar Senghor at 14.74, −17.49) changes Dakar demand and the generated market tables, so it needs a decision.
 - **Rival one-stop connections** keep pricing headroom at 0, the same in the tick and in previews.
 - **Tailwinds port.** Its folder isn't connected in this session. To port: v4 in `market.js` and `demand.js`; the new models (`pricingPower`, `economyCycle`, `incidents`, `boardMandates`); the airport and aircraft changes; the reducer hooks.

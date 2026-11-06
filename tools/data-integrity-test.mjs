@@ -2,7 +2,8 @@
 //   H4  — no exurban field carries a whole metro's population (HPN/SWF were 20.1)
 //   H18 — different-city pairs a road/rail run apart carry no air O&D; genuine
 //         water/island hops in the same band keep their demand (allow-list)
-//   DKR/DSS — a duplicate-coordinate airport can't be flown between
+//   Dakar — DKR is the old Senghor airport at its own site, not a DSS duplicate;
+//           the two are one metro, so no DKR–DSS demand; no duplicate locations left
 //
 // Run: node tools/data-integrity-test.mjs
 import { AIRPORTS, getAirport } from '../src/data/airports.js';
@@ -22,15 +23,19 @@ const truthy = (v, m) => (v ? ok(m) : bad(m));
 truthy(getAirport('HPN').population < 2, 'HPN (White Plains) resident mass < 2 M');
 truthy(getAirport('SWF').population < 2, 'SWF (Newburgh) resident mass < 2 M');
 
-// ── DKR/DSS duplicate location ────────────────────────────────────────────────
-eq(isSameLocation(getAirport('DKR'), getAirport('DSS')), true,  'DKR/DSS flagged same location');
+// ── Dakar: two real airports, one metro; no duplicate locations anywhere ─────
+eq(getAirport('DKR').name, 'Léopold Sédar Senghor Intl', 'DKR is the old Senghor airport');
+eq(isSameLocation(getAirport('DKR'), getAirport('DSS')), false, 'DKR/DSS are distinct sites');
+truthy(distanceKm(getAirport('DKR'), getAirport('DSS')) > 40, 'DKR sits ~45 km west of DSS');
+eq(isSameMetro(getAirport('DKR'), getAirport('DSS')), true, 'DKR/DSS are one Dakar metro');
+eq(baseCityPairDemand('DKR', 'DSS'), 0, 'no DKR-DSS demand');
 eq(isSameLocation(getAirport('JFK'), getAirport('LAX')), false, 'JFK/LAX not same location');
 const dupPairs = [];
 for (let i = 0; i < AIRPORTS.length; i++) for (let j = i + 1; j < AIRPORTS.length; j++) {
   const a = AIRPORTS[i], b = AIRPORTS[j];
   if (a.code !== b.code && distanceKm(a, b) < SAME_LOCATION_MAX_KM) dupPairs.push(`${a.code}-${b.code}`);
 }
-eq(dupPairs.sort().join(','), 'DKR-DSS', 'the only sub-2 km distinct-airport pair is DKR/DSS');
+eq(dupPairs.sort().join(','), '', 'no two distinct airports share a location');
 
 // ── H18: road/rail pairs suppressed, water/island hops spared ─────────────────
 const SUPPRESSED_TARGETS = [

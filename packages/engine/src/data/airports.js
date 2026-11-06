@@ -365,7 +365,9 @@ export const AIRPORTS = [
   { code: 'PHC', name: 'Port Harcourt Intl',            city: 'Port Harcourt',   country: 'NG', lat: 5.01,   lon: 6.95,     population: 2.7,  tier: 'regional', runwayFt: 9843 },
   { code: 'ACC', name: 'Kotoka Intl',                   city: 'Accra',           country: 'GH', lat: 5.60,   lon: -0.17,    population: 3.6,  tier: 'regional', annualPaxM: 3.2, runwayFt: 11165 },
   { code: 'ABJ', name: 'Felix Houphouet-Boigny Intl',   city: 'Abidjan',         country: 'CI', lat: 5.26,   lon: -3.93,    population: 5.2,  tier: 'regional', runwayFt: 9843 },
-  { code: 'DKR', name: 'Blaise Diagne Intl',            city: 'Dakar',           country: 'SN', lat: 14.67,  lon: -17.07,   population: 3.7,  tier: 'regional', runwayFt: 11450 },
+  // Dakar's original airport (Léopold Sédar Senghor, Yoff), the city's gateway until Blaise Diagne (DSS) replaced it in
+  // December 2017. It used to duplicate DSS's name and coordinates; the metro registry (data/metros.js) pools the two.
+  { code: 'DKR', name: 'Léopold Sédar Senghor Intl',    city: 'Dakar',           country: 'SN', lat: 14.74,  lon: -17.49,   population: 3.7,  tier: 'regional', runwayFt: 11450 },
   { code: 'BKO', name: 'Senou Intl',                    city: 'Bamako',          country: 'ML', lat: 12.53,  lon: -7.95,    population: 2.7,  tier: 'regional', runwayFt: 10498 },
   { code: 'OUA', name: 'Ouagadougou Airport',           city: 'Ouagadougou',     country: 'BF', lat: 12.35,  lon: -1.51,    population: 2.7,  tier: 'regional', runwayFt: 9843 },
   { code: 'NIM', name: 'Diori Hamani Intl',             city: 'Niamey',          country: 'NE', lat: 13.48,  lon: 2.18,     population: 1.3,  tier: 'regional', runwayFt: 10499 },

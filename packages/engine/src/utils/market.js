@@ -583,12 +583,12 @@ export function isSurfaceConnected(o, d, dist) {
   return true;
 }
 
-// ─── Duplicate-location airports (DKR/DSS) ────────────────────────────────────
-// Two DISTINCT codes at (near-)identical coordinates — a data duplicate such as
-// DKR/DSS (both "Blaise Diagne Intl", Dakar, 14.67,-17.07). No route can be
-// flown between them: the route guards reject it and their demand is already
-// zero via the same-metro backstop. Kept as a tested helper so the guards and
-// data-integrity-test.mjs agree on the threshold.
+// ─── Duplicate-location airports ──────────────────────────────────────────────
+// Two DISTINCT codes at (near-)identical coordinates — a data duplicate. DKR/DSS
+// were the one case (both "Blaise Diagne Intl", 14.67,-17.07) until DKR became
+// the old Léopold Sédar Senghor airport at its real site (2026-11-06); the table
+// has none now. The route guards still reject any such pair, and
+// data-integrity-test.mjs keeps the table free of them.
 export const SAME_LOCATION_MAX_KM = 2;
 export function isSameLocation(o, d, dist) {
   if (!o || !d || !o.code || !d.code || o.code === d.code) return false;
