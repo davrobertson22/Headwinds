@@ -15,6 +15,7 @@
 //   logoOnTail  draw the airline's logo on the fin
 //   logoOnFuselage  draw it on the forward fuselage too, ahead of the name
 //               (off by default, so liveries saved before it look the same)
+//   tailDesign  the tail logo's design on the maps and profile (TAIL_DESIGNS)
 //   logoTile    paint the logo on its square tile, the way it looks in the
 //               app. Off by default: a preset is painted as the bare mark,
 //               recoloured when needed so it reads on the paint under it
@@ -25,6 +26,10 @@ export const LIVERY_STYLES = ['none', 'classic', 'belly', 'swoosh', 'retro', 'ta
 export const LIVERY_STYLE_LABELS = {
   none: 'Plain', classic: 'Cheatline', belly: 'Belly', swoosh: 'Swoosh', retro: 'Retro', 'tail-wrap': 'Tail wrap',
 };
+
+// The tail logo's design (TailFin.jsx): how the accent sits on the flat fin.
+export const TAIL_DESIGNS = ['solid', 'stripe', 'stripes', 'swoosh', 'split'];
+export const TAIL_DESIGN_LABELS = { solid: 'Solid', stripe: 'Stripe', stripes: 'Stripes', swoosh: 'Swoosh', split: 'Split' };
 
 export const LIVERY_WHITE = '#f5f7fa';
 export const LIVERY_INK   = '#15202f';
@@ -41,6 +46,7 @@ export const DEFAULT_LIVERY = Object.freeze({
   logoOnFuselage: false,
   logoTile:   false,
   titlesOn:   true,
+  tailDesign: 'solid',
 });
 
 const HEX = /^#([0-9a-f]{6})$/i;
@@ -84,6 +90,7 @@ export function normalizeLivery(raw, accent) {
     logoOnFuselage: src.logoOnFuselage === true,
     logoTile:   src.logoTile === true,
     titlesOn:   src.titlesOn !== false,
+    tailDesign: TAIL_DESIGNS.includes(src.tailDesign) ? src.tailDesign : DEFAULT_LIVERY.tailDesign,
   };
 }
 
@@ -112,5 +119,5 @@ export function liveryFor(state) {
 /** Stable key for caches: the livery's fields in a fixed order. */
 export function liveryKey(livery) {
   const l = normalizeLivery(livery, livery?.tail);
-  return [l.fuselage, l.tail, l.engines, l.cheatline, l.style, l.titles, l.logoOnTail ? 1 : 0, l.titlesOn ? 1 : 0, l.logoOnFuselage ? 1 : 0, l.logoTile ? 1 : 0].join('|');
+  return [l.fuselage, l.tail, l.engines, l.cheatline, l.style, l.titles, l.logoOnTail ? 1 : 0, l.titlesOn ? 1 : 0, l.logoOnFuselage ? 1 : 0, l.logoTile ? 1 : 0, l.tailDesign].join('|');
 }

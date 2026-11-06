@@ -209,7 +209,7 @@ await test('Season results: the podium and final table carry each airline\'s mar
   const podium = html.slice(html.indexOf('Podium'), html.indexOf('Final standings'));
   // The podium shows each finisher's painted tail (TailFin, a client-painted
   // canvas); the square mark stays on the final table below.
-  assert.equal((podium.match(/<canvas[^>]*data-tail-template=/g) ?? []).length, 2, 'a tail per finisher with logo fields (the third row is an older payload)');
+  assert.equal((podium.match(/<svg[^>]*data-tail-template=/g) ?? []).length, 2, 'a tail per finisher with logo fields (the third row is an older payload)');
   const table = html.slice(html.indexOf('Final standings'));
   assert.match(table, /fill="#ffcc00"/, 'the fourth finisher, below the podium, has a mark too');
 });

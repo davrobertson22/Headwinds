@@ -12,8 +12,7 @@
 //           shapes (cheatline, swoosh, belly, …) are drawn against
 //   titles  the x-span for the airline name, above the window line
 //   logo    centre and size of the logo box on the fin
-//   tail    the crop TailFin.jsx paints: fin, stabiliser, rear fuselage
-//   fin     the fin alone, for the maps' hub markers
+//   fin     the fin's traced outline + logo box (TailFin.jsx, the tail logo)
 //   fuselageLogo  vertical centre, size and gap to the name of the logo on
 //           the forward fuselage; it starts at titles.x0 and the name moves aft
 //
@@ -49,23 +48,37 @@ export const LIVERY_TEMPLATES = {
     titles: { x0: 700, x1: 1800 },
     logo: { cx: 4160, cy: 440, size: 290 },
     fuselageLogo: { cy: 842, size: 84, gap: 32 },
-    // The tail crop (TailFin.jsx): the fin, the stabiliser and the rear
-    // fuselage with its last windows and the aft door, in the same space.
-    tail: { x0: 3350, y0: 0, x1: 4629, y1: 1290 },
-    // The fin alone, cut at the fuselage crown — the classic airline tail
-    // logo. The maps use it: the cleanest shape at marker size.
-    fin: { x0: 3560, y0: 0, x1: 4629, y1: 774 },
+    // The fin's outline, traced from the artwork's alpha (tools: PIL on the
+    // PNG, Douglas-Peucker to a dozen points), in the same space: TailFin.jsx
+    // draws the airline's tail logo inside it — a flat silhouette, like the
+    // airline-tail charts — with the logo box placed on the fin's broad body.
+    // base: the y the silhouette is cut at (the fuselage crown).
+    fin: {
+      outline: [[4358, 0], [4258, 77], [4156, 193], [3986, 386], [3816, 579], [3706, 675], [3640, 735], [3570, 775], [3520, 790],
+                [4298, 790], [4302, 762], [4310, 733], [4324, 675], [4349, 579], [4397, 386], [4447, 193], [4476, 77], [4495, 0]],
+      logo: { cx: 4170, cy: 415, size: 400 },
+    },
   },
 };
 
-/** A template's crop as { x0, y0, w, h, aspect (w / h) }: 'tail' (fin + stabiliser + rear fuselage) or 'fin' (the fin alone). */
-export function tailCropOf(spec, which = 'tail') {
-  const fallback = which === 'fin'
-    ? { x0: Math.round(spec.size[0] * 0.78), y0: 0, x1: spec.size[0], y1: Math.round(spec.body?.crown ?? spec.size[1] * 0.6) }
-    : { x0: Math.round(spec.size[0] * 0.72), y0: 0, x1: spec.size[0], y1: spec.size[1] };
-  const t = spec?.[which] ?? fallback;
-  const w = t.x1 - t.x0, h = t.y1 - t.y0;
-  return { x0: t.x0, y0: t.y0, w, h, aspect: w / h };
+/**
+ * A template's fin silhouette as { points: [[x, y]…] in a 0-based box, w, h,
+ * aspect (w / h), logo: { cx, cy, size } in the same box }. Templates with no
+ * traced outline get a generic swept fin.
+ */
+export function finOutlineOf(spec) {
+  const fin = spec?.fin ?? {
+    outline: [[600, 0], [500, 80], [100, 700], [0, 790], [760, 790], [800, 0]],
+    logo: { cx: 480, cy: 420, size: 280 },
+  };
+  const xs = fin.outline.map(([x]) => x), ys = fin.outline.map(([, y]) => y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys);
+  const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0;
+  return {
+    points: fin.outline.map(([x, y]) => [x - x0, y - y0]),
+    w, h, aspect: w / h,
+    logo: { cx: fin.logo.cx - x0, cy: fin.logo.cy - y0, size: fin.logo.size },
+  };
 }
 
 export const DEFAULT_LIVERY_TEMPLATE = 'b737-800';
