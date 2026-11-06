@@ -175,6 +175,7 @@ await test('a rival\'s /tails path resolves against the API origin, like /logos'
 });
 
 await test('hub markers carry the tail and redraw when it changes', async () => {
+  assert.match(read('../src/components/RouteMap.jsx'), /state\.customLogo, state\.customTail, state\.airlineName\]\);/, 'the map memo re-keys on a new upload');
   const who = { airlineName: 'A', logoId: 'star', livery: { tailDesign: 'solid' } };
   const a = hubFinMarkup(who), b = hubFinMarkup({ ...who, customTail: '/tails/a?v=1' });
   assert.notEqual(a.key, b.key);

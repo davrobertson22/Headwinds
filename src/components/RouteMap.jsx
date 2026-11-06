@@ -322,7 +322,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   const planeColors = useMemo(() => planeSpriteColors(liveryFor(state)), [state.livery, state.logoColor]);
   // Your tail fin over each of your hubs (logo maker → Tail fin), both views.
   const hubFin = useMemo(() => hubFinMarkup(state),   // eslint-disable-line react-hooks/exhaustive-deps
-    [state.livery, state.logoId, state.logoColor, state.logoBg, state.customLogo, state.airlineName]);
+    [state.livery, state.logoId, state.logoColor, state.logoBg, state.customLogo, state.customTail, state.airlineName]);
   const finLayersRef = useRef([]);
   const { fleet, routes, cargoRoutes = NO_ROUTES, hub, hubs: hubsState,
           competitors = [], allianceMembership, codeshareAgreements = [] } = state;
