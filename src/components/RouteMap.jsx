@@ -1056,7 +1056,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
         layersRef.current.push(hubMarker);
         // Your tail fin standing on the pin. Not interactive: the pin under it
         // keeps the tooltip and the click.
-        const finH = hubFinSize(hubInfo.tier), finW = Math.round(finH * 40 / 44);
+        const finH = hubFinSize(hubInfo.tier), finW = Math.round(finH * 60 / 48);
         const fin = L.marker([airport.lat, airport.lon], {
           icon: L.divIcon({
             className: 'hub-fin-marker',

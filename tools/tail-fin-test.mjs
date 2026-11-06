@@ -85,8 +85,8 @@ await test('every shape draws its own outline; the T-tail adds its stabiliser', 
 
 await test('paint styles: solid, a stripe and a two-tone in the second colour', () => {
   assert.doesNotMatch(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'solid' }), /<polygon/);
-  assert.match(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'stripe' }), /<polygon points="0,38 40,26 40,31 0,43" fill="#ffcc00"/);
-  assert.match(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'split' }), /<polygon points="0,41 40,28 40,44 0,44" fill="#ffcc00"/);
+  assert.match(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'stripe' }), /<polygon points="0,34 60,22 60,27 0,39" fill="#ffcc00"/);
+  assert.match(fin({ tail: '#1e9bff', cheatline: '#ffcc00', finStyle: 'split' }), /<polygon points="0,38 60,28 60,48 0,48" fill="#ffcc00"/);
   // Default livery paints tail and cheatline alike: the style falls back to
   // the fuselage colour so it still shows.
   assert.match(fin({ tail: '#1e9bff', cheatline: '#1e9bff', fuselage: '#f5f7fa', finStyle: 'stripe' }), /fill="#f5f7fa"/);

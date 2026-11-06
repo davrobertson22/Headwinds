@@ -380,7 +380,7 @@ export default function RivalRouteMap({
       if (airport.isHub && hubFin) {
         // Their fin standing on the hub pin (a rival's hubs carry no tier
         // here, so every one draws at the standard size).
-        const finH = 30, finW = Math.round(finH * 40 / 44);
+        const finH = 30, finW = Math.round(finH * 60 / 48);
         const fin = L.marker([airport.lat, airport.lon], {
           icon: L.divIcon({
             className: 'hub-fin-marker',
