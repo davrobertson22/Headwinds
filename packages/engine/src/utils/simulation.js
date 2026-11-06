@@ -4,6 +4,7 @@ import {
   PAX_PAYLOAD_KG, FUEL_KG_PER_L, LIGHT_CABIN_GAIN_MAX, BREGUET_RANGE_KM, DENSE_RANGE_FLOOR, payloadRangeMod, fullTankGainRate, maxSeatsForRange,
 } from '../data/aircraft.js';
 import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
+import { productSpaceMul, productWeeklyCost, productFittingCost } from '../data/seatProducts.js';
 import {
   resolveBaseFor, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
   contractOffsetSavings, isBaseOpen, RESERVE_AT_BASE_READINESS_DISCOUNT,
@@ -65,7 +66,7 @@ import {
   buildRouteMarket,
   computeMarketShare,
   computeQualityScore, designAgeQualityPts,
-  cabinQualityPoints,
+  cabinQualityPoints, cabinSegmentQualityDelta,
   buildCompetitorOffer,
   routeMaturityFactor,
   computeConnectivityBonus,
@@ -491,10 +492,21 @@ export const CONFIG_SPACE_QUALITY_MAX = 14;
 
 /** Economy-equivalent seat units consumed by a cabin config. */
 export function configSeatUnits(config) {
-  return (config.firstClass     ?? 0) * CLASS_SPACE_MULTIPLIERS.firstClass
-       + (config.businessClass  ?? 0) * CLASS_SPACE_MULTIPLIERS.businessClass
-       + (config.premiumEconomy ?? 0) * CLASS_SPACE_MULTIPLIERS.premiumEconomy
-       + (config.economy        ?? 0) * CLASS_SPACE_MULTIPLIERS.economy;
+  return (config.firstClass     ?? 0) * classSpaceUnits(config, 'firstClass')
+       + (config.businessClass  ?? 0) * classSpaceUnits(config, 'businessClass')
+       + (config.premiumEconomy ?? 0) * classSpaceUnits(config, 'premiumEconomy')
+       + (config.economy        ?? 0) * classSpaceUnits(config, 'economy');
+}
+
+/**
+ * Floor per seat of one class in THIS cabin: the class multiplier times the
+ * seat product fitted there (data/seatProducts.js — a 28" pitch gives floor
+ * back, a lie-flat takes more). Every screen that lays a cabin out must use
+ * this rather than CLASS_SPACE_MULTIPLIERS alone, or it will fit the wrong
+ * number of seats. A config with no products gets the bare multiplier.
+ */
+export function classSpaceUnits(config, cls) {
+  return (CLASS_SPACE_MULTIPLIERS[cls] ?? 1) * productSpaceMul(config, cls);
 }
 
 /** Total physical passengers (bodies) a cabin config seats. */
@@ -731,9 +743,13 @@ export function calcReconfCost(current, next) {
     Math.max(0, (next?.businessClass  ?? 0) - (current?.businessClass  ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.businessClass +
     Math.max(0, (next?.premiumEconomy ?? 0) - (current?.premiumEconomy ?? 0)) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
 
-  if (seatChanges === 0 && fitUpgrade === 0 && premInstall === 0) return 0;
+  // Seat products the refit introduces (lie-flats, suites, screens…): a tier
+  // change pays for every seat in that cabin, new seats pay for their own.
+  const productFit = productFittingCost(current, next);
 
-  return Math.max(REFIT_MIN_COST, seatChanges * REFIT_SEAT_COST + premInstall + fitUpgrade);
+  if (seatChanges === 0 && fitUpgrade === 0 && premInstall === 0 && productFit === 0) return 0;
+
+  return Math.max(REFIT_MIN_COST, seatChanges * REFIT_SEAT_COST + premInstall + fitUpgrade + productFit);
 }
 
 /**
@@ -1260,12 +1276,23 @@ export function routeQualityBreakdown(route, aircraft, state) {
   const designAgePts = designAgeQualityPts(type);
   const raw   = computeQualityScore({ onTimeRate, cabinPoints: cabinPts, fleetAgeYears, customerRating, designAgePts });
   const total = Math.max(0, Math.min(100, raw + groundQualityBonus + spacePts + cateringPts + ancillaryPts + hubPts));
+  // Segment view of the cabin products (0/0 with none): what pairShare carries
+  // into the preview offer so it scores the segments the tick scores. Scored
+  // from each segment's own cabin points, so the figure is whole and a product
+  // in one cabin leaves the other segment's score exactly where it was.
+  const segQ = cabinSegmentQualityDelta(config);
+  const segTotal = (delta) => Math.max(0, Math.min(100,
+    computeQualityScore({ onTimeRate, cabinPoints: cabinPts + delta, fleetAgeYears, customerRating, designAgePts })
+    + groundQualityBonus + spacePts + cateringPts + ancillaryPts + hubPts));
 
   return {
     onTimePts, cabinPts, agePts, designAgePts, ratingPts,
     designEis: type.eis ?? null, designName: type.name,
     groundPts: groundQualityBonus, spacePts, cateringPts, ancillaryPts, hubPts,
     raw, total,
+    totalLeisure:  segTotal(segQ.leisure),
+    totalBusiness: segTotal(segQ.business),
+    segmentDelta:  segQ,
     onTimeRate, customerRating, satisfaction, avgUtilization,
     // Capability context for the UI: which of the provisioned amenities this
     // route can actually deliver, and what the lounge network is worth to the
@@ -2358,6 +2385,21 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   const ancillaryQuality = ancillaryQualityBonus(ancillaries, dist, ancCoverage);
   // Hub quality bonus: routes through a player-designated hub get a quality boost from hub investment
   const qualityScore = Math.max(0, Math.min(100, rawQualityScore + groundQualityBonus + spaceQualityBonus + cateringQuality + ancillaryQuality + (route.hubQualityBonus ?? 0)));
+  // What each segment sees of the cabin: economy's products for leisure, the
+  // premium cabins' for business. Scored from that segment's own cabin points
+  // (whole numbers, like qualityScore); equal to qualityScore with no products.
+  const segQ = cabinSegmentQualityDelta(config);
+  const segScore = (delta) => Math.max(0, Math.min(100, (route.qualityScore != null
+    ? rawQualityScore + delta
+    : computeQualityScore({
+        onTimeRate,
+        cabinPoints:    cabinQualityPoints(config) + delta,
+        fleetAgeYears:  (aircraft.ageWeeks ?? 0) / 52,
+        customerRating,
+        designAgePts:   designAgeQualityPts(type),
+      })) + groundQualityBonus + spaceQualityBonus + cateringQuality + ancillaryQuality + (route.hubQualityBonus ?? 0)));
+  const qualityScoreLeisure  = segScore(segQ.leisure);
+  const qualityScoreBusiness = segScore(segQ.business);
 
   // Hub connectivity bonus — scaled by the spokes you actually connect there
   // (route.hubSpokes, attached by weeklyTick). A caller that doesn't know the
@@ -2398,6 +2440,8 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     // and spare economy seats, rather than being thrown away at the economy cap.
     totalSeats:        configBodies(config) * route.weeklyFrequency,
     qualityScore,
+    qualityScoreLeisure,
+    qualityScoreBusiness,
     connectivityBonus,
     // Loyalty program + reputation blunt price sensitivity (attached by weeklyTick).
     priceSensitivityReduction: route.priceSensitivityReduction ?? 0,
@@ -2629,7 +2673,8 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   const crewCost    = Math.round(costKm * type.crewCostPerKm * flights * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
-    (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
+    (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0) +
+    productWeeklyCost(config);
 
   // Hub cost efficiencies — own staff/kitchen/crew base at designated hubs.
   // station: discount on ground handling + catering (mean of the two endpoints);
@@ -3034,6 +3079,13 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
     designAgePts:  designAgeQualityPts(type),    // era worlds: the TYPE's vintage
   });
   const spaceBonus    = configSpaceQualityBonus(config, type);
+  // Each segment's base, from its own cabin points (see simulateRoute).
+  const segQ          = cabinSegmentQualityDelta(config);
+  const segBase = (delta) => (route.qualityScore != null ? baseQuality + delta : computeQualityScore({
+    onTimeRate, cabinPoints: cabinQualityPoints(config) + delta, fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
+    customerRating, designAgePts: designAgeQualityPts(type),
+  }));
+  const baseQualityLeisure = segBase(segQ.leisure), baseQualityBusiness = segBase(segQ.business);
   const cateringLevel = normalizeCateringLevel(route.cateringLevel);
   // Provisioned-amenity capability, same two gates as simulateRoute: Wi-Fi off
   // the metal, lounges off the airports (attached by weeklyTick). On a tag
@@ -3085,6 +3137,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
       seatsPerFlight: type.seats,
       economySeats: 1e12, businessSeats: 1e12,   // huge → demand returns uncapped
       qualityScore: quality, connectivityBonus,
+      qualityScoreLeisure:  Math.max(0, Math.min(100, quality - baseQuality + baseQualityLeisure)),
+      qualityScoreBusiness: Math.max(0, Math.min(100, quality - baseQuality + baseQualityBusiness)),
       priceSensitivityReduction: route.priceSensitivityReduction ?? 0,
       marketingBoost: route.marketingBoost ?? 0,
       brandReach: route.brandReach ?? 1,
@@ -3188,7 +3242,8 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const crewCost = Math.round(costKm * type.crewCostPerKm * sectorFactor * (labor?.seniorityMult ?? 1));
   const qualityCost =
     (SEAT_QUALITY_COST_PER_ROUTE[config.seatQuality ?? 'standard'] ?? 0) +
-    (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0);
+    (SERVICE_QUALITY_COST_PER_ROUTE[config.serviceQuality ?? 'standard'] ?? 0) +
+    productWeeklyCost(config);
 
   // Hub cost efficiencies — same model as simulateRoute (station = handling +
   // catering discount averaged over endpoints; layover = max-endpoint discount).
@@ -5225,11 +5280,13 @@ export function weeklyTick(state) {
         let totalFreq     = 0;
         let totalQuality  = 0;
         let hasBusinessCabin = false;
+        let segLeisure = 0, segBusiness = 0;   // segment deltas, averaged like quality
 
         for (const { route, aircraft } of group) {
           const type = getAircraftType(aircraft.typeId);
           if (!type) continue;
           const cfg  = aircraft.config ?? defaultConfig(type.seats);
+          const segQ = cabinSegmentQualityDelta(cfg);
           const freq = route.weeklyFrequency ?? 7;
           const eco  = (cfg.economy ?? type.seats) * freq;
           const biz  = (cfg.businessClass ?? 0) * freq;
@@ -5249,8 +5306,8 @@ export function weeklyTick(state) {
           // figures (rather than scoring the group once at blended coverage) is
           // what makes an unfitted tail on a shared pair drag the pair's quality
           // in proportion to how much of the schedule it flies.
-          totalQuality += Math.max(0, Math.min(100,
-            raw + fx.groundQualityBonus
+          const tailQuality = (base) => Math.max(0, Math.min(100,
+            base + fx.groundQualityBonus
             + configSpaceQualityBonus(cfg, type)
             + cateringQualityBonus(normalizeCateringLevel(route.cateringLevel), groupDist) + (route.cateringQualityDelta ?? 0)
             + ancillaryQualityBonus(ancillaries, 0, {
@@ -5258,10 +5315,24 @@ export function weeklyTick(state) {
                 lounge: groupLounge.loungeCoverage,
               })
             + groupHubQ));
+          totalQuality += tailQuality(raw);
+          // Each segment's view of this tail's cabin products, scored from its
+          // own cabin points so a legacy tail adds the same number three times.
+          const rawSeg = (delta) => computeQualityScore({
+            onTimeRate:    fx.onTimeRate,
+            cabinPoints:   cabinQualityPoints(cfg) + delta,
+            fleetAgeYears: (aircraft.ageWeeks ?? 0) / 52,
+            customerRating: fx.customerRating,
+            designAgePts:  designAgeQualityPts(type),
+          });
+          segLeisure  += tailQuality(rawSeg(segQ.leisure));
+          segBusiness += tailQuality(rawSeg(segQ.business));
           if (biz > 0) hasBusinessCabin = true;
         }
 
         const avgQuality = Math.round(totalQuality / group.length);
+        const avgQualityLeisure  = Math.round(segLeisure  / group.length);
+        const avgQualityBusiness = Math.round(segBusiness / group.length);
         // Fares, member-aware: nonstop members all fly the pair's stored fares
         // (routePricing is per-pair), a tag member flies its own segment fare.
         // Seat-weight the group's economy fare so a mixed group's offer is priced
@@ -5306,6 +5377,8 @@ export function weeklyTick(state) {
           businessSeats:     totalBizSeats,
           totalSeats:        totalSeatsAll,
           qualityScore:      avgQuality,
+          qualityScoreLeisure:  avgQualityLeisure,
+          qualityScoreBusiness: avgQualityBusiness,
           connectivityBonus: connBonus,
           // Reputation/loyalty price-sensitivity shield — same as single-aircraft
           // routes get via sensReductionFor (was: always 0 for grouped routes).

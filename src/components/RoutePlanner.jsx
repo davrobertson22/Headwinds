@@ -7,7 +7,7 @@ import {
   baseCityPairDemand, referencePrice, distanceKm,
   simulateRoute, formatMoney, formatPercent, currentGameDate,
   defaultConfig, configBodies, configSpaceQualityBonus, defaultClassPrices,
-  CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS,
+  CLASS_FARE_MULTIPLIERS, CLASS_SPACE_MULTIPLIERS, classSpaceUnits,
   buildEventDemandModel, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor,
   maxFrequency, routeActiveMonths, effectiveRangeKm, forecastRangeMod, committedBlockHoursByMonth,
   calendarYear, stateCateringCapReport,
@@ -321,11 +321,13 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
   const cfg = config ?? defaultConfig(maxSeats);
 
   // Floor-space math (mirrors FleetConfig): premium cabins consume >1 unit each.
+  // Floor per seat is product-aware (a lie-flat or a 28" pitch changes it), so
+  // read it through the engine's helper rather than the bare class multiplier.
   const premiumUnits =
-      (cfg.firstClass     ?? 0) * CLASS_SPACE_MULTIPLIERS.firstClass
-    + (cfg.businessClass  ?? 0) * CLASS_SPACE_MULTIPLIERS.businessClass
-    + (cfg.premiumEconomy ?? 0) * CLASS_SPACE_MULTIPLIERS.premiumEconomy;
-  const usedUnits  = premiumUnits + (cfg.economy ?? 0) * CLASS_SPACE_MULTIPLIERS.economy;
+      (cfg.firstClass     ?? 0) * classSpaceUnits(cfg, 'firstClass')
+    + (cfg.businessClass  ?? 0) * classSpaceUnits(cfg, 'businessClass')
+    + (cfg.premiumEconomy ?? 0) * classSpaceUnits(cfg, 'premiumEconomy');
+  const usedUnits  = premiumUnits + (cfg.economy ?? 0) * classSpaceUnits(cfg, 'economy');
   const emptyUnits = Math.max(0, maxSeats - usedUnits);
   const over       = premiumUnits > maxSeats;
   const bodies     = configBodies(cfg);
@@ -338,8 +340,8 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
       // economy capped by floor units left after premium cabins
       return Math.max(0, Math.floor(maxSeats - premiumUnits));
     }
-    const otherPremium = premiumUnits - (cfg[key] ?? 0) * CLASS_SPACE_MULTIPLIERS[key];
-    return Math.max(0, Math.floor((maxSeats - otherPremium - (cfg.economy ?? 0) * CLASS_SPACE_MULTIPLIERS.economy) / CLASS_SPACE_MULTIPLIERS[key]));
+    const otherPremium = premiumUnits - (cfg[key] ?? 0) * classSpaceUnits(cfg, key);
+    return Math.max(0, Math.floor((maxSeats - otherPremium - (cfg.economy ?? 0) * classSpaceUnits(cfg, 'economy') + 1e-9) / classSpaceUnits(cfg, key)));
   }
   function setSeat(key, raw) {
     const next = Math.min(Math.max(0, parseInt(raw, 10) || 0), seatCap(key));
@@ -413,7 +415,7 @@ function CabinConfigPanel({ type, config, onChange, source, onSourceChange, flee
       {/* Floor-usage bar */}
       <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 6, background: 'var(--surface3)' }}>
         {CABIN_KEYS.map(k => {
-          const units = (cfg[k] ?? 0) * CLASS_SPACE_MULTIPLIERS[k];
+          const units = (cfg[k] ?? 0) * classSpaceUnits(cfg, k);
           return units > 0 && <div key={k} style={{ width: `${(units / maxSeats) * 100}%`, background: CABIN_COLORS[k] }} />;
         })}
       </div>

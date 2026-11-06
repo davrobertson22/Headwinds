@@ -10,6 +10,7 @@
 // check in Headwinds. Restored. Worth diffing the two on any shared change.
 import { eraFareIndex, eraFuelMean, ERA_FUEL_MIN_INDEX, eraRevenueScale, eraPaxScale, eraCapitalScale, eraOverheadScale } from './data/era.js';
 import { featureLive, ERA_FEATURE_MESSAGE } from './data/eraFeatures.js';
+import { productDenial, productFittingCost } from './data/seatProducts.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
@@ -135,6 +136,7 @@ import { cleanHex, normalizeAirlineCode } from './utils/logoBranding.js';
 import { leaseAutoRenewSetting, leaseWillAutoRenew, leaseWarnWeeks, LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from './models/leaseRenewal.js';
 import { normalizeStarts, normalizeHubBankSetting } from './models/schedule.js';
 import { faresTrimmedUnderCliff } from './models/fareCliff.js';
+import { applyCargoYields } from './models/cargoYieldBulk.js';
 import {
   tickFuelPrice,
   clampFuelIndex, FUEL_BASE_INDEX,
@@ -1421,6 +1423,22 @@ export function eraFeatureDenial(state, feature) {
   return { code: 'not_yet_invented', feature, message: ERA_FEATURE_MESSAGE[feature] };
 }
 
+// A cabin product this world or airframe refuses (data/seatProducts.js): a
+// lie-flat in 1965, a shower on a 737. Same shape as the era refusal so the
+// toast reads the same.
+function refuseCabinProducts(state, config, type) {
+  const denial = productDenial(config, { calYear: calendarYear(state), type });
+  if (!denial) return null;
+  const title = denial.code === 'not_yet_invented' ? '🕰 Not in this era yet' : '✈ Not on this aircraft';
+  return {
+    ...state,
+    error: denial.message,
+    pendingToasts: [...(state.pendingToasts ?? []), {
+      type: 'warning', title, message: denial.message, duration: 8000,
+    }],
+  };
+}
+
 function refuseEraFeature(state, feature) {
   const denial = eraFeatureDenial(state, feature);
   if (!denial) return null;
@@ -1529,6 +1547,19 @@ export function leaseDenial(state, typeId, quantity = 1) {
     return {
       code: 'vintage', typeId: vt.id, oop: vt.oop,
       message: `No lessor stocks the ${vt.name} — the line closed in ${vt.oop}. Vintage metal is bought outright.`,
+    };
+  }
+  // Era worlds: lessors carry a type only from lessorFirstYear (EIS + 10, war
+  // surplus from day one) in EVERY era world, restrictions or not — the era
+  // counterpart of the vintage rule above. It used to sit behind the NWR gate,
+  // so an open era world (Timely Takeoff) leased the 727-100 in 1965, its first
+  // year (Discord, Dunno23 2026-10-30). Double-decks are left to the NWR
+  // branch: that exclusion, like the order book, is a restriction, not history.
+  const cy = calendarYear(state);
+  if (vt && cy != null && !vt.doubleDeck && cy < lessorFirstYear(vt)) {
+    return {
+      code: 'not_stocked', typeId: vt.id,
+      message: `Lessors take the ${vt.name} from ${lessorFirstYear(vt)}, ${LESSOR_MIN_AGE_YEARS} years after it enters service. Until then, buy it new or used.`,
     };
   }
   if (!state?.newWorldRestrictions) return null;
@@ -2084,6 +2115,10 @@ function reducer(state, action) {
     case 'ORDER_AIRCRAFT': {
       const type = getAircraftType(action.typeId);
       if (!type) return state;
+      if (action.config) {
+        const refused = refuseCabinProducts(state, action.config, type);
+        if (refused) return refused;
+      }
       // Era gate: not yet in service = not orderable, buy or lease. The UI
       // shows the same denial; this is the authoritative check.
       // A launch_only denial is the one refusal that is really a different kind
@@ -2154,7 +2189,9 @@ function reducer(state, action) {
       // One-off seat-quality fitting fee (per aircraft) for seats above basic economy,
       // plus the per-seat install fee for any premium cabins (first/business/prem-eco).
       const seatFittingFee = (SEAT_QUALITY_FITTING_FEE[action.config?.seatQuality ?? 'basic'] ?? 0)
-                           + cabinInstallFee(action.config);
+                           + cabinInstallFee(action.config)
+                           // Seat products fitted on the line (lie-flats, suites, screens).
+                           + productFittingCost(null, action.config);
       // Onboard connectivity, fitted on the production line. Cheaper than the
       // retrofit (see data/wifi.js), which is the entire reason this is a
       // decision at order time rather than something you get round to later.
@@ -3512,6 +3549,8 @@ function reducer(state, action) {
         return { ...state, error: `${target.name ?? 'That aircraft'} is out of service — it cannot start a cabin refit until it is back.` };
       }
       const type    = getAircraftType(target.typeId);
+      const refused = refuseCabinProducts(state, action.config, type);
+      if (refused) return refused;
       const current = target.config ?? defaultConfig(type?.seats ?? 100);
       const cost    = calcReconfCost(current, action.config);
       if (cost > state.cash) {
@@ -3553,6 +3592,8 @@ function reducer(state, action) {
         const a = state.fleet.find(x => x.id === id);
         if (!a || isOutOfService(a)) continue;
         const type    = getAircraftType(a.typeId);
+        const refused = refuseCabinProducts(state, action.config, type);
+        if (refused) return refused;
         const current = a.config ?? defaultConfig(type?.seats ?? 100);
         const c = calcReconfCost(current, action.config);
         cost += c;
@@ -4216,6 +4257,13 @@ function reducer(state, action) {
         ),
       };
     }
+
+    // Freight mass pricing: many freighters repriced in one write (Routes ▸
+    // Freight selection bar, Bulk Pricing modal, the lane-wide +/- and Align).
+    // action: { routeIds: [...], mode: 'pct' | 'reference' | 'set', value }
+    // models/cargoYieldBulk.js is the whole rule; the preview calls it too.
+    case 'BULK_SET_CARGO_YIELD':
+      return applyCargoYields(state, action.routeIds, { mode: action.mode, value: action.value });
 
     // ── Tankering (FUEL_OPERATIONS_PLAN.md §7.2) ─────────────────────────────
     // action: { routeId, mode: 'auto' | 'off' } — passenger or cargo route.

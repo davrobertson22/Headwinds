@@ -13,7 +13,7 @@
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { getAirport } from '@tailwinds/engine/data/airports.js';
 import {
-  CLASS_SPACE_MULTIPLIERS,
+  classSpaceUnits,
   defaultConfig,
   calcReconfCost,
 } from '@tailwinds/engine/utils/simulation.js';
@@ -32,6 +32,7 @@ import { cleanHex, normalizeAirlineCode } from '@tailwinds/engine/utils/logoBran
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
 import { normalizeStarts, normalizeHubBankSetting } from '@tailwinds/engine/models/schedule.js';
+import { CARGO_BULK_YIELD_BATCH, CARGO_BULK_YIELD_MODES, CARGO_BULK_PCT_MIN, CARGO_BULK_PCT_MAX, CARGO_BULK_DELTA_MAX } from '@tailwinds/engine/models/cargoYieldBulk.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
 export class GuardError extends Error {
@@ -81,10 +82,12 @@ function floorUnits(config) {
   const b = Math.max(0, Math.round(Number(config?.businessClass)  || 0));
   const p = Math.max(0, Math.round(Number(config?.premiumEconomy) || 0));
   const e = Math.max(0, Math.round(Number(config?.economy)        || 0));
-  return f * CLASS_SPACE_MULTIPLIERS.firstClass
-       + b * CLASS_SPACE_MULTIPLIERS.businessClass
-       + p * CLASS_SPACE_MULTIPLIERS.premiumEconomy
-       + e * CLASS_SPACE_MULTIPLIERS.economy;
+  // Floor per seat is product-aware (a 28" pitch fits more, a suite fewer):
+  // the engine's helper reads config.products, so pass the config through.
+  return f * classSpaceUnits(config, 'firstClass')
+       + b * classSpaceUnits(config, 'businessClass')
+       + p * classSpaceUnits(config, 'premiumEconomy')
+       + e * classSpaceUnits(config, 'economy');
 }
 
 function assertConfigFitsAirframe(config, type) {
@@ -152,9 +155,9 @@ function guardOrderAircraft(payload) {
     if (Number.isInteger(w) && w >= 0 && w <= 52 * 1000) payload.slotFromWeek = w;
     else delete payload.slotFromWeek;
   }
-  for (const k of ['deliverAbsWeek', 'lineId', 'slotPremium', 'launch', 'totalPrice']) delete payload[k];
   // Priority delivery is a choice, not a price: the reducer works out the fee.
   if (payload.priority !== undefined) payload.priority = payload.priority === true;
+  for (const k of ['deliverAbsWeek', 'lineId', 'slotPremium', 'launch', 'totalPrice']) delete payload[k];
   // Fleet renewal: the tails these frames replace, one id per frame. The
   // reducer checks each against the airline's own fleet; here, shape only.
   if (payload.replaces !== undefined) {
@@ -583,6 +586,31 @@ function guardUpdateCargoYield(payload) {
   };
 }
 
+// Freight mass pricing. The airline's own freight routes only, one batch at a
+// time, and a change the reducer can store: a % or $ step inside its clamp
+// band, a real rate for 'set', nothing for 'reference' (the reducer reads the
+// lane's own rate).
+function guardBulkCargoYield(payload, state) {
+  const ids = Array.isArray(payload?.routeIds) ? payload.routeIds : [];
+  if (ids.length === 0) throw new GuardError('No freight routes selected.');
+  if (ids.length > CARGO_BULK_YIELD_BATCH) throw new GuardError('Too many routes in one batch.');
+  const own = new Set((state.cargoRoutes ?? []).map((r) => r.id));
+  const routeIds = [...new Set(ids.map(String))].filter((id) => own.has(id));
+  if (routeIds.length === 0) throw new GuardError('Unknown freight routes.');
+  const mode = CARGO_BULK_YIELD_MODES.includes(payload?.mode) ? payload.mode : null;
+  if (!mode) throw new GuardError('Unknown freight rate change.');
+  if (mode === 'reference') return { routeIds, mode, value: 0 };
+  if (mode === 'set') return { routeIds, mode, value: assertCargoYield(payload.value) };
+  if (mode === 'delta') {
+    const d = Number(payload?.value);
+    if (!Number.isFinite(d)) throw new GuardError('Freight rate step must be a $/tonne-km figure.');
+    return { routeIds, mode, value: Math.max(-CARGO_BULK_DELTA_MAX, Math.min(CARGO_BULK_DELTA_MAX, d)) };
+  }
+  const pct = Number(payload?.value);
+  if (!Number.isFinite(pct)) throw new GuardError('Freight rate change must be a percentage.');
+  return { routeIds, mode, value: Math.max(CARGO_BULK_PCT_MIN, Math.min(CARGO_BULK_PCT_MAX, pct)) };
+}
+
 // ── Branding ────────────────────────────────────────────────────────────────
 // The solo client downscales every uploaded logo to a 128×128 PNG data URL
 // (src/utils/logoImage.js) — a few tens of kB. The multiplayer client is
@@ -711,6 +739,7 @@ export function guardDecision(type, payload, state) {
     case 'UNWIND_HEDGE':       return guardUnwindHedge(payload);
     case 'ADD_CARGO_ROUTE':    return guardAddCargoRoute(payload);
     case 'UPDATE_CARGO_YIELD': return guardUpdateCargoYield(payload);
+    case 'BULK_SET_CARGO_YIELD': return guardBulkCargoYield(payload, state);
     // Single-aircraft lease extension. EXTEND_LEASES (the batch) has been
     // clamped to 1..520 weeks since it was written; this — the one the Fleet
     // page actually dispatches — had no case at all, so a forged

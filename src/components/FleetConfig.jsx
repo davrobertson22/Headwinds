@@ -1,6 +1,8 @@
 import { Glyph, GlyphLabel } from './Icons.jsx';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import CabinTemplatePicker from './CabinTemplatePicker.jsx';
+import CabinFloorPlan, { CABIN_COLORS } from './CabinFloorPlan.jsx';
+import { liveryFor } from '../data/livery.js';
 import InfoTip from './InfoTip.jsx';
 import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
@@ -15,8 +17,47 @@ import {
   configSpaceQualityBonus,
   calcReconfCost,
   refitWeeks,
+  classSpaceUnits,
+  calendarYear,
+  SERVICE_QUALITY_COST_PER_ROUTE,
 } from '../utils/simulation.js';
 import { isOutOfService } from '../data/maintenance.js';
+import {
+  SEAT_PRODUCTS, CABIN_KEYS, productOf, productAvailability, productQualityPts, productWeeklyCost,
+  productFittingCost, cabinProductPoints, defaultProducts, compactProducts,
+} from '../data/seatProducts.js';
+import { SEAT_QUALITY_POINTS, SERVICE_QUALITY_POINTS } from '../models/demand.js';
+
+// The brushes for painting the cabin on the floor plan.
+const BRUSHES = [
+  { key: 'firstClass',     label: 'First' },
+  { key: 'businessClass',  label: 'Business' },
+  { key: 'premiumEconomy', label: 'Prem eco' },
+  { key: 'economy',        label: 'Economy' },
+  { key: 'empty',          label: 'Empty floor' },
+];
+
+// Phones hold the fuselage vertically: the plan is taller than wide, so a
+// stroke along it is a scroll-length drag rather than a thumb's width.
+function useNarrow(max = 640) {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia(`(max-width: ${max}px)`);
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener?.('change', sync);
+    return () => mq.removeEventListener?.('change', sync);
+  }, [max]);
+  return narrow;
+}
+
+const SERVICE_OPTIONS = [
+  { value: 'basic',    label: 'Basic',    desc: 'Buy-on-board, no frills. Saves money.' },
+  { value: 'standard', label: 'Standard', desc: 'The usual meal and a drink.' },
+  { value: 'premium',  label: 'Premium',  desc: 'Better crew ratio, better catering.' },
+  { value: 'luxury',   label: 'Luxury',   desc: 'Named chefs, a wine list, a crew who know you.' },
+];
 
 const QUALITY_OPTIONS = [
   { value: 'basic',    label: 'Basic',    desc: 'Slimline seats. The free baseline.' },
@@ -70,36 +111,76 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
   const [prem,   setPrem]   = useState(current.premiumEconomy ?? 0);
   const [ecoSeats, setEcoSeats] = useState(current.economy    ?? maxSeats);
   const [seatQ,  setSeatQ]  = useState(current.seatQuality    ?? 'basic');
+  const [serviceQ, setServiceQ] = useState(current.serviceQuality ?? 'standard');
+  // What is bolted into each cabin (data/seatProducts.js). Starts from the
+  // aircraft's own products, every cabin at its default when it has none.
+  const [products, setProducts] = useState(() => ({ ...defaultProducts(), ...(current.products ?? {}) }));
+  const [brush,  setBrush]  = useState('businessClass');
+  const calYear = calendarYear(state);
+  // Floor per seat of each class with THESE products: the number every max,
+  // clamp and the plan below agree on.
+  const spaceCfg = { products };
+  const space = Object.fromEntries(CABIN_KEYS.map(k => [k, classSpaceUnits(spaceCfg, k)]));
+  const narrow = useNarrow();
+
+  // A stroke on the floor plan lands in the same four states the steppers
+  // edit, so the inputs, the plan and the price all move together.
+  function applyPainted(cfg) {
+    setFirst(cfg.firstClass ?? 0);
+    setBiz(cfg.businessClass ?? 0);
+    setPrem(cfg.premiumEconomy ?? 0);
+    setEcoSeats(cfg.economy ?? 0);
+  }
 
   // Apply a saved cabin template (economy clamped to remaining floor space)
   function applyTemplate(cfg) {
     const f = Math.max(0, cfg.firstClass ?? 0);
     const b = Math.max(0, cfg.businessClass ?? 0);
     const p = Math.max(0, cfg.premiumEconomy ?? 0);
-    const premUnits = f * CLASS_SPACE_MULTIPLIERS.firstClass
-                    + b * CLASS_SPACE_MULTIPLIERS.businessClass
-                    + p * CLASS_SPACE_MULTIPLIERS.premiumEconomy;
-    const maxE = Math.max(0, Math.floor(maxSeats - premUnits));
+    const premUnits = f * space.firstClass + b * space.businessClass + p * space.premiumEconomy;
+    const maxE = Math.max(0, Math.floor((maxSeats - premUnits) / space.economy));
     setFirst(f);
     setBiz(b);
     setPrem(p);
     setEcoSeats(Math.min(Math.max(0, cfg.economy ?? 0), maxE));
     setSeatQ(cfg.seatQuality ?? 'basic');
+    if (cfg.serviceQuality) setServiceQ(cfg.serviceQuality);
+    // A template saved with products brings them; one without resets to the
+    // defaults, as its seat counts assume the default floor per seat.
+    setProducts({ ...defaultProducts(), ...(cfg.products ?? {}) });
   }
 
-  // Premium classes take more floor space: First=2×, Business=1.5×, PremEco=1.25×.
-  const premiumUnits = first * CLASS_SPACE_MULTIPLIERS.firstClass
-                     + biz   * CLASS_SPACE_MULTIPLIERS.businessClass
-                     + prem  * CLASS_SPACE_MULTIPLIERS.premiumEconomy;
-  // Economy is player-set, but capped to the floor units left after premium cabins.
-  const ecoMax = Math.max(0, Math.floor(maxSeats - premiumUnits));
+  // Premium classes take more floor space: First=2×, Business=1.5×, PremEco=1.25×,
+  // times whatever seat product is fitted there (a lie-flat, a suite).
+  const premiumUnits = first * space.firstClass + biz * space.businessClass + prem * space.premiumEconomy;
+  // Economy is player-set, but capped to the floor units left after premium
+  // cabins — at ITS pitch, so a 28" cabin fits more rows.
+  const ecoMax = Math.max(0, Math.floor((maxSeats - premiumUnits + 1e-9) / space.economy));
   const eco    = Math.min(Math.max(0, ecoSeats), ecoMax);
-  const usedUnits  = premiumUnits + eco * CLASS_SPACE_MULTIPLIERS.economy;
+  const usedUnits  = premiumUnits + eco * space.economy;
+
+  // Change a cabin's product. If the new seat is bigger than the floor allows,
+  // that cabin gives up seats to fit rather than leaving the layout "over".
+  function setProduct(cls, patch) {
+    const next = { ...products, [cls]: { ...products[cls], ...patch } };
+    const sp = (k) => classSpaceUnits({ products: next }, k);
+    const counts = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco };
+    const others = CABIN_KEYS.filter(k => k !== cls).reduce((t, k) => t + counts[k] * sp(k), 0);
+    const fit = Math.max(0, Math.floor((maxSeats - others + 1e-9) / sp(cls)));
+    if (counts[cls] > fit) {
+      ({ firstClass: setFirst, businessClass: setBiz, premiumEconomy: setPrem, economy: setEcoSeats })[cls](fit);
+    }
+    setProducts(next);
+  }
+  function toggleExtra(cls, key) {
+    const have = products[cls].extras ?? [];
+    setProduct(cls, { extras: have.includes(key) ? have.filter(k => k !== key) : [...have, key] });
+  }
   const emptyUnits = Math.max(0, maxSeats - usedUnits);   // deliberately unfilled floor
   const over = premiumUnits > maxSeats;
 
   // Density dynamics preview (range + comfort from a lighter / roomier cabin).
-  const previewConfig = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco };
+  const previewConfig = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, products: compactProducts(products) };
   const baseRangeKm   = Math.round((type?.range ?? 0) * (aircraft?.rangeMod ?? 1.0));
   const cfgRangeKm     = Math.round(baseRangeKm * configRangeMod(previewConfig, type));
   const rangeGainPct   = baseRangeKm > 0 ? Math.round((cfgRangeKm / baseRangeKm - 1) * 100) : 0;
@@ -107,7 +188,20 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
 
   // Reconfiguration cost — in bulk mode each aircraft pays its own refit cost
   // (they may start from different current layouts).
-  const nextConfig = { firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco, seatQuality: seatQ, serviceQuality: 'standard' };
+  const nextConfig = {
+    firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco,
+    seatQuality: seatQ, serviceQuality: serviceQ,
+    // Only carried when something is above the defaults, so a cabin that
+    // never touched the products stays a legacy config byte for byte.
+    ...(compactProducts(products) ? { products: compactProducts(products) } : {}),
+  };
+  // Quality by audience: what a leisure passenger in economy sees, and what a
+  // business passenger up front sees. Seat grade and service reach everyone.
+  const sharedPts   = (SEAT_QUALITY_POINTS[seatQ] ?? 0) + (SERVICE_QUALITY_POINTS[serviceQ] ?? 0);
+  const productPts  = cabinProductPoints(nextConfig);
+  const leisurePts  = sharedPts + productPts.leisure;
+  const businessPts = sharedPts + productPts.business;
+  const productsWeekly = productWeeklyCost(nextConfig);
   const perAircraftCosts = targets.map(a =>
     calcReconfCost(a.config ?? defaultConfig(maxSeats), nextConfig)
   );
@@ -151,8 +245,9 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
   return (
     <div className="bankrupt-overlay" onClick={onClose}>
       <div
+        className="fleet-config-modal"
         style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-                 padding: 28, width: '100%', maxWidth: 580, maxHeight: '90vh', overflowY: 'auto' }}
+                 padding: 28, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -173,6 +268,40 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           <button className="btn btn-ghost" style={{ padding: '4px 10px', flexShrink: 0 }} onClick={onClose}><Glyph e="✕" /></button>
         </div>
 
+        <div className="fleet-config-grid">
+        {/* The cabin, drawn in the aircraft: every seat in the inputs is on the
+            plan, and each cabin's length is its share of the floor. Pinned
+            beside the controls on wide screens so it changes as you edit. */}
+        <div className="fleet-config-plan">
+          <div className="cabin-brushes" role="radiogroup" aria-label="Cabin brush">
+            {BRUSHES.map(b => (
+              <button
+                key={b.key}
+                type="button"
+                role="radio"
+                aria-checked={brush === b.key}
+                className={`cabin-brush${brush === b.key ? ' is-active' : ''}`}
+                data-brush={b.key}
+                onClick={() => setBrush(b.key)}
+              >
+                <span className="cabin-brush-swatch" style={b.key === 'empty' ? undefined : { background: CABIN_COLORS[b.key] }} />
+                {b.label}
+              </button>
+            ))}
+            <span className="cabin-brush-hint">Paint along the fuselage, or drag the dividers between cabins.</span>
+          </div>
+          <CabinFloorPlan
+            type={type}
+            config={previewConfig}
+            livery={liveryFor(state)}
+            maxSeats={maxSeats}
+            maxHeight="var(--cabin-plan-max-h)"
+            orientation={narrow ? 'vertical' : 'horizontal'}
+            editable={{ brush, onChange: applyPainted }}
+          />
+        </div>
+
+        <div className="fleet-config-controls">
         {/* Cabin Layout */}
         <div style={{ marginBottom: 22 }}>
           <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -194,30 +323,30 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           <ClassInput
             label="First Class"
             fareLabel={`${CLASS_FARE_MULTIPLIERS.firstClass}× fare`}
-            spaceLabel={`${CLASS_SPACE_MULTIPLIERS.firstClass}× space`}
+            spaceLabel={`${+space.firstClass.toFixed(2)}× space`}
             revPerSpace={(CLASS_FARE_MULTIPLIERS.firstClass / CLASS_SPACE_MULTIPLIERS.firstClass).toFixed(1)}
             value={first}
-            max={Math.floor((maxSeats - biz * CLASS_SPACE_MULTIPLIERS.businessClass - prem * CLASS_SPACE_MULTIPLIERS.premiumEconomy) / CLASS_SPACE_MULTIPLIERS.firstClass)}
+            max={Math.floor((maxSeats - biz * space.businessClass - prem * space.premiumEconomy + 1e-9) / space.firstClass)}
             onChange={v => setFirst(v)}
             color="#bc8cff"
           />
           <ClassInput
             label="Business Class"
             fareLabel={`${CLASS_FARE_MULTIPLIERS.businessClass}× fare`}
-            spaceLabel={`${CLASS_SPACE_MULTIPLIERS.businessClass}× space`}
+            spaceLabel={`${+space.businessClass.toFixed(2)}× space`}
             revPerSpace={(CLASS_FARE_MULTIPLIERS.businessClass / CLASS_SPACE_MULTIPLIERS.businessClass).toFixed(1)}
             value={biz}
-            max={Math.floor((maxSeats - first * CLASS_SPACE_MULTIPLIERS.firstClass - prem * CLASS_SPACE_MULTIPLIERS.premiumEconomy) / CLASS_SPACE_MULTIPLIERS.businessClass)}
+            max={Math.floor((maxSeats - first * space.firstClass - prem * space.premiumEconomy + 1e-9) / space.businessClass)}
             onChange={v => setBiz(v)}
             color="#ffb43d"
           />
           <ClassInput
             label="Premium Economy"
             fareLabel={`${CLASS_FARE_MULTIPLIERS.premiumEconomy}× fare`}
-            spaceLabel={`${CLASS_SPACE_MULTIPLIERS.premiumEconomy}× space`}
+            spaceLabel={`${+space.premiumEconomy.toFixed(2)}× space`}
             revPerSpace={(CLASS_FARE_MULTIPLIERS.premiumEconomy / CLASS_SPACE_MULTIPLIERS.premiumEconomy).toFixed(1)}
             value={prem}
-            max={Math.floor((maxSeats - first * CLASS_SPACE_MULTIPLIERS.firstClass - biz * CLASS_SPACE_MULTIPLIERS.businessClass) / CLASS_SPACE_MULTIPLIERS.premiumEconomy)}
+            max={Math.floor((maxSeats - first * space.firstClass - biz * space.businessClass + 1e-9) / space.premiumEconomy)}
             onChange={v => setPrem(v)}
             color="#3ea6ff"
           />
@@ -226,7 +355,7 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           <ClassInput
             label="Economy"
             fareLabel="1× fare"
-            spaceLabel="1× space"
+            spaceLabel={`${+space.economy.toFixed(2)}× space`}
             revPerSpace="1.0"
             value={eco}
             max={ecoMax}
@@ -234,18 +363,8 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
             color="#38d39f"
           />
 
-          {/* Seat unit bar — width proportional to floor space used; empty floor shown grey */}
+          {/* Floor used — the plan above shows where */}
           <div style={{ marginTop: 4 }}>
-            <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 6, background: 'var(--surface3)' }}>
-              {[
-                { units: first * CLASS_SPACE_MULTIPLIERS.firstClass,     color: '#bc8cff' },
-                { units: biz   * CLASS_SPACE_MULTIPLIERS.businessClass,  color: '#ffb43d' },
-                { units: prem  * CLASS_SPACE_MULTIPLIERS.premiumEconomy, color: '#3ea6ff' },
-                { units: eco   * CLASS_SPACE_MULTIPLIERS.economy,        color: '#38d39f' },
-              ].map((seg, i) => seg.units > 0 && (
-                <div key={i} style={{ width: `${(seg.units / maxSeats) * 100}%`, background: seg.color }} />
-              ))}
-            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
               <span style={{ color: over ? 'var(--red)' : 'var(--text-muted)' }}>
                 {over
@@ -259,10 +378,10 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           </div>
 
           {/* Density dynamics: range + comfort from a lighter, roomier cabin */}
-          {(rangeGainPct > 0 || spaceQualityBonus > 0) && (
+          {(rangeGainPct !== 0 || spaceQualityBonus > 0) && (
             <div style={{ display: 'flex', gap: 16, marginTop: 12, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, fontSize: 12 }}>
               <span style={{ color: 'var(--text-muted)' }}>
-                Range <strong style={{ color: 'var(--accent)' }}>+{rangeGainPct}%</strong>
+                Range <strong style={{ color: rangeGainPct < 0 ? 'var(--red)' : 'var(--accent)' }}>{rangeGainPct > 0 ? '+' : ''}{rangeGainPct}%</strong>
                 <span style={{ color: 'var(--text-dim)', marginLeft: 4 }}>({baseRangeKm.toLocaleString()} → {cfgRangeKm.toLocaleString()} km)</span>
               </span>
               <span style={{ color: 'var(--text-muted)' }}>
@@ -270,6 +389,30 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
               </span>
             </div>
           )}
+        </div>
+
+        {/* Cabin products: what is bolted into each cabin */}
+        <div style={{ marginBottom: 22 }} data-cabin-products>
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Cabin Products
+            <InfoTip text="Each cabin's seat: pitch in economy, lie-flats and suites up front, screens and power as extras. A product changes the floor each seat takes (the plan redraws), a weekly upkeep, and the quality the people sitting there see: economy's reaches leisure travellers, the premium cabins' reaches business travellers." />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+            A bigger seat takes more floor and the cabin gives up seats to fit. Products not yet invented in this world, or that need a bigger airframe, are greyed out.
+          </div>
+          {CABIN_KEYS.filter(k => ({ firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco })[k] > 0).map(cls => (
+            <ProductRow
+              key={cls}
+              cls={cls}
+              seats={({ firstClass: first, businessClass: biz, premiumEconomy: prem, economy: eco })[cls]}
+              products={products}
+              currentConfig={current}
+              calYear={calYear}
+              type={type}
+              onTier={tier => setProduct(cls, { tier })}
+              onExtra={key => toggleExtra(cls, key)}
+            />
+          ))}
         </div>
 
         {/* Seat quality */}
@@ -292,6 +435,18 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
                 ? 'Free · no fitting fee, no weekly charge'
                 : `One-off fit ${formatMoney(SEAT_QUALITY_FITTING_FEE[seatQ] ?? 0)} · +${formatMoney(SEAT_QUALITY_COST_PER_ROUTE[seatQ] ?? 0)}/route/wk`}
             />
+            <QualityPicker
+              label="Service"
+              options={SERVICE_OPTIONS}
+              value={serviceQ}
+              onChange={setServiceQ}
+              current={current.serviceQuality ?? 'standard'}
+              hint={(() => {
+                const c = SERVICE_QUALITY_COST_PER_ROUTE[serviceQ] ?? 0;
+                const pts = SERVICE_QUALITY_POINTS[serviceQ] ?? 0;
+                return `${c < 0 ? `Saves ${formatMoney(-c)}` : c > 0 ? `+${formatMoney(c)}` : 'No charge'}/route/wk · ${pts >= 0 ? '+' : ''}${pts} quality`;
+              })()}
+            />
           </div>
         </div>
 
@@ -305,8 +460,13 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
             />
             <PreviewStat
               label="Extra quality cost / route / wk"
-              value={extraQualityCost > 0 ? `+${formatMoney(extraQualityCost)}` : 'None'}
-              color={extraQualityCost > 0 ? 'var(--red)' : 'var(--text-muted)'}
+              value={extraQualityCost + productsWeekly > 0 ? `+${formatMoney(extraQualityCost + productsWeekly)}` : 'None'}
+              color={extraQualityCost + productsWeekly > 0 ? 'var(--red)' : 'var(--text-muted)'}
+            />
+            <PreviewStat
+              label="Quality seen by leisure · business"
+              value={`${leisurePts >= 0 ? '+' : ''}${Math.round(leisurePts)} · ${businessPts >= 0 ? '+' : ''}${Math.round(businessPts)}`}
+              color={businessPts > 0 || leisurePts > 0 ? 'var(--green)' : 'var(--text-muted)'}
             />
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -362,6 +522,8 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           </button>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         </div>
+        </div>
+        </div>
       </div>
     </div>
   );
@@ -407,13 +569,13 @@ function ClassInput({ label, fareLabel, spaceLabel, revPerSpace, value, max, onC
   );
 }
 
-function QualityPicker({ label, value, onChange, current, hint }) {
+function QualityPicker({ label, value, onChange, current, hint, options = QUALITY_OPTIONS }) {
   const changed = value !== current;
   return (
     <div>
       <div className="form-label">{label} {changed && <span style={{ color: 'var(--yellow)', fontSize: 10 }}>CHANGED</span>}</div>
       <select className="form-select" value={value} onChange={e => onChange(e.target.value)}>
-        {QUALITY_OPTIONS.map(o => (
+        {options.map(o => (
           <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
         ))}
       </select>
@@ -427,6 +589,73 @@ function PreviewStat({ label, value, color }) {
     <div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
       <div style={{ fontWeight: 700, fontSize: 15, color }}>{value}</div>
+    </div>
+  );
+}
+
+// One cabin's products: the seat (tier) as a row of choices, the extras as
+// toggles. Anything the era or the airframe refuses is shown but disabled,
+// with the reason, so the player learns what a 787 or 1998 will give them.
+function ProductRow({ cls, seats, products, currentConfig, calYear, type, onTier, onExtra }) {
+  const def = SEAT_PRODUCTS[cls];
+  const mine = products[cls] ?? { tier: def.tiers[0].key, extras: [] };
+  const was  = productOf(currentConfig ?? {}, cls);
+  const cfg  = { [cls]: seats, products };
+  const pts  = productQualityPts(cfg, cls);
+  const tierDef = def.tiers.find(t => t.key === mine.tier) ?? def.tiers[0];
+  const weekly = seats * tierDef.weekly + (mine.extras ?? []).reduce((s, k) => {
+    const e = def.extras.find(x => x.key === k); return s + (e ? (e.perAircraft ? e.weekly : e.weekly * seats) : 0);
+  }, 0);
+  const fit = productFittingCost({ ...(currentConfig ?? {}), [cls]: currentConfig?.[cls] ?? 0 }, { ...cfg, products });
+  const color = { firstClass: '#bc8cff', businessClass: '#ffb43d', premiumEconomy: '#3ea6ff', economy: '#38d39f' }[cls];
+  const changed = tierDef.key !== was.tier.key || (mine.extras ?? []).length !== was.extras.length || (mine.extras ?? []).some(k => !was.extras.some(e => e.key === k));
+  return (
+    <div className="cabin-product-row" data-product-row={cls}>
+      <div className="cabin-product-head">
+        <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block' }} />
+        <span style={{ fontSize: 13 }}>{def.label}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {seats} seats</span>
+        {changed && <span style={{ color: 'var(--yellow)', fontSize: 10 }}>CHANGED</span>}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
+          {pts >= 0 ? '+' : ''}{pts} quality{weekly > 0 ? ` · ${formatMoney(weekly)}/route/wk` : ''}{fit > 0 ? ` · fit ${formatMoney(fit)}` : ''}
+        </span>
+      </div>
+      <div className="cabin-product-tiers" role="radiogroup" aria-label={`${def.label} ${def.tierLabel.toLowerCase()}`}>
+        {def.tiers.map(t => {
+          const why = productAvailability(t, { calYear, type });
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="radio"
+              aria-checked={mine.tier === t.key}
+              className={`cabin-product-tier${mine.tier === t.key ? ' is-active' : ''}`}
+              data-tier={t.key}
+              disabled={!!why}
+              title={why ? why.message : `${t.desc ?? ''}${t.space !== 1 ? ` ${+(t.space).toFixed(2)}× floor.` : ''}${t.fee ? ` Fit ${formatMoney(t.fee)}/seat.` : ''}`}
+              onClick={() => onTier(t.key)}
+            >
+              {t.label}
+              {t.pts !== 0 && <span className="cabin-product-pts">{t.pts > 0 ? '+' : ''}{t.pts}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {def.extras.length > 0 && (
+        <div className="cabin-product-extras">
+          {def.extras.map(e => {
+            const why = productAvailability(e, { calYear, type });
+            const on = (mine.extras ?? []).includes(e.key);
+            return (
+              <label key={e.key} className={`cabin-product-extra${why ? ' is-off' : ''}`} title={why ? why.message : `${e.desc ?? ''}${e.fee ? ` Fit ${formatMoney(e.fee)}${e.perAircraft ? '' : '/seat'}.` : ''}`}>
+                <input type="checkbox" checked={on} disabled={!!why} onChange={() => onExtra(e.key)} data-extra={e.key} />
+                {e.label}
+                <span className="cabin-product-pts">+{e.pts}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

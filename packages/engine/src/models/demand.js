@@ -30,6 +30,7 @@
  */
 
 import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear, getDemandModel, metroPrimary, sectorCostKm } from '../utils/market.js';
+import { cabinProductPoints } from '../data/seatProducts.js';
 import { SEASONS as V2_SEASONS } from '../data/demandV2Seasons.js';
 import { SEASONS as V3_SEASONS, CLASS_SEASONS as V3_CLASS_SEASONS } from '../data/demandV3Seasons.js';
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
@@ -824,11 +825,33 @@ export const SERVICE_QUALITY_POINTS = {
   luxury:   14,
 };
 
-/** Combined quality points from a cabin config's seat + service settings. */
+/**
+ * Combined quality points from a cabin config: seat grade + service, plus the
+ * seat-weighted points of the cabin PRODUCTS aboard (data/seatProducts.js:
+ * pitch, lie-flats, suites…). A config with no products adds exactly 0 here.
+ */
 export function cabinQualityPoints(config) {
   return (SEAT_QUALITY_POINTS[config?.seatQuality ?? 'standard'] ?? 0)
-       + (SERVICE_QUALITY_POINTS[config?.serviceQuality ?? 'standard'] ?? 0);
+       + (SERVICE_QUALITY_POINTS[config?.serviceQuality ?? 'standard'] ?? 0)
+       + cabinProductPoints(config).blended;
 }
+
+/**
+ * How far each segment's view of the cabin sits from the blended score: the
+ * leisure passenger sits in economy and sees its pitch and screens; the
+ * business passenger sits up front and sees the lie-flats. Both 0 with no
+ * products, so an offer's segment scores equal its qualityScore exactly.
+ */
+export function cabinSegmentQualityDelta(config) {
+  const p = cabinProductPoints(config);
+  return { leisure: p.leisure - p.blended, business: p.business - p.blended };
+}
+
+/** An offer's quality as the LEISURE segment experiences it (falls back to qualityScore). */
+export const leisureQ  = (o) => o.qualityScoreLeisure  ?? o.qualityScore;
+/** An offer's quality as the BUSINESS segment experiences it (falls back to qualityScore). */
+export const businessQ = (o) => o.qualityScoreBusiness ?? o.qualityScore;
+const segmentQ = (o, segment) => (segment === 'business' ? businessQ(o) : leisureQ(o));
 
 /**
  * Business travelers demand a credible product — even without airline
@@ -995,7 +1018,7 @@ export function computeUtility(offer, market, segment) {
   // inside the share fight (loyaltySensReduction is never read by the pools).
   const sens        = 1 - (offer.priceSensitivityReduction ?? 0) - (offer.loyaltySensReduction ?? 0);
   const priceUtil   = -(price / refPrice) * w.price * sens;
-  const qualityUtil = (offer.qualityScore / 100) * w.quality;
+  const qualityUtil = (segmentQ(offer, segment) / 100) * w.quality;
   const freqUtil    = Math.log1p(offer.weeklyFrequency) * w.frequency;
   // ?? 0, or an offer built without the field NaN-poisons BOTH softmaxes and
   // every carrier on the pair books NaN passengers.
@@ -1235,18 +1258,18 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // it drag the "market price" up shrank the whole pool for everyone else: three
   // $650 one-stops on a $478 pair took the pool down 15% while carrying nobody.
   const bizPriceOf = (o) => (o.businessPrice != null ? o.businessPrice : o.economyPrice * BUSINESS_PRICE_MULTIPLIER);
-  const weightedAvg = (priceOf, shares, refForChoke) => {
+  const weightedAvg = (priceOf, shares, refForChoke, qualityOf) => {
     let num = 0, den = 0;
     offers.forEach((o, i) => {
-      const w = shares[i] * priceChokeFactor(priceOf(o), refForChoke(o), o.qualityScore);
+      const w = shares[i] * priceChokeFactor(priceOf(o), refForChoke(o), qualityOf(o));
       num += priceOf(o) * w; den += w;
     });
     // Everyone choked: fall back to the plain share-weighted mean.
     return den > 0 ? num / den : offers.reduce((s, o, i) => s + priceOf(o) * shares[i], 0);
   };
-  const avgLeisurePrice  = weightedAvg(o => o.economyPrice, leisureShares, () => compressedRef);
+  const avgLeisurePrice  = weightedAvg(o => o.economyPrice, leisureShares, () => compressedRef, leisureQ);
   const avgBusinessPrice = weightedAvg(bizPriceOf, businessShares,
-    o => compressedBizRef * businessFareTolerance(o.qualityScore));
+    o => compressedBizRef * businessFareTolerance(businessQ(o)), businessQ);
 
   // Elasticity factors: demand shrinks when average market price is above the
   // (competition-compressed) reference
@@ -1276,7 +1299,7 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // all-budget pair loses business travelers to other modes entirely, while a
   // premium-served market attracts extra (see businessQualityCapture).
   const marketBizCapture = offers.reduce(
-    (s, o, i) => s + businessQualityCapture(o.qualityScore) * businessShares[i], 0);
+    (s, o, i) => s + businessQualityCapture(businessQ(o)) * businessShares[i], 0);
   // The pool BEFORE brand: everyone these airports and fares could carry.
   const leisureBase  = Math.round(leisurePool * appealCapture * Math.min(1.5, leisureElasticityFactor));
   const businessBase = Math.round(
@@ -1309,9 +1332,9 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // demand that ceases to exist. Before this, an offer priced past the cap was
   // a sink — it won share and sold nothing, and the passengers vanished.
   const chokeB = offers.map(offer =>
-    priceChokeFactor(bizPriceOf(offer), compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore));
+    priceChokeFactor(bizPriceOf(offer), compressedBizRef * businessFareTolerance(businessQ(offer)), businessQ(offer)));
   const chokeL = offers.map(offer =>
-    priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore));
+    priceChokeFactor(offer.economyPrice, compressedRef, leisureQ(offer)));
   const rawBusinessFull = offers.map((offer, i) => adjustedBusinessDemand * businessShares[i]);
   const rawLeisureFull  = offers.map((offer, i) => adjustedLeisureDemand  * leisureShares[i]);
   const rawBusiness = rawBusinessFull.map((v, i) => v * chokeB[i]);
@@ -1568,7 +1591,7 @@ function _computeMarketShareLegacy(market, offers) {
   // all-budget pair loses business travelers to other modes entirely, while a
   // premium-served market attracts extra (see businessQualityCapture).
   const marketBizCapture = offers.reduce(
-    (s, o, i) => s + businessQualityCapture(o.qualityScore) * businessShares[i], 0);
+    (s, o, i) => s + businessQualityCapture(businessQ(o)) * businessShares[i], 0);
   const adjustedBusinessDemand = Math.round(
     market.businessDemand * appealCapture * Math.min(1.5, businessElasticityFactor) * marketBizCapture);
 
@@ -1584,12 +1607,12 @@ function _computeMarketShareLegacy(market, offers) {
       ? offer.businessPrice
       : offer.economyPrice * BUSINESS_PRICE_MULTIPLIER;
     let leisurePax  = Math.round(
-      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef, offer.qualityScore)
+      adjustedLeisureDemand  * lShare * priceChokeFactor(offer.economyPrice, compressedRef, leisureQ(offer))
     );
     // High quality stretches the tolerable business fare before the choke bites.
     let businessPax = Math.round(
       adjustedBusinessDemand * bShare
-      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(offer.qualityScore), offer.qualityScore)
+      * priceChokeFactor(bizPrice, compressedBizRef * businessFareTolerance(businessQ(offer)), businessQ(offer))
     );
 
     // The demand the market GENERATED for this offer, before any seat count is
@@ -1671,14 +1694,14 @@ function _soloCeiling(market, offer, ref, { foldBusiness = false } = {}) {
     : market.leisureDemand * tpL;
   const leisure = leisurePool * poolMult
     * Math.min(1.5, Math.pow(ref / Math.max(offer.economyPrice, 1), ELASTICITY.leisure * sens))
-    * priceChokeFactor(offer.economyPrice, ref, offer.qualityScore);
-  const bizRef     = ref * BUSINESS_PRICE_MULTIPLIER * businessFareTolerance(offer.qualityScore);
+    * priceChokeFactor(offer.economyPrice, ref, leisureQ(offer));
+  const bizRef     = ref * BUSINESS_PRICE_MULTIPLIER * businessFareTolerance(businessQ(offer));
   const business = noBusiness ? 0 : market.businessDemand * poolMult
     * Math.max(0, offer.loungeAppeal ?? 1)
     * tpB
-    * businessQualityCapture(offer.qualityScore)
+    * businessQualityCapture(businessQ(offer))
     * Math.min(1.5, Math.pow(bizRef / Math.max(offer.businessPrice, 1), ELASTICITY.business * sens))
-    * priceChokeFactor(offer.businessPrice, bizRef, offer.qualityScore);
+    * priceChokeFactor(offer.businessPrice, bizRef, businessQ(offer));
   return { leisure: Math.max(0, leisure), business: Math.max(0, business) };
 }
 
@@ -1697,7 +1720,7 @@ function _monopolyResult(market, offer) {
   // product loses business travelers to other modes even without a rival airline —
   // and stretches the fare business travelers will tolerate (businessFareTolerance).
   const businessRef = market.referencePrice * BUSINESS_PRICE_MULTIPLIER
-    * businessFareTolerance(offer.qualityScore);
+    * businessFareTolerance(businessQ(offer));
   // Targeted advertising on an UNCONTESTED pair has no rival to take passengers
   // from, so it grows the pool instead — the same magnitude the old post-hoc
   // revenue multiplier applied. In competitive markets it is a utility term
@@ -1743,9 +1766,9 @@ function _monopolyResult(market, offer) {
         * poolMult
         * loungePool
         * travelBusinessPool
-        * businessQualityCapture(offer.qualityScore)
+        * businessQualityCapture(businessQ(offer))
         * Math.pow(businessRef / offer.businessPrice, ELASTICITY.business * sens)
-        * priceChokeFactor(offer.businessPrice, businessRef, offer.qualityScore));
+        * priceChokeFactor(offer.businessPrice, businessRef, businessQ(offer)));
   const businessPax = noBusiness ? 0 : Math.min(businessAdj, offer.businessSeats);
 
   // Business travelers who can't get a premium seat downgrade to economy rather
@@ -1766,7 +1789,7 @@ function _monopolyResult(market, offer) {
   const leisureAdj  = Math.round(
     leisurePool
       * Math.pow(market.referencePrice / offer.economyPrice, ELASTICITY.leisure * sens)
-      * priceChokeFactor(offer.economyPrice, market.referencePrice, offer.qualityScore)
+      * priceChokeFactor(offer.economyPrice, market.referencePrice, leisureQ(offer))
   );
 
   // Cap leisure at TOTAL physical capacity (minus business pax), not just the

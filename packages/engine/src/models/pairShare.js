@@ -107,7 +107,7 @@ export function buildPlayerPairOffer(state, pairRoutes) {
   const fleet = state.fleet ?? [];
 
   let totalFreq = 0, totalEcoSeats = 0, totalBizSeats = 0, totalSeatsAll = 0;
-  let qualitySum = 0, qualityN = 0;
+  let qualitySum = 0, qualityN = 0, qualityLeisureSum = 0, qualityBusinessSum = 0;
   for (const route of pairRoutes) {
     const aircraft = fleet.find((a) => a.id === route.aircraftId);
     if (!aircraft) continue;
@@ -121,8 +121,13 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     totalSeatsAll += configBodies(cfg) * freq;
     // Engine-accurate per-route quality (morale, utilization, cabin product,
     // catering, hub bonus) — the same figure the tick scores the offer with.
-    const q = routeQualityBreakdown(route, aircraft, state)?.total;
-    if (q != null) { qualitySum += q; qualityN += 1; }
+    const qb = routeQualityBreakdown(route, aircraft, state);
+    const q  = qb?.total;
+    if (q != null) {
+      qualitySum += q; qualityN += 1;
+      qualityLeisureSum  += qb.totalLeisure  ?? q;
+      qualityBusinessSum += qb.totalBusiness ?? q;
+    }
   }
   if (totalFreq <= 0 || qualityN === 0) return null;
 
@@ -158,6 +163,10 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     businessSeats:    totalBizSeats,
     totalSeats:       totalSeatsAll,
     qualityScore:     Math.round(qualitySum / qualityN),
+    // The segments' view of the cabin products aboard — the same two figures
+    // simulateRoute puts on the tick's offer.
+    qualityScoreLeisure:  Math.round(qualityLeisureSum  / qualityN),
+    qualityScoreBusiness: Math.round(qualityBusinessSum / qualityN),
     // Scaled by the spokes the player actually connects — the same helper and
     // the same route list the weekly tick uses, so this preview cannot drift.
     connectivityBonus: isHubPair
