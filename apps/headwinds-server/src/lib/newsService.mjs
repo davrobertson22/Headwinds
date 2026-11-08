@@ -555,8 +555,12 @@ export async function buildNews(prisma, { world, categories, tier, before, limit
     ...usedSales.map((l) => ({
       id: `used:${l.id}`,
       at: iso(l.soldAt ?? l.createdAt),
-      ...yearWeek(l.listedWeek),
-      linearWeek: l.listedWeek,
+      // Dated by the week it was BOUGHT. This used to be listedWeek — the week
+      // the jet went up for sale, up to two years earlier — so a batch bought
+      // "1m ago" printed under YEAR 26 · WEEK 45, then YEAR 28 · WEEK 22
+      // (read2much, Discord 2026-11-07). Sales from before soldWeek existed
+      // carry no week: no header beats a wrong one.
+      ...(Number.isInteger(l.soldWeek) ? { ...yearWeek(l.soldWeek), linearWeek: l.soldWeek } : {}),
       category: 'market',
       kind: 'used_aircraft_sold',
       ...who(l.buyerId),

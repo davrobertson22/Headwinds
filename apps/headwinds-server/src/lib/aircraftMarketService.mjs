@@ -17,6 +17,14 @@ import { gameReducer } from '@tailwinds/engine/reducer';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { eventAircraftDenial } from '@tailwinds/engine/data/eventRules.js';
 import { withTx } from './tx.mjs';
+import { WEEKS_PER_YEAR } from './worldConfig.mjs';
+
+// The world's linear week (tickService.weekIndex — not imported: tickService
+// imports this module). Null when the world row carries no clock.
+const linearWeekOf = (world) => {
+  const y = Number(world?.currentYear), w = Number(world?.currentWeek);
+  return Number.isInteger(y) && Number.isInteger(w) ? (y - 1) * WEEKS_PER_YEAR + w : null;
+};
 
 export class AircraftMarketError extends Error {
   constructor(message, statusCode = 400) {
@@ -125,6 +133,7 @@ export async function buyUsedBatch(prisma, { world, buyer, listingIds }) {
     const byId = new Map(rows.map((r) => [r.id, r]));
     const eventRules = world.tickConfig?.event?.rules ?? null;
     let state = buyer.state;
+    const soldWeek = linearWeekOf(world);
     const bought = [];
     const skipped = [];
 
@@ -142,7 +151,9 @@ export async function buyUsedBatch(prisma, { world, buyer, listingIds }) {
       if (Number(state?.cash ?? 0) < price) { skip(NO_CASH, 400); continue; }
       const claimed = await tx.usedAircraftListing.updateMany({
         where: { id: listing.id, status: 'OPEN' },
-        data: { status: 'SOLD', buyerId: buyer.id, soldAt: new Date() },
+        // soldWeek dates the purchase in the news feed. listedWeek is when the
+        // jet went UP for sale — up to two years earlier.
+        data: { status: 'SOLD', buyerId: buyer.id, soldAt: new Date(), soldWeek },
       });
       if (claimed.count === 0) { skip(SNIPED, 409); continue; }
 

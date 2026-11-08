@@ -127,6 +127,12 @@ await test('three listings: one transaction, one blob write, cash down by the su
   for (const row of db.rows()) assert.equal(row.buyerId, 'a1');
 });
 
+await test('each claim stamps the game week it was bought in (the news feed dates the purchase by it)', async () => {
+  const db = fakeDb([listing('l1', 'a320neo', 20 * M, { listedWeek: 10 }), listing('l2', 'b737800', 15 * M, { listedWeek: 40 })]);
+  await buyUsedBatch(db, { world: { id: 'w1', tickConfig: {}, currentYear: 2, currentWeek: 20 }, buyer: buyerWith(100 * M), listingIds: ['l1', 'l2'] });
+  for (const row of db.rows()) assert.equal(row.soldWeek, 72, `${row.id}: Y2 W20 is linear week 72`);
+});
+
 await test('it is the same purchase as buying them one at a time', async () => {
   const lots = [listing('l1', 'a320neo', 20 * M), listing('l2', 'b737800', 15 * M)];
   const batch = await buyUsedBatch(fakeDb(lots), { world: WORLD, buyer: buyerWith(80 * M), listingIds: ['l1', 'l2'] });

@@ -1,0 +1,13 @@
+-- Used aircraft: the game week a listing was BOUGHT (2026-11-08).
+--
+-- The news feed dated a used purchase by listedWeek, the week the jet went up
+-- for sale, so a batch bought minutes ago printed under week headers up to two
+-- game-years old. soldWeek is stamped by the buy's claim UPDATE
+-- (aircraftMarketService.buyUsedBatch).
+--
+-- Additive and nullable: no table rewrite. No backfill — a past sale's week
+-- isn't recoverable from soldAt alone (tick pace and pauses vary), and the
+-- feed shows such rows with no week header rather than a wrong one. Run
+-- `npx prisma migrate deploy` with this deploy: Prisma selects every column on
+-- a plain findMany (see the 2026-10-15 missing-migrations outage).
+ALTER TABLE "UsedAircraftListing" ADD COLUMN "soldWeek" INTEGER;

@@ -622,6 +622,7 @@ model UsedAircraftListing {
   buyerId    String?   // airlineId, set when SOLD
   createdAt  DateTime  @default(now())
   soldAt     DateTime?
+  soldWeek   Int?      // linear week of the purchase — the news feed's date (null on sales before 2026-11-08)
   world      World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
 
   @@index([worldId, status])

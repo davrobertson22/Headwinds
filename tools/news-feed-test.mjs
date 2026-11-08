@@ -458,6 +458,41 @@ await test('a bankruptcy is one headline row', () => {
   assert.equal(rows[0].payload.routes, 22);
 });
 
+// read2much, Discord 2026-11-07: twenty used 757-300s bought in one sitting
+// showed "1m ago" under YEAR 26 · WEEK 45, then YEAR 28 · WEEK 22 — the weeks
+// each jet was LISTED, not the week it was bought. The feed sorts by soldAt but
+// took its week header from listedWeek, so a jet that sat on the market for a
+// year and a half dated its purchase a year and a half back.
+await test('a used purchase is dated the week it was BOUGHT, not the week it was listed', async () => {
+  const prisma = makePrisma({
+    airlines: AIRLINES,
+    used: [
+      { id: 'u1', worldId: 'w1', status: 'SOLD', typeId: 'b753', navPrice: 34_000_000, origin: 'Old Air',
+        listedWeek: 10, soldWeek: 72, buyerId: 'a1', createdAt: ago(60 * 24 * 20), soldAt: ago(1) },
+      { id: 'u2', worldId: 'w1', status: 'SOLD', typeId: 'b753', navPrice: 33_000_000, origin: 'Old Air',
+        listedWeek: 60, soldWeek: 72, buyerId: 'a1', createdAt: ago(60 * 24 * 5), soldAt: ago(1) },
+    ],
+  });
+  const { items } = await buildNews(prisma, { world: WORLD, categories: ['market'] });
+  assert.equal(items.length, 2);
+  for (const it of items) {
+    assert.deepEqual({ year: it.year, week: it.week }, yearWeek(72), `${it.id} must carry its purchase week`);
+    assert.equal(it.linearWeek, 72);
+  }
+});
+
+await test('a sale from before soldWeek existed carries no week rather than its listing week', async () => {
+  const prisma = makePrisma({
+    airlines: AIRLINES,
+    used: [{ id: 'u3', worldId: 'w1', status: 'SOLD', typeId: 'b753', navPrice: 34_000_000,
+      listedWeek: 10, buyerId: 'a1', createdAt: ago(60 * 24 * 20), soldAt: ago(1) }],
+  });
+  const { items } = await buildNews(prisma, { world: WORLD, categories: ['market'] });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].year, undefined, 'no header beats a header 60 weeks wrong');
+  assert.equal(items[0].linearWeek, undefined);
+});
+
 await test('week labels map back to year and week', () => {
   assert.deepEqual(yearWeek(1), { year: 1, week: 1 });
   assert.deepEqual(yearWeek(52), { year: 1, week: 52 });
