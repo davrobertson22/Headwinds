@@ -54,6 +54,22 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">November 9, 2026</p>
+      <h2>The Advisor, a briefing for your own AI, and AI connectors for supporters</h2>
+      <p>A new page under Company reads your airline the way an experienced manager would and tells you what to do about it. In every world, including ones already running.</p>
+      <ul>
+        <li><strong>The Advisor.</strong> Company &#9656; Advisor lists what needs attention, most urgent first. Each tip says why, names the routes or aircraft involved, and has a button to the screen that fixes it. It looks for idle aircraft (with a button that opens the Route Finder on that type), aircraft with hours to spare, routes that are full but losing money, routes flying mostly empty, routes selling out, heavy checks coming due with nothing booked, gates nearly full, crew pay under the going rate while you&rsquo;re short-handed, unfunded marketing, unhedged fuel, loans you could clear from cash, and no ancillaries policy.</li>
+        <li><strong>It won&rsquo;t give bad advice on young routes.</strong> Routes in their first 16 weeks are left out while demand builds. If your maintenance team is paid well enough to book its own heavy checks, the Advisor doesn&rsquo;t nag you to book them. Its figures are the same projection the Dashboard uses, so the two never disagree.</li>
+        <li><strong>One line on the Dashboard</strong> shows how many suggestions there are and the most urgent one.</li>
+        <li><strong>Copy airline briefing.</strong> One button copies your airline as plain text: cash and recent profit, the Advisor&rsquo;s tips, your best and worst routes with fares, your fleet, gates and settings. Paste it into Claude, ChatGPT or any AI chat and ask it anything about your airline. <strong>Download .md</strong> saves the same text as a file. It covers your own airline only, and the game sends it nowhere.</li>
+        <li><strong>Connect your own AI (supporters).</strong> Supporters can create a connector in the lobby and paste its link into Claude, ChatGPT or any app that takes an MCP connector. Their AI then reads the latest figures for every airline they fly, in more detail than the briefing. It is read-only: it can suggest, never change a fare, route or order. It sees only the kind of information the free briefing shows, so it gives no edge over anyone.</li>
+        <li><strong>Why connectors are a supporter thank-you.</strong> Every question an AI asks makes the server read the airline from the database: several MB a time for a big airline, on the same servers that run every world. Supporter tips pay that bill. The game never calls an AI itself, so players only use their own AI subscription.</li>
+      </ul>
+      <p>The in-game Wiki has a new Advisor &amp; AI briefing section. For what the route figures mean, see the <a href="/route-economics.html">route economics guide</a>.</p>
+      <p>Thanks to PRD on Discord for the idea, and to VodkaOnFire for the thinking on how it should work.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">November 6, 2026</p>
       <h2>Demand model v4: frequency sells seats, and every world has a business cycle (new worlds)</h2>
       <p>New worlds now run demand model v4. It keeps v3&rsquo;s real-world demand and seasons, and changes how the market answers what you do. Look for the &ldquo;frequency sells seats&rdquo; tag in the lobby. Worlds already running keep the rules they started with.</p>
