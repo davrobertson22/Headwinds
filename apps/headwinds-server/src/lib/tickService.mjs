@@ -1026,9 +1026,6 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   }
 }
 
-// Tick every RUNNING world that's due, catching up at most `maxCatchUp` weeks per
-// world per call (so a long worker outage streams back gradually instead of
-// slamming the DB in one pass — the next scheduler run continues the catch-up).
 // Flip any LOBBY world whose scheduled start time has arrived to RUNNING. A world
 // created with tickConfig.scheduledStartAt sits open for joining but its clock is
 // parked until here — joining never starts it. startedAt is set to the SCHEDULED
@@ -1039,11 +1036,17 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
 export async function startDueWorlds(prisma, { now = new Date(), log = console } = {}) {
   const lobby = await prisma.world.findMany({ where: { status: 'LOBBY' } });
   let started = 0;
+  // The earliest scheduled start still in the future, so the worker can wake for it.
+  let nextStartAt = null;
   for (const w of lobby) {
     const at = w.tickConfig?.scheduledStartAt;
     if (!at) continue;
     const startAt = new Date(at);
-    if (Number.isNaN(startAt.getTime()) || startAt.getTime() > now.getTime()) continue;
+    if (Number.isNaN(startAt.getTime())) continue;
+    if (startAt.getTime() > now.getTime()) {
+      if (!nextStartAt || startAt < nextStartAt) nextStartAt = startAt;
+      continue;
+    }
     const claimed = await prisma.world.updateMany({
       where: { id: w.id, status: 'LOBBY' },
       data: {
@@ -1057,41 +1060,125 @@ export async function startDueWorlds(prisma, { now = new Date(), log = console }
       log.info?.(`[tick] scheduled world "${w.name}" (${w.id}) started — due ${startAt.toISOString()}`);
     }
   }
-  return { started };
+  return { started, nextStartAt };
 }
 
-export async function runDueTicks(prisma, { maxCatchUp = 12, log = console, now = new Date() } = {}) {
+// ── The worker pass: which world-week runs next ──────────────────────────────
+//
+// THE BUG THIS REPLACES (2026-11-09, Discord: "is the problem just for me?" /
+// "in some worlds, but not others"). The old pass froze `now` at its start,
+// walked the worlds in whatever order Postgres returned them, and drained each
+// world's whole backlog (up to maxCatchUp weeks) before moving to the next. So:
+//   • a world that had fallen behind held every world after it in the list until
+//     its catch-up was done — measured live: Scarce Assets sat overdue while
+//     Heavy Landing and Old Metal streamed back 16 and 21 weeks;
+//   • a world that failed its week (tx expiry, P2028) burned its retries at the
+//     front of the queue on every pass, which is how 2026-10-22 left "the worlds
+//     queued behind it never ticked";
+//   • a week that came due DURING a long pass waited for the pass to end plus
+//     the next 60 s poll;
+//   • a pass that ran past the wedge budget was killed and restarted, and the
+//     restart walked the same order again — so the worlds at the back of the list
+//     were the ones that never got a turn.
+// Which worlds suffered depended only on row order, hence "some worlds, not others".
+//
+// Now one week is picked at a time, re-reading the clock before each pick:
+//   1. the world owing the FEWEST weeks goes first — an on-time world whose week
+//      just came due lands right away, ahead of any backlog, and a failing world
+//      (whose debt grows) sinks behind the healthy ones by itself;
+//   2. ties → fewer weeks already run for it this pass (round-robin);
+//   3. then the one whose due week has waited longest.
+// A world that fails or loses its compare-and-set sits out the rest of the pass
+// (as before), and maxCatchUp still caps any one world per pass. The pass stops
+// picking once `budgetMs` is spent, so a healthy-but-long pass ends on its own
+// before the wedge watchdog would kill it; the worker reruns at once when it did.
+
+/** The ordering key for the next pick (smaller sorts first). Exported for tests. */
+export function tickPriority(world, { now, ranThisPass = 0 }) {
+  const owed = ticksDue(world, now);
+  const dueAt = nextTickAt(world);
+  return [owed, ranThisPass, dueAt ? dueAt.getTime() : Infinity];
+}
+
+const compareKeys = (a, b) => {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  return 0;
+};
+
+// Tick every RUNNING world that's due. Returns
+//   { ticked, budgetExhausted, nextDueAt, owedSkipped }
+// where nextDueAt is the earliest instant a week (or a scheduled start) becomes
+// due that is still in the FUTURE — the worker sleeps until then — and
+// owedSkipped counts worlds still owing weeks that this pass left alone (failed,
+// lost a race, or capped); the worker's normal poll retries those.
+export async function runDueTicks(prisma, {
+  maxCatchUp = 12,
+  log = console,
+  now = null,
+  clock = () => (now ? new Date(now) : new Date()),
+  budgetMs = Infinity,
+  tickOne = tickWorldOnce,
+} = {}) {
   // Start any scheduled worlds that have come due, then tick everything RUNNING —
   // so a world that starts this pass also advances its first due week(s) here.
-  await startDueWorlds(prisma, { now, log });
+  const passStartedAt = clock();
+  const { nextStartAt } = await startDueWorlds(prisma, { now: passStartedAt, log });
   const worlds = await prisma.world.findMany({ where: { status: 'RUNNING' } });
+  const slots = worlds.map((world) => ({ world, ran: 0, out: false }));
+  for (const s of slots) {
+    const due = ticksDue(s.world, passStartedAt);
+    if (due > 0) log.info?.(`[tick] ${s.world.name} (${s.world.id}): ${due} week(s) due`);
+  }
+
   let ticked = 0;
-  for (let world of worlds) {
+  let budgetExhausted = false;
+  for (;;) {
+    const t = clock();
+    const candidates = slots.filter((s) => !s.out && s.world.status === 'RUNNING'
+      && s.ran < maxCatchUp && ticksDue(s.world, t) > 0);
+    if (candidates.length === 0) break;
+    if (t.getTime() - passStartedAt.getTime() >= budgetMs) { budgetExhausted = true; break; }
+    candidates.sort((a, b) => compareKeys(
+      tickPriority(a.world, { now: t, ranThisPass: a.ran }),
+      tickPriority(b.world, { now: t, ranThisPass: b.ran }),
+    ));
+    const slot = candidates[0];
+    const { world } = slot;
     try {
-      let due = Math.min(ticksDue(world, now), maxCatchUp);
-      if (due > 0) log.info(`[tick] ${world.name} (${world.id}): ${due} week(s) due`);
-      while (due > 0) {
-        const res = await tickWorldOnce(prisma, world, { log });
-        if (!res.ok) break; // lost a race or world completed — stop, next run resolves
-        ticked++;
-        due--;
-        // Refresh the in-memory clock for the next compare-and-set.
-        world = {
-          ...world,
-          currentWeek: res.week,
-          currentYear: res.year,
-          status: res.ended ? 'ENDED' : 'RUNNING',
-          // Carry the just-persisted shared event list forward so the next
-          // catch-up week ages from it instead of re-rolling the stale list.
-          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: res.worldEvents ?? world.tickConfig?.runtimeEvents ?? [] },
-        };
-        if (res.ended) { log.info(`[tick] ${world.name} reached its final week — ENDED`); break; }
-      }
+      const res = await tickOne(prisma, world, { log });
+      if (!res?.ok) { slot.out = true; continue; } // lost a race or world completed — next run resolves
+      ticked++;
+      slot.ran++;
+      // Refresh the in-memory clock for the next compare-and-set.
+      slot.world = {
+        ...world,
+        currentWeek: res.week,
+        currentYear: res.year,
+        status: res.ended ? 'ENDED' : 'RUNNING',
+        // Carry the just-persisted shared event list forward so the next
+        // catch-up week ages from it instead of re-rolling the stale list.
+        tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: res.worldEvents ?? world.tickConfig?.runtimeEvents ?? [] },
+      };
+      if (res.ended) log.info?.(`[tick] ${world.name} reached its final week — ENDED`);
     } catch (err) {
       // One world failing (e.g. a corrupt airline state) must not wedge the whole
       // scheduler pass — log it and move on so the other worlds still tick.
-      log.error(`[tick] world ${world.id} aborted this pass:`, err?.message ?? err);
+      slot.out = true;
+      log.error?.(`[tick] world ${world.id} aborted this pass:`, err?.message ?? err);
     }
   }
-  return { ticked };
+
+  const end = clock();
+  let nextDueAt = nextStartAt && nextStartAt > end ? nextStartAt : null;
+  let owedSkipped = 0;
+  for (const s of slots) {
+    if (s.world.status !== 'RUNNING') continue;
+    if (ticksDue(s.world, end) > 0) { owedSkipped++; continue; }
+    const at = nextTickAt(s.world);
+    if (at && at > end && (!nextDueAt || at < nextDueAt)) nextDueAt = at;
+  }
+  if (budgetExhausted) {
+    log.warn?.(`[tick] pass hit its ${Math.round(budgetMs / 1000)}s budget after ${ticked} week(s) — rerunning`);
+  }
+  return { ticked, budgetExhausted, nextDueAt, owedSkipped };
 }

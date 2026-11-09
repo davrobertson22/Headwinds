@@ -48,23 +48,48 @@ const guard = createTickGuard({
   },
 });
 
+// A pass stops picking new weeks after half the wedge budget, so a long but
+// healthy catch-up ends on its own and the next pass starts straight away —
+// rather than the watchdog killing it and the restart walking the same queue.
+const PASS_BUDGET_MS = Math.max(60_000, Math.floor(env.tickWedgeMinutes * 60_000 / 2));
+
 async function tickOnce() {
-  if (ticking) return;
+  if (ticking) return null;
   ticking = true;
   guard.beginPass();
   try {
-    const { ticked } = await runDueTicks(prisma, { maxCatchUp: env.tickMaxCatchUp, log });
-    if (ticked > 0) log.info(`[worker] advanced ${ticked} world-week(s)`);
+    const res = await runDueTicks(prisma, { maxCatchUp: env.tickMaxCatchUp, log, budgetMs: PASS_BUDGET_MS });
+    if (res.ticked > 0) log.info(`[worker] advanced ${res.ticked} world-week(s)`);
+    return res;
   } catch (err) {
     log.error('[worker] tick error:', err);
+    return null;
   } finally {
     guard.endPass();
     ticking = false;
   }
 }
 
+// Wake for the next week that comes due instead of polling every TICK_CHECK_MS:
+// a world due at :00 used to wait up to a minute for the poll (players watch
+// "next week landing…" the whole time). The poll interval stays the longest
+// sleep, so worlds that failed or were capped are retried as before.
+let tickTimer = null;
+function scheduleNext(res) {
+  let delay = TICK_CHECK_MS;
+  if (res?.budgetExhausted) delay = 1_000;
+  else if (res?.nextDueAt) {
+    const until = new Date(res.nextDueAt).getTime() - Date.now() + 250;
+    delay = Math.min(TICK_CHECK_MS, Math.max(1_000, until));
+  }
+  tickTimer = setTimeout(loop, delay);
+}
+async function loop() {
+  scheduleNext(await tickOnce());
+}
+
 log.info(
-  `[worker] starting — tick check every ${env.tickCheckSeconds}s ` +
+  `[worker] starting — wakes at each due week (at most ${env.tickCheckSeconds}s apart, pass budget ${Math.round(PASS_BUDGET_MS / 1000)}s) ` +
   `(catch-up cap ${env.tickMaxCatchUp}); world creation is admin-only (no spawner)`
 );
 // So the logs show the limits this process actually runs under (TICK_TX_TIMEOUT_MS,
@@ -74,13 +99,13 @@ log.info(
   `JS heap limit ${Math.round(getHeapStatistics().heap_size_limit / 1048576)} MB`
 );
 
-await tickOnce(); // run immediately on boot
-const tickTimer = setInterval(tickOnce, TICK_CHECK_MS);
+// The watchdog starts first so a boot pass that hangs is caught too.
 const watchdogTimer = setInterval(() => guard.check(), 30_000);
+await loop(); // run immediately on boot, then on the schedule above
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
-    clearInterval(tickTimer);
+    clearTimeout(tickTimer);
     clearInterval(watchdogTimer);
     await prisma.$disconnect();
     process.exit(0);
