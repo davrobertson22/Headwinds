@@ -14,6 +14,7 @@ import { simulateRoute, currentGameDate, fleetAvgUtilization,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, formatMoney,
 } from './simulation.js';
 import { projectWeek } from './financeProjection.js';
+import { skippedRouteForecast } from './skippedRouteForecast.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { crewStatus, crewParkedAlertText } from '../data/labor.js';
 import { isReserve } from '../data/reserve.js';
@@ -50,11 +51,8 @@ export function projectedRouteResults(state, proj) {
   return routes.map(route => {
     const aircraft = fleet.find(a => a.id === route.aircraftId);
     const result = !aircraft ? null
-      : (rrById[route.id] ?? simulateRoute(
-          // Lounge fields — without them this fallback quotes the full
-          // third-party premium ground rate on a route the tick discounts.
-          { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
-          aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null));
+      : (rrById[route.id] ?? skippedRouteForecast(state, route, aircraft,
+          { gameDate: gd, fuelMultiplier: proj.fuelMultiplier, avgUtilization: avgUtil }));
     return { route, result };
   });
 }

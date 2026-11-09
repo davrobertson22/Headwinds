@@ -27,6 +27,9 @@ import { projectWeek } from '../utils/financeProjection.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { orderProgress } from '../data/delivery.js';
 import { orderLinePlace } from '../utils/lineQueue.js';
+import { cancelOrderDialog } from '../utils/cancelOrderCopy.js';
+import { tailMaintenanceFn } from '../utils/tailCosts.js';
+import { skippedRouteForecast } from '../utils/skippedRouteForecast.js';
 import LinePlace from './LinePlace.jsx';
 import { saleQuote, dueInfo, checkCost, checkDurationWeeks, isOutOfService, groundedLabel, MAX_SCHEDULE_AHEAD_WEEKS, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import InfoTip from './InfoTip.jsx';
@@ -863,9 +866,8 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
           evMult, cargoAlloc.get(r.id) ?? null);
       } else {
         const avgUtil = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...cargoRoutes]);
-        result = simulateRoute(
-          { ...r, ...stateLoungeFields(state, r.origin, r.destination), ...stateGroundHandlingFields(state, r.origin, r.destination), ...stateCateringFields(state, r) },
-          aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
+        result = skippedRouteForecast(state, r, aircraft,
+          { gameDate: gd, fuelMultiplier: proj.fuelMultiplier, avgUtilization: avgUtil, eventMult: evMult });
       }
     }
     if (!result) return null;
@@ -889,7 +891,7 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
   // The tick's own age for the running-cost curve: D-check credit and a
   // freighter conversion's credit both bring it down (data/maintenance.js).
   const maintMlt = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
-  const weeklyMaint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintMlt);
+  const weeklyMaint = tailMaintenanceFn(state)(aircraft);   // the tick's bill (budget, labour, facility)
   const weeklyLease = aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
   const ageColor    = ageYrs < 5 ? 'var(--green)' : ageYrs < 12 ? 'var(--yellow)' : 'var(--red)';
 
@@ -1584,7 +1586,7 @@ function FleetByType({ fleet, routes, cargoRoutes = [] }) {
         // Total weekly fixed costs
         const totalFixed = aircraft.reduce((s, a) => {
           const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? type?.weeklyLease ?? 0);
-          const maint = Math.round((type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
+          const maint = tailMaintenanceFn(state)(a);
           return s + lease + maint;
         }, 0);
 
@@ -1756,7 +1758,7 @@ function FleetByCategory({ fleet, routes, cargoRoutes = [] }) {
         const totalFixed = catFleet.reduce((s, a) => {
           const t = getAircraftType(a.typeId);
           const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? t?.weeklyLease ?? 0);
-          const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
+          const maint = tailMaintenanceFn(state)(a);
           return s + lease + maint;
         }, 0);
 
@@ -2194,15 +2196,15 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   }
 
   async function handleCancelOrder(order) {
-    const hasRefund = order.ownershipType === 'owned' && order.totalPrice > 0;
-    const refund    = hasRefund ? Math.round(order.totalPrice * 0.95) : 0;
-    const deposit = order.ownershipType === 'lease' ? (order.leaseDeposit ?? 0) : 0;
-    const body = hasRefund
-      ? `You'll be refunded ${formatMoney(refund)} (a 5% cancellation fee applies).`
-      : deposit > 0
-        ? `Lease orders are free to cancel before delivery — your ${formatMoney(deposit)} security deposit is returned in full.`
-        : `Lease orders are free to cancel before delivery.`;
-    if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
+    // One dialog for the Fleet and Market pages (utils/cancelOrderCopy.js): the
+    // terms differ in production-line worlds, and this page used to quote the
+    // classic 5% fee on an order the reducer refunded at 70%.
+    const d = cancelOrderDialog(state, order);
+    if (!d.allowed) {
+      await confirm({ title: 'This order is firm', body: d.reason, confirmLabel: 'OK' });
+      return;
+    }
+    if (await confirm({ title: d.title, body: d.body, danger: true, confirmLabel: 'Cancel order' })) {
       dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
     }
   }
@@ -2230,7 +2232,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   }, 0);
   const weeklyMaintTotal = fleet.reduce((s, a) => {
     const t = getAircraftType(a.typeId);
-    return s + Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
+    return s + tailMaintenanceFn(state)(a);
   }, 0);
 
   const selectedAircraft = fleet.find(a => a.id === selectedId);
@@ -2305,7 +2307,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
         return u.overCap ? Math.max(u.flyingHours, u.peakHours) : u.flyingHours;
       }
       case 'fixed': {
-        const maint = Math.round((t?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(effectiveMaintAgeWeeks(a)));
+        const maint = tailMaintenanceFn(state)(a);
         const lease = a.ownershipType === 'owned' ? 0 : (a.weeklyLease ?? t?.weeklyLease ?? 0);
         return lease + maint;
       }
@@ -3376,7 +3378,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
               const route  = routes.find(r => r.aircraftId === aircraft.id);
               const ageWks = aircraft.ageWeeks ?? 0;
               const maintM = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
-              const maint  = Math.round((type?.baseMaintenancePerWk ?? 0) * maintM);
+              const maint  = tailMaintenanceFn(state)(aircraft);
               const lease  = aircraft.ownershipType === 'owned' ? 0 : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);
               const ageYrs = ageWks / 52;
               const ageColor = ageYrs < 5 ? 'var(--green)' : ageYrs < 12 ? 'var(--yellow)' : 'var(--red)';

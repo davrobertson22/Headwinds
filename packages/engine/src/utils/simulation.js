@@ -1348,6 +1348,24 @@ export const MIN_SPARE_BLOCK_HOURS = 5;
 export const SLOTS_PER_GATE = 50;
 
 /**
+ * What one airport's gates cost this airline per week — the figure weeklyTick
+ * bills (step 4): the monthly schedule for `count` gates pro-rated to a week,
+ * plus the congestion surcharge at a >90%-full airport in a gate-scarcity
+ * world. Every screen that prints a gate bill reads this. Finance's By Airport
+ * table used to price every gate at the FIRST gate's rate and divide by 4.33,
+ * which showed 20 gates at O'Hare as $554K/wk against a $1.71M bill
+ * (audit 2026-11-09, A2).
+ */
+export function weeklyGateFeeAt(state, code, count) {
+  const n = Number(count) || 0;
+  const ap = n > 0 ? getAirport(code) : null;
+  if (!ap) return 0;
+  const weekly = Math.round(totalGateMonthlyFee(ap, n) / 4);
+  const congested = state?.gateScarcityWorld && state.gateMarket?.airports?.[code]?.surcharge;
+  return weekly + (congested ? Math.round(weekly * (GATE_SURCHARGE_MULT - 1)) : 0);
+}
+
+/**
  * Weekly slots consumed at `code` by cargo routes. Freighters use gates and
  * slots exactly like passenger flights, so this is summed alongside passenger
  * slot usage wherever capacity is displayed or enforced. Cargo routes have no

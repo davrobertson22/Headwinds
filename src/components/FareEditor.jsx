@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   referencePrice, maxClassPrice, CLASS_FARE_MULTIPLIERS,
 } from '../utils/simulation.js';
-import { fareCliffActive, fareCliffRatio } from '../models/fareCliff.js';
+import { fareCliffActive, fareCliffRatio, fareCliffDropPct } from '../models/fareCliff.js';
 
 // ─── Cabin-class metadata (single source for every pricing surface) ───────────
 
@@ -201,7 +201,7 @@ export default function FareEditor({ origin, dest, config, fares, onCommit, onCo
               return (
                 <div
                   style={{ fontSize: 10, color: 'var(--yellow)', fontWeight: 600, marginTop: 1 }}
-                  title={`On this route the fare cliff starts at $${cliffAt}. Past it, every extra 1% cuts ${cls === 'economy' ? 'demand' : 'demand for this cabin'} by about 14%${cls === 'economy' ? '' : ' (those passengers trade down to economy)'}. A route with far more demand than seats can stay full for a while — check the projected load below.`}
+                  title={`On this route the fare cliff starts at $${cliffAt}. Past it, every extra 1% cuts ${cls === 'economy' ? 'demand' : 'demand for this cabin'} by about ${fareCliffDropPct()}%${cls === 'economy' ? '' : ' (those passengers trade down to economy)'}. A route with far more demand than seats can stay full for a while — check the projected load below.`}
                 >
                   ⚠ past the cliff (${cliffAt})
                 </div>

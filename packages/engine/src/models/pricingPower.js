@@ -25,6 +25,17 @@
 // Detail, the fare-cliff warnings and the server's rival specs all read these,
 // so a preview cannot quote a cliff the tick will not apply.
 
+import { metroPrimary, memberPairKeysOf } from '../data/metros.js';
+
+// CITIES, NOT AIRPORTS (audit 2026-11-09, A4). The share fight pools a whole
+// metro pair: a rival on EWR-LAX takes passengers from your JFK-LAX
+// (simulation.js lane pooling, pairShare.js). These tests used to read the
+// exact airport pair, so that route kept the "nobody else flies it" headroom
+// while splitting its market — and the rival's copy of you, which is always
+// scored as contested, disagreed with your own tick. Both tests now read the
+// metro: the pair is contested when a rival flies ANY member pair of the lane,
+// and an entrant is credible when it serves both cities by any of their fields.
+
 export const PRICING_HEADROOM = {
   protectedMarket: 0.10,
   hubByTier: { 0: 0.02, 1: 0.04, 2: 0.06, 3: 0.08 },
@@ -56,7 +67,7 @@ export function hubHeadroom(state, origin, destination) {
 const _stationMemo = new WeakMap();
 
 /**
- * Airports each rival airline serves, from the rival data the state carries:
+ * Cities (metro primaries) each rival airline serves, from the rival data the state carries:
  * Map<airport, Set<rivalId>>. Multiplayer: state.humanRivals is keyed by EVERY
  * pair any rival flies ("AAA-BBB"), each with that pair's rival specs. Solo:
  * state.competitors[].routes keyed the same way.
@@ -70,8 +81,9 @@ export function rivalStations(state) {
     if (hit && hit.comps === comps && hit.hr === hr) return hit.index;
   }
   const index = new Map();
-  const add = (code, id) => {
-    if (!code) return;
+  const add = (rawCode, id) => {
+    if (!rawCode) return;
+    const code = metroPrimary(rawCode);   // one entry per city
     let set = index.get(code);
     if (!set) { set = new Set(); index.set(code, set); }
     set.add(id);
@@ -94,23 +106,24 @@ export function rivalStations(state) {
   return index;
 }
 
-/** Whether some rival airline already flies to both of the pair's airports. */
+/** Whether some rival airline already flies to both of the pair's cities (any airport of each). */
 export function credibleEntrant(state, origin, destination) {
   const idx = rivalStations(state);
-  const a = idx.get(origin), b = idx.get(destination);
+  const a = idx.get(metroPrimary(origin)), b = idx.get(metroPrimary(destination));
   if (!a || !b) return false;
   const [small, big] = a.size <= b.size ? [a, b] : [b, a];
   for (const id of small) if (big.has(id)) return true;
   return false;
 }
 
-/** Whether any rival flies the pair itself (nonstop). */
+/** Whether any rival flies the pair's market nonstop — any member pair of its metro lane. */
 function rivalFliesPair(state, origin, destination) {
-  const key = [origin, destination].sort().join('-');
-  if ((state?.humanRivals?.[key] ?? []).length > 0) return true;
+  const keys = memberPairKeysOf(origin, destination);
+  const hr = state?.humanRivals;
+  if (hr) for (const key of keys) if ((hr[key] ?? []).length > 0) return true;
   for (const c of state?.competitors ?? []) {
-    if (!c || c.bankrupt) continue;
-    if (c.routes?.[key]) return true;
+    if (!c || c.bankrupt || !c.routes) continue;
+    for (const key of keys) if (c.routes[key]) return true;
   }
   return false;
 }

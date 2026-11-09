@@ -14,7 +14,7 @@ export const STANDINGS_SORTS = [
   { key: 'weeklyProfit', label: 'Weekly profit', long: 'Weekly profit', money: true, field: 'weeklyProfit',
     tip: "Last week's net profit: EBIT less interest and tax. Depreciation is charged; loan principal is not." },
   { key: 'netAssets',    label: 'Net assets',    long: 'Net assets',    money: true, field: 'netAssets',
-    tip: 'Assets less liabilities: cash, owned aircraft at book value and shares held, less loans outstanding.' },
+    tip: 'Assets less liabilities: cash, owned aircraft at book value, shares held, lease deposits and aircraft on order, less loans outstanding.' },
   { key: 'paxWeek',      label: 'Pax / wk',      long: 'Passengers a week', field: 'paxWeek',
     tip: 'Passengers carried last week.' },
   { key: 'flightsWeek',  label: 'Flights / wk',  long: 'Flights a week', field: 'flightsWeek',

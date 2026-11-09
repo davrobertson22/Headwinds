@@ -33,6 +33,7 @@ import NumberStepper from './NumberStepper.jsx';
 import RouteFrequencyControls, { FREQ_MODES, MAX_FREQ_UI, FrequencyPlanSummary } from './FrequencyControls.jsx';
 import { projectWeek } from '../utils/financeProjection.js';
 import { projectRouteAddition, rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
+import { skippedRouteForecast } from '../utils/skippedRouteForecast.js';
 import FareEditor, { CLASS_ORDER, CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import {
   distanceKm, referencePrice, simulateRoute, formatMoney, formatPercent,
@@ -45,7 +46,7 @@ import {
   routePairKey,
 } from '../utils/simulation.js';
 import { rivalIndexFor } from '../models/network.js';
-import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio, cliffFaresFor, faresTrimmedUnderCliff, FARE_CLIFF_TRIM_MARGIN } from '../models/fareCliff.js';
+import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio, fareCliffRatioMax, fareCliffDropPct, cliffFaresFor, faresTrimmedUnderCliff, FARE_CLIFF_TRIM_MARGIN } from '../models/fareCliff.js';
 
 // ─── Remembered view settings ────────────────────────────────────────────────
 // How the player likes this page laid out: the card sort, the table's sort
@@ -365,9 +366,10 @@ export default function Routes() {
     if (rr) return rr;
     const avgUtil = fallbackAvgUtil;
     const evMult  = fallbackEventMult(route.origin, route.destination);
-    return simulateRoute(
-      { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
-      aircraft, gd, state.labor ?? null, proj.fuelMultiplier, null, [], avgUtil, state.satisfaction ?? null, evMult);
+    // One fallback for every screen (utils/skippedRouteForecast.js): rivals,
+    // ancillaries and the world/cycle demand multiplier included.
+    return skippedRouteForecast(state, route, aircraft,
+      { gameDate: gd, fuelMultiplier: proj.fuelMultiplier, avgUtilization: avgUtil, eventMult: evMult });
   };
 
   // Each route's share of its aircraft's weekly lease + maintenance. The engine
@@ -2243,7 +2245,7 @@ function PerClassPercentRow({ classes, values, onChange }) {
 // warning about and no quick way to undo (see models/fareCliff.js).
 
 const cliffPct = () => Math.round((fareCliffRatio() - 1) * 100);
-const cliffPctMax = () => Math.round((fareCliffRatio(100) - 1) * 100);
+const cliffPctMax = () => Math.round((fareCliffRatioMax() - 1) * 100);
 
 const CABIN_SHORT = { economy: 'Economy', premiumEconomy: 'Prem Eco', businessClass: 'Business', firstClass: 'First' };
 
@@ -2257,7 +2259,7 @@ function FareCliffWarning({ preview }) {
     }}>
       <Glyph e="⚠" /> <b>{n} of {preview.pairs} route{preview.pairs !== 1 ? 's' : ''}</b> would be priced
       past the fare cliff ({cliffPct()}–{cliffPctMax()}% above reference, higher for better-rated routes,
-      lower where rivals fly). Past it, every extra 1% on the fare cuts demand by about 14%: a route with far
+      lower where rivals fly). Past it, every extra 1% on the fare cuts demand by about {fareCliffDropPct()}%: a route with far
       more demand than seats can stay full for a while, but at +50% most routes keep almost nobody.
     </div>
   );
@@ -2328,7 +2330,7 @@ function FareCliffBanner({ pairs, onTrim, onReset, onShow }) {
               {full.length} route{full.length !== 1 ? 's are' : ' is'} past the fare cliff but still full
             </span>
             {' '}({list(full)}). Demand there is far above your seats, so you are not losing passengers yet — but
-            each extra 1% on the fare now cuts demand by about 14%, and a rival or a quiet season can tip it over.
+            each extra 1% on the fare now cuts demand by about {fareCliffDropPct()}%, and a rival or a quiet season can tip it over.
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => onTrim(full)} title={trimTitle}>
@@ -2391,7 +2393,7 @@ function BulkPricingModal({ allGroups, onApplyToGroups, previewCliff, onResetGro
   async function apply() {
     if (cliff?.newlyOver > 0 && !(await confirm({
       title: `Price ${cliff.newlyOver} route${cliff.newlyOver !== 1 ? 's' : ''} past the demand cliff?`,
-      body: `These fares end up past the fare cliff (${cliffPct()}–${cliffPctMax()}% above reference, depending on the route), where each extra 1% cuts demand by about 14%. Full routes can absorb some of that; thinner ones empty fast. You can undo it with “Reset to reference”.`,
+      body: `These fares end up past the fare cliff (${cliffPct()}–${cliffPctMax()}% above reference, depending on the route), where each extra 1% cuts demand by about ${fareCliffDropPct()}%. Full routes can absorb some of that; thinner ones empty fast. You can undo it with “Reset to reference”.`,
       danger: true, confirmLabel: 'Apply anyway',
     }))) return;
     onApplyToGroups(matching, pct);
@@ -2535,7 +2537,7 @@ function SelectionActionBar({ groups, onApplyToGroups, previewCliff, onResetGrou
   const apply = async () => {
     if (cliff?.newlyOver > 0 && !(await confirm({
       title: `Price ${cliff.newlyOver} route${cliff.newlyOver !== 1 ? 's' : ''} past the demand cliff?`,
-      body: `These fares end up past the fare cliff (${cliffPct()}–${cliffPctMax()}% above reference, depending on the route), where each extra 1% cuts demand by about 14%. Full routes can absorb some of that; thinner ones empty fast. You can undo it with “Reset to ref”.`,
+      body: `These fares end up past the fare cliff (${cliffPct()}–${cliffPctMax()}% above reference, depending on the route), where each extra 1% cuts demand by about ${fareCliffDropPct()}%. Full routes can absorb some of that; thinner ones empty fast. You can undo it with “Reset to ref”.`,
       danger: true, confirmLabel: 'Apply anyway',
     }))) return;
     onApplyToGroups(groups, pct);

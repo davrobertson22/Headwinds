@@ -133,8 +133,19 @@ test('1990 restricted world, "Leasable now": the A320ceo (lessors from 1998) goe
   assert.ok(html.includes('McDonnell Douglas MD-80<'));
 });
 
-test('1990 unrestricted world: lessors carry the A320ceo, so "Leasable now" keeps it', () => {
+// The 10-years-after-service lessor rule holds in EVERY era world since
+// 2026-10-30 (leaseDenial; tools/era-lease-age-open-world-test.mjs), so an
+// unrestricted 1990 world hides the A320ceo (in service 1988, lessors from
+// 1998) under "Leasable now" exactly as a restricted one does, and shows it
+// once lessors carry it.
+test('1990 unrestricted world: lessors do not carry the A320ceo yet, so "Leasable now" hides it', () => {
   const html = render(base({ startYear: 1990 }), { leasable: true });
+  assert.ok(!html.includes('Airbus A320ceo<'));
+  assert.ok(html.includes('McDonnell Douglas MD-80<'));
+});
+
+test('2000 unrestricted world: lessors carry the A320ceo, so "Leasable now" keeps it', () => {
+  const html = render(base({ startYear: 2000 }), { leasable: true });
   assert.ok(html.includes('Airbus A320ceo<'));
 });
 

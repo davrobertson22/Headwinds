@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Glyph } from './Icons.jsx';
 import { navPathFor } from '../navPath.js';
 import { useGame } from '../store/GameContext.jsx';
+import { formatMoney } from '../utils/simulation.js';
 
 // Bump this version whenever the tour content changes so returning players
 // see the updated guidance once (v2 added: Market filtering, idle-aircraft
@@ -14,15 +15,15 @@ const STEPS = [
     icon: '✈️',
     title: 'Welcome to Tailwinds - Airline Manager',
     remoteTitle: 'Welcome to Headwinds - Multiplayer Airline Manager',
-    body: "You've founded your airline with $15 million in equity capital, yours to invest, with no debt to service. Your mission: build a profitable route network before you burn through it. Spend wisely; the bank is there if you need a loan later.",
-    remoteBody: "You've founded your airline with $15 million in equity capital, the same opening every player in this world gets. Your mission: build a profitable route network before you burn through it, in a shared world where every competitor is a real person.",
+    body: "You've founded your airline with {capital} in equity capital, yours to invest, with no debt to service. Your mission: build a profitable route network before you burn through it. Spend wisely; the bank is there if you need a loan later.",
+    remoteBody: "You've founded your airline with {capital} in equity capital, the same opening every player in this world gets. Your mission: build a profitable route network before you burn through it, in a shared world where every competitor is a real person.",
     highlight: null,
   },
   {
     icon: '🎯',
     title: 'What You\'re Trying to Do',
     body: "Every week you collect ticket revenue. Every week costs come out, fuel, crew, leases, loan repayments. Stay profitable, grow your network, and outlast the competition.",
-    remoteBody: "Every week you collect ticket revenue. Every week costs come out, fuel, crew, leases, loan repayments. Stay profitable, grow your network, and climb the standings, the leaderboard ranks every human airline in this world by market cap.",
+    remoteBody: "Every week you collect ticket revenue. Every week costs come out, fuel, crew, leases, loan repayments. Stay profitable, grow your network, and climb the standings: every airline in this world is ranked on its average weekly net profit over the last 52 weeks.",
     highlight: null,
   },
   {
@@ -92,7 +93,11 @@ export default function OnboardingTour({ onClose }) {
   // Multiplayer (Headwinds) shows the same tour with reworded steps: the brand,
   // the server-owned world clock, and human rivals. `remote` is false in solo,
   // where remoteOnly steps are dropped and remote* fields are ignored.
-  const { remote } = useGame();
+  const { remote, state } = useGame();
+  // The capital this airline actually started on (worlds set their own). The
+  // tour used to quote a fixed figure everywhere, which stopped being the default
+  // in September 2026.
+  const capital = Number(state?.paidInCapital) > 0 ? formatMoney(state.paidInCapital) : 'its starting cash';
   const steps = STEPS
     .filter((s) => !s.remoteOnly || remote)
     .map((s) => remote ? {
@@ -100,7 +105,8 @@ export default function OnboardingTour({ onClose }) {
       title: s.remoteTitle ?? s.title,
       body: s.remoteBody ?? s.body,
       highlight: s.remoteHighlight !== undefined ? (s.remoteHighlight || null) : s.highlight,
-    } : s);
+    } : s)
+    .map((s) => (s.body?.includes('{capital}') ? { ...s, body: s.body.replace('{capital}', capital) } : s));
   const [step, setStep] = useState(0);
   const current = steps[step];
   // The nav bar folds most tabs into four dropdown groups, so a step that says

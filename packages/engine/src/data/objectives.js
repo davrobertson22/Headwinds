@@ -438,7 +438,7 @@ export const MULTIPLAYER_OBJECTIVE_TEMPLATES = [
     id:     'mp_hub_tier2',
     phase:  'starter',
     title:  'Hub Investor',
-    desc:   'Upgrade a hub to Tier 2',
+    desc:   'Raise one of your hubs to Major Hub',
     icon:   '🏗️',
     reward: 750_000,
     check: ({ hubs }) => Object.values(hubs ?? {}).some(h => (h?.tier ?? 0) >= 2),

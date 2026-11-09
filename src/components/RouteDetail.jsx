@@ -14,6 +14,7 @@ import {
 // pairShare has no src/models shim; RoutePlanner/Routes import the engine path
 // directly too.
 import { playerCampaignBoost, rivalPairQuality } from '../../packages/engine/src/models/pairShare.js';
+import { skippedRouteForecast } from '../utils/skippedRouteForecast.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../../packages/engine/src/models/network.js';
 import { blendJetAgeAppeal, jetAgeFields } from '../../packages/engine/src/models/jetAge.js';
 import { getAlliance } from '../data/alliances.js';
@@ -507,14 +508,13 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
       if (rr) return [{ route, aircraft, type, result: rr }];
       // Fallback for routes the engine skipped (grounded / dormant-seasonal) —
       // same labor / utilization / satisfaction inputs the engine uses.
-      const result = simulateRoute(
-        { ...route, ...stateLoungeFields(state, route.origin, route.destination), ...stateGroundHandlingFields(state, route.origin, route.destination), ...stateCateringFields(state, route) },
-        // The live fuel multiplier (price × burn), never a bare 1.0: the
-        // fallback preview must agree with the tick like every other one.
-        aircraft, gameDate, state.labor ?? null, fuelSimMultiplierOf(state),
-        demandAllocations.get(aircraft.id) ?? null, [],
-        fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]),
-        state.satisfaction ?? null, eventDemand.multFor(origin, dest));
+      // The live fuel multiplier (price × burn), never a bare 1.0, and the one
+      // fallback every screen shares (utils/skippedRouteForecast.js).
+      const result = skippedRouteForecast(state, route, aircraft, {
+        gameDate, fuelMultiplier: fuelSimMultiplierOf(state),
+        demandOverride: demandAllocations.get(aircraft.id) ?? null,
+        eventMult: eventDemand.multFor(origin, dest),
+      });
       if (!result) return [];
       const weeklyLeaseCost = aircraft.ownershipType === 'owned' ? 0
         : (aircraft.weeklyLease ?? type?.weeklyLease ?? 0);

@@ -77,11 +77,15 @@ test('BUY_AIRCRAFT in 1950 charges the era price, and the same buy in classic ch
   assert.equal(500_000_000 - c.cash, cv.purchasePrice, 'classic parity');
 });
 
-test('LEASE_AIRCRAFT in 1950 stamps the era rate on the tail — locked for the term', () => {
+// Lessors carry a type from ten years after it enters service in every era
+// world (leaseDenial, 2026-10-30), so the CV-240 (1948) leases from 1958.
+test('LEASE_AIRCRAFT in an era world stamps the era rate on the tail — locked for the term', () => {
   const cv = getAircraftType('cv240');
-  const e = gameReducer(era(1950), { type: 'LEASE_AIRCRAFT', typeId: 'cv240' });
-  assert.equal(e.fleet[0].weeklyLease, eraWeeklyLease(cv, 1950));
-  assert.ok(e.fleet[0].weeklyLease > 2 * cv.weeklyLease);
+  assert.equal(gameReducer(era(1950), { type: 'LEASE_AIRCRAFT', typeId: 'cv240' }).fleet.length, 0,
+    'no lessor stocks a two-year-old type in 1950');
+  const e = gameReducer(era(1958), { type: 'LEASE_AIRCRAFT', typeId: 'cv240' });
+  assert.equal(e.fleet[0].weeklyLease, eraWeeklyLease(cv, 1958));
+  assert.ok(e.fleet[0].weeklyLease > 1.5 * cv.weeklyLease);
   // Classic parity on a non-vintage type — the CV-240 (line closed 1954) is
   // buy-only in a 2026 world under the vintage rule (era-availability-test).
   const f27 = getAircraftType('f27');
@@ -97,9 +101,9 @@ test('ORDER_AIRCRAFT prices owned and leased orders at the era figure', () => {
   assert.ok(order, 'no order placed');
   const unit = order.unitPrice ?? order.totalPrice ?? order.price ?? order.unitTotalPrice;
   assert.ok(unit >= eraPurchasePrice(cv, 1950), `order priced at ${unit}, era price ${eraPurchasePrice(cv, 1950)}`);
-  const leased = gameReducer(era(1950), { type: 'ORDER_AIRCRAFT', typeId: 'cv240', quantity: 1, ownershipType: 'lease' });
-  assert.ok(leased.pendingOrders[0].weeklyLease >= eraWeeklyLease(cv, 1950) * 0.8,
-    `lease order rate ${leased.pendingOrders[0].weeklyLease} vs era ${eraWeeklyLease(cv, 1950)}`);
+  const leased = gameReducer(era(1958), { type: 'ORDER_AIRCRAFT', typeId: 'cv240', quantity: 1, ownershipType: 'lease' });
+  assert.ok(leased.pendingOrders[0].weeklyLease >= eraWeeklyLease(cv, 1958) * 0.8,
+    `lease order rate ${leased.pendingOrders[0].weeklyLease} vs era ${eraWeeklyLease(cv, 1958)}`);
 });
 
 test('buy then sell in the same week returns most of the money — NAV reads the same era price the buy charged', () => {

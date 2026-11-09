@@ -15,13 +15,14 @@
 //
 // Classic worlds have no choke: every function here reports nothing there
 // unless `force` is passed (tests).
-import { referencePrice, getNwrYieldChoke, nwrChokeThreshold } from '../utils/market.js';
+import { referencePrice, getNwrYieldChoke, nwrChokeThreshold, getDemandModel,
+  NWR_CHOKE_STEEPNESS, NWR_CHOKE_STEEPNESS_V4 } from '../utils/market.js';
 import {
   CLASS_FARE_MULTIPLIERS, routePairKey, defaultClassPrices, clampClassPrice,
   routeQualityBreakdown, isMultiStop,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
-import { pricingHeadroomFor } from './pricingPower.js';
+import { pricingHeadroomFor, PRICING_HEADROOM } from './pricingPower.js';
 import { COMPETITIVE_FARE_COMPRESSION_PER_RIVAL, COMPETITIVE_FARE_COMPRESSION_FLOOR } from './demand.js';
 
 // ─── Where the cliff really is (Discord, 2026-09-24) ─────────────────────────
@@ -77,6 +78,27 @@ function pairContext(state, key, origin, destination, qualities) {
     // helper the tick attaches to the pair's offer (models/pricingPower.js).
     headroom: pricingHeadroomFor(state, origin, destination),
   };
+}
+
+/**
+ * How much demand each extra 1% of fare costs once a route is past the cliff,
+ * as a whole percentage — for copy. The steepness is the engine's own
+ * (nwrYieldChokeFactor): 15 before demand model v4 (about 14%), 8 from v4
+ * (about 8%). Five warnings quoted "about 14%" as a literal, so v4 worlds were
+ * told the cliff was nearly twice as steep as it is (audit 2026-11-09, B3).
+ */
+export function fareCliffDropPct() {
+  const k = getDemandModel() >= 4 ? NWR_CHOKE_STEEPNESS_V4 : NWR_CHOKE_STEEPNESS;
+  return Math.round((1 - Math.exp(-k * 0.01)) * 100);
+}
+
+/**
+ * The furthest above reference the cliff can start in this world, as a ratio:
+ * the best-rated route's threshold, plus the most pricing headroom an airline
+ * can earn in a demand model v4 world (0 before v4).
+ */
+export function fareCliffRatioMax() {
+  return nwrChokeThreshold(100) + (getDemandModel() >= 4 ? PRICING_HEADROOM.max : 0);
 }
 
 /** True when the world has a fare cliff at all (restricted worlds). */

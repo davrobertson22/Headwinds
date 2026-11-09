@@ -21,9 +21,19 @@ export const MANDATE = {
   historyCap: 8,
 };
 
+// Network load factor exactly as the Dashboard tile prints it (networkStatsOf):
+// passengers over seats across the nonstop routes, so a 400-seat trunk counts
+// for more than a 50-seat spoke and a tag rotation's seat-legs stay out. It
+// used to be a plain average of every route's own load factor, so the tile
+// could show the target met while the mandate stayed open (audit 2026-11-09).
 const lf = (report) => {
-  const rr = (report?.routeResults ?? []).filter(r => Number.isFinite(r?.loadFactor));
-  return rr.length ? rr.reduce((s, r) => s + r.loadFactor, 0) / rr.length : 0;
+  let pax = 0, seats = 0;
+  for (const r of report?.routeResults ?? []) {
+    if (!r || r.tag || r.configuredSeatsOneWay == null) continue;
+    pax += r.passengers ?? 0;
+    seats += r.configuredSeatsOneWay ?? 0;
+  }
+  return seats > 0 ? pax / seats : 0;
 };
 const margin = (report) => {
   const rev = Number(report?.totalRevenue) || 0;

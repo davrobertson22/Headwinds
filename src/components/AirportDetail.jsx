@@ -3,7 +3,7 @@ import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { useGame, slotsUsedAt as slotsUsedAtEngine } from '../store/GameContext.jsx';
 import { requestNav } from '../utils/navIntent.js';
-import { AIRPORTS, getAirport, gateCapacityOf, gateMonthlyFee, totalGateMonthlyFee } from '../data/airports.js';
+import { AIRPORTS, getAirport, gateCapacityOf, gateMonthlyFee, totalGateMonthlyFee, getGateRentV4 } from '../data/airports.js';
 import {
   baseCityPairDemand, referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE,
   cargoSlotsUsedAt, routeLegs, routeSegments, currentGameDate,
@@ -111,7 +111,7 @@ function GateLeaseCard({ code, onBack }) {
         if (denial) return;
         if (await confirm({
           title: `Lease a gate at ${code}?`,
-          body: `${formatMoney(nextFee)}/month, from next month's bill`
+          body: `${formatMoney(nextFee)}/month, billed weekly (${formatMoney(Math.round(nextFee / 4))} a week) from the next week`
               + `${myGates > 0 ? ` — on top of the ${formatMoney(nowFee)}/mo you already pay here` : ''}.\n\n`
               + `It gives you ${SLOTS_PER_GATE} more departures a week at ${code}. `
               + `There is no up-front cost and you can release it again at any time, `
@@ -135,7 +135,7 @@ function GateLeaseCard({ code, onBack }) {
 
       <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
         {myGates > 0
-          ? <>You hold {myGates} gate{myGates === 1 ? '' : 's'} here for {formatMoney(nowFee)}/mo. Each one is worth {SLOTS_PER_GATE} departures a week, and gates get dearer the more of an airport you take.</>
+          ? <>You hold {myGates} gate{myGates === 1 ? '' : 's'} here for {formatMoney(nowFee)}/mo. Each one is worth {SLOTS_PER_GATE} departures a week{getGateRentV4() ? ', and from the 11th gate here each one is cheaper' : ', and gates get dearer the more of an airport you take'}.</>
           : <>A gate at {code} is what lets you schedule departures here at all — {SLOTS_PER_GATE} a week per gate. No up-front cost; you pay monthly for as long as you hold it, flying or not.</>}
       </div>
 

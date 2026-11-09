@@ -303,7 +303,7 @@ function CapitalRow({ label, value, hint }) {
 
 // Exported for tools/ipo-card-test.mjs, which server-renders this card directly
 // rather than standing up the whole Stocks tab and a game provider around it.
-export function CapitalActions({ state, dispatch }) {
+export function CapitalActions({ state, dispatch, remote = false }) {
   const C = CAPITAL;
   const equity = state.equity ?? {};
   const isPublic = equity.isPublic !== false;
@@ -429,9 +429,11 @@ export function CapitalActions({ state, dispatch }) {
         Your company
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 10 }}>
-        The board ranks airlines on <strong>shareholder value per share</strong> — your share
-        price plus every dividend you have ever paid. Raising capital splits the pie; returning
-        it does not cost you rank.
+        {remote
+          ? <>The standings rank on <strong>average weekly net profit</strong>, not on your share price, and private
+            airlines are ranked exactly like listed ones. Going public is a way to raise money, not a way to score.</>
+          : <>Going public is a way to raise money. Raising capital splits the pie; returning it lifts what each
+            remaining share is worth.</>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
@@ -444,12 +446,12 @@ export function CapitalActions({ state, dispatch }) {
           <CapitalRow label="Share price" value={fmtPrice(price)} />
           <CapitalRow
             label="Value per share"
-            hint="price + lifetime dividends — the leaderboard metric"
+            hint="price + lifetime dividends: what one share has returned"
             value={fmtPrice(svpsOf({ sharePrice: price, equity }))}
           />
-          {!isPublic && (
-            <div style={{ fontSize: 11, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
-              Private airlines are not ranked in the standings.
+          {!isPublic && remote && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              Private airlines are ranked in the standings like any other. Listing only opens the capital market.
             </div>
           )}
         </div>
@@ -661,7 +663,7 @@ export default function StockMarket() {
     <div>
       <PortfolioSummary state={state} listed={listed} />
 
-      <CapitalActions state={state} dispatch={dispatch} />
+      <CapitalActions state={state} dispatch={dispatch} remote={remote} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
         <div style={{

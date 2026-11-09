@@ -21,6 +21,7 @@ import {
 } from '../data/aircraft.js';
 import { formatMoney, weekToGameDate, maintenanceMultiplier, calendarYear, cruiseSpeedKmh, typicalSeatsOf, fullCabinRangeKm } from '../utils/simulation.js';
 import { projectWeek } from '../utils/financeProjection.js';
+import { cancelOrderDialog } from '../utils/cancelOrderCopy.js';
 import { useProgressiveCount } from '../utils/useProgressiveCount.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
@@ -51,6 +52,11 @@ import { aircraftAllowedByRules, aircraftRuleLabel } from '../data/eventRules.js
 // (Classic worlds pass calYear null and get the published table, unchanged.)
 
 /** Weekly maintenance a fresh delivery of this type will actually bill, in $. */
+// Runway past two years is "plenty": a profitable airline whose profit only
+// just misses this lease's rent divided cash by a few dollars and printed
+// "345402 wks runway" (Discord screenshot, 2026-10-30).
+const RUNWAY_DISPLAY_CAP_WEEKS = 104;
+
 function deliveredMaint(type, calYear = null) {
   return Math.round(
     (type?.baseMaintenancePerWk ?? 0) * maintenanceMultiplier(eraDeliveredAgeWeeks(type, calYear))
@@ -813,6 +819,10 @@ export default function Marketplace() {
     const eraLock = eraLockReason(type);
     if (eraLock) return eraLock;
     if (calYear == null && isVintage(type)) return `No lessor stocks it \u2014 line closed ${type.oop}. Buy it outright`;
+    // Era lessor age applies in every era world, restricted or not (engine leaseDenial).
+    if (calYear != null && !type.doubleDeck && calYear < lessorFirstYear(type)) {
+      return `Lessors take it from ${lessorFirstYear(type)} \u2014 buy new or used until then`;
+    }
     if (!restricted) return null;
     if (!lessorSupplies(type, calYear)) {
       return type.doubleDeck
@@ -838,26 +848,11 @@ export default function Marketplace() {
   const [checkout, setCheckout] = useState(null);
 
   async function handleCancelOrder(order) {
-    if (linesWorld && !order.used) {
-      const terms = cancelTerms(order, absoluteWeek(year, week));
-      if (!terms.allowed) return;
-      const body = terms.forfeit > 0
-        ? `The slot is ${terms.weeksOut} week${terms.weeksOut === 1 ? '' : 's'} away, so ${order.ownershipType === 'lease' ? 'the deposit is forfeit' : `${Math.round(terms.forfeitPct * 100)}% is forfeit`}: you get ${formatMoney(terms.refund)} back and lose ${formatMoney(terms.forfeit)}. The slot goes back on the line for anyone to take.`
-        : `You get ${formatMoney(terms.refund)} back in full. The slot goes back on the line for anyone to take.`;
-      if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
-        dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
-      }
-      return;
-    }
-    const hasRefund = order.ownershipType === 'owned' && order.totalPrice > 0;
-    const refund    = hasRefund ? Math.round(order.totalPrice * 0.95) : 0;
-    const deposit = order.ownershipType === 'lease' ? (order.leaseDeposit ?? 0) : 0;
-    const body = hasRefund
-      ? `You'll be refunded ${formatMoney(refund)} (a 5% cancellation fee applies).`
-      : deposit > 0
-        ? `Lease orders are free to cancel before delivery — your ${formatMoney(deposit)} security deposit is returned in full.`
-        : `Lease orders are free to cancel before delivery.`;
-    if (await confirm({ title: `Cancel the order for ${order.name}?`, body, danger: true, confirmLabel: 'Cancel order' })) {
+    // Shared with the Fleet page (utils/cancelOrderCopy.js) so the two can't
+    // quote different refunds for the same order.
+    const d = cancelOrderDialog(state, order);
+    if (!d.allowed) return;
+    if (await confirm({ title: d.title, body: d.body, danger: true, confirmLabel: 'Cancel order' })) {
       dispatch({ type: 'CANCEL_ORDER', orderId: order.id });
     }
   }
@@ -1519,9 +1514,11 @@ export default function Marketplace() {
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>/wk</span>
                       </div>
                       <div style={{ fontSize: 11, color: cashWarning ? 'var(--red)' : 'var(--text-muted)', marginTop: 1 }}>
-                        {isFinite(weeksOfCash)
-                          ? <>{weeksOfCash} wks runway{cashWarning && <> <Glyph e="⚠" size={11} /></>}</>
-                          : 'No lease costs yet'}
+                        {!isFinite(weeksOfCash)
+                          ? 'Still cash-positive with it'
+                          : weeksOfCash >= RUNWAY_DISPLAY_CAP_WEEKS
+                            ? `${RUNWAY_DISPLAY_CAP_WEEKS}+ wks runway`
+                            : <>{weeksOfCash} wks runway{cashWarning && <> <Glyph e="⚠" size={11} /></>}</>}
                       </div>
                     </div>
                     {(() => {
