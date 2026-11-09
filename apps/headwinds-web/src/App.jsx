@@ -12,6 +12,7 @@ import CareerPanel from './CareerPanel.jsx';
 import AccountSearchResults from './AccountSearchResults.jsx';
 import PlayerProfileScreen from './PlayerProfile.jsx';
 import UsernameCard from './UsernameCard.jsx';
+import AiConnectorCard from './AiConnectorCard.jsx';
 import AccountInboxWidget from './AccountInbox.jsx';
 import SeasonResults from './SeasonResults.jsx';
 import { useVisibleInterval } from './usePoll.js';
@@ -2322,6 +2323,8 @@ export default function App() {
               <WorldsScreen token={token} me={me} />
               {me?.account?.username && <UsernameCard me={me} token={token} refreshMe={refreshMe} />}
               <CareerPanel career={me?.career} accountId={me?.account?.id} />
+              {/* Supporters only — renders nothing for everyone else. */}
+              <AiConnectorCard me={me} token={token} />
               {/* The ask lives HERE and at season end — never in the game loop. */}
               <SupportCard me={me} />
             </>

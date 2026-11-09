@@ -15,7 +15,7 @@ const Routes = lazyPage(() => import('./components/Routes.jsx'), 'Routes');
 const Marketplace = lazyPage(() => import('./components/Marketplace.jsx'), 'Marketplace');
 import Finance from './components/Finance.jsx';
 import { BellIcon, DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
-  WrenchIcon, SearchIcon, GlobeIcon,
+  WrenchIcon, SearchIcon, GlobeIcon, BulbIcon,
 } from './components/Icons.jsx';
 const HubManagement = lazyPage(() => import('./components/HubManagement.jsx'), 'HubManagement');
 const Reputation = lazyPage(() => import('./components/Reputation.jsx'), 'Reputation');
@@ -34,6 +34,7 @@ const Loyalty = lazyPage(() => import('./components/Loyalty.jsx'), 'Loyalty');
 const Partnerships = lazyPage(() => import('./components/Partnerships.jsx'), 'Partnerships');
 const Alliances = lazyPage(() => import('./components/Alliances.jsx'), 'Alliances');
 const Wiki = lazyPage(() => import('./components/Wiki.jsx'), 'Wiki');
+const Advisor = lazyPage(() => import('./components/Advisor.jsx'), 'Advisor');
 import AirportSelect from './components/AirportSelect.jsx';
 import AirlineLogo from './components/AirlineLogo.jsx';
 import OnboardingTour, { TOUR_KEY } from './components/OnboardingTour.jsx';
@@ -147,6 +148,7 @@ const TABS = [
   { id: 'used',        label: 'Used Market',   Icon: PlaneIcon       },
   { id: 'airports',    label: 'Gates',         Icon: GateIcon          },
   { id: 'hubs',        label: 'Hubs',          Icon: HubIcon           },
+  { id: 'advisor',     label: 'Advisor',      Icon: BulbIcon          },
   { id: 'operations',  label: 'Operations',   Icon: OperationsIcon    },
   { id: 'maintenance', label: 'Maintenance',  Icon: WrenchIcon       },
   { id: 'ancillaries', label: 'Ancillaries',  Icon: AncillaryIcon     },
@@ -172,7 +174,7 @@ const NAV_GROUPS = [
   { label: 'Network',  Icon: MapIcon,        children: ['map', 'finder', 'planner', 'routes'] },
   { label: 'Fleet',    Icon: FleetIcon,      children: ['fleet', 'market', 'used'] },
   { label: 'Airports', Icon: GateIcon,       children: ['airports', 'hubs'] },
-  { label: 'Company',  Icon: OperationsIcon, children: ['operations', 'maintenance', 'ancillaries', 'reputation', 'loyalty', 'partners', 'alliances', 'competition', 'stocks'] },
+  { label: 'Company',  Icon: OperationsIcon, children: ['advisor', 'operations', 'maintenance', 'ancillaries', 'reputation', 'loyalty', 'partners', 'alliances', 'competition', 'stocks'] },
   { id: 'finance' },
   { id: 'wiki' },
 ];
@@ -561,6 +563,7 @@ function AppInner() {
     used:        <UsedMarket />,
     airports:    <Airports />,
     hubs:        <HubManagement />,
+    advisor:     <Advisor />,
     operations:  <Operations />,
     maintenance: <Maintenance />,
     ancillaries: <Ancillaries />,

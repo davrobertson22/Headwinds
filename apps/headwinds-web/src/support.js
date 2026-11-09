@@ -35,6 +35,9 @@ export const SUPPORT_PITCH = MONTHLY_COST
 export const SUPPORT_PERKS = [
   'A ♥ SUPPORTER badge beside your airline, in every world',
   'Private worlds for your own group of friends — you set the password, up to two at a time',
+  // Read-only, and it reads only what the free in-game Advisor and briefing
+  // already show every player — convenience, not information (2026-11-09).
+  'Connect your own AI (Claude, ChatGPT…) to your airlines — read-only, it sees what the free in-game Advisor shows',
   'Nothing that affects the game itself — no cash, no gates, no speed',
 ];
 

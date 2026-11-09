@@ -100,6 +100,8 @@ model Account {
   tailwindsCloudSaves TailwindsCloudSave[]
   // Trophies an admin has awarded this account (trophy bank) — see model Trophy.
   trophyAwards TrophyAward[]
+  // Read-only Agent API tokens (supporter perk) — see model ApiToken.
+  apiTokens ApiToken[]
 }
 
 // Username audit trail — the moderation panel shows an account's past names so
@@ -749,4 +751,25 @@ model TrophyAward {
 
   @@index([accountId])
   @@index([worldId])
+}
+
+// ── Read-only Agent API tokens (2026-11-09) ──────────────────────────────────
+// A supporter connects their own AI (Claude, ChatGPT, …) to their airlines
+// through /mcp or /agent/* (lib/agentApi.mjs). READ-ONLY: no token can make a
+// decision. Only the SHA-256 of the secret is stored; the secret is shown once.
+// Account.isSupporter gates CREATION and is re-checked on every agent call, so
+// a lapsed badge silences the connector until it is back; listing and revoking
+// stay open to any account. Nothing in any world or the engine reads this table.
+model ApiToken {
+  id         String    @id @default(cuid())
+  accountId  String
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique // sha256 hex of the secret
+  label      String            // the player's name for it ("Claude on my laptop")
+  prefix     String            // first characters of the secret, to tell tokens apart
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?         // throttled: written at most every few minutes
+  revokedAt  DateTime?
+
+  @@index([accountId])
 }

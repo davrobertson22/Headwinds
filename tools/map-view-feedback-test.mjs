@@ -156,7 +156,8 @@ await test('3/5. Barca\'s groups, each page in exactly one', () => {
     Network:    ['routes', 'airports', 'hubs', 'departures'],
     Fleet:      ['fleet', 'market', 'used'],
     World:      ['competition', 'alliances', 'stocks', 'news'],
-    Operations: ['operations', 'maintenance', 'fuel'],
+    // + Advisor (2026-11-09, PRD's "AI manager" ask) — the one page that spans every group
+    Operations: ['advisor', 'operations', 'maintenance', 'fuel'],
     Service:    ['marketing', 'catering', 'ancillaries', 'reputation', 'loyalty', 'partners'],
     Finance:    ['fin-statements', 'fin-planning', 'fin-analysis', 'fin-breakdown'],
   });

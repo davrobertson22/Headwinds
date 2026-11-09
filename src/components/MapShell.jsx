@@ -17,7 +17,7 @@ import {
   FleetIcon, MarketIcon, PlaneIcon, CompetitionIcon, HandshakeIcon, TrendUpIcon, NewsIcon, GlobeIcon,
   OperationsIcon, UsersIcon, WrenchIcon, FuelIcon, MegaphoneIcon, GiftIcon, TicketIcon, RepIcon,
   LoyaltyIcon, SeatIcon, FinanceIcon, ScaleIcon, BanknoteIcon, BarChartIcon, ClipboardIcon,
-  CompassIcon, RocketIcon,
+  CompassIcon, RocketIcon, BulbIcon,
 } from './Icons.jsx';
 
 // ── Map-first layout ──────────────────────────────────────────────────────────
@@ -113,6 +113,7 @@ export const MAP_PAGES = {
   stocks:         { tab: 'stocks' },
   news:           { tab: 'news', remoteOnly: true },
   operations:     { tab: 'operations', label: 'Crew', Icon: UsersIcon },
+  advisor:        { tab: 'advisor', Icon: BulbIcon },
   maintenance:    { tab: 'maintenance' },
   fuel:           { tab: 'finance', label: 'Fuel', Icon: FuelIcon },
   marketing:      { tab: 'operations', label: 'Marketing', Icon: MegaphoneIcon },
@@ -136,7 +137,7 @@ export const MAP_GROUPS = [
   { id: 'network', label: 'Network',    Icon: RoutesIcon,     pages: ['routes', 'airports', 'hubs', 'departures'] },
   { id: 'fleet',   label: 'Fleet',      Icon: FleetIcon,      pages: ['fleet', 'market', 'used'] },
   { id: 'world',   label: 'World',      Icon: GlobeIcon,      pages: ['competition', 'alliances', 'stocks', 'news'] },
-  { id: 'ops',     label: 'Operations', short: 'Ops', Icon: OperationsIcon, pages: ['operations', 'maintenance', 'fuel'] },
+  { id: 'ops',     label: 'Operations', short: 'Ops', Icon: OperationsIcon, pages: ['advisor', 'operations', 'maintenance', 'fuel'] },
   { id: 'service', label: 'Service',    Icon: SeatIcon,       pages: ['marketing', 'catering', 'ancillaries', 'reputation', 'loyalty', 'partners'] },
   { id: 'finance', label: 'Finance',    Icon: FinanceIcon,    pages: ['fin-statements', 'fin-planning', 'fin-analysis', 'fin-breakdown'] },
 ];

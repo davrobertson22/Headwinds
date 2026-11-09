@@ -29,10 +29,26 @@ import adminRoutes from './routes/admin.mjs';
 import logoRoutes from './routes/logos.mjs';
 import tailwindsSaveRoutes from './routes/tailwindsSaves.mjs';
 import trophyRoutes from './routes/trophies.mjs';
+import agentApiRoutes from './routes/agentApi.mjs';
+import { redactAgentUrl } from './lib/agentApi.mjs';
 
 export function buildServer() {
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL || 'info' },
+    logger: {
+      level: process.env.LOG_LEVEL || 'info',
+      // The read-only Agent API accepts its token in the path (/mcp/hwk_…) for
+      // AI connectors that take only a URL. A secret in a URL must never reach
+      // the request log, so the request serializer blanks it.
+      serializers: {
+        req: (req) => ({
+          method: req.method,
+          url: redactAgentUrl(req.url),
+          hostname: req.hostname,
+          remoteAddress: req.ip,
+          remotePort: req.socket?.remotePort,
+        }),
+      },
+    },
   });
 
   app.register(cors, { origin: env.corsOrigins, credentials: true });
@@ -85,6 +101,8 @@ export function buildServer() {
   // Tailwinds cloud saves (supporter perk). Its browser origin must be listed in
   // CORS_ORIGINS alongside the Headwinds web client's.
   app.register(tailwindsSaveRoutes);
+  // Read-only Agent API (supporter perk): token management, /agent/*, /mcp.
+  app.register(agentApiRoutes);
 
   return app;
 }
