@@ -25,6 +25,12 @@
  *   node tools/run-tests.mjs --list          show what would run, then exit
  *   node tools/run-tests.mjs --timeout 300   per-suite seconds (default 180)
  *   node tools/run-tests.mjs --shard 1/3     run a third of the suites (CI fan-out)
+ *
+ * A suite carrying an `@run-alone` marker in its header runs AFTER the parallel
+ * pool, one at a time. adsense-readiness and worlds-pages both regenerate
+ * apps/headwinds-web/public/ (wipe the folder, write it again); side by side,
+ * one wiped the folder while the other was writing into it and the loser died
+ * with ENOTEMPTY — a failure that came and went with scheduling (2026-11-09).
  */
 
 import { spawn } from 'node:child_process';
@@ -72,6 +78,7 @@ const JOBS = flag('--serial')
 
 // ── discovery ─────────────────────────────────────────────────────────────────
 const NOT_A_TEST = /@not-a-test/;
+const RUN_ALONE = /@run-alone/;
 
 const discovered = readdirSync(TOOLS)
   .filter((f) => /-(test|check)\.mjs$/.test(f) && !f.startsWith('_'))
@@ -79,10 +86,11 @@ const discovered = readdirSync(TOOLS)
 
 const skipped = [];
 const candidates = [];
+const alone = new Set();
 for (const file of discovered) {
   const head = readFileSync(path.join(TOOLS, file), 'utf8').slice(0, 4000);
   if (NOT_A_TEST.test(head)) skipped.push(file);
-  else candidates.push(file);
+  else { candidates.push(file); if (RUN_ALONE.test(head)) alone.add(file); }
 }
 
 const matched = filters.length
@@ -156,7 +164,8 @@ const label = `${selected.length} suite${selected.length === 1 ? '' : 's'}`;
 const shardNote = shard ? ` ${DIM}(shard ${shard.index}/${shard.total} of ${matched.length})${OFF}` : '';
 console.log(`${DIM}running ${label} with ${JOBS} worker${JOBS === 1 ? '' : 's'}${OFF}${shardNote}\n`);
 
-const queue = [...selected];
+const queue = selected.filter((f) => !alone.has(f));
+const soloQueue = selected.filter((f) => alone.has(f));
 const results = [];
 let failed = 0;
 let aborted = false;
@@ -177,7 +186,12 @@ async function worker() {
   }
 }
 
-await Promise.all(Array.from({ length: Math.min(JOBS, selected.length) }, worker));
+await Promise.all(Array.from({ length: Math.min(JOBS, Math.max(1, queue.length)) }, worker));
+// @run-alone suites: nothing else running, one after another.
+if (!aborted && soloQueue.length) {
+  queue.push(...soloQueue);
+  await worker();
+}
 
 const wall = Date.now() - suiteStart;
 

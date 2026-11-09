@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @run-alone — regenerates apps/headwinds-web/public/, so it must not run beside
+// another suite that does (tools/run-tests.mjs).
 // Guard for the things that got headwindsairlinegame.com rejected from AdSense
 // for "Low value content" on 2026-07-28 and again on 2026-08-22.
 //

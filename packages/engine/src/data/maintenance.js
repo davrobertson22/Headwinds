@@ -286,14 +286,28 @@ export function completeCheck(a, absWeek, hasRoute) {
   return next;
 }
 
+// ─── Mechanical-failure odds (weekly, per in-service tail) ───────────────────
+// Rebalanced 2026-11-09. The wear terms were 0.03 and 0.06, which put a
+// normally flown tail (90 block-hours a week, checks on time, default budget)
+// at 1.6-2.2 failures a year — with the old 1-5 week repairs, 10-14% of a fleet
+// out of service. At these values the same tail fails about 0.65-0.85 times a
+// year in its first decade and about 1.3 times a year by its late teens; the
+// age term is untouched, so an old frame is still the expensive one to keep.
+// tools/failure-frequency-test.mjs holds the targets.
+export const FAILURE_BASE_PROB   = 0.002;  // floor: a fresh airframe just out of check
+export const FAILURE_WEAR_C_COEF = 0.010;  // × (hours since C ÷ C interval)²
+export const FAILURE_WEAR_D_COEF = 0.020;  // × (hours since D ÷ D interval)²
+export const FAILURE_AGE_COEF    = 0.020;  // × (operating age ÷ 25 years)^1.2
+export const FAILURE_PROB_CAP    = 0.35;
+
 /** Wear-based weekly mechanical-failure probability (replaces the raw-age curve). */
 export function weeklyWearFailureProb(a, type, maintenanceBudget = 1.0) {
   const wearC   = (a?.hoursSinceC ?? 0) / C_HOURS_DUE;
   const wearD   = (a?.hoursSinceD ?? 0) / D_HOURS_DUE;
   const ageYears = operatingAgeWeeks(a) / 52;
-  const ageTerm = Math.pow(ageYears / 25, 1.2) * 0.02;
-  const base = 0.002 + 0.03 * wearC * wearC + 0.06 * wearD * wearD + ageTerm;
-  return Math.min(0.35, base / Math.max(0.5, maintenanceBudget));
+  const ageTerm = Math.pow(ageYears / 25, 1.2) * FAILURE_AGE_COEF;
+  const base = FAILURE_BASE_PROB + FAILURE_WEAR_C_COEF * wearC * wearC + FAILURE_WEAR_D_COEF * wearD * wearD + ageTerm;
+  return Math.min(FAILURE_PROB_CAP, base / Math.max(0.5, maintenanceBudget));
 }
 
 /** Valuation multiplier for an airframe (recent D bonus, currently-due penalty). */

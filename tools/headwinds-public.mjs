@@ -206,38 +206,9 @@ const CONTENT_PATCHES = [
     find: 'base fuel price of $1.20/litre',
     replace: 'base fuel price of $1.45/litre',
   },
-  // Ranges corrected in this repo on 2026-10-18 (78dd2dd) after the last sync;
-  // drop these once the shared pages are regenerated with the new figures.
-  {
-    file: 'aircraft-wide-body.html',
-    find: '15,400 km at 325 seats (13,600 km at 440)',
-    replace: '15,750 km at 325 seats (13,900 km at 440)',
-  },
-  {
-    file: 'aircraft-wide-body.html',
-    find: '<b>15,400 km</b> at 325 seats (13,600 km at 440)',
-    replace: '<b>15,750 km</b> at 325 seats (13,900 km at 440)',
-  },
-  {
-    file: 'aircraft-wide-body.html',
-    find: '16,090 km at 395 seats (15,300 km at 445)',
-    replace: '16,190 km at 395 seats (15,400 km at 445)',
-  },
-  {
-    file: 'aircraft-wide-body.html',
-    find: '<b>16,090 km</b> at 395 seats (15,300 km at 445)',
-    replace: '<b>16,190 km</b> at 395 seats (15,400 km at 445)',
-  },
-  {
-    file: 'aircraft-freighters.html',
-    find: '<td>8,200 km</td>',
-    replace: '<td>9,260 km</td>',
-  },
-  {
-    file: 'aircraft-freighters.html',
-    find: 'Range <b>8,200 km</b>',
-    replace: 'Range <b>9,260 km</b>',
-  },
+  // The six range patches (A350-900, 777X-8, 777-8F) were dropped on 2026-11-09:
+  // the shared pages were regenerated with those figures, so the patches no
+  // longer matched anything and only printed "content patch missed".
 ];
 
 function rebrand(html) {

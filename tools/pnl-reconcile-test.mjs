@@ -387,7 +387,13 @@ test('LAST WEEK adds up in a week the airline paid for a heavy check', () => {
 // ── Partner revenue: the double count on the other bridge ────────────────────
 console.log('\n── An airline in a codeshare (partner revenue) ───────────────────────────');
 
-let allied = startedAirline({ seed: 777 });
+// Seed 779, not 777: whether a codeshare earns anything depends on WHICH rival
+// the seed deals as competitors[0]. 777 deals a carrier with no network into
+// this airline's stations, and only earned partner revenue after ~weeks of AI
+// expansion that the 2026-11-09 failure-odds rebalance happened to reorder.
+// 779 deals a US legacy carrier that feeds from week one, before any dice that
+// a balance change could move.
+let allied = startedAirline({ seed: 779 });
 allied = gameReducer(allied, { type: 'SIGN_CODESHARE', competitorId: allied.competitors[0].id });
 const alliedRun = advanceUntil(allied, s => (s.lastReport?.totalPartnerRevenue ?? 0) > 0, 20);
 const alliedState = alliedRun.state;

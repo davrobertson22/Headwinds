@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @run-alone — regenerates apps/headwinds-web/public/, so it must not run beside
+// another suite that does (tools/run-tests.mjs).
 // Public world pages — /worlds, /worlds/:id, /sitemap-worlds.xml.
 //
 //   node tools/worlds-pages-test.mjs

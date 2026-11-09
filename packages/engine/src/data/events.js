@@ -688,15 +688,21 @@ export function tickEvents(activeEvents) {
 // `needs` names a system the airframe has to actually carry for the fault to be
 // possible — see failureTypesFor below. Everything unmarked can happen to
 // anything with wings.
+//
+// Durations shortened 2026-11-09 (were 1-2 minor, 2-4 major, 3-5 severe; mean
+// 2.5 weeks). A week is the smallest grounding the tick can express and already
+// generous for a fault a real line station clears in a day or two, so a minor
+// fault is exactly one week, a major one or two, and only a structural repair
+// runs long. Mean is now 1.5 weeks. Every range still costs one RNG draw.
 const FAILURE_TYPES = [
-  { label: 'Engine fault',          icon: '🔧', severity: 'major',  durationRange: [2, 4] },
-  { label: 'Hydraulics leak',       icon: '🔩', severity: 'major',  durationRange: [2, 3] },
-  { label: 'Avionics fault',        icon: '📡', severity: 'minor',  durationRange: [1, 2] },
-  { label: 'Landing gear issue',    icon: '⚙️', severity: 'major',  durationRange: [2, 4] },
-  { label: 'APU failure',           icon: '🔌', severity: 'minor',  durationRange: [1, 2], needs: 'apu' },
-  { label: 'Pressurization fault',  icon: '💨', severity: 'major',  durationRange: [2, 3], needs: 'pressurization' },
-  { label: 'Fuel system anomaly',   icon: '⛽', severity: 'minor',  durationRange: [1, 2] },
-  { label: 'Structural crack found',icon: '🪛', severity: 'severe', durationRange: [3, 5] },
+  { label: 'Engine fault',          icon: '🔧', severity: 'major',  durationRange: [1, 2] },
+  { label: 'Hydraulics leak',       icon: '🔩', severity: 'major',  durationRange: [1, 2] },
+  { label: 'Avionics fault',        icon: '📡', severity: 'minor',  durationRange: [1, 1] },
+  { label: 'Landing gear issue',    icon: '⚙️', severity: 'major',  durationRange: [1, 2] },
+  { label: 'APU failure',           icon: '🔌', severity: 'minor',  durationRange: [1, 1], needs: 'apu' },
+  { label: 'Pressurization fault',  icon: '💨', severity: 'major',  durationRange: [1, 2], needs: 'pressurization' },
+  { label: 'Fuel system anomaly',   icon: '⛽', severity: 'minor',  durationRange: [1, 1] },
+  { label: 'Structural crack found',icon: '🪛', severity: 'severe', durationRange: [2, 4] },
 ];
 
 /**
