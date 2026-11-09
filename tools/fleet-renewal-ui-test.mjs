@@ -26,7 +26,7 @@ function test(name, fn) {
   } catch (e) { console.log(`  ✗ ${name}\n      ${(e.stack || e.message).split('\n').slice(0, 4).join('\n      ')}`); failed++; }
 }
 
-const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
+const { GameProvider, freshState, planTypeReplacement } = await import('../src/store/GameContext.jsx');
 const Fleet = (await import('../src/components/Fleet.jsx')).default;
 const AircraftCheckout = (await import('../src/components/AircraftCheckout.jsx')).default;
 const R = await import('../src/components/FleetRenewal.jsx').catch(() => ({}));
@@ -135,6 +135,49 @@ test('bulk replace lists types that fit and says how many', () => {
   assert.ok(atr > 0, 'a type that fits some of the selection is still offered');
   assert.match(text.slice(atr, atr + 200), /Fits 1 of 2/, 'an ATR can take JFK–BOS but not JFK–LAX');
   assert.ok(text.lastIndexOf('Fits 2 of 2') < atr, 'types that fit everything are listed first');
+});
+
+// ── A whole type from one order (Discord, 2026-11-07) ──────────────────────
+const queued = (id, typeId, weeks) => ({
+  id, typeId, ownershipType: 'owned', name: `${typeId} ${id}`,
+  deliverAbsWeek: 52 + 20 + weeks, totalPrice: 1, leaseDeposit: 0, weeklyLease: 0,
+  orderedWeek: 19, orderedYear: 2, fuelMod: 1, rangeMod: 1, maintMod: 1,
+});
+const plainText = (html) => html.replace(/<[^>]+>/g, ' ').replaceAll('&#x27;', "'").replace(/\s+/g, ' ');
+
+test('the order picker offers to replace a whole type, and the count is the engine plan', () => {
+  need('ReplacementPickerModal');
+  const s = seed({ fleet: OLD_ONLY, pendingOrders: [queued('q1', 'a321neo', 6), queued('q2', 'a321neo', 9), queued('q3', 'a321neo', 12)] });
+  const html = plainText(render(React.createElement(R.ReplacementPickerModal, { order: s.pendingOrders[0], onClose() {} })));
+  assert.match(html, /Replace a whole type/);
+  assert.match(html, /isn't replacing anything yet \(3 of 3\)/);
+  assert.equal(planTypeReplacement(s, 'a321neo', 'a320ceo').pairs.length, 2);
+  assert.match(html, /2 of 2 Airbus A320ceo will be replaced/);
+  assert.match(html, /Replace 2 Airbus A320ceo/);
+  assert.doesNotMatch(html, /more need more/, 'three orders, two tails: no shortfall');
+  assert.doesNotMatch(html, /Clear all/);
+});
+
+test('a type that cannot fly some of the tails says how many and why', () => {
+  need('ReplacementPickerModal');
+  const s = seed({ fleet: OLD_ONLY, pendingOrders: [queued('q1', 'atr72', 6), queued('q2', 'atr72', 9)] });
+  const html = plainText(render(React.createElement(R.ReplacementPickerModal, { order: s.pendingOrders[0], onClose() {} })));
+  assert.equal(planTypeReplacement(s, 'atr72', 'a320ceo').pairs.length, 1);
+  assert.match(html, /1 of 2 Airbus A320ceo will be replaced/);
+  assert.match(html, /1 can't be: no ATR 72-600 can take over their routes/);
+});
+
+test('tagged orders offer to clear the whole type; a lone order gets no whole-type block', () => {
+  need('ReplacementPickerModal');
+  const tagged = { ...queued('q2', 'a321neo', 9), replacesAircraftId: 'o1', replacesName: 'Old Bird 1', replaceDisposal: 'dispose' };
+  let s = seed({ fleet: OLD_ONLY, pendingOrders: [queued('q1', 'a321neo', 6), tagged] });
+  let html = plainText(render(React.createElement(R.ReplacementPickerModal, { order: s.pendingOrders[0], onClose() {} })));
+  assert.match(html, /\(1 of 2\)/);
+  assert.match(html, /1 of 1 Airbus A320ceo will be replaced/, 'the tail the other order already claimed is not offered');
+  assert.match(html, /Clear all 1 Airbus A321neo replacement\b/);
+  s = seed({ fleet: OLD_ONLY, pendingOrders: [queued('q1', 'a321neo', 6)] });
+  html = plainText(render(React.createElement(R.ReplacementPickerModal, { order: s.pendingOrders[0], onClose() {} })));
+  assert.doesNotMatch(html, /Replace a whole type/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

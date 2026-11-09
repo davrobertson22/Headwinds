@@ -182,6 +182,16 @@ function guardSetOrderReplacement(payload) {
   return { orderId: payload.orderId, aircraftId, disposal: payload.disposal === 'keep' ? 'keep' : 'dispose' };
 }
 
+// Two aircraft type ids and a disposal. The pairing is the reducer's
+// (planTypeReplacement against the server's own state), so no order or tail
+// id from the client is ever trusted here.
+function guardSetTypeReplacement(payload) {
+  if (!isShortId(payload.orderTypeId)) throw new GuardError('Invalid aircraft type.');
+  const fromTypeId = payload.fromTypeId == null ? null : payload.fromTypeId;
+  if (fromTypeId !== null && !isShortId(fromTypeId)) throw new GuardError('Invalid aircraft type.');
+  return { orderTypeId: payload.orderTypeId, fromTypeId, disposal: payload.disposal === 'keep' ? 'keep' : 'dispose' };
+}
+
 // Dispatch. Mutates/returns the payload; throws GuardError (400) on violation.
 // ── Stock trades ─────────────────────────────────────────────────────────────
 // The economics are already server-authoritative: the reducer prices every
@@ -836,6 +846,7 @@ export function guardDecision(type, payload, state) {
     case 'CONFIGURE_AIRCRAFT_BULK': return guardConfigureAircraftBulk(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
     case 'SET_ORDER_REPLACEMENT': return guardSetOrderReplacement(payload);
+    case 'SET_TYPE_REPLACEMENT':  return guardSetTypeReplacement(payload);
     case 'CLEAR_FLEET_REPLACEMENT': {
       if (!isShortId(payload.aircraftId)) throw new GuardError('Invalid aircraft.');
       return { aircraftId: payload.aircraftId };

@@ -41,6 +41,19 @@ test('SET_ORDER_REPLACEMENT is whitelisted to order, tail and disposal', () => {
   assert.throws(() => guardDecision('SET_ORDER_REPLACEMENT', { orderId: 'o1', aircraftId: { $ne: 1 } }, {}), GuardError);
 });
 
+test('SET_TYPE_REPLACEMENT is allowed and whitelisted to two type ids and a disposal', () => {
+  assert.ok(ALLOWED_PLAYER_ACTIONS.has('SET_TYPE_REPLACEMENT'));
+  assert.deepEqual(
+    guardDecision('SET_TYPE_REPLACEMENT', { orderTypeId: 'a321neo', fromTypeId: 'a320ceo', disposal: 'keep',
+      pairs: [{ orderId: 'o1', aircraftId: 'rival-tail' }] }, {}),
+    { orderTypeId: 'a321neo', fromTypeId: 'a320ceo', disposal: 'keep' }, 'client pairings are dropped');
+  assert.deepEqual(
+    guardDecision('SET_TYPE_REPLACEMENT', { orderTypeId: 'a321neo', fromTypeId: null, disposal: 'bogus' }, {}),
+    { orderTypeId: 'a321neo', fromTypeId: null, disposal: 'dispose' });
+  assert.throws(() => guardDecision('SET_TYPE_REPLACEMENT', { orderTypeId: 7, fromTypeId: 'a320ceo' }, {}), GuardError);
+  assert.throws(() => guardDecision('SET_TYPE_REPLACEMENT', { orderTypeId: 'a321neo', fromTypeId: { $ne: 1 } }, {}), GuardError);
+});
+
 test('CLEAR_FLEET_REPLACEMENT carries only an aircraft id', () => {
   assert.deepEqual(guardDecision('CLEAR_FLEET_REPLACEMENT', { aircraftId: 'a1', extra: 1 }, {}), { aircraftId: 'a1' });
   assert.throws(() => guardDecision('CLEAR_FLEET_REPLACEMENT', {}, {}), GuardError);

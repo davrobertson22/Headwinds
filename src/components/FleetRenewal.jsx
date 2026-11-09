@@ -9,13 +9,14 @@
 //   ReplacesSection        — the "Replaces" block on the order form
 //   OrderReplacementLine   — the line + picker on an order in the queue
 //   ReplacementPickerModal — choose one tail for an existing order
+//   TypeReplaceSection     — …or have every order of its type replace another type
 //   RenewalNotice          — Fleet detail panel: being replaced / waiting
 //   RenewalBadge           — Fleet list: a small marker on either end
 //   BulkReplaceModal       — Fleet bulk bar: pick a type for N selected tails
 //   TailFilterBar          — narrow either picker's tail list
 //   OrderFilterBar         — narrow the On Order panel / Orders tab
 import { useMemo, useState } from 'react';
-import { useGame, replacementCompatibility, orderDenial, leaseDenial } from '../store/GameContext.jsx';
+import { useGame, replacementCompatibility, planTypeReplacement, orderDenial, leaseDenial } from '../store/GameContext.jsx';
 import { getAircraftType, AIRCRAFT_TYPES, effectivePurchasePrice, eraWeeklyLease } from '../data/aircraft.js';
 import { formatMoney, ageLabel, calendarYear, routeMaxLegKm } from '../utils/simulation.js';
 import { absoluteWeek } from '../utils/fuel.js';
@@ -370,6 +371,91 @@ export function OrderReplacementLine({ order, compact = false }) {
   );
 }
 
+// ── The order queue: a whole type at once ────────────────────────────────────
+/**
+ * Every order of this order's type replaces the aircraft of another type
+ * (Discord, 2026-11-07 — "someone who orders hundreds of aircraft"). The
+ * preview IS planTypeReplacement, the call SET_TYPE_REPLACEMENT makes, so the
+ * number on the button is the number that gets tagged. Orders already
+ * replacing something keep their tail.
+ */
+export function TypeReplaceSection({ order, disposal, onDone }) {
+  const { state, dispatch } = useGame();
+  const type = getAircraftType(order.typeId);
+  const sameType = useMemo(() => (state.pendingOrders ?? []).filter(o => o.typeId === order.typeId), [state.pendingOrders, order.typeId]);
+  const tagged = sameType.filter(o => o.replacesAircraftId).length;
+  // The player's types, counted by tails no order or delivery has claimed yet.
+  // Another type first (re-equipping is the point), then the biggest fleet.
+  const fleetTypes = useMemo(() => {
+    const claimed = new Set([
+      ...(state.pendingOrders ?? []).map(o => o.replacesAircraftId).filter(Boolean),
+      ...(state.fleet ?? []).map(a => a.replacing?.aircraftId).filter(Boolean),
+    ]);
+    const n = new Map();
+    for (const a of state.fleet ?? []) {
+      if (a.status === 'retired' || claimed.has(a.id)) continue;
+      n.set(a.typeId, (n.get(a.typeId) ?? 0) + 1);
+    }
+    return [...n].map(([id, count]) => ({ id, count, name: getAircraftType(id)?.name ?? id }))
+      .sort((x, y) => (x.id === order.typeId) - (y.id === order.typeId) || y.count - x.count || x.name.localeCompare(y.name));
+  }, [state.fleet, state.pendingOrders, order.typeId]);
+  const [fromTypeId, setFromTypeId] = useState(() => fleetTypes[0]?.id ?? '');
+  const from = fleetTypes.some(t => t.id === fromTypeId) ? fromTypeId : (fleetTypes[0]?.id ?? '');
+  const plan = useMemo(() => (sameType.length < 2 || !from
+    ? null : planTypeReplacement(state, order.typeId, from)), [state, order.typeId, from, sameType.length]);
+  if (sameType.length < 2) return null;
+
+  const fromName = getAircraftType(from)?.name ?? 'aircraft';
+  const k = plan?.pairs.length ?? 0;
+  const short = plan ? Math.max(0, plan.tails - k - plan.unfit) : 0;
+  const apply = () => { dispatch({ type: 'SET_TYPE_REPLACEMENT', orderTypeId: order.typeId, fromTypeId: from, disposal }); onDone?.(); };
+  const clear = () => { dispatch({ type: 'SET_TYPE_REPLACEMENT', orderTypeId: order.typeId, fromTypeId: null }); onDone?.(); };
+
+  return (
+    <div className="type-replace" style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(56,139,253,0.06)', border: '1px solid rgba(56,139,253,0.3)' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Replace a whole type</div>
+      <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+        Every {type?.name ?? 'aircraft'} on order that isn't replacing anything yet ({plan?.orders ?? sameType.length - tagged} of {sameType.length}) takes over one of your
+        {' '}
+        {fleetTypes.length > 0 ? (
+          <select aria-label="Type to replace" value={from} onChange={e => setFromTypeId(e.target.value)} style={{ ...FIELD, maxWidth: 200 }}>
+            {fleetTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.count})</option>)}
+          </select>
+        ) : 'aircraft'}
+        {' '}— the soonest delivery takes the oldest aircraft, each checked like a single pick.
+      </div>
+      {plan && (
+        <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+          {k > 0
+            ? <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{k} of {plan.tails} {fromName} will be replaced.</span>
+            : <span style={{ color: 'var(--text-muted)' }}>
+                {plan.orders === 0 ? `Every ${type?.name ?? ''} on order is already replacing something.`
+                  : plan.tails === 0 ? `No ${fromName} left that isn't already being replaced.`
+                  : `No ${type?.name ?? ''} on order can take over any ${fromName}.`}
+              </span>}
+          {plan.unfit > 0 && (
+            <span style={{ color: 'var(--yellow)' }}> {plan.unfit} can't be: no {type?.name} can take over their routes (range, runways, airport rules or block hours).</span>
+          )}
+          {k > 0 && short > 0 && (
+            <span style={{ color: 'var(--text-muted)' }}> {short} more need more {type?.name} orders.</span>
+          )}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-primary" disabled={k === 0} onClick={apply} style={{ fontSize: 12, padding: '4px 10px' }}>
+          Replace {k} {fromName}
+        </button>
+        {tagged > 0 && (
+          <button type="button" className="btn btn-ghost" onClick={clear} style={{ fontSize: 12, padding: '4px 10px' }}
+            title={`Clear what every ${type?.name} on order replaces`}>
+            Clear all {tagged} {type?.name} replacement{tagged !== 1 ? 's' : ''}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ReplacementPickerModal({ order, onClose }) {
   const { state, dispatch } = useGame();
   const [disposal, setDisposal] = useState(order.replaceDisposal ?? 'dispose');
@@ -398,6 +484,7 @@ export function ReplacementPickerModal({ order, onClose }) {
           it takes over every route of the aircraft you pick. Routes keep their frequencies, fares and maturity.
         </p>
         <DisposalToggle value={disposal} onChange={setDisposal} />
+        <TypeReplaceSection order={order} disposal={disposal} onDone={onClose} />
         {order.replacesAircraftId && (
           <button className="btn btn-ghost" style={{ marginTop: 10, fontSize: 12 }} onClick={() => pick(null)}>
             Don't replace anything

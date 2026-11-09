@@ -455,6 +455,64 @@ export function replacementCompatibility(state, order, aircraftId) {
   return c;
 }
 
+/**
+ * Replace a whole type from the order queue (Discord, The Dragon Overlord,
+ * 2026-11-07: "someone who orders hundreds of aircraft"). Every order of
+ * `orderTypeId` not yet replacing anything is paired with a tail of
+ * `fromTypeId` no order or delivery has claimed — soonest delivery with the
+ * oldest tail, as the order form does — and each pair must pass
+ * replacementCompatibility, the one-tail picker's own check. A tail no
+ * remaining order can take over is skipped, never forced.
+ *
+ * The preview and SET_TYPE_REPLACEMENT both call this, so what the picker
+ * promises is exactly what gets tagged.
+ * Returns { pairs: [{ orderId, aircraftId }], orders, tails, unfit } —
+ * `orders` / `tails` are the untagged orders and unclaimed tails considered,
+ * `unfit` the tails no order of the type could take over.
+ */
+export function planTypeReplacement(state, orderTypeId, fromTypeId) {
+  const empty = { pairs: [], orders: 0, tails: 0, unfit: 0 };
+  if (!orderTypeId || !fromTypeId) return empty;
+  const pending = state.pendingOrders ?? [];
+  const fleet   = state.fleet ?? [];
+  const orders = pending
+    .filter(o => o.typeId === orderTypeId && !o.replacesAircraftId)
+    .sort((a, b) => (a.deliverAbsWeek ?? 0) - (b.deliverAbsWeek ?? 0) || String(a.id).localeCompare(String(b.id)));
+  const claimed = new Set([
+    ...pending.map(o => o.replacesAircraftId).filter(Boolean),
+    ...fleet.map(a => a.replacing?.aircraftId).filter(Boolean),
+  ]);
+  const tails = fleet
+    .filter(a => a.typeId === fromTypeId && a.status !== 'retired' && !claimed.has(a.id))
+    .sort((a, b) => (b.ageWeeks ?? 0) - (a.ageWeeks ?? 0) || String(a.name).localeCompare(String(b.name)));
+  if (orders.length === 0 || tails.length === 0) return { ...empty, orders: orders.length, tails: tails.length };
+
+  // Orders of one type differ only in what the swap check reads — wingtips,
+  // cabin, ownership — so the answer is cached per spec × tail. None of the
+  // tails is claimed in `state`, so no pair's answer depends on another's.
+  const specOf = (o) => `${o.ownershipType}|${o.rangeMod ?? 1}|${o.config ? JSON.stringify(o.config) : ''}`;
+  const cache = new Map();
+  const fits = (o, a) => {
+    const k = `${specOf(o)}#${a.id}`;
+    let ok = cache.get(k);
+    if (ok === undefined) { ok = replacementCompatibility(state, o, a.id).ok; cache.set(k, ok); }
+    return ok;
+  };
+  const used = new Set();
+  const pairs = [];
+  for (const o of orders) {
+    if (used.size === tails.length) break;
+    const a = tails.find(t => !used.has(t.id) && fits(o, t));
+    if (!a) continue;
+    used.add(a.id);
+    pairs.push({ orderId: o.id, aircraftId: a.id });
+  }
+  // A tail is unfit when no order spec on the type can take it at all.
+  const specs = [...new Map(orders.map(o => [specOf(o), o])).values()];
+  const unfit = tails.filter(a => !specs.some(o => fits(o, a))).length;
+  return { pairs, orders: orders.length, tails: tails.length, unfit };
+}
+
 /** Why the swap must wait this week, or null. Every reason is temporary. */
 export function replacementWait(state, oldTail) {
   if (!oldTail) return null;
@@ -2543,6 +2601,36 @@ function reducer(state, action) {
         ...state,
         pendingOrders: state.pendingOrders.map(o => (o.id === ord.id
           ? { ...o, replacesAircraftId: action.aircraftId, replacesName: oldName, replaceDisposal: replaceDisposalOf(action.disposal) }
+          : o)),
+      };
+    }
+
+    case 'SET_TYPE_REPLACEMENT': {
+      // action: { orderTypeId, fromTypeId | null, disposal: 'dispose' | 'keep' }
+      // SET_ORDER_REPLACEMENT across a type: every untagged order of
+      // orderTypeId replaces a tail of fromTypeId (planTypeReplacement is the
+      // whole rule). fromTypeId null clears every tag on orderTypeId's orders.
+      const pending = state.pendingOrders ?? [];
+      if (!action.fromTypeId) {
+        if (!pending.some(o => o.typeId === action.orderTypeId && 'replacesAircraftId' in o)) return state;
+        return {
+          ...state,
+          pendingOrders: pending.map(o => {
+            if (o.typeId !== action.orderTypeId || !('replacesAircraftId' in o)) return o;
+            const { replacesAircraftId: _a, replacesName: _n, replaceDisposal: _d, ...rest } = o;
+            return rest;
+          }),
+        };
+      }
+      const { pairs } = planTypeReplacement(state, action.orderTypeId, action.fromTypeId);
+      if (pairs.length === 0) return state;
+      const disposal = replaceDisposalOf(action.disposal);
+      const target = new Map(pairs.map(p => [p.orderId, p.aircraftId]));
+      const nameOf = new Map((state.fleet ?? []).map(a => [a.id, a.name ?? null]));
+      return {
+        ...state,
+        pendingOrders: pending.map(o => (target.has(o.id)
+          ? { ...o, replacesAircraftId: target.get(o.id), replacesName: nameOf.get(target.get(o.id)) ?? null, replaceDisposal: disposal }
           : o)),
       };
     }
