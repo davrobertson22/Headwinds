@@ -13,7 +13,7 @@ import {
 } from '../models/demand.js';
 // pairShare has no src/models shim; RoutePlanner/Routes import the engine path
 // directly too.
-import { playerCampaignBoost } from '../../packages/engine/src/models/pairShare.js';
+import { playerCampaignBoost, rivalPairQuality } from '../../packages/engine/src/models/pairShare.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../../packages/engine/src/models/network.js';
 import { blendJetAgeAppeal, jetAgeFields } from '../../packages/engine/src/models/jetAge.js';
 import { getAlliance } from '../data/alliances.js';
@@ -964,9 +964,9 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <div style={{ width: 48, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden', flexShrink: 0 }}>
-                            <div style={{ width: `${c.baseQualityScore}%`, height: '100%', background: TIER_COLOR[c.tier] ?? 'var(--accent)' }} />
+                            <div style={{ width: `${rivalPairQuality(state, c, routeKey) ?? 0}%`, height: '100%', background: TIER_COLOR[c.tier] ?? 'var(--accent)' }} />
                           </div>
-                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.baseQualityScore}</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{rivalPairQuality(state, c, routeKey)}</span>
                         </div>
                       </td>
                       <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>

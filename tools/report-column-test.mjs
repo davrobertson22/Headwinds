@@ -101,8 +101,12 @@ async function freshDb(migrations) {
   for (const m of migrations) await db.exec(readFileSync(MIG(m), 'utf8'));
   return db;
 }
-const ALL = ['20261022000000_airline_rival_state', '20261023000000_rival_state_app_writer', '20261024000000_airline_report_column'];
-const HEAD = ALL.slice(0, 2);
+// The last entry is the CURRENT rival_state_of() body (fleet entries keep
+// hasWifi, 2026-11-08): these tests compare against today's projectRivalState().
+// It only replaces the function, so it is orthogonal to the triggers under test.
+const CURRENT_PROJECTION = '20261108010000_rival_state_wifi';
+const ALL = ['20261022000000_airline_rival_state', '20261023000000_rival_state_app_writer', '20261024000000_airline_report_column', CURRENT_PROJECTION];
+const HEAD = [...ALL.slice(0, 2), CURRENT_PROJECTION];
 const rivalOf = async (db, id) => (await db.query('SELECT "rivalState" r FROM "Airline" WHERE id=$1', [id])).rows[0].r;
 const legacyState = stored({ ...blob, fleet: [{ id: 'a1', typeId: 'B738' }], lastReport: report });
 const { state: splitBlob } = splitReport(legacyState);

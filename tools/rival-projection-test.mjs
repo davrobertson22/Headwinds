@@ -263,7 +263,7 @@ await test('missing / null / short / wrong-typed values match the SQL guards', (
        // Rankings rework (2026-10-15): netProfitOf's inputs ride along too.
        depreciation: null, loanPayments: null, loanInterest: null, leaseDepositReturned: null }]);
   assert.deepStrictEqual(projectRivalState({ fleet: ['x'] }).fleet,
-    [{ id: null, typeId: null, config: null, ageWeeks: null, status: null }]);
+    [{ id: null, typeId: null, config: null, ageWeeks: null, status: null, hasWifi: null }]);
   // lastReport: only a plain object is reduced; arrays and scalars become null,
   // mirroring jsonb_typeof(...) = 'object' (arrays are 'array' in jsonb).
   assert.equal(projectRivalState({ lastReport: [1] }).lastReport, null);
@@ -280,10 +280,11 @@ await test('the SQL subtracts, rebuilds and bounds exactly what the twin does', 
   // rival_state_of() (it fills Airline."rivalState"); tools/rival-state-column-test.mjs
   // also RUNS it in PGlite against this twin. These source checks pin it to the
   // constants, so changing a RIVAL_* constant without a new migration is red.
-  // 20261106000000_airline_custom_tail re-defines rival_state_of() with the
-  // tail in the subtraction; that is the body production runs now.
+  // 20261106000000_airline_custom_tail re-defined rival_state_of() with the
+  // tail in the subtraction; 20261108010000_rival_state_wifi re-defines it
+  // again with hasWifi on each fleet entry — that is the body production runs now.
   const src = readFileSync(
-    fileURLToPath(new URL('../apps/headwinds-server/prisma/migrations/20261106000000_airline_custom_tail/migration.sql', import.meta.url)),
+    fileURLToPath(new URL('../apps/headwinds-server/prisma/migrations/20261108010000_rival_state_wifi/migration.sql', import.meta.url)),
     'utf8');
   assert.ok(src.includes(`(s - 'financialHistory' - 'statsHistory' - 'fleet' - 'lastReport' - ${RIVAL_DROPPED_KEYS.map((k) => `'${k}'`).join(' - ')})`),
     'the SQL no longer subtracts the same keys the twin touches');

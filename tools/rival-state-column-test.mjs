@@ -45,6 +45,9 @@ const MIGRATION = fileURLToPath(new URL(
 // against what production actually has.
 const TAIL_MIGRATION = fileURLToPath(new URL(
   '../apps/headwinds-server/prisma/migrations/20261106000000_airline_custom_tail/migration.sql', import.meta.url));
+// Rival Wi-Fi (2026-11-08) replaces it again: fleet entries keep hasWifi.
+const WIFI_MIGRATION = fileURLToPath(new URL(
+  '../apps/headwinds-server/prisma/migrations/20261108010000_rival_state_wifi/migration.sql', import.meta.url));
 const SCHEMA = fileURLToPath(new URL('../apps/headwinds-server/prisma/schema.prisma', import.meta.url));
 
 // ── Database: the columns the rival query touches, then the real migration ───
@@ -65,6 +68,7 @@ await db.exec(`
 `);
 await db.exec(readFileSync(MIGRATION, 'utf8'));
 await db.exec(readFileSync(TAIL_MIGRATION, 'utf8'));
+await db.exec(readFileSync(WIFI_MIGRATION, 'utf8'));
 
 // Prisma's $queryRaw tagged template, over PGlite: interpolations become $n.
 const prisma = {
@@ -80,7 +84,7 @@ const deep = {
   week: 61, cash: 123456789, name: 'Air Diva', hubs: ['LHR', 'JFK'],
   routes: range(40, (i) => ({ id: `r${i}`, origin: 'LHR', destination: `X${i}`, stops: ['LHR', `X${i}`], fare: 100.5 + i, aircraftIds: [`a${i}`] })),
   fleet: range(30, (i) => ({ id: `a${i}`, typeId: 'B738', config: { y: 189 }, ageWeeks: i * 3, status: i % 7 ? 'active' : 'maintenance',
-    maintenance: { hours: 1234 + i }, mods: ['wifi'], value: 4.5e7 - i })),
+    maintenance: { hours: 1234 + i }, mods: ['wifi'], value: 4.5e7 - i, ...(i % 3 ? { hasWifi: i % 2 === 0 } : {}) })),
   financialHistory: range(52, (i) => ({ week: i + 10, profit: 1e5 * (i - 20), revenue: 3e6 + i, passengers: 50000 + i,
     fuelIndex: 0.1 + 0.2 + i / 100, fuelMultiplier: i % 3 ? undefined : 0.92, depreciation: 1000, loanPayments: 0,
     loanInterest: 12.34, leaseDepositReturned: i, detail: { perRoute: range(5, (j) => j) } })),

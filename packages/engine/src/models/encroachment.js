@@ -149,15 +149,25 @@ export function buildEncroachmentOffer(spec, market) {
     businessSeats,
     totalSeats:        seats * spec.frequency,
     qualityScore:      spec.qualityScore ?? 60,
+    // A human rival (Headwinds) ships its share-fight terms as its OWN screen
+    // scores them — route quality per segment, connectivity, price shield,
+    // campaigns, brand reach — from the same buildPlayerPairOffer that scores
+    // the player (server toRivalSpecs). Anything less and one airline is two
+    // products: each player saw themselves ahead on the same pair
+    // (tools/rival-share-symmetry-test.mjs). Absent on AI encroachers, which
+    // keep a single quality figure for both segments.
+    ...(spec.qualityScoreLeisure  != null ? { qualityScoreLeisure:  spec.qualityScoreLeisure }  : {}),
+    ...(spec.qualityScoreBusiness != null ? { qualityScoreBusiness: spec.qualityScoreBusiness } : {}),
     // A rival flying out of its OWN hub feeds the route with connecting traffic
-    // exactly like the player does. The player has always collected this bonus on
-    // hub routes while rivals on this path were hardcoded to 0, so the client
-    // preview (buildCompetitorOffer, which DOES grant it) and the weekly tick
-    // disagreed about who was winning a contested pair. Solo AI encroachers carry
-    // no homeHub on their spec and stay at 0 — unchanged.
-    connectivityBonus: spec.homeHub
+    // exactly like the player does. A human rival's figure is their own (scaled
+    // by their hubs' real spokes, secondary hubs included); the home-hub
+    // estimate below is for specs that carry none. Solo AI encroachers carry no
+    // homeHub on their spec and stay at 0 — unchanged.
+    connectivityBonus: spec.connectivityBonus ?? (spec.homeHub
       ? computeConnectivityBonus(spec.homeHub, market.origin, market.destination)
-      : 0,
+      : 0),
+    // Reputation / loyalty price shield — a human rival's own; AI: none.
+    priceSensitivityReduction: spec.priceSensitivityReduction ?? 0,
     marketingBoost:    spec.marketingBoost ?? 0,
     // Brand reach — how much of the market knows this carrier. Human rivals
     // (Headwinds) ship their REAL figure on the spec, computed by the server

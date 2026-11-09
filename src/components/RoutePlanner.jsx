@@ -36,7 +36,7 @@ import { Glyph, GlyphLabel } from './Icons.jsx';
 import FuelBasisChip from './FuelBasisChip.jsx';
 import { frequencySliderWidth } from '../utils/frequencySlider.js';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
-import { projectRouteAddition } from '../../packages/engine/src/models/pairShare.js';
+import { projectRouteAddition, rivalPairQuality } from '../../packages/engine/src/models/pairShare.js';
 import { plannedCliffFares } from '../models/fareCliff.js';
 import {
   rankAircraftForRoute, rankAircraftForYear, seasonalProfitByType, gameDateInMonth, ALL_MONTHS,
@@ -575,9 +575,9 @@ export default function RoutePlanner() {
       .map(c => {
         const cfg   = c.routes[routeKey];
         const offer = buildCompetitorOffer(c, routeData.market);
-        return { competitor: c, cfg, offer };
+        return { competitor: c, cfg, offer, quality: rivalPairQuality(state, c, routeKey) };
       });
-  }, [ready, routeData, origin, dest, state.competitors]);
+  }, [ready, routeData, origin, dest, state.competitors, state.humanRivals]);
 
   // Range is a property of the AIRFRAME, not of the catalogue entry. Engine and
   // wingtip options (sharklets, scimitars, blended winglets) raise `rangeMod` on
@@ -1288,7 +1288,7 @@ export default function RoutePlanner() {
                     </tr>
                   </thead>
                   <tbody>
-                    {competitorsOnRoute.map(({ competitor: c, cfg, offer }) => {
+                    {competitorsOnRoute.map(({ competitor: c, cfg, offer, quality }) => {
                       const estPrice = offer?.economyPrice ?? Math.round(routeData.refP * cfg.priceMultiplier);
                       const estSeats = offer?.economySeats ?? (150 * cfg.frequency);
                       const priceDiff = Math.round((estPrice / routeData.refP - 1) * 100);
@@ -1307,9 +1307,9 @@ export default function RoutePlanner() {
                           <td style={{ padding: '8px 12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <div style={{ width: 60, height: 5, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
-                                <div style={{ width: `${c.baseQualityScore}%`, height: '100%', background: c.tier === 'premium' ? 'var(--purple)' : c.tier === 'budget' ? 'var(--yellow)' : 'var(--accent)' }} />
+                                <div style={{ width: `${quality ?? 0}%`, height: '100%', background: c.tier === 'premium' ? 'var(--purple)' : c.tier === 'budget' ? 'var(--yellow)' : 'var(--accent)' }} />
                               </div>
-                              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.baseQualityScore}/100</span>
+                              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{quality}/100</span>
                             </div>
                           </td>
                         </tr>

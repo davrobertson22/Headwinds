@@ -25,6 +25,7 @@ import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import { AIRCRAFT_TYPES, getAircraftType } from '../packages/engine/src/data/aircraft.js';
 import { checkRouteRestrictions } from '../packages/engine/src/data/airportRestrictions.js';
 import { toHumanCompetitor, toRivalSpecs, pairKeyOf } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
+import { buildPlayerPairOffer } from '../packages/engine/src/models/pairShare.js';
 import { guardDecision, GuardError } from '../apps/headwinds-server/src/lib/decisionGuard.mjs';
 import * as pub from '../apps/headwinds-server/src/lib/publicDecisions.mjs';
 
@@ -82,19 +83,23 @@ await test('toHumanCompetitor carries the real reputation score, not the 62 defa
     `every human rival is being scored at the hardcoded default instead of ${expected}`);
 });
 
-await test('toRivalSpecs carries the real reputation score too', () => {
+// toRivalSpecs used to carry that same reputation figure as the rival's route
+// quality. It now carries the route quality the rival's OWN screen and tick
+// score them with (buildPlayerPairOffer on their state) — reputation stood in
+// for a different number, so one airline was two products and two players on a
+// pair each saw themselves ahead (tools/rival-share-symmetry-test.mjs). The
+// Rivals tab's airline-wide score (baseQualityScore, above) stays reputation.
+await test("toRivalSpecs carries the rival's own route quality, not a stand-in", () => {
   const key = pairKeyOf('JFK', 'BOS');
-  const expected = Math.max(30, Math.min(95, Math.round(flown.state.lastReport.reputationScore)));
   const spec = toRivalSpecs(flown)[key];
   assert.ok(spec, 'expected a spec on JFK-BOS');
-  assert.equal(spec.qualityScore, expected,
-    'the demand model scores every human rival at the hardcoded default');
-  // And it must actually MOVE with the score, not coincidentally match.
-  const withScore = (n) => toRivalSpecs({
-    ...flown, state: { ...flown.state, lastReport: { ...flown.state.lastReport, reputationScore: n } },
-  })[key].qualityScore;
-  assert.equal(withScore(31), 31);
-  assert.equal(withScore(94), 94);
+  const own = buildPlayerPairOffer(flown.state,
+    flown.state.routes.filter((r) => pairKeyOf(r.origin, r.destination) === key));
+  assert.ok(own, 'fixture precondition: the rival scores this pair on its own screen');
+  assert.equal(spec.qualityScore, own.qualityScore,
+    'the demand model scores this rival differently from how they score themselves');
+  assert.equal(spec.qualityScoreLeisure, own.qualityScoreLeisure);
+  assert.equal(spec.qualityScoreBusiness, own.qualityScoreBusiness);
 });
 
 await test('an airline with NO lastReport still falls back to the 62 default', () => {

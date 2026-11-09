@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import AirportLink from './AirportLink.jsx';
-import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, isRouteActive, weekToGameDate, routeQualityBreakdown } from '../utils/simulation.js';
+import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, isRouteActive, weekToGameDate, routeQualityBreakdown, configBodies, defaultConfig } from '../utils/simulation.js';
 // The projected-share row asks the demand model itself — never a hand-rolled
 // ratio (models/pairShare.js is the single source of truth for share previews).
-import { pairMarketShare } from '../../packages/engine/src/models/pairShare.js';
+import { pairMarketShare, rivalPairQuality } from '../../packages/engine/src/models/pairShare.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, RIVAL_CONN_PREFIX } from '../../packages/engine/src/models/network.js';
 import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
@@ -100,11 +100,58 @@ export function SupporterChip({ size = 10 }) {
   );
 }
 
-/** Seats on the aircraft flying a route (null when the tail can't be resolved). */
+/** Seats on the aircraft flying a route (null when the tail can't be resolved):
+ *  its CONFIGURED cabin, not the type's maximum. That is what the share fight
+ *  fills (buildPlayerPairOffer's totalSeats) and what every rival is shown of you
+ *  (server cabinForRoute) — the type maximum made a premium-heavy airline look
+ *  bigger on its own screen than on its rival's, so the two disagreed about who
+ *  led on seats. */
 function seatsOfRoute(route, fleet) {
   const aircraft = fleet.find(a => a.id === route.aircraftId);
   if (!aircraft) return null;
-  return getAircraftType(aircraft.typeId)?.seats ?? null;
+  const type = getAircraftType(aircraft.typeId);
+  if (!type) return null;
+  const bodies = configBodies(aircraft.config ?? defaultConfig(type.seats));
+  return bodies > 0 ? bodies : type.seats;
+}
+
+/** Share-fight offer id → competitor id. Human rivals reach the fight through
+ *  buildEncroachmentOffer, which names them `encroach:<competitorId>`; looking
+ *  them up by bare id left their projected-share cell blank. */
+const competitorIdOfOffer = (airlineId) =>
+  String(airlineId).startsWith('encroach:') ? String(airlineId).slice('encroach:'.length) : airlineId;
+
+/** The head-to-head card's four levers on one contested pair, and the tally.
+ *  Every "theirs" figure is the rival's own figure for the pair — the number
+ *  THEIR screen shows as "yours" — so the two players' cards are mirror images
+ *  and "You lead" on one is "<you> leads" on the other. */
+export function headToHead(state, carrier, key, playerRoute, fleet) {
+  const [a, b] = key.split('-');
+  const cfg = carrier.routes?.[key] ?? {};
+  const refP = referencePrice(a, b);
+  const theirFare = cfg.economyFare ?? Math.round(refP * (cfg.priceMultiplier ?? 1));
+  const yourFare = playerRoute.ticketPrice;
+  const yourQual = playerPairQuality(playerRoute, fleet, state);
+  const theirQual = rivalPairQuality(state, carrier, key);
+  // Both sides are pair TOTALS: every aircraft either carrier has on the pair,
+  // folded together.
+  const yourFreq = playerRoute.weeklyFrequency ?? 0;
+  const theirFreq = cfg.frequency ?? 0;
+  const yourSeatsWk = playerRoute.seatsPerWeek ?? null;
+  const theirSeatsWk = cfg.seatsPerWeek
+    ?? (cfg.seats != null ? cfg.seats * theirFreq : null);
+  let youPts = 0, themPts = 0;
+  if (yourFare < theirFare) youPts++; else if (theirFare < yourFare) themPts++;
+  if (yourQual != null && theirQual != null) {
+    if (yourQual > theirQual) youPts++; else if (theirQual > yourQual) themPts++;
+  }
+  if (yourFreq > theirFreq) youPts++; else if (theirFreq > yourFreq) themPts++;
+  if (yourSeatsWk != null && theirSeatsWk != null) {
+    if (yourSeatsWk > theirSeatsWk) youPts++; else if (theirSeatsWk > yourSeatsWk) themPts++;
+  }
+  return { yourFare, theirFare, yourQual, theirQual, yourFreq, theirFreq,
+    yourSeatsWk, theirSeatsWk, youPts, themPts,
+    verdict: youPts > themPts ? 'you' : themPts > youPts ? 'them' : 'even' };
 }
 
 /** Build routeKey → *aggregated* player presence on that city pair.
@@ -823,7 +870,8 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
     if (!shareInfo || !(shareInfo.totalPax > 0)) return map;
     shareInfo.offers.forEach((o, i) => {
       if (o.airlineId && o.airlineId !== 'player') {
-        map[o.airlineId] = (map[o.airlineId] ?? 0)
+        const id = competitorIdOfOffer(o.airlineId);
+        map[id] = (map[id] ?? 0)
           + (shareInfo.results[i]?.totalPax ?? 0) / shareInfo.totalPax;
       }
     });
@@ -903,7 +951,7 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
         {/* Quality */}
         <RowLabel>Quality score</RowLabel>
         <QualityCell score={pQual} isPlayer />
-        {competitors.map(c => <QualityCell key={c.id} score={c.baseQualityScore} />)}
+        {competitors.map(c => <QualityCell key={c.id} score={rivalPairQuality(state, c, routeKey)} />)}
         {viaRoutings.map(v => <QualityCell key={v.id} score={v.quality} />)}
 
         {/* Frequency — summed across every aircraft you fly on the pair */}
@@ -960,6 +1008,7 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
         routeKey={routeKey}
         refP={refP}
         shareInfo={shareInfo}
+        state={state}
         awareness={state.awareness ?? 5}
         viaRoutings={viaRoutings}
       />
@@ -1043,7 +1092,7 @@ function ShareCell({ share, isPlayer }) {
   );
 }
 
-function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP, shareInfo, awareness, viaRoutings = [] }) {
+function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP, shareInfo, state = null, awareness, viaRoutings = [] }) {
   const hints = [];
 
   // Rival one-stops — the column a player is least likely to expect. Name the
@@ -1058,7 +1107,7 @@ function CompetitiveHints({ playerRoute, playerQual, competitors, routeKey, refP
     const compPrice = c.routes[routeKey].economyFare
       ?? Math.round(refP * c.routes[routeKey].priceMultiplier);
     const priceDiff = playerRoute.ticketPrice - compPrice;
-    const qualDiff  = (playerQual ?? 0) - c.baseQualityScore;
+    const qualDiff  = (playerQual ?? 0) - (rivalPairQuality(state, c, routeKey) ?? 0);
 
     if (priceDiff > compPrice * 0.12)
       hints.push({ type: 'warn', text: `Your price is ${Math.round(priceDiff / refP * 100)}% above ${c.name}'s. You may be losing price-sensitive passengers.` });
@@ -1868,30 +1917,12 @@ function RivalDetailView({ carrier, onClose }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {contestedEntries.map(([key, cfg]) => {
                   const [a, b] = key.split('-');
-                  const refP = referencePrice(a, b);
                   const pr = playerRouteMap[key];
-                  const theirFare = cfg.economyFare ?? Math.round(refP * (cfg.priceMultiplier ?? 1));
-                  const yourFare = pr.ticketPrice;
-                  const yourQual = playerPairQuality(pr, fleet, state);
-                  const theirQual = carrier.baseQualityScore;
-                  // Both sides are pair TOTALS: every aircraft either carrier
-                  // has on the pair, folded together.
-                  const yourFreq = pr.weeklyFrequency ?? 0;
-                  const theirFreq = cfg.frequency ?? 0;
+                  const { yourFare, theirFare, yourQual, theirQual, yourFreq, theirFreq,
+                    yourSeatsWk, theirSeatsWk, verdict: who } = headToHead(state, carrier, key, pr, fleet);
                   const yourLegs = pr.legs ?? [pr];
-                  const yourSeatsWk = pr.seatsPerWeek ?? null;
-                  const theirSeatsWk = cfg.seatsPerWeek
-                    ?? (cfg.seats != null ? cfg.seats * theirFreq : null);
-                  // Simple "who's ahead" tally across the four levers.
-                  let youPts = 0, themPts = 0;
-                  if (yourFare < theirFare) youPts++; else if (theirFare < yourFare) themPts++;
-                  if (yourQual != null && (yourQual > theirQual)) youPts++; else if (yourQual != null && theirQual > yourQual) themPts++;
-                  if (yourFreq > theirFreq) youPts++; else if (theirFreq > yourFreq) themPts++;
-                  if (yourSeatsWk != null && theirSeatsWk != null) {
-                    if (yourSeatsWk > theirSeatsWk) youPts++; else if (theirSeatsWk > yourSeatsWk) themPts++;
-                  }
-                  const verdict = youPts > themPts ? { t: 'You lead', c: 'var(--green)' }
-                    : themPts > youPts ? { t: `${carrier.name} leads`, c: '#f87171' }
+                  const verdict = who === 'you' ? { t: 'You lead', c: 'var(--green)' }
+                    : who === 'them' ? { t: `${carrier.name} leads`, c: '#f87171' }
                     : { t: 'Even', c: 'var(--text-muted)' };
                   return (
                     <div key={key} className="card" style={{ padding: '10px 14px' }}>
@@ -1915,7 +1946,7 @@ function RivalDetailView({ carrier, onClose }) {
                         <div style={{ textAlign: 'left', fontWeight: 700, color: 'var(--text)' }}>{carrier.name}</div>
                       </div>
                       <VsRow label="Fare" you={yourFare} them={theirFare} youWins={yourFare < theirFare ? true : theirFare < yourFare ? false : null} fmt={(v) => `$${v}`} />
-                      <VsRow label="Quality" you={yourQual} them={theirQual} youWins={yourQual == null ? null : yourQual > theirQual ? true : theirQual > yourQual ? false : null} />
+                      <VsRow label="Quality" you={yourQual} them={theirQual} youWins={(yourQual == null || theirQual == null) ? null : yourQual > theirQual ? true : theirQual > yourQual ? false : null} />
                       <VsRow label="Flights/wk" you={yourFreq} them={theirFreq} youWins={yourFreq > theirFreq ? true : theirFreq > yourFreq ? false : null} fmt={(v) => `${v}×`} />
                       <VsRow label="Seats/wk" you={yourSeatsWk} them={theirSeatsWk} youWins={(yourSeatsWk == null || theirSeatsWk == null) ? null : yourSeatsWk > theirSeatsWk ? true : theirSeatsWk > yourSeatsWk ? false : null} fmt={(v) => v.toLocaleString()} />
                     </div>

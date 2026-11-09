@@ -26,6 +26,7 @@ import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoya
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { blendJetAgeAppeal } from '@tailwinds/engine/models/jetAge.js';
+import { buildPlayerPairOffer } from '@tailwinds/engine/models/pairShare.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
@@ -520,9 +521,28 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
 
 // Route-level offer specs per city pair (encroachment-spec shape) for the
 // demand model. One spec per rival per pair they fly.
-export function toRivalSpecs(airlineRow) {
+//
+// ONE AIRLINE, ONE PRODUCT, WHOEVER IS LOOKING. Every term the share fight
+// scores — quality (per segment), connectivity, the reputation/loyalty price
+// shield, targeted campaigns, brand reach — comes from buildPlayerPairOffer run
+// on THIS rival's own state: the builder that scores them on their own screen
+// and agrees with their own tick. This spec used to approximate those terms
+// instead (reputation for route quality, no campaigns, no price shield, a flat
+// home-hub connectivity bonus, brand reach with no rival ad drag), so the same
+// airline was a different product on every other player's screen and in every
+// other player's tick. Two players on one pair each saw themselves ahead —
+// 59% and 53% of one market (Discord, 2026-11-07); see
+// tools/rival-share-symmetry-test.mjs.
+//
+// `competitors` is THIS rival's view of everyone else (buildRivalViews passes
+// it). Their own tick drags their brand by those carriers' advertising, so the
+// copy everyone else scores has to be dragged by the same voices. Omitted (old
+// callers, tests), brand reach is undragged — as before.
+export function toRivalSpecs(airlineRow, { competitors = null } = {}) {
   const s = airlineRow.state ?? {};
   const quality = qualityOf(s);
+  const selfView = competitors ? { ...s, competitors } : s;
+  const routesByPair = {};
   // The rival's hub. Carried on the spec so the demand model can grant them the
   // same connecting-feed bonus the player gets on their own hub routes — without
   // it, a rival flying out of its fortress was scored as if the route were an
@@ -589,6 +609,7 @@ export function toRivalSpecs(airlineRow) {
       seatsPerFlight: 0,
       _seatsPerWeek: 0,
     };
+    (routesByPair[key] ??= []).push(r);
     const freq = r.weeklyFrequency ?? 0;
     const cabin = cabinForRoute(s, r);
     const rAircraft = (s.fleet ?? []).find((a) => a.id === r.aircraftId);
@@ -618,8 +639,31 @@ export function toRivalSpecs(airlineRow) {
     const [a, b] = key.split('-');
     const appeal = blendJetAgeAppeal(jetItems[key], routeDistanceKm(a, b), calYear);
     if (appeal < 1) spec.jetAgeAppeal = appeal;
+    Object.assign(spec, selfScoredTerms(selfView, routesByPair[key]));
   }
   return byPair;
+}
+
+// The share-fight terms of a rival's pair offer, exactly as their own screen and
+// tick score them (see toRivalSpecs). Fares, capacity, lounges, partners,
+// loyalty, pricing headroom and the jet age stay on the spec as built above —
+// they already come from the same helpers, and pricing headroom and the jet age
+// need the spec's own handling (a rival offer is contested by definition; the
+// calendar year is read off the rival's state, not the module global).
+//
+// Returns {} when no flown tail resolves, leaving the reputation-based fallback.
+function selfScoredTerms(selfView, pairRoutes) {
+  const offer = pairRoutes?.length ? buildPlayerPairOffer(selfView, pairRoutes) : null;
+  if (!offer) return {};
+  return {
+    qualityScore:              offer.qualityScore,
+    qualityScoreLeisure:       offer.qualityScoreLeisure,
+    qualityScoreBusiness:      offer.qualityScoreBusiness,
+    connectivityBonus:         offer.connectivityBonus ?? 0,
+    priceSensitivityReduction: offer.priceSensitivityReduction ?? 0,
+    marketingBoost:            offer.marketingBoost ?? 0,
+    brandReach:                offer.brandReach ?? 1,
+  };
 }
 
 // Build, for EVERY active airline in a world, the pair of views of everyone
@@ -647,7 +691,14 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
     .filter((a) => a.state?.productionLinesWorld === true)
     .map((a) => [a.id, bookingsFromStates([a.state])]));
   const allLineBookings = sumBookings([...lineBookingsById.values()]);
-  const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a)]));
+  // Each airline's view of everyone else, built once and shared: the same array
+  // is the `competitors` of that airline's own view below AND the context its
+  // spec is scored in (toRivalSpecs), so its brand is dragged by the same rival
+  // advertising on every screen — and the engine's per-array memos hit.
+  const othersOf = new Map(airlines.map((me) => [
+    me.id, active.filter((o) => o.id !== me.id).map((o) => comps.get(o.id)),
+  ]));
+  const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a, { competitors: othersOf.get(a.id) })]));
   // Talent market (models/talentMarket.js): what each rival pays per crew
   // group, weighted by its fleet. Only the two fields the going rate reads.
   const payrolls = new Map(active.map((a) => [a.id, {
@@ -657,12 +708,11 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
 
   const views = new Map();
   for (const me of airlines) {
-    const competitors = [];
+    const competitors = othersOf.get(me.id);
     const humanRivals = {};
     const rivalPayrolls = [];
     for (const other of active) {
       if (other.id === me.id) continue;
-      competitors.push(comps.get(other.id));
       rivalPayrolls.push(payrolls.get(other.id));
       for (const [key, spec] of Object.entries(specs.get(other.id))) {
         (humanRivals[key] ??= []).push(spec);
@@ -815,6 +865,8 @@ export function stripRivals(state) {
 //                            calcReputation (service score, assigned filter)
 //   fleet.ageWeeks           calcReputation fleet-freshness score
 //   fleet.status             fleetAvgUtilization's isOutOfService filter
+//   fleet.hasWifi            routeQualityBreakdown's Wi-Fi coverage — the rival's
+//                            route quality (toRivalSpecs → selfScoredTerms)
 //   fin.profit               toHumanCompetitor profitHistory (slice(-12)),
 //                            calcReputation slice(-4)
 //   fin.revenue              toHumanCompetitor weeklyStats
@@ -836,7 +888,7 @@ export function stripRivals(state) {
 // byte-identical with and without the projection, and that each trim has teeth.
 export const RIVAL_FIN_KEEP = 13;    // deepest read: fuelPaidOf slice(-13) (FUEL_PAID_WEEKS)
 export const RIVAL_STATS_KEEP = 26;  // sharePriceHistory slice(-26)
-export const RIVAL_FLEET_FIELDS = ['id', 'typeId', 'config', 'ageWeeks', 'status'];
+export const RIVAL_FLEET_FIELDS = ['id', 'typeId', 'config', 'ageWeeks', 'status', 'hasWifi'];
 // depreciation / loanPayments / loanInterest / leaseDepositReturned: netProfitOf
 // (engine utils/standings.js) — the accrual net profit the screens show.
 export const RIVAL_FIN_FIELDS = ['profit', 'revenue', 'passengers', 'fuelIndex', 'fuelMultiplier',

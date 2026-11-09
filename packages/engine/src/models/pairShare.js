@@ -33,6 +33,7 @@ import {
   buildCompetitorOffer,
   routeMaturityFactor,
   computeConnectingDemand,
+  computeConnectivityBonus,
   HUB_TIERS,
 } from './demand.js';
 import { buildEncroachmentOffer } from './encroachment.js';
@@ -52,7 +53,6 @@ import {
   isMultiStop,
   isRouteActive,
   hubSpokeCounts,
-  pairConnectivityBonus,
   stateSensReduction,
   stateBrandReach,
   currentGameDate,
@@ -154,8 +154,6 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     return t != null ? (HUB_TIERS[t]?.qualityBonus ?? 0) : 0;
   };
   const hubQ = Math.max(hubTierQ(r0.origin), hubTierQ(r0.destination));
-  const isHubPair = hubs[r0.origin] != null || hubs[r0.destination] != null
-    || r0.origin === state.hub || r0.destination === state.hub;
 
   return {
     airlineId:        'player',
@@ -173,12 +171,17 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     // simulateRoute puts on the tick's offer.
     qualityScoreLeisure:  Math.round(qualityLeisureSum  / qualityN),
     qualityScoreBusiness: Math.round(qualityBusinessSum / qualityN),
-    // Scaled by the spokes the player actually connects — the same helper and
-    // the same route list the weekly tick uses, so this preview cannot drift.
-    connectivityBonus: isHubPair
-      ? pairConnectivityBonus(hubSpokeCounts(state.routes ?? []),
-          [...Object.keys(hubs), state.hub], r0.origin, r0.destination)
-      : 0,
+    // Scaled by the spokes the player actually connects, through the hub the
+    // TICK credits: the pair's anchor route's own `hub` (stamped when the route
+    // was opened — weeklyTick's pooled pre-pass and simulateRoute both read
+    // route.hub, never the airline's current hub list). This used to take the
+    // best of EVERY designated hub, so a route touching a secondary hub
+    // previewed a connecting-feed bonus its tick never paid — and since the
+    // server now scores each human rival with this very builder
+    // (toRivalSpecs), that drift would have reappeared as one airline being two
+    // products (tools/rival-share-symmetry-test.mjs).
+    connectivityBonus: computeConnectivityBonus(r0.hub, r0.origin, r0.destination,
+      hubSpokeCounts(state.routes ?? [])[r0.hub] ?? 0),
     priceSensitivityReduction: stateSensReduction(state, hubQ),
     marketingBoost:   playerCampaignBoost(state, r0.origin, r0.destination),
     // Brand reach, resolved through the same helper the tick uses. Without it a
@@ -205,6 +208,18 @@ export function buildPlayerPairOffer(state, pairRoutes) {
 }
 
 
+
+/** A rival's quality ON ONE PAIR — the figure the share fight scores them with.
+ *  A human rival ships it on their pair spec (server toRivalSpecs): their own
+ *  route quality, the number their own screen shows for that pair. Showing the
+ *  airline-wide reputation score here instead had every player beating every
+ *  rival on quality (route quality runs higher, and reputation is capped at 95)
+ *  — so two players on one pair each counted themselves ahead (Discord,
+ *  2026-11-07). AI carriers have one airline-wide figure and keep it. */
+export function rivalPairQuality(state, carrier, routeKey) {
+  const spec = (state?.humanRivals?.[routeKey] ?? []).find((sp) => sp?.competitorId === carrier?.id);
+  return spec?.qualityScore ?? carrier?.baseQualityScore ?? null;
+}
 
 /** Targeted-campaign lift on a pair — strongest campaign at either endpoint. */
 export function playerCampaignBoost(state, origin, destination) {

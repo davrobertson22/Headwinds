@@ -54,6 +54,10 @@ await db.exec(`
 `);
 await db.exec(mig('20261022000000_airline_rival_state'));
 if (!HEAD) await db.exec(mig('20261023000000_rival_state_app_writer'));
+// The CURRENT rival_state_of() body (fleet entries keep hasWifi, 2026-11-08) —
+// this test compares the SQL against today's projectRivalState(). It only
+// replaces the function, so it is orthogonal to the writer under test.
+await db.exec(mig('20261108010000_rival_state_wifi'));
 
 // Prisma-shaped $queryRaw over a PGlite connection or transaction.
 const rawOver = (conn) => ({
