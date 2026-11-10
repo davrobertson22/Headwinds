@@ -89,6 +89,7 @@ await test('the Advisor page lists exactly the engine\'s advice, in order, off t
   assert.ok(html.includes('data-advisor="briefing-help"'));
   assert.match(html, /Ask your own AI about your airline/);
   assert.match(html, /What's in the briefing, and what isn't/);
+  assert.match(html, /a guide to where every page is/);
 });
 
 await test('the page never mentions the supporter perk (the ask stays out of the game loop)', async () => {

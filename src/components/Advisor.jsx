@@ -25,6 +25,7 @@ import { airlineBriefing } from '../../packages/engine/src/models/briefing.js';
 import { projectWeekShared, airlineAlerts } from '../utils/airlineAlerts.js';
 import { requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
+import { screenGuide, actionPathText } from '../screenGuide.js';
 import { formatMoney } from '../utils/simulation.js';
 import { BulbIcon, ClipboardIcon, CheckIcon } from './Icons.jsx';
 
@@ -121,7 +122,7 @@ function BriefingHelp() {
       <details style={{ marginTop: 8 }}>
         <summary style={{ cursor: 'pointer', color: 'var(--text-dim)' }}>What's in the briefing, and what isn't</summary>
         <ul style={{ margin: '6px 0 0', paddingLeft: 18, color: 'var(--text-dim)' }}>
-          <li><strong>In it:</strong> cash and recent profit, these Advisor tips, your best and worst routes (load, revenue, profit, fares against the reference fare, how many rivals), your fleet by type, gate use and your main settings.</li>
+          <li><strong>In it:</strong> cash and recent profit, these Advisor tips, your best and worst routes (load, revenue, profit, fares against the reference fare, how many rivals), your fleet by type, gate use and your main settings — and a guide to where every page is in the game, so your AI can tell you exactly where to click (in the classic layout or the map view).</li>
           <li><strong>Not in it:</strong> anything about other players beyond the number of rivals on each of your routes. Only your own airline.</li>
           <li><strong>Private:</strong> the game sends nothing anywhere. The text only goes where you paste it.</li>
           <li><strong>A snapshot:</strong> route figures are this week's projection. After you change things, copy it again so your AI isn't working from old numbers.</li>
@@ -142,7 +143,9 @@ export default function Advisor() {
     report,
     reportLabel: "this week's projection",
     advice,
-    pathFor: (id) => navPathFor(id, { remote })?.replace(/\s▸\s/g, ' > '),
+    pathFor: (id) => navPathFor(id, { remote }),
+    actionPath: (action) => actionPathText(action, { remote }),
+    screens: screenGuide(state, { remote }),
   });
 
   const copy = async () => {

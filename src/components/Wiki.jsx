@@ -142,7 +142,7 @@ const WIKI = [
         'Ask: “What should I fix first?”, “Which routes should I reprice?”, “Why did my profit drop?”',
       ] },
       { ul: [
-        '**What\'s in it:** cash and recent profit, the Advisor\'s tips, your best and worst routes (load factor, revenue, profit, fares against the reference fare, number of rivals), fleet by type, gate use and your main settings.',
+        '**What\'s in it:** cash and recent profit, the Advisor\'s tips, your best and worst routes (load factor, revenue, profit, fares against the reference fare, number of rivals), fleet by type, gate use, your main settings, and a guide to where every page is, so your AI can point you to the exact screen.',
         '**What isn\'t:** anything about other players beyond the number of rivals on your routes.',
         '**Private:** the game sends nothing anywhere — the text goes only where you paste it.',
       ] },

@@ -185,6 +185,17 @@ async function resolveAirline(source, accountId, worldId) {
 
 const REPORT_LABEL = 'last week';
 
+// The screen guide (src/screenGuide.js: where every page is, in both layouts)
+// is UI knowledge, so it is injected by the route wiring rather than imported
+// here. `guide(state)` → { screens, actionPath } or null.
+const guideFor = (guide, state) => (typeof guide === 'function' ? guide(state) ?? {} : {});
+
+/** Each advice item with `where`: its exact screen, sub-page and filter. */
+function adviceWithWhere(advice, g) {
+  if (!g?.actionPath) return advice;
+  return advice.map(a => (a.action ? { ...a, where: g.actionPath(a.action) } : a));
+}
+
 export const TOOLS = [
   {
     name: 'list_my_airlines',
@@ -196,21 +207,21 @@ export const TOOLS = [
   {
     name: 'get_airline_briefing',
     title: 'Airline briefing',
-    description: 'A Markdown snapshot of one of my airlines: cash and recent profit, the game\'s own Advisor recommendations, best and worst routes with load factor, fares and profit, the fleet by type, gate usage and key settings. Start here.',
+    description: 'A Markdown snapshot of one of my airlines: cash and recent profit, the game\'s own Advisor recommendations, best and worst routes with load factor, fares and profit, the fleet by type, gate usage, key settings, and where every page is in the game (classic layout and map view) so you can tell the player exactly where to click. Start here.',
     inputSchema: { type: 'object', properties: { world_id: { type: 'string', description: 'Needed only if the account flies more than one airline.' } }, additionalProperties: false },
-    run: async ({ source, accountId, args }) => {
+    run: async ({ source, accountId, args, guide }) => {
       const { state, world } = await resolveAirline(source, accountId, args.world_id);
-      return { text: airlineBriefing(state, { reportLabel: REPORT_LABEL, world }) };
+      return { text: airlineBriefing(state, { reportLabel: REPORT_LABEL, world, ...guideFor(guide, state) }) };
     },
   },
   {
     name: 'get_advice',
     title: 'Advisor recommendations',
-    description: 'The game\'s rule-based Advisor for one airline, as JSON: idle or under-used aircraft, routes that sell out or fly empty, heavy checks due, crowded gates, crew pay, marketing, fuel exposure. Each item has a priority (1 = act now), the reasoning, the routes or aircraft concerned and the in-game screen that fixes it.',
+    description: 'The game\'s rule-based Advisor for one airline, as JSON: idle or under-used aircraft, routes that sell out or fly empty, heavy checks due, crowded gates, crew pay, marketing, fuel exposure. Each item has a priority (1 = act now), the reasoning, the routes or aircraft concerned and `where`: the exact in-game screen, sub-page and filter that fixes it.',
     inputSchema: { type: 'object', properties: { world_id: { type: 'string' } }, additionalProperties: false },
-    run: async ({ source, accountId, args }) => {
+    run: async ({ source, accountId, args, guide }) => {
       const { state } = await resolveAirline(source, accountId, args.world_id);
-      return { json: airlineAdvice(state, state.lastReport ?? null) };
+      return { json: adviceWithWhere(airlineAdvice(state, state.lastReport ?? null), guideFor(guide, state)) };
     },
   },
   {
@@ -272,7 +283,8 @@ const TOOL_BY_NAME = new Map(TOOLS.map(t => [t.name, t]));
 
 export const MCP_INSTRUCTIONS =
   'Headwinds is a multiplayer airline-management game. These tools read the user\'s OWN airlines, read-only: '
-  + 'you cannot change anything in the game, so recommend actions for the player to take and name the in-game screen. '
+  + 'you cannot change anything in the game, so recommend actions for the player to take and name the exact in-game screen — '
+  + 'the briefing ends with a guide to where every page is, in the classic layout and the map view. '
   + 'Start with get_airline_briefing. Money is in-game dollars per game week. Route profit is after lease and maintenance, '
   + 'before airline-wide overheads. The Advisor section is the game\'s own rule-based diagnosis. For new route ideas, '
   + 'point the player at Network > Route Finder, which forecasts market share properly — do not invent demand figures.';
@@ -338,7 +350,7 @@ export async function handleMcpMessage(msg, ctx) {
  *   authenticate  the normal session preHandler (requireAuth) for token management
  *   allow         (key, count, windowMs) → boolean, lib/rateLimit.mjs
  */
-export function agentApiRoutes({ store, source, authenticate, allow, now = () => new Date() }) {
+export function agentApiRoutes({ store, source, authenticate, allow, guide = null, now = () => new Date() }) {
   const limit = (key, { count, windowMs }, msg) => {
     if (!allow(key, count, windowMs)) throw httpError(429, msg);
   };
@@ -411,13 +423,13 @@ export function agentApiRoutes({ store, source, authenticate, allow, now = () =>
       const { account } = await agentFromRequest(request);
       const { state, world } = await resolveAirline(source, account.id, request.params.worldId);
       reply.type('text/markdown; charset=utf-8');
-      return airlineBriefing(state, { reportLabel: REPORT_LABEL, world });
+      return airlineBriefing(state, { reportLabel: REPORT_LABEL, world, ...guideFor(guide, state) });
     });
 
     fastify.get('/agent/worlds/:worldId/advice', async (request) => {
       const { account } = await agentFromRequest(request);
       const { state } = await resolveAirline(source, account.id, request.params.worldId);
-      return { advice: airlineAdvice(state, state.lastReport ?? null) };
+      return { advice: adviceWithWhere(airlineAdvice(state, state.lastReport ?? null), guideFor(guide, state)) };
     });
 
     // ── MCP ──────────────────────────────────────────────────────────────────
@@ -429,7 +441,7 @@ export function agentApiRoutes({ store, source, authenticate, allow, now = () =>
         const status = err.statusCode ?? 500;
         return reply.code(status).send(rpcError(request.body?.id, -32001, err.message));
       }
-      const ctx = { source, accountId: agent.account.id, log: request.log };
+      const ctx = { source, accountId: agent.account.id, log: request.log, guide };
       const body = request.body;
       if (Array.isArray(body)) {
         if (body.length === 0) return reply.code(400).send(rpcError(null, -32600, 'Empty batch'));

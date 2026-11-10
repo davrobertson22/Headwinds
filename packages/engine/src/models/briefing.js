@@ -32,7 +32,7 @@ import {
 import { slotUsageFor, slotCapAt } from '../reducer.mjs';
 import { airlineAdvice, routeLabel } from './advisor.js';
 
-export const BRIEFING_VERSION = 1;
+export const BRIEFING_VERSION = 2;   // v2 (2026-11-09): "Where things are in the game" + exact screen paths on advice
 export const BRIEFING_LIMITS = { topRoutes: 12, bottomRoutes: 8, cargoRoutes: 8, airports: 12, types: 20, history: 8 };
 
 const HUB_TIER = { 0: 'focus city', 1: 'hub', 2: 'major hub', 3: 'gateway hub' };
@@ -40,9 +40,9 @@ const HUB_TIER = { 0: 'focus city', 1: 'hub', 2: 'major hub', 3: 'gateway hub' }
 // Where a tab lives, for a reader who is not in the game. The client passes
 // src/navPath.js navPathFor; this fallback keeps the engine import-free of UI.
 const FALLBACK_PATH = {
-  routes: 'Network > Routes', finder: 'Network > Route Finder', planner: 'Network > Route Planner',
-  fleet: 'Fleet > Fleet', maintenance: 'Company > Maintenance', airports: 'Airports > Gates',
-  operations: 'Company > Operations', finance: 'Finance', ancillaries: 'Company > Ancillaries',
+  routes: 'Network ▸ Routes', finder: 'Network ▸ Route Finder', planner: 'Network ▸ Route Planner',
+  fleet: 'Fleet ▸ Fleet', maintenance: 'Company ▸ Maintenance', airports: 'Airports ▸ Gates',
+  operations: 'Company ▸ Operations', finance: 'Finance', ancillaries: 'Company ▸ Ancillaries',
 };
 
 const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`;
@@ -69,7 +69,13 @@ function table(headers, rows) {
  * @param {string} [opts.reportLabel] how to describe that report ('last week')
  * @param {Array}  [opts.advice]      precomputed airlineAdvice(state, report)
  * @param {object} [opts.world]       { name, pace } — multiplayer context, optional
- * @param {(tab: string) => string} [opts.pathFor] tab id → "Group > Page"
+ * @param {(tab: string) => string} [opts.pathFor] tab id → "Group ▸ Page" (fallback when no actionPath)
+ * @param {(action: object) => string} [opts.actionPath] an advice action → its exact
+ *                                    screen, sub-page and filter (src/screenGuide.js actionPathText)
+ * @param {Array<{classic, map, what}>} [opts.screens] where every page is
+ *                                    (src/screenGuide.js screenGuide). vrt1ty, Discord
+ *                                    2026-11-09: an AI that is only told "Finance" cannot
+ *                                    tell a beginner where fuel hedging is.
  */
 export function airlineBriefing(state, opts = {}) {
   if (!state || state.phase !== 'playing') return 'This airline has not started flying yet.';
@@ -77,6 +83,8 @@ export function airlineBriefing(state, opts = {}) {
   const reportLabel = opts.reportLabel ?? 'last week';
   const advice = opts.advice ?? airlineAdvice(state, report);
   const pathFor = (tab) => opts.pathFor?.(tab) ?? FALLBACK_PATH[tab] ?? tab;
+  const whereIs = (action) => opts.actionPath?.(action) ?? pathFor(action.to);
+  const screens = opts.screens ?? null;
   const L = BRIEFING_LIMITS;
   const out = [];
 
@@ -89,7 +97,8 @@ export function airlineBriefing(state, opts = {}) {
     + `All money is in-game dollars; flows are per game week. Route figures are ${reportLabel}'s, as simulated by the game. `
     + `"Profit" on a route is after its fuel, crew, fees, lease and maintenance but before airline-wide overheads. `
     + `Load factor (LF) is seats filled. The "Advisor" section is the game's own rule-based diagnosis. `
-    + `Changes are made by the player in the game; screen paths are given as "Group > Page"._`);
+    + `Changes are made by the player in the game. Screen paths use the game's own names, "Group ▸ Page"`
+    + `${screens ? `; the last section says where every page is, in both the classic layout and the map view, so you can tell the player exactly where to click` : ''}._`);
   out.push('');
 
   // ── Snapshot ──────────────────────────────────────────────────────────────
@@ -121,7 +130,7 @@ export function airlineBriefing(state, opts = {}) {
   out.push('## Advisor');
   if (advice.length === 0) out.push('_Nothing flagged this week._');
   for (const a of advice) {
-    out.push(`- **[${a.priorityLabel}] ${a.title}.** ${a.detail}${a.action ? ` (In game: ${pathFor(a.action.to)})` : ''}`);
+    out.push(`- **[${a.priorityLabel}] ${a.title}.** ${a.detail}${a.action ? ` (Where: ${whereIs(a.action)})` : ''}`);
     for (const it of a.items ?? []) out.push(`  - ${it.label}: ${it.value}`);
   }
   out.push('');
@@ -223,6 +232,14 @@ export function airlineBriefing(state, opts = {}) {
   if (state.loyalty) out.push(`- Loyalty programme: ${money(state.loyalty.weeklyInvestment ?? 0)}/wk, ${Math.round(state.loyalty.members ?? 0).toLocaleString('en-US')} members`);
   if (state.allianceMembership?.allianceId) out.push(`- Alliance: ${state.allianceMembership.allianceName ?? state.allianceMembership.allianceId}`);
   out.push('');
+  // ── Where things are ──────────────────────────────────────────────────────
+  if (screens?.length) {
+    out.push('## Where things are in the game');
+    out.push('Classic layout: the menu bar along the top. Map view (opt-in): the dock along the bottom. Use these exact names when telling the player where to go.');
+    out.push(table(['Classic layout', 'Map view', "What's there"],
+      screens.map(sc => [sc.classic, sc.map ?? '—', sc.what])));
+    out.push('');
+  }
   out.push(`_Briefing format v${BRIEFING_VERSION}._`);
   return out.join('\n');
 }

@@ -37,6 +37,9 @@ const {
 } = await import('../apps/headwinds-server/src/lib/agentApi.mjs');
 const { errorHandler } = await import('../apps/headwinds-server/src/lib/errorHandler.mjs');
 const { airlineBriefing } = await import('../packages/engine/src/models/briefing.js');
+const { screenGuide, actionPathText } = await import('../src/screenGuide.js');
+// What routes/agentApi.mjs injects: where every page is, multiplayer names.
+const GUIDE = (state) => ({ screens: screenGuide(state, { remote: true }), actionPath: (a) => actionPathText(a, { remote: true }) });
 
 let x = 777;
 Math.random = () => { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; return x / 4294967296; };
@@ -103,7 +106,7 @@ function build({ allow = () => true } = {}) {
   };
   const app = Fastify();
   app.setErrorHandler(errorHandler);
-  app.register(agentApiRoutes({ store, source, authenticate, allow }));
+  app.register(agentApiRoutes({ store, source, authenticate, allow, guide: GUIDE }));
   return { app, store };
 }
 
@@ -293,11 +296,20 @@ test('get_airline_briefing serves the same text the in-game button copies', asyn
   const { body } = await mint(app);
   const r = await call(app, body.secret, 'get_airline_briefing');
   assert.equal(r.isError, false);
-  const expected = airlineBriefing(ALPHA_WITH_OVERLAY, { reportLabel: 'last week', world: { name: 'Time Flies', pace: '1 week / 2 hr' } });
+  const expected = airlineBriefing(ALPHA_WITH_OVERLAY, { reportLabel: 'last week', world: { name: 'Time Flies', pace: '1 week / 2 hr' }, ...GUIDE(ALPHA_WITH_OVERLAY) });
   assert.equal(r.content[0].text, expected);
   assert.match(r.content[0].text, /# Airline briefing: Alpha Air/);
   assert.match(r.content[0].text, /## Advisor/);
   assert.match(r.content[0].text, /idle Boeing 737-800/);
+  // the connected AI gets the screen guide too, with multiplayer names
+  assert.match(r.content[0].text, /## Where things are in the game/);
+  assert.match(r.content[0].text, /\| Company ▸ Rivals \|/);
+});
+
+test('the route wiring injects the screen guide', () => {
+  const wiring = srcOf('apps/headwinds-server/src/routes/agentApi.mjs');
+  assert.match(wiring, /import \{ screenGuide, actionPathText \} from '..\/..\/..\/..\/src\/screenGuide.js'/);
+  assert.match(wiring, /\bguide,\n\}\);/);
 });
 
 test('no rival overlay comes out of any tool', async () => {
@@ -314,6 +326,8 @@ test('get_advice, list_routes, list_fleet, get_finances return the airline\'s ow
   const { body } = await mint(app);
   const advice = JSON.parse((await call(app, body.secret, 'get_advice')).content[0].text);
   assert.ok(advice.some(a => a.id === 'idle-b737800'), JSON.stringify(advice.map(a => a.id)));
+  const idle = advice.find(a => a.id === 'idle-b737800');
+  assert.equal(idle.where, 'Network ▸ Route Finder (map view: Search ▸ Route Finder)');
   const routes = JSON.parse((await call(app, body.secret, 'list_routes', { sort: 'loss', limit: 1 })).content[0].text);
   assert.equal(routes.total, 2);
   assert.equal(routes.routes.length, 1);
