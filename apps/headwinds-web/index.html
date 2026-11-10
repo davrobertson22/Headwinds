@@ -164,6 +164,20 @@
     .duo .glyph { font-family: 'Space Grotesk', sans-serif; font-weight: 700; letter-spacing: 2px; font-size: 0.95rem; margin-bottom: 8px; }
     .duo .card-logo { display: block; height: 66px; width: auto; margin: 2px 0 14px; }
 
+    /* guides and latest updates */
+    h3.group { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; margin: 28px 0 12px; }
+    .guides { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    a.guide { display: block; text-decoration: none; padding: 16px 18px; }
+    a.guide:hover { border-color: var(--teal); }
+    a.guide strong { display: block; color: var(--teal-bright); font-size: 1rem; margin: 0 0 4px; }
+    a.guide span { display: block; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+    .updates { border-top: 1px solid var(--line); margin: 0 0 22px; }
+    a.update { display: block; padding: 16px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+    a.update .update-date { display: block; color: var(--teal-bright); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    a.update strong { display: block; color: var(--text); font-size: 1.05rem; margin: 2px 0 4px; }
+    a.update:hover strong { color: var(--teal-bright); }
+    a.update .update-x { display: block; color: var(--muted); font-size: 0.93rem; line-height: 1.55; }
+
     footer.site { border-top: 1px solid var(--line); }
     .footwrap { display: flex; flex-wrap: wrap; gap: 14px 18px; padding: 28px 0 10px; color: var(--muted); font-size: 0.9rem; }
     .footwrap a { color: var(--teal-bright); text-decoration: none; }
@@ -305,6 +319,83 @@
       </div>
     </section>
 
+    <!-- Guides: every guide and aircraft page, linked from the front door (tools/site-pages-test.mjs checks none is missing) -->
+    <section class="alt" id="guides">
+      <div class="wrap">
+        <h2 class="sec">Guides and reference</h2>
+        <p class="sec-sub" style="margin-bottom:0;">Everything here is free to read, whether or not you play. The guides are written for a world where every rival is a real person.</p>
+        <h3 class="group">Start here</h3>
+        <div class="guides">
+          <a class="card guide" href="/how-to-play.html"><strong>How to Play</strong><span>Sign in, join a world of real players, pick a hub and open your first routes.</span></a>
+          <a class="card guide" href="/faq.html"><strong>FAQ</strong><span>How worlds and the server clock work, what happens while you are offline, and how a world ends.</span></a>
+          <a class="card guide" href="/rules.html"><strong>Fair Play Rules</strong><span>One airline per world, one account per person, and competing without cheating.</span></a>
+          <a class="card guide" href="/glossary.html"><strong>Glossary</strong><span>Worlds, standings, contested routes, load factor, yield, CASM and RASM in plain English.</span></a>
+        </div>
+        <h3 class="group">Winning a world</h3>
+        <div class="guides">
+          <a class="card guide" href="/strategy.html"><strong>Strategy Guide</strong><span>Scouting rivals, claiming territory, playing the world clock and finishing on top.</span></a>
+          <a class="card guide" href="/route-economics.html"><strong>Route Economics</strong><span>How demand splits on a contested route, reading rival fares, and surviving a fare war.</span></a>
+          <a class="card guide" href="/hub-strategy.html"><strong>Hub Strategy</strong><span>Claiming a hub early, building a fortress rivals leave alone, and timing a second hub.</span></a>
+          <a class="card guide" href="/fleet-planning.html"><strong>Fleet Planning</strong><span>Commonality, gate scarcity, reserve cover, and what your orders tell the other players.</span></a>
+          <a class="card guide" href="/competition-and-alliances.html"><strong>Competition &amp; Alliances</strong><span>Contested routes, defending your markets, player-founded alliances and diplomacy.</span></a>
+        </div>
+        <h3 class="group">Aircraft, with the game&rsquo;s real numbers</h3>
+        <div class="guides">
+          <a class="card guide" href="/aircraft.html"><strong>Aircraft Guide</strong><span>Every aircraft in the game, and how to choose between them on a contested map.</span></a>
+          <a class="card guide" href="/aircraft-narrow-body.html"><strong>Narrow-Body Jets</strong><span>Single-aisle fleets for contested markets.</span></a>
+          <a class="card guide" href="/aircraft-wide-body.html"><strong>Wide-Body Jets</strong><span>Long-haul twins on a shared map.</span></a>
+          <a class="card guide" href="/aircraft-regional-jets.html"><strong>Regional Jets</strong><span>Cheap frequency, hub feed and gates you would otherwise lose.</span></a>
+          <a class="card guide" href="/aircraft-turboprops.html"><strong>Turboprops</strong><span>The cheapest aircraft on the map, and the routes nobody contests.</span></a>
+          <a class="card guide" href="/aircraft-freighters.html"><strong>Freighters</strong><span>Cargo aircraft, from parcel feeders to the 747 freighter.</span></a>
+          <a class="card guide" href="/aircraft-flagships.html"><strong>Flagships</strong><span>The A380, the 747 family and Concorde.</span></a>
+        </div>
+        <h3 class="group">The game and the people in it</h3>
+        <div class="guides">
+          <a class="card guide" href="/worlds"><strong>Live Worlds</strong><span>Standings from the worlds running now: real airlines, run by real players.</span></a>
+          <a class="card guide" href="/best-airline-management-games.html"><strong>Best Multiplayer Airline Games</strong><span>An honest comparison of the multiplayer airline games of 2026, ours included.</span></a>
+          <a class="card guide" href="/about.html"><strong>About Headwinds</strong><span>What the game is, how it is made, and who makes it.</span></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Latest updates: rebuilt from the devlog by tools/headwinds-public.mjs on every build -->
+    <section id="updates">
+      <div class="wrap">
+        <h2 class="sec">Latest updates</h2>
+        <p class="sec-sub" style="margin-bottom:20px;">Headwinds changes most days, and each significant update is written up for players in the <a href="/devlog.html">devlog</a>. The five most recent:</p>
+        <div class="updates">
+          <!-- DEVLOG-LATEST:START (generated from pages/devlog.html by tools/headwinds-public.mjs; do not edit) -->
+          <a class="update" href="/devlog/the-advisor-a-briefing-for-your-own-ai-and-ai-connectors.html">
+            <span class="update-date">November 9, 2026</span>
+            <strong>The Advisor, a briefing for your own AI, and AI connectors for supporters</strong>
+            <span class="update-x">A new page under Company reads your airline the way an experienced manager would and tells you what to do about it. In every world, including ones already running.</span>
+          </a>
+          <a class="update" href="/devlog/demand-model-v4-frequency-sells-seats-and-every-world-has-a.html">
+            <span class="update-date">November 6, 2026</span>
+            <strong>Demand model v4: frequency sells seats, and every world has a business cycle (new worlds)</strong>
+            <span class="update-x">New worlds now run demand model v4. It keeps v3’s real-world demand and seasons, and changes how the market answers what you do. Look for the “frequency sells seats” tag in the lobby. Worlds already running…</span>
+          </a>
+          <a class="update" href="/devlog/2026-11.html#the-jet-age-and-the-original-737s-era-worlds">
+            <span class="update-date">November 6, 2026</span>
+            <strong>The jet age, and the Original 737s (era worlds)</strong>
+            <span class="update-x">In era worlds, propliners never went out of fashion: an airline could reach the late 1960s flying only Vanguards and lose nothing for it. Real passengers left propellers for jets fast once the jets arrived.…</span>
+          </a>
+          <a class="update" href="/devlog/2026-11.html#design-your-cabins-a-floor-plan-and-seat-products">
+            <span class="update-date">November 6, 2026</span>
+            <strong>Design your cabins: a floor plan and seat products</strong>
+            <span class="update-x">Refitting an aircraft is now something you can see and shape.</span>
+          </a>
+          <a class="update" href="/devlog/2026-11.html#tail-fins-custom-tails-and-your-airline-everywhere">
+            <span class="update-date">November 6, 2026</span>
+            <strong>Tail fins, custom tails, and your airline everywhere</strong>
+            <span class="update-x">Your airline now looks like itself all over the game.</span>
+          </a>
+          <!-- DEVLOG-LATEST:END -->
+        </div>
+        <p style="margin:0;"><a href="/devlog.html">Every update since July 2026 →</a></p>
+      </div>
+    </section>
+
     <section class="alt">
       <div class="wrap">
         <div class="duo">
@@ -330,6 +421,10 @@
         <a href="/play">Play</a>
         <a href="/how-to-play.html">How to Play</a>
         <a href="/strategy.html">Strategy</a>
+        <a href="/hub-strategy.html">Hub Strategy</a>
+        <a href="/route-economics.html">Route Economics</a>
+        <a href="/fleet-planning.html">Fleet Planning</a>
+        <a href="/competition-and-alliances.html">Competition &amp; Alliances</a>
         <a href="/aircraft.html">Aircraft</a>
         <a href="/glossary.html">Glossary</a>
         <a href="/faq.html">FAQ</a>

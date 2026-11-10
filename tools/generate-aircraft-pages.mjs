@@ -3,10 +3,11 @@
 // Run from the project root:  node tools/generate-aircraft-pages.mjs
 // Re-run whenever aircraft data changes, then rebuild (vite copies public/ into dist/).
 
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { AIRCRAFT_TYPES } from '../src/data/aircraft.js';
+import { AIRCRAFT_TYPES, isVintage } from '../src/data/aircraft.js';
+import { scatterChart, SERIES, CHART_CSS } from './site-charts.mjs';
 import { fuelCostPerKm } from '../src/utils/fuel.js';
 import { cruiseSpeedKmh, typicalSeatsOf, fullCabinRangeKm } from '../src/utils/simulation.js';
 
@@ -180,12 +181,28 @@ const CSS = `
     .note { border-left:3px solid var(--gold); padding:4px 0 4px 16px; color:var(--muted); margin:10px 0 0; font-size:0.92rem; }
     .crumbs { font-size:0.85rem; color:var(--muted); margin:0 0 20px; }
     .crumbs a { color:var(--muted); }
-    .byline { color:var(--muted); font-size:0.88rem; margin:-24px 0 32px; }`;
+    .byline { color:var(--muted); font-size:0.88rem; margin:-24px 0 32px; }${CHART_CSS}`;
 
-// Shown under every page's lede. Bump it when the pages' content changes
-// (new aircraft, rebalanced stats, rewritten advice), not on every regeneration.
-// headwinds-public.mjs rebrands "Tailwinds" to "Headwinds" on the way out.
+// A placeholder: tools/headwinds-public.mjs overwrites this byline at build time with the
+// page's real date from apps/headwinds-web/page-dates.json (tools/site-page-dates.mjs).
+// It also rebrands "Tailwinds" to "Headwinds" on the way out.
 const UPDATED = 'October 29, 2026';
+
+// --check compares instead of writing, so a test can tell when the pages are stale.
+const CHECK = process.argv.includes('--check');
+let staleCount = 0;
+function emit(file, html, note) {
+  const p = path.join(OUT, file);
+  if (CHECK) {
+    if (!existsSync(p) || readFileSync(p, 'utf8') !== html) {
+      staleCount++;
+      console.log(`stale: public/${file}`);
+    }
+    return;
+  }
+  writeFileSync(p, html);
+  console.log(`wrote public/${file} (${note})`);
+}
 
 function pageShell({ title, description, canonical, h1, lede, body }) {
   return `<!DOCTYPE html>
@@ -293,6 +310,101 @@ function aircraftCard(t, group, isFreight) {
     </div>`;
 }
 
+// ── Charts ────────────────────────────────────────────────────────────────────
+// Two per category page, drawn from the same data as the table. They are deliberately
+// NOT the two Tailwinds draws (seats against range, fuel by year): the category pages
+// share their table and type notes with the solo site, and anything else the two have
+// in common is duplication Google holds against both. These two answer the questions a
+// contested world asks: what an aircraft costs to hold, and what it costs to buy.
+
+const shortName = (t) => {
+  const rest = t.name.startsWith(`${t.manufacturer} `) ? t.name.slice(t.manufacturer.length + 1) : t.name;
+  return /^\d+$/.test(rest) ? t.name : rest; // "Fokker 100" stays whole
+};
+const LINES = [
+  { key: 'open', label: 'In production', color: SERIES[0] },
+  { key: 'closed', label: 'Line closed', color: SERIES[1] },
+];
+const lineOf = (t) => (t.oop ? 'closed' : 'open');
+const lowest = (group, score) => group.reduce((best, t) => (score(t) < score(best) ? t : best));
+const highest = (group, score) => group.reduce((best, t) => (score(t) > score(best) ? t : best));
+const chartFigure = (svg, caption) => `    <figure class="chart">
+      <div class="chartwrap">${svg}</div>
+      <figcaption>${caption}</figcaption>
+    </figure>`;
+
+function chartsFor(page, group, isFreight) {
+  const unit = isFreight ? 'tonne' : 'seat';
+  const size = (t) => (isFreight ? t.payloadTonnes : t.seats);
+  const perUnitLease = (t) => t.weeklyLease / size(t);
+  const perUnitFuel = (t) => (isFreight ? t.fuelTonneKm : t.fuelSeatKm);
+  const few = group.length <= 12;
+  const the = (t) => (/^Concorde/.test(t.name) ? esc(t.name) : `the ${esc(t.name)}`);
+  const The = (t) => the(t).replace(/^t/, 'T');
+  const cents = (v) => `${v.toFixed(isFreight ? 1 : 2)}\u00a2`;
+  const names = (list) => [...new Set(list.map((t) => t.name))];
+
+  // 1. Own or fly: weekly lease per seat against fuel per seat-km. Buy-only types have
+  //    no lease to plot, so they are left off this one.
+  const leased = group.filter((t) => !isVintage(t) && size(t) > 0 && perUnitFuel(t) != null);
+  const cheapHold = lowest(leased, perUnitLease);
+  const dearHold = highest(leased, perUnitLease);
+  const cheapFly = lowest(leased, perUnitFuel);
+  const dearFly = highest(leased, perUnitFuel);
+  const own = scatterChart({
+    label: `${page.h1}: weekly lease per ${unit} against fuel cost per ${unit}-kilometre`,
+    points: leased.map((t) => ({
+      x: perUnitLease(t),
+      y: perUnitFuel(t),
+      name: t.name,
+      short: shortName(t),
+      series: lineOf(t),
+      tip: `${t.name}: $${fmtInt(Math.round(perUnitLease(t)))} lease per ${unit} a week, ${cents(perUnitFuel(t))} fuel per ${unit}-km`,
+    })),
+    series: LINES.filter((l) => leased.some((t) => lineOf(t) === l.key)),
+    xLabel: `Weekly lease per ${unit} ($)`,
+    yLabel: `Fuel per ${unit}-km (\u00a2)`,
+    xFmt: (v) => `$${fmtInt(v)}`,
+    yFmt: (v) => (isFreight ? String(v) : v.toFixed(1)),
+    labelNames: few ? names(leased) : names([cheapHold, dearHold, cheapFly, dearFly]),
+  });
+  const ownCaption = `Cheap to hold or cheap to fly. Each dot is one type you can lease: across, what each ${unit} costs in lease every week whether it flies or not; up, what it burns to move that ${unit} one kilometre. ${The(cheapHold)} is the cheapest to hold at $${fmtInt(Math.round(perUnitLease(cheapHold)))} a ${unit}, and ${the(cheapFly)} the cheapest to fly at ${cents(perUnitFuel(cheapFly))}. The lease is what you pay on an aircraft you are holding back, and fuel is what you pay on one that flies all week.`;
+
+  // 2. What it costs to buy: purchase price against size, for every type.
+  const priced = group.filter((t) => size(t) > 0);
+  const dearest = highest(priced, (t) => t.purchasePrice);
+  const cheapest = lowest(priced, (t) => t.purchasePrice);
+  const biggest = highest(priced, size);
+  const buy = scatterChart({
+    label: `${page.h1}: purchase price against ${isFreight ? 'payload' : 'seats'}`,
+    points: priced.map((t) => ({
+      x: size(t),
+      y: t.purchasePrice / 1_000_000,
+      name: t.name,
+      short: shortName(t),
+      series: lineOf(t),
+      tip: `${t.name}: ${isFreight ? `${t.payloadTonnes} t` : `${fmtInt(t.seats)} seats`}, ${fmtMoney(t.purchasePrice)}`,
+    })),
+    series: LINES.filter((l) => priced.some((t) => lineOf(t) === l.key)),
+    xLabel: isFreight ? 'Payload (tonnes)' : 'Seats, with the cabin filled to its limit',
+    yLabel: 'Purchase price ($M)',
+    xFmt: fmtInt,
+    yFmt: (v) => `$${fmtInt(v)}M`,
+    labelNames: few ? names(priced) : names([dearest, biggest, cheapest, highest(priced.filter((t) => t.oop), (t) => t.purchasePrice)]),
+  });
+  const newBuilt = priced.filter((t) => !t.oop);
+  const closed = priced.filter((t) => t.oop);
+  const split =
+    newBuilt.length && closed.length
+      ? `The dearest type still in production, ${the(highest(newBuilt, (t) => t.purchasePrice))}, costs ${fmtMoney(highest(newBuilt, (t) => t.purchasePrice).purchasePrice)} new. The dearest whose line has closed, ${the(highest(closed, (t) => t.purchasePrice))}, arrives second-hand for ${fmtMoney(highest(closed, (t) => t.purchasePrice).purchasePrice)} and brings an older airframe's maintenance bill with it.`
+      : `The dearest is ${the(dearest)} at ${fmtMoney(dearest.purchasePrice)} and the cheapest ${the(cheapest)} at ${fmtMoney(cheapest.purchasePrice)}. Every line here has closed, so each arrives second-hand with an older airframe's maintenance bill.`;
+  const buyCaption = `Purchase price against ${isFreight ? 'payload' : 'seats'} for all ${priced.length} types. ${split} Buying ends the weekly lease but ties up cash you may want the week a rival moves onto your routes.`;
+
+  return `    <h2>What it costs to hold, and to buy</h2>
+${chartFigure(own, ownCaption)}
+${chartFigure(buy, buyCaption)}`;
+}
+
 // ── Category pages ────────────────────────────────────────────────────────────
 
 const all = AIRCRAFT_TYPES.map(enrich);
@@ -307,6 +419,7 @@ for (const page of PAGES) {
     `<h2>All ${group.length} aircraft at a glance</h2>`,
     `<p>Figures are the game's actual values. Fuel cost assumes the base fuel price of $1.20/litre — the live market price in your save drifts between roughly half and nearly double that, which is why <a href="/route-economics.html">fuel hedging</a> matters.</p>`,
     statsTable(group, isFreight),
+    chartsFor(page, group, isFreight),
     `<h2>Type-by-type notes</h2>`,
     group.map((t) => aircraftCard(t, group, isFreight)).join('\n'),
   ].join('\n');
@@ -319,8 +432,7 @@ for (const page of PAGES) {
     lede: page.description,
     body,
   });
-  writeFileSync(path.join(OUT, page.file), html);
-  console.log(`wrote public/${page.file} (${group.length} aircraft)`);
+  emit(page.file, html, `${group.length} aircraft`);
 }
 
 // ── Index page ────────────────────────────────────────────────────────────────
@@ -349,8 +461,8 @@ ${catCounts
       <p>Every aircraft in the game charges you in four ways: a <strong>weekly lease</strong> (or capital tied up in a purchase), <strong>fuel</strong> burned per kilometre flown, <strong>crew</strong> cost per kilometre, and a weekly <strong>maintenance</strong> bill that grows as the airframe ages. Revenue comes from the seats (or cargo tonnes) you fill. The art of fleet planning is matching capacity and range to each route so you pay for exactly the aircraft the mission needs — and nothing more.</p>
       <p>Two derived numbers appear throughout these guides. <strong>Fuel per seat-km</strong> is the fuel cost of moving one seat one kilometre — the cleanest efficiency comparison between types. <strong>Lease per seat</strong> spreads the weekly lease across capacity, showing how expensive each seat is before it ever leaves the gate. Together they explain most of why one aircraft makes money on a route and another loses it.</p>`;
 
-writeFileSync(
-  path.join(OUT, 'aircraft.html'),
+emit(
+  'aircraft.html',
   pageShell({
     title: `Aircraft Guide — All ${all.length} Planes in Tailwinds Airline Management Game`,
     description: `Complete guide to all ${all.length} aircraft in Tailwinds: narrow-bodies, widebodies, regional jets, turboprops, freighters and flagships — with real in-game stats and economics.`,
@@ -358,6 +470,8 @@ writeFileSync(
     h1: 'Aircraft in Tailwinds',
     lede: `Every aircraft in the game, organised by category — with real stats, per-seat economics, and advice on when to fly each one.`,
     body: indexBody,
-  })
+  }),
+  `index, ${all.length} aircraft`
 );
-console.log(`wrote public/aircraft.html (index, ${all.length} aircraft)`);
+if (CHECK && staleCount) process.exit(1);
+

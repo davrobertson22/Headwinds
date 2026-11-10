@@ -19,7 +19,16 @@
 //      competition-and-alliances, …)
 //   5. injects apps/headwinds-web/sections/ (Headwinds-only prose added to
 //      shared pages that are generated upstream and can't be hand-written here)
-//   6. writes a Headwinds manifest.webmanifest, robots.txt and sitemap.xml
+//   6. splits the devlog into dated pages (tools/site-devlog.mjs): devlog.html
+//      becomes an index, with devlog/YYYY-MM.html month pages and a page of its
+//      own for each long entry
+//   7. prints each page's real "last updated" date from
+//      apps/headwinds-web/page-dates.json (tools/site-page-dates.mjs keeps it)
+//   8. writes a Headwinds manifest.webmanifest, robots.txt and sitemap.xml
+//
+//   node tools/headwinds-public.mjs --out <dir>   build somewhere else and leave
+//      apps/headwinds-web/public/ and index.html alone (tests and the date tool
+//      use this, so they can run beside anything)
 //
 // Because steps 2's transforms re-run on every build, freshly synced Tailwinds
 // page updates are picked up automatically — edit the SHARED pages in the
@@ -27,6 +36,8 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, mkdirSync, copyFileSync, statSync, cpSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { devlogPages, withLatest } from './site-devlog.mjs';
+import { readManifest, dateFor, applyDate, listBuilt, todayIso } from './site-page-dates.mjs';
 
 const HW    = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SRC   = path.join(HW, 'public');
@@ -34,7 +45,14 @@ const APP   = path.join(HW, 'apps/headwinds-web');
 const BRAND = path.join(APP, 'brand');
 const PAGES = path.join(APP, 'pages');
 const SECTIONS = path.join(APP, 'sections');
-const OUT   = path.join(APP, 'public');
+const outArg = process.argv.indexOf('--out');
+const CUSTOM_OUT = outArg > -1 ? path.resolve(process.argv[outArg + 1] || '') : null;
+const OUT   = CUSTOM_OUT || path.join(APP, 'public');
+// OUT is wiped first, so refuse anything that could be the repo or a parent of it.
+if (CUSTOM_OUT && (outArg + 1 >= process.argv.length || HW.startsWith(CUSTOM_OUT) || CUSTOM_OUT.startsWith(HW + path.sep))) {
+  console.error('headwinds-public: --out needs a directory outside the repo (it is deleted and rebuilt)');
+  process.exit(1);
+}
 
 const DOMAIN = 'www.headwindsairlinegame.com';
 
@@ -304,6 +322,28 @@ function injectSupportLink(html) {
   return s;
 }
 
+// Link EVERY guide from every page's footer. Until 2026-11-10 the footers listed
+// How to Play, Strategy, Aircraft, Glossary and FAQ only: hub strategy, route
+// economics, fleet planning and competition & alliances were reachable from
+// neither the landing page nor any footer, only from links inside other guides.
+// Google had crawled such pages on Tailwinds and declined to index them. The
+// links go in after Strategy, inside the footer only (the same anchor text can
+// appear in a page's prose). Idempotent: a link the footer already has is skipped.
+const FOOTER_GUIDES = [
+  ['hub-strategy.html', 'Hub Strategy'],
+  ['route-economics.html', 'Route Economics'],
+  ['fleet-planning.html', 'Fleet Planning'],
+  ['competition-and-alliances.html', 'Competition &amp; Alliances'],
+];
+function injectGuideLinks(html) {
+  return html.replace(/<footer class="site">[\s\S]*?<\/footer>/, (footer) => {
+    const anchor = '<a href="/strategy.html">Strategy</a>';
+    const missing = FOOTER_GUIDES.filter(([file]) => !footer.includes(`href="/${file}"`));
+    if (!missing.length || !footer.includes(anchor)) return footer;
+    return footer.replace(anchor, anchor + missing.map(([file, label]) => `\n      <a href="/${file}">${label}</a>`).join(''));
+  });
+}
+
 // Put the Headwinds logo mark + teal wordmark in the header of EVERY page.
 // The shared info pages (synced from Tailwinds) and the hand-written Headwinds
 // pages both ship a text-only brand link — only the landing page (the app's own
@@ -469,6 +509,7 @@ for (const f of readdirSync(SRC)) {
 const ASSET_DIRS = ['tiles', 'img'];
 let assetFiles = 0;
 for (const d of ASSET_DIRS) {
+  if (d === 'tiles' && process.argv.includes('--no-tiles')) continue; // 5,000 map tiles no page check needs
   const from = path.join(SRC, d);
   if (!existsSync(from)) { console.warn(`  \u26a0 ${d}/ missing from public/ — the satellite map would draw nothing`); continue; }
   cpSync(from, path.join(OUT, d), { recursive: true });
@@ -529,8 +570,44 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectSupportLink(injectWorldsLink(injectRulesLink(before)))))), f);
+  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectGuideLinks(injectSupportLink(injectWorldsLink(injectRulesLink(before))))))), f);
   if (after !== before) { writeFileSync(p, after); linked++; }
+}
+
+// Split the devlog into dated pages. The source is still one hand-written page
+// (apps/headwinds-web/pages/devlog.html); by now it has the site's nav, footer
+// and tags, so it doubles as the template for every page made from it.
+const SITE = `https://${DOMAIN}`;
+const devlogSource = readFileSync(path.join(OUT, 'devlog.html'), 'utf8');
+const devlog = devlogPages(devlogSource, SITE);
+mkdirSync(path.join(OUT, 'devlog'), { recursive: true });
+for (const [rel, html] of devlog.files) writeFileSync(path.join(OUT, rel), html);
+
+// The landing page's "Latest updates" block comes from the same entries. A real
+// build (no --out) brings apps/headwinds-web/index.html up to date before Vite
+// reads it; commit the change it makes. tools/site-pages-test.mjs fails when the
+// committed block is stale.
+if (!CUSTOM_OUT) {
+  const landingPath = path.join(APP, 'index.html');
+  const landing = readFileSync(landingPath, 'utf8');
+  const fresh = withLatest(landing, devlogSource);
+  if (fresh !== landing) {
+    writeFileSync(landingPath, fresh);
+    console.log('headwinds-public: refreshed the Latest updates block in apps/headwinds-web/index.html — commit it');
+  }
+}
+
+// Each page's real "last updated" date, from the committed record. Runs last, so
+// it covers rebranded, hand-written and devlog pages alike.
+const pageDates = readManifest();
+const builtPages = listBuilt(OUT);
+const dateOf = {};
+for (const rel of builtPages) {
+  const p = path.join(OUT, rel);
+  const before = readFileSync(p, 'utf8');
+  dateOf[rel] = dateFor(pageDates, rel, before);
+  const after = applyDate(before, dateOf[rel]);
+  if (after !== before) writeFileSync(p, after);
 }
 
 // PWA manifest — Headwinds identity, app lives at /play.
@@ -596,11 +673,21 @@ const today = new Date().toISOString().slice(0, 10);
 //
 // Cross-canonicaled pages stay out of the sitemap — a sitemap should only list
 // URLs whose canonical is on this domain.
-const pages = ['', 'play', 'worlds', ...readdirSync(OUT).filter((f) => f.endsWith('.html') && !CROSS_CANONICAL.has(f)).sort()];
-const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : p === 'worlds' ? '0.8' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
+//
+// <lastmod> is each page's own date (see the dates step above), never the build
+// date: stamping every URL with today on every deploy told Google nothing. The
+// landing page and /play are dated from their source files; /worlds is live
+// standings and really does change daily.
+const pages = ['', 'play', 'worlds', ...builtPages.filter((f) => !CROSS_CANONICAL.has(f))];
+const prio = (p) => p === '' ? '1.0' : p === 'play' ? '0.9' : p === 'worlds' ? '0.8' : p.startsWith('devlog/') ? '0.5' : /^(how-to-play|strategy|devlog|rules|best-)/.test(p) ? '0.8' : '0.6';
+const lastmod = (p) =>
+  p === '' ? (pageDates['index.html'] || {}).updated || todayIso()
+  : p === 'play' ? (pageDates['play.html'] || {}).updated || todayIso()
+  : p === 'worlds' ? today
+  : dateOf[p];
 writeFileSync(path.join(OUT, 'sitemap.xml'),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-  pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>${p === 'worlds' ? 'hourly' : 'monthly'}</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
+  pages.map((p) => `  <url>\n    <loc>https://${DOMAIN}/${p}</loc>\n    <lastmod>${lastmod(p)}</lastmod>\n    <changefreq>${p === 'worlds' ? 'hourly' : 'monthly'}</changefreq>\n    <priority>${prio(p)}</priority>\n  </url>`).join('\n') +
   `\n</urlset>\n`);
 
 console.log(`headwinds-public: ${branded} pages rebranded, ${overrides} overridden, ${sectioned} sectioned, ${copied} assets copied, ${assetFiles} tile/asset files, ${brandFiles} brand files, ${linked} pages Rules/Worlds-linked${patchMisses ? `, ${patchMisses} content patch(es) MISSED` : ''}${sectionMisses ? `, ${sectionMisses} section insert(s) MISSED` : ''}${metaMisses ? `, ${metaMisses} meta override(s) MISSED` : ''} → ${path.relative(HW, OUT)}/`);

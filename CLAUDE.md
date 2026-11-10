@@ -31,6 +31,17 @@ Any screen that forecasts a route or a market share must route through the share
 
 `packages/engine/src/data/airportMarkets.js` (the Airports → All airports market columns) is **generated** — do not hand-edit. Regenerate with `node tools/generate-airport-markets.mjs` whenever airports, metros or the demand model change; `tools/airport-markets-test.mjs` fails when it is stale. Tailwinds has the same file and generator; with matching demand models the two tables are byte-identical.
 
+## The public site (landing, guides, devlog)
+
+AdSense has turned this site down for "low value content" more than once, so the pages Google reads are guarded by `tools/site-pages-test.mjs` (and `tools/adsense-readiness-test.mjs` for ad code and /play). Both name the fix when they fail.
+
+- `apps/headwinds-web/public/` is **generated** on every build by `tools/headwinds-public.mjs` (gitignored). Edit the sources: hand-written pages in `apps/headwinds-web/pages/`, multiplayer sections for the aircraft pages in `apps/headwinds-web/sections/`, the landing in `apps/headwinds-web/index.html`. `--out <dir>` builds somewhere else and leaves the real one alone.
+- **Devlog.** Add a new `<div class="entry">` at the top of `apps/headwinds-web/pages/devlog.html`, as before. The build splits it (`tools/site-devlog.mjs`) into an index at `/devlog.html`, month pages at `/devlog/YYYY-MM.html`, and a page of its own for any entry of 500+ words. It also refreshes the "Latest updates" block in `index.html`; commit that change with the entry.
+- **Dates.** Never hand-edit a "Last updated" byline or the sitemap. After changing a page, the landing, the devlog or the aircraft pages, run `node tools/site-page-dates.mjs` and commit `apps/headwinds-web/page-dates.json`. A page is re-dated only when its content really changed (3+ paragraphs, rows or images), and the build prints that date in the byline and as the page's own `<lastmod>`. Stamping every page with the build date is what Google reads as bulk-produced content; do not bring it back.
+- **Aircraft class pages** are generated into root `public/` by `node tools/generate-aircraft-pages.mjs` (re-run when aircraft data changes). Their two charts are deliberately different from the two on the Tailwinds pages.
+- **The landing links every page.** A new page needs a card in the Guides section of `index.html`; the test fails until it has one.
+- **Do not copy Tailwinds' articles or its real-aircraft sections here.** The same text on both domains is duplication Google holds against both sites. Headwinds content has to be Headwinds' own (multiplayer, live worlds). And do not cross-canonical pages to Tailwinds: see the history in `headwinds-public.mjs`.
+
 ## Working with git here
 
 The desktop bridge cannot unlink files, so it leaves stale `.git/index.lock` files and locked worktree registrations behind. If git behaves strangely, check for `.git/index.lock` first. Never `git add -A` — both repos keep untracked scratch under `_to_delete/`.
