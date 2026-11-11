@@ -18,6 +18,7 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
+import { createHash } from 'node:crypto';
 import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwrYieldChoke, setEraStartYear, setDemandModel } from '@tailwinds/engine/utils/market.js';
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
 import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
@@ -666,25 +667,113 @@ function selfScoredTerms(selfView, pairRoutes) {
   };
 }
 
+// ── Deriving an airline once per write, not once per build ───────────────────
+// buildRivalViews derives two things per airline — its competitor entry
+// (toHumanCompetitor) and its scored specs (toRivalSpecs) — and those two are
+// nearly all of its cost: 1.2–1.7 s for Scarce Assets, 0.4–0.6 s for Lunar
+// Gateway (measured 2026-11-10/11). The rows are re-read once a minute, and on
+// the first decision or poll after that every airline in the world was derived
+// again, though in a typical minute one or two of them have been written.
+//
+// A memo keeps each airline's two results with a fingerprint of their inputs:
+//
+//   competitor entry  the airline's own row, and its alliance id and name.
+//   specs             the airline's own row, and the "ad voice" of the others:
+//                     the only thing the scoring reads from anyone else is
+//                     where they advertise (engine competitorMarketingSpend:
+//                     hubs, tier, the airports of their routes, health,
+//                     blitzes), which drags this airline's brand there.
+//                     tools/rival-view-incremental-test.mjs holds that list to
+//                     what the engine really reads.
+//
+// The row fingerprint is every column of the row except the state blob, which
+// `version` stands for: every write of an airline's state increments it (the
+// world stamp the clients poll is the sum of them, for the same reason).
+//
+// A memo belongs to one world under one set of engine knobs (fare index, era,
+// demand model …): rivalViewMemo hands back a fresh one when those change.
+const ROW_BLOB_KEYS = new Set(['state', 'rivalState']);
+function rowFingerprint(row) {
+  const parts = [];
+  for (const k of Object.keys(row).sort()) {
+    if (ROW_BLOB_KEYS.has(k)) continue;
+    const v = row[k];
+    parts.push(k, typeof v === 'bigint' ? `${v}n` : v instanceof Date ? String(v.getTime()) : JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? `${x}n` : x)));
+  }
+  return parts.join('\u0002');
+}
+
+/** What competitorMarketingSpend reads from one competitor entry. */
+export const AD_VOICE_FIELDS = Object.freeze(['homeHub', 'secondaryHub', 'tier', 'fireSale', '_distressWeeks', 'routes', '_mktBlitz']);
+const adVoiceOf = new WeakMap();   // competitor entry -> digest
+function adVoiceDigest(c) {
+  if (!c) return '';
+  let d = adVoiceOf.get(c);
+  if (d === undefined) {
+    d = createHash('sha1').update(JSON.stringify([
+      c.homeHub ?? null, c.secondaryHub ?? null, c.tier ?? null, c.fireSale ? 1 : 0, (c._distressWeeks ?? 0) > 3 ? 1 : 0,
+      Object.keys(c.routes ?? {}), c._mktBlitz ?? null,
+    ])).digest('base64');
+    adVoiceOf.set(c, d);
+  }
+  return d;
+}
+function adVoiceKey(competitors) {
+  const h = createHash('sha1');
+  for (const c of competitors ?? []) h.update(adVoiceDigest(c)).update('|');
+  return h.digest('base64');
+}
+
+const MEMO_IDLE_MS = 10 * 60_000;
+const viewMemos = new Map();   // worldId -> { knobs, at, comps, specs, derived }
+/**
+ * The memo for one world. `knobs` is any string that changes when the engine
+ * settings the derivation runs under change; a different string starts over.
+ */
+export function rivalViewMemo(worldId, knobs = '') {
+  const now = Date.now();
+  for (const [id, m] of viewMemos) if (now - m.at > MEMO_IDLE_MS) viewMemos.delete(id);
+  let m = viewMemos.get(worldId);
+  if (!m || m.knobs !== knobs) {
+    m = { knobs, at: now, comps: new Map(), specs: new Map(), derived: { comps: 0, specs: 0 } };
+    viewMemos.set(worldId, m);
+  }
+  m.at = now;
+  return m;
+}
+/** Test seam: the memo a world has now, if any (does not create one). */
+export function peekRivalViewMemo(worldId) { return viewMemos.get(worldId) ?? null; }
+/** Test seam: forget every world's memo. */
+export function clearRivalViewMemos() { viewMemos.clear(); }
+
 // Build, for EVERY active airline in a world, the pair of views of everyone
 // else. Returns Map<airlineId, { competitors, humanRivals, alliance }>.
 // `allianceMap` (from loadAllianceMap) makes rivals carry their alliance ids
 // and each member's own view carry its membership + def.
-export function buildRivalViews(airlines, allianceMap = new Map()) {
+export function buildRivalViews(airlines, allianceMap = new Map(), memo = null) {
   const active = airlines.filter((a) => a.status === 'ACTIVE');
-  const comps = new Map(active.map((a) => [
-    a.id,
-    {
-      ...toHumanCompetitor(a, {
-        allianceId: allianceMap.get(a.id)?.membership.allianceId ?? null,
-        allianceName: allianceMap.get(a.id)?.def?.name ?? null,
-      }),
+  // `memo` (rivalViewMemo): what was derived last time for each airline, kept
+  // with the fingerprint of what it was derived FROM. An airline whose row has
+  // not been written since is not derived again — see the note above
+  // rivalViewMemo. Without a memo every airline is derived, as before.
+  const prints = memo ? new Map(active.map((a) => [a.id, rowFingerprint(a)])) : null;
+  const comps = new Map(active.map((a) => {
+    const allianceId = allianceMap.get(a.id)?.membership.allianceId ?? null;
+    const allianceName = allianceMap.get(a.id)?.def?.name ?? null;
+    const key = memo ? `${prints.get(a.id)}\u0001${allianceId}\u0001${allianceName}` : null;
+    const kept = memo?.comps.get(a.id);
+    if (kept && kept.key === key) return [a.id, kept.value];
+    if (memo) memo.derived.comps++;
+    const value = {
+      ...toHumanCompetitor(a, { allianceId, allianceName }),
       // Order board (every world): { [typeId]: [inService, onOrder] }. The
       // market screen adds these up with your own fleet for world totals and
       // the customer list (engine data/productionLines.js worldFleetBoard).
       fleetMix: fleetCounts(a.state),
-    },
-  ]));
+    };
+    if (memo) memo.comps.set(a.id, { key, value: Object.freeze(value) });
+    return [a.id, value];
+  }));
   // Production lines: each airline's slot bookings once, so every view can be
   // "everyone but me" by subtraction instead of re-scanning every order book.
   const lineBookingsById = new Map(active
@@ -698,7 +787,24 @@ export function buildRivalViews(airlines, allianceMap = new Map()) {
   const othersOf = new Map(airlines.map((me) => [
     me.id, active.filter((o) => o.id !== me.id).map((o) => comps.get(o.id)),
   ]));
-  const specs = new Map(active.map((a) => [a.id, toRivalSpecs(a, { competitors: othersOf.get(a.id) })]));
+  const specs = new Map(active.map((a) => {
+    const others = othersOf.get(a.id);
+    if (!memo) return [a.id, toRivalSpecs(a, { competitors: others })];
+    // A spec is scored from the airline's own row and — through its brand,
+    // which rival advertising drags — from where everyone else advertises.
+    const key = `${prints.get(a.id)}\u0001${adVoiceKey(others)}`;
+    const kept = memo.specs.get(a.id);
+    if (kept && kept.key === key) return [a.id, kept.value];
+    memo.derived.specs++;
+    const value = toRivalSpecs(a, { competitors: others });
+    memo.specs.set(a.id, { key, value });
+    return [a.id, value];
+  }));
+  if (memo) {
+    // An airline that has left the rows (retired, deleted) is forgotten.
+    for (const id of memo.comps.keys()) if (!comps.has(id)) memo.comps.delete(id);
+    for (const id of memo.specs.keys()) if (!specs.has(id)) memo.specs.delete(id);
+  }
   // Talent market (models/talentMarket.js): what each rival pays per crew
   // group, weighted by its fleet. Only the two fields the going rate reads.
   const payrolls = new Map(active.map((a) => [a.id, {
@@ -1113,12 +1219,18 @@ function allianceKeyOf(allianceMap) {
   return JSON.stringify([...allianceMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));
 }
 
-function pricedViewsFor(rows, allianceMap) {
+function pricedViewsFor(rows, allianceMap, knobs = null) {
   const allianceKey = allianceKeyOf(allianceMap);
   let hit = Array.isArray(rows) ? pricedViews.get(rows) : null;
   if (!hit || hit.allianceKey !== allianceKey) {
     pricedViewBuilds++;
-    hit = { allianceKey, views: buildRivalViews(rows, allianceMap) };
+    // A new row load: only the airlines written since the last one are derived.
+    // (`knobs` null: the caller's rows are not the trimmed rival rows — the
+    // tick hands in whole airlines it is about to rewrite — so nothing is
+    // kept or reused for them.)
+    const worldId = rows?.[0]?.worldId ?? null;
+    const memo = worldId && knobs != null ? rivalViewMemo(worldId, knobs) : null;
+    hit = { allianceKey, views: buildRivalViews(rows, allianceMap, memo) };
     if (Array.isArray(rows)) pricedViews.set(rows, hit);
   }
   const competitorCopies = new Map();
@@ -1203,27 +1315,31 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
   // Set immediately before pricing, from the rows themselves: every airline in a
   // world shares the index, and on the cache-miss path the rows do not exist until
   // after the findMany below.
-  const priced = (rows, allianceMap) => {
+  const priced = (rows, allianceMap, { keep = true } = {}) => {
     // Era worlds: the fare ladder is derived from the calendar, exactly as the
     // reducer entry derives it — a stored fareIndex alone would go stale as the
     // era yield curve declines (ERA_MODE_PLAN.md §3.3).
     const _st = rows?.[0]?.state;
     const _eraFi = eraFareIndex(calendarYearFrac(_st));
-    setFareIndex(_eraFi != null ? _eraFi * (_st?.fareIndex ?? 1) : (_st?.fareIndex ?? 1));
+    const _fi = _eraFi != null ? _eraFi * (_st?.fareIndex ?? 1) : (_st?.fareIndex ?? 1);
+    setFareIndex(_fi);
     setEraStartYear(_st?.startYear ?? null);
     setNwrYieldChoke(_st?.newWorldRestrictions === true);
     setDemandModel(_st?.demandModel);   // one world, one demand model
     setFuelStationsEnabled(fuelStationsOn(_st));
+    // Everything set here shapes the derivation, so it is part of what a kept
+    // result was derived under (rivalViewMemo starts over when it changes).
+    const knobs = JSON.stringify([_fi, _st?.startYear ?? null, _st?.newWorldRestrictions === true, _st?.demandModel ?? null, fuelStationsOn(_st)]);
     setFuelStationDiscounts(null);   // rival views carry no airline's farms
     // The knobs above are set on every call (the request that follows may read
     // them before its reducer does). The derivation itself is remembered for
     // as long as these exact rows are — see pricedViewsFor.
-    return pricedViewsFor(rows, allianceMap);
+    return pricedViewsFor(rows, allianceMap, keep ? knobs : null);
   };
 
   if (airlines) {
     const allianceMap = await loadAllianceMap(prisma, worldId);
-    return attachMarketDev(await attachStockPool(await attachGates(airlines, allianceMap, priced(airlines, allianceMap))));
+    return attachMarketDev(await attachStockPool(await attachGates(airlines, allianceMap, priced(airlines, allianceMap, { keep: false }))));
   }
   const hit = viewCache.get(worldId);
   if (hit && stamp != null) {

@@ -1,3 +1,4 @@
+import { useWindowedRows } from '../utils/useWindowedRows.js';
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
@@ -711,6 +712,13 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
   // Width multiple per route group (empty map = toggle off = 1 everywhere).
   // Read through a ref so applyStyles stays a stable callback.
   const widthFactors = useMemo(() => routeWidthFactors(routeGroups, widthByPax), [routeGroups, widthByPax]);
+  // The "All Routes" table under the map: one row per city pair, and hovering
+  // a row re-renders this whole component (it lights the line up). At 4,000
+  // pairs that was 40,000+ elements rebuilt on every mouse move, fare change
+  // and new week (measured 2026-11-11). Past 150 rows only the rows in view
+  // exist (useWindowedRows; the Fleet list does the same).
+  const tableWin = useWindowedRows({ estimate: 37, resetKey: `${acTypeFilter ?? ''}|${airportFilter ?? ''}` });
+  const tableView = tableWin.rows(routeGroups.length);
   const widthRef = useRef(widthFactors);
   widthRef.current = widthFactors;
 
@@ -1694,8 +1702,9 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
               <th>Profit / wk</th>
             </tr>
           </thead>
-          <tbody>
-            {routeGroups.map((g) => {
+          <tbody ref={tableWin.bodyRef}>
+            {tableView.padTop > 0 && <tr aria-hidden="true" data-spacer=""><td colSpan={6} style={{ height: tableView.padTop, padding: 0, border: 0 }} /></tr>}
+            {routeGroups.slice(tableView.start, tableView.end).map((g) => {
               const profit = g.hasResult ? g.profit : 0;
               const lf = g.hasResult ? g.loadFactor : 0;
               const isHov = hoveredId === g.key;
@@ -1757,6 +1766,7 @@ export default function RouteMap({ fullBleed = false, paused = false } = {}) {
                 </tr>
               );
             })}
+            {tableView.padBottom > 0 && <tr aria-hidden="true" data-spacer=""><td colSpan={6} style={{ height: tableView.padBottom, padding: 0, border: 0 }} /></tr>}
           </tbody>
         </table>
       </div>

@@ -272,6 +272,26 @@ export function buildRivalPairOffers(state, market) {
 // METRO LANE — the preview's half of weeklyTick's one-fight-per-metro-pair rule
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Every airport pair's nonstop routes, in table order: pair key → routes.
+ * `get(key) ?? []` is routesOnPair for that pair. For a caller that asks about
+ * many pairs of one route table (the Competition page asks about every
+ * contested pair): one pass instead of one pass per pair, which at 4,000
+ * routes and a few hundred contested pairs was most of a 1.6 s freeze
+ * (measured 2026-11-11). Hand a pair's list to pairMarketShare as
+ * opts.pairRoutes.
+ */
+export function nonstopRoutesByPair(routes) {
+  const index = new Map();
+  for (const r of routes ?? []) {
+    if (!r || isMultiStop(r)) continue;
+    const key = pairKeyOf(r.origin, r.destination);
+    const list = index.get(key);
+    if (list) list.push(r); else index.set(key, [r]);
+  }
+  return index;
+}
+
 /** The player's nonstop routes on one airport pair. */
 function routesOnPair(state, key) {
   return (state.routes ?? []).filter(

@@ -1833,8 +1833,41 @@ function freshState() {
 
 // Use timestamp + random suffix so HMR (hot-reload resetting module scope)
 // never produces an ID that collides with IDs already stored in localStorage.
+//
+// Seeded ids (multiplayer). The browser applies an action optimistically and
+// the server applies it again; when the two mint different ids for the route
+// or aircraft the action creates, the server's state "differs" from the one on
+// screen and has to replace it — a second full projection of the week, 0.7 s
+// frozen on the largest airlines, for an answer that is otherwise identical.
+// So an action may carry `idSeed`, chosen by whoever dispatches it, and every
+// id minted while it runs is `<seed>-<n>`: both ends get the same ones.
+// rootReducer sets the seed for the one action and takes it out of the action
+// before any handler sees it. No seed, or a malformed one: ids as before.
+const ID_SEED = /^[a-z0-9]{6,14}-[a-z0-9]{3,8}$/;
+let seededIds = null;   // { seed, n } while a seeded action runs
 function uid() {
+  if (seededIds) return `${seededIds.seed}-${(seededIds.n++).toString(36)}`;
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+/** A well-formed id seed (the shape uid() itself makes). */
+export function isIdSeed(x) { return typeof x === 'string' && ID_SEED.test(x); }
+/** A fresh seed for one action. */
+export function newIdSeed() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7).padEnd(5, '0')}`;
+}
+/**
+ * Would ids from this seed collide with ones the state already holds? The
+ * server asks before honouring a client's seed: a seed is only ever the
+ * client's own airline's problem, but a duplicate id inside one table is a
+ * corrupt save, so a seed already in use is ignored (ids are minted as usual).
+ */
+export function idSeedInUse(state, seed) {
+  const prefix = `${seed}-`;
+  for (const v of Object.values(state ?? {})) {
+    if (!Array.isArray(v)) continue;
+    for (const row of v) if (typeof row?.id === 'string' && row.id.startsWith(prefix)) return true;
+  }
+  return false;
 }
 
 // Depreciated value of the OWNED fleet ($) — same NAV math as SELL_AIRCRAFT
@@ -8277,6 +8310,15 @@ function withAutoReplace(prev, next) {
 }
 
 function rootReducer(state, action) {
+  // Seeded ids for this one action (see uid). The week is the server's alone
+  // and takes no seed; the seed never reaches a handler or the state.
+  if (action && action.idSeed !== undefined) {
+    const { idSeed, ...rest } = action;
+    if (!isIdSeed(idSeed) || rest.type === 'ADVANCE_WEEK') return rootReducer(state, rest);
+    const outer = seededIds;
+    seededIds = { seed: idSeed, n: 0 };
+    try { return rootReducer(state, rest); } finally { seededIds = outer; }
+  }
   // A player state from before the payload-range model: routes flying then keep
   // the old range rule on their aircraft. Runs before ANY action, so a route the
   // player opens next is never mistaken for an old one. No-op once flagged.

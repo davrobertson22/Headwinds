@@ -403,6 +403,14 @@ function PLStatement({ proj }) {
   const gd = currentGameDate(state);
 
   const toggleRow = id => setExpanded(e => ({ ...e, [id]: !e[id] }));
+  // Per-route and per-aircraft lists inside the statement: past LONG_LIST rows
+  // only the first LONG_LIST are built until the player asks for the rest.
+  const [fullLists, setFullLists] = useState({});
+  const listRows = (key, list) => (fullLists[key] ? list : shortList(list));
+  const listMore = (key, list, noun, colSpan, largest = false) => (
+    <MoreRows key={`more-${key}`} total={list.length} shown={listRows(key, list).length} noun={noun} largest={largest}
+      colSpan={colSpan} onShowAll={() => setFullLists(f => ({ ...f, [key]: true }))} />
+  );
 
   // ── Single source of truth ──────────────────────────────────────────────────
   // All headline totals come from the canonical engine projection (passed down
@@ -805,6 +813,11 @@ function PLStatement({ proj }) {
       {/* P&L table */}
       {(() => {
         const pw = financialHistory.length > 0 ? financialHistory[financialHistory.length - 1] : null;
+        const cateringRows = cateringByRoute
+          .filter(r => r.catering > 0 || r.cateringRev > 0)
+          .sort((x, y) => (y.catering - y.cateringRev) - (x.catering - x.cateringRev));
+        const layoverRows = cateringByRoute.filter(r => r.layover > 0);
+        const leasedRows  = fleetData.filter(f => !f.isOwned);
         const pwFlightOps = pw ? (pw.crew ?? 0) + (pw.landingFees ?? 0) + (pw.quality ?? 0) : null;
         const pwPaxServices = pw ? (pw.catering ?? 0) + (pw.groundHandling ?? 0) : null;
         const pwOtherCosts = pw ? (pw.layover ?? 0) + (pw.compensation ?? 0) : null;
@@ -1128,9 +1141,7 @@ function PLStatement({ proj }) {
                 {(totCatering > 0 || totCateringRev > 0) && (
                   <>
                     <SubSectionHeader label="Catering" />
-                    {cateringByRoute
-                      .filter(r => r.catering > 0 || r.cateringRev > 0)
-                      .sort((a, b) => (b.catering - b.cateringRev) - (a.catering - a.cateringRev))
+                    {listRows('catering', cateringRows)
                       .map(({ route, type, catering, cateringRev, cateringLevel, cateringPlanName }) => (
                         <tr key={`cat-${route.id}`}>
                           <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
@@ -1145,6 +1156,7 @@ function PLStatement({ proj }) {
                           <td />
                         </tr>
                       ))}
+                    {listMore('catering', cateringRows, 'routes', pw ? 4 : 3, true)}
                     <LineItem label="  Total catering cost" prior={pw ? -(pw.catering ?? 0) : undefined} weekly={-totCatering} ytd={-ytdCatering} />
                   </>
                 )}
@@ -1217,7 +1229,7 @@ function PLStatement({ proj }) {
                 {totLayover > 0 && (
                   <>
                     <SubSectionHeader label="Crew Accommodation" />
-                    {cateringByRoute.filter(r => r.layover > 0).map(({ route, type, layover, blockHrs }) => (
+                    {listRows('layover', layoverRows).map(({ route, type, layover, blockHrs }) => (
                       <tr key={route.id}>
                         <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
                           {route.origin} → {route.destination}
@@ -1230,6 +1242,7 @@ function PLStatement({ proj }) {
                         <td />
                       </tr>
                     ))}
+                    {listMore('layover', layoverRows, 'routes', pw ? 4 : 3)}
                     <LineItem label="  Total crew accommodation" prior={pw ? -(pw.layover ?? 0) : undefined} weekly={-totLayover} ytd={-ytdLayover} />
                   </>
                 )}
@@ -1266,7 +1279,7 @@ function PLStatement({ proj }) {
               {totLeases > 0 && (
                 <>
                   <SubSectionHeader label="Operating Leases" />
-                  {fleetData.filter(f => !f.isOwned).map(({ aircraft, type, lease }) => (
+                  {listRows('leases', leasedRows).map(({ aircraft, type, lease }) => (
                     <tr key={aircraft.id}>
                       <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
                         {aircraft.name}
@@ -1277,11 +1290,12 @@ function PLStatement({ proj }) {
                       <td />
                     </tr>
                   ))}
+                  {listMore('leases', leasedRows, 'leased aircraft', pw ? 4 : 3)}
                   <LineItem label="  Total operating leases" prior={pw ? -(pw.leases ?? 0) : undefined} weekly={-totLeases} ytd={-ytdLease} />
                 </>
               )}
               <SubSectionHeader label="Maintenance" />
-              {fleetData.map(({ aircraft, type, maint }) => (
+              {listRows('maint', fleetData).map(({ aircraft, type, maint }) => (
                 <tr key={aircraft.id}>
                   <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
                     {aircraft.name}
@@ -1294,6 +1308,7 @@ function PLStatement({ proj }) {
                   <td />
                 </tr>
               ))}
+              {listMore('maint', fleetData, 'aircraft', pw ? 4 : 3)}
               <LineItem label="  Total maintenance" prior={pw ? -(pw.maintenance ?? 0) : undefined} weekly={-totMaint} ytd={-ytdMaint} />
               {totInsurance > 0 && (
                 <>
@@ -1662,6 +1677,31 @@ function PLStatement({ proj }) {
 }
 
 // ── P&L helper: non-collapsible category separator ───────────────────────────
+// A statement on a large airline had a row for every route under Catering and
+// Crew Accommodation and for every aircraft under Leases and Maintenance, all
+// open by default: 90,000 elements and a second to open at 4,000 routes
+// (measured 2026-11-11). The totals are what the statement is read for, so a
+// long list shows its first LONG_LIST rows and a line to open the rest.
+export const LONG_LIST = 25;
+const LONG_LIST_SLACK = 5;    // don't hide a handful: 30 rows show whole
+export function shortList(list) {
+  return list.length <= LONG_LIST + LONG_LIST_SLACK ? list : list.slice(0, LONG_LIST);
+}
+function MoreRows({ total, shown, noun, largest, colSpan, onShowAll }) {
+  if (shown >= total) return null;
+  return (
+    <tr data-more-rows="">
+      <td colSpan={colSpan} style={{ paddingLeft: 40, fontSize: 12, color: 'var(--text-dim)' }}>
+        Showing {largest ? `the ${shown} largest` : shown} of {total.toLocaleString()} {noun}.{' '}
+        <button type="button" className="btn-link" onClick={onShowAll}
+          style={{ background: 'none', border: 0, padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }}>
+          Show all
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 function PLCategoryHeader({ label, colSpan = 4 }) {
   return (
     <tr>

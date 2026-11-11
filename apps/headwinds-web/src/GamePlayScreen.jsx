@@ -13,7 +13,7 @@
 // swallowed: the weekly tick happens on the server whether or not you're here.
 import { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SoloApp from '../../../src/App.jsx';
-import { RemoteGameProvider, gameReducer, hydrateState } from '../../../src/store/GameContext.jsx';
+import { RemoteGameProvider, gameReducer, hydrateState, newIdSeed } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
 import { api, isTransientError, readableError } from './api.js';
 import { shouldFastPoll, isStaleContact, sameMeta } from './connection.js';
@@ -37,6 +37,8 @@ import InviteButton from './InviteButton.jsx';
 import { projectOffThread, offThreadReady } from './projectionOffThread.js';
 import { carryProjectWeek } from '../../../src/utils/financeProjection.js';
 import { compareDecisionResult, overlayOf } from './decisionAdoption.js';
+import { applyStatePatch } from '../../../packages/engine/src/utils/statePatch.js';
+import { selfVersionOf, withSelfVersion, advanceShadow } from './leanDecisions.js';
 import { createScreenMemory, SCREEN_ONLY_ACTIONS } from './screenMemory.js';
 import { borrowProjection, hasBorrowedProjection, settleBorrowed, inheritBorrowed } from './ownProjection.js';
 import '../../../src/index.css';
@@ -129,6 +131,9 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // can answer "unchanged" from tiny reads instead of shipping the full state
   // blob (+ every rival's blob) each time. This is the Supabase egress fix.
   const stampRef = useRef(null);
+  // The server's copy of our airline as last confirmed, and its version
+  // (leanDecisions.js): what a lean decision reply is a patch against.
+  const shadow = useRef(null);
 
   // Timestamp of the last poll that actually reached the server. Everything
   // about "are we still connected?" is derived from this.
@@ -202,6 +207,9 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         const newerRivals = seq < adoptedSeq.current ? latestRivals.current : null;
         if (!newerRivals) { adoptedSeq.current = seq; if (d.rivals) latestRivals.current = d.rivals; }
         setState(newerRivals ? { ...next, ...newerRivals } : next);
+        // This IS the server's airline at the version the stamp names.
+        const v = selfVersionOf(d.stamp);
+        shadow.current = v != null ? { state: next, version: v } : null;
         if (full) resyncOwed.current = false;
         return;
       }
@@ -521,15 +529,18 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // The state a decision came back with: adopt only what is actually news
   // (decisionAdoption.js). Runs OUTSIDE the write chain — the next queued write
   // must not wait on a projection.
-  const settleDecision = useCallback(async (res, seq) => {
-    if (seq !== decisionSeq.current || !res?.state) return;
+  const settleDecision = useCallback(async (serverState, seq) => {
+    if (seq !== decisionSeq.current || !serverState) return;
     const local = stateRef.current;
-    const server = withStatsBackfill(res.state);
+    const server = serverState;
     // A pre-tick response landing after the weekly poll advanced us: never
     // roll the week backwards.
     const olderWeek = (cur) => server.week != null && cur?.week != null && absWeekOfState(server) < absWeekOfState(cur);
     if (olderWeek(local)) return;
     const verdict = compareDecisionResult(local, server);
+    // Equal airlines: let the shadow be the state on screen, so the two share
+    // their memory instead of holding a second copy of whatever was patched.
+    if (verdict !== 'state' && shadow.current?.state === server) shadow.current = { ...shadow.current, state: local };
     if (verdict === 'same') return;   // the screen already shows exactly this
     if (verdict === 'overlay') {
       // The airline is as the click left it; only the rivals have moved since
@@ -570,6 +581,12 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       return;
     }
     const seq = ++decisionSeq.current;
+    // One id seed for both ends: the route, aircraft or order this action
+    // creates gets the same id here and on the server (engine reducer `uid`),
+    // so the server's answer is the state already on screen and nothing has to
+    // be adopted — and projected — a second time.
+    const idSeed = newIdSeed();
+    const seeded = { ...action, idSeed };
     // The engine error as it stood BEFORE this action, so the response can be
     // checked for a NEWLY set one. state.error is sticky (the reducer never
     // clears it), so "res.error is truthy" is not the same as "this decision was
@@ -581,7 +598,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // and the worker works out its own (the reprojection runner above) — so
     // the click is answered without running the engine's week on this thread.
     setState((s) => {
-      const next = gameReducer(s, action);
+      const next = gameReducer(s, seeded);
       if (next !== s && offThreadReady()) borrowProjection(s, next);
       return next;
     });
@@ -592,9 +609,12 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     writesInFlight.current += 1;
     // A longer leash than a poll: a bulk close/sell can be a heavy write, and
     // timing out a decision the server actually applied is worse than waiting.
+    // `lean`: ask for what the action changed rather than the whole airline,
+    // naming the version of it we hold (leanDecisions.js). Read when the
+    // request is actually sent — earlier writes in the chain move it.
     const post = () => authedApi(
-      `/worlds/${worldId}/decisions`,
-      { method: 'POST', token, body: { type, payload }, timeoutMs: DECISION_TIMEOUT_MS },
+      `/worlds/${worldId}/decisions${shadow.current ? `?lean=1&base=${shadow.current.version}` : ''}`,
+      { method: 'POST', token, body: { type, payload: { ...payload, idSeed } }, timeoutMs: DECISION_TIMEOUT_MS },
     );
     writeChain.current = writeChain.current.then(async () => {
       // Retry rule lives in decisionPolicy.js: a lost compare-and-set (almost
@@ -614,10 +634,38 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         // re-downloading the state we're about to render. A stale (out-of-order)
         // response is skipped — the next poll's full fetch reconciles.
         if (seq === decisionSeq.current && res.stamp) stampRef.current = res.stamp;
+        // The server's airline after this write. A whole-state reply is it; a
+        // lean reply is a patch on the copy we hold (the shadow). Every reply
+        // moves the shadow, in order, whether or not it is the newest decision:
+        // the newest one is then compared against everything that landed.
+        let serverState = null;
+        if (res.patch) {
+          const moved = advanceShadow(shadow.current, res, applyStatePatch);
+          shadow.current = moved.shadow;
+          // Our half of the stamp is the version this write produced; the world
+          // half stays the one our rival overlay reflects.
+          if (res.version != null) stampRef.current = withSelfVersion(stampRef.current, res.version);
+          if (moved.lost) {
+            // The patch does not fit what we hold: fetch the airline whole.
+            resyncOwed.current = true;
+            if (shouldRollback(writesInFlight.current)) load({ full: true });
+          } else if (moved.applied) {
+            const patched = withStatsBackfill(moved.shadow.state);
+            if (patched !== moved.shadow.state) shadow.current = { ...moved.shadow, state: patched };
+            // Compared as the whole state used to be, with the overlay on
+            // screen: a lean reply carries no rivals, the poll brings those.
+            serverState = { ...patched, ...overlayOf(stateRef.current) };
+            shadow.current = { ...shadow.current, state: serverState };
+          }
+        } else if (res.state) {
+          serverState = withStatsBackfill(res.state);
+          const v = selfVersionOf(res.stamp);
+          shadow.current = v != null ? { state: serverState, version: v } : null;
+        }
         // The server's post-write state includes every write that DID land and
         // none that did not, so adopting it settles any rollback still owed.
-        if (seq === decisionSeq.current && writesInFlight.current <= 0) resyncOwed.current = false;
-        settleDecision(res, seq);
+        if (seq === decisionSeq.current && writesInFlight.current <= 0 && serverState) resyncOwed.current = false;
+        settleDecision(serverState, seq);
         // The engine accepted the request but refused the action (no cash for a
         // heavy check, an MRO base already at its certification limit). The
         // server returns 201 with the reason; before this it was thrown away, so

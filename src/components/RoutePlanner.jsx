@@ -38,6 +38,7 @@ import { frequencySliderWidth } from '../utils/frequencySlider.js';
 import FareEditor, { CLASS_LABELS, CLASS_COLORS, referenceClassPrices } from './FareEditor.jsx';
 import { projectRouteAddition, rivalPairQuality } from '../../packages/engine/src/models/pairShare.js';
 import { plannedCliffFares } from '../models/fareCliff.js';
+import { tailRoutesOf } from '../utils/tailRoutes.js';
 import {
   rankAircraftForRoute, rankAircraftForYear, seasonalProfitByType, gameDateInMonth, ALL_MONTHS,
 } from '../models/aircraftRecommender.js';
@@ -1964,7 +1965,8 @@ export default function RoutePlanner() {
                                         // 2 Nov 2026).
                                         const add = pool[0]?.newBlockHrs ?? 0;
                                         const free = short.reachable.map(a => {
-                                          const byM = committedBlockHoursByMonth(a.id, simulation.type, state.routes, state.cargoRoutes ?? []);
+                                          const mine = tailRoutesOf(state, a.id);
+                                          const byM = committedBlockHoursByMonth(a.id, simulation.type, mine.pax, mine.cargo);
                                           return { a, months: ALL_MONTHS.filter(m => byM[m - 1] + add <= bhCap + 1e-6) };
                                         }).sort((x, y) => y.months.length - x.months.length)[0];
                                         return free && free.months.length > 0

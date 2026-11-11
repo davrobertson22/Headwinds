@@ -274,7 +274,7 @@ section('GamePlayScreen');
 const src = read('apps/headwinds-web/src/GamePlayScreen.jsx');
 await test('the optimistic apply borrows only when there is a worker to pay it back', () => {
   const dispatch = src.slice(src.indexOf('const dispatch = useCallback((action) => {'));
-  assert.match(dispatch, /const next = gameReducer\(s, action\);\s*\n\s*if \(next !== s && offThreadReady\(\)\) borrowProjection\(s, next\);\s*\n\s*return next;/);
+  assert.match(dispatch, /const next = gameReducer\(s, seeded\);\s*\n\s*if \(next !== s && offThreadReady\(\)\) borrowProjection\(s, next\);\s*\n\s*return next;/);
 });
 await test('the runner projects from the held state, proposes only for the state still on screen, and never blocks a click', () => {
   const a = src.indexOf('const reproject = useCallback(async () => {');

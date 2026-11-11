@@ -109,7 +109,7 @@ await test('the server cutoff leaves at least 4s for COMMIT before the browser a
 
 await test('the game screen aborts decisions at DECISION_TIMEOUT_MS, not a private number', () => {
   const src = read('../apps/headwinds-web/src/GamePlayScreen.jsx');
-  assert.match(src, /\/decisions`,\s*\{ method: 'POST', token, body: \{ type, payload \}, timeoutMs: DECISION_TIMEOUT_MS \}/);
+  assert.match(src, /\/decisions\$\{[^\n]*\}`,\s*\{ method: 'POST', token, body: \{ type, payload: \{ \.\.\.payload, idSeed \} \}, timeoutMs: DECISION_TIMEOUT_MS \}/);
 });
 
 console.log('\nClient: a rollback that could not load keeps trying');
@@ -150,7 +150,7 @@ await test('GamePlayScreen owes a rollback on every failed write and upgrades lo
   // The adopted blob is projected off-thread first (projection-worker-test);
   // the debt is still cleared on the line right after it is adopted.
   assert.match(src, /const next = withStatsBackfill\(incoming\);/);
-  assert.match(src, /setState\(newerRivals \? \{ \.\.\.next, \.\.\.newerRivals \} : next\);\s*\n\s*if \(full\) resyncOwed\.current = false;/);
+  assert.match(src, /setState\(newerRivals \? \{ \.\.\.next, \.\.\.newerRivals \} : next\);[\s\S]{0,260}?\n\s*if \(full\) resyncOwed\.current = false;/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

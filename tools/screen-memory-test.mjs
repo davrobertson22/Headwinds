@@ -239,7 +239,7 @@ test('GamePlayScreen offers the memory and never posts a screen-only action', ()
   }
   const dispatch = src.slice(src.indexOf('const dispatch = useCallback((action) => {'));
   const guard = dispatch.indexOf('if (SCREEN_ONLY_ACTIONS.has(type)) {');
-  const post = dispatch.indexOf('/decisions`');
+  const post = dispatch.indexOf('/decisions${');
   assert.ok(guard > 0 && post > 0 && guard < post, 'the screen-only guard must come before the POST');
   const branch = dispatch.slice(guard, dispatch.indexOf('const seq = ++decisionSeq.current'));
   assert.match(branch, /return;\s*\}\s*$/, 'the screen-only branch must return before a write is queued');

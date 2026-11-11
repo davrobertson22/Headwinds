@@ -8,6 +8,7 @@
 // Concurrency/idempotency: the world-clock advance is a compare-and-set
 // (`updateMany` guarded on the current week). If two workers race, exactly one
 // wins; the loser abandons the tick without touching airline state.
+import { slowestLine } from './perfLog.mjs';
 import { gameReducer } from '@tailwinds/engine/reducer';
 import { applyScheduleTrimMigration, weekToGameDate } from '@tailwinds/engine/utils/simulation.js';
 import { collectWorldService, advanceMarketDevPairs } from '@tailwinds/engine/models/marketDev.js';
@@ -373,13 +374,21 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // reducer/serialization throws is skipped (logged) so one corrupt airline can
   // no longer abort the whole week.
   const computed = [];
+  const computeTimes = [];   // per airline, for the log (lib/perfLog.mjs)
+  const computeStartedAt = performance.now();
   for (const airline of airlines) {
+    const t0 = performance.now();
     try {
       computed.push(computeOne(airline));
+      computeTimes.push({ name: airline.name ?? airline.id, ms: performance.now() - t0 });
     } catch (err) {
       log.error(`[tick] world ${world.id} airline ${airline.id} reducer threw — skipped this week:`, err?.message ?? err);
     }
   }
+
+  const computeMs = performance.now() - computeStartedAt;
+  log.info?.(`[tick] ${world.name ?? world.id} week ${toIndex}: computed ${computed.length} airline(s) in ${Math.round(computeMs)}ms`
+    + (computeTimes.length > 1 ? `; ${slowestLine(computeTimes)}` : ''));
 
   // ── Market development (market-development worlds only) ─────────────────
   // D is the world's, not an airline's: ONE step a week, from every active

@@ -12,7 +12,7 @@ import {
   routeLegs, routeSegments, routeSegmentKey, routeMaxLegKm, routeBlockHours,
   routeLandingFee, routeStops, MAX_ROUTE_STOPS,
   cargoSlotsUsedAt, fleetAvgUtilization, maxWeeklyBlockHoursFor,
-  routesCommittedTo, committedPeakBlockHours, blockHourFit,
+  committedPeakBlockHours, blockHourFit,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, buildEventDemandModel,
 } from '../utils/simulation.js';
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
@@ -23,6 +23,7 @@ import { Glyph } from './Icons.jsx';
 import { isReserve } from '../data/reserve.js';
 import ReserveNotice, { reserveOptionTag } from './ReserveNotice.jsx';
 import { rivalIndexFor } from '../models/network.js';
+import { tailRoutesIn, tailCommitted } from '../utils/tailRoutes.js';
 
 // ─── Region-grouped airport <select> (only airports with a gate) ───────────────
 
@@ -128,8 +129,10 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
       // Everything this tail is on the hook for — its cargo network too, and any
       // rotation a reserve is covering for it (those come home). Filtering on
       // aircraftId alone showed a covered tail as free metal.
-      const acRoutes = routesCommittedTo(a.id, routes, cargoRoutes);
-      if (committedPeakBlockHours(a.id, t, routes, cargoRoutes) >= bhCap) return false;
+      // (Its own routes, from the index — not a search of the tables per tail.)
+      const mine = tailRoutesIn(routes, cargoRoutes, a.id);
+      const acRoutes = tailCommitted(routes, cargoRoutes, a.id);
+      if (committedPeakBlockHours(a.id, t, mine.pax, mine.cargo) >= bhCap) return false;
       if (acRoutes.length === 0) return true;
       return acRoutes.some(r => routeStops(r).some(c => stopSet.has(c)));
     })
@@ -194,7 +197,7 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
   // capacity is not told the airport is full when the reducer would allow it.
   const slotProblem = ready ? validStops.find(c => slotsUsedAt(c) + (incident[c] ?? 0) * frequency > slotCapAt(state, c)) : null;
 
-  const aircraftRoutes = aircraft ? routesCommittedTo(aircraft.id, routes, cargoRoutes) : [];
+  const aircraftRoutes = aircraft ? tailCommitted(routes, cargoRoutes, aircraft.id) : [];
   const served = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
   const connectivityOk = !aircraft || aircraftRoutes.length === 0 || validStops.some(c => served.has(c));
 

@@ -11,7 +11,7 @@ import { prisma } from '../db.mjs';
 // state nor act until it is back (lib/access.mjs). Their airline keeps flying.
 import { assertSupporterAccess } from '../lib/access.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
-import { gameReducer, gateLeaseDenial, leaseDenial } from '@tailwinds/engine/reducer';
+import { gameReducer, gateLeaseDenial, leaseDenial, isIdSeed, idSeedInUse } from '@tailwinds/engine/reducer';
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
 import { journalledPayload, withFleetFacts } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
@@ -30,6 +30,8 @@ import { withTx, assertWithinDeadline } from '../lib/tx.mjs';
 import { stampDelta } from '../lib/stamp.mjs';
 import { splitLogo, injectLogo } from '../lib/logoColumn.mjs';
 import { joinReport, reportWriteFor } from '../lib/reportColumn.mjs';
+import { wantsLeanReply, leanReply } from '../lib/leanReply.mjs';
+import { stopwatch, shouldLogPerf, decisionPerfLine } from '../lib/perfLog.mjs';
 import { Prisma } from '@prisma/client';
 import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
 import {
@@ -297,6 +299,16 @@ export default async function decisionRoutes(fastify) {
     preHandler: requireAuth,
     schema: {
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      // `lean=1&base=<version>`: answer with what the action changed instead of
+      // the whole state (see the reply at the foot of this handler). Opt-in, so
+      // a tab on an earlier build keeps getting the state it expects.
+      querystring: {
+        type: 'object',
+        properties: {
+          lean: { type: 'string', maxLength: 1 },
+          base: { type: 'string', maxLength: 12 },
+        },
+      },
       body: {
         type: 'object',
         required: ['type'],
@@ -308,6 +320,7 @@ export default async function decisionRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { type, payload = {} } = request.body;
+    const watch = stopwatch();   // where this decision's time goes (lib/perfLog.mjs)
 
     if (!allow(`dec:${request.account.id}`, DECISION_LIMIT, DECISION_WINDOWMS)) {
       throw httpError(429, 'You are submitting actions too quickly — slow down a moment.');
@@ -388,6 +401,7 @@ export default async function decisionRoutes(fastify) {
       airline, await worldStampOf(airline.worldId), { rowsMaxStaleMs: RIVAL_ROWS_MAX_STALE_MS });
     // joinReport: last week's report is its own column (lib/reportColumn.mjs);
     // the reducer sees it back in place, exactly as it always did.
+    watch.lap('views');
     const injected = withRivals(joinReport(airline.state, airline.report), view);
     const readReport = injected.lastReport;
     // One look and one code per player: a rebrand onto another player's preset
@@ -466,7 +480,16 @@ export default async function decisionRoutes(fastify) {
       });
     }
 
-    const next = gameReducer(injected, { type, ...guarded });
+    watch.lap('checks');
+    // Ids from the client's seed, so the state it is already showing is the
+    // state this returns (engine reducer `uid`). Only a well-formed seed that
+    // none of this airline's ids already uses; otherwise ids as usual, and the
+    // client adopts whatever comes back, as it always has.
+    const action = { type, ...guarded };
+    delete action.idSeed;
+    if (isIdSeed(payload.idSeed) && !idSeedInUse(airline.state, payload.idSeed)) action.idSeed = payload.idSeed;
+    const next = gameReducer(injected, action);
+    watch.lap('reduce');
     // Did this decision actually DO anything? The engine's convention is that a
     // refusal comes back as the SAME state object, so this identity check is the
     // authoritative answer — used below to decide what gets settled against the
@@ -806,6 +829,31 @@ export default async function decisionRoutes(fastify) {
     // compare against a pre-write value and refetch the rival overlay for no
     // reason.
     invalidateWorldStamp(airline.worldId);
+    watch.lap('commit');
+    const isLean = wantsLeanReply(request.query, airline);
+    if (shouldLogPerf(watch.total())) {
+      request.log.info(decisionPerfLine(type, watch, {
+        lean: isLean, cachedRows: fromCachedRows,
+        routes: next.routes?.length ?? 0, fleet: next.fleet?.length ?? 0, airline: airline.id,
+      }));
+    }
+
+    const fullState = injectLogo(next, airline.customLogo, airline.customTail);
+    // Engine convention: rejected/no-op intents leave state unchanged and often
+    // set state.error / a toast. Surface a hint so the UI can show it.
+    //
+    // Only when THIS decision set it. `state.error` is sticky — the reducer
+    // writes it (MRO certification, heavy-check funding) and never clears it,
+    // so it lives in the save blob indefinitely. Sending it unconditionally
+    // would have the client re-raise a week-old message on every later action.
+    const newError = (next.error && next.error !== airline.state?.error) ? next.error : null;
+
+    // ── Lean reply: what this action changed, not the whole airline ───────────
+    // (lib/leanReply.mjs.) No stamp: the client's world half stays the one ITS
+    // rival overlay reflects, so its next poll fetches the current overlay.
+    if (isLean) {
+      return reply.code(201).send({ ok: true, ...leanReply({ airline, injected, next, view }), error: newError });
+    }
 
     return reply.code(201).send({
       ok: true,
@@ -814,15 +862,8 @@ export default async function decisionRoutes(fastify) {
       // this any ordinary decision's response would adopt a state missing
       // `customLogo` and the player's logo would blink out until the next full
       // GET. A SET_BRANDING `next` carries its own (newer) key and wins.
-      state: injectLogo(next, airline.customLogo, airline.customTail),
-      // Engine convention: rejected/no-op intents leave state unchanged and often
-      // set state.error / a toast. Surface a hint so the UI can show it.
-      //
-      // Only when THIS decision set it. `state.error` is sticky — the reducer
-      // writes it (MRO certification, heavy-check funding) and never clears it,
-      // so it lives in the save blob indefinitely. Sending it unconditionally
-      // would have the client re-raise a week-old message on every later action.
-      error: (next.error && next.error !== airline.state?.error) ? next.error : null,
+      state: fullState,
+      error: newError,
       // Post-write stamp (our version bumped by the transaction) so the client's
       // next poll short-circuits instead of re-downloading what it already has.
       // When the rivals in `state` came from cached rows, the world half is the

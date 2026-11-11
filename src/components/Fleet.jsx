@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useProgressiveCount } from '../utils/useProgressiveCount.js';
 import { useWindowedRows } from '../utils/useWindowedRows.js';
+import { tailRoutesOf } from '../utils/tailRoutes.js';
 import NumberStepper from './NumberStepper.jsx';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
@@ -17,7 +18,7 @@ import {
   simulateRoute, simulateCargoRoute, cargoLaneAllocations, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
-  freighterLandingCategory, aircraftUtilization, committedRoutesByAircraft,
+  freighterLandingCategory, aircraftUtilization,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, coverOutlookByAircraft,
   effectiveRangeKm,
 } from '../utils/simulation.js';
@@ -89,21 +90,9 @@ const CABIN_LABELS = {
 // and 4,000 routes. So the tables are indexed once — per tail, the routes it
 // flies or covers, in table order — and each tail is handed only its own. The
 // figure is the same: those are exactly the routes routesCommittedTo keeps.
-const NO_ROUTES = [];
-const COMMITTED_BY_TAIL = new WeakMap();   // routes array -> WeakMap(cargo array -> Map(tailId -> { pax, cargo }))
-function committedByTail(routes, cargoRoutes) {
-  let byCargo = COMMITTED_BY_TAIL.get(routes);
-  if (!byCargo) { byCargo = new WeakMap(); COMMITTED_BY_TAIL.set(routes, byCargo); }
-  let index = byCargo.get(cargoRoutes);
-  if (!index) {
-    index = committedRoutesByAircraft(routes, cargoRoutes);
-    byCargo.set(cargoRoutes, index);
-  }
-  return index;
-}
 /** This tail's own routes (flown or covered): { pax, cargo }, in table order. */
 export function tailRoutes(state, aircraftId) {
-  return committedByTail(state.routes ?? NO_ROUTES, state.cargoRoutes ?? NO_ROUTES).get(aircraftId) ?? { pax: NO_ROUTES, cargo: NO_ROUTES };
+  return tailRoutesOf(state, aircraftId);
 }
 const utilFor = (state, aircraft, month) => {
   const mine = tailRoutes(state, aircraft?.id);

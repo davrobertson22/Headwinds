@@ -202,16 +202,18 @@ const src = read('apps/headwinds-web/src/GamePlayScreen.jsx');
 test('the decision response is settled through the comparison, not adopted outright', () => {
   const dispatch = src.slice(src.indexOf('const dispatch = useCallback((action) => {'));
   const ok = dispatch.slice(dispatch.indexOf('if (outcome.ok) {'), dispatch.indexOf('const e = outcome.error;'));
-  assert.match(ok, /settleDecision\(res, seq\);/);
+  // (The state it is handed is the whole reply, or the shadow a lean reply
+  // patched — lean-decisions-test.mjs.)
+  assert.match(ok, /settleDecision\(serverState, seq\);/);
   assert.doesNotMatch(ok, /return withStatsBackfill\(res\.state\)/, 'the response is still adopted without being compared');
   assert.doesNotMatch(ok, /await settleDecision/, 'the write chain must not wait on a projection');
 });
 test('settleDecision keeps "same", sends "overlay" through the worker, and adopts "state" at once', () => {
-  const a = src.indexOf('const settleDecision = useCallback(async (res, seq) => {');
+  const a = src.indexOf('const settleDecision = useCallback(async (serverState, seq) => {');
   assert.ok(a > 0, 'settleDecision is missing');
   const fn = src.slice(a, src.indexOf('const dispatch = useCallback((action) => {'));
-  assert.match(fn, /if \(seq !== decisionSeq\.current \|\| !res\?\.state\) return;/, 'a stale response must be dropped first');
-  assert.match(fn, /const server = withStatsBackfill\(res\.state\);/, 'compare what would have been adopted');
+  assert.match(fn, /if \(seq !== decisionSeq\.current \|\| !serverState\) return;/, 'a stale response must be dropped first');
+  assert.match(src, /serverState = withStatsBackfill\(res\.state\);/, 'compare what would have been adopted');
   assert.match(fn, /if \(verdict === 'same'\) return;/);
   // The rival view goes to the reprojection runner (own-projection-test.mjs):
   // applied to whatever is on screen by then, projected in the worker first.

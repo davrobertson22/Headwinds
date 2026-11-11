@@ -5,7 +5,8 @@ import AirportLink from './AirportLink.jsx';
 import { referencePrice, formatMoney, formatPercent, SLOTS_PER_GATE, isRouteActive, weekToGameDate, routeQualityBreakdown, configBodies, defaultConfig } from '../utils/simulation.js';
 // The projected-share row asks the demand model itself — never a hand-rolled
 // ratio (models/pairShare.js is the single source of truth for share previews).
-import { pairMarketShare, rivalPairQuality } from '../../packages/engine/src/models/pairShare.js';
+import { pairMarketShare, rivalPairQuality, nonstopRoutesByPair, pairKeyOf } from '../../packages/engine/src/models/pairShare.js';
+import { useWindowedRows } from '../utils/useWindowedRows.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, RIVAL_CONN_PREFIX } from '../../packages/engine/src/models/network.js';
 import { awarenessDemandMultiplier, AWARENESS_PARITY } from '../data/overhead.js';
 import { ARCHETYPES, FIRE_SALE_PREMIUM } from '../models/competitorAI.js';
@@ -106,8 +107,20 @@ export function SupporterChip({ size = 10 }) {
  *  (server cabinForRoute) — the type maximum made a premium-heavy airline look
  *  bigger on its own screen than on its rival's, so the two disagreed about who
  *  led on seats. */
+// Asked for every route on the page, so the fleet is indexed once per fleet
+// array (first record wins, as `find` does) rather than searched per route.
+const FLEET_BY_ID = new WeakMap();
+function tailIn(fleet, id) {
+  let byId = FLEET_BY_ID.get(fleet);
+  if (!byId) {
+    byId = new Map();
+    for (const a of fleet) if (!byId.has(a.id)) byId.set(a.id, a);
+    FLEET_BY_ID.set(fleet, byId);
+  }
+  return byId.get(id);
+}
 function seatsOfRoute(route, fleet) {
-  const aircraft = fleet.find(a => a.id === route.aircraftId);
+  const aircraft = tailIn(fleet, route.aircraftId);
   if (!aircraft) return null;
   const type = getAircraftType(aircraft.typeId);
   if (!type) return null;
@@ -236,6 +249,12 @@ function playerPairQuality(agg, fleet, state) {
   return n === 0 ? null : Math.round(sum / n);
 }
 
+// Past this many contested pairs the list is windowed (cards are heavy: each
+// one is a share fight). Shorter lists render whole, so find-in-page still
+// sees every card.
+const CONTESTED_WINDOW_FROM = 30;
+const NO_PAIR_ROUTES = [];
+
 // ─── Root component ───────────────────────────────────────────────────────────
 
 export default function Competition() {
@@ -253,7 +272,14 @@ export default function Competition() {
 
   // routeKey → the player's TOTAL presence on that pair (all aircraft, all
   // schedules folded together — see buildPlayerPairMap).
-  const playerRouteMap = buildPlayerPairMap(routes, fleet, weekToGameDate(state.week).monthIndex);
+  const monthIndex = weekToGameDate(state.week).monthIndex;
+  const playerRouteMap = useMemo(() => buildPlayerPairMap(routes, fleet, monthIndex), [routes, fleet, monthIndex]);
+  // Each contested pair's own nonstop routes, found once for the whole table
+  // (each card used to search every route for its pair).
+  const routesByPair = useMemo(() => nonstopRoutesByPair(routes), [routes]);
+  // A card runs the pair's whole share fight, so past a few dozen only the
+  // cards on screen exist (useWindowedRows; the Fleet list does the same).
+  const contestedWin = useWindowedRows({ estimate: 200, marginRows: 4, minTotal: CONTESTED_WINDOW_FROM, first: 12 });
 
   // Your own freight lanes as pair keys — a rival's map marks a lane contested
   // only when YOU fly freight on it, not when you happen to fly passengers there.
@@ -341,16 +367,32 @@ export default function Competition() {
           No contested routes yet. Open a route a rival also flies to see the head-to-head.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          {contestedKeys.map(key => (
-            <ContestedRouteRow
-              key={key}
-              routeKey={key}
-              playerRoute={playerRouteMap[key]}
-              competitors={competitors.filter(c => key in c.routes)}
-              fleet={fleet}
-            />
-          ))}
+        <div ref={contestedWin.bodyRef} data-contested-list="" style={{ marginBottom: 14 }}>
+          {(() => {
+            const view = contestedWin.rows(contestedKeys.length);
+            return (
+              <>
+                {view.padTop > 0 && <div aria-hidden="true" data-spacer="" style={{ height: view.padTop }} />}
+                {contestedKeys.slice(view.start, view.end).map(key => {
+                  const [o, d] = key.split('-');
+                  return (
+                    // The gap between cards is padding on the wrapper, so a
+                    // card's measured height includes it and the spacers add up.
+                    <div key={key} style={{ paddingBottom: 10 }}>
+                      <ContestedRouteRow
+                        routeKey={key}
+                        playerRoute={playerRouteMap[key]}
+                        competitors={competitors.filter(c => key in c.routes)}
+                        fleet={fleet}
+                        pairRoutes={routesByPair.get(pairKeyOf(o, d)) ?? NO_PAIR_ROUTES}
+                      />
+                    </div>
+                  );
+                })}
+                {view.padBottom > 0 && <div aria-hidden="true" data-spacer="" style={{ height: view.padBottom }} />}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -841,7 +883,7 @@ function StatLine({ label, value, color, prefix = '' }) {
   );
 }
 
-export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet }) {
+export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet, pairRoutes }) {
   const { state } = useGame();
   const [a, b] = routeKey.split('-');
   const oAirport = getAirport(a);
@@ -859,9 +901,12 @@ export function ContestedRouteRow({ routeKey, playerRoute, competitors, fleet })
   // (Discord, 2026-09-02: $140/q92 vs $184/q82 and still half-empty — the
   // missing input was awareness, which no cell on this card displayed).
   const shareInfo = useMemo(() => {
-    try { return pairMarketShare(state, a, b); }
+    // pairRoutes: this pair's nonstop routes, handed down from the page's one
+    // index of the route table. Left out (a caller that renders one card), the
+    // share fight finds them itself — the same list either way.
+    try { return pairMarketShare(state, a, b, pairRoutes ? { pairRoutes } : undefined); }
     catch { return null; }   // a malformed entry must never take down the page
-  }, [state, a, b]);
+  }, [state, a, b, pairRoutes]);
   // Rival share by airline id. Summed, not assigned: on a pooled metro lane one
   // airline can bring several offers (JFK and EWR are different products), and
   // its column should carry the airline's whole slice.

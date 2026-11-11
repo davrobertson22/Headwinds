@@ -42,12 +42,13 @@ import {
   routeDistanceKm, currentGameDate, effectiveRangeKm,
   isMultiStop, simulateTagRoute, routeStops, routeBlockHours, routeLandingFee,
   maxClassPrice, isRouteActive, routeActiveMonths, fleetAvgUtilization,
-  buildEventDemandModel, committedPeakBlockHours, committedPeakBlockHoursIn, routesCommittedTo, blockHourFit,
+  buildEventDemandModel, committedPeakBlockHours, committedPeakBlockHoursIn, blockHourFit,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateCateringKitchenReport,
   routePairKey,
 } from '../utils/simulation.js';
 import { rivalIndexFor } from '../models/network.js';
 import { bulkFareCliffPreview, networkFareCliff, fareCliffRatio, fareCliffRatioMax, fareCliffDropPct, cliffFaresFor, faresTrimmedUnderCliff, FARE_CLIFF_TRIM_MARGIN } from '../models/fareCliff.js';
+import { tailRoutesIn, tailCommitted } from '../utils/tailRoutes.js';
 
 // ─── Remembered view settings ────────────────────────────────────────────────
 // How the player likes this page laid out: the card sort, the table's sort
@@ -305,8 +306,13 @@ export default function Routes() {
   // per tail on every render was O(fleet × routes) — paid on every keystroke
   // in the search box and every poll. Computed once per network instead.
   const { availableFleet, spareFleet } = useMemo(() => {
-    const used = new Map(fleet.map(a => [a.id,
-      committedPeakBlockHours(a.id, getAircraftType(a.typeId), routes, state.cargoRoutes ?? [])]));
+    // …and each tail is asked about its OWN routes (tailRoutes.js), not handed
+    // the whole tables to search: that search was fleet × routes again, half a
+    // second to open this page at 4,900 tails and 4,000 routes.
+    const used = new Map(fleet.map(a => {
+      const mine = tailRoutesIn(routes, state.cargoRoutes, a.id);
+      return [a.id, committedPeakBlockHours(a.id, getAircraftType(a.typeId), mine.pax, mine.cargo)];
+    }));
     return {
       availableFleet: fleet.filter(a => used.get(a.id) < bhCap),
       // An airframe only counts as having "spare hours" if there's enough left to
@@ -3025,12 +3031,19 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // over-counted counter-seasonal schedules and — worse — showed a tail whose
   // network was out on cover as completely free, so this form offered a
   // grounded airframe as if it were spare metal and the reducer took the load.
-  const usedBlockHrsFor = (a) =>
-    committedPeakBlockHours(a?.id, getAircraftType(a?.typeId), routes, state.cargoRoutes ?? []);
+  // (Asked of each tail's own routes — tailRoutes.js — because this form asks
+  // it of every tail in the picker.)
+  const ownRoutes = (a) => tailRoutesIn(routes, state.cargoRoutes, a?.id);
+  const usedBlockHrsFor = (a) => {
+    const mine = ownRoutes(a);
+    return committedPeakBlockHours(a?.id, getAircraftType(a?.typeId), mine.pax, mine.cargo);
+  };
   // …and in the months a route would fly. A tail full May–Oct is free Nov–Apr,
   // and ADD_ROUTE (blockHourFit with the route's months) accepts it there.
-  const usedBlockHrsIn = (a, months) =>
-    committedPeakBlockHoursIn(a?.id, getAircraftType(a?.typeId), routes, state.cargoRoutes ?? [], months);
+  const usedBlockHrsIn = (a, months) => {
+    const mine = ownRoutes(a);
+    return committedPeakBlockHoursIn(a?.id, getAircraftType(a?.typeId), mine.pax, mine.cargo, months);
+  };
 
   // Freighters can't fly passenger routes (the reducer rejects them) — keep them
   // out of this form entirely; they're managed in the cargo planner.
@@ -3042,7 +3055,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // to go anywhere. Used to keep ineligible airframes out of the picker. Tag
   // stops count, and so do routes out on cover — they come home.
   const servedBy = (a) => new Set(
-    routesCommittedTo(a?.id, routes, state.cargoRoutes ?? []).flatMap(r => routeStops(r))
+    tailCommitted(routes, state.cargoRoutes, a?.id).flatMap(r => routeStops(r))
   );
 
   // Default aircraft. In add-flights mode, prefer one already flying this pair
@@ -3055,7 +3068,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
       ).map(r => r.aircraftId))
     : new Set();
   const connectsToPair = (a) => {
-    const acRoutes = routesCommittedTo(a.id, routes, state.cargoRoutes ?? []);
+    const acRoutes = tailCommitted(routes, state.cargoRoutes, a.id);
     return acRoutes.length === 0 ||
       acRoutes.some(r => routeStops(r).some(c => c === initialOrigin || c === initialDest));
   };
@@ -3191,7 +3204,7 @@ export function AddRouteForm({ onClose, initialOrigin, initialDest }) {
   // rotation's intermediate stops are served airports, and a rotation out on
   // cover still belongs to this tail. The old reading (aircraftId, endpoints
   // only) warned "aircraft can't teleport" about routes the reducer accepts.
-  const aircraftRoutes   = aircraft ? routesCommittedTo(aircraft.id, routes, state.cargoRoutes ?? []) : [];
+  const aircraftRoutes   = aircraft ? tailCommitted(routes, state.cargoRoutes, aircraft.id) : [];
   const servedAirports   = new Set(aircraftRoutes.flatMap(r => routeStops(r)));
   const connectivityOk   = aircraftRoutes.length === 0 ||
     servedAirports.has(origin) || (validDest && servedAirports.has(dest));
