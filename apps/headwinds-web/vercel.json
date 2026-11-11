@@ -21,7 +21,10 @@
     {
       "source": "/tiles/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=604800, stale-while-revalidate=2592000" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=604800, stale-while-revalidate=2592000"
+        }
       ]
     }
   ],
@@ -37,6 +40,18 @@
     {
       "source": "/worlds/:id",
       "destination": "/api/worlds?id=:id"
+    },
+    {
+      "source": "/worlds/:id/history",
+      "destination": "/api/worlds?id=:id&view=history"
+    },
+    {
+      "source": "/worlds/:id/airlines/:airline/card.png",
+      "destination": "/api/og?world=:id&airline=:airline"
+    },
+    {
+      "source": "/worlds/:id/airlines/:airline",
+      "destination": "/api/worlds?id=:id&airline=:airline"
     },
     {
       "source": "/sitemap-worlds.xml",

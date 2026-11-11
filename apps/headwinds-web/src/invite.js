@@ -64,14 +64,32 @@ export function worldInviteText(world) {
   return parts.join(' ');
 }
 
+// An airline's own public page (/worlds/:world/airlines/:airline): its network
+// map, fleet and rank, and a share card that unfurls in Discord. Public worlds
+// only — a private world has no public pages, so there is nothing to share.
+const AIRLINE_ID = /^[a-z0-9]{10,40}$/i;
+export function airlinePageUrl(world, airlineId) {
+  if (!isPublic(world) || !world?.id || !AIRLINE_ID.test(String(airlineId ?? ''))) return null;
+  return `${SITE}/worlds/${world.id}/airlines/${airlineId}`;
+}
+
+/** Share the player's airline page. Resolves { kind: 'private' } when the world has none. */
+export async function shareAirlinePage(world, airlineId, opts) {
+  const url = airlinePageUrl(world, airlineId);
+  if (!url) return { kind: 'private' };
+  return shareLink({ url, title: `My airline in ${world.name} · Headwinds`, text: `My airline in ${world.name} on Headwinds:` }, opts);
+}
+
 // Native share sheet where there is one (phones, Safari, Edge), else the
 // clipboard, else hand the link back for the UI to show.
-export async function shareWorldInvite(world, { nav = typeof navigator !== 'undefined' ? navigator : {} } = {}) {
-  const url = worldInviteUrl(world);
-  const text = worldInviteText(world);
+export async function shareWorldInvite(world, opts) {
+  return shareLink({ url: worldInviteUrl(world), title: `${world.name} · Headwinds`, text: worldInviteText(world) }, opts);
+}
+
+async function shareLink({ url, title, text }, { nav = typeof navigator !== 'undefined' ? navigator : {} } = {}) {
   if (typeof nav?.share === 'function') {
     try {
-      await nav.share({ title: `${world.name} · Headwinds`, text, url });
+      await nav.share({ title, text, url });
       return { kind: 'shared', url, text };
     } catch (e) {
       if (e?.name === 'AbortError') return { kind: 'cancelled', url, text };

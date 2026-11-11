@@ -15,6 +15,8 @@ import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { allianceStandings } from '@tailwinds/engine/data/eventRules.js';
 import { buildNews } from '../lib/newsService.mjs';
 import { allow } from '../lib/rateLimit.mjs';
+// Signed-out visitors see airlines, never the people behind them.
+import { forViewer } from '../lib/publicView.mjs';
 
 // Join/leave are rare, deliberate actions — 20 per minute per account is far
 // above any real use and stops join/leave churn from spamming inserts/deletes.
@@ -281,7 +283,7 @@ export default async function worldRoutes(fastify) {
       })), { score: evRules.allianceRanking.score })
       : null;
 
-    return {
+    return forViewer(viewer, {
       world: serializeWorld(world, {
         playerCount: world._count.airlines,
         includeJoinCode: isMember,
@@ -356,7 +358,7 @@ export default async function worldRoutes(fastify) {
         // Most recent player move (null if none yet this generation).
         lastMoveAt: lastMoveByAirline.get(a.id) ?? null,
       })),
-    };
+    });
   });
 
   // ── Rival profile: an airline's PUBLIC view ────────────────────────────────
@@ -386,7 +388,8 @@ export default async function worldRoutes(fastify) {
       return reply.code(404).send({ error: 'No such airline in this world' });
     }
     // A private world's rivals are visible to its members only.
-    await assertWorldReadable(prisma, airline.world, await optionalAccount(request));
+    const viewer = await optionalAccount(request);
+    await assertWorldReadable(prisma, airline.world, viewer);
 
     // The public half of the blob, projected in Postgres.
     const s = await loadRivalProfileState(prisma, airline.id);
@@ -465,7 +468,7 @@ export default async function worldRoutes(fastify) {
       }),
     ]);
 
-    return {
+    return forViewer(viewer, {
       airline: {
         ...serializeAirline(airline),
         routes: routes.length,
@@ -494,7 +497,7 @@ export default async function worldRoutes(fastify) {
         .filter(isPublicDecision)
         .slice(0, 12)
         .map((d) => ({ week: d.week, type: d.type, payload: publicPayload(d) })),
-    };
+    });
   });
 
   // ── World activity ticker (legacy alias) ───────────────────────────────────
@@ -518,13 +521,14 @@ export default async function worldRoutes(fastify) {
     const world = await prisma.world.findUnique({ where: { id: request.params.id } });
     if (!world) return reply.code(404).send({ error: 'No such world' });
     // Same gate as /worlds/:id/news — this alias serves the same content.
-    await assertWorldReadable(prisma, world, await optionalAccount(request));
+    const viewer = await optionalAccount(request);
+    await assertWorldReadable(prisma, world, viewer);
     const { items, nextBefore } = await buildNews(prisma, {
       world,
       before: request.query.before,
       limit: request.query.limit ?? 40,
     });
-    return { events: items, nextBefore };
+    return forViewer(viewer, { events: items, nextBefore });
   });
 
   // ── Create a world (ADMINS, and SUPPORTERS for their own group) ──────────

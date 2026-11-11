@@ -11,7 +11,7 @@
 //
 // Server-reserved actions (ADVANCE_WEEK — time belongs to the world clock) are
 // swallowed: the weekly tick happens on the server whether or not you're here.
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import SoloApp from '../../../src/App.jsx';
 import { RemoteGameProvider, gameReducer, hydrateState } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
@@ -34,10 +34,11 @@ import TickCountdown from './TickCountdown.jsx';
 import SeasonProgress from '../../../src/components/SeasonProgress.jsx';
 import { EventRulesBanner } from './EventRules.jsx';
 import InviteButton from './InviteButton.jsx';
-import { projectOffThread } from './projectionOffThread.js';
+import { projectOffThread, offThreadReady } from './projectionOffThread.js';
 import { carryProjectWeek } from '../../../src/utils/financeProjection.js';
 import { compareDecisionResult, overlayOf } from './decisionAdoption.js';
 import { createScreenMemory, SCREEN_ONLY_ACTIONS } from './screenMemory.js';
+import { borrowProjection, hasBorrowedProjection, settleBorrowed, inheritBorrowed } from './ownProjection.js';
 import '../../../src/index.css';
 
 // ── Statistics backfill ─────────────────────────────────────────────────────
@@ -207,7 +208,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       if (!d.rivals) return;
       if (local) {
         const next = { ...local, ...d.rivals };
-        await projectOffThread(next, { base: local, overlay: d.rivals });
+        await projectOffThread(next, { base: local, overlay: d.rivals, fromHeld: true });
         if (seq < adoptedSeq.current) return;
         adoptedSeq.current = seq;
         latestRivals.current = d.rivals;
@@ -465,6 +466,58 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // version/stamp before the next goes out.
   const writeChain = useRef(Promise.resolve());
 
+  // ── Reprojection off the main thread ──────────────────────────────────────
+  // Two things leave the state on screen needing a projection it should not
+  // work out itself: the player's own edit, which went up carrying the
+  // previous projection (ownProjection.js), and a rival view that came back
+  // with a decision (`owedRivals`). One runner serves both, one job at a time:
+  // it takes the state on screen, applies any owed rival view, has the worker
+  // project the result, and proposes it. The proposal stands only if the state
+  // it was made from is still the one on screen; the effect below confirms it
+  // or lets it go, and starts again if something is still owed. A newer click
+  // therefore never waits behind an older one's figures — it replaces them.
+  const owedRivals = useRef(null);        // { rivals, oseq, week } from a decision response
+  const reprojection = useRef({ running: false, proposal: null });
+  const reproject = useCallback(async () => {
+    const job = reprojection.current;
+    if (job.running || job.proposal) return;
+    const target = stateRef.current;
+    if (!target) return;
+    let owed = owedRivals.current;
+    // A newer poll's overlay has been adopted since, or the week has moved on.
+    if (owed && (owed.oseq < adoptedSeq.current || owed.week < absWeekOfState(target))) { owedRivals.current = null; owed = null; }
+    if (!owed && !hasBorrowedProjection(target)) return;
+    job.running = true;
+    const fresh = owed ? { ...target, ...owed.rivals } : { ...target };
+    try { await projectOffThread(fresh, { fromHeld: true }); }
+    finally { job.running = false; }
+    // Unprojected (no worker, a timeout) `fresh` is still right: the screens
+    // work its projection out themselves, as they always could.
+    if (stateRef.current !== target) { reproject(); return; }   // superseded while projecting
+    job.proposal = { target, fresh, owed };
+    // Not urgent: the click has already been answered on screen.
+    startTransition(() => setState((cur) => (cur === target ? fresh : cur)));
+  }, []);
+  useEffect(() => {
+    const job = reprojection.current;
+    const p = job.proposal;
+    if (p) {
+      if (state === p.fresh) {
+        settleBorrowed(p.target);
+        if (p.owed) {
+          if (p.owed.oseq >= adoptedSeq.current) { adoptedSeq.current = p.owed.oseq; latestRivals.current = p.owed.rivals; }
+          if (owedRivals.current === p.owed) owedRivals.current = null;
+        }
+        job.proposal = null;
+      } else if (state !== p.target) {
+        job.proposal = null;   // something else took the screen first
+      }
+    }
+    if (!job.proposal) reproject();
+  }, [state, reproject]);
+  // Figures on screen are one edit old until the worker answers.
+  const figuresPending = hasBorrowedProjection(state);
+
   // The state a decision came back with: adopt only what is actually news
   // (decisionAdoption.js). Runs OUTSIDE the write chain — the next queued write
   // must not wait on a projection.
@@ -480,19 +533,12 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     if (verdict === 'same') return;   // the screen already shows exactly this
     if (verdict === 'overlay') {
       // The airline is as the click left it; only the rivals have moved since
-      // the last poll. Same path as a rival poll: project in the worker, then
-      // adopt, and let a newer poll's overlay win.
-      const rivals = overlayOf(server);
-      const oseq = ++overlaySeq.current;
-      const next = { ...local, ...rivals };
-      await projectOffThread(next, { base: local, overlay: rivals });
-      if (oseq < adoptedSeq.current) return;
-      adoptedSeq.current = oseq;
-      latestRivals.current = rivals;
-      setState((cur) => {
-        if (cur === local) return next;
-        return cur && !olderWeek(cur) ? { ...cur, ...rivals } : cur;
-      });
+      // the last poll. Hand the new rival view to the reprojection runner: it
+      // is applied to whatever is on screen by then (the click's own figures
+      // may still be on their way back from the worker), projected in the
+      // worker first, and a newer poll's overlay still wins.
+      owedRivals.current = { rivals: overlayOf(server), oseq: ++overlaySeq.current, week: absWeekOfState(server) };
+      reproject();
       return;
     }
     // The server's airline differs from the optimistic one (a generated id, a
@@ -502,7 +548,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       if (olderWeek(cur)) return cur;
       return server;
     });
-  }, []);
+  }, [reproject]);
 
   const dispatch = useCallback((action) => {
     const { type, ...payload } = action ?? {};
@@ -518,7 +564,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       if (type === 'DISMISS_DEBRIEF' && cur) screenMemoryRef.current.dismissDebrief(`${cur.year}:${cur.week}`);
       setState((s) => {
         const next = gameReducer(s, action);
-        if (next !== s) carryProjectWeek(hydrateState(s), hydrateState(next));
+        if (next !== s) { carryProjectWeek(hydrateState(s), hydrateState(next)); inheritBorrowed(s, next); }
         return next;
       });
       return;
@@ -530,8 +576,15 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // rejected" — the server applies the same test, this is the client's guard
     // for a tab talking to an older build.
     const errBefore = stateRef.current?.error ?? null;
-    // Optimistic: same reducer, instant UI.
-    setState((s) => gameReducer(s, action));
+    // Optimistic: same reducer, instant UI. When the edit leaves the airline
+    // the same shape, the new state borrows the projection already on screen
+    // and the worker works out its own (the reprojection runner above) — so
+    // the click is answered without running the engine's week on this thread.
+    setState((s) => {
+      const next = gameReducer(s, action);
+      if (next !== s && offThreadReady()) borrowProjection(s, next);
+      return next;
+    });
     // Authoritative: server result wins — but only the MOST RECENT decision may
     // overwrite local state, and never roll the week backwards (a pre-tick
     // response landing after the weekly poll advanced us). Stale/out-of-order
@@ -645,6 +698,19 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
           <TickCountdown nextTickAt={meta?.worldClock?.nextTickAt} paceLabel={meta?.worldClock?.paceLabel} stale={connLost}
             preStart={meta?.worldStatus === 'LOBBY'} startsAt={meta?.worldClock?.startsAt}
             weeksPerDay={meta?.worldClock?.weeksPerDay ?? null} />
+          {/* Lit while the figures on screen are one edit old and the worker is
+              working out the new ones (ownProjection.js). Always in the layout,
+              so the bar does not shift when it comes and goes. */}
+          <span
+            className="hw-figures-pending"
+            role="status"
+            aria-label={figuresPending ? 'Updating figures' : undefined}
+            title={figuresPending ? 'Updating figures…' : undefined}
+            style={{
+              width: 6, height: 6, borderRadius: '50%', flex: 'none', background: 'var(--accent)',
+              opacity: figuresPending ? 0.9 : 0, transition: 'opacity 0.12s',
+            }}
+          />
           {/* Season progress: week of the world's length, final stretch shaded. */}
           {meta?.worldStatus === 'RUNNING' && meta?.worldClock?.totalWeeks > 0 && (
             <SeasonProgress compact totalWeeks={meta.worldClock.totalWeeks}
@@ -703,7 +769,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
           >🏁 <span className="hw-btn-label">Results</span></button>
         )}
         <a className="hw-lobby-link" href={`#/w/${worldId}`} title="Back to the world lobby">← <span className="hw-btn-label">Lobby</span></a>
-        {meta?.worldStatus !== 'ENDED' && <InviteButton worldId={worldId} token={token} variant="topbar" />}
+        {meta?.worldStatus !== 'ENDED' && <InviteButton worldId={worldId} token={token} variant="topbar" airlineId={meta?.airlineId ?? null} />}
         <FeedWidget worldId={worldId} token={token} myAirlineId={meta?.airlineId} brands={brands} />
         <MessagesWidget worldId={worldId} token={token} onViewPlayer={openProfile} />
         {/* Account-level DMs (cross-world). The widget was lobby-only, so a DM to
@@ -716,7 +782,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         />
       </>
     ),
-  }), [meta, error, connLost, actionNotice, worldId, token, openProfile, messageTo, brands]);
+  }), [meta, error, connLost, actionNotice, worldId, token, openProfile, messageTo, brands, figuresPending]);
 
   if (sessionExpired) {
     return (

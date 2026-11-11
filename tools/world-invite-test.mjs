@@ -127,6 +127,14 @@ if (M) {
   let clip = null;
   r = await M.shareWorldInvite(pub, { nav: { clipboard: { writeText: async (t) => { clip = t; } } } });
   check(r.kind === 'copied' && clip?.includes(M.worldInviteUrl(pub)), 'desktop: copies message + link to the clipboard');
+  // The player's own airline page (2026-11-10): public worlds only.
+  const AID = 'cmujwi19x09e51drm8qd8gvoa';
+  check(M.airlinePageUrl(pub, AID) === `https://www.headwindsairlinegame.com/worlds/${WID}/airlines/${AID}`, 'an airline in a public world has a public page address');
+  check(M.airlinePageUrl(priv, AID) === null && M.airlinePageUrl(pub, '../x') === null && M.airlinePageUrl(pub, null) === null, 'no address for a private world or a bad id');
+  r = await M.shareAirlinePage(pub, AID, { nav: { clipboard: { writeText: async (t) => { clip = t; } } } });
+  check(r.kind === 'copied' && clip?.endsWith(`/airlines/${AID}`), 'sharing an airline copies its page link');
+  r = await M.shareAirlinePage(priv, AID, { nav: { clipboard: { writeText: async () => { throw new Error('must not be called'); } } } });
+  check(r.kind === 'private', 'a private world says so instead of sharing a dead link');
   r = await M.shareWorldInvite(pub, { nav: { share: async () => { throw new Error('NotAllowedError'); }, clipboard: { writeText: async (t) => { clip = t; } } } });
   check(r.kind === 'copied', 'a share sheet that fails for another reason falls back to copying');
   r = await M.shareWorldInvite(pub, { nav: {} });

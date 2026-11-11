@@ -7,6 +7,7 @@ import { prisma } from '../db.mjs';
 import { optionalAccount } from '../auth.mjs';
 import { assertWorldReadable } from '../lib/access.mjs';
 import { buildNews, NEWS_CATEGORIES } from '../lib/newsService.mjs';
+import { forViewer } from '../lib/publicView.mjs';
 
 // The ticker polls this endpoint from every open client (every 60s idle, 15s
 // while the drawer is open). Without a cache a 40-player world would run its
@@ -66,7 +67,10 @@ export default async function newsRoutes(fastify) {
     // Public for a PUBLIC world (spectators read a world's news, same as its
     // standings); members-only for a PRIVATE one. Checked BEFORE the cache
     // lookup so a member's cached page can never be served to a stranger.
-    await assertWorldReadable(prisma, world, await optionalAccount(request));
+    // The cache holds the full page; a visitor without an account gets it with
+    // the account ids and account badges taken out (lib/publicView.mjs).
+    const viewer = await optionalAccount(request);
+    await assertWorldReadable(prisma, world, viewer);
 
     const categories = parseCategories(request.query.categories);
     const limit = request.query.limit ?? 40;
@@ -76,7 +80,7 @@ export default async function newsRoutes(fastify) {
     const key = `${world.id}|${(categories ?? NEWS_CATEGORIES).join(',')}|${tier ?? 0}|${limit}`;
     if (!before) {
       const hit = cacheGet(key);
-      if (hit) return hit;
+      if (hit) return forViewer(viewer, hit);
     }
 
     const result = await buildNews(prisma, { world, categories, tier, before, limit });
@@ -85,6 +89,6 @@ export default async function newsRoutes(fastify) {
       world: { week: world.currentWeek, year: world.currentYear, status: world.status },
     };
     if (!before) cacheSet(key, body);
-    return body;
+    return forViewer(viewer, body);
   });
 }
