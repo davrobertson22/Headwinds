@@ -66,6 +66,9 @@ const REAL_TOFL = {
   a330200f: 9350, b777f: 9300, b747400f: 10650, b7478f: 10100, b757200pf: 6800, md11f: 9700,
   a300600f: 7874, dc1030f: 10500, b737400f: 8350, b737300f: 7200, b727200f: 10100,
   dc873f: 9900, e190f: 6890, a321p2f: 8300,
+  // 2026-11-11 additions (Discord: Dunno23) — the ones with a published MTOW figure.
+  a340200: 9500, a340500: 10990, b737600: 6161, b767200: 6300, b767300base: 9200,
+  dc1010: 9000, b747400er: 10700,
 };
 
 // Documented exceptions: a real figure exists but applying the rule would be wrong.

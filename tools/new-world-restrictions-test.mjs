@@ -99,7 +99,7 @@ test('the doubleDeck flag covers the whole 747 family, the A380 and the Stratocr
   // double-decker — lower-deck lounge — and the flag correctly keeps it off
   // lessor books like every other two-deck airframe.
   const expected = ['a380', 'b377', 'b747100', 'b747200', 'b747300', 'b7478f', 'b7478i',
-    'b747400', 'b747400d', 'b747400f', 'b747sp'].sort();
+    'b747400', 'b747400d', 'b747400er', 'b747400f', 'b747sp'].sort();
   assert.deepEqual(flagged, expected);
 });
 

@@ -85,6 +85,7 @@ export const AIRCRAFT_FAMILY = {
   a318: 'airbus_a320', a319ceo: 'airbus_a320', a319neo: 'airbus_a320',
   a320ceo: 'airbus_a320', a320neo: 'airbus_a320',
   a321ceo: 'airbus_a320', a321neo: 'airbus_a320', a321xlr: 'airbus_a320',
+  a320100: 'airbus_a320', a321100: 'airbus_a320',               // the first-build A320 and A321
   a321p2f: 'airbus_a320',                                   // P2F conversion of the A321ceo
 
   // Airbus A300 / A310 ───────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export const AIRCRAFT_FAMILY = {
 
   // Airbus A340 ─────────────────────────────────────────────────────────────
   a340300: 'airbus_a340', a340600: 'airbus_a340',
+  a340200: 'airbus_a340', a340500: 'airbus_a340',
 
   // Airbus A350 ─────────────────────────────────────────────────────────────
   a350900: 'airbus_a350', a350900ulr: 'airbus_a350', a3501000: 'airbus_a350',
@@ -113,6 +115,7 @@ export const AIRCRAFT_FAMILY = {
   b737100: 'boeing_737', b737200: 'boeing_737',
   b737300: 'boeing_737', b737400: 'boeing_737', b737500: 'boeing_737',
   b737700: 'boeing_737', b737800: 'boeing_737', b737900er: 'boeing_737',
+  b737600: 'boeing_737', b737700er: 'boeing_737',
   b737max7: 'boeing_737', b737max8: 'boeing_737', b737max8200: 'boeing_737',
   b737max9: 'boeing_737', b737max10: 'boeing_737',
   b737300f: 'boeing_737', b737400f: 'boeing_737', b737800bcf: 'boeing_737',
@@ -132,6 +135,7 @@ export const AIRCRAFT_FAMILY = {
 
   // Boeing 767 ──────────────────────────────────────────────────────────────
   b767200er: 'boeing_767', b767300: 'boeing_767', b767400er: 'boeing_767',
+  b767200: 'boeing_767', b767300base: 'boeing_767',             // the non-ER originals
   b767200sf: 'boeing_767', b767300f: 'boeing_767',
 
   // Boeing 787 Dreamliner ───────────────────────────────────────────────────
@@ -139,13 +143,14 @@ export const AIRCRAFT_FAMILY = {
 
   // Boeing 777 ──────────────────────────────────────────────────────────────
   b777200er: 'boeing_777', b777200lr: 'boeing_777', b777300er: 'boeing_777',
+  b777200: 'boeing_777', b777300: 'boeing_777',                 // the non-ER originals
   b7778x: 'boeing_777', b7779x: 'boeing_777',
   b777f: 'boeing_777', b7778f: 'boeing_777',
 
   // Boeing 747 ──────────────────────────────────────────────────────────────
   b747100: 'boeing_747', b747200: 'boeing_747', b747300: 'boeing_747',
   b747sp:  'boeing_747',                                    // short-body 747, same systems
-  b747400: 'boeing_747', b747400d: 'boeing_747',
+  b747400: 'boeing_747', b747400d: 'boeing_747', b747400er: 'boeing_747',
   b7478i:  'boeing_747',
   b747400f: 'boeing_747', b7478f: 'boeing_747', b747200f: 'boeing_747',
 
@@ -195,6 +200,7 @@ export const AIRCRAFT_FAMILY = {
 
   // McDonnell Douglas / Douglas ─────────────────────────────────────────────
   md80: 'mcd_md80', dc910: 'mcd_md80', dc930: 'mcd_md80', dc950: 'mcd_md80', md90: 'mcd_md80',   // DC-9 / MD-80 family
+  dc1010: 'mcd_dc10',
   dc1030: 'mcd_dc10', md11: 'mcd_dc10',                     // DC-10 / MD-11 family
   dc1030f: 'mcd_dc10', md11f: 'mcd_dc10',
   dc863: 'mcd_dc8', dc873f: 'mcd_dc8', dc863cf: 'mcd_dc8',                      // DC-8 family
@@ -235,6 +241,7 @@ export const AIRCRAFT_FAMILY = {
 
   // Supersonic ──────────────────────────────────────────────────────────────
   concorde: 'concorde_sst',
+  tu144: 'tupolev_tu144',
 
   // Russian / Soviet / Eastern European ────────────────────────────────────
   il86:     'ilyushin',        // Il-96 is a re-winged, re-engined Il-86 derivative
@@ -491,6 +498,9 @@ export const FAMILY_INFO = {
   // 104k — the table's existing "highly specialised tooling" ceiling — × 1.15
   // (a fleet a thousandth the size, with no OEM at all) = 119.6k.
   concorde_sst: { name: 'Concorde', category: 'supersonic', weeklyBaseCost: 120_000, note: 'Twenty ever built — bespoke everything, no OEM support' },
+  // Tu-144: 16 airframes, afterburning NK-144s, one operator and no export
+  // support. concorde_sst's 120k x 1.15 (the table's orphan step) = 138k.
+  tupolev_tu144: { name: 'Tupolev Tu-144', category: 'supersonic', weeklyBaseCost: 138_000, note: 'Sixteen built, one operator: every part is bespoke' },
 
   // ── Small turboprops ─────────────────────────────────────────────────────
   casa_cn235:    { name: 'CASA CN-235',        category: 'turboprop', weeklyBaseCost: 13_000 },

@@ -38,6 +38,17 @@
 //                       <= 2004 -> 312w (6y). Supersonic is exempt (Concorde is a
 //                       deliberate prestige money-loser; an age penalty on top
 //                       would just make it unusable).
+// aiSkip:               true = AI carriers never choose this type (pickCompetitorAircraftType
+//                       and friends in models/demand.js). Players can still buy it.
+//                       Carried by all 13 types added on 2026-11-11, for two reasons.
+//                       The AI sizes a route on seat count alone, so three of them would
+//                       be chosen for the wrong reason: the 150-seat Tu-144 on every budget
+//                       route under 3,300 km, the 737-700ER across oceans a third full, the
+//                       A340-500 on every ultra-long route in place of the A350. The other
+//                       ten carry it so that adding them changed no AI fleet in any live
+//                       world: with them unflagged, premium carriers moved to the 767-300
+//                       and both golden masters broke. Taking the flag off one of those ten
+//                       is a balance change: re-baseline and say so.
 // category:             used to group aircraft in the market UI
 // image:                Wikimedia Commons photo URL
 //
@@ -210,6 +221,27 @@ export const AIRCRAFT_TYPES = [
     },
   },
   {
+    id: 'a320100',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Airbus A320-100',
+    manufacturer: 'Airbus',
+    category: 'Narrow Body',
+    eis: 1988,
+    oop: 1989,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 180,
+    typicalSeats: 150,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
+    range: 3300,   // wing tanks only (15,600 L, no centre tank), 68 t MTOW: about 1,800 nmi with 150
+    runwayFt: 5400,
+    weeklyLease: 44000,
+    purchasePrice: 18000000,
+    fuelBurnPer100km: 405,
+    crewCostPerKm: 1.39,
+    baseMaintenancePerWk: 56000,
+    description: 'The first A320s: no centre fuel tank and no wingtip fences. Only 21 were built before the -200 took over, for Air France, Air Inter and British Airways. Cheap, but strictly a short-haul aircraft.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/Air_France%2C_Airbus_A320-111%2C_F-GKXZ.jpg/960px-Air_France%2C_Airbus_A320-111%2C_F-GKXZ.jpg',
+  },
+  {
     id: 'a320neo',
     name: 'Airbus A320neo',
     manufacturer: 'Airbus',
@@ -259,6 +291,27 @@ export const AIRCRAFT_TYPES = [
       ],
       wingtips: { label: 'Sharklets', description: 'Aerodynamic wingtip devices. Cut fuel burn by up to 3.5% and extend range.', fuelMod: 0.965, rangeMod: 1.03, cost: 450_000 },
     },
+  },
+  {
+    id: 'a321100',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Airbus A321-100',
+    manufacturer: 'Airbus',
+    category: 'Narrow Body',
+    eis: 1994,
+    oop: 2001,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 220,
+    typicalSeats: 185,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
+    range: 4350,   // the 83 t original with A320 fuel capacity: about 2,350 nmi with 185
+    runwayFt: 5800,
+    weeklyLease: 63000,
+    purchasePrice: 26000000,
+    fuelBurnPer100km: 455,
+    crewCostPerKm: 1.53,
+    baseMaintenancePerWk: 68000,
+    description: 'The original A321: a stretched A320 on the same fuel tanks, so it gives up range for seats. Fine on dense short sectors; the heavier -200 that followed is the one that crosses continents.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Airbus_A321-131%2C_Lufthansa_AN0855355.jpg/960px-Airbus_A321-131%2C_Lufthansa_AN0855355.jpg',
   },
   {
     id: 'a321neo',
@@ -396,6 +449,27 @@ export const AIRCRAFT_TYPES = [
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Frankfurt_Airport_Lufthansa_Airbus_A340-313_D-AIGY_%28DSC02566%29.jpg/960px-Frankfurt_Airport_Lufthansa_Airbus_A340-313_D-AIGY_%28DSC02566%29.jpg',
   },
   {
+    id: 'a340200',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Airbus A340-200',
+    manufacturer: 'Airbus',
+    category: 'Wide Body',
+    eis: 1993,
+    oop: 1998,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 420,
+    typicalSeats: 240,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
+    range: 14800,   // Airbus, 275 t version: about 8,000 nmi with 240 (3-class)
+    runwayFt: 9500,
+    weeklyLease: 64000,
+    purchasePrice: 32000000,
+    fuelBurnPer100km: 905,
+    crewCostPerKm: 3.51,
+    baseMaintenancePerWk: 158000,
+    description: 'The short A340: fewer seats than the -300 in exchange for the longest range of its day. Only 28 were built, for thin ultra-long routes that nothing with two engines could fly yet.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Airbus_A340-211_cn_19_D-AIBE_Lufthansa_SFO_4Nov99_RJF.jpg/960px-Airbus_A340-211_cn_19_D-AIBE_Lufthansa_SFO_4Nov99_RJF.jpg',
+  },
+  {
     id: 'a330300',
     name: 'Airbus A330-300',
     manufacturer: 'Airbus',
@@ -459,6 +533,27 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 210_000,
     description: 'Stretched quad with massive capacity. High fuel burn but very long range.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Lufthansa_Airbus_A340-600_D-AIHZ_MD2.jpg/960px-Lufthansa_Airbus_A340-600_D-AIHZ_MD2.jpg',
+  },
+  {
+    id: 'a340500',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Airbus A340-500',
+    manufacturer: 'Airbus',
+    category: 'Wide Body',
+    eis: 2003,
+    oop: 2012,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 375,
+    typicalSeats: 313,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 16670,   // Airbus: 9,000 nmi with 313 (3-class)
+    runwayFt: 9700,
+    weeklyLease: 80000,
+    purchasePrice: 40000000,
+    fuelBurnPer100km: 1190,
+    crewCostPerKm: 3.69,
+    baseMaintenancePerWk: 200000,
+    description: 'Ultra-long-range A340 that flew Singapore to New York non-stop. Reaches almost anywhere, but four Trent 500s carrying that much fuel make it one of the thirstiest ways to do it.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Airbus_A340-541%2C_Emirates_AN1429538.jpg/960px-Airbus_A340-541%2C_Emirates_AN1429538.jpg',
   },
   {
     id: 'a350900',
@@ -863,6 +958,49 @@ export const AIRCRAFT_TYPES = [
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Boeing_737-700_of_Southwest_Airlines_preparing_to_Takeoff_KCMH_1.jpg/960px-Boeing_737-700_of_Southwest_Airlines_preparing_to_Takeoff_KCMH_1.jpg',
   },
   {
+    id: 'b737600',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 737-600',
+    manufacturer: 'Boeing',
+    category: 'Narrow Body',
+    eis: 1998,
+    oop: 2006,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 132,
+    typicalSeats: 110,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 5990,   // Boeing: 3,235 nmi with 110 (2-class)
+    runwayFt: 5000,
+    weeklyLease: 33000,
+    purchasePrice: 13000000,
+    fuelBurnPer100km: 330,
+    crewCostPerKm: 1.28,
+    baseMaintenancePerWk: 44000,
+    description: 'Smallest Next-Generation 737, the 737-500 replacement. Full NG wing and range on a short cabin: useful on long thin routes, heavy for its seat count. Only 69 were built.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/SAS_Boeing_737-683_December_2013.jpg/960px-SAS_Boeing_737-683_December_2013.jpg',
+  },
+  {
+    id: 'b737700er',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 737-700ER',
+    manufacturer: 'Boeing',
+    category: 'Narrow Body',
+    eis: 2007,
+    oop: 2019,   // year the production line closed (era worlds: second-hand only after this)
+    bandEis: 1998,   // band with the 737NG cohort it was built alongside, not its own 2007 EIS
+    seats: 149,
+    typicalSeats: 48,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 10695,   // Boeing: 5,775 nmi with nine auxiliary tanks, in an all-premium cabin like ANA's 48 seats
+    runwayFt: 6500,
+    weeklyLease: 55000,
+    purchasePrice: 22000000,
+    fuelBurnPer100km: 365,
+    crewCostPerKm: 1.3,
+    baseMaintenancePerWk: 47000,
+    description: 'A 737-700 with the -800 wing and up to nine auxiliary tanks in the hold. Crosses oceans with a small premium cabin; fill every seat and most of that range goes. Two were built, for ANA.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/All_Nippon_Airways%2C_Boeing_737-700ER%2C_JA10AN_-_NRT.jpg/960px-All_Nippon_Airways%2C_Boeing_737-700ER%2C_JA10AN_-_NRT.jpg',
+  },
+  {
     id: 'b737400',
     name: 'Boeing 737-400',
     manufacturer: 'Boeing',
@@ -1102,6 +1240,27 @@ export const AIRCRAFT_TYPES = [
     },
   },
   {
+    id: 'b767200',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 767-200',
+    manufacturer: 'Boeing',
+    category: 'Wide Body',
+    eis: 1982,
+    oop: 1987,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 290,
+    typicalSeats: 216,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 624,   // arrives 12y old - out of production, bought used
+    range: 7200,   // Boeing: 3,900 nmi with 216 (2-class)
+    runwayFt: 6500,
+    weeklyLease: 30000,
+    purchasePrice: 12000000,
+    fuelBurnPer100km: 590,
+    crewCostPerKm: 2.79,
+    baseMaintenancePerWk: 115000,
+    description: 'The original 767, built for United and Delta transcontinental flying. A light twin-aisle with a short runway requirement, but no ocean-crossing range: that came with the -200ER.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Boeing_767-222%2C_United_Airlines_AN1087281.jpg/960px-Boeing_767-222%2C_United_Airlines_AN1087281.jpg',
+  },
+  {
     id: 'b767300',
     name: 'Boeing 767-300ER',
     manufacturer: 'Boeing',
@@ -1128,6 +1287,27 @@ export const AIRCRAFT_TYPES = [
       ],
       wingtips: { label: 'Blended Winglets', description: 'Reduces fuel burn ~3% and extends range.', fuelMod: 0.97, rangeMod: 1.03, cost: 1_000_000 },
     },
+  },
+  {
+    id: 'b767300base',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 767-300',
+    manufacturer: 'Boeing',
+    category: 'Wide Body',
+    eis: 1986,
+    oop: 2000,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 351,
+    typicalSeats: 269,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
+    range: 7200,   // Boeing: 3,900 nmi with 269 (2-class)
+    runwayFt: 8300,
+    weeklyLease: 51000,
+    purchasePrice: 21000000,
+    fuelBurnPer100km: 665,
+    crewCostPerKm: 2.93,
+    baseMaintenancePerWk: 134000,
+    description: 'The stretched 767 before it gained ER fuel. Japan Airlines and ANA flew it on dense domestic trunks: plenty of seats, medium range, and cheaper than the -300ER.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Boeing_767-346%2C_Japan_Airlines_-_JAL_AN0600231.jpg/960px-Boeing_767-346%2C_Japan_Airlines_-_JAL_AN0600231.jpg',
   },
   {
     id: 'b767400er',
@@ -1193,6 +1373,27 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 200_000,
     description: 'The original 777. Dominant on international trunk routes for three decades.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Cathay_Pacific_Boeing_777-200%3B_B-HNL%40HKG.jpg/960px-Cathay_Pacific_Boeing_777-200%3B_B-HNL%40HKG.jpg',
+  },
+  {
+    id: 'b777200',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 777-200',
+    manufacturer: 'Boeing',
+    category: 'Wide Body',
+    eis: 1995,
+    oop: 2007,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 440,
+    typicalSeats: 305,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 9700,   // Boeing: 5,240 nmi with 305 (3-class)
+    runwayFt: 8200,
+    weeklyLease: 102000,
+    purchasePrice: 42000000,
+    fuelBurnPer100km: 800,
+    crewCostPerKm: 3.51,
+    baseMaintenancePerWk: 190000,
+    description: 'The first 777, as United launched it in 1995. Lighter than the -200ER and cheaper to buy, with range for the Atlantic and regional trunks but not the long Pacific sectors.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/United_Airlines_Boeing_777-222_N777UA_%2827101793803%29.jpg/960px-United_Airlines_Boeing_777-222_N777UA_%2827101793803%29.jpg',
   },
   {
     id: 'b7879',
@@ -1330,6 +1531,27 @@ export const AIRCRAFT_TYPES = [
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Turkish_Airlines_Boeing_777-300ER_TC-LJA_MD1.jpg/960px-Turkish_Airlines_Boeing_777-300ER_TC-LJA_MD1.jpg',
   },
   {
+    id: 'b777300',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 777-300',
+    manufacturer: 'Boeing',
+    category: 'Wide Body',
+    eis: 1998,
+    oop: 2006,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 550,
+    typicalSeats: 368,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 11120,   // Boeing: 6,005 nmi with 368 (3-class)
+    runwayFt: 10000,
+    weeklyLease: 195000,
+    purchasePrice: 80000000,
+    fuelBurnPer100km: 955,
+    crewCostPerKm: 3.69,
+    baseMaintenancePerWk: 225000,
+    description: 'The stretch that replaced early 747s on Asian trunk routes: 747 capacity on two engines. Older engines and less fuel than the -300ER, so it is a medium-haul people mover, not a long-hauler.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/06/Boeing_777-367%2C_Cathay_Pacific_Airways_JP6841375.jpg/960px-Boeing_777-367%2C_Cathay_Pacific_Airways_JP6841375.jpg',
+  },
+  {
     id: 'b747400',
     name: 'Boeing 747-400',
     manufacturer: 'Boeing',
@@ -1349,6 +1571,28 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 310_000,
     description: 'The Queen of the Skies. Placarded at the standard 605-seat 747 exit limit, cheap to acquire and able to reach almost anywhere — but four thirsty engines make it a high-density trunk aircraft rather than an efficient one.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Singapore_Airlines_B747-400_%289V-SPK%29_in_Tropical_livery.jpg/960px-Singapore_Airlines_B747-400_%289V-SPK%29_in_Tropical_livery.jpg',
+  },
+  {
+    id: 'b747400er',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Boeing 747-400ER',
+    manufacturer: 'Boeing',
+    category: 'Double Deck',
+    eis: 2002,
+    oop: 2003,   // year the production line closed (era worlds: second-hand only after this)
+    doubleDeck: true,
+    seats: 605,
+    typicalSeats: 416,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 14045,   // Boeing: 7,585 nmi with 416 (3-class)
+    runwayFt: 10000,
+    weeklyLease: 131000,
+    purchasePrice: 66000000,
+    fuelBurnPer100km: 1650,
+    crewCostPerKm: 4.05,
+    baseMaintenancePerWk: 318000,
+    description: 'A heavier 747-400 with an extra tank in the hold, built for Qantas to fly Melbourne to Los Angeles with a full load. Six passenger aircraft were built. More range than the -400, and more fuel to get it.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Qantas_Boeing_747-438ER_Spijkers.jpg/960px-Qantas_Boeing_747-438ER_Spijkers.jpg',
   },
   {
     id: 'b747400d',
@@ -2091,6 +2335,27 @@ export const AIRCRAFT_TYPES = [
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Continental_Airlines_DC-10.jpg/960px-Continental_Airlines_DC-10.jpg',
   },
   {
+    id: 'dc1010',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Douglas DC-10-10',
+    manufacturer: 'McDonnell Douglas',
+    category: 'Wide Body',
+    eis: 1971,
+    oop: 1981,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 380,
+    typicalSeats: 270,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 832,   // arrives 16y old - out of production, bought used
+    range: 6500,   // McDonnell Douglas: 3,500 nmi with 270
+    runwayFt: 8500,
+    weeklyLease: 33000,
+    purchasePrice: 17000000,
+    fuelBurnPer100km: 1140,
+    crewCostPerKm: 3.6,
+    baseMaintenancePerWk: 145000,
+    description: 'The domestic DC-10 that American and United launched in 1971. Lighter than the -30 with less fuel and no centre gear: a transcontinental trijet, and the direct rival to the TriStar.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/McDonnell_Douglas_DC-10-10%2C_American_Airlines_JP5931060.jpg/960px-McDonnell_Douglas_DC-10-10%2C_American_Airlines_JP5931060.jpg',
+  },
+  {
     id: 'md11',
     name: 'McDonnell Douglas MD-11',
     manufacturer: 'McDonnell Douglas',
@@ -2689,6 +2954,28 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 52_000,
     description: 'Rugged, fast tri-jet workhorse of the Eastern bloc, built for rough strips.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Tupolev_Tu-154M%2C_Iran_Air_Tours_JP6511800.jpg',
+  },
+  {
+    id: 'tu144',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'Tupolev Tu-144',
+    manufacturer: 'Tupolev',
+    category: 'Supersonic',
+    eis: 1977,
+    oop: 1983,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 150,
+    typicalSeats: 140,   // seats the headline range is quoted at
+    range: 3300,   // Tu-144S as flown Moscow to Alma-Ata (about 3,100-3,600 km published)
+    runwayFt: 10000,
+    weeklyLease: 268000,
+    purchasePrice: 110000000,
+    fuelBurnPer100km: 2600,
+    crewCostPerKm: 2.7,
+    baseMaintenancePerWk: 340000,
+    supersonic: true,
+    ticketPremium: 2.75,
+    description: 'The Soviet supersonic airliner. It flew before Concorde, but its afterburning engines drink nearly twice the fuel, so it manages less than half the range. Aeroflot flew 55 passenger services, all Moscow to Alma-Ata, before withdrawing it.',
+    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Aeroflot_Tupolev_Tu-144_Paris_Air_Show_1975_Gilliand.jpg/960px-Aeroflot_Tupolev_Tu-144_Paris_Air_Show_1975_Gilliand.jpg',
   },
   {
     id: 'tu134',
@@ -4780,7 +5067,7 @@ export const LESSOR_ALLOW = new Set([
 // Pre-cutoff types with no real secondary lease market — prestige or one-off
 // airframes a lessor could never remarket, so none of them sit on a lease book.
 export const LESSOR_BLOCK = new Set([
-  'concorde',
+  'concorde', 'tu144',
   'an124', 'an225',                       // outsize Soviet freighters
 ]);
 
