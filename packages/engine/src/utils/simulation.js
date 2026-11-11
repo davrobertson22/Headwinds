@@ -6,7 +6,7 @@ import {
 import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import { productSpaceMul, productWeeklyCost, productFittingCost } from '../data/seatProducts.js';
 import {
-  resolveBaseFor, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
+  resolveBaseFor, networkAirportsIndex, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
   contractOffsetSavings, isBaseOpen, RESERVE_AT_BASE_READINESS_DISCOUNT,
 } from '../data/mroBase.js';
 import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
@@ -1165,9 +1165,24 @@ export function stateLoyaltyReputationBonus(state) {
  * catering, and fleet age. Deliberately EXCLUDES customerRating itself so the
  * satisfaction loop has no feedback term.
  */
+
+/**
+ * id → record, first record winning: the answer `arr.find(x => x.id === id)`
+ * gives, for one pass over the array instead of one pass per lookup. The tick
+ * looks an aircraft up for every route (and a route for every result), which
+ * as `find` was routes × fleet comparisons — 20 million a week for an airline
+ * of 4,000 routes and 4,900 tails, and most of its tick (measured 2026-11-10).
+ */
+function firstById(arr) {
+  const m = new Map();
+  for (const x of arr ?? []) if (!m.has(x.id)) m.set(x.id, x);
+  return m;
+}
 export function deliveredExperience({ fleet = [], routes = [], labor = null, ancillaries = null, lounges = null }, avgUtilization = null) {
   const { onTimeRate } = laborEffects(labor, avgUtilization);
-  const assigned = fleet.filter(a => routes.some(r => r.aircraftId === a.id));
+  const assignedIds = new Set();
+  for (const r of routes) assignedIds.add(r.aircraftId);
+  const assigned = fleet.filter(a => assignedIds.has(a.id));
   const avgCabinPts = assigned.length > 0
     ? assigned.reduce((s, a) => s + cabinQualityPoints(a.config), 0) / assigned.length
     : 0;
@@ -1539,6 +1554,34 @@ export function routesCommittedTo(aircraftId, routes = [], cargoRoutes = []) {
   if (!aircraftId) return [];
   const all = cargoRoutes && cargoRoutes.length ? [...(routes ?? []), ...cargoRoutes] : (routes ?? []);
   return all.filter(r => r && (r.aircraftId === aircraftId || r.coverForAircraftId === aircraftId));
+}
+
+/**
+ * routesCommittedTo for every tail at once: aircraft id → { pax, cargo }, each
+ * the routes that tail flies or covers, in table order — so
+ * routesCommittedTo(id, e.pax, e.cargo) returns exactly what
+ * routesCommittedTo(id, routes, cargoRoutes) does. For callers that ask about
+ * every tail in turn (the Fleet page, the Advisor): asked one at a time
+ * against the whole tables that is fleet × routes, 20 million steps for a
+ * 4,900-tail airline; this is one pass.
+ */
+export function committedRoutesByAircraft(routes = [], cargoRoutes = []) {
+  const index = new Map();
+  const entry = (id) => {
+    let e = index.get(id);
+    if (!e) { e = { pax: [], cargo: [] }; index.set(id, e); }
+    return e;
+  };
+  const add = (table, slot) => {
+    for (const r of table ?? []) {
+      if (!r) continue;
+      if (r.aircraftId) entry(r.aircraftId)[slot].push(r);
+      if (r.coverForAircraftId && r.coverForAircraftId !== r.aircraftId) entry(r.coverForAircraftId)[slot].push(r);
+    }
+  };
+  add(routes, 'pax');
+  add(cargoRoutes, 'cargo');
+  return index;
 }
 
 /**
@@ -3603,8 +3646,9 @@ export function cargoLaneAllocations(cargoRoutes = [], fleet = [], demandMultipl
   // the only lever cargo has. When no rival flies the lane this adds nothing, so
   // a solo (or purely own-fleet) operator's allocation is byte-identical to before.
   const rivalByLane = rivalCargoLaneIndex(competitors); // metroKey → { cap, yieldCapSum }
+  const tailById = firstById(fleet);
   for (const route of cargoRoutes ?? []) {
-    const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
+    const aircraft = tailById.get(route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
     if (groundedSet.has(aircraft.id)) continue;   // nobody to crew it this week
     const type = getAircraftType(aircraft.typeId);
@@ -3853,8 +3897,9 @@ export function simulateCargoNetwork(cargoRoutes = [], fleet = [], opts = {}) {
 
   const results = new Map();
   const legs = [];
+  const tailById = firstById(fleet);
   for (const route of cargoRoutes ?? []) {
-    const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
+    const aircraft = tailById.get(route.aircraftId);
     if (!aircraft || isOutOfService(aircraft)) continue;
     if (groundedSet.has(aircraft.id)) continue;
     const result = simulateCargoRoute(route, aircraft, gameDate, labor, fuelMultiplier,
@@ -4610,15 +4655,18 @@ export function coverOutlookByAircraft({
   fleet = [], routes = [], cargoRoutes = [], hubs = {}, absWeek = 0, routeRevenues = {},
 }) {
   const ops = [...routes, ...cargoRoutes];
-  const hasRoute = (id) => ops.some(r => r.aircraftId === id);
+  const routedIds = new Set();
+  for (const r of ops) routedIds.add(r.aircraftId);
+  const hasRoute = (id) => routedIds.has(id);
   const nextFleet = fleet.map(a => advanceDowntimeOneWeek(a, hasRoute(a.id)));
   const pass = applyReserveCovers({
     fleet: nextFleet, routes, cargoRoutes, hubs, absWeek, routeRevenues,
   });
 
   const nextById = new Map(nextFleet.map(a => [a.id, a]));
+  const fleetById = firstById(fleet);
   const nameOf   = (id) => {
-    const a = fleet.find(x => x.id === id);
+    const a = fleetById.get(id);
     return a ? (a.name ?? a.tailNumber ?? id) : id;
   };
   const out = {};
@@ -4984,6 +5032,9 @@ export function weeklyTick(state) {
   // keeps connecting. Multi-stop routes contribute to every pair they fly.
   const seatsByRouteKey = {};
   const fleetById = new Map(fleet.map(a => [a.id, a]));
+  // The same lookup with `find`'s tie rule (first record wins), for the loops
+  // below that used to call fleet.find once per route.
+  const tailById = firstById(fleet);
   for (const r of routes) {
     if (!isRouteActive(r, gameDate.month)) continue;
     const ac = fleetById.get(r.aircraftId);
@@ -5217,7 +5268,7 @@ export function weeklyTick(state) {
     // as real revenue, from nothing but restating one route as two.
     const routeGroups = new Map(); // routeKey → [{ route, aircraft, seg? }]
     for (const route of routes) {
-      const aircraft = fleet.find(a => a.id === route.aircraftId);
+      const aircraft = tailById.get(route.aircraftId);
       if (!aircraft || isOutOfService(aircraft)) continue;
       if (!isRouteActive(route, gameDate.month)) continue;   // dormant this month
       if (isMultiStop(route)) {
@@ -5526,7 +5577,7 @@ export function weeklyTick(state) {
   const pairSeatsOneWay = {};
   for (const r0 of routes) {
     if (isMultiStop(r0) || !isRouteActive(r0, gameDate.month)) continue;
-    const ac0 = fleet.find(a => a.id === r0.aircraftId);
+    const ac0 = tailById.get(r0.aircraftId);
     if (!ac0 || isOutOfService(ac0) || crewGroundedSet.has(ac0.id)) continue;
     const k0 = [r0.origin, r0.destination].sort().join('-');
     pairSeatsOneWay[k0] = (pairSeatsOneWay[k0] ?? 0) + configBodies(ac0.config ?? {}) * (r0.weeklyFrequency ?? 7);
@@ -5538,7 +5589,7 @@ export function weeklyTick(state) {
   };
 
   for (const route of routes) {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
+    const aircraft = tailById.get(route.aircraftId);
     if (!aircraft) continue;
     if (isOutOfService(aircraft)) continue; // grounded or in a heavy check — no revenue this week
     if (crewGroundedSet.has(aircraft.id)) continue; // nobody to crew it this week
@@ -5934,7 +5985,7 @@ export function weeklyTick(state) {
   const cargoAllocations = cargoNetwork.allocations;
 
   for (const route of freightRoutes) {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
+    const aircraft = tailById.get(route.aircraftId);
     const result = cargoNetwork.results.get(route.id);
     if (!aircraft || !result) continue;   // out of service, uncrewed or out of range
 
@@ -5992,8 +6043,9 @@ export function weeklyTick(state) {
   // offset are ownership benefits that a base delivers to the whole fleet it
   // covers. Slots gate the discrete JOBS (checks, AOG repairs) in the reducer.
   const mroFactorsByAircraft = {};
+  const mroNetwork = networkAirportsIndex(rawRoutes, cargoRoutes);
   for (const aircraft of fleet) {
-    const resolved = resolveBaseFor(aircraft, mroBases, rawRoutes, cargoRoutes, absWeek);
+    const resolved = resolveBaseFor(aircraft, mroBases, rawRoutes, cargoRoutes, absWeek, mroNetwork);
     if (resolved) mroFactorsByAircraft[aircraft.id] = mroFactorsFor(resolved);
   }
   const mroContractOffsets = familyContractOffsets(mroBases, absWeek);
@@ -6004,6 +6056,10 @@ export function weeklyTick(state) {
   let totalReserveParking = 0;
   const fleetCosts      = [];
   const reserveStandby  = [];   // per-reserve cost breakdown for the Finance page
+  // Tails flying somebody else's line this week (a reserve covering).
+  const coveringIds = new Set();
+  for (const r of rawRoutes)   if (r.coverForAircraftId) coveringIds.add(r.aircraftId);
+  for (const r of cargoRoutes) if (r.coverForAircraftId) coveringIds.add(r.aircraftId);
 
   for (const aircraft of fleet) {
     const type = getAircraftType(aircraft.typeId);
@@ -6032,8 +6088,7 @@ export function weeklyTick(state) {
     const maint     = stationed ? Math.round(baseMaint * readiness) : baseMaint;
     let parking = 0;
     if (stationed && !isOutOfService(aircraft)) {
-      const covering = rawRoutes.some(r => r.aircraftId === aircraft.id && r.coverForAircraftId)
-        || cargoRoutes.some(r => r.aircraftId === aircraft.id && r.coverForAircraftId);
+      const covering = coveringIds.has(aircraft.id);
       if (!covering && aircraft.status === 'idle') {
         const feeCat = type.freighter ? freighterLandingCategory(type.payloadTonnes ?? 0) : type.category;
         const tier   = getAirport(aircraft.reserveBase)?.tier ?? 'major';
@@ -6153,8 +6208,9 @@ export function weeklyTick(state) {
   // accumulated inside the route loops, so passenger, tag and (future) any other
   // route path are all counted by the same rule and none can be forgotten.
   if (hasOpenLounge) {
+    const routesById = firstById(routes);
     for (const rr of routeResults) {
-      const rt = routes.find(r => r.id === rr.routeId);
+      const rt = routesById.get(rr.routeId);
       if (!rt) continue;
       loungeThroughputPax += loungeStationPax(rt.origin, rt.destination, rr.classSummary);
     }
@@ -6213,7 +6269,7 @@ export function weeklyTick(state) {
     // isn't flying — and would hit seasonal operators hardest, which is exactly
     // the regressive shape this table was built to avoid.
     for (const route of [...routes, ...cargoRoutes]) {
-      const aircraft = fleet.find(a => a.id === route.aircraftId);
+      const aircraft = tailById.get(route.aircraftId);
       if (!aircraft || isOutOfService(aircraft)) continue;
       if (!isRouteActive(route, gameDate.month)) continue;   // safe for cargo: no season => year-round
       const type = getAircraftType(aircraft.typeId);
@@ -6351,8 +6407,9 @@ export function weeklyTick(state) {
   const poolingAnomalies = [];
   {
     const groups = new Map();
+    const routesById = firstById(routes);
     for (const rr of routeResults) {
-      const rt = routes.find(r => r.id === rr.routeId);
+      const rt = routesById.get(rr.routeId);
       if (!rt || isMultiStop(rt)) continue;
       const key = [rt.origin, rt.destination].sort().join('-');
       if (!groups.has(key)) groups.set(key, []);
@@ -6367,7 +6424,7 @@ export function weeklyTick(state) {
           pair, spread: +spread.toFixed(3), week: gameDate?.week,
           multiplayer: state.multiplayer === true,
           aircraft: list.map(({ rr, rt }) => {
-            const ac = fleet.find(a => a.id === rt.aircraftId);
+            const ac = tailById.get(rt.aircraftId);
             return {
               routeId: rt.id, aircraftId: rt.aircraftId, freq: rt.weeklyFrequency,
               loadFactor: +(rr.loadFactor ?? 0).toFixed(3), passengers: rr.passengers,

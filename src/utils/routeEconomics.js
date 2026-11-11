@@ -129,8 +129,11 @@ export function allocateFixedCosts({ routes = [], cargoRoutes = [], fleet = [], 
   const all = [...routes, ...cargoRoutes];
   const byAircraft = new Map();   // aircraftId -> { fixed, totalBh, entries: [{id, bh}] }
 
+  // First record per id, as fleet.find gave — one pass, not one per route.
+  const tailById = new Map();
+  for (const a of fleet) if (!tailById.has(a.id)) tailById.set(a.id, a);
   for (const r of all) {
-    const ac = fleet.find(a => a.id === r.aircraftId);
+    const ac = tailById.get(r.aircraftId);
     if (!ac) continue;
     let rec = byAircraft.get(ac.id);
     if (!rec) {

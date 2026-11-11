@@ -226,6 +226,22 @@ export function coverageVolume(coverage, seatsMap = {}) {
   return n;
 }
 
+// A contract's covered volume is a sum over every airport the airline serves.
+// The tick resolves catering for every route, and each endpoint under contract
+// asked for that sum again: routes × airports for a number that depends only
+// on the contract and the week's seats map. Remembered per (seats map,
+// contract) — both are built fresh each tick and never edited in place, so the
+// entry dies with them.
+const COVERAGE_VOLUME_MEMO = new WeakMap();   // seatsMap -> Map(contract -> volume)
+function coverageVolumeOnce(contract, seatsMap) {
+  if (!seatsMap || typeof seatsMap !== 'object') return coverageVolume(contract.coverage, seatsMap);
+  let byContract = COVERAGE_VOLUME_MEMO.get(seatsMap);
+  if (!byContract) { byContract = new Map(); COVERAGE_VOLUME_MEMO.set(seatsMap, byContract); }
+  let v = byContract.get(contract);
+  if (v === undefined) { v = coverageVolume(contract.coverage, seatsMap); byContract.set(contract, v); }
+  return v;
+}
+
 /** Surcharge multiplier (≥ 1) for this volume against a minimum. */
 export function volumeSurchargeMult(volume, minVolume) {
   if (!minVolume || minVolume <= 0) return 1;
@@ -355,7 +371,7 @@ export function resolveCateringContracts(hubTiers, hubs, contracts, codes, seats
     const c = contractForAirport(contracts, code);
     if (!c) { costSum += hubRate; cooks.push(null); continue; }
     any = true;
-    const rate = +(c.costFactor * volumeSurchargeMult(coverageVolume(c.coverage, seatsMap), c.minVolume)).toFixed(4);
+    const rate = +(c.costFactor * volumeSurchargeMult(coverageVolumeOnce(c, seatsMap), c.minVolume)).toFixed(4);
     if (t != null && hubRate <= rate) { costSum += hubRate; cooks.push(null); continue; }
     costSum += rate;
     qualSum += c.qualityDelta ?? 0;

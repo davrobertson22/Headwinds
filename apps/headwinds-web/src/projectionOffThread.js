@@ -24,6 +24,7 @@
  */
 import { hydrateState } from '../../../src/store/GameContext.jsx';
 import { primeProjectWeek } from '../../../src/utils/financeProjection.js';
+import { primeOwnMetalCuts } from '../../../packages/engine/src/models/network.js';
 
 export const TIMEOUT_MS = 8000;
 
@@ -103,6 +104,9 @@ export async function projectOffThread(next, { base = null, overlay = null } = {
     reply = await ask({ id, op: 'project', state: next });
   }
   if (!reply?.proj) return false;
+  // Hub cuts the worker made for this projection: the page's own engine files
+  // them, so its next projection (the player's click) starts from them.
+  if (reply.cuts) primeOwnMetalCuts(reply.cuts);
   return primeProjectWeek(hydrateState(next), reply.proj);
 }
 

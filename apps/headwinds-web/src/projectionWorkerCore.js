@@ -21,6 +21,7 @@ import { projectWeek } from '../../../src/utils/financeProjection.js';
 import { setEraCalendarYear } from '../../../src/utils/market.js';
 import { calendarYear } from '../../../src/utils/simulation.js';
 import { pinEventBonusFrom } from '../../../src/data/eventRules.js';
+import { recordOwnMetalCuts, takeOwnMetalCuts } from '../../../packages/engine/src/models/network.js';
 
 export function prepareWorldKnobs(state) {
   syncEngineWorldState(state);
@@ -31,6 +32,10 @@ export function prepareWorldKnobs(state) {
 export function createProjectionWorkerCore() {
   let heldId = null;
   let held = null;
+  // The hub cuts this thread works out go back with each projection, so the
+  // page does not have to enumerate the same hubs again on the player's first
+  // click (engine: models/network.js, "Handing cuts from one thread to another").
+  recordOwnMetalCuts(true);
   return function handle(msg) {
     if (!msg || typeof msg !== 'object' || msg.id == null) return null;
     let state;
@@ -43,7 +48,9 @@ export function createProjectionWorkerCore() {
     held = state;
     try {
       prepareWorldKnobs(state);
-      return { id: msg.id, proj: projectWeek(hydrateState(state)) };
+      const proj = projectWeek(hydrateState(state));
+      const cuts = takeOwnMetalCuts();
+      return cuts.length > 0 ? { id: msg.id, proj, cuts } : { id: msg.id, proj };
     } catch (e) {
       return { id: msg.id, error: String(e?.message ?? e) };
     }

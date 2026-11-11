@@ -399,8 +399,14 @@ function AppInner() {
     const prevWeekKey = toastWeekRef.current;
     toastWeekRef.current = toastWeekKey;
     if (!state.pendingToasts?.length) return;
-    tagWeeklyBatch(prevWeekKey, toastWeekKey, state.pendingToasts).forEach(t => addToast(t));
-    dispatch({ type: 'CLEAR_TOASTS' });
+    // Headwinds: the list is the server's and is left alone — the browser
+    // remembers which pop-ups it has shown (remoteApi.unseenToasts). Emptying
+    // it with CLEAR_TOASTS was a full server decision from every open tab the
+    // moment a week landed. Solo drains its own queue as it always has.
+    const keepsOwnRecord = typeof remoteApi?.unseenToasts === 'function';
+    const toShow = keepsOwnRecord ? remoteApi.unseenToasts(state.pendingToasts) : state.pendingToasts;
+    tagWeeklyBatch(prevWeekKey, toastWeekKey, toShow).forEach(t => addToast(t));
+    if (!keepsOwnRecord) dispatch({ type: 'CLEAR_TOASTS' });
   }, [state.pendingToasts, toastWeekKey]);
 
   const WEEK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour

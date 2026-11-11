@@ -13,7 +13,7 @@
 // swallowed: the weekly tick happens on the server whether or not you're here.
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import SoloApp from '../../../src/App.jsx';
-import { RemoteGameProvider, gameReducer } from '../../../src/store/GameContext.jsx';
+import { RemoteGameProvider, gameReducer, hydrateState } from '../../../src/store/GameContext.jsx';
 import { ALLOWED_PLAYER_ACTIONS } from '../../headwinds-server/src/world.mjs';
 import { api, isTransientError, readableError } from './api.js';
 import { shouldFastPoll, isStaleContact, sameMeta } from './connection.js';
@@ -35,6 +35,9 @@ import SeasonProgress from '../../../src/components/SeasonProgress.jsx';
 import { EventRulesBanner } from './EventRules.jsx';
 import InviteButton from './InviteButton.jsx';
 import { projectOffThread } from './projectionOffThread.js';
+import { carryProjectWeek } from '../../../src/utils/financeProjection.js';
+import { compareDecisionResult, overlayOf } from './decisionAdoption.js';
+import { createScreenMemory, SCREEN_ONLY_ACTIONS } from './screenMemory.js';
 import '../../../src/index.css';
 
 // ── Statistics backfill ─────────────────────────────────────────────────────
@@ -339,7 +342,18 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     return () => { live = false; };
   }, [token]);
 
+  // Pop-ups shown and debriefs closed are remembered by the browser, per
+  // airline, instead of being written to the server as decisions
+  // (screenMemory.js). The shared UI reaches it through remoteApi.
+  const airlineIdForMemory = meta?.airlineId ?? null;
+  const screenMemory = useMemo(() => createScreenMemory(airlineIdForMemory), [airlineIdForMemory]);
+  const screenMemoryRef = useRef(screenMemory);
+  screenMemoryRef.current = screenMemory;
+
   const remoteApi = useMemo(() => ({
+    unseenToasts: (toasts) => screenMemory.unseenToasts(toasts),
+    debriefDismissed: (weekKey) => screenMemory.debriefDismissed(weekKey),
+    dismissDebrief: (weekKey) => screenMemory.dismissDebrief(weekKey),
     fetchRivalProfile: (airlineId) => authedApi(`/worlds/${worldId}/rivals/${airlineId}`, { token }),
     fetchWorldFeed: (params = '') => authedApi(`/worlds/${worldId}/feed${params}`, { token }),
     // World news (News tab + the topbar ticker). `airlineId` rides along so the
@@ -439,7 +453,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/requests/${airlineId}`, { method: 'POST', token, body: { decision } }),
     leaveAlliance: (allianceId) =>
       authedApi(`/worlds/${worldId}/alliances/${allianceId}/leave`, { method: 'POST', token }),
-  }), [worldId, token, adoptGateMarket, adoptCodeshareState, meta?.airlineId, meta?.restartsLeft, load]);
+  }), [worldId, token, adoptGateMarket, adoptCodeshareState, meta?.airlineId, meta?.restartsLeft, load, screenMemory]);
 
   const decisionSeq = useRef(0);
   // Serialize the authoritative writes. A burst of dispatches — bulk close/sell/
@@ -450,9 +464,65 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // feedback; only the network writes queue, each adopting the previous write's new
   // version/stamp before the next goes out.
   const writeChain = useRef(Promise.resolve());
+
+  // The state a decision came back with: adopt only what is actually news
+  // (decisionAdoption.js). Runs OUTSIDE the write chain — the next queued write
+  // must not wait on a projection.
+  const settleDecision = useCallback(async (res, seq) => {
+    if (seq !== decisionSeq.current || !res?.state) return;
+    const local = stateRef.current;
+    const server = withStatsBackfill(res.state);
+    // A pre-tick response landing after the weekly poll advanced us: never
+    // roll the week backwards.
+    const olderWeek = (cur) => server.week != null && cur?.week != null && absWeekOfState(server) < absWeekOfState(cur);
+    if (olderWeek(local)) return;
+    const verdict = compareDecisionResult(local, server);
+    if (verdict === 'same') return;   // the screen already shows exactly this
+    if (verdict === 'overlay') {
+      // The airline is as the click left it; only the rivals have moved since
+      // the last poll. Same path as a rival poll: project in the worker, then
+      // adopt, and let a newer poll's overlay win.
+      const rivals = overlayOf(server);
+      const oseq = ++overlaySeq.current;
+      const next = { ...local, ...rivals };
+      await projectOffThread(next, { base: local, overlay: rivals });
+      if (oseq < adoptedSeq.current) return;
+      adoptedSeq.current = oseq;
+      latestRivals.current = rivals;
+      setState((cur) => {
+        if (cur === local) return next;
+        return cur && !olderWeek(cur) ? { ...cur, ...rivals } : cur;
+      });
+      return;
+    }
+    // The server's airline differs from the optimistic one (a generated id, a
+    // clamp, a refusal): its state wins, at once, as it always has.
+    setState((cur) => {
+      if (seq !== decisionSeq.current) return cur;
+      if (olderWeek(cur)) return cur;
+      return server;
+    });
+  }, []);
+
   const dispatch = useCallback((action) => {
     const { type, ...payload } = action ?? {};
     if (!ALLOWED_PLAYER_ACTIONS.has(type)) return; // ADVANCE_WEEK etc. — server-owned
+    // "I have seen these pop-ups" and "I have closed the debrief" change this
+    // screen and nothing else: they stay in the browser (screenMemory.js). The
+    // shared UI no longer dispatches them under Headwinds; this is the net for
+    // anything that still does. The projection is carried over — it reads
+    // neither field — so the screens do not re-run the week for it.
+    if (SCREEN_ONLY_ACTIONS.has(type)) {
+      const cur = stateRef.current;
+      if (type === 'CLEAR_TOASTS') screenMemoryRef.current.unseenToasts(cur?.pendingToasts);
+      if (type === 'DISMISS_DEBRIEF' && cur) screenMemoryRef.current.dismissDebrief(`${cur.year}:${cur.week}`);
+      setState((s) => {
+        const next = gameReducer(s, action);
+        if (next !== s) carryProjectWeek(hydrateState(s), hydrateState(next));
+        return next;
+      });
+      return;
+    }
     const seq = ++decisionSeq.current;
     // The engine error as it stood BEFORE this action, so the response can be
     // checked for a NEWLY set one. state.error is sticky (the reducer never
@@ -494,11 +564,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         // The server's post-write state includes every write that DID land and
         // none that did not, so adopting it settles any rollback still owed.
         if (seq === decisionSeq.current && writesInFlight.current <= 0) resyncOwed.current = false;
-        setState((cur) => {
-          if (seq !== decisionSeq.current) return cur;
-          if (res.state?.week != null && cur?.week != null && absWeekOfState(res.state) < absWeekOfState(cur)) return cur;
-          return withStatsBackfill(res.state);
-        });
+        settleDecision(res, seq);
         // The engine accepted the request but refused the action (no cash for a
         // heavy check, an MRO base already at its certification limit). The
         // server returns 201 with the reason; before this it was thrown away, so
@@ -556,7 +622,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
         if (shouldRollback(writesInFlight.current)) load({ full: true });
       }
     });
-  }, [worldId, token, load, showActionNotice]);
+  }, [worldId, token, load, showActionNotice, settleDecision]);
 
   // Topbar content the shared App shell renders when remote — the game gets ONE
   // header (brand · airline · date+countdown · cash · lobby/feed/messages)

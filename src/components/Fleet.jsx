@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useProgressiveCount } from '../utils/useProgressiveCount.js';
+import { useWindowedRows } from '../utils/useWindowedRows.js';
 import NumberStepper from './NumberStepper.jsx';
 import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { calendarYear as eraCalendarYear } from '../utils/simulation.js';
@@ -16,7 +17,7 @@ import {
   simulateRoute, simulateCargoRoute, cargoLaneAllocations, weeklyBlockHours, currentGameDate,
   fleetAvgUtilization, buildEventDemandModel,
   maxWeeklyBlockHoursFor, CLASS_FARE_MULTIPLIERS, routeDistanceKm, weekToGameDate, aircraftHubMaintFactor,
-  freighterLandingCategory, aircraftUtilization,
+  freighterLandingCategory, aircraftUtilization, committedRoutesByAircraft,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, coverOutlookByAircraft,
   effectiveRangeKm,
 } from '../utils/simulation.js';
@@ -81,14 +82,40 @@ const CABIN_LABELS = {
 // distance — what this file used to do in five separate places — showed a legal
 // 138h airframe as 264h, and the Math.min(100, …) bar saturated so 145h and
 // 278h drew the same rectangle.
-const utilFor = (state, aircraft, month) => aircraftUtilization({
-  aircraft,
-  type:        getAircraftType(aircraft?.typeId),
-  routes:      state.routes ?? [],
-  cargoRoutes: state.cargoRoutes ?? [],
-  month,
-  capHours:    maxWeeklyBlockHoursFor(state),
-});
+//
+// It is asked for every tail on the page (the list, the summary chips, the
+// by-type view), and aircraftUtilization walks the route tables for the one
+// tail it is given: fleet × routes, 20 million steps a render at 4,900 tails
+// and 4,000 routes. So the tables are indexed once — per tail, the routes it
+// flies or covers, in table order — and each tail is handed only its own. The
+// figure is the same: those are exactly the routes routesCommittedTo keeps.
+const NO_ROUTES = [];
+const COMMITTED_BY_TAIL = new WeakMap();   // routes array -> WeakMap(cargo array -> Map(tailId -> { pax, cargo }))
+function committedByTail(routes, cargoRoutes) {
+  let byCargo = COMMITTED_BY_TAIL.get(routes);
+  if (!byCargo) { byCargo = new WeakMap(); COMMITTED_BY_TAIL.set(routes, byCargo); }
+  let index = byCargo.get(cargoRoutes);
+  if (!index) {
+    index = committedRoutesByAircraft(routes, cargoRoutes);
+    byCargo.set(cargoRoutes, index);
+  }
+  return index;
+}
+/** This tail's own routes (flown or covered): { pax, cargo }, in table order. */
+export function tailRoutes(state, aircraftId) {
+  return committedByTail(state.routes ?? NO_ROUTES, state.cargoRoutes ?? NO_ROUTES).get(aircraftId) ?? { pax: NO_ROUTES, cargo: NO_ROUTES };
+}
+const utilFor = (state, aircraft, month) => {
+  const mine = tailRoutes(state, aircraft?.id);
+  return aircraftUtilization({
+    aircraft,
+    type:        getAircraftType(aircraft?.typeId),
+    routes:      mine.pax,
+    cargoRoutes: mine.cargo,
+    month,
+    capHours:    maxWeeklyBlockHoursFor(state),
+  });
+};
 
 /** Bar width % — full (not clipped-and-forgotten) once the cap is breached. */
 const utilBarWidth = (pct) => `${Math.max(0, Math.min(100, pct * 100))}%`;
@@ -2211,10 +2238,12 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
 
   // A big fleet is hundreds of rows: build them a slice per frame instead of
   // all in the click that opened the page (utils/useProgressiveCount.js).
-  const shownRows = useProgressiveCount(fleet.length, {
-    first: 60, step: 120,
-    resetKey: `${viewMode}|${search}|${filterChip}|${filterTypeId}|${filterBase}|${sortKey}|${sortDir}`,
-  });
+  const listKey = `${viewMode}|${search}|${filterChip}|${filterTypeId}|${filterBase}|${sortKey}|${sortDir}`;
+  const shownRows = useProgressiveCount(fleet.length, { first: 60, step: 120, resetKey: listKey });
+  // Past a few hundred tails even that is too much: every row is rebuilt on
+  // every state change. Then only the rows on screen exist
+  // (utils/useWindowedRows.js); the list is filtered and sorted further down.
+  const rowWindowing = useWindowedRows({ estimate: 58, minTotal: 150, resetKey: listKey });
 
   if (fleet.length === 0 && pendingOrders.length === 0) {
     return (
@@ -2335,6 +2364,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   });
 
   // ── Bulk selection ──────────────────────────────────────────────────────
+  const rowWindow = rowWindowing.rows(sortedFleet.length);
   const checkedAircraft   = fleet.filter(a => checkedIds.includes(a.id));
   const allVisibleChecked = visibleFleet.length > 0 && visibleFleet.every(a => checkedIds.includes(a.id));
   const checkedTypeIds    = [...new Set(checkedAircraft.map(a => a.typeId))];
@@ -3367,15 +3397,18 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
               <SortableTh label="Status"   k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={rowWindowing.bodyRef}>
             {visibleFleet.length === 0 ? (
               <tr><td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 13 }}>
                 No aircraft match — <button className="btn btn-ghost" style={{ fontSize: 12, display: 'inline' }} onClick={() => { setSearch(''); setFilterChip('all'); }}>clear filters</button>
               </td></tr>
             ) : null}
-            {sortedFleet.slice(0, shownRows).map(aircraft => {
+            {rowWindow.windowed && rowWindow.padTop > 0 && (
+              <tr aria-hidden="true" data-spacer=""><td colSpan={9} style={{ height: rowWindow.padTop, padding: 0, border: 0 }} /></tr>
+            )}
+            {(rowWindow.windowed ? sortedFleet.slice(rowWindow.start, rowWindow.end) : sortedFleet.slice(0, shownRows)).map(aircraft => {
               const type   = getAircraftType(aircraft.typeId);
-              const route  = routes.find(r => r.aircraftId === aircraft.id);
+              const mine   = tailRoutes(state, aircraft.id);
               const ageWks = aircraft.ageWeeks ?? 0;
               const maintM = maintenanceMultiplier(effectiveMaintAgeWeeks(aircraft));
               const maint  = tailMaintenanceFn(state)(aircraft);
@@ -3385,8 +3418,8 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
 
               // Utilisation — one reading, the same one the tick uses.
               const util = utilFor(state, aircraft, gameMonth);
-              const allRoutes = routes.filter(r => r.aircraftId === aircraft.id);
-              const allCargo  = cargoRoutes.filter(r => r.aircraftId === aircraft.id);
+              const allRoutes = mine.pax.filter(r => r.aircraftId === aircraft.id);
+              const allCargo  = mine.cargo.filter(r => r.aircraftId === aircraft.id);
               const assignedRoutes = [...allRoutes, ...allCargo];
 
               // Cabin summary
@@ -3556,6 +3589,9 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
                 </tr>
               );
             })}
+            {rowWindow.windowed && rowWindow.padBottom > 0 && (
+              <tr aria-hidden="true" data-spacer=""><td colSpan={9} style={{ height: rowWindow.padBottom, padding: 0, border: 0 }} /></tr>
+            )}
           </tbody>
         </table>
       </div>

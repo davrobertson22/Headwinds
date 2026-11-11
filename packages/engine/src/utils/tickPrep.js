@@ -184,9 +184,12 @@ export function prepareWeek(state, {
   // fleet as it stands, earlier finishers included, so two A321s converted in
   // the same week come out #3 and #4 rather than both #3.
   const namingFleet = [...(state.fleet ?? [])];
+  // One pass over the route tables, not one per tail (fleet × routes).
+  const routedIds = new Set();
+  for (const r of (state.routes ?? [])) routedIds.add(r.aircraftId);
+  for (const r of (state.cargoRoutes ?? [])) routedIds.add(r.aircraftId);
   const tickedFleetPre = (state.fleet ?? []).map((a, i) => {
-    const hasRoute = (state.routes ?? []).some(r => r.aircraftId === a.id)
-      || (state.cargoRoutes ?? []).some(r => r.aircraftId === a.id);
+    const hasRoute = routedIds.has(a.id);
     // Self-heal (saves broken before the reducer guard shipped): several route
     // actions used to rewrite `status` from the route table alone, so closing —
     // or transferring away — a broken tail's last flight left groundedWeeksLeft

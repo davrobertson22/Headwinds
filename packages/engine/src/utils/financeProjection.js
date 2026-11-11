@@ -107,6 +107,20 @@ export function primeProjectWeek(state, result) {
   return true;
 }
 
+/**
+ * Give `to` the projection already worked out for `from`, when the two states
+ * differ only in things the projection never reads (which pop-ups are queued,
+ * whether the debrief is open). The caller vouches for that. Returns whether a
+ * result was carried.
+ */
+export function carryProjectWeek(from, to) {
+  if (!from || !to || typeof from !== 'object' || typeof to !== 'object') return false;
+  const cached = _projectionCache.get(from);
+  if (cached === undefined || _projectionCache.has(to)) return false;
+  _projectionCache.set(to, cached);
+  return true;
+}
+
 function computeProjectWeek(state) {
   const fleet = state.fleet ?? [];
 

@@ -32,8 +32,8 @@
  * trade-off between launching profitable direct routes and preserving alliance revenue.
  */
 
-import { baseCityPairDemand, routeDistance, referencePrice } from '../utils/market.js';
-import { marketDevForOD } from './marketDev.js';
+import { baseCityPairDemand, routeDistance, referencePrice, getDemandModel } from '../utils/market.js';
+import { marketDevForOD, marketDevActive } from './marketDev.js';
 import {
   buildRouteMarket,
   buildCompetitorOffer,
@@ -1444,6 +1444,111 @@ export function trimOwnMetalEntries(entries = [], perHub = OWN_METAL_ENTRIES_PER
 // are priced. The survivors, their fields and their order are exactly what the
 // unfiltered call followed by computeOwnMetalODRevenue's own cut would keep
 // (network-own-metal-prefilter-test.mjs holds the two equal).
+// ── Own-metal candidate cut ───────────────────────────────────────────────────
+// Remembered per (demand model, limit, hub, ordered spoke list). Only hubs big
+// enough for the pair loop to matter are kept, and the store is cleared
+// wholesale at the cap: an entry is a key of the spoke codes plus at most
+// `perHubLimit` small tuples, and a miss costs one honest recomputation.
+const OWN_METAL_CUT_MEMO = new Map();
+const OWN_METAL_CUT_MEMO_CAP = 512;
+const OWN_METAL_CUT_MEMO_MIN_SPOKES = 24;
+let ownMetalCutMemoOn = true;
+/** Test seams — the suite asserts the memo and the selection change no answer. */
+export function setOwnMetalCutMemo(on) { ownMetalCutMemoOn = on !== false; OWN_METAL_CUT_MEMO.clear(); freshCuts = recordingCuts ? [] : null; }
+export function ownMetalCutMemoSize() { return OWN_METAL_CUT_MEMO.size; }
+
+// ── Handing cuts from one thread to another ──────────────────────────────────
+// The Headwinds client projects an incoming state in a Web Worker, which has
+// its own copy of this module — and so its own memo. The page's copy starts
+// empty, and the first projection the PAGE runs (the player's first click)
+// would enumerate every hub from scratch: 0.6 s for a 1,672-spoke hub that the
+// worker had already cut a moment earlier. So the worker records the cuts it
+// makes and sends them along with the projection, and the page files them.
+// A cut is fully named by its key (demand model, limit, hub, ordered spokes),
+// so a filed cut is exactly the one this thread would have computed.
+let recordingCuts = false;
+let freshCuts = null;
+/** Start (or stop) keeping the cuts made from now on for takeOwnMetalCuts. */
+export function recordOwnMetalCuts(on = true) { recordingCuts = on === true; freshCuts = recordingCuts ? [] : null; }
+/** The cuts made since the last call, as [key, tuples] pairs; empties the list. */
+export function takeOwnMetalCuts() {
+  if (!freshCuts || freshCuts.length === 0) return [];
+  const out = freshCuts; freshCuts = [];
+  return out;
+}
+/** File cuts another thread made. Never replaces one already held. Returns how many were filed. */
+export function primeOwnMetalCuts(list) {
+  if (!ownMetalCutMemoOn || !Array.isArray(list)) return 0;
+  let filed = 0;
+  for (const pair of list) {
+    if (!Array.isArray(pair) || typeof pair[0] !== 'string' || !Array.isArray(pair[1]) || OWN_METAL_CUT_MEMO.has(pair[0])) continue;
+    if (OWN_METAL_CUT_MEMO.size >= OWN_METAL_CUT_MEMO_CAP) OWN_METAL_CUT_MEMO.clear();
+    OWN_METAL_CUT_MEMO.set(pair[0], pair[1]);
+    filed++;
+  }
+  return filed;
+}
+
+/**
+ * Every O&D two spokes of one hub can sell, cut to the `limit` with the highest
+ * gravity demand (ties to the earlier pair in enumeration order) and returned
+ * in enumeration order. Exactly what collecting every candidate, stable-sorting
+ * by demand and slicing would return — which is what this used to do, building
+ * and sorting up to a million objects to keep 150.
+ */
+export function selectOwnMetalCut(spokes, limit = Infinity) {
+  const capped = Number.isFinite(limit);
+  const kept = [];
+  let n = 0;                 // candidates seen (the enumeration rank)
+  let worst = -1;            // index in `kept` of the entry the next better one evicts
+  const findWorst = () => {
+    // Lowest demand; among equals the LATEST seen, which a stable sort ranks last.
+    let w = 0;
+    for (let k = 1; k < kept.length; k++) {
+      const c = kept[k], cw = kept[w];
+      if (c.odDemand < cw.odDemand || (c.odDemand === cw.odDemand && c.n > cw.n)) w = k;
+    }
+    return w;
+  };
+  for (let i = 0; i < spokes.length; i++) {
+    const a = spokes[i];
+    for (let j = i + 1; j < spokes.length; j++) {
+      const b = spokes[j];
+      if (a.spoke === b.spoke) continue;
+      // A through tag service already sells this O&D — don't double-book it.
+      if (a.tagParents.size > 0 && b.tagParents.size > 0) {
+        let sharedTag = false;
+        for (const t of a.tagParents) { if (b.tagParents.has(t)) { sharedTag = true; break; } }
+        if (sharedTag) continue;
+      }
+
+      // Canonical (sorted) O&D so each market is emitted exactly once.
+      const aFirst = a.spoke < b.spoke;
+      const origin = aFirst ? a.spoke : b.spoke;
+      const dest   = aFirst ? b.spoke : a.spoke;
+      // Developed O&D market (see findConnectionsAtHub): 1× outside a
+      // market-development world.
+      const odDemand = Math.round(baseCityPairDemand(origin, dest)
+        * marketDevForOD(origin, dest, Math.min(a.freq ?? 0, b.freq ?? 0)));
+      if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
+      const rank = n++;
+      if (!capped || kept.length < limit) {
+        kept.push({ a, b, origin, dest, odDemand, n: rank, i, j });
+        if (capped && kept.length === limit) worst = findWorst();
+        continue;
+      }
+      // Full: a later pair only displaces the worst on strictly higher demand
+      // (on a tie the earlier pair wins, and every kept pair is earlier).
+      if (limit <= 0 || odDemand <= kept[worst].odDemand) continue;
+      kept[worst] = { a, b, origin, dest, odDemand, n: rank, i, j };
+      worst = findWorst();
+    }
+  }
+  // Evictions leave `kept` out of enumeration order; put it back.
+  if (capped) kept.sort((x, y) => x.n - y.n);
+  return kept;
+}
+
 export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}, legacy = false, opts = {}) {
   const onlyHubs    = opts.hubs ?? null;
   const perHubLimit = opts.perHubLimit ?? Infinity;
@@ -1477,32 +1582,37 @@ export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}
     }));
     if (spokes.length < 2) continue;
 
-    // Pass 1 — the cheap filters and the gravity demand, in enumeration order.
-    const cands = [];
-    for (let i = 0; i < spokes.length; i++) {
-      for (let j = i + 1; j < spokes.length; j++) {
-        const a = spokes[i], b = spokes[j];
-        if (a.spoke === b.spoke) continue;
-        // A through tag service already sells this O&D — don't double-book it.
-        let sharedTag = false;
-        for (const t of a.tagParents) { if (b.tagParents.has(t)) { sharedTag = true; break; } }
-        if (sharedTag) continue;
-
-        // Canonical (sorted) O&D so each market is emitted exactly once.
-        const [origin, dest] = a.spoke < b.spoke ? [a.spoke, b.spoke] : [b.spoke, a.spoke];
-        // Developed O&D market (see findConnectionsAtHub): 1× outside a
-        // market-development world.
-        const odDemand = Math.round(baseCityPairDemand(origin, dest)
-          * marketDevForOD(origin, dest, Math.min(a.freq ?? 0, b.freq ?? 0)));
-        if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
-        cands.push({ a, b, origin, dest, odDemand, n: cands.length });
+    // Pass 1 — the cheap filters and the gravity demand, in enumeration order,
+    // keeping the per-hub cut computeOwnMetalODRevenue makes: highest demand
+    // first, ties in enumeration order, then back to enumeration order.
+    //
+    // This is every PAIR of spokes, so it is the one quadratic step in the
+    // tick: 1,672 spokes at one hub (a live airline, 2026-11) is 1.4 million
+    // pairs. Two things keep that from being paid every week and every click:
+    //   * the cut is selected as it goes (selectOwnMetalCut) instead of
+    //     collecting a million candidates and sorting them to keep 150;
+    //   * while the hub's spoke list is unchanged the answer is the same, so
+    //     it is remembered (OWN_METAL_CUT_MEMO). Fares and frequencies do not
+    //     enter pass 1 outside a market-development world, and a tag parent
+    //     changes which pairs are skipped, so both of those opt out.
+    let kept = null, cutKey = null;
+    if (ownMetalCutMemoOn && spokes.length >= OWN_METAL_CUT_MEMO_MIN_SPOKES
+        && Number.isFinite(perHubLimit) && !marketDevActive()
+        && spokes.every((x) => x.tagParents.size === 0)) {
+      cutKey = getDemandModel() + '|' + perHubLimit + '|' + hub + '|' + spokes.map((x) => x.spoke).join(',');
+      const hit = OWN_METAL_CUT_MEMO.get(cutKey);
+      if (hit) kept = hit.map(([i, j, origin, dest, odDemand]) => ({ a: spokes[i], b: spokes[j], origin, dest, odDemand }));
+    }
+    if (!kept) {
+      kept = selectOwnMetalCut(spokes, perHubLimit);
+      if (cutKey) {
+        if (OWN_METAL_CUT_MEMO.size >= OWN_METAL_CUT_MEMO_CAP) OWN_METAL_CUT_MEMO.clear();
+        const tuples = kept.map((c) => [c.i, c.j, c.origin, c.dest, c.odDemand]);
+        OWN_METAL_CUT_MEMO.set(cutKey, tuples);
+        // Bounded: a thread that records is one whose list is taken every projection.
+        if (freshCuts && freshCuts.length < OWN_METAL_CUT_MEMO_CAP) freshCuts.push([cutKey, tuples]);
       }
     }
-    // The per-hub cut computeOwnMetalODRevenue makes: highest demand first,
-    // ties in enumeration order (a stable sort), then back to that order.
-    const kept = cands.length > perHubLimit
-      ? [...cands].sort((x, y) => y.odDemand - x.odDemand).slice(0, perHubLimit).sort((x, y) => x.n - y.n)
-      : cands;
 
     // Pass 2 — price the survivors.
     for (const { a, b, origin, dest, odDemand } of kept) {

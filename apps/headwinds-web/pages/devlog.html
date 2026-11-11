@@ -54,6 +54,21 @@
     <p class="lede">What's changing in Headwinds, update by update. Headwinds shares its simulation engine with <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>, so engine improvements — economy rebalances, the hub overhaul, loyalty rework, new aircraft — land here too; those are chronicled on the <a href="https://www.tailwindsairlinegame.com/devlog.html" target="_blank" rel="noopener noreferrer">Tailwinds devlog</a>. This page covers what's new in the multiplayer game itself.</p>
 
     <div class="entry">
+      <p class="date">November 10, 2026</p>
+      <h2>Big airlines: clicks, new weeks and the Fleet page are several times faster</h2>
+      <p>The larger your airline, the longer the game froze after every click: two seconds or more on the biggest airlines in Lunar Gateway and Scarce Assets, and longer still on the Fleet page. This update is about that. It applies to every world, including ones already running.</p>
+      <ul>
+        <li><strong>Clicks.</strong> Changing a fare or a schedule on an airline of about 1,900 aircraft froze the page for 2 to 2.5 seconds. It now takes about half a second. On an airline of 870 aircraft it went from about 0.8 seconds to between a quarter and half a second.</li>
+        <li><strong>New weeks.</strong> When a week landed, every open tab sent the server a note that its pop-ups had been read, and the page froze while that was answered: 2 to 4 seconds on a big airline. Your browser now remembers which pop-ups it has shown and which weekly debrief you closed, and nothing is sent. A new week lands in about half a second.</li>
+        <li><strong>The Fleet page.</strong> It used to build a row for every aircraft you own. With 1,900 aircraft it took 6 seconds to open, and with 4,900 nearly a minute. It now builds only the rows on screen and opens in half a second or less.</li>
+        <li><strong>The server.</strong> Every decision made the server work out every airline&rsquo;s view of every rival again, about a second in the largest world, while everyone else&rsquo;s requests waited. It now does that once a minute. The weekly tick&rsquo;s sums for the biggest airlines are two to four times quicker as well.</li>
+      </ul>
+      <p>None of the game&rsquo;s numbers changed. Fares, demand and profits come out exactly as they did before.</p>
+      <p>Three things to know. On fleets of more than 150 aircraft your browser&rsquo;s find-in-page only sees the rows on screen, so use the search box above the list. The first time you open a world on a new device you may see the last few weeks&rsquo; pop-ups once. And the very largest airlines, at 4,000 routes and more, still wait a second or two per click: that is next.</p>
+      <p>Thanks to everyone who reported this on Discord.</p>
+    </div>
+
+    <div class="entry">
       <p class="date">November 9, 2026</p>
       <h2>The Advisor, a briefing for your own AI, and AI connectors for supporters</h2>
       <p>A new page under Company reads your airline the way an experienced manager would and tells you what to do about it. In every world, including ones already running.</p>

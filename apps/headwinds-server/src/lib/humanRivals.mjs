@@ -1079,6 +1079,63 @@ function loadAndCacheRivalRows(prisma, worldId, stamp) {
   return promise;
 }
 
+// ── The derivation over the rows, once per loaded row set ────────────────────
+// buildRivalViews turns every active airline's trimmed blob into every other
+// airline's view of it: a competitor entry and a scored spec per pair, for the
+// whole world. It is a pure function of the rows and the alliance graph, and it
+// is the expensive part of a rival view — measured 2026-11-10 on live-sized
+// worlds: 0.4 s for Lunar Gateway (49 airlines), 1.0–1.2 s for Scarce Assets
+// (33 airlines, 13,000 tails), synchronous, in the one API process that serves
+// every world.
+//
+// The decision path reuses the ROWS for up to RIVAL_ROWS_MAX_STALE_MS (above),
+// but it re-ran this derivation over those same rows on every decision: the
+// view cache is keyed on the world stamp, and the previous decision has always
+// just moved it. A player working down a list of routes held the API for a
+// second per edit, for everyone.
+//
+// So the result is remembered against the rows ARRAY itself (a WeakMap: it is
+// collected with the rows) and the alliance graph it was built with. A new row
+// load is a new array; an alliance change is a different key; nothing else
+// enters the derivation.
+//
+// What comes back is a per-call COPY of each view and of each competitor
+// entry, because the callers go on to write on them — the gate market, the
+// stock-pool summary, the market-development table, `poolShares` — from tables
+// that are read fresh every time. Everything deeper is shared and read-only.
+const pricedViews = new WeakMap();   // rows array -> { allianceKey, views }
+let pricedViewBuilds = 0;
+/** Test seam: how many times the derivation has actually run. */
+export function rivalViewDerivations() { return pricedViewBuilds; }
+
+function allianceKeyOf(allianceMap) {
+  if (!allianceMap || allianceMap.size === 0) return '';
+  return JSON.stringify([...allianceMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));
+}
+
+function pricedViewsFor(rows, allianceMap) {
+  const allianceKey = allianceKeyOf(allianceMap);
+  let hit = Array.isArray(rows) ? pricedViews.get(rows) : null;
+  if (!hit || hit.allianceKey !== allianceKey) {
+    pricedViewBuilds++;
+    hit = { allianceKey, views: buildRivalViews(rows, allianceMap) };
+    if (Array.isArray(rows)) pricedViews.set(rows, hit);
+  }
+  const competitorCopies = new Map();
+  const out = new Map();
+  for (const [id, view] of hit.views) {
+    out.set(id, {
+      ...view,
+      competitors: view.competitors.map((c) => {
+        let copy = competitorCopies.get(c);
+        if (!copy) { copy = { ...c }; competitorCopies.set(c, copy); }
+        return copy;
+      }),
+    });
+  }
+  return out;
+}
+
 export async function buildWorldRivalViews(prisma, worldId, { airlines = null, stamp = null, world = null, maxStaleMs = 0, rowsMaxStaleMs = 0, forAirlineId = null } = {}) {
   // The world row, read at most once per build (when the caller didn't pass it).
   let worldRead = null;
@@ -1158,7 +1215,10 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     setDemandModel(_st?.demandModel);   // one world, one demand model
     setFuelStationsEnabled(fuelStationsOn(_st));
     setFuelStationDiscounts(null);   // rival views carry no airline's farms
-    return buildRivalViews(rows, allianceMap);
+    // The knobs above are set on every call (the request that follows may read
+    // them before its reducer does). The derivation itself is remembered for
+    // as long as these exact rows are — see pricedViewsFor.
+    return pricedViewsFor(rows, allianceMap);
   };
 
   if (airlines) {

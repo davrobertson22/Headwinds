@@ -323,6 +323,25 @@ export function partsPoolDurationMult(pool) {
 
 // ─── Network resolution ──────────────────────────────────────────────────────
 
+/**
+ * aircraft id → every airport its routes touch, for a whole route table in one
+ * pass. Hand it to resolveBaseFor when resolving more than a tail or two:
+ * without it each call walks every route, so resolving a fleet is fleet ×
+ * routes (4,900 × 4,000 for one live airline — a quarter of a second a week).
+ */
+export function networkAirportsIndex(routes = [], cargoRoutes = []) {
+  const index = new Map();
+  for (const table of [routes ?? [], cargoRoutes ?? []]) {
+    for (const r of table) {
+      let codes = index.get(r.aircraftId);
+      if (!codes) { codes = new Set(); index.set(r.aircraftId, codes); }
+      const stops = Array.isArray(r.stops) && r.stops.length >= 2 ? r.stops : [r.origin, r.destination];
+      for (const c of stops) if (c) codes.add(c);
+    }
+  }
+  return index;
+}
+
 /** Every airport an aircraft's routes touch (multi-stop legs included). */
 export function aircraftNetworkAirports(aircraftId, routes = [], cargoRoutes = []) {
   const codes = new Set();
@@ -342,10 +361,14 @@ export function aircraftNetworkAirports(aircraftId, routes = [], cargoRoutes = [
  * Returns null when nothing qualifies. Does NOT consider slot availability —
  * that is the caller's job, because slots are allocated across the whole fleet.
  */
-export function resolveBaseFor(aircraft, bases = {}, routes = [], cargoRoutes = [], absWeek = 0) {
+export function resolveBaseFor(aircraft, bases = {}, routes = [], cargoRoutes = [], absWeek = 0, networkIndex = null) {
   const familyId = aircraftFamily(aircraft?.typeId);
   if (!familyId) return null;
-  const network = aircraftNetworkAirports(aircraft?.id, routes, cargoRoutes);
+  // `networkIndex` (networkAirportsIndex of the same two tables) is the same
+  // set, read instead of rebuilt; copied because the reserve base is added.
+  const network = networkIndex
+    ? new Set(networkIndex.get(aircraft?.id) ?? [])
+    : aircraftNetworkAirports(aircraft?.id, routes, cargoRoutes);
   // A stationed reserve flies nothing, so its own base airport counts as network.
   if (aircraft?.reserveBase) network.add(aircraft.reserveBase);
 
@@ -375,11 +398,12 @@ export function resolveBaseFor(aircraft, bases = {}, routes = [], cargoRoutes = 
 export function baseRelianceMap(snap = {}) {
   const { bases = {}, fleet = [], routes = [], cargoRoutes = [], absWeek = 0 } = snap;
   const out = {};
+  const network = networkAirportsIndex(routes, cargoRoutes);
   for (const a of fleet ?? []) {
     if (!a || a.status === 'retired') continue;
     const famId = aircraftFamily(a.typeId);
     if (!famId) continue;
-    const resolved = resolveBaseFor(a, bases, routes, cargoRoutes, absWeek);
+    const resolved = resolveBaseFor(a, bases, routes, cargoRoutes, absWeek, network);
     if (!resolved?.code) continue;
     if (!out[resolved.code]) out[resolved.code] = {};
     out[resolved.code][famId] = (out[resolved.code][famId] ?? 0) + 1;

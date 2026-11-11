@@ -7,8 +7,17 @@ import { subscribeAwayDigest, pendingAwayWeeks } from '../utils/awayDigest.js';
 import { netProfitOf } from '../utils/standings.js';
 
 export default function WeeklyDebrief() {
-  const { state, dispatch } = useGame();
-  const { lastReport, showDebrief, week, year, activeEvents, routes, fleet } = state;
+  const { state, dispatch, remoteApi } = useGame();
+  const { lastReport, week, year, activeEvents, routes, fleet } = state;
+  // Headwinds: closing the debrief is remembered by the browser, per week,
+  // instead of being written to the server as a decision (remoteApi
+  // .dismissDebrief — see apps/headwinds-web/src/screenMemory.js). The server's
+  // flag stays up until the next week replaces the report.
+  const weekKey = `${year}:${week}`;
+  const [closedHere, setClosedHere] = useState(null);
+  const showDebrief = state.showDebrief
+    && closedHere !== weekKey
+    && !(remoteApi?.debriefDismissed?.(weekKey) === true);
 
   const [displayed, setDisplayed] = useState(0);
   const [phase, setPhase]         = useState('counting'); // 'counting' | 'done'
@@ -106,6 +115,11 @@ export default function WeeklyDebrief() {
   const costRows = costItems.filter(i => Math.abs(i.v) >= 1);
 
   function dismiss() {
+    if (typeof remoteApi?.dismissDebrief === 'function') {
+      remoteApi.dismissDebrief(weekKey);
+      setClosedHere(weekKey);
+      return;
+    }
     dispatch({ type: 'DISMISS_DEBRIEF' });
   }
 

@@ -705,7 +705,10 @@ export function setDemandModel(v) {
   setGateRentV4(next >= 4);
   if (next === _demandModel) return;
   _demandModel = next;
-  clearPairDemandMemo();
+  // Pair demand differs by model, so each model keeps its own memo table.
+  // (This used to CLEAR the one shared memo — and a server ticking a classic
+  // world and a v3 world in turn threw the whole table away on every switch.)
+  usePairDemandMemoFor(next);
 }
 export function getDemandModel() { return _demandModel; }
 
@@ -1025,29 +1028,74 @@ function demandV3Correction(po, pd, domestic) {
 // spokes at every hub — ~38,000 calls a week for a single 279-spoke hub,
 // re-deriving the same gravity model from the same constants every time. The
 // server pays this for every world it ticks, so the memo is worth more here than
-// in the single-player build, and it is shared across worlds: the function's
-// answer depends on nothing world-specific.
+// in the single-player build, and it is shared across worlds on the same
+// demand model.
 //
-// Capped and cleared wholesale rather than evicted one-by-one: a cleared cache
-// costs one tick of recomputation, and an LRU here would be more machinery than
-// the thing it manages.
-const PAIR_DEMAND_MEMO = new Map();
-const PAIR_DEMAND_MEMO_CAP = 200_000;
+// The store is a triangle of rows indexed by the airports' positions in the
+// catalogue: row i holds the answer for every airport after i, as doubles, and
+// is allocated the first time airport i is asked about. NaN = not computed yet.
+//
+// It used to be a Map keyed on the two codes, capped at 200,000 pairs and
+// cleared wholesale at the cap. That was sized for the 279-spoke hub above
+// (38,000 pairs). Live worlds grew past it: one 1,672-spoke hub is 1.4 MILLION
+// pairs, so the memo emptied itself seven times inside a single tick and the
+// gravity model was re-derived for every pair, every week and every click
+// (measured 2026-11-10: two thirds of that airline's weekly projection). The
+// triangle cannot thrash — its ceiling is the catalogue, ~2.3 million pairs,
+// ~18 MB, and only an airline that really flies everywhere gets near it — and
+// a read is two index lookups, with no key string to build.
+//
+// The answer does depend on ONE thing outside the two codes: the demand model
+// (classic, v2, v3 … — set per world by setDemandModel). Each model has its own
+// triangle, switched in when the model changes, so a server ticking worlds on
+// different models keeps every table warm.
+let _pairIndex = null;                    // Map(code -> position in AIRPORTS)
+const _pairRowsByModel = new Map();       // demand model -> rows
+let _pairRows = [];                       // the live model's: _pairRows[i][j - i - 1] for i < j
+_pairRowsByModel.set(_demandModel, _pairRows);
+function usePairDemandMemoFor(model) {
+  let rows = _pairRowsByModel.get(model);
+  if (!rows) { rows = []; _pairRowsByModel.set(model, rows); }
+  _pairRows = rows;
+}
+function pairIndexOf(code) {
+  if (_pairIndex === null) {
+    _pairIndex = new Map();
+    // First record wins, as getAirport's index and AIRPORTS.find agree on.
+    AIRPORTS.forEach((a, i) => { if (!_pairIndex.has(a.code)) _pairIndex.set(a.code, i); });
+  }
+  return _pairIndex.get(code);
+}
 
 /** Test seam — the suite asserts the memo does not change any answer. */
-export function clearPairDemandMemo() { PAIR_DEMAND_MEMO.clear(); }
+export function clearPairDemandMemo() { _pairRowsByModel.clear(); usePairDemandMemoFor(_demandModel); }
+
+/** Test seam — how many pairs are held right now. */
+export function pairDemandMemoSize() {
+  let n = 0;
+  for (const row of _pairRows) if (row) for (let k = 0; k < row.length; k++) if (row[k] === row[k]) n++;
+  return n;
+}
 
 export function baseCityPairDemand(originCode, destCode) {
   // Symmetric: every endpoint term enters as a product under the same sqrt and
-  // distance is symmetric, so one key serves both directions.
-  const memoKey = originCode < destCode
-    ? originCode + '\u0000' + destCode
-    : destCode + '\u0000' + originCode;
-  const hit = PAIR_DEMAND_MEMO.get(memoKey);
-  if (hit !== undefined) return hit;
+  // distance is symmetric, so one cell serves both directions.
+  const io = pairIndexOf(originCode);
+  const id = pairIndexOf(destCode);
+  // An unknown code is 0 from the function itself; an airport paired with
+  // itself is its own same-metro 0. Neither is worth a cell.
+  if (io === undefined || id === undefined || io === id) return computeBaseCityPairDemand(originCode, destCode);
+  const i = io < id ? io : id;
+  const k = (io < id ? id : io) - i - 1;
+  let row = _pairRows[i];
+  if (row === undefined) {
+    row = new Float64Array(AIRPORTS.length - i - 1).fill(NaN);
+    _pairRows[i] = row;
+  }
+  const hit = row[k];
+  if (hit === hit) return hit;
   const value = computeBaseCityPairDemand(originCode, destCode);
-  if (PAIR_DEMAND_MEMO.size >= PAIR_DEMAND_MEMO_CAP) PAIR_DEMAND_MEMO.clear();
-  PAIR_DEMAND_MEMO.set(memoKey, value);
+  row[k] = value;
   return value;
 }
 

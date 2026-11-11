@@ -81,7 +81,9 @@ await test('the Market and Fleet render through it, and photos load lazily', () 
   const m = src('../src/components/Marketplace.jsx'), f = src('../src/components/Fleet.jsx');
   assert.match(m, /filtered\.slice\(0, shownCards\)\.map\(type =>/);
   assert.match(m, /className="aircraft-photo"\s*\n\s*loading="lazy"/);
-  assert.match(f, /sortedFleet\.slice\(0, shownRows\)\.map\(aircraft =>/);
+  // Short fleets still build progressively; past 150 rows the list is windowed
+  // instead (fleet-window-test.mjs).
+  assert.match(f, /: sortedFleet\.slice\(0, shownRows\)\)\.map\(aircraft =>/);
   assert.equal((f.match(/loading="lazy" decoding="async"/g) ?? []).length, 2);
   // The hook sits above the Fleet's early return (rules of hooks).
   assert.ok(f.indexOf('const shownRows = useProgressiveCount(') < f.indexOf('if (fleet.length === 0 && pendingOrders.length === 0) {'));
