@@ -131,5 +131,17 @@ test('launch checkout: 20 frames, from January of the EIS year, at the reducer p
   assert.ok(Math.abs(shown - paid) / paid < 0.01, `checkout says ${shown}, reducer charged ${paid}`);
 });
 
+test('An-225 launch checkout: one frame, scaled to the one ever built, at the reducer price', () => {
+  const s = era({ startYear: 1986 });
+  const { html, placed, paid } = checkoutAndOrder(s, 'an225', 'buy', 1);
+  assert.equal(placed.length, 1, 'a one-frame launch order is accepted');
+  assert.match(html, /Minimum 1 frame \(scaled to the 1 ever built\)/);
+  assert.doesNotMatch(html, /bulk \+ launch/, 'no bulk discount on one frame');
+  assert.match(html, /Total \(1 aircraft\)|Total \$/);
+  assert.ok(paid > 0);
+  seedSave(s);
+  assert.match(cardOf(render(React.createElement(Marketplace)), 'Antonov An-225 Mriya'), /at least 1 \(1 ever built\)/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

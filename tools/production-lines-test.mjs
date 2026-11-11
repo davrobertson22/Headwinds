@@ -313,6 +313,32 @@ test('a launch order that cannot be paid in full is not trimmed below the minimu
   assert.equal(s1.cash, s0.cash);
 });
 
+test('launch minimums scale with how many were really built (An-225 1, Concorde 4)', () => {
+  needL();
+  const mriya = era({ startYear: 1986 });
+  const d = orderDenial(mriya, 'an225');
+  assert.equal(d?.code, 'launch_only');
+  assert.equal(d.minQty, 1, 'one An-225 was built, so one frame is a launch order');
+  assert.equal(added(mriya, order(mriya, 'an225', 1)).length, 1);
+  const sst = era({ startYear: 1974 });
+  assert.equal(orderDenial(sst, 'concorde')?.minQty, 4);
+  assert.equal(order(sst, 'concorde', 3).pendingOrders.length, 0, 'below the scaled minimum');
+  assert.equal(added(sst, order(sst, 'concorde', 4)).length, 4);
+  const comet = era({ startYear: 1950 });
+  assert.equal(orderDenial(comet, 'comet1')?.minQty, 3);
+});
+
+test('big programmes keep the class ceiling; types without a real size use it too', () => {
+  needL();
+  assert.equal(L.launchMinQty(T('b7779x')), L.LAUNCH_MIN_LARGE);
+  assert.equal(L.launchMinQty(T('b737800')), L.LAUNCH_MIN_SMALL);
+  assert.equal(L.launchMinQty(T('c929')), L.LAUNCH_MIN_LARGE, 'no orders on record → ceiling');
+  for (const t of AIRCRAFT_TYPES) {
+    const m = L.launchMinQty(t);
+    assert.ok(Number.isInteger(m) && m >= 1 && m <= L.LAUNCH_MIN_SMALL, `${t.id} → ${m}`);
+  }
+});
+
 section('server race check');
 
 test('a new order landing on a week the rivals have filled is a conflict', () => {

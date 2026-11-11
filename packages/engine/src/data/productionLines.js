@@ -39,6 +39,7 @@
 import { AIRCRAFT_TYPES, getAircraftType, orderDiscount, aircraftAvailability } from './aircraft.js';
 import { deliveryClass, deliveryLead } from './delivery.js';
 import { absoluteWeek } from '../utils/fuel.js';
+import { realBuilt } from './realBuilds.js';
 
 // ── Lines ────────────────────────────────────────────────────────────────────
 // Production generations, not maintenance families (data/families.js groups
@@ -686,6 +687,8 @@ export function cancelTerms(order, absWeek) {
 // ── Launch customers (era worlds) ────────────────────────────────────────────
 export const LAUNCH_ANNOUNCE_YEARS = 2;
 export const LAUNCH_WINDOW_WEEKS = 26;
+// Ceilings (and the default for a type with no real programme size): a launch
+// order never needs more than this many frames.
 export const LAUNCH_MIN_LARGE = 20;   // wide bodies and bigger
 export const LAUNCH_MIN_SMALL = 30;   // narrow bodies, regionals, turboprops
 export const LAUNCH_DISCOUNT = 0.08;
@@ -694,8 +697,17 @@ export const MAX_TOTAL_DISCOUNT = 0.25;
 
 const LARGE_CLASSES = new Set(['Wide Body', 'Double Deck', 'Supersonic', 'Outsize']);
 
+/**
+ * Smallest launch order for a type, scaled to how many were really built:
+ * the square root of the programme size, at least 1, capped by class. Small
+ * programmes had big launch shares (BOAC took most of the 12 Comet 1s), big
+ * ones small shares, and a one-off (the An-225) needs only the one.
+ */
 export function launchMinQty(type) {
-  return LARGE_CLASSES.has(deliveryClass(type)) ? LAUNCH_MIN_LARGE : LAUNCH_MIN_SMALL;
+  const cap = LARGE_CLASSES.has(deliveryClass(type)) ? LAUNCH_MIN_LARGE : LAUNCH_MIN_SMALL;
+  const built = realBuilt(type);
+  if (built == null) return cap;
+  return Math.max(1, Math.min(cap, Math.round(Math.sqrt(built))));
 }
 
 /** Earlier launch programmes this airline joined with the same manufacturer. */
@@ -719,7 +731,7 @@ export function launchOrderDiscount(state, type, quantity) {
 /**
  * Era production-line worlds: is this not-yet-flying type announced, and is the
  * launch-customer window open? Null when not applicable.
- * { open, announceAbs, closesAbs, eisAbs, minQty, discount }
+ * { open, announceAbs, closesAbs, eisAbs, minQty, built, discount }
  */
 export function launchWindow(state, type) {
   if (!state?.productionLinesWorld || !type) return null;
@@ -737,6 +749,7 @@ export function launchWindow(state, type) {
     open: now < closesAbs,
     announceAbs, closesAbs, eisAbs,
     minQty: launchMinQty(type),
+    built: realBuilt(type),
     discount: launchDiscount(state, type),
   };
 }

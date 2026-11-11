@@ -1465,7 +1465,7 @@ export function orderDenial(state, typeId) {
       return {
         code: 'launch_only', typeId: type.id, eis: type.eis,
         minQty: lw.minQty, discount: lw.discount, closesAbs: lw.closesAbs, eisAbs: lw.eisAbs,
-        message: `The ${type.name} is announced for ${type.eis}. Until it flies it is sold only to launch customers: at least ${lw.minQty} frames, bought outright, delivering from January ${type.eis}.`,
+        message: `The ${type.name} is announced for ${type.eis}. Until it flies it is sold only to launch customers: at least ${lw.minQty} frame${lw.minQty === 1 ? '' : 's'}, bought outright, delivering from January ${type.eis}.`,
       };
     }
     return {
@@ -2210,7 +2210,7 @@ function reducer(state, action) {
           return refuse(`Launch customers buy outright — no lessor carries the ${type.name} before it has flown.`);
         }
         if (quantity < eraDenial.minQty) {
-          return refuse(`A launch order for the ${type.name} is at least ${eraDenial.minQty} frames.`);
+          return refuse(`A launch order for the ${type.name} is at least ${eraDenial.minQty} frame${eraDenial.minQty === 1 ? '' : 's'}.`);
         }
       }
 
