@@ -662,6 +662,39 @@ function guardAutoReplace(payload) {
   return { group, enabled: payload.enabled === true };
 }
 
+function guardAutoStaff(payload) {
+  // "Keep me fully staffed": one boolean for the whole airline. The hiring runs
+  // in the engine through HIRE_CREW's own cost and cash checks.
+  return { enabled: payload.enabled === true };
+}
+
+function guardAutoRelease(payload) {
+  // "Release staff above my reserve level": one boolean. The releases run in
+  // the engine after each tick through RELEASE_CREW, which pays the severance.
+  return { enabled: payload.enabled === true };
+}
+
+function guardReserveTarget(payload) {
+  // A group's reserve level, as a fraction of its requirement. The reducer
+  // clamps to its own maximum; this only keeps a non-number out of the blob.
+  const group = String(payload.group ?? '');
+  if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  const target = Number(payload.target);
+  if (!Number.isFinite(target) || target < 0 || target > 1) throw new GuardError('Invalid reserve level.');
+  return { group, target };
+}
+
+function guardReleaseCrew(payload) {
+  // Let spare staff go. The reducer releases only people above the requirement
+  // and computes the severance itself, so the payload is a group and a count
+  // of people, bounded like a hire.
+  const group = String(payload.group ?? '');
+  if (!LABOR_GROUP_MAP[group]) throw new GuardError('Unknown crew group.');
+  const bodies = Math.floor(Number(payload.bodies));
+  if (!Number.isFinite(bodies) || bodies < 1) throw new GuardError('Invalid number of staff to release.');
+  return { group, bodies: Math.min(5000 * (CREW_PER_UNIT[group] ?? 1), bodies) };
+}
+
 function guardPayIndexed(payload) {
   // Wage lock: a real group id and a boolean. Anything but literal true unlocks.
   const group = String(payload.group ?? '');
@@ -884,6 +917,10 @@ export function guardDecision(type, payload, state) {
     case 'REMOVE_GATE':        return guardGate(payload);
     case 'HIRE_CREW':         return guardHireCrew(payload);
     case 'SET_AUTO_REPLACE':  return guardAutoReplace(payload);
+    case 'SET_AUTO_STAFF':    return guardAutoStaff(payload);
+    case 'SET_AUTO_RELEASE':  return guardAutoRelease(payload);
+    case 'SET_RESERVE_TARGET': return guardReserveTarget(payload);
+    case 'RELEASE_CREW':      return guardReleaseCrew(payload);
     case 'SET_PAY_INDEXED':   return guardPayIndexed(payload);
     case 'CANCEL_RECRUITING': return guardCancelRecruiting(payload);
     case 'SET_BRANDING':       return guardBranding(payload);

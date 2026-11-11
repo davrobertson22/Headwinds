@@ -18,6 +18,7 @@ import {
   AIRPORT_GATEWAY_SCORES, hubUpgradeChecklist, hubCongestionFactor,
   playerRoutesAtAirport, playerSlotsAtAirport,
 } from '../models/demand.js';
+import { CONNECTION_SEAT_SHARE } from '../models/network.js';
 
 // ─── Tier pill ────────────────────────────────────────────────────────────────
 
@@ -251,6 +252,22 @@ function HubCard({ code, hubData, gateCount, routeCount, slotCount, snap, lastRe
                                       sub="station / crew layover costs" />
         <Stat label="Investment"      value={formatMoney(Math.round(tierDef.weeklyInvestment * getEraCostScale())) + '/wk'} sub="weekly overhead" />
       </div>
+
+      {/* Seats, not demand, are the limit: the tick reports who wanted to connect
+          (`wanted`) beside who it could board. Reports from before that have no
+          `wanted` and show nothing. */}
+      {ownMetalHub?.wanted > 0 && ownMetalHub.pax < ownMetalHub.wanted * 0.8 && (
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', margin: '-6px 0 12px' }}>
+          <strong style={{ color: 'var(--yellow)' }}>{ownMetalHub.wanted.toLocaleString()}</strong> passengers
+          wanted to connect over {code} last week and <strong>{ownMetalHub.pax.toLocaleString()}</strong> found
+          seats. {state.connectionSeatsWorld === true
+            ? <>Connections take the seats nonstop passengers leave, and on a full flight a local seat only when the
+                connection is worth more, up to {Math.round((CONNECTION_SEAT_SHARE[tier] ?? 0) * 100)}% of the flight at this tier. More seats or
+                frequency on the busiest routes here, or a higher tier, would carry more of them.</>
+            : <>Nonstop passengers board first, so full flights turn connections away: more seats or
+                frequency on the busiest routes here would carry them.</>}
+        </div>
+      )}
 
       {/* Congestion + contest */}
       <CongestionMeter slotsAt={slotCount} gatesAt={gateCount} tier={tier} />

@@ -50,7 +50,7 @@ import {
 } from './simulation.js';
 import { completeCheck } from '../data/maintenance.js';
 import { completeConversion } from '../data/conversions.js';
-import { crewShortfall, unstaffedCrewScale, unstaffedAircraftIds } from '../data/labor.js';
+import { crewShortfall, unstaffedCrewScale, unstaffedAircraftIds, reserveOtpBonus } from '../data/labor.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { rollEvents, tickEvents } from '../data/events.js';
 import { tickBaseConstruction } from '../data/mroBase.js';
@@ -317,12 +317,18 @@ export function prepareWeek(state, {
 
   // Disruption reaches the schedule through a transient field on the labor
   // object the tick hands down (see laborEffects). state.labor is untouched.
-  const laborThisWeek = (eventOtpDelta > 0 || crewShort || stationOtp > 0)
+  // Reserve staff cover sick calls and late inbound crews (labor.js "Reserve
+  // staff"). Zero — and no field attached — without spare people.
+  const reserveOtp = state.crewPipeline
+    ? reserveOtpBonus(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
+    : 0;
+  const laborThisWeek = (eventOtpDelta > 0 || crewShort || stationOtp > 0 || reserveOtp > 0)
     ? {
         ...(state.labor ?? {}),
         ...(eventOtpDelta > 0 ? { eventOtpDelta } : {}),
         ...(crewShort ? { crewShortfall: crewShort } : {}),
         ...(stationOtp > 0 ? { stationOtpBonus: stationOtp } : {}),
+        ...(reserveOtp > 0 ? { reserveOtpBonus: reserveOtp } : {}),
       }
     : state.labor;
 

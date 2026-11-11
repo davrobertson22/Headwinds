@@ -21,7 +21,7 @@ import {
   BASIS_CONTRIBUTION, BASIS_FULL, loadProfitBasis, saveProfitBasis,
 } from '../utils/routeEconomics.js';
 import { getSeasonalProfile } from '../models/demand.js';
-import { LABOR_GROUPS, DEFAULT_LABOR_STATE, laborEffects } from '../data/labor.js';
+import { LABOR_GROUPS, DEFAULT_LABOR_STATE, laborEffects, laborBillUnits, RESERVE_PAY_RATE, seniorityFor } from '../data/labor.js';
 import { FAMILY_INFO, AIRCRAFT_FAMILY, activeFamilies as getActiveFamilies,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
@@ -38,6 +38,7 @@ import {
   DISTRIBUTION_COST_PCT,
   HULL_INSURANCE_ANNUAL_RATE, LIABILITY_INSURANCE_WEEKLY_PER_AIRCRAFT, liabilityInsuranceWeekly,
   DEPRECIATION_YEARS, tailBookValue,
+  getEraCostScale,
 } from '../data/overhead.js';
 import { projectWeek } from '../utils/financeProjection.js';
 import { netProfitOf, balanceSheetOf } from '../utils/standings.js';
@@ -1382,7 +1383,13 @@ function PLStatement({ proj }) {
                   const gs       = labor[g.id] ?? { payMultiplier: 1.0, morale: 80 };
                   const complexityMult = fleetComplexityMultiplier(fleet);
                   const famMult  = COMPLEXITY_AFFECTED_GROUPS.includes(g.id) ? complexityMult : 1.0;
-                  const cost = fleet.length > 0 ? Math.round(g.baseWeeklyPerAircraft * gs.payMultiplier * fleet.length * famMult) : 0;
+                  // The tick's own sums: narrowbody crews (not airframes), era-scaled,
+                  // plus reserve staff at the reserve rate in crew-pipeline games.
+                  const bill = laborBillUnits(g.id, labor, fleet, (a) => getAircraftType(a.typeId), state.crewPipeline === true);
+                  const wage = g.baseWeeklyPerAircraft * gs.payMultiplier * famMult * getEraCostScale()
+                    * seniorityFor(state, absoluteWeek(state.year ?? 1, state.week ?? 1));
+                  const reservePay = Math.round(wage * bill.reserve * RESERVE_PAY_RATE);
+                  const cost = (fleet.length > 0 ? Math.round(wage * bill.line) : 0) + reservePay;
                   return (
                     <tr key={g.id}>
                       <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
@@ -1392,6 +1399,7 @@ function PLStatement({ proj }) {
                           {famMult > 1.0 && (
                             <span style={{ color: 'var(--yellow)' }}> · +{Math.round((famMult - 1) * 100)}% fleet complexity</span>
                           )}
+                          {reservePay > 0 && <span> · incl. {formatMoney(reservePay)} reserve pay</span>}
                         </span>
                       </td>
                       {pw && <td />}

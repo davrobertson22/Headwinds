@@ -96,12 +96,14 @@ const MATURE_WEEKS = 40;               // > the 16-week ramp: what both previews
  * one. Tails are young so the planner's zero-age synthetic frame and the tick's
  * real airframe describe the same aeroplane.
  */
-function world({ seed = 4242, year = 1, week = 20, restricted = false, incumbent = null } = {}) {
+function world({ seed = 4242, year = 1, week = 20, restricted = false, incumbent = null, seats = false } = {}) {
   seedRandom(seed);
   let s = gameReducer(freshState(),
     { type: 'START_GAME', airlineName: 'Reconcile Air', hub: HUB, enableObjectives: false });
   s = { ...s, cash: 5e9, multiplayer: true, competitors: [], humanRivals: {}, encroachments: {},
-        ...(restricted ? { newWorldRestrictions: true } : {}) };
+        ...(restricted ? { newWorldRestrictions: true } : {}),
+        // Connection seats (tickConfig.connectionSeats), stamped the way the server stamps it.
+        ...(seats ? { connectionSeatsWorld: true } : {}) };
   for (let i = 0; i < 12; i++) s = gameReducer(s, { type: 'ADD_GATE', airportCode: HUB });
   for (const d of SPOKES) {
     s = gameReducer(s, { type: 'BUY_AIRCRAFT', typeId: TYPE });
@@ -271,12 +273,20 @@ function tickQuote(state, { origin, dest, frame, freq }) {
   const next = withNoRolls(() => gameReducer(s, { type: 'ADVANCE_WEEK' }));
   const rr = next.lastReport?.routeResults?.find(r => r.routeId === probe.id);
   assert.ok(rr, 'tick produced no result for the probe route');
-  const connecting = rr.connecting?.totalRevenue ?? 0;
+  // Connection-seat worlds: the tick books a connection that took a local
+  // passenger's seat at its full fare and takes that local off the O&D count.
+  // The previews quote the route before anyone gives up a seat, with connecting
+  // revenue net of what those locals would have paid. Same total, so put the
+  // tick on the previews' basis before comparing the parts.
+  const gaveUp = rr.connecting?.displacedPax ?? 0;
+  const connecting = (rr.connecting?.totalRevenue ?? 0) - (rr.connecting?.displacedRevenue ?? 0);
   return {
     freq: probe.weeklyFrequency,
-    pax: rr.passengers, lf: rr.loadFactor,
+    pax: rr.passengers + gaveUp,
+    lf: gaveUp > 0 && rr.configuredSeatsOneWay > 0 ? (rr.passengers + gaveUp) / rr.configuredSeatsOneWay : rr.loadFactor,
     odRevenue: rr.revenue - connecting,
     connecting,
+    connectingBooked: rr.connecting?.totalRevenue ?? 0,
     connPax: rr.connecting?.totalPax ?? 0,
     connCapScale: rr.connecting?.capacityScale ?? 1,
     opProfit: rr.profit,                     // routeRevenue − opCost − landing fee
@@ -392,6 +402,32 @@ const fail = (checks) => assert.equal(checks.length, 0, '\n      ' + checks.join
 test('capacity-capped spoke off a fed hub: three quotes agree', () => {
   const { state, spare } = world();
   fail(reconcile('capped hub spoke', state, { origin: HUB, dest: 'DEN', frame: spare, freq: 7 }).checks);
+});
+
+// 1b. The same spoke in a connection-seat world whose airline has not flown a
+//     week: no route has a report yet, which is also the state of every route
+//     opened since the last tick. The previews used to leave such legs out, so
+//     nothing connected over them: 7x JFK-DEN was quoted $0/wk of connecting
+//     revenue while the tick booked $99,300 of it, and route profit was quoted
+//     $10,524 short. They are now projected (pairShare.js reportLegs).
+test('connection seats, no week flown yet: connections over legs with no report are quoted', () => {
+  const { state, spare } = world({ seats: true });
+  assert.equal(state.lastReport ?? null, null, 'fixture: this airline should not have flown a week');
+  const r = reconcile('unflown network, connection seats', state, { origin: HUB, dest: 'DEN', frame: spare, freq: 7 });
+  assert.ok(r.t.connectingBooked > 5000, `fixture: the tick should seat real connections here, booked ${fmt$(r.t.connectingBooked)}`);
+  assert.ok(r.f.connecting !== 0 || r.t.connecting === 0,
+    `the finder quoted no connecting revenue; the tick paid ${fmt$(r.t.connecting)} net of the locals who gave up seats`);
+  fail(r.checks);
+});
+
+// 1c. The other scenarios again with connection seats on, so the seat world's
+//     own arithmetic (free seats, held seats, the split by mileage) stays pinned
+//     to the tick's.
+test('connection seats: demand-limited spoke and a second tail agree', () => {
+  const a = world({ seats: true });
+  fail(reconcile('uncapped hub spoke, connection seats', a.state, { origin: HUB, dest: PROBE, frame: a.spare, freq: 'uncapped' }).checks);
+  const b = world({ seats: true, incumbent: { origin: HUB, dest: PROBE, freq: 21 } });
+  fail(reconcile('added tail, connection seats', b.state, { origin: HUB, dest: PROBE, frame: b.spare, freq: 21 }).checks);
 });
 
 // 2. The same hub, on a pair thin enough that demand decides the load factor.

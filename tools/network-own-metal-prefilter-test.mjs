@@ -2,9 +2,10 @@
 // number the network tick produces.
 //
 // runNetworkTick now asks buildOwnMetalConnections to skip non-hub airports and
-// to rank each hub's spoke pairs by gravity demand BEFORE pricing them, keeping
-// only the MAX_OWN_METAL_ODS_PER_HUB that computeOwnMetalODRevenue would keep
-// anyway. That is a pure speed-up (the Route Finder runs a network tick per
+// to rank each hub's spoke pairs BEFORE pricing them, keeping only the markets
+// computeOwnMetalODRevenue would keep anyway (since 2026-11-11: the hub's best
+// MAX_OWN_METAL_ODS_PER_HUB by ownMetalMarketScore plus each spoke's best few,
+// where it was the top N by raw gravity demand). That is a pure speed-up (the Route Finder runs a network tick per
 // forecast row — Discord, 2026-10-16) and this suite is what says so: for
 // networks with big hubs (well past the per-hub cap), tag routes, focus cities
 // and a non-hub airport with spokes of its own, the revenue model's output from

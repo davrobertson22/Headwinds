@@ -297,6 +297,71 @@ await test('Hire everything needed makes the same hires the switch would', () =>
   }
 });
 
+console.log('\n── release staff above my reserve level ────────────────\n');
+
+await test('with the switch on, the week ends with the surplus released, for severance', () => {
+  let s = { ...airline(20, { staffed: 1.5 }), crewAutoRelease: true };
+  const before = s.cash;
+  s = gameReducer(s, { type: 'ADVANCE_WEEK' });
+  for (const id of GROUPS) {
+    const ratio = labor.crewReserveRatio(s.labor, id, s.fleet, typeOf);
+    assert.ok(ratio < 0.06, `${id} still ${(ratio * 100).toFixed(1)}% over`);
+  }
+  assert.ok((s.pendingToasts ?? []).some(t => /Spare staff released/.test(t.title)), 'a toast says so');
+  assert.ok(before - s.cash > 0);
+});
+
+await test('switching it on releases at once, down to the reserve level', () => {
+  let s = airline(20, { staffed: 1.5 });
+  s = gameReducer(s, { type: 'SET_RESERVE_TARGET', group: 'pilots', target: 0.10 });
+  s = gameReducer(s, { type: 'SET_AUTO_RELEASE', enabled: true });
+  const r = labor.crewReserveRatio(s.labor, 'pilots', s.fleet, typeOf);
+  assert.ok(r >= 0.10 && r < 0.17, `pilots at ${(r * 100).toFixed(1)}%`);
+  assert.ok(labor.crewReserveRatio(s.labor, 'cabinCrew', s.fleet, typeOf) < 0.06);
+});
+
+await test('aircraft on order keep their crews', () => {
+  const s0 = airline(20, { staffed: 1.3 });
+  const orders = Array.from({ length: 6 }, (_, i) => ({ id: `o${i}`, typeId: nb.id, deliverAbsWeek: absWeekOf(s0) + 40 }));
+  const s = gameReducer({ ...s0, pendingOrders: orders }, { type: 'SET_AUTO_RELEASE', enabled: true });
+  for (const id of GROUPS) {
+    const book = labor.crewRequiredForOrderBook(id, s.fleet, orders, typeOf);
+    assert.ok(labor.crewAvailable(s.labor, id) >= book - 1e-9, `${id} released crews an order needs`);
+  }
+});
+
+await test('it never fights Keep me fully staffed: with both on, nothing is released week after week', () => {
+  let s = { ...airline(30, { autoStaff: true }), crewAutoRelease: true };
+  s = gameReducer(s, { type: 'SET_RESERVE_TARGET', group: 'pilots', target: 0.10 });
+  let released = 0;
+  for (let w = 0; w < 60; w++) {
+    const n = gameReducer(s, { type: 'ADVANCE_WEEK' });
+    if ((n.pendingToasts ?? []).some(t => /Spare staff released/.test(t.title))) released++;
+    s = { ...n, cash: 900_000_000, pendingToasts: [] };
+  }
+  assert.equal(released, 0, `released staff in ${released} weeks`);
+});
+
+await test('off by default, and nobody is released without it', () => {
+  let s = airline(20, { staffed: 1.5 });
+  assert.notEqual(s.crewAutoRelease, true);
+  const head = labor.crewAvailable(s.labor, 'pilots');
+  s = tick(s);
+  assert.ok(labor.crewAvailable(s.labor, 'pilots') > head * 0.99);
+});
+
+await test('a release the airline cannot pay for waits', () => {
+  const s = { ...airline(20, { staffed: 1.5 }), crewAutoRelease: true, cash: 1 };
+  const after = gameReducer(s, { type: 'SET_AUTO_RELEASE', enabled: true });
+  assert.ok(after.cash >= 0);
+});
+
+await test('SET_AUTO_RELEASE reaches the engine in multiplayer as a plain boolean', () => {
+  assert.ok(ALLOWED_PLAYER_ACTIONS.has('SET_AUTO_RELEASE'));
+  assert.deepEqual(guardDecision('SET_AUTO_RELEASE', { enabled: true, group: 'x' }, {}), { enabled: true });
+  assert.deepEqual(guardDecision('SET_AUTO_RELEASE', { enabled: 1 }, {}), { enabled: false });
+});
+
 console.log('\n── the crew page ───────────────────────────────────────\n');
 
 const render = (state) => {
@@ -330,6 +395,7 @@ await test('with the switch on the cards collapse; with it off the hiring tools 
   const off = render(forPage(airline(20)));
   assert.match(off, /Hide details/);
   assert.match(off, /Replace leavers automatically/);
+  assert.match(on, /Release staff above my reserve level/);
 });
 
 await test('with the switch off, a short airline is offered one hire for everything', () => {

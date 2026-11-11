@@ -38,10 +38,10 @@ import {
 } from './demand.js';
 import { buildEncroachmentOffer } from './encroachment.js';
 import { blendJetAgeAppeal, jetAgeFields } from './jetAge.js';
-import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy, runNetworkTick } from './network.js';
+import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy, runNetworkTick, seatItineraries, connectionLegState } from './network.js';
 import { airlineWeeks, hubTimetable, scheduleInputsOf } from './schedule.js';
 import { getAlliance, allianceMembers } from '../data/alliances.js';
-import { memberPairKeysOf } from '../utils/market.js';
+import { memberPairKeysOf, routeDistance } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { fuelSimMultiplierOf } from '../utils/fuelOps.js';
@@ -613,7 +613,108 @@ function memoNetworkTick(state, { origin, destination, weeklyFrequency, ticketPr
  * inline (same fields, same summation order), so a memo hit returns the very
  * numbers a fresh tick would. `key` is the probed lane's pairKeyOf.
  */
-function networkSliceFor(net, key) {
+// ── Connection-seat worlds: what the rest of the network can carry ──────────
+// The tick seats itineraries across every leg at once (network.js
+// seatItineraries), from each leg's load THIS week. A preview simulates one
+// lane, so it reads every other leg from last week's report — the seats
+// nonstop passengers left, and what a local there paid — and seats the week's
+// itineraries with the previewed leg left open. What reaches the previewed
+// leg is then seated on it by projectConnectingFeed, from the projection's own
+// passengers. Exact when the rest of the network flies this week what it flew
+// last week.
+//
+// A leg with no report yet — a route opened since the last tick, or every
+// route of an airline that has not flown a week — is projected instead
+// (projectRouteAddition, the mature week, the same week the preview itself
+// quotes). It used to be left out, so the connections over it were not counted
+// at all: an airline that opened six spokes between ticks was quoted the
+// seventh as if none of the six existed. Measured on a six-spoke JFK hub,
+// 7x JFK–DEN: previews $0/wk of connecting revenue, tick $99,300. (Found in
+// Tailwinds, 2026-11-11; same code, same fix.)
+const STATE_LEGS = new WeakMap();
+function reportLegs(state) {
+  if (!state || typeof state !== 'object') return {};
+  const had = STATE_LEGS.get(state);
+  if (had) return had;
+  const report = state.lastReport && typeof state.lastReport === 'object' ? state.lastReport : null;
+  const routeById = new Map((state.routes ?? []).map(r => [r.id, r]));
+  const hubs = state.hubs ?? {};
+  const pooled = {};
+  const reported = new Set();
+  const add = (r, { seats, pax, ecoPax, ecoRev }) => {
+    const k = pairKeyOf(r.origin, r.destination);
+    const p = (pooled[k] ??= { seats: 0, room: 0, ecoPax: 0, ecoRev: 0, a: r.origin, b: r.destination });
+    p.seats  += seats;
+    p.room   += Math.max(0, Math.round(seats * 0.95) - pax);
+    p.ecoPax += ecoPax;
+    p.ecoRev += ecoRev;
+  };
+  for (const rr of report?.routeResults ?? []) {
+    const r = routeById.get(rr.routeId);
+    if (!r || isMultiStop(r)) continue;
+    reported.add(r.id);
+    const eco = rr.classSummary?.economy;
+    const gaveUp = rr.connecting?.displacedPax ?? 0;      // back to the load before any connection boarded
+    add(r, {
+      seats:  rr.configuredSeatsOneWay ?? 0,
+      pax:    (rr.passengers ?? 0) + gaveUp,
+      ecoPax: (eco?.passengers ?? 0) + gaveUp,
+      ecoRev: (eco?.revenue ?? 0) + (rr.connecting?.displacedRevenue ?? 0),
+    });
+  }
+  // Legs with no report: projected. Set before the loop so a projection that
+  // found its way back here would read the reported legs rather than recurse.
+  const legs = {};
+  STATE_LEGS.set(state, legs);
+  const month = currentGameDate(state)?.month ?? 6;
+  const fleet = state.fleet ?? [];
+  for (const r of state.routes ?? []) {
+    if (reported.has(r.id) || isMultiStop(r) || !isRouteActive(r, month)) continue;
+    const aircraft = fleet.find(a => a.id === r.aircraftId);
+    if (!aircraft) continue;
+    const pairFare = state.routePricing?.[pairKeyOf(r.origin, r.destination)];
+    const leg = projectRouteAddition(state, {
+      origin: r.origin, destination: r.destination, aircraft,
+      weeklyFrequency: r.weeklyFrequency ?? 7,
+      // Fares belong to the pair (hydrateRoute); a route with no pair fare flies its own.
+      ticketPrice: pairFare?.economy ?? r.ticketPrice,
+      classPrices: pairFare ?? r.classPrices,
+      season: r.season, replacesRouteId: r.id,
+      ...(r.tankering != null ? { tankering: r.tankering } : {}),
+      legOnly: true,
+    })?.mature;
+    if (!leg) continue;
+    const eco = leg.classSummary?.economy;
+    add(r, {
+      seats:  leg.configuredSeatsOneWay ?? 0,
+      pax:    leg.passengers ?? 0,
+      ecoPax: eco?.passengers ?? 0,
+      ecoRev: eco?.revenue ?? 0,
+    });
+  }
+  for (const [k, p] of Object.entries(pooled)) {
+    const tiers = [hubs[p.a]?.tier, hubs[p.b]?.tier].filter(t => t != null);
+    legs[k] = connectionLegState({ ...p, tier: tiers.length ? Math.max(...tiers) : null });
+  }
+  return legs;
+}
+
+/** The itineraries over `key` the rest of the network can carry: [fare, pax, this leg's share of the fare, local revenue displaced on the other leg per passenger], best fare first. */
+function seatableOver(state, net, key) {
+  const legs = { ...reportLegs(state), [key]: { free: Infinity, hold: 0, localYield: 0 } };
+  const bothWays = (net.ownMetalOD?.entries ?? []).map(e => ({ ...e, revenue: e.revenue * 2 }));
+  const out = [];
+  for (const e of seatItineraries(bothWays, legs).entries) {
+    const [o, d] = String(e.od).split('→');
+    const first = pairKeyOf(o, e.hub) === key, second = pairKeyOf(e.hub, d) === key;
+    if (!first && !second) continue;
+    const km1 = routeDistance(o, e.hub) || 1, km2 = routeDistance(e.hub, d) || 1;
+    out.push([e.revenue / e.pax, e.pax, (first ? km1 : km2) / (km1 + km2), (e.displacedRevenue ?? 0) / e.pax]);
+  }
+  return out;   // seatItineraries boards best fare first, and keeps that order
+}
+
+function networkSliceFor(net, key, state = null) {
   const contestFactors = {};
   for (const [code, c] of Object.entries(net.hubContestMap ?? {})) contestFactors[code] = c.contestFactor;
   // Partner-fed passengers seated on this leg (before this tail's feed share).
@@ -628,6 +729,7 @@ function networkSliceFor(net, key) {
     cannib: net.cannibalizationMap?.[key],
     ownLeg: net.ownMetalOD?.byRouteKey?.[key] ?? null,
     partnerPaxOnLeg,
+    ...(state ? { seatable: seatableOver(state, net, key) } : {}),
   };
 }
 
@@ -695,6 +797,8 @@ export function projectConnectingFeed(state, spec) {
   // 11–12 Sep lag reports on Headwinds). Remember the answer per (state, lane,
   // frequency, fare, calendar) and hand it back.
   const key = pairKeyOf(origin, destination);
+  // Connection-seat worlds seat whole itineraries (see reportLegs above).
+  const seatWorld = state.connectionSeatsWorld === true && !legacy;
   // Hub-bank worlds: connections work when the timetable says they do, so the
   // preview builds the timetable the tick will — with this route in it, on the
   // tail that would fly it (a bare type flies it alone, as a new route on an
@@ -720,7 +824,7 @@ export function projectConnectingFeed(state, spec) {
     return networkSliceFor(runNetworkTick({
       routes, competitors, allianceMembership, codeshareAgreements, allianceDef,
       gameDate, hubs, gates, routeCountByAirport, slotsByAirport, demandMultFor, rivalIndex, timetable,
-    }), key);
+    }), key, seatWorld ? state : null);
   });
   const contestFactors = net.contestFactors;
   const raw = computeConnectingDemand(
@@ -742,7 +846,7 @@ export function projectConnectingFeed(state, spec) {
     if (!ac) continue;
     pairSeats += configBodies(ac.config ?? {}) * (r.weeklyFrequency ?? 7);
   }
-  const feedShare = legacy ? 1 : (pairSeats > 0 ? Math.min(1, (configuredSeatsOneWay ?? 0) / pairSeats) : 1);
+  const feedShare = pairSeats > 0 ? Math.min(1, (configuredSeatsOneWay ?? 0) / pairSeats) : 1;
   const ownLeg    = net.ownLeg;
   let itinPax     = Math.round((ownLeg?.pax     ?? 0) * feedShare);
   let itinRevenue = Math.round((ownLeg?.revenue ?? 0) * feedShare);
@@ -752,17 +856,55 @@ export function projectConnectingFeed(state, spec) {
   if (!legacy) partnerPaxRaw = Math.round(net.partnerPaxOnLeg * feedShare);
 
   const seatHeadroom = Math.max(0, Math.round((configuredSeatsOneWay ?? 0) * 0.95) - (odPassengers ?? 0));
-  const wantPax  = extPax + itinPax + partnerPaxRaw;
-  const capScale = wantPax > seatHeadroom && wantPax > 0 ? seatHeadroom / wantPax : 1;
+  // Connection-seat worlds: seat what the rest of the network can carry on
+  // this tail — free seats first, then a local passenger's seat for a fare
+  // worth more than the locals it displaces on both flights, up to the share
+  // the hub holds (the tick's rule, network.js). The local this tail would
+  // have carried pays the both-ways economy fare.
+  let displacedPax = 0, displacedRevenue = 0, roomLeft = seatHeadroom;
+  if (seatWorld) {
+    const tiers = [hubs[origin]?.tier, hubs[destination]?.tier].filter(t => t != null);
+    const localYield = 2 * (ticketPrice ?? 0);
+    const leg = connectionLegState({
+      seats: configuredSeatsOneWay ?? 0, room: seatHeadroom,
+      ecoPax: odPassengers ?? 0, ecoRev: (odPassengers ?? 0) * localYield,
+      tier: tiers.length ? Math.max(...tiers) : null,
+    });
+    itinPax = 0; itinRevenue = 0;
+    for (const [fare, pax, share, lostElsewhere] of net.seatable ?? []) {
+      let want = Math.round(pax * feedShare);
+      const intoFree = Math.min(want, leg.free);
+      leg.free -= intoFree; want -= intoFree;
+      const ontoLocal = fare > lostElsewhere + localYield ? Math.min(want, leg.hold) : 0;
+      leg.hold -= ontoLocal;
+      const got = intoFree + ontoLocal;
+      if (got <= 0) continue;
+      // The tick's split: a leg is made whole for the locals it gave up, and
+      // the rest of the fare is shared by mileage.
+      itinPax += got; displacedPax += ontoLocal;
+      itinRevenue += intoFree * share * (fare - lostElsewhere)
+                   + ontoLocal * (localYield + share * (fare - lostElsewhere - localYield));
+    }
+    itinRevenue = Math.round(itinRevenue);
+    displacedRevenue = Math.round(displacedPax * localYield);
+    roomLeft = leg.free;
+  }
+  const wantPax  = seatWorld ? extPax + partnerPaxRaw : extPax + itinPax + partnerPaxRaw;
+  const capScale = wantPax > roomLeft && wantPax > 0 ? roomLeft / wantPax : 1;
   if (capScale < 1) {
     extPax      = Math.round(extPax      * capScale);
     extRevenue  = Math.round(extRevenue  * capScale);
-    itinPax     = Math.round(itinPax     * capScale);
-    itinRevenue = Math.round(itinRevenue * capScale);
+    if (!seatWorld) {
+      itinPax     = Math.round(itinPax     * capScale);
+      itinRevenue = Math.round(itinRevenue * capScale);
+    }
   }
   return {
-    totalPax:         extPax + itinPax,
-    totalRevenue:     extRevenue + itinRevenue,
+    // Net of the local passengers who gave up seats (connection-seat worlds),
+    // so the projection's own profit + totalRevenue is still the route's.
+    totalPax:         extPax + itinPax - displacedPax,
+    totalRevenue:     extRevenue + itinRevenue - displacedRevenue,
+    ...(displacedPax > 0 ? { displacedPax, displacedRevenue } : {}),
     externalPax:      extPax,
     externalRevenue:  extRevenue,
     itineraryPax:     itinPax,
@@ -1042,6 +1184,9 @@ export function projectRouteAddition(state, spec) {
   };
 
   const mature = runAt(matureWeeks);
+  // reportLegs() asks only what the leg carries (and must not ask for the
+  // connecting feed, which is what is asking).
+  if (spec.legOnly) return mature.result ? { mature: mature.result } : null;
   const connecting = mature.result ? projectConnectingFeed(state, {
     origin, destination, aircraft, weeklyFrequency, ticketPrice, gameDate,
     eventDemandMult, replacesRouteId,

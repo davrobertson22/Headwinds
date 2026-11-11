@@ -104,7 +104,7 @@ await test('simulateRoute: a Vanguard on a long sector books less in 1966 than i
 // An era airline flying one type, re-badged straight onto the fleet: an open era
 // world refuses a lease on a type in its first ten years and a classic one
 // won't lease a Vanguard, so the tails are leased as E175s and swapped.
-function eraAirline({ name, hub, typeId, dests, calYear = 1966 }) {
+function eraAirline({ name, hub, typeId, dests, calYear = 1966, spare = null }) {
   let s = gameReducer(freshState(), { type: 'START_GAME', airlineName: name, hub, enableObjectives: false });
   s = { ...s, cash: 5e8, multiplayer: true, competitors: [], humanRivals: {}, encroachments: {} };
   for (const d of dests) {
@@ -113,6 +113,11 @@ function eraAirline({ name, hub, typeId, dests, calYear = 1966 }) {
     s = { ...s, fleet: s.fleet.map(a => (a.id === ac ? { ...a, typeId, config: undefined } : a)) };
     s = gameReducer(s, { type: 'ADD_GATE', airportCode: d });
     s = gameReducer(s, { type: 'ADD_ROUTE', aircraftId: ac, origin: hub, destination: d, weeklyFrequency: 7 });
+  }
+  if (spare) {   // an unassigned tail, leased before the calendar moves to the era
+    s = gameReducer(s, { type: 'LEASE_AIRCRAFT', typeId: 'e175' });
+    const ac = s.fleet[s.fleet.length - 1].id;
+    s = { ...s, fleet: s.fleet.map(a => (a.id === ac ? { ...a, typeId: spare, config: undefined, spare: true } : a)) };
   }
   const routePricing = { ...s.routePricing };
   for (const d of dests) routePricing[[hub, d].sort().join('-')] = defaultClassPrices(Math.round(referencePrice(hub, d) * 1.3));
@@ -165,7 +170,7 @@ await test('the forecast agrees with the tick for a Vanguard airline against a C
 });
 
 await test('the Route Planner forecasts a jet joining a Vanguard pair the way the tick flies it', () => {
-  let props = eraAirline({ name: 'Props', hub: 'LHR', typeId: 'vanguard', dests: ['ATH', 'EDI'] });
+  let props = eraAirline({ name: 'Props', hub: 'LHR', typeId: 'vanguard', dests: ['ATH', 'EDI'], spare: 'caravelle' });
   props = { ...props, routes: props.routes.map(r => ({ ...r, weeksOpen: 40 })) };
   const jets = eraAirline({ name: 'Jets', hub: 'ATH', typeId: 'caravelle', dests: ['LHR'] });
   const views = buildRivalViews([
@@ -173,10 +178,8 @@ await test('the Route Planner forecasts a jet joining a Vanguard pair the way th
     { id: 'j', worldId: 'w', name: 'Jets',  hub: 'ATH', status: 'ACTIVE', state: jets },
   ]);
   props = { ...props, competitors: views.get('p').competitors, humanRivals: views.get('p').humanRivals };
-  props = gameReducer(props, { type: 'LEASE_AIRCRAFT', typeId: 'e175' });
-  const id = props.fleet[props.fleet.length - 1].id;
-  props = { ...props, fleet: props.fleet.map(a => (a.id === id ? { ...a, typeId: 'caravelle', config: undefined } : a)) };
-  const tail = props.fleet.find(a => a.id === id);
+  const tail = props.fleet.find(a => a.spare), id = tail.id;
+  assert.equal(props.fleet.length, 3, 'fixture: two Vanguards and a spare Caravelle');
   Math.random = () => 0.9999999;
   props = gameReducer(props, { type: 'ADVANCE_WEEK' });
   const key = ['ATH', 'LHR'].sort().join('-');

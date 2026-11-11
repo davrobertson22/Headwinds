@@ -1035,6 +1035,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
                   {lastConn.itineraryPax > 0 && <span style={{ color: 'var(--text-muted)' }}> ({lastConn.itineraryPax} via hub itineraries, {lastConn.externalPax} gateway feed)</span>}
                   {(lastConn.partnerPax ?? 0) > 0 && <span style={{ color: 'var(--text-muted)' }}> · +{lastConn.partnerPax} fed by other carriers' flights into your hub ({formatMoney(lastConn.partnerRevenue ?? 0)}/wk your share)</span>}
                   {lastConn.capacityScale < 1 && <span style={{ color: 'var(--yellow)' }}> · seat-limited ×{lastConn.capacityScale}</span>}
+                  {(lastConn.displacedPax ?? 0) > 0 && <span style={{ color: 'var(--text-muted)' }}> · {lastConn.displacedPax.toLocaleString()} local passengers gave up seats to connections worth more ({formatMoney(lastConn.displacedRevenue ?? 0)} of local fares, already off this route's revenue)</span>}
                 </>
               : <>+{connecting.totalPax} pax · {formatMoney(connecting.totalRevenue)}/wk (gateway feed estimate)</>}
           </div>

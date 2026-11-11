@@ -117,6 +117,15 @@ export const SENIORITY_CAP         = 2.5;   // reached ~year 20
  * Keyed off the airline's OWN age, never the world calendar: a player joining a
  * year-17 world founded their airline that morning and must start at x1.00.
  */
+/** The wage-scale multiplier for THIS airline today: seniority in a restricted
+ *  world, 1 anywhere else. One helper so the tick, severance and every screen
+ *  that quotes a wage agree. */
+export function seniorityFor(state, absWeek) {
+  if (!state?.newWorldRestrictions) return 1;
+  const now = Number(absWeek) || 0;
+  return seniorityMultiplier(Math.max(0, now - (state.foundedAbsWeek ?? now)));
+}
+
 export function seniorityMultiplier(weeksOperating) {
   const w = Math.max(0, Math.floor(Number(weeksOperating) || 0));
   const years = w / 52;
@@ -886,6 +895,10 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   // ground station. Your own ramp crews turn your own aircraft first. Absent
   // (no stations, every preview caller, every old save) → zero, nothing moves.
   const stationBonus = Math.max(0, Number(labor?.stationOtpBonus) || 0);
+  // `reserveOtpBonus` is the fourth: reserve staff covering sick calls and
+  // misconnecting crews (see "Reserve staff" below). Attached by the weekly
+  // tick in crew-pipeline saves; absent everywhere else → zero.
+  const reserveBonus = Math.max(0, Number(labor?.reserveOtpBonus) || 0);
   const pilots  = labor?.pilots?.morale          ?? 80;
   const cabin   = labor?.cabinCrew?.morale        ?? 80;
   const ground  = labor?.groundStaff?.morale      ?? 80;
@@ -895,7 +908,7 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   return {
     // 0.55 at zero blended morale → 1.00 at full, minus schedule pressure
     onTimeRate: Math.max(0.35, Math.min(1,
-      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta + stationBonus)),
+      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta + stationBonus + reserveBonus)),
     // 0–5 stars: earned from the satisfaction track record when available,
     // otherwise (legacy) directly from cabin crew morale
     customerRating:           satisfaction != null
@@ -1095,6 +1108,213 @@ export function autoReplacePlan(labor, fleet, typeOf, relPayOf = null, ahead = n
       ? Math.ceil((owed + cover) * per - 1e-6)
       : Math.floor((owed + cover) * per + 1e-9);
     out.push({ group: g.id, bodies, owedAfter: Math.max(0, owed - bodies / per) });
+  }
+  return out;
+}
+
+// ─── Reserve staff (2026-11-11) ──────────────────────────────────────────────
+//
+// "I've now got a ton of crew just sitting around" (Discord, 2026-11-10, after
+// buying an airline and selling its aircraft). Headcount above the requirement
+// used to be invisible — the card said "fully staffed" — and FREE: the wage
+// bill read the fleet, never the payroll. Spare people now have a name, a
+// price and a point:
+//
+//   • They are RESERVE staff, paid RESERVE_PAY_RATE of a line wage.
+//   • Each group has a RESERVE LEVEL the player chooses (`reserveTarget`, a
+//     fraction of the requirement). "Keep me fully staffed" hires to it.
+//   • Reserves lift morale (rosters with slack, leave that gets granted) and
+//     on-time performance (a sick call is covered), and take the edge off
+//     meltdown risk. The benefit is full at RESERVE_FULL_BENEFIT; holding more
+//     than that only buys headroom for growth — a reserve is a trained crew
+//     that can fly a new aircraft the week it arrives.
+//   • Spare staff can be RELEASED for severance instead of carried.
+//
+// Applies wherever the crew pipeline runs. All of it reads the same
+// requirement the wage bill and the shortfall use, so nothing is recalibrated.
+
+/** Share of a line wage paid to staff held above the requirement. */
+export const RESERVE_PAY_RATE = 0.5;
+/** Highest reserve level a group can be set to (fraction of the requirement). */
+export const RESERVE_TARGET_MAX = 0.20;
+/** Reserve level at which the morale and reliability benefit is complete. */
+export const RESERVE_FULL_BENEFIT = 0.10;
+/** Morale points a full reserve adds to what pay alone buys. */
+export const RESERVE_MORALE_MAX = 4;
+/** On-time rate a full reserve in every flying group adds. */
+export const RESERVE_OTP_MAX = 0.02;
+/** Weeks of full line pay owed to each person released. */
+export const RELEASE_SEVERANCE_WEEKS = 4;
+/** The levels the screen offers. */
+export const RESERVE_LEVELS = [0, 0.02, 0.05, 0.10, 0.15, 0.20];
+
+/** A group's chosen reserve level, as a fraction of its requirement. */
+export function reserveTarget(labor, groupId) {
+  const t = Number(labor?.[groupId]?.reserveTarget);
+  return Number.isFinite(t) ? Math.max(0, Math.min(RESERVE_TARGET_MAX, t)) : 0;
+}
+
+/** Trained staff above the requirement, in units. Untracked groups have none. */
+export function crewSpare(labor, groupId, fleet, typeOf) {
+  if (labor?.[groupId]?.headcount == null) return 0;
+  return Math.max(0, crewAvailable(labor, groupId) - crewRequired(groupId, fleet, typeOf));
+}
+
+/** Spare staff as a fraction of the requirement (0 when nothing is required). */
+export function crewReserveRatio(labor, groupId, fleet, typeOf) {
+  const need = crewRequired(groupId, fleet, typeOf);
+  return need > 0 ? crewSpare(labor, groupId, fleet, typeOf) / need : 0;
+}
+
+/** 0–1: how much of the reserve benefit a reserve of this size delivers. */
+export function reserveBenefit(ratio) {
+  return Math.max(0, Math.min(1, (Number(ratio) || 0) / RESERVE_FULL_BENEFIT));
+}
+
+/** Morale points a group's reserve adds to its pay-driven target. */
+export function reserveMoraleBonus(labor, groupId, fleet, typeOf) {
+  return RESERVE_MORALE_MAX * reserveBenefit(crewReserveRatio(labor, groupId, fleet, typeOf));
+}
+
+/** 0–1 reserve cover across the groups that fly the schedule, weighted as the
+ *  on-time rate weighs them. */
+export function opsReserveCover(labor, fleet, typeOf) {
+  const w = OTP_MORALE_WEIGHTS;
+  return Object.keys(w).reduce((s, id) =>
+    s + w[id] * reserveBenefit(crewReserveRatio(labor, id, fleet, typeOf)), 0);
+}
+
+/** On-time rate added by reserve cover. */
+export function reserveOtpBonus(labor, fleet, typeOf) {
+  return RESERVE_OTP_MAX * opsReserveCover(labor, fleet, typeOf);
+}
+
+/**
+ * What a group is billed for this week, in units: the requirement at full pay
+ * plus reserves at the reserve rate. With `reserves` false (a save without the
+ * crew pipeline) it is the requirement alone, exactly as before. The ONE place
+ * the wage bill is sized — the tick, the crew page and Finance all read it.
+ */
+export function laborBillUnits(groupId, labor, fleet, typeOf, reserves = true) {
+  const line = crewRequired(groupId, fleet, typeOf);
+  const reserve = reserves ? crewSpare(labor, groupId, fleet, typeOf) : 0;
+  return { line, reserve, billed: line + reserve * RESERVE_PAY_RATE };
+}
+
+/** Severance for releasing `units` of a group, before pay rate and era scale. */
+export function releaseSeveranceBase(groupId, units) {
+  const base = LABOR_GROUP_MAP[groupId]?.baseWeeklyPerAircraft ?? 0;
+  return Math.max(0, Number(units) || 0) * base * RELEASE_SEVERANCE_WEEKS;
+}
+
+// ─── Keep me fully staffed ───────────────────────────────────────────────────
+//
+// One switch for the whole airline (state.crewAutoStaff) instead of four
+// "replace leavers" boxes. Unlike auto-replace it DOES hire for growth: every
+// week (and whenever the fleet or the order book grows) each group is brought
+// to
+//
+//     requirement × (1 + reserve level)  +  cover for the people who will
+//                                           leave while a hire trains
+//
+// where the requirement includes aircraft on order that land before a hire
+// made today could reach the line: the training lead time, a week in
+// recruiting, and however long the recruiting queue will take to swallow the
+// hire itself — a bigger order means a bigger hire and a longer queue, so it
+// has to start earlier.
+//
+// It never releases anyone: an airline over its level simply stops hiring and
+// attrition brings it back. It spends cash at the normal training cost.
+//
+// @returns {{ group, bodies, replaceBodies, forDeliveries }[]} hires to make;
+//   `replaceBodies` of them replace leavers and may jump the recruiting queue.
+export function autoStaffPlan(labor, fleet, typeOf, relPayOf = null, ahead = null) {
+  const out = [];
+  const now = Number(ahead?.absWeek) || 0;
+  const orders = ahead?.pendingOrders ?? [];
+  for (const g of LABOR_GROUPS) {
+    const s = labor?.[g.id];
+    if (!s || s.headcount == null) continue;
+    const per = CREW_PER_UNIT[g.id] ?? 1;
+    const need = crewRequired(g.id, fleet, typeOf);
+    const pay = relPayOf ? relPayOf(g.id) : (s.payMultiplier ?? 1.0);
+    const intake = weeklyIntakeUnits(need, pay);
+    const queued = Math.max(0, Number(s.recruiting) || 0);
+    const have = crewAvailable(labor, g.id) + crewOnTheWay(labor, g.id);
+    const level = 1 + reserveTarget(labor, g.id);
+    const lag = crewReplaceLagWeeks(g.id);
+    // Which deliveries to hire for today. Taking them a delivery week at a
+    // time, soonest first: the aircraft landing by week d need a hire of some
+    // size, that hire takes `lag` weeks plus its own time in the recruiting
+    // queue, and if d is no further off than that, hiring for it cannot wait.
+    // The furthest such d wins (and brings every earlier delivery with it).
+    // Working outward from today instead would miss a big order just beyond
+    // the training window until its queue time had already made it late.
+    let needAhead = need;
+    let landingCount = 0;
+    const weeks = [...new Set(orders.map(o => Number(o?.deliverAbsWeek) || 0).filter(w => w > 0))].sort((x, y) => x - y);
+    for (const d of weeks) {
+      const landing = orders.filter(o => (Number(o?.deliverAbsWeek) || 0) <= d);
+      const needAt = crewRequired(g.id, [...(fleet ?? []), ...landing], typeOf);
+      const gap = Math.max(0, needAt * level - have);
+      const reach = lag + weeksToRecruit(Math.max(0, queued + gap - intake), intake);
+      if (d - now <= reach) { needAhead = needAt; landingCount = landing.length; }
+    }
+    const target = needAhead * level;
+    const want = target + crewReplaceCover(g.id, target, pay, s.morale ?? 80) - have;
+    const bodies = want > 1e-9 ? Math.ceil(want * per - 1e-6) : 0;
+    if (bodies < 1) continue;
+    const leavers = Math.ceil(Math.max(0, Number(s.lastLeavers) || 0) * per - 1e-6);
+    out.push({
+      group: g.id, bodies,
+      replaceBodies: Math.min(bodies, leavers),
+      // Hiring beyond today's level means an aircraft on order is the reason.
+      forDeliveries: needAhead > need + 1e-9 && have < target ? landingCount : 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * One-click hire for a player NOT using "Keep me fully staffed": what every
+ * group needs to reach its level for the fleet and the aircraft arriving inside
+ * its training window. Same sums as autoStaffPlan, so the button and the switch
+ * can never disagree.
+ */
+export function crewHireAllPlan(labor, fleet, typeOf, relPayOf = null, ahead = null) {
+  const plan = autoStaffPlan(labor, fleet, typeOf, relPayOf, ahead);
+  const cost = plan.reduce((s, p) => s + crewHireCost(p.group, crewUnitsForBodies(p.group, p.bodies)), 0);
+  return { hires: plan, cost };
+}
+
+// ─── Release staff above my reserve level automatically ──────────────────────
+//
+// The other half of "Keep me fully staffed" (2026-11-11). Attrition is ~0.4% a
+// week, so an airline that cuts an aircraft carries its crews on reserve pay
+// for years unless someone presses Release — in the bot lab, one retired
+// aircraft in five was 16% of the wage bill. With `state.crewAutoRelease` on,
+// the week's end releases each group down to
+//
+//     (fleet + every aircraft on order) × (1 + reserve level)
+//       + the cover Keep me fully staffed keeps for leavers   + one person
+//
+// at the normal severance. The cover and the spare person mean the two
+// switches can never fight: nothing it hires is ever over this line. Aircraft
+// on order keep their crews however far out they are, and only trained staff
+// on the line are released — never anyone in training or being recruited.
+//
+// @returns {{ group: string, bodies: number }[]}
+export function autoReleasePlan(labor, fleet, typeOf, pendingOrders = [], relPayOf = null) {
+  const out = [];
+  for (const g of LABOR_GROUPS) {
+    const s = labor?.[g.id];
+    if (!s || s.headcount == null) continue;
+    const per = CREW_PER_UNIT[g.id] ?? 1;
+    const book = crewRequiredForOrderBook(g.id, fleet, pendingOrders ?? [], typeOf) * (1 + reserveTarget(labor, g.id));
+    const pay = relPayOf ? relPayOf(g.id) : (s.payMultiplier ?? 1.0);
+    const keep = book + crewReplaceCover(g.id, book, pay, s.morale ?? 80);
+    const bodies = Math.floor((crewAvailable(labor, g.id) - keep) * per + 1e-9) - 1;
+    if (bodies >= 1) out.push({ group: g.id, bodies });
   }
   return out;
 }

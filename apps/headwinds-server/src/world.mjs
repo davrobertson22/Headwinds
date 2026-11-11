@@ -109,6 +109,8 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Labor
   'SET_LABOR_PAY', 'SET_MAINTENANCE_BUDGET', 'RESOLVE_NEGOTIATION', 'SETTLE_STRIKE',
   'HIRE_CREW', 'SET_AUTO_REPLACE', 'CANCEL_RECRUITING', 'SET_PAY_INDEXED',
+  // Keep me fully staffed, a reserve level per group, releasing spare staff
+  'SET_AUTO_STAFF', 'SET_AUTO_RELEASE', 'SET_RESERVE_TARGET', 'RELEASE_CREW',
   // Alliances & codeshares. Both stay listed and are refused with a specific
   // message in routes/decisions.mjs — the allow-list check runs FIRST, so
   // dropping them here would replace "codeshares are agreed with the other

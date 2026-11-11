@@ -119,11 +119,16 @@ await test('switching to another model and back does not throw the table away', 
   } finally { setDemandModel(null); }
 });
 
-section('own-metal cut: selected as it goes === collect, sort, slice');
+section('own-metal cut: selected as it goes === collect, score, cut');
 
-// The selection this replaced, verbatim: every candidate, a stable sort by
-// demand, the top `limit`, then back to enumeration order.
-function referenceCut(spokes, limit, demandOf) {
+// Every sellable market at a hub in enumeration order, scored: the plain
+// statement of the cut's input. cutOwnMetalMarkets (sort, slice, add each
+// spoke's best) is the plain statement of the cut; selectOwnMetalMarkets has
+// to return the same markets without ever holding the whole list.
+// (2026-11-11: the cut ranks by ownMetalMarketScore and keeps each spoke's
+// best, where it ranked by raw demand — tools/connecting-markets-test.mjs.)
+function allMarkets(hub, spokes) {
+  const km = market.routeDistance;
   const cands = [];
   for (let i = 0; i < spokes.length; i++) {
     for (let j = i + 1; j < spokes.length; j++) {
@@ -133,14 +138,14 @@ function referenceCut(spokes, limit, demandOf) {
       for (const t of a.tagParents) { if (b.tagParents.has(t)) { sharedTag = true; break; } }
       if (sharedTag) continue;
       const [origin, dest] = a.spoke < b.spoke ? [a.spoke, b.spoke] : [b.spoke, a.spoke];
-      const odDemand = demandOf(origin, dest);
+      const odDemand = Math.round(baseCityPairDemand(origin, dest));
       if (!odDemand || odDemand < 5) continue;
-      cands.push({ a, b, origin, dest, odDemand, n: cands.length });
+      const score = network.ownMetalMarketScore(odDemand, km(a.spoke, hub), km(hub, b.spoke), km(a.spoke, b.spoke));
+      if (!(score > 0)) continue;
+      cands.push({ a, b, origin, dest, odDemand, score, sa: a.spoke, sb: b.spoke, n: cands.length });
     }
   }
-  return cands.length > limit
-    ? [...cands].sort((x, y) => y.odDemand - x.odDemand).slice(0, limit).sort((x, y) => x.n - y.n)
-    : cands;
+  return cands;
 }
 const slim = (list) => list.map(c => `${c.a.spoke}>${c.b.spoke}|${c.origin}-${c.dest}|${c.odDemand}`);
 const spokesOf = (codes, r, tagEvery = 0) => codes.map((spoke, k) => ({
@@ -148,48 +153,54 @@ const spokesOf = (codes, r, tagEvery = 0) => codes.map((spoke, k) => ({
   tagParents: new Set(tagEvery && k % tagEvery === 0 ? [`tag${Math.floor(k / (tagEvery * 3))}`] : []),
 }));
 
-await test('random hubs, every limit, tags and ties included', () => {
-  if (typeof network.selectOwnMetalCut !== 'function') throw new Error('selectOwnMetalCut is not exported');
+await test('random hubs, every limit and per-spoke quota, tags included', () => {
+  if (typeof network.selectOwnMetalMarkets !== 'function') throw new Error('selectOwnMetalMarkets is not exported');
   setDemandModel(null); setMarketDev(null);
   const r = rng(42);
-  const demandOf = (o, d) => Math.round(baseCityPairDemand(o, d));
-  let cases = 0, cut = 0;
+  let cases = 0, cut = 0, grew = 0;
   for (let round = 0; round < 30; round++) {
-    const size = 2 + Math.floor(r() * 70);
+    const size = 3 + Math.floor(r() * 70);
     const start = Math.floor(r() * (CODES.length - size));
-    // Regional neighbours in the catalogue share demand figures often enough to
-    // produce ties at the cut; a shuffled slice varies the enumeration order.
     const codes = CODES.slice(start, start + size).sort(() => r() - 0.5);
-    const spokes = spokesOf(codes, r, round % 3 === 0 ? 4 : 0);
+    // Alternate a hub among its own neighbours with one a long way off, so
+    // both "everything is on the way" and "almost nothing is" are sampled.
+    const hub = round % 2 ? codes.pop() : ['JFK', 'DXB', 'NRT', 'GRU'][round % 4];
+    const spokes = spokesOf(codes.filter(c => c !== hub), r, round % 3 === 0 ? 4 : 0);
+    const every = allMarkets(hub, spokes);
     for (const limit of [0, 1, 2, 7, 25, MAX_OWN_METAL_ODS_PER_HUB, Infinity]) {
-      const want = referenceCut(spokes, limit, demandOf);
-      const got = network.selectOwnMetalCut(spokes, limit);
-      assert.deepEqual(slim(got), slim(want), `hub of ${size} spokes, limit ${limit}`);
-      cases++; if (want.length === limit) cut++;
+      for (const perSpoke of [0, 1, 2, 3]) {
+        const want = network.cutOwnMetalMarkets(every, limit, perSpoke);
+        const got = network.selectOwnMetalMarkets(hub, spokes, limit, perSpoke);
+        assert.deepEqual(slim(got), slim(want), `${hub} with ${spokes.length} spokes, limit ${limit}, ${perSpoke} per spoke`);
+        cases++; if (want.length < every.length) cut++; if (want.length > limit) grew++;
+      }
     }
   }
-  assert.ok(cut > 20, `only ${cut} of ${cases} cases actually hit the limit — the sample is too easy`);
+  assert.ok(cut > 60, `only ${cut} of ${cases} cases actually cut anything — the sample is too easy`);
+  assert.ok(grew > 20, `only ${grew} of ${cases} cases kept a market for a spoke's sake`);
 });
 
-await test('a tie at the cut keeps the earlier pair', () => {
-  // Four spokes whose six pairs all carry the same demand cannot be built from
-  // real airports, so the selection is checked on real ones for the property
-  // instead: every kept pair outranks or precedes every dropped pair.
+await test('what is cut ranks below what is kept, unless a spoke needed it', () => {
   setDemandModel(null); setMarketDev(null);
   const r = rng(3);
-  const spokes = spokesOf(CODES.slice(100, 180), r);
+  // A spread of the whole catalogue: a slice of neighbours leaves a far hub
+  // almost nothing that is on the way.
+  const spokes = spokesOf(CODES.filter((c, k) => k % 12 === 0 && c !== 'LHR'), r);
+  const every = allMarkets('LHR', spokes);
   const limit = 40;
-  const all = referenceCut(spokes, Infinity, (o, d) => Math.round(baseCityPairDemand(o, d)));
-  const kept = new Set(slim(network.selectOwnMetalCut(spokes, limit)));
-  assert.equal(kept.size, limit);
-  const keptRows = all.filter(c => kept.has(slim([c])[0])), dropped = all.filter(c => !kept.has(slim([c])[0]));
-  const floor = Math.min(...keptRows.map(c => c.odDemand));
-  for (const d of dropped) {
-    assert.ok(d.odDemand <= floor, 'a dropped pair has more demand than a kept one');
-    if (d.odDemand === floor) {
-      const lastKeptAtFloor = Math.max(...keptRows.filter(c => c.odDemand === floor).map(c => c.n));
-      assert.ok(d.n > lastKeptAtFloor, 'a tie at the cut went to the later pair');
-    }
+  assert.ok(every.length > 3 * limit, `only ${every.length} sellable markets — nothing to cut`);
+  const key = (c) => slim([c])[0];
+  const top = new Set(slim(network.selectOwnMetalMarkets('LHR', spokes, limit, 0)));
+  assert.equal(top.size, limit);
+  const floor = Math.min(...every.filter(c => top.has(key(c))).map(c => c.score));
+  for (const c of every) if (!top.has(key(c))) assert.ok(c.score <= floor, 'a dropped market outranks a kept one');
+  // With a quota, every extra market is one of its two spokes' best two.
+  const kept = network.selectOwnMetalMarkets('LHR', spokes, limit, 2);
+  assert.ok(kept.length > limit);
+  for (const c of kept) {
+    if (top.has(key(c))) continue;
+    const better = (sp) => every.filter(o => (o.sa === sp || o.sb === sp) && o.score > c.score).length;
+    assert.ok(better(c.sa) < 2 || better(c.sb) < 2, `${key(c)} is nobody's top two`);
   }
 });
 
@@ -217,7 +228,7 @@ await test('a 90-spoke hub: cold and warm agree with the memo off', () => {
   const r = rng(11);
   const spokes = CODES.filter(c => c !== 'LHR').slice(0, 90);
   const out = bothWays(hubRoutes('LHR', spokes, r), hubsOf('LHR'));
-  assert.ok(out.length > 0 && out.length <= MAX_OWN_METAL_ODS_PER_HUB);
+  assert.ok(out.length > 0 && out.length <= MAX_OWN_METAL_ODS_PER_HUB + network.OWN_METAL_MARKETS_PER_SPOKE * spokes.length);
   assert.ok(network.ownMetalCutMemoSize() >= 1, 'a 90-spoke hub was expected to be remembered');
 });
 

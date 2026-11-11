@@ -32,6 +32,9 @@ export const INCIDENT = {
   probCap: 0.12,
   satisfactionShock: -6,
   reputationHit: 3,
+  // Reserve staff (data/labor.js "Reserve staff"): share of the risk a full
+  // reserve in every flying group removes — a sick-out is covered.
+  reserveRelief: 0.30,
 };
 
 const OPS_GROUPS = ['pilots', 'groundStaff', 'cabinCrew'];
@@ -40,7 +43,7 @@ const OPS_GROUPS = ['pilots', 'groundStaff', 'cabinCrew'];
  * The airline's meltdown risk this week, with the reasons. `utilisation` is
  * the fleet's average block-hour use (0–1) — the reducer passes the tick's.
  */
-export function incidentRisk(state, utilisation) {
+export function incidentRisk(state, utilisation, reserveCover = 0) {
   const fleet = (state?.fleet ?? []).filter(a => a && a.status !== 'retired');
   if (fleet.length < INCIDENT.minFleet) return { score: 0, prob: 0, causes: [] };
   const causes = [];
@@ -64,6 +67,13 @@ export function incidentRisk(state, utilisation) {
     const s = (INCIDENT.moraleSafe - morale) / INCIDENT.moraleSpan;
     score += s; causes.push({ kind: 'morale', value: Math.round(morale), score: +s.toFixed(3) });
   }
+  // Reserve cover (0–1, labor.js opsReserveCover) takes the edge off whatever
+  // risk there is; it never creates any, and 0 leaves the score untouched.
+  const cover = Math.max(0, Math.min(1, Number(reserveCover) || 0));
+  if (cover > 0 && score > 0) {
+    score *= 1 - INCIDENT.reserveRelief * cover;
+    causes.push({ kind: 'reserves', value: +cover.toFixed(3), score: 0 });
+  }
   const prob = score < INCIDENT.riskFloor ? 0 : Math.min(INCIDENT.probCap, INCIDENT.probPerRisk * score);
   return { score: +score.toFixed(3), prob: +prob.toFixed(4), causes };
 }
@@ -85,8 +95,8 @@ function busiestAirport(state) {
  * `rand` is a uniform [0,1); it is drawn only when the risk is above zero, so
  * a well-run airline's random sequence is untouched.
  */
-export function rollIncident(state, utilisation, rand = Math.random) {
-  const risk = incidentRisk(state, utilisation);
+export function rollIncident(state, utilisation, rand = Math.random, reserveCover = 0) {
+  const risk = incidentRisk(state, utilisation, reserveCover);
   if (!(risk.prob > 0)) return null;
   if (rand() >= risk.prob) return null;
   return {

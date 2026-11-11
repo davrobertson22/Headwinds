@@ -16,7 +16,7 @@ import { cargoCityPairDemand, cargoReferenceYield, referencePrice,
          nwrDemandScale, weeklyLoadJitter, NWR_LF_CEILING, expectedCarried,
          setNwrYieldChoke, metroPairKeyOf, memberPairKeysOf, nwrYieldChokeFactor, setDemandModel, sectorCostKm, sectorTaxiHours } from './market.js';
 import { setMarketDev } from '../models/marketDev.js';
-import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier } from '../data/labor.js';
+import { LABOR_GROUPS, fleetCrewScale, laborEffects, seniorityMultiplier, laborBillUnits, RESERVE_PAY_RATE } from '../data/labor.js';
 import { weeklyFamilyBaseCost, activeFamilies, FAMILY_INFO,
          fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS } from '../data/families.js';
 import {
@@ -91,7 +91,7 @@ import {
   allianceMembers,
   partnerInterlineRevenue,
 } from '../data/alliances.js';
-import { runNetworkTick, trimOwnMetalEntries, rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy } from '../models/network.js';
+import { runNetworkTick, trimOwnMetalEntries, rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy, seatItineraries, connectionLegState, apportion } from '../models/network.js';
 import { hubTimetableOf } from '../models/schedule.js';
 import { competitorMarketingSpend } from '../models/competitorAI.js';
 import { calcReputation, reputationDemandMultiplier, reputationElasticityReduction } from '../models/reputation.js';
@@ -5291,6 +5291,7 @@ export function weeklyTick(state) {
   let totalHubCostSavings = 0;   // station/layover savings from hub efficiencies (§D)
   const routeResults    = [];
   const hubExternalPax  = {};    // external connecting pax attributed per designated hub
+  const itinWantedByPair = {}, itinSeatedByPair = {};   // own-metal feed per pair: asked for / boarded
   const aircraftMaintFactor = {};  // aircraftId → hub line-maintenance factor (≤1)
 
   // (hubs + routeCountByAirport were built above, before the network tick.)
@@ -5640,6 +5641,132 @@ export function weeklyTick(state) {
     return total > 0 ? Math.min(1, (seatsOneWay ?? 0) / total) : 1;
   };
 
+  // One single-leg route's week: its hub bonuses and the demand model's answer.
+  // A function of the route and its tail alone (everything else it reads was
+  // settled before the loop), remembered so the connection seating below can
+  // look at every leg before the main loop books any of them.
+  const legSims = new Map();
+  const legSim = (route, aircraft) => {
+    const had = legSims.get(route);
+    if (had) return had;
+    const sim = simulateLegOnce(route, aircraft);
+    legSims.set(route, sim);
+    return sim;
+  };
+  const simulateLegOnce = (route, aircraft) => {
+    // Inject hub quality bonus from the best hub on this route.
+    // Tier 0 (Focus City) is a valid designation — compare against null, not truthy.
+    const originTier  = hubs[route.origin]?.tier;
+    const destTier    = hubs[route.destination]?.tier;
+    let hubQuality  = Math.max(
+      originTier != null ? (HUB_TIERS[originTier]?.qualityBonus ?? 0) : 0,
+      destTier   != null ? (HUB_TIERS[destTier]?.qualityBonus   ?? 0) : 0,
+    );
+    // Fortress bonus: a dominated (>60% share) International Gateway grants
+    // +2 quality and +0.05 price-sensitivity reduction on routes touching it.
+    const fortress =
+      (originTier === 3 && (hubContestMap?.[route.origin]?.playerShare      ?? 0) > 0.6) ||
+      (destTier   === 3 && (hubContestMap?.[route.destination]?.playerShare ?? 0) > 0.6);
+    if (fortress) hubQuality += 2;
+    const hcfRoute = hubCostFactorsFor([route.origin, route.destination]);
+    const routeWithHubBonus = {
+      ...route,
+      hubSpokes: spokeCounts[route.hub] ?? 0,
+      ...(hubQuality > 0 ? { hubQualityBonus: hubQuality } : {}),
+      priceSensitivityReduction: Math.min(0.40,
+        sensReductionFor(hubQuality) + (fortress ? 0.05 : 0)),
+      // Targeted campaign strength at either endpoint, ridden into the demand
+      // model rather than multiplied onto revenue afterwards (see the
+      // marketingLift note below).
+      marketingBoost: campaignBoostFor(route.origin, route.destination),
+      // Awareness / reputation / loyalty / alliance / rival ad drag, ridden in
+      // the same way for the same reason (see brandReachFor).
+      brandReach: brandReachFor(hubQuality,
+        [route.origin, route.destination],
+        partnerContestedKeys.has(pairKeyOf(route.origin, route.destination))),
+      // Lounge appeal (business segment), day-pass coverage and the premium
+      // ground-contract discount. Spread conditionally so a game with no lounges
+      // produces a byte-identical route object and the golden master is unmoved.
+      ...loungeFieldsFor(route.origin, route.destination),
+      // Travel partners: the segment lifts, and (partnership worlds) the
+      // leisure/business split on the result that their requirements count.
+      ...travelFieldsFor(route.origin, route.destination),
+      ...loyaltyFieldsFor(route.origin, route.destination),
+      // Earned pricing headroom (demand model v4 / NWR only; {} elsewhere, so
+      // every older world's route object is byte-identical).
+      ...statePricingFields(state, route.origin, route.destination),
+      ...(tpWorld ? { travelPartnerTrack: true } : {}),
+      ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
+      ...(() => { const g = handlingFactorFor([route.origin, route.destination]); return g != null ? { groundHandlingFactor: g } : {}; })(),
+      ...nwrLoadFieldsFor(route),
+    };
+
+    const rkRoute = [route.origin, route.destination].sort().join('-');
+    const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, laborWithSeniority, fuelMultiplier,
+      demandAllocations.get(route.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
+      eventDemandMultFor(route.origin, route.destination), ancillaries, competitors, rivalIndex);
+    return { originTier, destTier, hubQuality, hcfRoute, routeWithHubBonus, result };
+  };
+
+  // ── Connection seating (connection-seat worlds; network.js seatItineraries) ──
+  // Old rule: each leg hands its leftover seats to whatever feed wants them,
+  // pro rata, one leg at a time. Here the week's itineraries are seated across
+  // the whole network first — both flights or neither, best fares first, a
+  // local passenger giving up a seat only to a fare worth more — and the loop
+  // below books what that decided. External and partner feed then share what
+  // is left on each leg, as before.
+  let itinSeats = null;
+  if (state.connectionSeatsWorld === true && !legacy && (ownMetalOD?.entries?.length ?? 0) > 0) {
+    const tailsOn = {};
+    for (const route of routes) {
+      if (isMultiStop(route) || !isRouteActive(route, gameDate.month)) continue;
+      const aircraft = tailById.get(route.aircraftId);
+      if (!aircraft || isOutOfService(aircraft) || crewGroundedSet.has(aircraft.id)) continue;
+      const r = legSim(route, aircraft).result;
+      if (!r) continue;
+      const eco = r.classSummary?.economy;
+      const k = [route.origin, route.destination].sort().join('-');
+      (tailsOn[k] ??= []).push({
+        route,
+        seats:  r.configuredSeatsOneWay ?? 0,
+        room:   Math.max(0, Math.round((r.configuredSeatsOneWay ?? 0) * 0.95) - (r.passengers ?? 0)),
+        ecoPax: eco?.passengers ?? 0,
+        ecoRev: eco?.revenue ?? 0,
+      });
+    }
+    const legs = {};
+    for (const [k, list] of Object.entries(tailsOn)) {
+      const [a, b] = k.split('-');
+      const tiers = [hubs[a]?.tier, hubs[b]?.tier].filter(t => t != null);
+      const sum = (f) => list.reduce((x, t) => x + t[f], 0);
+      legs[k] = connectionLegState({
+        seats: sum('seats'), room: sum('room'), ecoPax: sum('ecoPax'), ecoRev: sum('ecoRev'),
+        tier: tiers.length ? Math.max(...tiers) : null,
+      });
+    }
+    // Both directions. network.js scores each A–C market once, as one
+    // direction's passengers at one direction's fare, while a passenger here
+    // is a one-way UNIT — a seat out and a seat back, which is why a nonstop
+    // books paxOneWay × 2 × fare. Seated against local passengers counted
+    // that way, a connection has to be too, or a full fare loses to half of
+    // one. (Old-rule seating books the one direction only, as it always has.)
+    const bothWays = ownMetalOD.entries.map(e => ({ ...e, revenue: e.revenue * 2 }));
+    const seated = seatItineraries(bothWays, legs);
+    // A pair's passengers go to its tails: into the seats each has free, then
+    // onto the seats of each one's local economy passengers.
+    const perRoute = new Map();
+    for (const [k, got] of Object.entries(seated.byPair)) {
+      const list = tailsOn[k];
+      const intoFree  = apportion(got.pax - got.displaced, list.map(t => t.room));
+      const ontoLocal = apportion(got.displaced, list.map(t => t.ecoPax));
+      list.forEach((t, i) => {
+        const pax = intoFree[i] + ontoLocal[i];
+        if (pax > 0) perRoute.set(t.route, { pax, revenue: Math.round(got.revenue * pax / got.pax), displaced: ontoLocal[i] });
+      });
+    }
+    itinSeats = { perRoute, entries: seated.entries };
+  }
+
   for (const route of routes) {
     const aircraft = tailById.get(route.aircraftId);
     if (!aircraft) continue;
@@ -5761,58 +5888,10 @@ export function weeklyTick(state) {
       continue;
     }
 
-    // Inject hub quality bonus from the best hub on this route.
-    // Tier 0 (Focus City) is a valid designation — compare against null, not truthy.
-    const originTier  = hubs[route.origin]?.tier;
-    const destTier    = hubs[route.destination]?.tier;
-    let hubQuality  = Math.max(
-      originTier != null ? (HUB_TIERS[originTier]?.qualityBonus ?? 0) : 0,
-      destTier   != null ? (HUB_TIERS[destTier]?.qualityBonus   ?? 0) : 0,
-    );
-    // Fortress bonus: a dominated (>60% share) International Gateway grants
-    // +2 quality and +0.05 price-sensitivity reduction on routes touching it.
-    const fortress =
-      (originTier === 3 && (hubContestMap?.[route.origin]?.playerShare      ?? 0) > 0.6) ||
-      (destTier   === 3 && (hubContestMap?.[route.destination]?.playerShare ?? 0) > 0.6);
-    if (fortress) hubQuality += 2;
-    const hcfRoute = hubCostFactorsFor([route.origin, route.destination]);
-    const routeWithHubBonus = {
-      ...route,
-      hubSpokes: spokeCounts[route.hub] ?? 0,
-      ...(hubQuality > 0 ? { hubQualityBonus: hubQuality } : {}),
-      priceSensitivityReduction: Math.min(0.40,
-        sensReductionFor(hubQuality) + (fortress ? 0.05 : 0)),
-      // Targeted campaign strength at either endpoint, ridden into the demand
-      // model rather than multiplied onto revenue afterwards (see the
-      // marketingLift note below).
-      marketingBoost: campaignBoostFor(route.origin, route.destination),
-      // Awareness / reputation / loyalty / alliance / rival ad drag, ridden in
-      // the same way for the same reason (see brandReachFor).
-      brandReach: brandReachFor(hubQuality,
-        [route.origin, route.destination],
-        partnerContestedKeys.has(pairKeyOf(route.origin, route.destination))),
-      // Lounge appeal (business segment), day-pass coverage and the premium
-      // ground-contract discount. Spread conditionally so a game with no lounges
-      // produces a byte-identical route object and the golden master is unmoved.
-      ...loungeFieldsFor(route.origin, route.destination),
-      // Travel partners: the segment lifts, and (partnership worlds) the
-      // leisure/business split on the result that their requirements count.
-      ...travelFieldsFor(route.origin, route.destination),
-      ...loyaltyFieldsFor(route.origin, route.destination),
-      // Earned pricing headroom (demand model v4 / NWR only; {} elsewhere, so
-      // every older world's route object is byte-identical).
-      ...statePricingFields(state, route.origin, route.destination),
-      ...(tpWorld ? { travelPartnerTrack: true } : {}),
-      ...(hcfRoute ? { hubCostFactors: hcfRoute } : {}),
-      ...(() => { const g = handlingFactorFor([route.origin, route.destination]); return g != null ? { groundHandlingFactor: g } : {}; })(),
-      ...nwrLoadFieldsFor(route),
-    };
-
-    const rkRoute = [route.origin, route.destination].sort().join('-');
-    const result = simulateRoute(routeWithHubBonus, aircraft, gameDate, laborWithSeniority, fuelMultiplier,
-      demandAllocations.get(route.id) ?? null, encroachByPair(rkRoute), avgUtilization, satisfaction,
-      eventDemandMultFor(route.origin, route.destination), ancillaries, competitors, rivalIndex);
-    if (!result) continue;
+    const sim = legSim(route, aircraft);
+    if (!sim.result) continue;
+    const { originTier, destTier, hubQuality, hcfRoute, routeWithHubBonus } = sim;
+    let result = sim.result;
 
     // Connecting passengers: additional revenue from hub-feed and partner agreements.
     // The cannibalizationMap factor reduces connecting demand on routes where a
@@ -5848,23 +5927,73 @@ export function weeklyTick(state) {
     // Own-metal itinerary feed on this leg (competition/congestion-adjusted
     // upstream), this tail's share of the pair's seats.
     const ownMetalLeg = ownMetalOD?.byRouteKey?.[routeKey] ?? null;
-    const feedShare   = legacy ? 1 : legFeedShare(route, result.configuredSeatsOneWay);
+    // Old-rule worlds used to hand EVERY tail on a pair the pair's whole feed
+    // (the bug the note above legFeedShare describes, left in for them): a
+    // pair flown by 11 aircraft boarded its connecting passengers up to 11
+    // times. One share each, in every world.
+    const feedShare   = legFeedShare(route, result.configuredSeatsOneWay);
     let   itinPax     = Math.round((ownMetalLeg?.pax     ?? 0) * feedShare);
     let   itinRevenue = Math.round((ownMetalLeg?.revenue ?? 0) * feedShare);
+    // Connection-seat worlds: the network seating already decided who boards
+    // this tail, and how many of its local passengers gave up a seat for a
+    // fare worth more. They come off the route's own figures here, so its
+    // passengers, load and revenue are the people who actually flew.
+    let displacedPax = 0, displacedRevenue = 0;
+    if (itinSeats) {
+      const mine = itinSeats.perRoute.get(route);
+      itinPax     = mine?.pax ?? 0;
+      itinRevenue = mine?.revenue ?? 0;
+      const eco = result.classSummary?.economy;
+      displacedPax = Math.min(mine?.displaced ?? 0, eco?.passengers ?? 0);
+      if (displacedPax > 0) {
+        displacedRevenue = Math.round(displacedPax * eco.revenue / eco.passengers);
+        const passengers = result.passengers - displacedPax;
+        result = {
+          ...result,
+          passengers,
+          revenue: result.revenue - displacedRevenue,
+          loadFactor: result.configuredSeatsOneWay > 0 ? passengers / result.configuredSeatsOneWay : 0,
+          classSummary: { ...result.classSummary, economy: {
+            ...eco,
+            passengers: eco.passengers - displacedPax,
+            revenue: eco.revenue - displacedRevenue,
+            loadFactor: eco.seats > 0 && eco.passengers > 0 ? (eco.loadFactor ?? 0) * (eco.passengers - displacedPax) / eco.passengers : 0,
+          } },
+        };
+      }
+    }
 
     // Capacity coupling: connecting passengers occupy real seats. Cap combined
     // connecting pax by the seats left after direct passengers board (5% ops buffer).
+    // (A displaced local's seat goes to the connection that displaced them,
+    // one for one, whatever the buffer says.)
     const seatHeadroom = Math.max(0,
-      Math.round((result.configuredSeatsOneWay ?? 0) * 0.95) - (result.passengers ?? 0));
+      Math.round((result.configuredSeatsOneWay ?? 0) * 0.95) - ((result.passengers ?? 0) + displacedPax)) + displacedPax;
     const partnerLeg   = legacy ? null : (partnerLegFeed[routeKey] ?? null);
     const partnerPaxRaw = Math.round((partnerLeg?.pax ?? 0) * feedShare);
-    const wantPax  = extPax + itinPax + partnerPaxRaw;
-    const capScale = wantPax > seatHeadroom && wantPax > 0 ? seatHeadroom / wantPax : 1;
+    // Seated itineraries hold their seats (they were only boarded where both
+    // flights had them); the other feed shares what is left.
+    if (itinSeats && itinPax > seatHeadroom) {
+      itinRevenue = itinPax > 0 ? Math.round(itinRevenue * seatHeadroom / itinPax) : 0;
+      itinPax     = seatHeadroom;
+    }
+    const roomLeft = itinSeats ? seatHeadroom - itinPax : seatHeadroom;
+    const wantPax  = itinSeats ? extPax + partnerPaxRaw : extPax + itinPax + partnerPaxRaw;
+    const capScale = wantPax > roomLeft && wantPax > 0 ? roomLeft / wantPax : 1;
     if (capScale < 1) {
       extPax      = Math.round(extPax      * capScale);
       extRevenue  = Math.round(extRevenue  * capScale);
-      itinPax     = Math.round(itinPax     * capScale);
-      itinRevenue = Math.round(itinRevenue * capScale);
+      if (!itinSeats) {
+        itinPax     = Math.round(itinPax     * capScale);
+        itinRevenue = Math.round(itinRevenue * capScale);
+      }
+    }
+    // How much of this pair's own-metal feed found a seat, over every tail
+    // that flies it — the hub figures below report passengers carried, not
+    // passengers who wanted to connect.
+    if ((ownMetalLeg?.pax ?? 0) > 0) {
+      itinWantedByPair[routeKey] = ownMetalLeg.pax;
+      itinSeatedByPair[routeKey] = (itinSeatedByPair[routeKey] ?? 0) + itinPax;
     }
     // Partner feed on this leg, seated. A leg can carry several O&D entries;
     // each is scaled by the same factor and re-emitted for the report.
@@ -5887,6 +6016,9 @@ export function weeklyTick(state) {
       externalRevenue:  extRevenue,
       itineraryPax:     itinPax,
       itineraryRevenue: itinRevenue,
+      // Connection-seat worlds: local passengers who gave up a seat on this
+      // route to a connection worth more, and what they would have paid.
+      ...(displacedPax > 0 ? { displacedPax, displacedRevenue } : {}),
       ...(legacy ? {} : { partnerPax, partnerRevenue }),   // partner feed seated on this leg / the player's prorated share
       feeds:            ownMetalLeg?.feeds ?? [],   // top O&D markets feeding this leg
       origin:           connectingRaw.origin,
@@ -6169,6 +6301,20 @@ export function weeklyTick(state) {
   //    aircraft family beyond the first (split pilot pools, extra type ratings).
   const complexityMult = fleetComplexityMultiplier(fleet);
   let totalLaborCosts = 0;
+  // Reserve staff (labor.js "Reserve staff"): people held above the requirement
+  // are paid the reserve rate. Crew-pipeline worlds only — elsewhere headcount
+  // is not state and the bill is the fleet's, as it always was. Billed even
+  // with no aircraft: an airline that sold its fleet still has a payroll.
+  let totalReservePay = 0;
+  if (labor && state.crewPipeline === true) {
+    for (const group of LABOR_GROUPS) {
+      const payMult = labor[group.id]?.payMultiplier ?? 1.0;
+      const famMult = COMPLEXITY_AFFECTED_GROUPS.includes(group.id) ? complexityMult : 1.0;
+      const { reserve } = laborBillUnits(group.id, labor, fleet, a => getAircraftType(a.typeId), true);
+      totalReservePay += Math.round(group.baseWeeklyPerAircraft * payMult * reserve * RESERVE_PAY_RATE * famMult * seniorityMult * getEraCostScale());
+    }
+    totalLaborCosts += totalReservePay;
+  }
   if (labor && fleet.length > 0) {
     for (const group of LABOR_GROUPS) {
       const payMult = labor[group.id]?.payMultiplier ?? 1.0;
@@ -6416,9 +6562,51 @@ export function weeklyTick(state) {
   // Hub throughput: connecting pax over each designated hub this week
   // (own-metal itineraries + attributed external feed). Drives the T3
   // throughput prerequisite (4-week average kept by GameContext) and the UI.
+  //
+  // Own-metal itineraries are counted SEATED. network.js reports what each
+  // A–hub–C market won in its share fight; the route loop above then boards
+  // that feed into whatever seats the nonstop passengers left on each leg,
+  // leg by leg, and books each leg's share of the fare at that leg's rate. So
+  // a market is carried at the average of its two legs' rates and earns each
+  // leg's mileage share at its own — exactly the boardings and revenue the
+  // routes report. The hub card used to show the won figure, which a full
+  // network cannot carry: a hub could read 400,000 connecting passengers and
+  // board a third. `wanted` keeps the won figure so the UI can say when seats
+  // are the limit.
+  const seatedShareOf = (key) => {
+    const want = itinWantedByPair[key] ?? 0;
+    return want > 0 ? Math.min(1, (itinSeatedByPair[key] ?? 0) / want) : 0;
+  };
+  const ownMetalSeated = { totalRevenue: 0, totalPax: 0, byHub: {}, entries: [] };
+  // Connection-seat worlds seated whole itineraries before the loop; that IS
+  // the carried figure, market by market.
+  if (itinSeats) {
+    const hubOf = (code) => (ownMetalSeated.byHub[code] ??= { pax: 0, revenue: 0, markets: 0, wanted: 0 });
+    for (const e of ownMetalOD.entries) hubOf(e.hub).wanted += e.pax;
+    for (const { wanted, displacedRevenue, ...e } of itinSeats.entries) {
+      const h = hubOf(e.hub);
+      h.pax += e.pax; h.revenue += e.revenue; h.markets += 1;
+      ownMetalSeated.totalPax += e.pax; ownMetalSeated.totalRevenue += e.revenue;
+      ownMetalSeated.entries.push(e);
+    }
+  }
+  for (const e of itinSeats ? [] : (ownMetalOD?.entries ?? [])) {
+    const [o, d] = String(e.od).split('→');
+    const in1 = seatedShareOf([o, e.hub].sort().join('-')), in2 = seatedShareOf([e.hub, d].sort().join('-'));
+    const h = (ownMetalSeated.byHub[e.hub] ??= { pax: 0, revenue: 0, markets: 0, wanted: 0 });
+    h.wanted += e.pax;
+    const pax = Math.round(e.pax * (in1 + in2) / 2);
+    if (pax <= 0) continue;
+    const km1 = routeDistanceKm(o, e.hub) || 1, km2 = routeDistanceKm(e.hub, d) || 1;
+    const revenue = Math.round(e.revenue * (in1 * km1 + in2 * km2) / (km1 + km2));
+    h.pax += pax; h.revenue += revenue; h.markets += 1;
+    ownMetalSeated.totalPax += pax; ownMetalSeated.totalRevenue += revenue;
+    ownMetalSeated.entries.push({ ...e, pax, revenue });
+  }
+  ownMetalSeated.entries.sort((a, b) => b.revenue - a.revenue);
   const hubThroughput = {};
   for (const code of Object.keys(hubs)) {
-    hubThroughput[code] = (ownMetalOD?.byHub?.[code]?.pax ?? 0) + (hubExternalPax[code] ?? 0);
+    hubThroughput[code] = (ownMetalSeated.byHub[code]?.pax ?? 0) + (hubExternalPax[code] ?? 0);
   }
 
   // ── Single connecting number ────────────────────────────────────────────────
@@ -6529,6 +6717,9 @@ export function weeklyTick(state) {
     ...(state.allianceSlotPool
       ? { totalSlotPoolCost, totalSlotPoolEarnings } : {}),
     totalLaborCosts:        Math.round(totalLaborCosts),
+    // Crew-pipeline worlds only, so every other world's report keeps its keys
+    // (and the golden master its hash).
+    ...(state.crewPipeline === true ? { totalReservePay: Math.round(totalReservePay) } : {}),
     totalFamilyBaseCosts:   Math.round(totalFamilyBaseCosts),
     totalMroBaseCosts:      Math.round(totalMroBaseCosts),
     mroContractSavings:     Math.round(mroContractSavings),
@@ -6615,12 +6806,12 @@ export function weeklyTick(state) {
     hubThroughput,           // { [code]: connecting pax/wk } — T3 prereq + HubManagement
     totalHubCostSavings:     Math.round(totalHubCostSavings),
     ownMetalOD: {            // own-metal itinerary revenue summary (trimmed for state size)
-      totalRevenue: ownMetalOD?.totalRevenue ?? 0,
-      totalPax:     ownMetalOD?.totalPax ?? 0,
-      byHub:        ownMetalOD?.byHub ?? {},
+      totalRevenue: ownMetalSeated.totalRevenue,
+      totalPax:     ownMetalSeated.totalPax,
+      byHub:        ownMetalSeated.byHub,     // { pax, revenue, markets } carried; `wanted` = won before seats
       // Per-hub round-robin, NOT a global top-N: a flat trim emptied every
       // secondary hub's itinerary list while byHub still reported its pax.
-      entries:      trimOwnMetalEntries(ownMetalOD?.entries ?? []),
+      entries:      trimOwnMetalEntries(ownMetalSeated.entries),
     },
     loyaltyMultiplier,
     loyaltyStrength,                                   // penetration × maturity factor

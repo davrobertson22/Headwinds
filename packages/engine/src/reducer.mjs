@@ -52,7 +52,8 @@ import { normalizeLivery, isLiveryShaped } from './data/livery.js';
 import { DEFAULT_LABOR_STATE, DEFAULT_MAINTENANCE_BUDGET, moraleTarget, laborEffects,
          CREW_LEAD_WEEKS, crewHireCost, crewAttritionRate, crewRequired,
          seedCrewFor, ensureCrewSeeded, splitStarterHire, absorbCrewFor,
-         crewUnitsForBodies, erodePayPremium, autoReplacePlan } from './data/labor.js';
+         crewUnitsForBodies, erodePayPremium, autoReplacePlan, opsReserveCover, reserveMoraleBonus,
+         autoStaffPlan, autoReleasePlan, crewSpare, releaseSeveranceBase, RESERVE_TARGET_MAX, RESERVE_PAY_RATE, seniorityFor } from './data/labor.js';
 import { relativePay, weeklyIntakeUnits, intakeUsed } from './models/talentMarket.js';
 import { accrueMaintenance, startCheck, completeCheck, dueInfo, checkCost, checkDurationWeeks,
          isOutOfService, maintNavMultiplier, seedMaintenance, MAX_SCHEDULE_AHEAD_WEEKS,
@@ -163,7 +164,7 @@ import {
 } from './data/credit.js';
 import { routeLaunchCost, valueRemaining, tailBookValue,
          marketingAwarenessGain, MARKETING_PCT_MAX, AWARENESS_FLOOR, AWARENESS_DECAY_RATE,
-         campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor, setEraCostScale } from './data/overhead.js';
+         campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor, setEraCostScale, getEraCostScale } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
 import {
   normalizeCateringRef, sanitizeCateringPlan, cateringPlanSaveError, cateringPlanUsage, planRef,
@@ -4916,6 +4917,61 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_AUTO_STAFF': {
+      // action: { enabled } — "Keep me fully staffed": hire every group to its
+      // reserve level, including for aircraft on order (labor.js autoStaffPlan).
+      // The hires themselves are made by withAutoStaff right after this.
+      if (!state.crewPipeline) return state;
+      return { ...state, crewAutoStaff: action.enabled === true };
+    }
+
+    case 'SET_AUTO_RELEASE': {
+      // action: { enabled } — release staff above each group's reserve level at
+      // the end of every week (labor.js autoReleasePlan; withAutoRelease below).
+      if (!state.crewPipeline) return state;
+      return { ...state, crewAutoRelease: action.enabled === true };
+    }
+
+    case 'SET_RESERVE_TARGET': {
+      // action: { group, target } — this group's reserve level, as a fraction of
+      // its requirement (0 – RESERVE_TARGET_MAX).
+      if (!state.crewPipeline || !LABOR_GROUP_MAP[action.group]) return state;
+      const current = state.labor ?? DEFAULT_LABOR_STATE;
+      const target = Math.max(0, Math.min(RESERVE_TARGET_MAX, Math.round((Number(action.target) || 0) * 100) / 100));
+      return {
+        ...state,
+        labor: {
+          ...current,
+          [action.group]: {
+            ...(current[action.group] ?? { payMultiplier: 1.0, morale: 80 }),
+            reserveTarget: target,
+          },
+        },
+      };
+    }
+
+    case 'RELEASE_CREW': {
+      // action: { group, bodies } — let spare staff go. Only people ABOVE the
+      // requirement can be released (nobody an aircraft needs), and each is
+      // owed severance: RELEASE_SEVERANCE_WEEKS of full line pay.
+      if (!state.crewPipeline || !LABOR_GROUP_MAP[action.group]) return state;
+      const current = state.labor ?? DEFAULT_LABOR_STATE;
+      const g = current[action.group];
+      if (!g || g.headcount == null) return state;
+      const typeOf = (a) => getAircraftType(a.typeId);
+      const spare = crewSpare(current, action.group, state.fleet ?? [], typeOf);
+      const units = Math.min(spare, Math.max(0, crewUnitsForBodies(action.group, Math.floor(Number(action.bodies) || 0))));
+      if (!(units > 1e-9)) return state;
+      // Full line pay, so the airline's seniority scale counts (restricted worlds).
+      const severance = Math.round(releaseSeveranceBase(action.group, units) * (g.payMultiplier ?? 1) * getEraCostScale()
+        * seniorityFor(state, absoluteWeek(state.year ?? 1, state.week ?? 1)));
+      return {
+        ...state,
+        cash: state.cash - severance,
+        labor: { ...current, [action.group]: { ...g, headcount: Math.max(0, Math.round((g.headcount - units) * 100) / 100) } },
+      };
+    }
+
     case 'SET_PAY_INDEXED': {
       // action: { group, indexed } — hold this group's pay multiplier where it is
       // instead of letting the premium drift back toward market (~6%/yr,
@@ -6360,6 +6416,22 @@ function reducer(state, action) {
       }
       newToasts.push(...leaseWarningToasts, ...failureToasts, ...recoveryToasts, ...checkToasts, ...coverToasts, ...loyaltyToasts);
 
+      // Reserve pay, said once. Staff above the requirement used to cost
+      // nothing; a save from before that carrying a real surplus (an acquired
+      // airline whose aircraft were sold) meets the charge here, with the two
+      // ways out. New games never see it: they start with no spare staff.
+      if (state.crewPipeline && !state.reservePayNoticed
+          && (report.totalReservePay ?? 0) >= 0.02 * (report.totalLaborCosts ?? 0) && (report.totalReservePay ?? 0) > 0) {
+        newToasts.push({
+          type: 'info', icon: '🧑‍✈️',
+          title: 'Spare staff are now paid as reserves',
+          message: `You have more trained staff than your fleet needs. They are now paid ${Math.round(RESERVE_PAY_RATE * 100)}% of a normal wage `
+            + `(${formatMoney(report.totalReservePay)} this week) and in return lift morale and on-time performance. `
+            + 'Keep them for growth or release them in Company ▸ Operations.',
+          duration: 14000,
+        });
+      }
+
       // Encroachment notifications — a rival entering or leaving one of your routes.
       for (const ev of encroachEvents ?? []) {
         if (ev.type === 'enter') {
@@ -6411,7 +6483,11 @@ function reducer(state, action) {
         // The market catches up: a premium over 1.0× erodes ~6%/yr (labor.js) —
         // unless the player has locked this group's rate (SET_PAY_INDEXED).
         const g = g0.indexed ? g0 : { ...g0, payMultiplier: erodePayPremium(g0.payMultiplier) };
-        const target   = grievedMoraleTarget(moraleTarget(g.payMultiplier), grievancePrev?.[id]);
+        // Reserve staff lift what pay alone buys (labor.js "Reserve staff"):
+        // rosters with slack. Zero without spare people or the crew pipeline.
+        const reserveLift = state.crewPipeline && g.headcount != null
+          ? reserveMoraleBonus(currentLabor, id, state.fleet ?? [], (a) => getAircraftType(a.typeId)) : 0;
+        const target   = grievedMoraleTarget(Math.min(100, moraleTarget(g.payMultiplier) + reserveLift), grievancePrev?.[id]);
         const newMorale = g.morale + (target - g.morale) * 0.12;
         const morale = Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10));
         if (!state.crewPipeline || g.headcount == null) {
@@ -7466,7 +7542,8 @@ function reducer(state, action) {
       // crews can melt down. Zero risk — and no random draw — for an airline
       // with slack; nothing at all outside v4.
       const incident = economyCycleWorld(state)
-        ? rollIncident(state, fleetAvgUtilizationOf(state.fleet, state.routes, state.cargoRoutes), Math.random)
+        ? rollIncident(state, fleetAvgUtilizationOf(state.fleet, state.routes, state.cargoRoutes), Math.random,
+            state.crewPipeline ? opsReserveCover(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId)) : 0)
         : null;
       if (incident) {
         forcedRepHit += incident.reputationHit;
@@ -7529,6 +7606,7 @@ function reducer(state, action) {
         hubThroughput:     newHubThroughput,
         loans:             updatedLoans,
         labor:             updatedLabor,
+        ...(state.crewPipeline ? { reservePayNoticed: true } : {}),
         laborRelations:    updatedRelations,
         maintenanceBudget: mainBudget,
         mroBases:          tickedBases,
@@ -8286,8 +8364,95 @@ function reducer(state, action) {
 // told what is on order, so crew training for a delivery are not mistaken for
 // spare people; and the hire is marked `replace`, so it starts training ahead
 // of any growth hire waiting in the recruiting queue instead of behind it.
+// "Keep me fully staffed" (labor.js autoStaffPlan): bring every group to its
+// reserve level — leavers replaced, aircraft on order crewed in time — as
+// ordinary HIRE_CREW actions, at the normal cost and training wait. A hire the
+// airline cannot afford is cut to what it can; the rest is tried again next week.
+function withAutoRelease(next) {
+  if (!next?.crewPipeline || !next.crewAutoRelease || !next.labor) return next;
+  const typeOf = (a) => getAircraftType(a.typeId);
+  const plan = autoReleasePlan(next.labor, next.fleet ?? [], typeOf, next.pendingOrders ?? [],
+    (id) => relativePay(next, id, next.labor?.[id]?.payMultiplier ?? 1.0));
+  if (plan.length === 0) return next;
+  let s = next;
+  const let_go = [];
+  let paid = 0;
+  for (const { group, bodies } of plan) {
+    // Severance per person, from the reducer itself, so the cap below and the
+    // charge can never disagree. A release the airline cannot pay for waits.
+    const one = reducer(s, { type: 'RELEASE_CREW', group, bodies: 1 });
+    const each = s.cash - one.cash;
+    const n = each > 0 ? Math.min(bodies, Math.floor(Math.max(0, s.cash) / each)) : bodies;
+    if (n < 1) continue;
+    const after = reducer(s, { type: 'RELEASE_CREW', group, bodies: n });
+    if (after === s) continue;
+    paid += s.cash - after.cash;
+    s = after;
+    let_go.push(`${n.toLocaleString()} ${LABOR_GROUP_MAP[group].name.toLowerCase()}`);
+  }
+  if (let_go.length === 0) return next;
+  return {
+    ...s,
+    pendingToasts: [...(s.pendingToasts ?? []), {
+      type: 'info', title: '🧑‍✈️ Spare staff released',
+      message: `Released ${let_go.join(', ')} above your reserve level (${formatMoney(paid)} severance). `
+        + 'Aircraft on order keep their crews. Switch this off in Company ▸ Operations to keep spare staff for growth.',
+      duration: 9000,
+    }],
+  };
+}
+
+function withAutoStaff(next) {
+  if (!next?.crewPipeline || !next.crewAutoStaff || !next.labor) return next;
+  const typeOf = (a) => getAircraftType(a.typeId);
+  const plan = autoStaffPlan(next.labor, next.fleet ?? [], typeOf,
+    (id) => relativePay(next, id, next.labor?.[id]?.payMultiplier),
+    { pendingOrders: next.pendingOrders ?? [], absWeek: absoluteWeek(next.year ?? 1, next.week ?? 1) });
+  if (plan.length === 0) return next;
+  let s = next;
+  const growth = [];
+  let growthCost = 0, deliveries = 0;
+  for (const { group, bodies, replaceBodies, forDeliveries } of plan) {
+    const each = crewHireCost(group, crewUnitsForBodies(group, 1));
+    const hire = (n, replace) => {
+      const afford = each > 0 ? Math.floor(Math.max(0, s.cash) / each) : n;
+      const m = Math.min(n, afford);
+      if (m < 1) return 0;
+      const before = s.cash;
+      const hired = reducer(s, { type: 'HIRE_CREW', group, bodies: m, ...(replace ? { replace: true } : {}) });
+      if (hired === s) return 0;
+      s = hired;
+      if (!replace) growthCost += before - s.cash;
+      return m;
+    };
+    hire(replaceBodies, true);
+    const grown = hire(bodies - replaceBodies, false);
+    // Worth telling the player about only when it is a real hire: more than a
+    // person or two of routine cover.
+    if (grown >= 3) {
+      growth.push(`${grown.toLocaleString()} ${LABOR_GROUP_MAP[group].name.toLowerCase()}`);
+      deliveries = Math.max(deliveries, forDeliveries);
+    }
+  }
+  if (growth.length === 0) return s;
+  return {
+    ...s,
+    pendingToasts: [...(s.pendingToasts ?? []), {
+      type: 'info', title: '🧑‍✈️ Crew hired for you',
+      message: `Keep me fully staffed hired ${growth.join(', ')} (${formatMoney(growthCost)} training)`
+        + (deliveries > 0 ? ` for ${deliveries} aircraft arriving soon.` : '.')
+        + ' They join the line as they finish training — see Company ▸ Operations.',
+      duration: 9000,
+    }],
+  };
+}
+
 function withAutoReplace(prev, next) {
   if (!next || next === prev || !next.crewPipeline || !next.labor) return next;
+  // "Keep me fully staffed" replaces leavers AND hires for growth, so it takes
+  // over from the per-group boxes entirely. Runs on the server's scheduler tick
+  // too, so an airline whose owner is offline stays staffed.
+  if (next.crewAutoStaff) return withAutoStaff(next);
   // Cover for the replacement wait is sized at pay RELATIVE to the going rate —
   // the same figure the tick's attrition reads — so an out-paid airline keeps
   // more in training.
@@ -8331,7 +8496,24 @@ function rootReducer(state, action) {
   const next = next0;
   // Fleet renewal before crew auto-replace, so the crew plan sees the fleet
   // after any old tail has been sold.
-  return action?.type === 'ADVANCE_WEEK' ? withAutoReplace(state, withFleetRenewal(state, next)) : next;
+  // Release before hiring, so the hiring pass sees the airline it will staff.
+  if (action?.type === 'ADVANCE_WEEK') return withAutoReplace(state, withAutoRelease(withFleetRenewal(state, next)));
+  // Switching release on, or lowering a reserve level with it on, acts at once.
+  if (next && next !== state && next.crewAutoRelease && next.crewPipeline
+      && (action?.type === 'SET_AUTO_RELEASE' || action?.type === 'SET_RESERVE_TARGET')) {
+    const released = withAutoRelease(next);
+    return next.crewAutoStaff ? withAutoStaff(released) : released;
+  }
+  // "Keep me fully staffed" also acts the moment there is something new to
+  // staff — an aircraft leased or bought, an order placed, an airline acquired,
+  // the switch or a reserve level changed — rather than a week later.
+  if (next && next !== state && next.crewAutoStaff && next.crewPipeline && (
+       action?.type === 'SET_AUTO_STAFF' || action?.type === 'SET_RESERVE_TARGET'
+    || (next.fleet?.length ?? 0) > (state?.fleet?.length ?? 0)
+    || (next.pendingOrders?.length ?? 0) > (state?.pendingOrders?.length ?? 0))) {
+    return withAutoStaff(next);
+  }
+  return next;
 }
 
 // Delivered tails carrying `replacing` take over their predecessor's routes

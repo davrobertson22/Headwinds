@@ -29,6 +29,10 @@ import { CabinBrushes, ProductRow, useMediaQuery } from './CabinDesigner.jsx';
 import { liveryFor } from '../data/livery.js';
 import { CABIN_KEYS, productFittingCost, productWeeklyCost, defaultProducts, compactProducts } from '../data/seatProducts.js';
 import { SERVICE_QUALITY_POINTS } from '../models/demand.js';
+import {
+  LABOR_GROUPS, CREW_LEAD_WEEKS, crewScaleFor, crewBodies, crewHireCost, crewAvailable, crewOnTheWay,
+  crewRequiredForOrderBook,
+} from '../data/labor.js';
 import { ReplacesSection, replacesForDispatch } from './FleetRenewal.jsx';
 
 const CAT_COLORS = {
@@ -186,6 +190,8 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const defaultEngine = engines.find(e => e.default) ?? engines[0];
   const [selectedEngineId, setSelectedEngineId] = useState(defaultEngine?.id ?? null);
   const [hasWingtips, setHasWingtips]            = useState(false);
+  // "Keep me fully staffed" can be switched on from the order itself.
+  const [staffForMe, setStaffForMe]              = useState(true);
   // Line-fit connectivity. Cheaper now than retrofitting later (see data/wifi.js),
   // which is the whole reason it belongs on the order form rather than only on
   // the Fleet page.
@@ -522,9 +528,35 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
       slotFromWeek:  linesWorld && !isLaunch && !usePriority && slotFrom != null ? slotFrom : undefined,
       ...(replaces.length ? { replaces, replaceDisposal } : {}),
     });
+    // After the order, so the switch sees the aircraft it has to crew.
+    if (crewOn && !autoStaff && staffForMe && crewToHire.people > 0) dispatch({ type: 'SET_AUTO_STAFF', enabled: true });
     onOrdered?.();
     onClose();
   }
+
+  // Crew this order needs, less trained staff the airline already has spare
+  // (reserves, or people hired ahead) once everything already on order is
+  // crewed. Crew-pipeline games only — elsewhere crew is instant.
+  const crewOn    = state.crewPipeline === true;
+  const autoStaff = crewOn && state.crewAutoStaff === true;
+  const crewToHire = (() => {
+    if (!crewOn) return { people: 0, cost: 0, groups: [], covered: 0 };
+    const typeOf = (a) => getAircraftType(a.typeId);
+    let people = 0, cost = 0, covered = 0;
+    const groups = [];
+    for (const g of LABOR_GROUPS) {
+      const need  = crewScaleFor(g.id, type) * quantity;
+      const spare = Math.max(0, crewAvailable(state.labor, g.id) + crewOnTheWay(state.labor, g.id)
+        - crewRequiredForOrderBook(g.id, fleet, pendingOrders, typeOf));
+      const hire = Math.max(0, need - spare);
+      const n = crewBodies(g.id, hire);
+      covered += crewBodies(g.id, need) - n;
+      if (n > 0) groups.push(`${n.toLocaleString()} ${g.name.toLowerCase()}`);
+      people += n;
+      cost += crewHireCost(g.id, hire);
+    }
+    return { people, cost, groups, covered };
+  })();
 
   // The cabin plan: brushes + the paintable aircraft. One element, rendered
   // beside the form on wide screens and inside the cabin section otherwise.
@@ -1305,6 +1337,43 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
               </div>
             )}
           </section>
+
+          {/* ── Crew ─────────────────────────────────────────────────────────
+              Hiring used to be a separate trip to Operations that the player
+              had to time against the delivery. The order now says what crew
+              it needs and offers to have them hired (2026-11-11). */}
+          {crewOn && (
+            <div data-order-crew style={{ marginBottom: 12, padding: '9px 12px', borderRadius: 6, background: 'var(--surface2)', fontSize: 12 }}>
+              {crewToHire.people <= 0 ? (
+                <span style={{ color: 'var(--green)' }}>
+                  <Glyph e="🧑‍✈️" size={13} /> Crew: your reserve staff already cover {quantity > 1 ? 'these aircraft' : 'this aircraft'}. Nobody to hire.
+                </span>
+              ) : (<>
+                <div>
+                  <Glyph e="🧑‍✈️" size={13} /> <strong>Crew to hire:</strong> {crewToHire.groups.join(', ')}
+                  <span style={{ color: 'var(--text-muted)' }}> · about {formatMoney(crewToHire.cost)} training</span>
+                  {crewToHire.covered > 0 && <span style={{ color: 'var(--text-muted)' }}> (your spare staff cover another {crewToHire.covered.toLocaleString()})</span>}
+                  {replaceSel.length > 0 && <span style={{ color: 'var(--text-muted)' }}> · less the crews of the aircraft being replaced</span>}
+                </div>
+                {autoStaff ? (
+                  <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+                    Hired for you in time for delivery (Keep me fully staffed is on). The training cost leaves your cash when hiring starts.
+                  </div>
+                ) : (
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={staffForMe} onChange={e => setStaffForMe(e.target.checked)} style={{ marginTop: 2 }} />
+                    <span>
+                      Keep me fully staffed
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {' '}· hire them for me in time for delivery, and replace leavers from now on. Untick to hire by hand in
+                        Company ▸ Operations (pilots train for {CREW_LEAD_WEEKS.pilots} weeks).
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </>)}
+            </div>
+          )}
 
           {/* ── Actions ──────────────────────────────────────────────────── */}
           <div style={{ display: 'flex', gap: 10 }}>

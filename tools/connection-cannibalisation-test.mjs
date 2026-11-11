@@ -59,7 +59,9 @@ function build({ nonstop = null, freq = 7, priceMult = 1, hubPackage = true } = 
     // The hub-connectivity package. Off = a beta world, frozen on the old rules.
     rivalItineraries: hubPackage };
 }
-const connectingPax = (opts) => weeklyTick(build(opts)).ownMetalOD.totalPax;
+// What the connections WON in the share fight — `wanted`. The report's pax are
+// the passengers carried (2026-11-11), which on this network is set by seats.
+const connectingPax = (opts) => Object.values(weeklyTick(build(opts)).ownMetalOD.byHub).reduce((s, h) => s + (h.wanted ?? 0), 0);
 
 const BASE  = connectingPax({});
 const PAIR  = ['BOS','LAX'];          // a real ORD connecting market

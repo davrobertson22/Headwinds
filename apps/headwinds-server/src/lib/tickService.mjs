@@ -283,6 +283,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       ...(world.tickConfig?.hubBanks === true ? { hubBanksWorld: true } : {}),
       // Custom catering: stamped at join, re-stamped here for the same reason.
       ...(world.tickConfig?.customCatering === true ? { cateringPlansWorld: true } : {}),
+      // Connection seats: stamped at join, re-stamped here for the same reason.
+      ...(world.tickConfig?.connectionSeats === true ? { connectionSeatsWorld: true } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

@@ -1090,7 +1090,9 @@ export default function AirportDetail({ code, onBack }) {
             </div>
           ) : (
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-dim)' }}>
-              {hubTier
+              {hubTier && hubTransit?.wanted > 0
+                ? <>{hubTransit.wanted.toLocaleString()} passengers wanted to connect over {code} last week, but your flights here were full{state.connectionSeatsWorld === true ? ' and no connection was worth more than the local passenger in the seat' : ' of nonstop passengers, who board first'}. More seats or frequency on the busiest routes would carry them.</>
+                : hubTier
                 ? <>No passengers connected over {code} last week — add spoke routes feeding both into and out of this hub so itineraries can form here.</>
                 : <>No connecting itineraries over {code} yet — this fills in each week once {code} is a designated hub with spoke routes feeding through it.</>}
             </div>

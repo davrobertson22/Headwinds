@@ -219,6 +219,13 @@ export async function createWorld(prisma, {
     // rivalItinerariesOf (alphas on, betas off); the admin route can still
     // switch a running world.
     rivalItineraries: true,
+    // Connection seats (Dave, 2026-11-11): connections are seated as whole
+    // itineraries, best fares first, and a full flight gives a local seat to a
+    // connection worth more, up to the share the hub's tier holds (engine
+    // network.js seatItineraries). Part of the game like rival itineraries,
+    // not a setup option: every world created from now on stores it ON.
+    // Worlds without the key keep nonstop-first seating for life.
+    connectionSeats: true,
     // Station fuel pricing + tankering for every world created from now on
     // (FUEL_OPERATIONS_PLAN.md §7.4). Worlds without the key stay world-flat.
     fuelOpsV: FUEL_OPS_VERSION,
@@ -359,6 +366,10 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     // short once it grows faster than it hires.
     ...(tc.crewPipeline === true ? {
       crewPipeline: true,
+      // "Keep me fully staffed" (engine labor.js autoStaffPlan) starts ON for an
+      // airline that joins from now on. Airlines already in a world keep hiring
+      // by hand until their owner switches it on.
+      crewAutoStaff: true,
       labor: seedCrewFor(seeded.labor ?? DEFAULT_LABOR_STATE, seeded.fleet ?? [], (a) => getAircraftType(a.typeId)),
     } : {}),
     // Production lines, baked at join like the other rule flags. The line rate
@@ -377,6 +388,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.hubBanks === true ? { hubBanksWorld: true } : {}),
     // Custom catering, baked at join like the other rule flags.
     ...(tc.customCatering === true ? { cateringPlansWorld: true } : {}),
+    // Connection seats, baked at join like the other rule flags.
+    ...(tc.connectionSeats === true ? { connectionSeatsWorld: true } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),

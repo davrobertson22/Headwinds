@@ -470,6 +470,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     hubBanks: world.tickConfig?.hubBanks === true,
     // Custom catering (new worlds from 2026-11-11).
     customCatering: world.tickConfig?.customCatering === true,
+    // Connection seats (new worlds from 2026-11-11).
+    connectionSeats: world.tickConfig?.connectionSeats === true,
     // Station fuel pricing + tankering (fuel-ops v2).
     fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell

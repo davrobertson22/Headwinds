@@ -1888,6 +1888,12 @@ export default function RoutePlanner() {
                                 Limited by seats left after O&amp;D passengers board.
                               </div>
                             )}
+                            {(simulation.connecting.displacedPax ?? 0) > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
+                                {simulation.connecting.displacedPax.toLocaleString()} connections are worth more than a local fare and take a local seat.
+                                The total is net of the {formatMoney(simulation.connecting.displacedRevenue ?? 0)} those locals would have paid.
+                              </div>
+                            )}
                             <div style={{ marginTop: 6, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                               <span style={{ color: 'var(--text-muted)' }}>Total connecting</span>
                               <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{formatMoney(simulation.connecting.totalRevenue)}/wk</span>

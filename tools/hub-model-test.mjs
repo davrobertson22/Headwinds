@@ -252,8 +252,10 @@ console.log('\n── own-metal orientation independence ───');
   const spokes4 = ['CAI', 'SIN', 'LHR', 'BOM'];
   const four    = tick(spokes4.map((s, i) => R(`r${i}`, 'DXB', s)));
   const four2   = tick(spokes4.map((s, i) => (i % 2 ? R(`r${i}`, s, 'DXB') : R(`r${i}`, 'DXB', s))));
-  ok('4 spokes → C(4,2) = 6 markets', (four.byHub?.DXB?.markets ?? 0) === 6);
-  ok('4 spokes → 6 markets regardless of orientation', (four2.byHub?.DXB?.markets ?? 0) === 6);
+  // ...of which the hub sells the ones it is on the way for (2026-11-11): Cairo–London
+  // and Singapore–Mumbai over Dubai are twice the nonstop distance and are not sold.
+  ok('4 spokes → the 4 on-the-way markets of C(4,2) = 6', (four.byHub?.DXB?.markets ?? 0) === 4);
+  ok('4 spokes → 4 markets regardless of orientation', (four2.byHub?.DXB?.markets ?? 0) === 4);
   ok('4-spoke revenue orientation-independent', four.totalRevenue === four2.totalRevenue);
   ok('4-spoke network out-earns 2-spoke', four.totalRevenue > mixed.totalRevenue);
 }

@@ -452,7 +452,9 @@ export default async function decisionRoutes(fastify) {
     // exists so a legitimate client gets a readable error rather than a silent
     // no-op. A partial order-book overflow is NOT rejected — the reducer clamps
     // it to the free slots and toasts what was trimmed.
-    if (airline.world?.tickConfig?.newWorldRestrictions === true
+    // Era worlds too: the lessor-age rule applies restrictions or not.
+    if ((airline.world?.tickConfig?.newWorldRestrictions === true
+         || Number.isInteger(airline.world?.tickConfig?.startYear))
         && (type === 'ORDER_AIRCRAFT' || type === 'BUY_AIRCRAFT')
         && guarded.ownershipType === 'lease') {
       const denial = leaseDenial(injected, guarded.typeId, guarded.quantity ?? 1);

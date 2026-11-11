@@ -32,7 +32,8 @@
  * trade-off between launching profitable direct routes and preserving alliance revenue.
  */
 
-import { baseCityPairDemand, routeDistance, referencePrice, getDemandModel } from '../utils/market.js';
+import { baseCityPairDemand, routeDistance, referencePrice, getDemandModel, distanceKm } from '../utils/market.js';
+import { getAirport } from '../data/airports.js';
 import { marketDevForOD, marketDevActive } from './marketDev.js';
 import {
   buildRouteMarket,
@@ -792,6 +793,10 @@ export function computePartnerODRevenue(connections, options = {}) {
       const playerMiles  = routeDistance(playerOrigin, playerDest);
       const totalMiles   = routeDistance(origin, dest);
       if (!playerMiles || !totalMiles) continue;
+      // On the way, or not sold — the rule own-metal and rival connections
+      // follow (ownMetalMarketScore, rivalOneStopOffersFor). A partner routing
+      // that doubles back used to be offered like any other.
+      if (routeDistance(origin, conn.hub) + routeDistance(conn.hub, dest) > MAX_CIRCUITY * totalMiles) continue;
 
       const partnerType = conn.partnershipType;
       const prorate = Math.max(
@@ -1345,8 +1350,68 @@ export function rivalOneStopOffersFor(rivalIndex, market) {
 
 // ─── Own-metal itinerary revenue ─────────────────────────────────────────────
 
-/** Max own-metal O&D markets scored per hub per tick (perf guard; sorted by demand). */
+/**
+ * Own-metal O&D markets a hub scores per tick, whatever its size: its best
+ * `MAX_OWN_METAL_ODS_PER_HUB` by ownMetalMarketScore. Every pair of spokes is
+ * a market and each scored market is a full share fight, so the list has to be
+ * cut — the question is which markets survive it.
+ */
 export const MAX_OWN_METAL_ODS_PER_HUB = 150;
+/**
+ * ...plus each spoke's own best few partners over the hub, so the cut grows
+ * with the hub (a 150-spoke focus city scores a few hundred markets, not the
+ * 150 a 20-spoke one does) and no route is left without connecting feed
+ * because bigger cities filled the list.
+ */
+export const OWN_METAL_MARKETS_PER_SPOKE = 2;
+
+/**
+ * What an A–hub–C market is worth to the cut: its O&D demand, weighted by how
+ * a traveller rates the stop (the same time-scaled penalty the share fight
+ * applies, at the default own-metal base so the ranking is the hub's geometry
+ * and nothing else). 0 = not sold at all: a routing longer than MAX_CIRCUITY ×
+ * the nonstop distance, the rule rival one-stops already follow.
+ *
+ * The cut used to rank on raw demand. The biggest city pairs among a hub's
+ * spokes are neighbours of each other (Tokyo–Osaka, Seoul–Tokyo, Dubai–London),
+ * so a 147-spoke JFK spent all 150 places on markets nobody would fly through
+ * New York and sold one passenger a week (Discord, Matthijs 2026-11-10), while
+ * 4,000 sensible pairs were never scored.
+ */
+export function ownMetalMarketScore(odDemand, kmIn, kmOut, kmDirect) {
+  if (!(odDemand > 0)) return 0;
+  if (kmDirect > 0 && (kmIn + kmOut) > MAX_CIRCUITY * kmDirect) return 0;
+  const timeRatio = kmDirect > 0
+    ? (approxBlockHours(kmIn) + CONNECT_TIME_HOURS + approxBlockHours(kmOut)) / approxBlockHours(kmDirect)
+    : CONNECTION_TIME_BASE;
+  return odDemand * Math.exp(-connectionPenaltyFor(CONNECTION_PENALTY.ownMetal, timeRatio));
+}
+
+/**
+ * The cut, stated plainly: from one hub's sellable markets in enumeration
+ * order (`{ score, sa, sb }`, sa/sb the two spokes), keep the best `limit` by
+ * score and every spoke's best `perSpoke`; ties to the earlier market; result
+ * in enumeration order. selectOwnMetalMarkets makes the same choice in one
+ * pass without holding a million candidates; computeOwnMetalODRevenue applies
+ * this to whatever it is handed, so a list cut once is not cut differently.
+ */
+export function cutOwnMetalMarkets(items, limit = Infinity, perSpoke = 0) {
+  if (!Number.isFinite(limit) || items.length <= limit) return items;
+  const byScore = (x, y) => items[y].score - items[x].score;   // stable: ties keep enumeration order
+  const all = items.map((_, k) => k);
+  const keep = new Set([...all].sort(byScore).slice(0, Math.max(0, limit)));
+  if (perSpoke > 0) {
+    const per = new Map();
+    for (const k of all) {
+      for (const s of [items[k].sa, items[k].sb]) {
+        let l = per.get(s); if (!l) per.set(s, (l = []));
+        l.push(k);
+      }
+    }
+    for (const l of per.values()) for (const k of l.sort(byScore).slice(0, perSpoke)) keep.add(k);
+  }
+  return items.filter((_, k) => keep.has(k));
+}
 
 /**
  * How many own-metal itineraries the weekly report keeps for the UI, per hub and
@@ -1383,6 +1448,123 @@ export function trimOwnMetalEntries(entries = [], perHub = OWN_METAL_ENTRIES_PER
     }
   }
   return kept.sort((a, b) => (b?.revenue ?? 0) - (a?.revenue ?? 0));
+}
+
+// ─── Seating connections (connection-seat worlds) ───────────────────────────
+//
+// What a market WON (computeOwnMetalODRevenue) still has to find seats. The old
+// rule, which every world before 2026-11-11 keeps, seats nonstop passengers
+// first and hands each leg's leftovers to connections, one leg at a time: a
+// passenger could be boarded on one flight of a two-flight trip, and a full
+// short-haul flight turned away a long-haul fare worth ten of its own.
+//
+// Connection-seat worlds (state.connectionSeatsWorld) seat ITINERARIES:
+//   * a connection boards on both of its flights or on neither;
+//   * the highest fares board first;
+//   * on a flight with no seats left, a connection takes a local passenger's
+//     seat when its whole fare is worth more than the local passengers it
+//     displaces (on one leg or both) — up to the share of the flight the hub's
+//     tier will hold for connections (CONNECTION_SEAT_SHARE).
+// Revenue can only rise against the old rule on the same loads: a local is
+// displaced only for a fare that beats what they paid.
+
+/** Share of a flight's seats a hub will hold for connections that out-earn the local passenger, by tier. */
+export const CONNECTION_SEAT_SHARE = { 0: 0.10, 1: 0.15, 2: 0.18, 3: 0.22 };
+
+/**
+ * One leg as the seating sees it, pooled over every tail that flies the pair
+ * (one-way units throughout, as the tick counts passengers):
+ *   free       — seats nonstop passengers left (95% of seats is a full flight);
+ *   hold       — local economy passengers who may give up a seat: whatever
+ *                takes connections up to the hub's share of the flight once
+ *                the free seats are gone, never more than there are locals;
+ *   localYield — what one of them brings in (both directions, as booked).
+ * `tier` is the best designation at either end (null: no hub — nothing held).
+ */
+export function connectionLegState({ seats = 0, room = 0, ecoPax = 0, ecoRev = 0, tier = null }) {
+  const free = Math.max(0, Math.floor(room));
+  const share = tier != null ? (CONNECTION_SEAT_SHARE[tier] ?? 0) : 0;
+  const hold = Math.max(0, Math.min(Math.floor(ecoPax), Math.round(share * seats * 0.95) - free));
+  return { free, hold, localYield: ecoPax > 0 ? ecoRev / ecoPax : Infinity };
+}
+
+/**
+ * Seat the week's own-metal itineraries on the legs they need.
+ *
+ * @param {{od:string, hub:string, pax:number, revenue:number}[]} entries  computeOwnMetalODRevenue().entries (what each market won)
+ * @param {{[pairKey:string]: {free:number, hold:number, localYield:number}}} legs  connectionLegState per flown pair; a pair missing here flew nothing this week
+ * @returns {{
+ *   byPair:  {[pairKey:string]: {pax:number, revenue:number, displaced:number}},  // boarded on the pair, its mileage share of their fares, locals who gave up seats
+ *   entries: object[],   // the markets that boarded anyone: pax and revenue carried, `wanted` when fewer than won,
+ *                        // `displacedRevenue` when local passengers gave up seats for them (what those locals paid)
+ * }}
+ */
+export function seatItineraries(entries = [], legs = {}) {
+  const left = {};
+  for (const [k, l] of Object.entries(legs)) left[k] = { free: l.free, hold: l.hold, y: l.localYield };
+  const order = [];
+  entries.forEach((e, i) => { if (e?.pax > 0 && e.revenue > 0) order.push({ e, i, fare: e.revenue / e.pax }); });
+  order.sort((a, b) => b.fare - a.fare || a.i - b.i);
+
+  const byPair = {}, seated = [];
+  const board = (k, pax, revenue, displaced) => {
+    const p = (byPair[k] ??= { pax: 0, revenue: 0, displaced: 0 });
+    p.pax += pax; p.revenue += revenue; p.displaced += displaced;
+  };
+  for (const { e, fare } of order) {
+    const [o, d] = String(e.od).split('→');
+    const k1 = [o, e.hub].sort().join('-'), k2 = [e.hub, d].sort().join('-');
+    const l1 = left[k1], l2 = left[k2];
+    if (!l1 || !l2) continue;
+    let want = e.pax, got = 0, d1 = 0, d2 = 0, lost1 = 0, lost2 = 0;
+    // At most three rounds: both legs free, one free, neither.
+    while (want > 0) {
+      const x = Math.min(want, l1.free > 0 ? l1.free : l1.hold, l2.free > 0 ? l2.free : l2.hold);
+      if (x <= 0) break;
+      const displaces = (l1.free > 0 ? 0 : l1.y) + (l2.free > 0 ? 0 : l2.y);
+      if (!(fare > displaces)) break;
+      if (l1.free > 0) l1.free -= x; else { l1.hold -= x; d1 += x; lost1 += x * l1.y; }
+      if (l2.free > 0) l2.free -= x; else { l2.hold -= x; d2 += x; lost2 += x * l2.y; }
+      got += x; want -= x;
+    }
+    if (got <= 0) continue;
+    // Each leg is first made whole for the locals it gave up; what the fares
+    // bring in beyond that is split by mileage. So no route is left earning
+    // less than its own passengers would have paid it.
+    const revenue = Math.round(fare * got);
+    const lost = lost1 + lost2;
+    const km1 = routeDistance(o, e.hub) || 1, km2 = routeDistance(e.hub, d) || 1;
+    const rev1 = Math.round(lost1 + (revenue - lost) * km1 / (km1 + km2));
+    board(k1, got, rev1, d1);
+    board(k2, got, revenue - rev1, d2);
+    seated.push({ ...e, pax: got, revenue, ...(got < e.pax ? { wanted: e.pax } : {}), ...(lost > 0 ? { displacedRevenue: Math.round(lost) } : {}) });
+  }
+  return { byPair, entries: seated };
+}
+
+/** Split `total` whole passengers over parts in proportion to `weights`, no part above its weight. */
+export function apportion(total, weights) {
+  const sum = weights.reduce((s, w) => s + Math.max(0, w), 0);
+  const parts = weights.map(() => 0);
+  if (!(total > 0) || !(sum > 0)) return parts;
+  const want = Math.min(total, Math.floor(sum));
+  const frac = [];
+  let given = 0;
+  weights.forEach((w, i) => {
+    const exact = want * Math.max(0, w) / sum;
+    parts[i] = Math.min(Math.floor(exact), Math.floor(Math.max(0, w)));
+    given += parts[i];
+    frac.push([exact - Math.floor(exact), i]);
+  });
+  frac.sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (let moved = true; given < want && moved;) {
+    moved = false;
+    for (const [, i] of frac) {
+      if (given >= want) break;
+      if (parts[i] + 1 <= Math.floor(Math.max(0, weights[i]))) { parts[i]++; given++; moved = true; }
+    }
+  }
+  return parts;
 }
 
 /**
@@ -1437,15 +1619,16 @@ export function trimOwnMetalEntries(entries = [], perHub = OWN_METAL_ENTRIES_PER
 //
 // `opts.hubs` / `opts.perHubLimit` (runNetworkTick passes both) skip work whose
 // result computeOwnMetalODRevenue throws away: it keeps only designated hubs and
-// only the top MAX_OWN_METAL_ODS_PER_HUB markets per hub by gravity demand. A
-// 90-spoke hub enumerates ~4,000 spoke pairs to keep 150, and the Route
-// Finder's forecasts run one network tick per row (Discord, 2026-10-16) — so the
-// ranking is done here on the cheap demand figure first, and only the survivors
-// are priced. The survivors, their fields and their order are exactly what the
+// only each hub's cut (cutOwnMetalMarkets: its best MAX_OWN_METAL_ODS_PER_HUB
+// markets by ownMetalMarketScore plus each spoke's best few). A 90-spoke hub
+// enumerates ~4,000 spoke pairs to keep a few hundred, and the Route Finder's
+// forecasts run one network tick per row (Discord, 2026-10-16) — so the
+// ranking is done here on distances and the cheap demand figure first, and
+// only the survivors are priced. The survivors, their fields and their order are exactly what the
 // unfiltered call followed by computeOwnMetalODRevenue's own cut would keep
 // (network-own-metal-prefilter-test.mjs holds the two equal).
 // ── Own-metal candidate cut ───────────────────────────────────────────────────
-// Remembered per (demand model, limit, hub, ordered spoke list). Only hubs big
+// Remembered per (demand model, cut rule, limit, hub, ordered spoke list). Only hubs big
 // enough for the pair loop to matter are kept, and the store is cleared
 // wholesale at the cap: an entry is a key of the spoke codes plus at most
 // `perHubLimit` small tuples, and a miss costs one honest recomputation.
@@ -1490,68 +1673,88 @@ export function primeOwnMetalCuts(list) {
 }
 
 /**
- * Every O&D two spokes of one hub can sell, cut to the `limit` with the highest
- * gravity demand (ties to the earlier pair in enumeration order) and returned
- * in enumeration order. Exactly what collecting every candidate, stable-sorting
- * by demand and slicing would return — which is what this used to do, building
- * and sorting up to a million objects to keep 150.
+ * One hub's markets (see ownMetalMarketScore and cutOwnMetalMarkets, whose
+ * answer this reproduces): the pairs of spokes worth selling over `hub`, cut
+ * to the best `limit` plus each spoke's best `perSpoke`, in enumeration order.
+ * Chosen as it goes — collecting every candidate and sorting them built and
+ * sorted a million objects at a 1,672-spoke hub to keep a few hundred — and
+ * the distance test runs before the demand lookup, so a pair that doubles
+ * back never costs one.
  */
-export function selectOwnMetalCut(spokes, limit = Infinity) {
+export function selectOwnMetalMarkets(hub, spokes, limit = Infinity, perSpoke = 0) {
   const capped = Number.isFinite(limit);
-  const kept = [];
-  let n = 0;                 // candidates seen (the enumeration rank)
-  let worst = -1;            // index in `kept` of the entry the next better one evicts
-  const findWorst = () => {
-    // Lowest demand; among equals the LATEST seen, which a stable sort ranks last.
+  const hubAp = getAirport(hub);
+  const aps   = spokes.map((x) => getAirport(x.spoke));
+  const kmHub = aps.map((ap) => (ap && hubAp ? Math.round(distanceKm(hubAp, ap)) : 0));
+  // Lowest score; among equals the LATEST seen, which a stable sort ranks last.
+  const worstOf = (list) => {
     let w = 0;
-    for (let k = 1; k < kept.length; k++) {
-      const c = kept[k], cw = kept[w];
-      if (c.odDemand < cw.odDemand || (c.odDemand === cw.odDemand && c.n > cw.n)) w = k;
+    for (let k = 1; k < list.length; k++) {
+      const c = list[k], cw = list[w];
+      if (c.score < cw.score || (c.score === cw.score && c.n > cw.n)) w = k;
     }
     return w;
   };
+  // A list that keeps its best `size`: a later candidate displaces the worst
+  // only on a strictly higher score.
+  const offer = (holder, size, c) => {
+    const list = holder.list;
+    if (list.length < size) {
+      list.push(c);
+      if (list.length === size) holder.worst = worstOf(list);
+      return;
+    }
+    if (size <= 0 || c.score <= list[holder.worst].score) return;
+    list[holder.worst] = c;
+    holder.worst = worstOf(list);
+  };
+  const wouldTake = (holder, size, score) =>
+    holder.list.length < size || (size > 0 && score > holder.list[holder.worst].score);
+
+  const top = { list: [], worst: -1 };
+  const per = capped && perSpoke > 0 ? spokes.map(() => ({ list: [], worst: -1 })) : null;
+  let n = 0;                 // candidates seen (the enumeration rank)
   for (let i = 0; i < spokes.length; i++) {
     const a = spokes[i];
     for (let j = i + 1; j < spokes.length; j++) {
       const b = spokes[j];
       if (a.spoke === b.spoke) continue;
+      const kmDirect = aps[i] && aps[j] ? Math.round(distanceKm(aps[i], aps[j])) : 0;
+      if (kmDirect > 0 && (kmHub[i] + kmHub[j]) > MAX_CIRCUITY * kmDirect) continue;
       // A through tag service already sells this O&D — don't double-book it.
       if (a.tagParents.size > 0 && b.tagParents.size > 0) {
         let sharedTag = false;
         for (const t of a.tagParents) { if (b.tagParents.has(t)) { sharedTag = true; break; } }
         if (sharedTag) continue;
       }
-
-      // Canonical (sorted) O&D so each market is emitted exactly once.
       const aFirst = a.spoke < b.spoke;
       const origin = aFirst ? a.spoke : b.spoke;
       const dest   = aFirst ? b.spoke : a.spoke;
-      // Developed O&D market (see findConnectionsAtHub): 1× outside a
-      // market-development world.
       const odDemand = Math.round(baseCityPairDemand(origin, dest)
         * marketDevForOD(origin, dest, Math.min(a.freq ?? 0, b.freq ?? 0)));
       if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
+      const score = ownMetalMarketScore(odDemand, kmHub[i], kmHub[j], kmDirect);
+      if (!(score > 0)) continue;
       const rank = n++;
-      if (!capped || kept.length < limit) {
-        kept.push({ a, b, origin, dest, odDemand, n: rank, i, j });
-        if (capped && kept.length === limit) worst = findWorst();
-        continue;
-      }
-      // Full: a later pair only displaces the worst on strictly higher demand
-      // (on a tie the earlier pair wins, and every kept pair is earlier).
-      if (limit <= 0 || odDemand <= kept[worst].odDemand) continue;
-      kept[worst] = { a, b, origin, dest, odDemand, n: rank, i, j };
-      worst = findWorst();
+      if (capped && !wouldTake(top, limit, score)
+          && !(per && (wouldTake(per[i], perSpoke, score) || wouldTake(per[j], perSpoke, score)))) continue;
+      const c = { a, b, origin, dest, odDemand, score, n: rank, i, j };
+      if (!capped) { top.list.push(c); continue; }
+      offer(top, limit, c);
+      if (per) { offer(per[i], perSpoke, c); offer(per[j], perSpoke, c); }
     }
   }
-  // Evictions leave `kept` out of enumeration order; put it back.
-  if (capped) kept.sort((x, y) => x.n - y.n);
-  return kept;
+  if (!per) return capped ? top.list.sort((x, y) => x.n - y.n) : top.list;
+  const kept = new Set(top.list);
+  for (const h of per) for (const c of h.list) kept.add(c);
+  return [...kept].sort((x, y) => x.n - y.n);
 }
 
 export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}, legacy = false, opts = {}) {
   const onlyHubs    = opts.hubs ?? null;
   const perHubLimit = opts.perHubLimit ?? Infinity;
+  // Each spoke's best partners ride on top of the per-hub cut.
+  const perSpoke    = Number.isFinite(perHubLimit) ? OWN_METAL_MARKETS_PER_SPOKE : 0;
   const legs = expandRoutesToLegs(playerRoutes);
   const directRouteKeys = buildDirectRouteIndex(legs, seatsByRouteKey);
 
@@ -1582,15 +1785,16 @@ export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}
     }));
     if (spokes.length < 2) continue;
 
-    // Pass 1 — the cheap filters and the gravity demand, in enumeration order,
-    // keeping the per-hub cut computeOwnMetalODRevenue makes: highest demand
-    // first, ties in enumeration order, then back to enumeration order.
+    // Pass 1 — the cheap filters, the on-the-way test and the gravity demand,
+    // in enumeration order, keeping the per-hub cut computeOwnMetalODRevenue
+    // makes: best score first, ties in enumeration order, each spoke's best
+    // added, then back to enumeration order.
     //
     // This is every PAIR of spokes, so it is the one quadratic step in the
     // tick: 1,672 spokes at one hub (a live airline, 2026-11) is 1.4 million
     // pairs. Two things keep that from being paid every week and every click:
-    //   * the cut is selected as it goes (selectOwnMetalCut) instead of
-    //     collecting a million candidates and sorting them to keep 150;
+    //   * the cut is selected as it goes (selectOwnMetalMarkets) instead of
+    //     collecting a million candidates and sorting them to keep a few hundred;
     //   * while the hub's spoke list is unchanged the answer is the same, so
     //     it is remembered (OWN_METAL_CUT_MEMO). Fares and frequencies do not
     //     enter pass 1 outside a market-development world, and a tag parent
@@ -1599,12 +1803,12 @@ export function buildOwnMetalConnections(playerRoutes = [], seatsByRouteKey = {}
     if (ownMetalCutMemoOn && spokes.length >= OWN_METAL_CUT_MEMO_MIN_SPOKES
         && Number.isFinite(perHubLimit) && !marketDevActive()
         && spokes.every((x) => x.tagParents.size === 0)) {
-      cutKey = getDemandModel() + '|' + perHubLimit + '|' + hub + '|' + spokes.map((x) => x.spoke).join(',');
+      cutKey = getDemandModel() + '|' + 'score+' + perSpoke + '|' + perHubLimit + '|' + hub + '|' + spokes.map((x) => x.spoke).join(',');
       const hit = OWN_METAL_CUT_MEMO.get(cutKey);
       if (hit) kept = hit.map(([i, j, origin, dest, odDemand]) => ({ a: spokes[i], b: spokes[j], origin, dest, odDemand }));
     }
     if (!kept) {
-      kept = selectOwnMetalCut(spokes, perHubLimit);
+      kept = selectOwnMetalMarkets(hub, spokes, perHubLimit, perSpoke);
       if (cutKey) {
         if (OWN_METAL_CUT_MEMO.size >= OWN_METAL_CUT_MEMO_CAP) OWN_METAL_CUT_MEMO.clear();
         const tuples = kept.map((c) => [c.i, c.j, c.origin, c.dest, c.odDemand]);
@@ -1681,16 +1885,26 @@ export function computeOwnMetalODRevenue(connections, options = {}) {
     return { totalRevenue, totalPax, byRouteKey, byHub, entries };
   }
 
-  // Perf guard: keep only the top-N ODs per hub by gravity demand.
-  const perHubCount = {};
+  // Every scored market is a share fight, so each hub's list is cut: routings
+  // that double back are not sold, and the hub keeps its best N by what a
+  // connection can win plus each spoke's best few (cutOwnMetalMarkets — the
+  // same choice buildOwnMetalConnections makes, so a list it already cut
+  // passes through whole). Old-rule worlds too: which markets a hub sells is
+  // not part of the hub-connectivity package, and the old ranking is the bug.
   const kept = [];
-  const sorted = [...eligible].sort((a, b) => b.odDemand - a.odDemand);
-  for (const c of sorted) {
-    const n = perHubCount[c.hub] ?? 0;
-    if (n >= MAX_OWN_METAL_ODS_PER_HUB) continue;
-    perHubCount[c.hub] = n + 1;
-    kept.push(c);
+  const marketsAt = new Map();
+  for (const c of eligible) {
+    const score = ownMetalMarketScore(c.odDemand,
+      routeDistance(c.legOneOrigin, c.hub), routeDistance(c.hub, c.legTwoDest),
+      routeDistance(c.legOneOrigin, c.legTwoDest));
+    if (!(score > 0)) continue;
+    let l = marketsAt.get(c.hub); if (!l) marketsAt.set(c.hub, (l = []));
+    l.push({ score, sa: c.legOneOrigin, sb: c.legTwoDest, conn: c });
   }
+  for (const l of marketsAt.values()) {
+    for (const it of cutOwnMetalMarkets(l, MAX_OWN_METAL_ODS_PER_HUB, OWN_METAL_MARKETS_PER_SPOKE)) kept.push(it.conn);
+  }
+  kept.sort((x, y) => y.odDemand - x.odDemand);   // stable: the order markets were always scored in
 
   // Group by directional O&D so multiple routings (different hubs) share one market.
   const byOD = new Map();
