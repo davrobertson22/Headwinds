@@ -5,7 +5,7 @@ import { runwayShortfall, standShortfall } from '../data/airportRestrictions.js'
 import { getAirport } from '../data/airports.js';
 import { getAircraftType, AIRCRAFT_TYPES } from '../data/aircraft.js';
 import { routeLaunchCost } from '../data/overhead.js';
-import { normalizeCateringLevel } from '../data/catering.js';
+import { normalizeCateringRef } from '../data/cateringPlans.js';
 import {
   simulateTagRoute, referencePrice, distanceKm, formatMoney, formatPercent,
   currentGameDate, effectiveRangeKm, defaultClassPrices,
@@ -78,7 +78,7 @@ export default function TagRoutePlanner({ mode, setMode, embedded = false, initi
   const [stops, setStops] = useState(lockedStops ?? [hub || '', '', '']);
   const [aircraftId, setAircraftId] = useState('');
   const [frequency, setFrequency]   = useState(5);
-  const [cateringLevel, setCateringLevel] = useState(normalizeCateringLevel(state.defaultCateringLevel));
+  const [cateringLevel, setCateringLevel] = useState(normalizeCateringRef(state.defaultCateringLevel, state.cateringPlans));
   const [fareOverrides, setFareOverrides] = useState(initialFares ?? {}); // { [segKey]: economy$ }
 
   const setStop = (i, code) => setStops(s => s.map((c, j) => (j === i ? code : c)));

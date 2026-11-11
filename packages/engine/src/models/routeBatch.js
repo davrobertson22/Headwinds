@@ -26,7 +26,7 @@ import { getAircraftType } from '../data/aircraft.js';
 import { isOutOfService } from '../data/maintenance.js';
 import { isReserve } from '../data/reserve.js';
 import { routeLaunchCost } from '../data/overhead.js';
-import { normalizeCateringLevel } from '../data/catering.js';
+import { normalizeCateringRef } from '../data/cateringPlans.js';
 import { referencePrice } from '../utils/market.js';
 import {
   defaultClassPrices, maxFrequency, maxWeeklyBlockHoursFor, routeDistanceKm,
@@ -126,7 +126,7 @@ export function planRouteBatch(state, picks = [], { gameDate = currentGameDate(s
     // ADD_ROUTE inherits them — so the forecast must too.
     const pk = routePairKey(origin, destination);
     const fares = s.routePricing?.[pk] ?? defaultClassPrices(referencePrice(origin, destination));
-    const cateringLevel = normalizeCateringLevel(s.routeCatering?.[pk] ?? s.defaultCateringLevel);
+    const cateringLevel = normalizeCateringRef(s.routeCatering?.[pk] ?? s.defaultCateringLevel, s.cateringPlans);
     const action = {
       type: 'ADD_ROUTE', origin, destination, aircraftId: tail.id, weeklyFrequency,
       ticketPrice: fares.economy, classPrices: { ...fares }, cateringLevel, season: null,

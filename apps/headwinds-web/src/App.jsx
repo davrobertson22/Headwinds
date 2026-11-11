@@ -397,6 +397,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [partnerships, setPartnerships] = useState(true);
   const [loyaltyPools, setLoyaltyPools] = useState(true);
   const [hubBanks, setHubBanks] = useState(true);
+  const [customCatering, setCustomCatering] = useState(true);
   // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
   const [demandV2, setDemandV2] = useState(true);
   // Market development — on by default (the server defaults it on too).
@@ -411,7 +412,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
     if (!p) return;
     setNewWorldRestrictions(p.nwr); setCrewPipeline(p.crew); setProductionLines(p.lines);
     setPartnerships(p.partners); setDemandV2(p.demand); setMarketDev(p.marketDev);
-    setLoyaltyPools(p.loyalty); setHubBanks(p.hubBanks); setGateScarcity(p.scarcity);
+    setLoyaltyPools(p.loyalty); setHubBanks(p.hubBanks); setCustomCatering(p.catering); setGateScarcity(p.scarcity);
     setStartingCapital(p.capital); setDemandMultiplier(p.demandMult);
   };
   const customised = (fn) => (e) => { setRulePreset('custom'); fn(e); };
@@ -481,6 +482,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           loyaltyPools,
           // Always explicit: the server treats an absent field as ON.
           hubBanks,
+          // Always explicit: the server treats an absent field as ON.
+          customCatering,
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -772,6 +775,18 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             banks or drag flights.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Custom catering
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={customCatering}
+              onChange={customised((e) => setCustomCatering(e.target.checked))} />
+            <span className="muted">{customCatering ? 'ON (default) — airlines build their own menus' : 'Off — the five fixed catering levels only'}</span>
+          </span>
+          <span className="muted small">
+            Airlines can build service plans: choose what each cabin is served, how good it is,
+            and whether each item is free or sold at their own price. The five classic levels
+            stay available.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -979,6 +994,14 @@ const WORLD_FEATURES = [
     blurb: 'Your timetable matters. Connections at your hubs only work when the flights meet: each hub runs on banks — waves of arrivals, then departures — and the automatic schedule aims every flight at them. Set a hub to more or fewer banks, or to Rolling, in Operations → Schedule, and drag flights to fine-tune.',
   },
   {
+    key: 'catering',
+    on: (w) => w.customCatering === true,
+    icon: '🍽️',
+    label: () => 'Custom catering',
+    rgb: '230,170,90',
+    blurb: 'Build your own service instead of picking one of five fixed levels. For each cabin choose what is served, at Basic, Standard or Premium quality, and whether each item is free or sold at a price you set. Better food and lower prices cost more and lift quality; thinner menus and higher prices earn more and cost quality.',
+  },
+  {
     key: 'hubs',
     on: (w) => !!w.rivalItineraries,
     icon: '⇄',
@@ -1003,25 +1026,25 @@ export const WORLD_RULE_PRESETS = {
   standard: {
     label: 'Standard (recommended)',
     blurb: 'The current ruleset: restricted leasing, production lines, partners, loyalty pools, hub banks and real-world demand with frequency and pricing rules.',
-    nwr: true, crew: false, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, scarcity: false,
+    nwr: true, crew: false, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, catering: true, scarcity: false,
     capital: 10_000_000, demandMult: 1,
   },
   hardcore: {
     label: 'Hardcore',
     blurb: 'Standard, plus finite gates with auctions and a crew pipeline you must hire and train — and less starting capital.',
-    nwr: true, crew: true, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, scarcity: true,
+    nwr: true, crew: true, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, catering: true, scarcity: true,
     capital: 6_000_000, demandMult: 1,
   },
   sandbox: {
     label: 'Sandbox',
     blurb: 'Lease anything, no production queues or gate limits, more capital and demand — for learning and experimenting.',
-    nwr: false, crew: false, lines: false, partners: true, demand: true, marketDev: false, loyalty: true, hubBanks: true, scarcity: false,
+    nwr: false, crew: false, lines: false, partners: true, demand: true, marketDev: false, loyalty: true, hubBanks: true, catering: true, scarcity: false,
     capital: 50_000_000, demandMult: 1.5,
   },
   classic: {
     label: 'Classic',
     blurb: 'The original game: classic demand and none of the newer systems.',
-    nwr: false, crew: false, lines: false, partners: false, demand: false, marketDev: false, loyalty: false, hubBanks: false, scarcity: false,
+    nwr: false, crew: false, lines: false, partners: false, demand: false, marketDev: false, loyalty: false, hubBanks: false, catering: false, scarcity: false,
     capital: 10_000_000, demandMult: 1,
   },
 };

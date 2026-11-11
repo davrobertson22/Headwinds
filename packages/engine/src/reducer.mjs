@@ -166,6 +166,9 @@ import { routeLaunchCost, valueRemaining, tailBookValue,
          campaignStrengthGain, CAMPAIGN_DECAY_RATE, shareOfVoiceFactor, setEraCostScale } from './data/overhead.js';
 import { normalizeCateringLevel } from './data/catering.js';
 import {
+  normalizeCateringRef, sanitizeCateringPlan, cateringPlanSaveError, cateringPlanUsage, planRef,
+} from './data/cateringPlans.js';
+import {
   eventActionDenial, eventAircraftDenial, eventLeaseDenial, eventRouteDenial, pinEventBonusFrom,
 } from './data/eventRules.js';
 import { normalizeAncillaries, defaultAncillaries, ANCILLARY_MAP } from './data/ancillaries.js';
@@ -3886,7 +3889,7 @@ function reducer(state, action) {
       const routeCatering = state.routeCatering ?? {};
       const newRouteCatering = routeCatering[pairKey]
         ? routeCatering
-        : { ...routeCatering, [pairKey]: normalizeCateringLevel(action.cateringLevel ?? state.defaultCateringLevel) };
+        : { ...routeCatering, [pairKey]: normalizeCateringRef(action.cateringLevel ?? state.defaultCateringLevel, state.cateringPlans) };
       return {
         ...state,
         cash:          state.cash - launchCost,
@@ -3994,7 +3997,7 @@ function reducer(state, action) {
         launchCost,
         hub:             state.hub,
         segmentPrices,
-        cateringLevel:   normalizeCateringLevel(action.cateringLevel ?? state.defaultCateringLevel),
+        cateringLevel:   normalizeCateringRef(action.cateringLevel ?? state.defaultCateringLevel, state.cateringPlans),
       };
       const updatedFleet = state.fleet.map(a =>
         a.id === action.aircraftId ? withRouteStatus(a, 'assigned', { reserveBase: null }) : a
@@ -4697,7 +4700,8 @@ function reducer(state, action) {
     // Set the catering service level on one route, or several at once
     // (e.g. all routes on a city-pair). action: { routeId? , routeIds?, level }
     case 'SET_ROUTE_CATERING': {
-      const level = normalizeCateringLevel(action.level);
+      // A classic level id, or `plan:<id>` for one of the airline's service plans.
+      const level = normalizeCateringRef(action.level, state.cateringPlans);
       const ids = new Set(action.routeIds ?? (action.routeId ? [action.routeId] : []));
       if (ids.size === 0) return state;
       // Catering belongs to the O&D pair. Resolve the affected pairs from the routes,
@@ -4711,9 +4715,47 @@ function reducer(state, action) {
       return { ...state, routeCatering };
     }
 
+    // ─── Service plans (data/cateringPlans.js) ──────────────────────────────
+    // A plan is a named item menu for the four cabins. Saving one creates or
+    // replaces it; every pair pointing at it follows from the next tick. The
+    // state key is written only once a plan exists (golden parity).
+    // New worlds only: an airline carries cateringPlansWorld when its world was
+    // created with custom catering (stamped at join, re-stamped by the tick).
+    // Without it no plan can be saved, so no ref to one can exist and every
+    // route stays on the classic levels.
+    // action: { plan, routeIds? } — routeIds also assigns the saved plan.
+    case 'SAVE_CATERING_PLAN': {
+      if (state.cateringPlansWorld !== true) return { ...state, error: 'Service plans are not part of this world.' };
+      const plans = state.cateringPlans ?? {};
+      const plan = sanitizeCateringPlan(action.plan);
+      const err = cateringPlanSaveError(plan, plans);
+      if (err) return { ...state, error: err };
+      const next = { ...state, cateringPlans: { ...plans, [plan.id]: plan } };
+      const ids = new Set(action.routeIds ?? []);
+      if (ids.size === 0) return next;
+      const routeCatering = { ...(state.routeCatering ?? {}) };
+      for (const r of state.routes) if (ids.has(r.id)) routeCatering[routePairKey(r.origin, r.destination)] = planRef(plan.id);
+      return { ...next, routeCatering };
+    }
+
+    // A plan routes still use cannot be deleted: say how many and stop.
+    case 'DELETE_CATERING_PLAN': {
+      const plans = state.cateringPlans ?? {};
+      if (!plans[action.id]) return state;
+      const use = cateringPlanUsage(action.id, state);
+      if (use.count > 0) {
+        return { ...state, error: `${plans[action.id].name} is still used on ${use.count} route${use.count !== 1 ? 's' : ''}. Move them to another plan first.` };
+      }
+      const rest = { ...plans };
+      delete rest[action.id];
+      const { cateringPlans: _drop, ...without } = state;
+      const base = Object.keys(rest).length > 0 ? { ...state, cateringPlans: rest } : without;
+      return use.isDefault ? { ...base, defaultCateringLevel: normalizeCateringLevel(plans[action.id].basedOn) } : base;
+    }
+
     // Airline-wide default catering level applied to newly-opened routes.
     case 'SET_DEFAULT_CATERING': {
-      return { ...state, defaultCateringLevel: normalizeCateringLevel(action.level) };
+      return { ...state, defaultCateringLevel: normalizeCateringRef(action.level, state.cateringPlans) };
     }
 
     // Edit ONE ancillary product's { offered, price }. Touching any product for the
@@ -5414,7 +5456,7 @@ function reducer(state, action) {
       // player already operates — they keep their own settings on overlapping routes.
       const acquiredPricing  = { ...(state.routePricing  ?? {}) };
       const acquiredCatering = { ...(state.routeCatering ?? {}) };
-      const inheritedCatering = normalizeCateringLevel(state.defaultCateringLevel);
+      const inheritedCatering = normalizeCateringRef(state.defaultCateringLevel, state.cateringPlans);
       for (const r of inheritedRoutes) {
         const key = routePairKey(r.origin, r.destination);
         if (!acquiredPricing[key])  acquiredPricing[key]  = defaultClassPrices(r._basePrice);
@@ -5635,7 +5677,7 @@ function reducer(state, action) {
         // shouldn't contest them or count their (idle) frequency on the pair.
         routes:       coverPass.routes
           .filter(r => isRouteActive(r, gameMonth))
-          .map(r => hydrateRoute(r, state.routePricing, state.routeCatering)),
+          .map(r => hydrateRoute(r, state.routePricing, state.routeCatering, state.cateringPlans ?? null)),
         routePricing: state.routePricing,
         lastReport:   state.lastReport,
         marketCap:    state.marketCap ?? 0,
@@ -8450,6 +8492,13 @@ function reconcileState(parsed) {
   //    strip price fields off the stored route objects.
   const routePricing  = { ...(parsed.routePricing  ?? {}) };
   const routeCatering = { ...(parsed.routeCatering ?? {}) };
+  // Service plans (data/cateringPlans.js), cleaned on the way in. A pair may
+  // point at one with `plan:<id>`; a ref to a plan that is gone reads as Full.
+  const loadedCateringPlans = {};
+  for (const raw of Object.values(parsed.cateringPlans ?? {})) {
+    const p = sanitizeCateringPlan(raw);
+    if (p) loadedCateringPlans[p.id] = p;
+  }
   for (const r of migratedRoutes) {
     const key = routePairKey(r.origin, r.destination);
     if (!routePricing[key]) {
@@ -8457,7 +8506,7 @@ function reconcileState(parsed) {
       if (eco) routePricing[key] = r.classPrices ?? defaultClassPrices(eco);
     }
     if (!routeCatering[key] && r.cateringLevel) {
-      routeCatering[key] = normalizeCateringLevel(r.cateringLevel);
+      routeCatering[key] = normalizeCateringRef(r.cateringLevel, loadedCateringPlans);
     }
   }
   const normalizedRoutes = migratedRoutes.map((rIn) => {
@@ -8545,7 +8594,7 @@ function reconcileState(parsed) {
     marketingBudget:          parsed.marketingBudget          ?? 0,
     targetedMarketing:        parsed.targetedMarketing        ?? {},
     campaignStrength:         parsed.campaignStrength         ?? {},
-    defaultCateringLevel:     normalizeCateringLevel(parsed.defaultCateringLevel),
+    defaultCateringLevel:     normalizeCateringRef(parsed.defaultCateringLevel, loadedCateringPlans),
     ancillaries:              normalizeAncillaries(parsed.ancillaries),
     // Lounges — added with the ancillary facilities rework. Old saves have no
     // lounges and no policy, which is exactly the neutral state: appeal 1, no
@@ -8556,6 +8605,8 @@ function reconcileState(parsed) {
     // only when the save actually has one (see freshState).
     ...(parsed.groundStations && Object.keys(parsed.groundStations).length > 0
       ? { groundStations: parsed.groundStations } : {}),
+    // Service plans — carried only when the save has one.
+    ...(Object.keys(loadedCateringPlans).length > 0 ? { cateringPlans: loadedCateringPlans } : {}),
     // Catering contracts — carried only when the save has one (golden parity).
     ...(parsed.cateringContracts && Object.keys(parsed.cateringContracts).length > 0
       ? { cateringContracts: parsed.cateringContracts } : {}),

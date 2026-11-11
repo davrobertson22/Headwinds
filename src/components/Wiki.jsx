@@ -345,12 +345,52 @@ const WIKI = [
     ],
   },
   {
+    id: 'serviceplans',
+    icon: '\uD83C\uDF74',
+    title: 'Service Plans',
+    blurb: 'Build your own catering, cabin by cabin',
+    blocks: [
+      { p: 'The five catering levels are fixed menus. A **service plan** is a menu of your own: for each cabin you choose what is served, how good it is, and whether it is free or sold and for how much. Build them under **Operations \u203A Catering**, then put a plan on as many routes as you like. The classic levels stay exactly as they were. Service plans are part of worlds created with **Custom catering** on (the default for new worlds); in older worlds the section is not shown.' },
+      { h: 'The menu' },
+      { ul: [
+        'Ten items: water, soft drinks, beer and wine, spirits, champagne, a snack, a cold meal, a hot meal, extra courses, and fine dining in business and first.',
+        'Meals, snacks, wine and champagne come in three tiers. **Basic** costs 60% of Standard and is worth 70% as much to passengers. **Premium** costs 150% and is worth 125%.',
+        'A cold meal and a hot meal do not stack: only the better one counts, though you pay for both.',
+        'Each cabin has a set of items it expects. Serve that set free at Standard and you have the classic Full Service, at the same cost and the same quality. More, or Premium, takes you above it.',
+      ] },
+      { h: 'Free or sold' },
+      { ul: [
+        '**Free:** everyone gets it and you pay for everyone.',
+        '**Sold:** only buyers get it and you pay only for what sells. You type the price. The dearer it is, the fewer buy.',
+        'A sold item still adds quality, but less than a free one, and less again as the price rises. Priced high enough it adds nothing, though it is never worse than not offering it.',
+        'The editor shows, for every item, what it costs you per passenger, how many buy, what it earns, and a bar for the quality it adds, with a mark where the bar would reach if the item were free.',
+      ] },
+      { h: 'Flight length' },
+      { ul: [
+        'Costs and the quality at stake both grow with distance, as they do for the classic levels.',
+        'Under 1,000 km a meal counts for half what it does on long haul, and drinks and a snack count for more. From 4,000 km the meal is most of what passengers judge. That is the reason to keep a short-haul plan and a long-haul plan.',
+      ] },
+      { h: 'Putting a plan on routes' },
+      { ul: [
+        '**Apply to routes** on a plan lists every route, filtered by length, region or hub, with the change in catering money and quality for each. Tick the ones you want.',
+        'Every catering picker (Route Detail, the Routes page, the Route Planner, the bulk bar) offers your plans beside the classic levels, and any plan can be the default for new routes.',
+        'Editing a plan changes every route on it from the next week. A plan in use cannot be deleted.',
+        'Economy counts for half of a route\u2019s catering quality and the premium cabins share the other half by seats.',
+      ] },
+      { h: 'Plans and caterers' },
+      { ul: [
+        'A caterer does not cap a plan by level. It leaves out what its kitchen cannot make at the airports it cooks for: a standard kitchen serves Premium items as Standard and has no fine dining; a snack-box kitchen also has no hot meals or extra courses.',
+        'Each end of a route caters its own departures, so a weak kitchen at one end means half the flights go without. You pay only for what is served, and the route screen names what is missing.',
+      ] },
+    ],
+  },
+  {
     id: 'cateringcontracts',
     icon: '\uD83C\uDF7D',
     title: 'Catering Contracts',
     blurb: 'Who cooks, at what rate, and for how long',
     blocks: [
-      { p: 'Each route picks a catering **level** (none to full service). A **catering contract** decides what that level costs you and how good it can actually be, across a whole **region** \u2014 one country, one continent, or the world. Sign them on the Operations page.' },
+      { p: 'Each route picks a catering **level** (none to full service) or one of your own **service plans**. A **catering contract** decides what that level costs you and how good it can actually be, across a whole **region** \u2014 one country, one continent, or the world. Sign them on the Operations page.' },
       { h: 'Choosing a caterer' },
       { ul: [
         'Budget caterers are cheap but have a **quality cap**: a route set to Full Service under a caterer that tops out at Partial is served \u2014 and charged \u2014 as Partial, and the route screen says so.',

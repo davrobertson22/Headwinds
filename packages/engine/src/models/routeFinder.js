@@ -51,7 +51,7 @@ import {
   currentGameDate, simulateCargoRoute, cargoLaneAllocations, CARGO_YIELD_ELASTICITY,
 } from '../utils/simulation.js';
 import { projectRouteAddition, pairMarketShare } from './pairShare.js';
-import { normalizeCateringLevel } from '../data/catering.js';
+import { normalizeCateringRef } from '../data/cateringPlans.js';
 import { eventRouteDenial } from '../data/eventRules.js';
 
 /** How many leads get a full engine forecast before the finder stops paying for it. */
@@ -385,7 +385,7 @@ export function forecastLaunch(state, {
     // The catering ADD_ROUTE will assign. Catering is a quality term in the
     // share fight, so a finder that left it at the engine default forecast a
     // different slice of a contested pair than the planner and the tick.
-    cateringLevel: cateringLevel ?? normalizeCateringLevel(state.defaultCateringLevel),
+    cateringLevel: cateringLevel ?? normalizeCateringRef(state.defaultCateringLevel, state.cateringPlans),
     gameDate,
   });
   if (!p?.mature) return null;

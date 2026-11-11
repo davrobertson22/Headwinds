@@ -84,6 +84,9 @@ export async function createWorld(prisma, {
   // Hub banks (engine models/schedule.js): ON for new worlds unless the
   // creator passes false.
   hubBanks,
+  // Custom catering (engine data/cateringPlans.js): ON for new worlds unless
+  // the creator passes false.
+  customCatering,
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
@@ -126,7 +129,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -203,6 +206,11 @@ export async function createWorld(prisma, {
     // flight connects in 1.5 h. New worlds only: ON unless the creator unticks
     // it; older worlds keep the schedule cosmetic for life.
     ...(hubBanks !== false ? { hubBanks: true } : {}),
+    // Custom catering (Dave, 2026-11-11): airlines build their own service
+    // plans from an item menu instead of picking one of five fixed levels.
+    // New worlds only: ON unless the creator unticks it; older worlds keep
+    // the classic levels for life.
+    ...(customCatering !== false ? { customCatering: true } : {}),
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md Phase 1b): rivals
     // sell connections over their hubs in every passenger market. Part of the
     // game, not a setup option (Dave, 2026-10-17): every world created from
@@ -367,6 +375,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
     // Hub banks, baked at join like the other rule flags.
     ...(tc.hubBanks === true ? { hubBanksWorld: true } : {}),
+    // Custom catering, baked at join like the other rule flags.
+    ...(tc.customCatering === true ? { cateringPlansWorld: true } : {}),
     ...(tc.productionLines === true ? {
       productionLinesWorld: true,
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),

@@ -23,13 +23,13 @@ import {
   hubSpokeCounts, pairConnectivityBonus,
   isRouteActive, routeActiveMonths, routeQualityBreakdown, fleetAvgUtilization, routeDistanceKm,
   buildEventDemandModel, CLASS_FARE_MULTIPLIERS, routeStops,
-  stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateBrandReach, stateSensReduction,
+  stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, stateGroundHandlingFields, stateCateringFields, stateCateringCapReport, stateCateringKitchenReport, stateBrandReach, stateSensReduction,
 } from '../utils/simulation.js';
 import { weeklyLandingFee } from '../data/overhead.js';
 import {
   TRAVEL_PARTNER_MAP, TP_TYPES, travelPartnerCovers, travelPartnerInSeason, travelLiftScale, seasonLabel,
 } from '../data/travelPartners.js';
-import { normalizeCateringLevel } from '../data/catering.js';
+import { normalizeCateringRef } from '../data/cateringPlans.js';
 import CateringSelector from './CateringSelector.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import { worldDemandMultOf } from '../models/economyCycle.js';
@@ -555,7 +555,7 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
   const catCost   = playerSims.reduce((s, { result }) => s + (result.cateringCost    ?? 0), 0);
   // À la carte ancillary revenue attributed to this pair (airline-wide policy).
   const ancRev    = playerSims.reduce((s, { result }) => s + (result.ancillaryRevenue ?? 0), 0);
-  const catLevels = [...new Set(playerRoutes.map(r => normalizeCateringLevel(r.cateringLevel)))];
+  const catLevels = [...new Set(playerRoutes.map(r => normalizeCateringRef(r.cateringLevel, state.cateringPlans)))];
   const catLevel  = catLevels.length === 1 ? catLevels[0] : null;
   const setRouteCatering = (level) =>
     dispatch({ type: 'SET_ROUTE_CATERING', routeIds: playerRoutes.map(r => r.id), level });
@@ -829,7 +829,10 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
               value={catLevel ?? 'full'}
               onChange={setRouteCatering}
               distKm={dist}
+              plans={state.cateringPlans}
+              config={playerSims[0]?.aircraft?.config ?? null}
               capNote={stateCateringCapReport(state, origin, dest, catLevel ?? 'full')}
+              kitchenNote={stateCateringKitchenReport(state, origin, dest, catLevel ?? 'full')}
               label={catLevel ? 'Catering service' : 'Catering service · mixed across aircraft'}
             />
           </div>

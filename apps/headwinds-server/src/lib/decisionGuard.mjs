@@ -25,6 +25,7 @@ import { MRO_MAX_CERTS_PER_BASE } from '@tailwinds/engine/data/mroBase.js';
 import { BULK_FREQUENCY_BATCH } from '@tailwinds/engine/reducer';
 import { GROUND_STATION_MAX_LEVEL } from '@tailwinds/engine/data/groundStation.js';
 import { CATERING_SUPPLIER_MAP, CATERING_TERM_MAP } from '@tailwinds/engine/data/cateringContracts.js';
+import { sanitizeCateringPlan } from '@tailwinds/engine/data/cateringPlans.js';
 import { TRAVEL_PARTNER_MAP } from '@tailwinds/engine/data/travelPartners.js';
 import { LABOR_GROUP_MAP, CREW_PER_UNIT } from '@tailwinds/engine/data/labor.js';
 import { normalizeLivery, isLiveryShaped } from '@tailwinds/engine/data/livery.js';
@@ -469,6 +470,26 @@ function guardGroundStation(payload, { needLevel = false } = {}) {
 // A contract costs no cash to sign, and the rate comes from the world book the
 // reducer reads off the calendar — never from the payload. The guard checks the
 // supplier and term exist; the reducer enforces the one-per-coverage rule.
+// Service plans: only in a custom-catering world. The plan is cleaned to the
+// engine's own shape here (unknown items dropped, prices clamped), so nothing
+// a client invents reaches the airline's state; routeIds must be its own.
+function guardSaveCateringPlan(payload, state) {
+  if (state?.cateringPlansWorld !== true) throw new GuardError('Service plans are not part of this world.');
+  const plan = sanitizeCateringPlan(payload?.plan);
+  if (!plan) throw new GuardError('That plan is not valid.');
+  const own = new Set((state?.routes ?? []).map(r => r.id));
+  const routeIds = Array.isArray(payload?.routeIds)
+    ? payload.routeIds.slice(0, 5000).map(String).filter(id => own.has(id)) : [];
+  return routeIds.length ? { plan, routeIds } : { plan };
+}
+
+function guardDeleteCateringPlan(payload, state) {
+  if (state?.cateringPlansWorld !== true) throw new GuardError('Service plans are not part of this world.');
+  const id = String(payload?.id ?? '');
+  if (!state?.cateringPlans?.[id]) throw new GuardError('Unknown service plan.');
+  return { id };
+}
+
 function guardSignCatering(payload) {
   const supplierId = String(payload.supplierId ?? '');
   if (!CATERING_SUPPLIER_MAP[supplierId]) throw new GuardError('Unknown catering supplier.');
@@ -833,6 +854,8 @@ export function guardDecision(type, payload, state) {
     case 'BUILD_GROUND_STATION':   return guardGroundStation(payload, { needLevel: true });
     case 'UPGRADE_GROUND_STATION': return guardGroundStation(payload, { needLevel: true });
     case 'CLOSE_GROUND_STATION':   return guardGroundStation(payload);
+    case 'SAVE_CATERING_PLAN':      return guardSaveCateringPlan(payload, state);
+    case 'DELETE_CATERING_PLAN':    return guardDeleteCateringPlan(payload, state);
     case 'SIGN_CATERING_CONTRACT':  return guardSignCatering(payload);
     case 'BREAK_CATERING_CONTRACT': return guardBreakCatering(payload);
     case 'SIGN_TRAVEL_PARTNER':

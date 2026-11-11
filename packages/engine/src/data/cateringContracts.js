@@ -42,6 +42,7 @@
 import { getAirport, getRegion } from './airports.js';
 import { getAircraftType } from './aircraft.js';
 import { CATERING_LEVEL_ORDER, normalizeCateringLevel } from './catering.js';
+import { CATERING_ITEM_MAP, kitchenCanMake, kitchenTier, KITCHEN_NAMES } from './cateringPlans.js';
 
 // ─── Supplier catalogue ──────────────────────────────────────────────────────
 //
@@ -360,22 +361,26 @@ function levelIndex(level) {
  *   cateringQualityDelta  mean endpoint quality delta
  *   cateringCap           lowest cap among contract-cooked endpoints (or null)
  *   cateringCooks         contract id (or null) per endpoint, for spend attribution
+ *   cateringKitchens      kitchen type per endpoint ('full' where the hub or no
+ *                         contract cooks, else the cook's cap) — what a route on
+ *                         a service plan can be served there (cateringPlans.js)
  */
 export function resolveCateringContracts(hubTiers, hubs, contracts, codes, seatsMap) {
   if (!hasCateringContracts(contracts) || !codes?.length) return null;
   let any = false, costSum = 0, qualSum = 0, cap = null;
-  const cooks = [];
+  const cooks = [], kitchens = [];
   for (const code of codes) {
     const t = hubs?.[code]?.tier;
     const hubRate = 1 - (t != null ? (hubTiers?.[t]?.stationDiscount ?? 0) : 0);
     const c = contractForAirport(contracts, code);
-    if (!c) { costSum += hubRate; cooks.push(null); continue; }
+    if (!c) { costSum += hubRate; cooks.push(null); kitchens.push('full'); continue; }
     any = true;
     const rate = +(c.costFactor * volumeSurchargeMult(coverageVolumeOnce(c, seatsMap), c.minVolume)).toFixed(4);
-    if (t != null && hubRate <= rate) { costSum += hubRate; cooks.push(null); continue; }
+    if (t != null && hubRate <= rate) { costSum += hubRate; cooks.push(null); kitchens.push('full'); continue; }
     costSum += rate;
     qualSum += c.qualityDelta ?? 0;
     cooks.push(c.id);
+    kitchens.push(c.qualityCap ?? 'full');
     if (c.qualityCap && (cap == null || levelIndex(c.qualityCap) < levelIndex(cap))) cap = c.qualityCap;
   }
   if (!any) return null;
@@ -384,6 +389,7 @@ export function resolveCateringContracts(hubTiers, hubs, contracts, codes, seats
     cateringQualityDelta: +(qualSum / codes.length).toFixed(2),
     cateringCap:          cap,
     cateringCooks:        cooks,
+    cateringKitchens:     kitchens,
   };
 }
 
@@ -395,6 +401,17 @@ export function resolveCateringContracts(hubTiers, hubs, contracts, codes, seats
  */
 export function applyCateringContractFields(route, resolved) {
   if (!route || !resolved) return route;
+  // A route on a service plan is not capped by level: each kitchen leaves out
+  // what it cannot make, so the copy carries the kitchens instead.
+  if (route.cateringPlan) {
+    return {
+      ...route,
+      cateringCostFactor:   resolved.cateringCostFactor,
+      cateringQualityDelta: resolved.cateringQualityDelta,
+      cateringCooks:        resolved.cateringCooks,
+      ...(resolved.cateringKitchens?.some(k => k !== 'full') ? { cateringKitchens: resolved.cateringKitchens } : {}),
+    };
+  }
   const chosen = normalizeCateringLevel(route.cateringLevel);
   const capped = resolved.cateringCap && levelIndex(chosen) > levelIndex(resolved.cateringCap);
   return {
@@ -426,4 +443,41 @@ export function cateringCapReport(hubTiers, hubs, contracts, codes, seatsMap, ch
     (byId[id] = byId[id] ?? { name: CATERING_SUPPLIER_MAP[c.supplierId]?.name ?? 'Your caterer', codes: [] }).codes.push(codes[i]);
   });
   return { cap: resolved.cateringCap, chosen, suppliers: Object.values(byId) };
+}
+
+/**
+ * For a route on a service plan: what the caterers cooking for it cannot make.
+ * Same resolution as the tick. Null when every kitchen makes everything the
+ * plan serves.
+ *   { gaps: [{ supplier, kitchen, codes: [airport], missing: [item name],
+ *              downgraded: [item name] }] }
+ */
+export function cateringKitchenReport(hubTiers, hubs, contracts, codes, seatsMap, plan) {
+  const resolved = resolveCateringContracts(hubTiers, hubs, contracts, codes, seatsMap);
+  if (!resolved || !plan) return null;
+  const byId = {};
+  resolved.cateringCooks.forEach((id, i) => {
+    const kitchen = resolved.cateringKitchens[i];
+    if (!id || kitchen === 'full') return;
+    const missing = new Set(), downgraded = new Set();
+    for (const [cabin, menu] of Object.entries(plan.cabins ?? {})) {
+      for (const [itemId, e] of Object.entries(menu ?? {})) {
+        const it = CATERING_ITEM_MAP[itemId];
+        if (!it || it.cost[cabin] == null) continue;
+        if (e.mode !== 'free' && !(e.mode === 'sold' && e.price > 0)) continue;
+        if (!kitchenCanMake(kitchen, itemId)) missing.add(it.name);
+        else if (it.tiered && kitchenTier(kitchen, e.tier) !== (e.tier ?? 'standard')) downgraded.add(it.name);
+      }
+    }
+    if (!missing.size && !downgraded.size) return;
+    const g = byId[id] = byId[id] ?? {
+      supplier: CATERING_SUPPLIER_MAP[contracts[id]?.supplierId]?.name ?? 'Your caterer',
+      kitchen: KITCHEN_NAMES[kitchen] ?? kitchen, codes: [], missing: new Set(), downgraded: new Set(),
+    };
+    g.codes.push(codes[i]);
+    for (const m of missing) g.missing.add(m);
+    for (const d of downgraded) g.downgraded.add(d);
+  });
+  const gaps = Object.values(byId).map(g => ({ ...g, missing: [...g.missing], downgraded: [...g.downgraded] }));
+  return gaps.length ? { gaps } : null;
 }

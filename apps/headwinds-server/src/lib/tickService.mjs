@@ -280,6 +280,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       ...(world.tickConfig?.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
       // Hub banks: stamped at join, re-stamped here for the same reason.
       ...(world.tickConfig?.hubBanks === true ? { hubBanksWorld: true } : {}),
+      // Custom catering: stamped at join, re-stamped here for the same reason.
+      ...(world.tickConfig?.customCatering === true ? { cateringPlansWorld: true } : {}),
     };
     const next = gameReducer(
       withRivals(preState, rivalViews.get(airline.id)),

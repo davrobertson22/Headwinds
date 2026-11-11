@@ -92,7 +92,7 @@ export const SCREEN_GUIDE = [
   { key: 'marketing', tab: 'operations', sub: 'Labour & Costs', map: 'marketing',
     what: 'Brand marketing budget (fixed, or a share of revenue) and targeted airport campaigns.' },
   { key: 'catering', tab: 'operations', sub: 'Labour & Costs', map: 'catering',
-    what: 'Default catering level and catering contracts.' },
+    what: 'Default catering, your own service plans, and catering contracts.' },
   { key: 'departures', tab: 'operations', sub: 'Departure Board', map: 'departures',
     what: 'The departure board for any airport.' },
   { key: 'schedule', tab: 'operations', sub: 'Schedule', mapText: `Network${S}Departures${S}Schedule`,

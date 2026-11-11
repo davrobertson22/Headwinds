@@ -256,7 +256,7 @@ export function paceLabel(weeksPerDay) {
 // the preset arrays (those are just dropdown quick-picks in the UI).
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, stage, startYear, event = null,
+  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, stage, startYear, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -291,6 +291,9 @@ export function validateWorldConfig({
   }
   if (hubBanks != null && typeof hubBanks !== 'boolean') {
     throw badRequest('hubBanks must be true or false');
+  }
+  if (customCatering != null && typeof customCatering !== 'boolean') {
+    throw badRequest('customCatering must be true or false');
   }
   if (productionLineRates != null) {
     const problem = lineRatesProblem(productionLineRates);
@@ -465,6 +468,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     loyaltyPools: world.tickConfig?.loyaltyPools === true,
     // Hub banks (new worlds from 2026-11-05).
     hubBanks: world.tickConfig?.hubBanks === true,
+    // Custom catering (new worlds from 2026-11-11).
+    customCatering: world.tickConfig?.customCatering === true,
     // Station fuel pricing + tankering (fuel-ops v2).
     fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell

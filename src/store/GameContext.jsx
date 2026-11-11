@@ -131,16 +131,18 @@ export function persistAutosave(state, storage = (typeof localStorage !== 'undef
 const HYDRATED = new WeakMap();
 const HYDRATED_ROUTES = new WeakMap();
 const NO_TABLE = {};
-function hydratedRoutes(routes, pricing, catering) {
-  const p = pricing ?? NO_TABLE, c = catering ?? NO_TABLE;
+function hydratedRoutes(routes, pricing, catering, plans) {
+  const p = pricing ?? NO_TABLE, c = catering ?? NO_TABLE, pl = plans ?? NO_TABLE;
   let byPricing = HYDRATED_ROUTES.get(routes);
   if (!byPricing) { byPricing = new WeakMap(); HYDRATED_ROUTES.set(routes, byPricing); }
   let byCatering = byPricing.get(p);
   if (!byCatering) { byCatering = new WeakMap(); byPricing.set(p, byCatering); }
-  let out = byCatering.get(c);
+  let byPlans = byCatering.get(c);
+  if (!byPlans) { byPlans = new WeakMap(); byCatering.set(c, byPlans); }
+  let out = byPlans.get(pl);
   if (!out) {
-    out = routes.map((r) => hydrateRoute(r, pricing, catering));
-    byCatering.set(c, out);
+    out = routes.map((r) => hydrateRoute(r, pricing, catering, plans ?? null));
+    byPlans.set(pl, out);
   }
   return out;
 }
@@ -150,7 +152,7 @@ export function hydrateState(state) {
   if (!h) {
     h = {
       ...state,
-      routes: state.routes ? hydratedRoutes(state.routes, state.routePricing, state.routeCatering) : [],
+      routes: state.routes ? hydratedRoutes(state.routes, state.routePricing, state.routeCatering, state.cateringPlans) : [],
     };
     HYDRATED.set(state, h);
   }

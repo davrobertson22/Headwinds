@@ -56,6 +56,7 @@ import { consumeNavFilter } from '../utils/navIntent.js';
 import { rivalSpecsFor } from '../../packages/engine/src/models/pairShare.js';
 import { costBridge } from '../utils/pnlBridge.js';
 import { CATERING_LEVELS, normalizeCateringLevel } from '../data/catering.js';
+import { planForRef } from '../data/cateringPlans.js';
 import { isStationOpen, stationLevelDef } from '../data/groundStation.js';
 import {
   LOAN_PRODUCTS, AIRCRAFT_LOAN_ID, LEGACY_STARTING_CAPITAL, LOAN_MIN_PRINCIPAL,
@@ -530,11 +531,12 @@ function PLStatement({ proj }) {
     const catering     = result.cateringCost     ?? weeklyCateringCost(result.classSummary ?? {});
     const cateringRev  = result.cateringRevenue   ?? 0;
     const cateringLevel = normalizeCateringLevel(route.cateringLevel);
+    const cateringPlanName = planForRef(route.cateringLevel, state.cateringPlans)?.name ?? null;
     const dist         = result.distance ?? routeDistanceKm(route.origin, route.destination);
     const blockHrs     = type ? blockTimeHours(dist, type) : 0;
     const layover      = result.layoverCost      ?? weeklyLayoverCost(blockHrs, type?.seats ?? 150, type?.category ?? 'Narrow Body', route.weeklyFrequency);
     const compensation = result.compensationCost ?? weeklyPassengerCompensation(result.passengers * 2, onTimeRate, dist);
-    return { route, aircraft, type, catering, cateringRev, cateringLevel, layover, compensation, dist, blockHrs };
+    return { route, aircraft, type, catering, cateringRev, cateringLevel, cateringPlanName, layover, compensation, dist, blockHrs };
   });
   const totCatering     = report.totalCatering;
   const totCateringRev  = report.totalCateringRevenue ?? 0;
@@ -1129,12 +1131,12 @@ function PLStatement({ proj }) {
                     {cateringByRoute
                       .filter(r => r.catering > 0 || r.cateringRev > 0)
                       .sort((a, b) => (b.catering - b.cateringRev) - (a.catering - a.cateringRev))
-                      .map(({ route, type, catering, cateringRev, cateringLevel }) => (
+                      .map(({ route, type, catering, cateringRev, cateringLevel, cateringPlanName }) => (
                         <tr key={`cat-${route.id}`}>
                           <td style={{ paddingLeft: 40, color: 'var(--text-muted)', fontSize: 12 }}>
                             {route.origin}–{route.destination}
                             <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-dim)' }}>
-                              {type?.name ?? ''} · {CATERING_LEVELS[cateringLevel]?.short ?? cateringLevel}
+                              {type?.name ?? ''} · {cateringPlanName ?? CATERING_LEVELS[cateringLevel]?.short ?? cateringLevel}
                               {cateringRev > 0 && <span style={{ color: 'var(--green)' }}> · +{formatMoney(cateringRev)} ancillary</span>}
                             </span>
                           </td>
