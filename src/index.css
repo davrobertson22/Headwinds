@@ -2525,3 +2525,29 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
 .cabin-product-extra { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
 .cabin-product-extra input { margin: 0; }
 .cabin-product-extra.is-off { opacity: .4; cursor: not-allowed; }
+
+/* ── Order form: cabin designer (AircraftCheckout) ──────────────────────── */
+.checkout-modal { max-width: 540px; }
+.checkout-plan {
+  --cabin-plan-max-h: min(46vh, 380px);
+  margin: 0 0 12px; padding: 8px 4px;
+  background: var(--surface); border-radius: 10px;
+}
+@media (max-width: 640px) {
+  .checkout-plan { --cabin-plan-max-h: 70vh; }
+}
+@media (min-width: 1100px) {
+  .checkout-modal.has-plan {
+    max-width: 1180px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 540px; align-items: start;
+  }
+  /* Pinned for the whole scroll: the column is one viewport of the modal
+     tall (not as tall as the form, or sticky has nowhere to stick). */
+  .checkout-modal.has-plan > .checkout-plan {
+    --cabin-plan-max-h: calc(92vh - 120px);
+    position: sticky; top: 0; align-self: start;
+    height: calc(92vh - 2px); margin: 0; padding: 14px 10px;
+    border-radius: 10px 0 0 10px;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+}
