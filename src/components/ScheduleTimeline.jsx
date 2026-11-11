@@ -9,6 +9,8 @@ import {
   WEEK_MIN, wrapWeek, snapMin, airlineWeeks, canPlace, pinsAfterMove, pinsAfterUnpin,
   routeRotation, byCodePoint, findBlock, replacedBlock, overlaps,
   scheduleInputsOf, bankContextOf, hubTimetable, blockHubEvents, snapToBank, connectionsAt,
+  DAY_MIN, clockLabel, parseClock, snapClock, localDayTime, utcOfLocal, routeFlights, timetableRows,
+  pinsForTimetable, blockerFor,
 } from '../models/schedule.js';
 import HubBanksPanel from './HubBanksPanel.jsx';
 import { gameClockAt } from './gameClock.js';
@@ -27,6 +29,11 @@ import { Glyph } from './Icons.jsx';
 // (HubBanksPanel on top; off-bank flights are marked). The maths is in
 // models/schedule.js.
 //
+// Typed times (2026-11-10, from a player who had to nudge fourteen flights one
+// by one): click a flight and its panel takes a clock time for that flight,
+// and the route's whole week as rows of "this time, on these days", set in one
+// go. Both are local time at the route's origin, as a timetable prints them.
+//
 // Robustness (audits 2026-10-14):
 //  · blocks are matched by route + start, never object identity — the week is
 //    rebuilt whenever state changes, including mid-drag;
@@ -41,6 +48,7 @@ import { Glyph } from './Icons.jsx';
 export const SCHEDULE_ZONE_KEY = 'headwinds.scheduleZone';
 export const SCHEDULE_ZOOM_KEY = 'headwinds.scheduleZoom';
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const LABEL_W = 168;
 const LABEL_W_PHONE = 124;
 const HEAD_H = 28;
@@ -53,6 +61,7 @@ const PALETTE = ['#4f8fd0', '#3f9e78', '#b07f2a', '#8a72cc', '#b8539a', '#2f9a96
 const EMPTY = [];
 
 const pad2 = (n) => String(n).padStart(2, '0');
+const durLabel = (min) => `${Math.floor(min / 60)}h${pad2(min % 60)}`;
 /** "Tue 07:05" for a minute of the display week. */
 export function weekLabel(min) {
   const m = wrapWeek(min);
@@ -85,7 +94,8 @@ function resolveBlock(week, sel) {
   return mine.reduce((m, b) => (d(b) < d(m) ? b : m));
 }
 
-export default function ScheduleTimeline() {
+/** `initialSelection` ({ acId, routeId, start }) opens with that flight's panel showing. */
+export default function ScheduleTimeline({ initialSelection = null } = {}) {
   const { state, dispatch, remoteChrome } = useGame();
   const fleet = state.fleet ?? EMPTY;
   const stateRoutes = state.routes ?? EMPTY;
@@ -269,7 +279,9 @@ export default function ScheduleTimeline() {
   }, [nowUtc, effZoom, zoneOff, pxPerMin, labelW]);
 
   // ── Selection and focus ─────────────────────────────────────────────────────
-  const [selected, setSelected] = useState(null);   // { acId, routeId, start }
+  const [selected, setSelected] = useState(initialSelection);   // { acId, routeId, start }
+  // What the last typed time or timetable did: { acId, routeId, tone, text }.
+  const [notice, setNotice] = useState(null);
   const selRow = selected ? rows.find(r => r.a.id === selected.acId) ?? null : null;
   const selBlock = selRow ? resolveBlock(selRow.week, selected) : null;
   const focusNext = useRef(false);    // after a keyboard action or a drop, re-focus the selected block
@@ -304,6 +316,7 @@ export default function ScheduleTimeline() {
     const select = (acId, b, how) => {
       if (how === 'key' || how === 'focus') focusNext.current = true;
       if (how === 'click') revealPanel.current = true;
+      setNotice(n => (n && b && n.acId === acId && n.routeId === b.routeId ? n : null));
       setSelected(b ? { acId, routeId: b.routeId, start: b.start } : null);
     };
     // Nudges (keys, panel buttons) batch; `now` sends at once.
@@ -316,7 +329,44 @@ export default function ScheduleTimeline() {
       if (!pins) return;
       send({ [b.routeId]: pins }, how);
       if (how === 'key' || how === 'now') focusNext.current = true;
+      setNotice(null);
       setSelected({ acId, routeId: b.routeId, start: to });
+    };
+    // A typed time for one flight, on the day it already flies (local at the
+    // route's origin). Says what is in the way when it can't go there.
+    const retime = (acId, b, tod) => {
+      const row = rowOf(acId);
+      const cur = row && findBlock(row.week, b);
+      if (!cur) return;
+      const origin = cur.stops[0];
+      const off = utcOffsetMinutes(getAirport(origin));
+      const to = utcOfLocal(localDayTime(cur.start, off).day, tod, off);
+      const say = (tone, text) => setNotice({ acId, routeId: cur.routeId, tone, text });
+      const by = to === cur.start ? null : blockerFor(row.week, cur.routeId, cur.dur, to, cur);
+      const pins = by ? null : pinsAfterMove(row.week, cur.routeId, cur, to);
+      if (by) {
+        // In a banked week the round trip from the typed time may include a wait for a bank.
+        const len = row.week.durAt?.(cur.routeId, to) ?? cur.dur;
+        say('bad', `Can’t leave at ${weekLabel(to + off)}: ${clashName(row, by, cur.routeId)} (leaves ${weekLabel(by.start + off)}) is in the way. `
+          + (by.routeId === cur.routeId
+            ? `The aircraft is away for ${durLabel(len)} on each round trip, so two departures can’t be closer than that.`
+            : 'Move or unpin that flight first.'));
+        return;
+      }
+      if (!pins) return;
+      live.current.flush({ [cur.routeId]: pins });
+      say('ok', `Leaves ${origin} ${weekLabel(to + off)}.`);
+      setSelected({ acId, routeId: cur.routeId, start: to });
+    };
+    // The route's whole week from typed rows (see TimetableForm).
+    const setTimetable = (acId, b, ttRows) => {
+      const row = rowOf(acId);
+      if (!row) return;
+      const off = utcOffsetMinutes(getAirport(b.stops[0]));
+      const res = pinsForTimetable(row.week, b.routeId, ttRows, off);
+      const note = timetableNotice(res, { off, name: (by) => clashName(row, by, b.routeId) });
+      setNotice({ acId, routeId: b.routeId, ...note });
+      if (res && !res.error) live.current.flush({ [b.routeId]: res.pins });
     };
     const pinHere = (acId, b, how) => {
       const row = rowOf(acId);
@@ -324,6 +374,7 @@ export default function ScheduleTimeline() {
       if (!pins) return;
       send({ [b.routeId]: pins }, 'queue');
       if (how === 'key') focusNext.current = true;
+      setNotice(null);
       setSelected({ acId, routeId: b.routeId, start: b.start });
     };
     const unpin = (acId, b, how) => {
@@ -332,6 +383,7 @@ export default function ScheduleTimeline() {
       send({ [b.routeId]: pinsAfterUnpin(row.week, b.routeId, b.start) }, 'queue');
       // Keep the selection on that flight wherever automatic placement puts it.
       if (how === 'key') focusNext.current = true;
+      setNotice(null);
       setSelected({ acId, routeId: b.routeId, start: b.start });
     };
     const lockRow = (acId) => {
@@ -381,7 +433,7 @@ export default function ScheduleTimeline() {
       }
       setDragView({ ...d });
     };
-    api.current = { select, moveTo, pinHere, unpin, lockRow, resetRow, setTrack, startDrag, rowOf };
+    api.current = { select, moveTo, pinHere, unpin, retime, setTimetable, lockRow, resetRow, setTrack, startDrag, rowOf };
     // Hub-bank worlds: what a flight meets at a hub, read live by the rows'
     // tooltips without making them re-render when other rows change.
     api.current.bankCtx = () => live.current.bankCtx;
@@ -458,6 +510,7 @@ export default function ScheduleTimeline() {
       if (!pins) return;
       live.current.flush({ [d.routeId]: pins });
       if (!d.touch) focusNext.current = true;
+      setNotice(null);
       setSelected({ acId: d.acId, routeId: d.routeId, start: d.utc });
     };
     // Once a touch drag is armed, stop the page scrolling under the finger.
@@ -545,7 +598,8 @@ export default function ScheduleTimeline() {
     <div className="sched">
       <div className="sched-intro">
         <div>
-          Drag a flight to choose when it leaves, or drag one in from an aircraft&apos;s tray.
+          Click a flight to type when it leaves, or to set its route&apos;s whole week in one go. You can also drag
+          a flight, or drag one in from an aircraft&apos;s tray.
           {' '}<span className="sched-key sched-key-pinned" /> set by you
           {' '}<span className="sched-key sched-key-auto" /> placed automatically
         </div>
@@ -646,6 +700,9 @@ export default function ScheduleTimeline() {
           panelRef={panelRef}
           row={selRow} b={selBlock} zoneOff={zoneOff}
           bankCtx={bankCtx} tt={tt}
+          notice={notice && notice.acId === selRow.a.id && notice.routeId === selBlock.routeId ? notice : null}
+          onRetime={(tod) => api.current.retime(selRow.a.id, selBlock, tod)}
+          onSetTimetable={(ttRows) => api.current.setTimetable(selRow.a.id, selBlock, ttRows)}
           onSnap={(to) => api.current.moveTo(selRow.a.id, selBlock, to, 'now')}
           onNudge={(d) => api.current.moveTo(selRow.a.id, selBlock, wrapWeek(selBlock.start + d), 'queue')}
           onPin={() => api.current.pinHere(selRow.a.id, selBlock)}
@@ -832,8 +889,182 @@ function BlockPieces({
   ));
 }
 
-function BlockDetail({ panelRef, row, b, zoneOff, onNudge, onPin, onUnpin, onClose, bankCtx = null, tt = null, onSnap }) {
+/** The flight in the way, in the player's words: "SYD–BNE". */
+function clashName(row, by, routeId) {
+  if (by.routeId === routeId) return 'this route’s own flight';
+  const m = row.meta[by.routeId] ?? {};
+  return `${m.origin}–${m.destination}`;
+}
+
+/** "Mon, Wed and Fri"; all seven is "every day". */
+function listDays(days) {
+  const ds = [...new Set(days)].sort((a, b) => a - b).map(d => DAYS[d]);
+  if (ds.length === 7) return 'every day';
+  return ds.length < 2 ? ds.join('') : `${ds.slice(0, -1).join(', ')} and ${ds.at(-1)}`;
+}
+
+/** What setting a timetable did (a pinsForTimetable result), for the panel.
+ *  Times are local at the route's origin (`off`), like the ones typed. */
+export function timetableNotice(res, { off = 0, name = () => 'another flight' } = {}) {
+  if (!res) return { tone: 'bad', text: 'Type a departure time and tick at least one day.' };
+  if (res.error === 'too-many') {
+    const over = res.timed - res.flights;
+    return {
+      tone: 'bad',
+      text: `This route flies ${res.flights} time${res.flights === 1 ? '' : 's'} a week on this aircraft, and this timetable has ${res.timed} departures. `
+        + `Untick ${over} day${over === 1 ? '' : 's'} or remove a time. To fly more often, raise the route’s frequency first.`,
+    };
+  }
+  if (res.error === 'too-close') {
+    const a = `${DAYS[res.a.day]} ${clockLabel(res.a.tod)}`, b = `${DAYS[res.b.day]} ${clockLabel(res.b.tod)}`;
+    const next = res.a.day * DAY_MIN + res.a.tod + Math.ceil(res.dur / 5) * 5;
+    return {
+      tone: 'bad',
+      text: `${a} and ${b} are too close together. The aircraft is away for ${durLabel(res.dur)} on each round trip, `
+        + `so after ${a} the next departure can be ${weekLabel(next)} at the earliest.`,
+    };
+  }
+  const rest = res.flights - res.timed;
+  const moved = res.bumped.length + res.auto.length;
+  const parts = [];
+  if (!moved) parts.push(res.set === 1 ? '1 flight set.' : rest ? `${res.set} flights set.` : `All ${res.set} flights set.`);
+  else if (!res.set) parts.push(`None of the ${res.timed} departures could be set as typed.`);
+  else parts.push(`${res.set} of ${res.timed} departures set as typed.`);
+  // Days that hit the same thing and moved the same way are said once: a
+  // daily flight in the way of a daily timetable is one sentence, not seven.
+  const sameDay = (x, min) => localDayTime(min + off, 0).day === x.day;
+  const groups = new Map();
+  for (const x of res.bumped) {
+    const tidy = sameDay(x, x.by.start) && sameDay(x, x.at);
+    const key = tidy ? [x.tod, x.by.routeId, localDayTime(x.by.start, off).tod, localDayTime(x.at, off).tod].join('|') : `${x.day}|${x.tod}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(x);
+  }
+  const notes = [
+    ...[...groups.values()].map(g => {
+      const x = g[0];
+      if (g.length === 1) return `${DAYS[x.day]} ${clockLabel(x.tod)} is taken by ${name(x.by)} (leaves ${weekLabel(x.by.start + off)}), so that flight leaves at ${weekLabel(x.at + off)}.`;
+      return `${clockLabel(x.tod)} on ${listDays(g.map(y => y.day))} is taken by ${name(x.by)} (leaves ${clockLabel(localDayTime(x.by.start, off).tod)}), so those flights leave at ${clockLabel(localDayTime(x.at, off).tod)}.`;
+    }),
+    ...res.auto.map(x => `${DAYS[x.day]} ${clockLabel(x.tod)} has no room within 12 hours (${name(x.by)} is in the way), so that flight is placed automatically.`),
+  ];
+  parts.push(...notes.slice(0, 3));
+  if (notes.length > 3) parts.push(`${notes.length - 3} more moved the same way.`);
+  if (rest > 0) parts.push(`The other ${rest} flight${rest === 1 ? ' is' : 's are'} placed automatically.`);
+  return { tone: moved ? 'warn' : 'ok', text: parts.join(' ') };
+}
+
+/**
+ * A route's week as rows of "this time, on these days". Typed once and set
+ * together, so a 14×/week route is two times, not fourteen flights to move.
+ * The rows start from what the route flies now (models/schedule.js
+ * timetableRows) and nothing changes until Set timetable.
+ */
+export function TimetableForm({ origin, pair, tail, flights, dur, banked = false, initialRows, onSet }) {
+  const nextId = useRef(0);
+  const [rows, setRows] = useState(() => initialRows.map(r => ({
+    id: ++nextId.current, text: r.tod == null ? '' : clockLabel(r.tod), days: [...r.days],
+  })));
+  const parsed = rows.map(r => (r.text.trim() === '' ? null : parseClock(r.text)));
+  const badRow = rows.find((r, i) => r.text.trim() !== '' && parsed[i] == null);
+  const want = new Set();
+  rows.forEach((r, i) => {
+    if (parsed[i] == null) return;
+    r.days.forEach((on, d) => { if (on) want.add(`${d}|${snapClock(parsed[i])}`); });
+  });
+  const timed = want.size;
+  const over = timed - flights;
+  const edit = (id, patch) => setRows(rs => rs.map(r => (r.id === id ? { ...r, ...patch } : r)));
+  const tidy = (id) => setRows(rs => rs.map(r => {
+    const t = r.id === id ? parseClock(r.text) : null;
+    return t == null ? r : { ...r, text: clockLabel(snapClock(t)) };
+  }));
+  const add = () => setRows(rs => [...rs, { id: ++nextId.current, text: '', days: Array(7).fill(flights - timed >= 7) }]);
+  const ready = !badRow && timed > 0 && over <= 0;
+  const apply = () => { if (ready) onSet(rows.map((r, i) => ({ tod: parsed[i], days: r.days }))); };
+
+  let status, statusBad = false;
+  if (badRow) { status = `“${badRow.text.trim()}” isn’t a time. Use 24-hour times like 07:30 or 18:05.`; statusBad = true; }
+  else if (over > 0) { status = `${timed} departures, but this route flies ${flights} a week on this aircraft. Untick ${over} day${over === 1 ? '' : 's'}.`; statusBad = true; }
+  else if (!timed) status = 'Type a time and tick the days it flies.';
+  else if (timed < flights) status = `${timed} of ${flights} flights timed. The other ${flights - timed} ${flights - timed === 1 ? 'is' : 'are'} placed automatically.`;
+  else status = `All ${flights} flights timed.`;
+
+  return (
+    <div className="sched-tt">
+      <div className="sched-tt-head">
+        <strong>Whole week</strong>
+        <span className="sched-meta">
+          {pair} on {tail} · {flights} flights a week · {durLabel(dur)} round trip{banked ? ' (longer when it waits for a bank)' : ''} · times are local at {origin}
+        </span>
+      </div>
+      {rows.map((r, i) => (
+        <div className="sched-tt-row" key={r.id}>
+          <input
+            className="sched-time" type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
+            value={r.text} placeholder="07:30" maxLength={8}
+            aria-label={`Departure time ${i + 1}, local time at ${origin}`}
+            aria-invalid={r.text.trim() !== '' && parsed[i] == null ? 'true' : undefined}
+            onChange={e => edit(r.id, { text: e.target.value })}
+            onBlur={() => tidy(r.id)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); apply(); } }}
+          />
+          <div className="sched-daypick" role="group" aria-label={`Days the ${r.text.trim() || 'new'} departure flies`}>
+            {DAY_NAMES.map((name, d) => (
+              <button
+                key={name} type="button" aria-pressed={!!r.days[d]} aria-label={name} title={name}
+                onClick={() => edit(r.id, { days: r.days.map((on, k) => (k === d ? !on : on)) })}
+              >{name.slice(0, 2)}</button>
+            ))}
+          </div>
+          {rows.length > 1 && (
+            <button type="button" className="sched-x" onClick={() => setRows(rs => rs.filter(x => x.id !== r.id))}
+              aria-label={`Remove the ${r.text.trim() || 'empty'} departure`} title="Remove this time">✕</button>
+          )}
+        </div>
+      ))}
+      <div className="sched-tt-foot">
+        <button type="button" className="sched-add" onClick={add}>+ Add a time</button>
+        <span className={`sched-meta${statusBad ? ' is-bad' : ''}`} role="status">{status}</span>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn btn-primary sched-btn" onClick={apply} disabled={!ready}>Set timetable</button>
+      </div>
+    </div>
+  );
+}
+
+/** One flight's own departure time, typed. Local at the route's origin. */
+function FlightTime({ origin, day, tod, onSet }) {
+  const [text, setText] = useState(() => clockLabel(tod));
+  const t = text.trim() === '' ? null : parseClock(text);
+  const bad = text.trim() !== '' && t == null;
+  const go = () => { if (t != null) { setText(clockLabel(snapClock(t))); onSet(snapClock(t)); } };
+  const id = `sched-flight-time-${origin}`;
+  return (
+    <>
+      <label className="sched-meta" htmlFor={id}>{DAYS[day]} only: leaves {origin} at</label>
+      <input
+        id={id} className="sched-time" type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
+        value={text} placeholder="07:30" maxLength={8} aria-invalid={bad ? 'true' : undefined}
+        title={`Local time at ${origin}. Use 24-hour times like 07:30 or 18:05.`}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); go(); } }}
+      />
+      <button type="button" className="btn btn-ghost sched-btn" onClick={go} disabled={t == null}>Set</button>
+    </>
+  );
+}
+
+function BlockDetail({ panelRef, row, b, zoneOff, notice, onNudge, onPin, onUnpin, onRetime, onSetTimetable, onClose, bankCtx = null, tt = null, onSnap }) {
   const m = row.meta[b.routeId] ?? {};
+  const origin = b.stops[0];
+  const off = utcOffsetMinutes(getAirport(origin));
+  const here = localDayTime(b.start, off);
+  const flights = routeFlights(row.week, b.routeId);
+  // The form starts again from the route as it stands whenever the route's
+  // week changes (a set, a drag, a nudge) — not when another of its flights is
+  // picked, so times typed but not yet set survive a look round the week.
+  const formKey = `${row.a.id}|${b.routeId}|${row.week.blocks.filter(x => x.routeId === b.routeId).map(x => `${x.pinned ? 'p' : 'a'}${x.start}`).join('.')}`;
   // Hub-bank worlds: each landing at and departure from a banked hub — does it
   // make a bank, and how many flights does it meet?
   const events = bankCtx ? blockHubEvents(b, bankCtx) : [];
@@ -897,15 +1128,28 @@ function BlockDetail({ panelRef, row, b, zoneOff, onNudge, onPin, onUnpin, onClo
         </div>
       )}
       <div className="sched-detail-actions">
-        <button className="btn btn-ghost sched-btn" onClick={() => onNudge(-60)}>−1h</button>
-        <button className="btn btn-ghost sched-btn" onClick={() => onNudge(-15)}>−15m</button>
-        <button className="btn btn-ghost sched-btn" onClick={() => onNudge(15)}>+15m</button>
-        <button className="btn btn-ghost sched-btn" onClick={() => onNudge(60)}>+1h</button>
+        <FlightTime key={b.key} origin={origin} day={here.day} tod={here.tod} onSet={onRetime} />
+        <span className="sched-nudge">
+          <button className="btn btn-ghost sched-btn" onClick={() => onNudge(-60)}>−1h</button>
+          <button className="btn btn-ghost sched-btn" onClick={() => onNudge(-15)}>−15m</button>
+          <button className="btn btn-ghost sched-btn" onClick={() => onNudge(15)}>+15m</button>
+          <button className="btn btn-ghost sched-btn" onClick={() => onNudge(60)}>+1h</button>
+        </span>
         <span style={{ flex: 1 }} />
         {b.pinned
           ? <button className="btn btn-ghost sched-btn" onClick={onUnpin}>Unpin (back to automatic)</button>
-          : <button className="btn btn-primary sched-btn" onClick={onPin}>Pin at this time</button>}
+          : <button className="btn btn-ghost sched-btn" onClick={onPin}>Pin at this time</button>}
       </div>
+      {flights > 1 && (
+        <TimetableForm
+          key={formKey}
+          origin={origin} pair={`${origin}–${blockCodes(b)}`} tail={row.label} flights={flights} dur={b.dur}
+          banked={typeof row.week.durAt === 'function'}
+          initialRows={timetableRows(row.week, b.routeId, off, here.day)}
+          onSet={onSetTimetable}
+        />
+      )}
+      {notice && <div className={`sched-notice is-${notice.tone}`} role="status">{notice.text}</div>}
     </div>
   );
 }

@@ -882,3 +882,228 @@ export function connectionsAt(tt, hub, at, kind, spoke) {
   }
   return n;
 }
+
+// ── Typed departure times ─────────────────────────────────────────────────────
+// Writing a timetable by hand: the player types clock times, local at the
+// route's origin, instead of dragging or nudging each flight. A route's week
+// is a few rows — a time and the days it leaves at that time — so a 14×/week
+// route is two times typed once, not fourteen flights moved one by one. A
+// single flight can also be given a time of its own, on its own day.
+//
+// Everything here only works out pins; SET_ROUTE_SCHEDULES stores them, so the
+// rules above (pins never overlap, automatic flights flow round them) are
+// untouched. In a banked week a rotation's length depends on when it leaves
+// (it may wait for a bank), so every length here is asked of the week
+// (durAt), as canPlace does.
+
+export const DAY_MIN = 24 * 60;
+
+/** Minutes of the day → "07:05". */
+export function clockLabel(min) {
+  const m = ((Math.round(min) % DAY_MIN) + DAY_MIN) % DAY_MIN;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * A typed time → minutes of the day, or null when it isn't one. Takes what
+ * people actually type: "7:30", "07.30", "0730", "730", "19", "7pm", "7:30 pm".
+ */
+export function parseClock(text) {
+  const s = String(text ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  const m = /^(\d{1,2})(?:[:.h]?(\d{2}))?(am|pm|a|p)?$/.exec(s);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = m[2] == null ? 0 : Number(m[2]);
+  if (min > 59) return null;
+  if (m[3]) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (m[3][0] === 'p' ? 12 : 0);
+  } else if (h > 23) return null;
+  return h * 60 + min;
+}
+
+/** A time of day on the timetable's five-minute grid (23:58 is 00:00). */
+export const snapClock = (tod) => (Math.round(tod / SNAP_MIN) * SNAP_MIN) % DAY_MIN;
+
+/** Where a week minute falls for a clock `off` minutes ahead of UTC. */
+export function localDayTime(utcMin, off = 0) {
+  const m = wrapWeek(utcMin + off);
+  return { day: Math.floor(m / DAY_MIN), tod: m % DAY_MIN };
+}
+
+/** The week minute (UTC) of `tod` on local `day` for a clock `off` minutes ahead of UTC. */
+export const utcOfLocal = (day, tod, off = 0) => wrapWeek(day * DAY_MIN + tod - off);
+
+/**
+ * A route's flights on this tail by local day at its origin: seven lists
+ * (Mon–Sun) of { b, tod }, each in the order they leave.
+ */
+export function routeDays(week, routeId, off = 0) {
+  const days = Array.from({ length: 7 }, () => []);
+  for (const b of week?.blocks ?? []) {
+    if (b.routeId !== routeId) continue;
+    const { day, tod } = localDayTime(b.start, off);
+    days[day].push({ b, tod });
+  }
+  for (const d of days) d.sort((x, y) => x.tod - y.tod || x.b.start - y.b.start);
+  return days;
+}
+
+/** How many flights a route has on this tail: placed, plus any that found no room. */
+export function routeFlights(week, routeId) {
+  return (week?.blocks ?? []).filter(b => b.routeId === routeId).length
+    + (week?.overflow?.find(o => o.routeId === routeId)?.count ?? 0);
+}
+
+/**
+ * A route's week as timetable rows, [{ tod, days: [Mon..Sun booleans] }] in
+ * time order — what the editor shows before the player types anything.
+ *
+ * A route the player has timed completely reads back exactly as set: one row
+ * per distinct time. Anything else (automatic flights drift a few minutes from
+ * day to day, and shift round whatever else the tail flies) is offered as the
+ * tidy timetable its frequency implies: one row per flight a day on every day,
+ * plus a row on the busiest days for what is left over (10×/week is a daily
+ * row and a three-day row). Times start from the flights on `day` — the day
+ * the player is looking at — or the busiest day when that one flies fewer; a
+ * row with nothing to start from has tod null.
+ */
+export function timetableRows(week, routeId, off = 0, day = 0) {
+  const days = routeDays(week, routeId, off);
+  const placed = days.flat();
+  const total = routeFlights(week, routeId);
+  if (!total) return [];
+  if (placed.length === total && placed.every(x => x.b.pinned)) {
+    const byTod = new Map();
+    days.forEach((list, d) => list.forEach(({ tod }) => {
+      if (!byTod.has(tod)) byTod.set(tod, Array(7).fill(false));
+      byTod.get(tod)[d] = true;
+    }));
+    return [...byTod].sort((a, b) => a[0] - b[0]).map(([tod, on]) => ({ tod, days: on }));
+  }
+  const n = Math.ceil(total / 7);
+  const extra = total - 7 * (n - 1);                 // flights on the last row, 1–7
+  // The days that row flies: where the route is busiest now, so a 3×/week
+  // route keeps the three days it is on.
+  const busiest = days.map((list, d) => ({ d, c: list.length })).sort((a, b) => b.c - a.c || a.d - b.d).slice(0, extra).map(x => x.d);
+  // Times from the day being looked at; a day that flies fewer than the rows
+  // need (the one-flight day of a 10×/week route) borrows the busiest day's.
+  const todsOf = (list) => [...new Set(list.map(x => snapClock(x.tod)))].sort((a, b) => a - b);
+  let seen = todsOf(days[day] ?? []);
+  if (seen.length < n) {
+    const fullest = todsOf(days.reduce((m, d) => (d.length > m.length ? d : m), []));
+    if (fullest.length > seen.length) seen = fullest;
+  }
+  return Array.from({ length: n }, (_, i) => ({
+    tod: seen[i] ?? null,
+    days: i < n - 1 || extra === 7 ? Array(7).fill(true) : Array.from({ length: 7 }, (_, d) => busiest.includes(d)),
+  }));
+}
+
+/** The first thing in the way of a `dur`-minute block at `start` among `placed`. */
+const firstClash = (start, dur, placed) => placed.find(p => overlaps(start, dur, p.start, p.dur)) ?? null;
+
+/** The free start nearest `s` (either side, five-minute steps, at most `reach`
+ *  minutes away) for a block among `placed`; null if none. `dur` is its length
+ *  in minutes, or a function of the start for a rotation whose length depends
+ *  on when it leaves. */
+export function nearestFit(s, dur, placed, reach = 12 * 60) {
+  const len = typeof dur === 'function' ? dur : () => dur;
+  for (let k = SNAP_MIN; k <= reach; k += SNAP_MIN) {
+    for (const at of [wrapWeek(s + k), wrapWeek(s - k)]) {
+      if (!firstClash(at, len(at), placed)) return at;
+    }
+  }
+  return null;
+}
+
+/**
+ * What stops `from` (a flight of `routeId`) moving to `start`: the pinned
+ * flight or other flight of its own route it would overlap, or null when the
+ * move is fine. The same rule as canPlace, naming the culprit.
+ */
+export function blockerFor(week, routeId, dur, start, from = null) {
+  dur = week.durAt?.(routeId, start) ?? dur;
+  const skip = replacedBlock(week, routeId, from, start);
+  return week.blocks.find(b => b !== skip && (b.pinned || b.routeId === routeId)
+    && overlaps(start, dur, b.start, b.dur)) ?? null;
+}
+
+/**
+ * Pins for a route from timetable rows.
+ *   rows: [{ tod, days }] — minutes of the day, local at the route's origin
+ *         (`off` = that airport's UTC offset in minutes), and the days (Mon..Sun
+ *         booleans) a flight leaves at that time
+ * A flight whose typed time is taken by a flight of another route the player
+ * set leaves at the nearest free time instead, and one with nowhere to go
+ * within twelve hours is left automatic. Flights the rows don't
+ * cover stay automatic too. Other routes' automatic flights make room, as they
+ * do for any pin.
+ *
+ * Returns null when there is nothing to set (no flights, no row with a time
+ * and a day), or an error the player has to fix:
+ *   { error: 'too-many', timed, flights }   more departures than the route flies
+ *   { error: 'too-close', a, b, dur }       two of them ({ day, tod }) nearer
+ *                                           than one round trip (`dur`: the
+ *                                           earlier one's, bank waits included)
+ * otherwise {
+ *   pins,                           the route's new pinned starts
+ *   flights,                        how many flights the route has on this tail
+ *   timed,                          how many departures the rows asked for
+ *   set,                            how many leave exactly when typed
+ *   bumped: [{ day, tod, at, by }]  typed time taken → leaves at `at` instead
+ *   auto:   [{ day, tod, by }]      no room near the typed time → automatic
+ * } — `by` is the block in the way: { routeId, start }.
+ */
+export function pinsForTimetable(week, routeId, rows, off = 0) {
+  if (!week) return null;
+  const flights = routeFlights(week, routeId);
+  const sample = week.blocks.find(b => b.routeId === routeId);
+  if (!flights || !sample) return null;
+  // A banked rotation's length depends on when it leaves; elsewhere every
+  // flight of a route is the same length.
+  const durOf = (start) => week.durAt?.(routeId, start) ?? sample.dur;
+  const seen = new Set();
+  const targets = [];
+  for (const row of rows ?? []) {
+    if (row?.tod == null || row.tod === '' || !Number.isFinite(Number(row.tod))) continue;
+    const tod = snapClock(Number(row.tod));
+    for (let day = 0; day < 7; day++) {
+      if (!row.days?.[day] || seen.has(`${day}|${tod}`)) continue;
+      seen.add(`${day}|${tod}`);
+      targets.push({ day, tod, to: utcOfLocal(day, tod, off) });
+    }
+  }
+  if (!targets.length) return null;
+  if (targets.length > flights) return { error: 'too-many', timed: targets.length, flights };
+  // In the order the origin's week runs (so a problem is reported from Monday
+  // on); sorted round the week, only neighbours can overlap.
+  targets.sort((a, b) => a.day - b.day || a.tod - b.tod);
+  for (let i = 0; i < targets.length && targets.length > 1; i++) {
+    const a = targets[i], b = targets[(i + 1) % targets.length];
+    if (wrapWeek(b.to - a.to) < durOf(a.to)) return { error: 'too-close', a: { day: a.day, tod: a.tod }, b: { day: b.day, tod: b.tod }, dur: durOf(a.to) };
+  }
+  const fixed = week.blocks.filter(b => b.routeId !== routeId && b.pinned);
+  // Everything that fits where it was typed goes first, so a flight that has
+  // to shift never takes another day's typed time.
+  const placed = [];
+  const late = [];
+  for (const t of targets) {
+    const by = firstClash(t.to, durOf(t.to), fixed);
+    if (by) { t.by = { routeId: by.routeId, start: by.start }; late.push(t); continue; }
+    t.at = t.to;
+    placed.push({ start: t.at, dur: durOf(t.at) });
+  }
+  for (const t of late) {
+    t.at = nearestFit(t.to, durOf, [...fixed, ...placed]);
+    if (t.at != null) placed.push({ start: t.at, dur: durOf(t.at) });
+  }
+  return {
+    pins: normalizeStarts(placed.map(p => p.start)),
+    flights,
+    timed: targets.length,
+    set: targets.length - late.length,
+    bumped: late.filter(t => t.at != null).map(t => ({ day: t.day, tod: t.tod, at: t.at, by: t.by })),
+    auto: late.filter(t => t.at == null).map(t => ({ day: t.day, tod: t.tod, by: t.by })),
+  };
+}
