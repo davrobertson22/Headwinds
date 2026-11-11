@@ -18,6 +18,13 @@
  * state it was sent, so when `base` is that state, only `overlay` (kilobytes)
  * crosses — not the whole save.
  *
+ * `fromHeld` does the same for any state that grew out of the held one — the
+ * player's own edit, the same state with a new rival view. The reducer never
+ * edits in place, so the top-level keys that changed are the ones whose
+ * reference changed (topLevelDiff): a fare change crosses as `routePricing`,
+ * not as 20 MB of save. A state that shares nothing with the held one (fresh
+ * from the server) diffs to itself and costs what a full send costs.
+ *
  * Always resolves (true when primed). No Worker, a worker error, an engine
  * error or a slow answer (> TIMEOUT_MS) all resolve false, and the screens
  * simply compute it themselves as before.
@@ -88,7 +95,25 @@ function ask(msg) {
   });
 }
 
-export async function projectOffThread(next, { base = null, overlay = null } = {}) {
+/**
+ * What turns `held` into `next` at the top level: the keys whose value is a
+ * different reference (or new), and the keys that are gone.
+ */
+export function topLevelDiff(held, next) {
+  const overlay = {}, drop = [];
+  for (const k in next) {
+    if (Object.prototype.hasOwnProperty.call(next, k) && next[k] !== held[k]) overlay[k] = next[k];
+  }
+  for (const k in held) {
+    if (Object.prototype.hasOwnProperty.call(held, k) && !Object.prototype.hasOwnProperty.call(next, k)) drop.push(k);
+  }
+  return { overlay, drop };
+}
+
+/** Is there a worker to project in? (False under server rendering and once it has failed.) */
+export function offThreadReady() { return !!getWorker(); }
+
+export async function projectOffThread(next, { base = null, overlay = null, fromHeld = false } = {}) {
   if (!next || typeof next !== 'object') return false;
   if (!getWorker()) return false;
   let reply;
@@ -97,6 +122,12 @@ export async function projectOffThread(next, { base = null, overlay = null } = {
     const baseId = heldId;
     heldId = id; heldState = next;
     reply = await ask({ id, op: 'overlay', baseId, overlay });
+  } else if (fromHeld && heldState && heldId != null && heldState !== next) {
+    const diff = topLevelDiff(heldState, next);
+    const id = ++seq;
+    const baseId = heldId;
+    heldId = id; heldState = next;
+    reply = await ask({ id, op: 'overlay', baseId, overlay: diff.overlay, ...(diff.drop.length ? { drop: diff.drop } : {}) });
   }
   if (!reply || reply.missing) {
     const id = ++seq;

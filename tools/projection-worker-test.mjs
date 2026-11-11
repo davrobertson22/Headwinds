@@ -178,7 +178,7 @@ client.setProjectionWorkerForTests(null);
 const gps = readFileSync(new URL('../apps/headwinds-web/src/GamePlayScreen.jsx', import.meta.url), 'utf8');
 await test('GamePlayScreen projects before it adopts — for a new week and for a rival overlay', () => {
   assert.match(gps, /const next = withStatsBackfill\(incoming\);\s*\n\s*await projectOffThread\(next\);/);
-  assert.match(gps, /await projectOffThread\(next, \{ base: local, overlay: d\.rivals \}\);/);
+  assert.match(gps, /await projectOffThread\(next, \{ base: local, overlay: d\.rivals, fromHeld: true \}\);/);
   assert.doesNotMatch(gps, /if \(d\.rivals\) setState\(\(cur\) => \(cur \? \{ \.\.\.cur, \.\.\.d\.rivals \} : cur\)\);\n\n\s*if \(!d\.state\) return;/);
 });
 

@@ -43,6 +43,8 @@ export function createProjectionWorkerCore() {
     else if (msg.op === 'overlay') {
       if (msg.baseId !== heldId || !held) return { id: msg.id, missing: true };
       state = { ...held, ...msg.overlay };
+      // Keys the newer state no longer has (topLevelDiff's `drop`).
+      if (Array.isArray(msg.drop)) for (const k of msg.drop) delete state[k];
     } else return null;
     heldId = msg.id;
     held = state;

@@ -213,14 +213,17 @@ test('settleDecision keeps "same", sends "overlay" through the worker, and adopt
   assert.match(fn, /if \(seq !== decisionSeq\.current \|\| !res\?\.state\) return;/, 'a stale response must be dropped first');
   assert.match(fn, /const server = withStatsBackfill\(res\.state\);/, 'compare what would have been adopted');
   assert.match(fn, /if \(verdict === 'same'\) return;/);
+  // The rival view goes to the reprojection runner (own-projection-test.mjs):
+  // applied to whatever is on screen by then, projected in the worker first.
   const overlay = fn.slice(fn.indexOf("if (verdict === 'overlay') {"), fn.indexOf('// The server\'s airline differs'));
-  assert.match(overlay, /await projectOffThread\(next, \{ base: local, overlay: rivals \}\);/);
-  assert.match(overlay, /if \(oseq < adoptedSeq\.current\) return;/, 'a newer poll\'s overlay must win');
+  assert.match(overlay, /owedRivals\.current = \{ rivals: overlayOf\(server\), oseq: \+\+overlaySeq\.current, week: absWeekOfState\(server\) \};/);
+  assert.match(overlay, /reproject\(\);\s*\n\s*return;/);
+  assert.doesNotMatch(overlay, /setState\(/, 'the overlay must not be adopted before it is projected');
   const rest = fn.slice(fn.indexOf('// The server\'s airline differs'));
   assert.doesNotMatch(rest, /await /, 'a server correction must not wait');
   assert.match(rest, /if \(seq !== decisionSeq\.current\) return cur;/);
-  // The week must never roll backwards on any of the three paths.
-  assert.ok((fn.match(/olderWeek\(/g) ?? []).length >= 3);
+  // The week must never roll backwards.
+  assert.ok((fn.match(/olderWeek\(/g) ?? []).length >= 2);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
