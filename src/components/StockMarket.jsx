@@ -15,7 +15,7 @@ import { formatMoney } from '../utils/simulation.js';
 import {
   STOCK_MARKET, sharesOf, svpsOf, freeFloatOf,
   CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
-  repriceForShareChange, founderSaleProceeds, ipoOffering,
+  repriceForShareChange, founderSaleProceeds, ipoOffering, offeringPoolLimit,
 } from '../utils/market.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { OgChip, DevChip } from './Competition.jsx';
@@ -323,6 +323,11 @@ export function CapitalActions({ state, dispatch, remote = false }) {
   // than silently refused, which is worth showing before the click.
   const poolCash = Number.isFinite(Number(state.stockPool?.poolCash))
     ? Number(state.stockPool.poolCash) : null;
+  // …but one offering may take only part of it (STOCK_MARKET.POOL_OFFERING_SHARE_MAX),
+  // so the first big listing cannot shut the window on everyone else. The same
+  // helper the reducer uses, so the preview is the fill.
+  const offerLimit = poolCash != null ? offeringPoolLimit(poolCash) : null;
+  const offerSharePct = Math.round(STOCK_MARKET.POOL_OFFERING_SHARE_MAX * 100);
 
   /**
    * What the share price becomes once an issue settles. The cash raised joins
@@ -363,8 +368,8 @@ export function CapitalActions({ state, dispatch, remote = false }) {
   const ipoBase    = shares > 0 ? ipoBaseCap / shares : 0;
   const ipoPrice   = ipoBase * (1 - ipoDisc);
   const ipoWanted  = Math.floor(ipoShares * ipoPrice);
-  const ipoFilled  = poolCash != null && ipoPrice > 0
-    ? Math.min(ipoShares, Math.floor(poolCash / ipoPrice)) : ipoShares;
+  const ipoFilled  = offerLimit != null && ipoPrice > 0
+    ? Math.min(ipoShares, Math.floor(offerLimit / ipoPrice)) : ipoShares;
   // A short fill takes the new shares first, exactly as the reducer does.
   const ipoFillNew = Math.min(ipoNewShares, ipoFilled);
   const ipoFillSec = ipoFilled - ipoFillNew;
@@ -388,9 +393,11 @@ export function CapitalActions({ state, dispatch, remote = false }) {
   const loyal = (equity.cumDividendsPerShare ?? 0) > 0 || (equity.buybacksEver ?? 0) > 0 ? 1 : 0;
   const issueDisc = offeringDiscount((issuedThisYear + issueN) / Math.max(1, shares), loyal);
   const issuePrice  = price * (1 - issueDisc);
-  const issueFilled = poolCash != null && issuePrice > 0
-    ? Math.min(issueN, Math.floor(poolCash / issuePrice)) : issueN;
-  const issueProceeds = Math.round(issueFilled * issuePrice);
+  const issueFilled = offerLimit != null && issuePrice > 0
+    ? Math.min(issueN, Math.floor(offerLimit / issuePrice)) : issueN;
+  const issueProceeds = offerLimit != null
+    ? Math.min(Math.round(issueFilled * issuePrice), offerLimit)
+    : Math.round(issueFilled * issuePrice);
   const issuePartial  = issueN > 0 && issueFilled < issueN;
   const issueViable   = issueFilled > 0
     && issueProceeds >= Math.min(STOCK_MARKET.MIN_TICKET, Math.round(issueN * issuePrice));
@@ -520,8 +527,9 @@ export function CapitalActions({ state, dispatch, remote = false }) {
             />
             {ipoPartial && ipoViable && (
               <div style={{ fontSize: 10.5, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
-                Investors can only absorb {formatMoney(poolCash ?? 0)} of the {formatMoney(ipoWanted)} on offer,
-                so {ipoFilled.toLocaleString()} shares would be sold and the rest withdrawn.
+                One listing can raise at most {offerSharePct}% of the {formatMoney(poolCash ?? 0)} investors have
+                in this world — {formatMoney(offerLimit ?? 0)} of the {formatMoney(ipoWanted)} on offer — so
+                {' '}{ipoFilled.toLocaleString()} shares would be sold and the rest withdrawn.
               </div>
             )}
             <button
@@ -564,8 +572,9 @@ export function CapitalActions({ state, dispatch, remote = false }) {
             />
             {issuePartial && issueViable && (
               <div style={{ fontSize: 10.5, color: 'var(--amber, #f59e0b)', marginTop: 6 }}>
-                Investors can only take {issueFilled.toLocaleString()} of them right now
-                ({formatMoney(poolCash ?? 0)} of capital left in the market).
+                Investors can only take {issueFilled.toLocaleString()} of them right now: one offering can
+                raise at most {offerSharePct}% of the {formatMoney(poolCash ?? 0)} investors have in this world
+                ({formatMoney(offerLimit ?? 0)}).
               </div>
             )}
             <button

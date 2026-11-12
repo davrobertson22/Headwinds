@@ -231,13 +231,14 @@ test('the trade-off is real: a sell-down keeps the price and raises less', () =>
 });
 
 test('a short fill takes the new shares first', () => {
-  // Investors can absorb roughly 10M shares of a 25M-share book.
-  const base = priv({ worldMarket: { poolCash: 10_000_000, seedCash: 750_000_000, sharesAvailable: 0, selfSharesHeld: 0 } });
+  // Investors can absorb roughly 10M shares of a 25M-share book: one offering may
+  // take a quarter of the pool (POOL_OFFERING_SHARE_MAX), so a $40M pool → ~$10M.
+  const base = priv({ worldMarket: { poolCash: 40_000_000, seedCash: 750_000_000, sharesAvailable: 0, selfSharesHeld: 0 } });
   const out  = gameReducer(base, { type: 'GO_PUBLIC', shares: 5_000_000, secondaryShares: 20_000_000 });
   assert.ok(out !== base, 'a partial fill is still a listing');
   assert.equal(out.lastEquityAction.newShares, 5_000_000, 'the company was funded before the founder cashed out');
   assert.ok(out.lastEquityAction.secondaryShares > 0, 'the rest of the fill came out of the founder block');
-  assert.ok(out.lastEquityAction.gross <= 10_000_000, 'and never bills the pool for more than it holds');
+  assert.ok(out.lastEquityAction.gross <= 10_000_000, 'and never bills the pool for more than one offering may take');
 });
 
 test('a listing never bills the pool for more than it agreed to spend', () => {

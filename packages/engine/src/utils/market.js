@@ -2066,7 +2066,24 @@ export const STOCK_MARKET = {
   // therefore bounded by the pool's seed forever, which is the whole fix for
   // "the cash comes from outside the game".
   POOL_SEED_MULT:           5,         // seed = 5 x (players x starting capital)
-  POOL_REFILL_PER_YEAR:     0.02,      // heals 2% of seed a game year, capped at seed
+  // Heals this share of the seed per game year, capped at the seed. Was 0.02: a
+  // pool the first big IPO had emptied took 50 game years to come back, so in
+  // practice only the first airline to list ever raised real money.
+  POOL_REFILL_PER_YEAR:     0.35,
+  // One offering (IPO or follow-on) may take at most this share of the investor
+  // cash in the pool at the time. Without it the first big listing in a world
+  // took the whole pool and everyone after found the equity window shut
+  // (Kadicuss, Discord, Nov 2026). The first lister still gets the deepest
+  // book; it just can't take all of it.
+  POOL_OFFERING_SHARE_MAX:  0.25,
+  // Investor money grows with the industry. Each week the seed moves toward this
+  // share of the total value of the world's airlines — at most
+  // POOL_SEED_GROWTH_MAX_WEEKLY of itself per week, and never below where it
+  // already is — and the new investors' cash arrives in the pool with it. Net
+  // outside money is still bounded, now by the size of the world rather than
+  // by its size on day one.
+  POOL_WORLD_VALUE_SHARE:   0.15,
+  POOL_SEED_GROWTH_MAX_WEEKLY: 0.10,
   // As the pool's cash runs down, sellers get worse fills — a market that has
   // run out of buyers. At a fully drained pool this is the whole discount.
   POOL_LIQUIDITY_K:         0.20,
@@ -2312,6 +2329,31 @@ export function poolSeedFor(playerCount, startingCash) {
   const n = Math.max(1, Number(playerCount) || 1);
   const c = Math.max(0, Number(startingCash) || 0);
   return Math.round(STOCK_MARKET.POOL_SEED_MULT * n * c);
+}
+
+/**
+ * The most one offering may raise from a pool holding `poolCash`. Infinity when
+ * there is no pool (solo), where offerings keep their unbounded counterparty.
+ */
+export function offeringPoolLimit(poolCash) {
+  const c = Number(poolCash);
+  if (poolCash == null || !Number.isFinite(c)) return Infinity;
+  return Math.max(0, Math.floor(c * STOCK_MARKET.POOL_OFFERING_SHARE_MAX));
+}
+
+/**
+ * How much a pool's seed grows this week in a world whose airlines are worth
+ * `worldValue` in total: toward POOL_WORLD_VALUE_SHARE of it, by at most
+ * POOL_SEED_GROWTH_MAX_WEEKLY of the current seed. Never negative — a world
+ * that shrinks keeps the investors it had.
+ */
+export function poolSeedGrowth(seedCash, worldValue) {
+  const seed = Math.max(0, Number(seedCash) || 0);
+  const value = Math.max(0, Number(worldValue) || 0);
+  if (!(seed > 0)) return 0;
+  const target = value * STOCK_MARKET.POOL_WORLD_VALUE_SHARE;
+  if (!(target > seed)) return 0;
+  return Math.round(Math.min(target - seed, seed * STOCK_MARKET.POOL_SEED_GROWTH_MAX_WEEKLY));
 }
 
 /** Weekly refill amount for a pool, capped so it can never exceed its seed. */

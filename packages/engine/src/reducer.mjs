@@ -34,7 +34,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          freeFloatOf, executionPrice, capitalGainsTax, repriceForShareChange,
          priceImpact, poolLiquidityDiscount,
          CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
-         founderSaleProceeds, isSameLocation } from './utils/market.js';
+         founderSaleProceeds, offeringPoolLimit, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
 import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, setLeaseCycleMult, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
@@ -8005,8 +8005,11 @@ function reducer(state, action) {
       // rather than refusing the whole listing: a big airline floating onto a
       // small exchange gets a small float, which is the realistic outcome and
       // beats a button that silently does nothing.
+      // One offering may take at most POOL_OFFERING_SHARE_MAX of what the pool
+      // holds (offeringPoolLimit), so the first big listing cannot shut the
+      // equity window on everyone after it.
       const mk       = state.worldMarket;
-      const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
+      const poolCash = offeringPoolLimit(mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : null);
       const sold     = Math.min(offered, Math.floor(poolCash / price));
       // A short fill takes the NEW shares first. The company's need for capital
       // ranks ahead of the founder cashing out, and it stops a trimmed offering
@@ -8109,9 +8112,10 @@ function reducer(state, action) {
       const basePrice = state.sharePrice ?? ((state.marketCap ?? 0) / shares);
       const price     = basePrice * (1 - discount);
       if (!(price > 0)) return state;
-      // Partially subscribed if the pool is short of cash — same rule as the IPO.
+      // Partially subscribed if the pool is short of cash — same rule, and the
+      // same per-offering limit, as the IPO.
       const mk       = state.worldMarket;
-      const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
+      const poolCash = offeringPoolLimit(mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : null);
       const issued   = Math.min(n, Math.floor(poolCash / price));
       const proceeds = Math.min(Math.round(issued * price), Math.floor(poolCash));
       if (!(issued > 0) || proceeds < Math.min(STOCK_MARKET.MIN_TICKET, Math.round(n * price))) {

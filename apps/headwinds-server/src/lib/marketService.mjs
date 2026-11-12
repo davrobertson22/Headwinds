@@ -19,7 +19,7 @@
 // simultaneous trades can never both spend the same pool cash.
 
 import {
-  poolSeedFor, poolRefill, freeFloatOf, sharesOf, STOCK_MARKET,
+  poolSeedFor, poolRefill, poolSeedGrowth, freeFloatOf, sharesOf, STOCK_MARKET,
 } from '@tailwinds/engine/utils/market.js';
 import { STARTING_CASH } from '@tailwinds/engine/reducer';
 
@@ -224,25 +224,54 @@ export async function applyCapitalActionToPoolTx(tx, { market, action, airlineId
 }
 
 /**
- * Weekly refill, applied by the world tick. Heals POOL_REFILL_PER_YEAR of the seed
- * per game year (spread weekly) and never takes the pool above its seed, so the
- * pool is a revolving facility rather than a growing faucet.
- *
- * Best-effort by design: a failed refill must never abort a world's week, and it
- * is not version-guarded because the increment is monotonic and idempotent enough
- * that losing one week's heal is harmless.
+ * Total value of a world's living airlines, from the tick's written rows — what
+ * the pool's seed grows toward (STOCK_MARKET.POOL_WORLD_VALUE_SHARE of it).
  */
-export async function refillWorldMarket(prisma, worldId, { log = console } = {}) {
+export function worldEquityValue(rows) {
+  let total = 0;
+  for (const r of rows ?? []) {
+    if (r?.bankrupt) continue;
+    const v = Number(r?.marketCap);
+    if (Number.isFinite(v) && v > 0) total += v;
+  }
+  return total;
+}
+
+/**
+ * Weekly pool update, applied by the world tick. Two steps:
+ *
+ *   1. Growth. The seed moves toward POOL_WORLD_VALUE_SHARE of `worldValue`
+ *      (the total value of the world's airlines), by at most
+ *      POOL_SEED_GROWTH_MAX_WEEKLY a week and never downward. The growth is new
+ *      investors arriving, so it lands in poolCash too. Without it a world's
+ *      equity capital was fixed at its day-one size, and the first big IPO took
+ *      all of it (Kadicuss, Discord, Nov 2026).
+ *   2. Refill. Heals POOL_REFILL_PER_YEAR of the (new) seed per game year,
+ *      spread weekly, never above the seed.
+ *
+ * Best-effort by design: a failed update must never abort a world's week, and it
+ * is not version-guarded because both steps only ever add, and losing one
+ * week's update is harmless.
+ *
+ * @returns {number} cash added to the pool this week
+ */
+export async function refillWorldMarket(prisma, worldId, { log = console, worldValue = 0 } = {}) {
   try {
     const market = await prisma.worldMarket.findUnique({ where: { worldId } });
     if (!market) return 0;
-    const add = poolRefill(Number(market.poolCash), Number(market.seedCash));
-    if (add <= 0) return 0;
+    const growth = poolSeedGrowth(Number(market.seedCash), worldValue);
+    const seed   = Number(market.seedCash) + growth;
+    const cash   = Number(market.poolCash) + growth;
+    const add    = poolRefill(cash, seed);
+    if (growth <= 0 && add <= 0) return 0;
     await prisma.worldMarket.update({
       where: { id: market.id },
-      data: { poolCash: BigInt(Number(market.poolCash) + add) },
+      data: {
+        poolCash: BigInt(Math.round(cash + add)),
+        ...(growth > 0 ? { seedCash: BigInt(Math.round(seed)) } : {}),
+      },
     });
-    return add;
+    return growth + add;
   } catch (err) {
     log.error?.(`[market] refill failed for world ${worldId}:`, err?.message ?? err);
     return 0;
