@@ -9,6 +9,7 @@ import { useAirlineAlerts } from '../utils/airlineAlerts.js';
 import { peekNavFilter, requestNav } from '../utils/navIntent.js';
 import { peekDepartureBoardRequest } from './Departures.jsx';
 import { openAlertSettings } from '../utils/alertPrefs.js';
+import { useNavKeys, reachable, cyclePage, keyHint, mapGroupKey, MAP_KEY_DASHBOARD, MAP_KEY_GUIDE, MAP_KEY_SETTINGS } from '../utils/navKeys.js';
 import { BellIcon } from './Icons.jsx';
 import { financeGroupOf } from './Finance.jsx';
 import {
@@ -337,6 +338,35 @@ export default function MapShell({
       ? remembered : g.pages.find(available);
     if (target) navigate(target);
   };
+
+  // Number keys (utils/navKeys.js): 1 Dashboard, 2–8 the dock, 9 Guide,
+  // 0 Settings. A group's key again moves to its next page.
+  const shellButton = (k) => (typeof document === 'undefined' ? null : document.querySelector(`[data-shell="${k}"]`));
+  useNavKeys((d) => {
+    if (d === MAP_KEY_SETTINGS) {
+      const el = shellButton('settings');
+      if (!el || !reachable(el)) return false;
+      setMenu(m => (m?.key === 'settings' ? null : { key: 'settings', anchor: el }));
+      return true;
+    }
+    if (d === MAP_KEY_DASHBOARD || d === MAP_KEY_GUIDE) {
+      const id = d === MAP_KEY_DASHBOARD ? 'dashboard' : 'wiki';
+      if (!available(id) || !reachable(shellButton(id))) return false;
+      openPage(page === id ? MAP_TAB : id);
+      return true;
+    }
+    const g = MAP_GROUPS.find((_, i) => mapGroupKey(i) === d);
+    const here = g ? g.pages.filter(available) : [];
+    if (!here.length || !reachable(shellButton(`group:${g.id}`))) return false;
+    if (page && g.pages.includes(page)) {
+      setMenu(null);
+      const next = cyclePage(here, page);
+      if (next && next !== page) navigate(next);
+    } else {
+      toggleGroup(g);
+    }
+    return true;
+  });
   // An alert's target is a classic tab with a filter; requestNav parks the
   // filter and fires hw:navigate, which App resolves to a map page.
   const goAlert = (tab, filter) => {
@@ -415,7 +445,7 @@ export default function MapShell({
                 data-shell="wiki"
                 className={`ms-top-btn${page === 'wiki' ? ' active' : ''}`}
                 onClick={() => (page === 'wiki' ? openPage(MAP_TAB) : openPage('wiki'))}
-                title="Game guide"
+                title={`Game guide${keyHint(MAP_KEY_GUIDE)}`}
               ><CompassIcon size={15} /><span className="ms-top-btn-label">Guide</span></button>
             )}
             <button type="button" data-shell="tutorial" className="ms-top-btn" onClick={() => { setMenu(null); onTour(); }} title="Replay the tutorial">
@@ -433,7 +463,7 @@ export default function MapShell({
               onClick={(e) => { const anchor = e.currentTarget; setMenu(m => (m?.key === 'settings' ? null : { key: 'settings', anchor })); }}
               aria-haspopup="menu"
               aria-expanded={menu?.key === 'settings'}
-              title="Settings"
+              title={`Settings${keyHint(MAP_KEY_SETTINGS)}`}
             >
               <SettingsIcon size={16} />
             </button>
@@ -450,7 +480,7 @@ export default function MapShell({
           data-shell="dashboard"
           className={`ms-home${onDashboard ? ' active' : ''}`}
           onClick={() => openPage(onDashboard ? MAP_TAB : 'dashboard')}
-          title={onDashboard ? 'Back to the map (Esc)' : 'Open the Dashboard'}
+          title={(onDashboard ? 'Back to the map (Esc)' : 'Open the Dashboard') + keyHint(MAP_KEY_DASHBOARD)}
         >
           {onDashboard ? <MapIcon size={20} /> : <DashboardIcon size={20} />}
           <span>{onDashboard ? 'Map' : 'Dashboard'}</span>
@@ -467,7 +497,7 @@ export default function MapShell({
 
       {/* Bottom dock — one click per group */}
       <nav className="ms-dock" aria-label="Main">
-        {MAP_GROUPS.map(g => {
+        {MAP_GROUPS.map((g, i) => {
           if (!g.pages.some(available)) return null;
           const Icon = g.Icon;
           const active = !!page && g.pages.includes(page);
@@ -479,7 +509,7 @@ export default function MapShell({
               className={`ms-dock-btn${active ? ' active' : ''}`}
               onClick={() => toggleGroup(g)}
               aria-pressed={active}
-              title={g.pages.filter(available).map(pageLabel).join(' · ')}
+              title={g.pages.filter(available).map(pageLabel).join(' · ') + keyHint(mapGroupKey(i))}
             >
               <Icon size={20} />
               <span className="ms-lbl-long">{g.label}</span>
@@ -514,6 +544,10 @@ export default function MapShell({
             <button role="menuitem" onClick={() => { setMenu(null); onLoad(); }}><FolderOpenIcon size={15} /><span>Load game</span></button>
             <button role="menuitem" className="danger" onClick={() => { setMenu(null); onNewGame(); }}><span className="ms-menu-glyph">↺</span><span>New game</span></button>
           </>)}
+          <div className="ms-menu-sep" />
+          <div className="ms-menu-keys" data-nav-keys>
+            Keys: <kbd>1</kbd> Dashboard · <kbd>2</kbd>–<kbd>8</kbd> the bar below, again for its next page · <kbd>9</kbd> Guide · <kbd>0</kbd> Settings · <kbd>Esc</kbd> the map · <kbd>Delete</kbd> clears pop-ups
+          </div>
         </PopMenu>
       )}
 

@@ -41,6 +41,7 @@ import OnboardingTour, { TOUR_KEY } from './components/OnboardingTour.jsx';
 import BrandingModal from './components/BrandingModal.jsx';
 import { BRANDING_OPEN_EVENT } from './utils/openBranding.js';
 import { openAlertSettings, tagWeeklyBatch } from './utils/alertPrefs.js';
+import { useNavKeys, reachable, cyclePage, keyHint, classicKey, CLASSIC_KEY_SETTINGS } from './utils/navKeys.js';
 import { gameAdBreak } from './utils/ads.js';
 import useIsMobile from './hooks/useIsMobile.js';
 import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite, resolveMapPage } from './components/MapShell.jsx';
@@ -512,7 +513,13 @@ function AppInner() {
     return () => window.removeEventListener('hw:navigate', onNavigate);
   }, []);
 
-  if (state.phase === 'setup') return <SetupScreen />;
+  // Number keys for the classic nav bar (utils/navKeys.js). The handler is
+  // filled in below, once the bar is known; the hook has to sit above the
+  // early return. The map view's keys live in MapShell.
+  const classicNavKeys = useRef(null);
+  useNavKeys((d) => classicNavKeys.current?.(d) === true);
+
+  if (state.phase === 'setup') { classicNavKeys.current = null; return <SetupScreen />; }
 
   function handleAdvanceWeek() {
     advanceWeek.current();
@@ -549,6 +556,20 @@ function AppInner() {
     .map((g) => (g.children && state.partnershipsWorld !== true
       ? { ...g, children: g.children.filter((c) => c !== 'partners') } : g));
   const navigate = (id) => { setActiveTab(layout === 'map' ? resolveMapPage(id) : id); setOpenGroup(null); };
+  // 1, 2, 3 … the bar left to right; a group's key again moves to its next
+  // page; 0 opens the pop-up alert settings.
+  classicNavKeys.current = layout === 'map' ? null : (d) => {
+    if (typeof document === 'undefined') return false;
+    if (d === CLASSIC_KEY_SETTINGS) {
+      if (!reachable(document.querySelector('.nav-tabs'))) return false;
+      openAlertSettings();
+      return true;
+    }
+    const grp = navGroups.find((_, i) => classicKey(i) === d);
+    if (!grp || !reachable(document.querySelector(`[data-nav-key="${d}"]`))) return false;
+    navigate(grp.children ? cyclePage(grp.children, activeTab) : grp.id);
+    return true;
+  };
   const switchLayout = (next) => {
     const l = writeLayout(next);
     setLayout(l);
@@ -882,7 +903,7 @@ function AppInner() {
           data-alert-settings
           style={{ fontSize: 12, padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}
           onClick={openAlertSettings}
-          title="Pop-up alerts — choose which weekly pop-ups show (Delete clears them all)"
+          title="Pop-up alerts — choose which weekly pop-ups show (key 0; Delete clears them all)"
           aria-label="Pop-up alerts"
         >
           <BellIcon size={13} />
@@ -977,13 +998,16 @@ function AppInner() {
 
       {/* Nav tabs (grouped) */}
       <div className="nav-tabs">
-        {navGroups.map((grp) => {
+        {navGroups.map((grp, gi) => {
+          const navKey = classicKey(gi);
           if (!grp.children) {
             const t = TABS_BY_ID[grp.id];
             const Icon = t.Icon;
             return (
               <button
                 key={grp.id}
+                data-nav-key={navKey ?? undefined}
+                title={navKey ? `${tabLabel(grp.id)}${keyHint(navKey)}` : undefined}
                 className={`nav-tab ${activeTab === grp.id ? 'active' : ''}`}
                 onClick={() => navigate(grp.id)}
               >
@@ -998,6 +1022,8 @@ function AppInner() {
           return (
             <div key={grp.label} className="nav-group">
               <button
+                data-nav-key={navKey ?? undefined}
+                title={navKey ? `${grp.label}: ${grp.children.map(tabLabel).join(' · ')}${keyHint(navKey)}, again for the next page` : undefined}
                 className={`nav-tab ${activeChild ? 'active' : ''} ${open ? 'open' : ''}`}
                 onClick={(e) => {
                   if (open) { setOpenGroup(null); return; }

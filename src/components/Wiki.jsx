@@ -784,6 +784,13 @@ const WIKI = [
         'Check your rivals (Company ▸ Competition, called Rivals in multiplayer) before opening a contested route, undercutting a stronger rival can be a losing battle.',
         'Reputation and loyalty are slow to build but pay off everywhere; invest in them steadily, not in panic.',
       ] },
+      { h: 'Keyboard shortcuts' },
+      { ul: [
+        '**Number keys** open the main pages, numbered left to right as they appear on screen. In the map view: **1** Dashboard, **2**–**8** the bar along the bottom (Search, Network, Fleet and so on), **9** Guide, **0** Settings. In the classic layout: **1**, **2**, **3** … the menu bar, and **0** the pop-up alert settings.',
+        'Press a group\'s number again to move to its next page: in the map view **3**, **3**, **3** steps through Routes, Gates and Hubs.',
+        '**Esc** closes the open page and goes back to the map (map view). **Delete** clears every pop-up.',
+        'Keys do nothing while you are typing in a box or while a dialog is open.',
+      ] },
       { tip: 'You can reopen the quick tutorial any time with the ? button in the top bar. This wiki is here whenever you need the detail.' },
     ],
   },

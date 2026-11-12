@@ -2318,6 +2318,9 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 .ms-menu > button.danger { color: var(--red); }
 .ms-menu-glyph { width: 15px; text-align: center; font-weight: 700; color: var(--text-muted); }
 .ms-menu-sep { height: 1px; background: rgba(255,255,255,.08); margin: 4px 6px; }
+.ms-menu-keys { padding: 6px 10px 4px; max-width: 240px; font-size: 11px; line-height: 1.6; color: var(--text-dim); }
+.ms-menu-keys kbd, .nav-keys-note kbd { font: inherit; font-size: 10px; padding: 0 4px; border: 1px solid rgba(255,255,255,.18); border-bottom-width: 2px; border-radius: 4px; color: var(--text-muted); }
+@media (hover: none) { .ms-menu-keys { display: none; } }
 .ms-menu-seg { display: flex; margin: 2px 6px 6px; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
 .ms-menu-seg button {
   flex: 1; background: none; border: none; color: var(--text-muted); font-size: 12px; padding: 6px 0; cursor: pointer;
