@@ -63,6 +63,21 @@ export const AI_AUTH_PREFIX = 'ai:';
 /** …and its address is on a domain that cannot receive mail (RFC 2606 `.invalid`), in case anything ever mails every account. */
 export const AI_EMAIL_DOMAIN = 'ai.headwinds.invalid';
 
+/**
+ * THE TAG. Every AI airline's name ends with this, in the name itself — not a
+ * badge drawn beside it. A badge has to be remembered by every screen that
+ * shows a name (standings, maps, route competitor lists, the news, alliance
+ * and gate lists, public pages, share cards, and whatever is built next); a
+ * name is shown by all of them already. Players cannot wear it: bracketed
+ * "AI" look-alikes are refused in airline names at join, restart and rename
+ * (worldService.OG_NAME_PATTERN), exactly as OG, DEV and SUPPORTER are.
+ */
+export const AI_NAME_TAG = ' (AI)';
+/** `Global Air` → `Global Air (AI)`. */
+export const aiNameOf = (base) => `${String(base).trim()}${AI_NAME_TAG}`;
+/** Does this airline or account name carry the tag? (A cheap first look; isAiAccount is the proof.) */
+export const hasAiTag = (name) => typeof name === 'string' && name.endsWith(AI_NAME_TAG);
+
 /** Is this account an AI airline's? Works on any row that selected `authUserId` or `email`. */
 export function isAiAccount(account) {
   if (typeof account?.authUserId === 'string') return account.authUserId.startsWith(AI_AUTH_PREFIX);
@@ -94,14 +109,33 @@ const hash = (s) => { let h = 2166136261; for (const c of String(s)) { h ^= c.ch
 const absWeekOf = (world) => (world.currentYear - 1) * 52 + world.currentWeek;
 const toBig = (v) => { const n = Math.round(Number(v)); return BigInt(Number.isFinite(n) ? n : 0); };
 
-/** The account an AI airline of this name plays through — the same one in every world, so it builds a career like anyone. */
+/**
+ * The account an AI airline of this (untagged) name plays through — the same
+ * one in every world. Its display name carries the tag too, and it accepts
+ * direct messages from nobody: there is no one to read them.
+ */
 export async function aiAccountFor(prisma, name) {
   const authUserId = `${AI_AUTH_PREFIX}${slug(name)}`;
   return prisma.account.upsert({
     where: { authUserId },
     update: {},
-    create: { authUserId, email: `${slug(name)}@${AI_EMAIL_DOMAIN}`, displayName: name },
+    create: { authUserId, email: `${slug(name)}@${AI_EMAIL_DOMAIN}`, displayName: aiNameOf(name), dmPolicy: 'NOBODY' },
   });
+}
+
+/**
+ * How many AI airlines are flying in each of these worlds — for the lobby,
+ * which counts PEOPLE against a world's seats. Asks nothing unless one of the
+ * worlds has the option.
+ * @returns {Map<string, number>} worldId → AI airlines (absent = none)
+ */
+export async function aiCountsFor(prisma, worlds) {
+  const ids = (worlds ?? []).filter((w) => aiPresetOf(w)).map((w) => w.id);
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.airline.groupBy({
+    by: ['worldId'], where: { worldId: { in: ids }, status: 'ACTIVE', account: AI_ACCOUNT_WHERE }, _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.worldId, r._count?._all ?? 0]));
 }
 
 // ── Founding ──────────────────────────────────────────────────────────────────
@@ -158,18 +192,19 @@ export async function ensureAiAirlines(prisma, world, { seedAirlineState, create
   const hubs = pickAiHubs(world, missing, { taken: new Set(rows.map((r) => r.hub)), seedState: seedAirlineState, preset });
   const usedNames = new Set(rows.map((r) => String(r.name).toLowerCase()));
   const names = COMPETITOR_AIRLINES.map((c) => c.name);
+  const taken = (base) => usedNames.has(base.toLowerCase()) || usedNames.has(aiNameOf(base).toLowerCase());
   let at = hash(world.worldSeed ?? world.id) % names.length;
   let founded = 0;
   for (const hub of hubs) {
     let name = null;
     for (let tries = 0; tries < names.length && !name; tries++, at = (at + 1) % names.length) {
-      if (!usedNames.has(names[at].toLowerCase())) name = names[at];
+      if (!taken(names[at])) name = names[at];
     }
     if (!name) break;
     usedNames.add(name.toLowerCase());
     try {
       const account = await aiAccountFor(prisma, name);
-      await createAirlineRow(prisma, { world, accountId: account.id, airlineName: name, hub });
+      await createAirlineRow(prisma, { world, accountId: account.id, airlineName: aiNameOf(name), hub });
       founded++;
     } catch (err) {
       if (err?.code !== 'P2002') log.warn?.(`[ai] world ${world.id}: could not found ${name} at ${hub}: ${err?.message ?? err}`);

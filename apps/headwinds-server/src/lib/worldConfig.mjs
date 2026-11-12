@@ -430,7 +430,7 @@ export function worldProgress(world) {
 const toNum = (v) => (v == null ? v : Number(v));
 
 // Plain-JSON view of a world for API responses (BigInt-safe, with derivations).
-export function serializeWorld(world, { playerCount, includeJoinCode = false } = {}) {
+export function serializeWorld(world, { playerCount, aiCount = 0, includeJoinCode = false } = {}) {
   return {
     id: world.id,
     name: world.name,
@@ -498,7 +498,9 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     // Kept for one release so a browser tab still running the previous bundle
     // (which reads `alpha`) doesn't lose the chip until it reloads.
     alpha: worldStageOf(world.tickConfig) === 'alpha',
-    playerCount: playerCount ?? world._count?.airlines ?? undefined,
+    // People. AI airlines (lib/aiAirlines.mjs) fly in the world but hold no seat; the routes pass how many there are.
+    playerCount: (() => { const n = playerCount ?? world._count?.airlines; return n == null ? undefined : Math.max(0, n - aiCount); })(),
+    aiAirlineCount: aiCount,
     // Never leak a private world's join code to non-members: only the create
     // response, /me, and member views of /worlds/:id opt in.
     joinCode: includeJoinCode && world.visibility === 'PRIVATE' ? world.joinCode : undefined,

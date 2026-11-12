@@ -23,13 +23,14 @@ import { readFileSync } from 'node:fs';
 import { gameReducer } from '../packages/engine/src/reducer.mjs';
 import {
   AI_PRESETS, AI_SETTINGS, AI_AUTH_PREFIX, AI_EMAIL_DOMAIN, AI_ACCOUNT_WHERE,
+  AI_NAME_TAG, aiNameOf, hasAiTag, aiCountsFor,
   aiPresetOf, isAiAccount, aiAccountFor, ensureAiAirlines, runAiTurns, runAiWeek, playerChecks, humansOnly,
 } from '../apps/headwinds-server/src/lib/aiAirlines.mjs';
-import { createWorld, joinWorld, seedAirlineState, createAirlineRow } from '../apps/headwinds-server/src/lib/worldService.mjs';
+import { createWorld, joinWorld, seedAirlineState, createAirlineRow, OG_NAME_PATTERN } from '../apps/headwinds-server/src/lib/worldService.mjs';
 import { validateWorldConfig, serializeWorld, AI_AIRLINE_SETTINGS } from '../apps/headwinds-server/src/lib/worldConfig.mjs';
 import { runDueTicks } from '../apps/headwinds-server/src/lib/tickService.mjs';
 import { awardTrophy } from '../apps/headwinds-server/src/lib/trophies.mjs';
-import { buildWorldRivalViews, withRivals, stripRivals } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
+import { buildWorldRivalViews, withRivals, stripRivals, isAiEmail } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { joinReport, splitReport } from '../apps/headwinds-server/src/lib/reportColumn.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../apps/headwinds-server/src/world.mjs';
 
@@ -76,6 +77,14 @@ function fakePrisma({ worlds = [] } = {}) {
         return a ? { ...a } : null;
       }),
       count: counted(({ where }) => { db.counts.push(where); return db.airlines.filter((a) => matches(a, where)).length; }),
+      groupBy: counted(({ where }) => {
+        const by = new Map();
+        for (const a of db.airlines) {
+          if (!where.worldId.in.includes(a.worldId) || a.status !== where.status || !startsWith(accountOf(a)?.authUserId, where.account.authUserId)) continue;
+          by.set(a.worldId, (by.get(a.worldId) ?? 0) + 1);
+        }
+        return [...by].map(([worldId, n]) => ({ worldId, _count: { _all: n } }));
+      }),
       create: counted(({ data }) => {
         if (db.airlines.some((a) => a.worldId === data.worldId && a.accountId === data.accountId)) throw p2002();
         const row = { id: id('air'), version: 0, report: null, customLogo: null, restarts: 0, ...data };
@@ -187,6 +196,9 @@ await t('an AI account cannot be signed in to or mailed, and is the same one in 
   assert.equal(a.id, b.id); assert.equal(prisma._db.accounts.length, 1);
   assert.ok(a.authUserId.startsWith(AI_AUTH_PREFIX) && a.email.endsWith(`@${AI_EMAIL_DOMAIN}`) && AI_EMAIL_DOMAIN.endsWith('.invalid'));
   assert.ok(isAiAccount(a)); assert.ok(isAiAccount({ email: a.email }), 'a row that only selected the email must still be recognised');
+  assert.equal(a.displayName, 'Global Air (AI)', 'the account\'s own name must carry the tag too');
+  assert.equal(a.dmPolicy, 'NOBODY', 'an AI account must not accept direct messages — nobody reads them');
+  assert.ok(isAiEmail(a.email) && !isAiEmail('dave@example.com'), 'humanRivals.isAiEmail and aiAirlines.AI_EMAIL_DOMAIN have drifted apart');
   assert.ok(!isAiAccount({ authUserId: 'f3b1c0de-uuid', email: 'dave@example.com' }) && !isAiAccount({ email: 'ai@example.com' }) && !isAiAccount(null));
 });
 
@@ -223,6 +235,59 @@ await t('founding happens once: not again the same week, and never later', async
   assert.equal(p2._db.airlines.length, 0);
   const lobby = baseWorld({ id: 'w-lobby', status: 'LOBBY' });
   assert.deepEqual(await ensureAiAirlines(fakePrisma({ worlds: [lobby] }), lobby, deps), { founded: 0 });
+});
+
+console.log('\nthe AI tag');
+await t('every AI airline\'s NAME ends with the tag — the row, the save and the account', () => {
+  assert.equal(AI_NAME_TAG, ' (AI)'); assert.equal(aiNameOf('Global Air'), 'Global Air (AI)');
+  for (const r of aiRows()) {
+    assert.ok(hasAiTag(r.name), `"${r.name}" is an AI airline with no tag in its name`);
+    assert.equal(r.state.airlineName, r.name, 'the save\'s own name differs from the row\'s');
+    assert.ok(hasAiTag(prisma._db.accounts.find((x) => x.id === r.accountId).displayName));
+    assert.ok(r.name.length <= 40, `"${r.name}" is longer than the 40 characters a name may be`);
+  }
+  assert.ok(!hasAiTag(prisma._db.airlines.find((a) => a.accountId === 'human').name));
+});
+await t('a player cannot wear it: bracketed AI look-alikes are refused in airline names', async () => {
+  for (const fake of ['Fake Air (AI)', 'Fake Air [ai]', 'Fake {A.I}', 'Fake <A I>', '(A1) Fake', 'Fake ( a-i )']) {
+    assert.ok(OG_NAME_PATTERN.test(fake), `"${fake}" would be accepted as a player's airline name`);
+  }
+  for (const fine of ['Air India', 'AI Airways', 'Hawaiian (Maui)', 'Thai (THAI)', 'Samurai Air', 'Air (Aid)']) {
+    assert.ok(!OG_NAME_PATTERN.test(fine), `"${fine}" is refused, and should not be`);
+  }
+  await assert.rejects(() => joinWorld(fakePrisma({ worlds: [world] }), { account: { id: 'me' }, world, airlineName: 'Totally Real (AI)', hub: 'LHR' }), /reserved/);
+});
+await t('every rival sees the flag as well as the name', async () => {
+  const joined = prisma._db.airlines.map((a) => ({ ...a, account: prisma._db.accounts.find((x) => x.id === a.accountId), state: joinReport(a.state, a.report) }));
+  const views = await buildWorldRivalViews(prisma, world.id, { airlines: joined, world });
+  const human = joined.find((a) => a.accountId === 'human');
+  const rivals = views.get(human.id).competitors ?? [];
+  assert.equal(rivals.length, AI_PRESETS.light.airlines);
+  for (const c of rivals) { assert.equal(c.ai, true, `${c.name} reached a player's screen without the ai flag`); assert.ok(hasAiTag(c.name)); }
+  const seenByAi = views.get(joined.find((a) => a.accountId !== 'human').id).competitors ?? [];
+  assert.equal(seenByAi.find((c) => c.name === 'Player Air')?.ai, false, 'a player was flagged as an AI airline');
+});
+await t('the lobby counts people: AI airlines are reported beside the seats, not in them', async () => {
+  const counts = await aiCountsFor(prisma, [world]);
+  assert.equal(counts.get(world.id), AI_PRESETS.light.airlines);
+  const card = serializeWorld(world, { playerCount: prisma._db.airlines.length, aiCount: counts.get(world.id) });
+  assert.equal(card.playerCount, 1); assert.equal(card.aiAirlineCount, AI_PRESETS.light.airlines);
+  const plain = fakePrisma();
+  assert.equal((await aiCountsFor(plain, [baseWorld({ tickConfig: {} })])).size, 0);
+  assert.equal(plain._db.calls, 0, 'a world without AI airlines cost a query to count them');
+  assert.equal(serializeWorld(baseWorld({ tickConfig: {} }), { playerCount: 7 }).playerCount, 7);
+});
+
+await t('the lobby says so: a world tag, the count beside the seats, and an admin-only switch on the create form', () => {
+  const app = readFileSync(new URL('../apps/headwinds-web/src/App.jsx', import.meta.url), 'utf8');
+  assert.match(app, /key: 'ai',\s*on: \(w\) => w\.aiAirlines != null/, 'the world feature tags have no AI airlines entry');
+  assert.match(app, /\.\.\.\(admin && aiAirlines !== 'off' \? \{ aiAirlines \} : \{\}\)/, 'the create form must send aiAirlines only for an admin who chose it');
+  assert.match(app, /\{admin && \(\s*<label[^>]*>AI airlines/, 'the AI airlines control must be inside an admin-only block');
+  assert.ok(app.includes('w.aiAirlineCount > 0') && app.includes('world.aiAirlineCount > 0'), 'the seat counts do not mention the AI airlines beside them');
+});
+await t('nobody can message an AI airline: the route refuses, and it checks the account, not just the name', () => {
+  const src = readFileSync(new URL('../apps/headwinds-server/src/routes/messages.mjs', import.meta.url), 'utf8');
+  assert.match(src, /if \(hasAiTag\(target\.name\)\) \{[\s\S]{0,260}isAiAccount\(owner\)\) throw httpError\(400/, 'POST /worlds/:id/messages no longer refuses an AI airline');
 });
 
 console.log('\ntheir turn');

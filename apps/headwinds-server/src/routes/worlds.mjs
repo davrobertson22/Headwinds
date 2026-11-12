@@ -1,9 +1,10 @@
 // /worlds — browse, view, create, join, and leave worlds.
+import { aiCountsFor } from '../lib/aiAirlines.mjs';
 import { requireAuth, requireAdmin, optionalAccount, isAdmin } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { createWorld, joinWorld } from '../lib/worldService.mjs';
 import { restartAirline, MAX_RESTARTS } from '../lib/restartService.mjs';
-import { isDevEmail } from '../lib/humanRivals.mjs';
+import { isDevEmail, isAiEmail } from '../lib/humanRivals.mjs';
 import { logoPathOf, tailPathOf } from '../lib/logoColumn.mjs';
 // The public-move allowlist and payload scrubber are shared with the news feed
 // (lib/newsService.mjs) — one definition of "what a rival may see", not two.
@@ -89,13 +90,14 @@ export default async function worldRoutes(fastify) {
         orderBy: { createdAt: 'desc' },
         take: 50,
       });
-      events = privateLive
-        .filter((w) => eventOf(w.tickConfig))
-        .map((w) => serializeWorld(w, { playerCount: w._count.airlines }));
+      const eventWorlds = privateLive.filter((w) => eventOf(w.tickConfig));
+      const aiInEvents = await aiCountsFor(prisma, eventWorlds);
+      events = eventWorlds.map((w) => serializeWorld(w, { playerCount: w._count.airlines, aiCount: aiInEvents.get(w.id) ?? 0 }));
     }
+    const aiIn = await aiCountsFor(prisma, worlds);
     return {
       worlds: worlds.map((w) => ({
-        ...serializeWorld(w, { playerCount: w._count.airlines }),
+        ...serializeWorld(w, { playerCount: w._count.airlines, aiCount: aiIn.get(w.id) ?? 0 }),
         ...(status === 'ENDED' ? { champion: championByWorld.get(w.id) ?? null } : {}),
       })),
       ...(events ? { events } : {}),
@@ -114,6 +116,8 @@ export default async function worldRoutes(fastify) {
       include: { _count: { select: { airlines: { where: { status: 'ACTIVE' } } } } },
     });
     if (!world) return reply.code(404).send({ error: 'No such world' });
+    // AI airlines fly here but hold no seat: the card counts people (asks nothing in a world without them).
+    const aiCount = (await aiCountsFor(prisma, [world])).get(world.id) ?? 0;
 
     // ── Private worlds: the CARD is public, the STANDINGS are not ────────────
     // This page is where the join form lives, so a 404 here would make a private
@@ -134,7 +138,7 @@ export default async function worldRoutes(fastify) {
       : false;
     if (!mayReadWorld(world, { account: viewer, isMember: viewerIsMember })) {
       return {
-        world: serializeWorld(world, { playerCount: world._count.airlines, includeJoinCode: false }),
+        world: serializeWorld(world, { playerCount: world._count.airlines, aiCount, includeJoinCode: false }),
         standings: [],
         private: true,
       };
@@ -144,7 +148,7 @@ export default async function worldRoutes(fastify) {
     // password. `supporterLapsed` is what the web client keys its warning on.
     if (!mayUseSupporterWorld(world, viewer, { admin: isAdmin(viewer) })) {
       return {
-        world: serializeWorld(world, { playerCount: world._count.airlines, includeJoinCode: false }),
+        world: serializeWorld(world, { playerCount: world._count.airlines, aiCount, includeJoinCode: false }),
         standings: [],
         private: true,
         supporterLapsed: true,
@@ -286,6 +290,7 @@ export default async function worldRoutes(fastify) {
     return forViewer(viewer, {
       world: serializeWorld(world, {
         playerCount: world._count.airlines,
+        aiCount,
         includeJoinCode: isMember,
       }),
       ...(allianceTable ? { allianceStandings: allianceTable } : {}),
@@ -355,6 +360,7 @@ export default async function worldRoutes(fastify) {
         og: a.og === true,
         sup: a.sup === true,
         dev: isDevEmail(a.email),
+        ai: isAiEmail(a.email),
         // Most recent player move (null if none yet this generation).
         lastMoveAt: lastMoveByAirline.get(a.id) ?? null,
       })),
@@ -477,6 +483,7 @@ export default async function worldRoutes(fastify) {
         og: airline.account?.isOG === true,
         sup: airline.account?.isSupporter === true,
         dev: isDevEmail(airline.account?.email),
+        ai: isAiEmail(airline.account?.email),
       },
       hubs: Object.keys(s.hubs ?? {}),
       alliance: membership?.status === 'ACTIVE' ? membership.alliance.name : null,

@@ -10,6 +10,7 @@
 // both channels, and a block list — a blocked sender gets a clear 403 rather
 // than shadow-dropped mail (an airline that won't deal with you is itself
 // information in a competition game).
+import { hasAiTag, isAiAccount } from '../lib/aiAirlines.mjs';
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { isDevEmail } from '../lib/humanRivals.mjs';
@@ -197,6 +198,12 @@ export default async function messageRoutes(fastify) {
 
     const target = await prisma.airline.findUnique({ where: { id: request.body.toAirlineId } });
     if (!target || target.worldId !== me.worldId) throw httpError(404, 'No such airline in this world');
+    // An AI airline (lib/aiAirlines.mjs) has nobody to read it. The name tag is
+    // the cheap first look, so a message between players costs no extra query.
+    if (hasAiTag(target.name)) {
+      const owner = await prisma.account.findUnique({ where: { id: target.accountId }, select: { authUserId: true } });
+      if (isAiAccount(owner)) throw httpError(400, 'That airline is run by the game — there is nobody to read a message.');
+    }
 
     const [blockedByThem, blockedByMe] = await Promise.all([
       prisma.messageBlock.findUnique({

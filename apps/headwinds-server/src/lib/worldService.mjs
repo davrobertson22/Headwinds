@@ -283,7 +283,7 @@ export async function createWorld(prisma, {
 // EVERYONE (real OGs/devs/supporters get the rendered chip; it never lives in a
 // name). The constant keeps its original name because it is imported in four
 // places and in the test suite — it has covered more than OG since DEV landed.
-export const OG_NAME_PATTERN = /[[({<][\s._\-]*(?:[O0][\s._\-]*G|D[\s._\-]*[E3][\s._\-]*V|S[\s._\-]*U[\s._\-]*P(?:[\s._\-]*P[\s._\-]*[O0][\s._\-]*R[\s._\-]*T[\s._\-]*[E3][\s._\-]*R)?)[\s._\-]*[\])}>]/i;
+export const OG_NAME_PATTERN = /[[({<][\s._\-]*(?:[O0][\s._\-]*G|A[\s._\-]*[I1]|D[\s._\-]*[E3][\s._\-]*V|S[\s._\-]*U[\s._\-]*P(?:[\s._\-]*P[\s._\-]*[O0][\s._\-]*R[\s._\-]*T[\s._\-]*[E3][\s._\-]*R)?)[\s._\-]*[\])}>]/i;
 
 // ── Seeding an opening position ──────────────────────────────────────────────
 // The exact solo-game opening, rebased onto a live world's calendar and economy.
@@ -523,7 +523,7 @@ export async function createAirlineRow(prisma, { world, accountId, airlineName, 
 // world lifecycle, and one-airline-per-account-per-world.
 export async function joinWorld(prisma, { account, world, airlineName, hub, joinCode }) {
   if (OG_NAME_PATTERN.test(airlineName ?? '')) {
-    throw httpError(400, 'OG, DEV and SUPPORTER tags are reserved — they appear automatically as badges, not in the airline name.');
+    throw httpError(400, 'OG, DEV, SUPPORTER and AI tags are reserved — the game adds them itself; they cannot go in an airline name.');
   }
   if (world.status === 'ENDED' || world.status === 'ARCHIVED') {
     throw httpError(409, 'This world has ended');

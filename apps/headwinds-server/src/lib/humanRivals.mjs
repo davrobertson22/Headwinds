@@ -82,6 +82,8 @@ const devEmails = () => (process.env.ADMIN_EMAILS ?? '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
+/** An AI airline's account, by its address (aiAirlines.AI_EMAIL_DOMAIN — repeated here because aiAirlines.mjs imports this file). */
+export const isAiEmail = (email) => typeof email === 'string' && email.endsWith('@ai.headwinds.invalid');
 export const isDevEmail = (email) => devEmails().includes((email ?? '').trim().toLowerCase());
 
 const DEFAULT_QUALITY = 62;
@@ -415,6 +417,8 @@ export function toHumanCompetitor(airlineRow, { allianceId = null, allianceName 
     sup: airlineRow.account?.isSupporter === true,
     // DEV badge — this rival is one of the game's operators (ADMIN_EMAILS).
     dev: isDevEmail(airlineRow.account?.email),
+    // Run by the game's bot (lib/aiAirlines.mjs). Its name carries the tag; this is for screens that want to say more.
+    ai: isAiEmail(airlineRow.account?.email),
     name: airlineRow.name ?? s.airlineName ?? 'Rival Airline',
     homeHub: airlineRow.hub ?? s.hub ?? null,
     // DESIGNATED hubs, code → { tier } (HUB_CONNECTIVITY_PLAN.md Phase 5). The

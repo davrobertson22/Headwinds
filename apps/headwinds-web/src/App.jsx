@@ -398,6 +398,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [loyaltyPools, setLoyaltyPools] = useState(true);
   const [hubBanks, setHubBanks] = useState(true);
   const [customCatering, setCustomCatering] = useState(true);
+  // AI airlines (server lib/aiAirlines.mjs) — admin worlds only, off unless chosen.
+  const [aiAirlines, setAiAirlines] = useState('off');
   // Recalibrated passenger demand (demand model v2) — on by default (the server defaults it on too).
   const [demandV2, setDemandV2] = useState(true);
   // Market development — on by default (the server defaults it on too).
@@ -484,6 +486,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           hubBanks,
           // Always explicit: the server treats an absent field as ON.
           customCatering,
+          // Only sent when chosen: the server writes no key otherwise, and refuses it from anyone but an admin.
+          ...(admin && aiAirlines !== 'off' ? { aiAirlines } : {}),
           ...(productionLines && normalizeLineRates(lineRates) ? { productionLineRates: normalizeLineRates(lineRates) } : {}),
           ...(stage !== 'beta' ? { stage } : {}),
           ...(Number.isInteger(startYear) ? { startYear } : {}),
@@ -787,6 +791,22 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             stay available.
           </span>
         </label>
+        {admin && (
+          <label style={{ alignItems: 'flex-start' }}>AI airlines
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <select value={aiAirlines} onChange={(e) => setAiAirlines(e.target.value)}>
+                <option value="off">Off</option>
+                <option value="light">Light — 8 cautious airlines</option>
+              </select>
+              <span className="muted">{aiAirlines === 'off' ? 'Off (default) — players only' : 'ON — founded when the world starts'}</span>
+            </span>
+            <span className="muted small">
+              Airlines run by the game, on the same rules and actions as a player's. Their names end
+              in (AI). They take gates and delivery slots like anyone, but no player seat, trophy or
+              podium place. On trial: admin worlds only.
+            </span>
+          </label>
+        )}
         <label style={{ alignItems: 'flex-start' }}>Gate scarcity
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={gateScarcity}
@@ -920,6 +940,14 @@ function AdminWorldsManager({ token }) {
 // different visual languages on desktop. One shape, one place to add the next
 // one, and a legend under the list that says what each actually does.
 const WORLD_FEATURES = [
+  {
+    key: 'ai',
+    on: (w) => w.aiAirlines != null,
+    icon: '🤖',
+    label: (w) => (w?.aiAirlineCount > 0 ? `${w.aiAirlineCount} AI airlines` : 'AI airlines'),
+    rgb: '150,160,175',
+    blurb: 'Some airlines in this world are run by the game. Each is a real airline on the same costs, demand and actions as yours, with no head start, and its name always ends in (AI). They open routes that pay, grow when they earn and shrink when they do not. They cannot see who is online, away or ahead. They take gates and delivery slots like anyone, but never a player\u2019s seat, a trophy or a podium place.',
+  },
   {
     key: 'era',
     on: (w) => w.startYear != null,
@@ -1158,7 +1186,7 @@ export function WorldCard({ world: w }) {
         <dt>Seats</dt>
         <dd>
           <span className={seatTone === 'hot' ? 'wcard-hot' : undefined}>
-            {w.playerCount} of {w.maxPlayers} taken
+            {w.playerCount} of {w.maxPlayers} taken{w.aiAirlineCount > 0 ? ` · plus ${w.aiAirlineCount} AI` : ''}
           </span>
           <Meter pct={seatPct} tone={seatTone} />
         </dd>
@@ -1681,7 +1709,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
               : (world.startYear != null
                   ? `${world.startYear + world.progress.year - 1} · year ${world.progress.year} of ${world.progress.totalYears}`
                   : `Year ${world.progress.year} of ${world.progress.totalYears}`)} ·
-            {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players
+            {' '}{world.playerCount ?? standings.length}/{world.maxPlayers} players{world.aiAirlineCount > 0 ? ` + ${world.aiAirlineCount} AI airlines` : ''}
             {world.seedCapital != null && <> · start with {fmtMoney(world.seedCapital)}</>}
             {world.event?.endAt && world.status !== 'ENDED' && <> · ends {fmtStartTime(world.event.endAt)}</>}
             {world.joinCode ? <> · {world.supporterWorld ? 'password' : 'join code'}: <code className="join-code">{world.joinCode}</code></> : null}

@@ -16,7 +16,7 @@
 // counts any world both accounts ever flew in — finished seasons included.
 import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
-import { isDevEmail } from '../lib/humanRivals.mjs';
+import { isDevEmail, isAiEmail } from '../lib/humanRivals.mjs';
 import { displayNameOf } from '../lib/username.mjs';
 import {
   ACCOUNT_MESSAGE_MAX_LENGTH, ACCOUNT_MESSAGE_RATE_LIMIT_PER_HOUR,
@@ -50,6 +50,7 @@ const counterpartOf = (a) => ({
   og: a.isOG === true,
   sup: a.isSupporter === true,
   dev: isDevEmail(a.email), // email compared server-side only, never emitted
+  ai: isAiEmail(a.email),
 });
 
 export default async function accountMessageRoutes(fastify) {

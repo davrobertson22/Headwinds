@@ -23,7 +23,7 @@ import { requireAuth } from '../auth.mjs';
 import { prisma } from '../db.mjs';
 import { normalizeCareer, publicCareer } from '../lib/career.mjs';
 import { awardsForAccount } from '../lib/trophies.mjs';
-import { isDevEmail } from '../lib/humanRivals.mjs';
+import { isDevEmail, isAiEmail } from '../lib/humanRivals.mjs';
 import { logoPathOf, tailPathOf } from '../lib/logoColumn.mjs';
 import { dmRefusal } from '../lib/accountMessaging.mjs';
 import { sharesWorld } from './accountMessages.mjs';
@@ -149,6 +149,7 @@ export default async function playerRoutes(fastify) {
         isSupporter: account.isSupporter === true,
         // The email itself never leaves the server — only this comparison.
         dev: isDevEmail(account.email),
+        ai: isAiEmail(account.email),
         memberSince: account.createdAt,
         // Does the VIEWER's DM to this player currently pass the policy? Drives
         // whether the profile shows an active Message button (see PlayerProfile).
