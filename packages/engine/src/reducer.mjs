@@ -1548,6 +1548,62 @@ export function cometWithdrawn(state, typeId) {
     || (cy === COMET_GROUNDING.calendarYear && (state?.week ?? 1) >= COMET_GROUNDING.week);
 }
 
+// What cancelling `order` returns, for the bulk cancel: the single
+// CANCEL_ORDER's terms (tools/bulk-cancel-orders-test.mjs holds the two to the
+// same refund, order by order). Production-line worlds use the line's terms
+// (forfeit by nearness, launch frames firm); everything else the classic ones
+// (95% of a purchase back, a lease deposit in full).
+export function orderCancelRefund(state, order) {
+  if (state?.productionLinesWorld === true && !order?.used) {
+    const t = cancelTerms(order, absoluteWeek(state.year, state.week));
+    return { allowed: t.allowed, refund: t.refund, forfeit: t.forfeit, reason: t.reason, lines: true };
+  }
+  const owned  = order?.ownershipType === 'owned';
+  const refund = owned ? Math.round((order?.totalPrice ?? 0) * 0.95) : (order?.leaseDeposit ?? 0);
+  return { allowed: true, refund, forfeit: owned ? (order?.totalPrice ?? 0) - refund : 0, reason: null, lines: false };
+}
+
+// Cancel several orders at once. Firm orders (launch-customer frames) stay on
+// the book and the toast says how many; the rest go on their own terms.
+function cancelOrdersBulk(state, ids) {
+  const want = new Set(ids);
+  const targets = (state.pendingOrders ?? []).filter(o => want.has(o.id));
+  if (targets.length === 0) return state;
+  const gone = new Set();
+  let refund = 0, forfeit = 0, firm = 0, lines = false;
+  for (const o of targets) {
+    const t = orderCancelRefund(state, o);
+    if (!t.allowed) { firm++; continue; }
+    gone.add(o.id);
+    refund += t.refund;
+    forfeit += t.forfeit;
+    lines = lines || t.lines;
+  }
+  const firmNote = firm > 0
+    ? ` ${firm} launch-customer order${firm === 1 ? ' is' : 's are'} firm and stay${firm === 1 ? 's' : ''} on the book.`
+    : '';
+  if (gone.size === 0) {
+    return {
+      ...state,
+      pendingToasts: [...(state.pendingToasts ?? []),
+        { type: 'warning', icon: '🔒', title: 'Orders are firm', message: firmNote.trim() }],
+    };
+  }
+  const n = gone.size;
+  const money = forfeit > 0
+    ? `Refunded ${formatMoney(refund)}; ${formatMoney(forfeit)} forfeited.`
+    : `Refunded ${formatMoney(refund)}${refund > 0 ? ' in full' : ''}.`;
+  return {
+    ...state,
+    cash:          state.cash + refund,
+    pendingOrders: (state.pendingOrders ?? []).filter(o => !gone.has(o.id)),
+    pendingToasts: [...(state.pendingToasts ?? []), {
+      type: 'info', icon: '↩', title: 'Orders cancelled',
+      message: `${n} order${n === 1 ? '' : 's'} off the book. ` + money + (lines ? ` The slot${n === 1 ? ' is' : 's are'} back on the line.` : '') + firmNote,
+    }],
+  };
+}
+
 function applyCometGrounding(state) {
   // Frames on order die with the type: a purchase order is refunded in full
   // (the manufacturer has nothing to deliver), a lease order returns its
@@ -2681,7 +2737,18 @@ function reducer(state, action) {
     }
 
     case 'CANCEL_ORDER': {
-      const order = (state.pendingOrders ?? []).find(o => o.id === action.orderId);
+      // action: { orderId } or { orderIds: [...] }. A list cancels in one move
+      // (Discord 2026-11-12, "bulk cancel aircraft orders"): each order on its
+      // own terms, firm orders kept, one refund and one toast. A list of one
+      // is the single cancel below, word for word.
+      let orderId = action.orderId;
+      if (Array.isArray(action.orderIds)) {
+        const ids = [...new Set(action.orderIds.filter(id => typeof id === 'string' && id))];
+        if (ids.length === 0) return state;
+        if (ids.length > 1) return cancelOrdersBulk(state, ids);
+        orderId = ids[0];
+      }
+      const order = (state.pendingOrders ?? []).find(o => o.id === orderId);
       if (!order) return state;
       // Refund purchase price with a 5% cancellation fee. A lease order refunds
       // its security deposit in FULL: nothing was delivered, so there is nothing
@@ -2704,7 +2771,7 @@ function reducer(state, action) {
         return {
           ...state,
           cash:          state.cash + terms.refund,
-          pendingOrders: (state.pendingOrders ?? []).filter(o => o.id !== action.orderId),
+          pendingOrders: (state.pendingOrders ?? []).filter(o => o.id !== orderId),
           pendingToasts: [...(state.pendingToasts ?? []), {
             type: 'info', icon: '↩', title: `Order cancelled: ${order.name}`,
             message: terms.forfeit > 0
@@ -2719,7 +2786,7 @@ function reducer(state, action) {
       return {
         ...state,
         cash:          state.cash + refund,
-        pendingOrders: (state.pendingOrders ?? []).filter(o => o.id !== action.orderId),
+        pendingOrders: (state.pendingOrders ?? []).filter(o => o.id !== orderId),
       };
     }
 

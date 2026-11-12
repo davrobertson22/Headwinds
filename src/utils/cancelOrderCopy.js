@@ -46,3 +46,38 @@ export function cancelOrderDialog(state, order) {
       : 'Lease orders are free to cancel before delivery.';
   return { allowed: true, title, body, refund, forfeit: owned ? order.totalPrice - refund : 0, reason: null };
 }
+
+/**
+ * The same, for several orders at once (bulk cancel). Each order is quoted on
+ * its own terms by cancelOrderDialog and the figures summed, so the bulk
+ * dialog cannot promise a refund the single dialog would not. Firm orders are
+ * counted and left out: CANCEL_ORDER keeps them on the book.
+ * { count, firm, allowed, title, body, refund, forfeit, ids }
+ */
+export function cancelOrdersDialog(state, orders) {
+  let refund = 0, forfeit = 0, firm = 0;
+  const ids = [];
+  for (const o of orders ?? []) {
+    const d = cancelOrderDialog(state, o);
+    if (!d.allowed) { firm++; continue; }
+    ids.push(o.id);
+    refund += d.refund;
+    forfeit += d.forfeit;
+  }
+  const count = ids.length;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const title = `Cancel ${plural(count, 'order')}?`;
+  const firmNote = firm > 0
+    ? ` ${plural(firm, 'launch-customer order')} ${firm === 1 ? 'is' : 'are'} firm and will stay on the book.`
+    : '';
+  if (count === 0) {
+    return { count, firm, allowed: false, title, body: firmNote.trim() || 'No orders selected.', refund: 0, forfeit: 0, ids };
+  }
+  const lines = state?.productionLinesWorld === true;
+  const body = (forfeit > 0
+    ? `You get ${formatMoney(refund)} back and lose ${formatMoney(forfeit)} in cancellation fees and forfeits.`
+    : `You get ${formatMoney(refund)} back in full.`)
+    + (lines ? ` The slots go back on the line for anyone to take.` : '')
+    + firmNote;
+  return { count, firm, allowed: true, title, body, refund, forfeit, ids };
+}

@@ -42,7 +42,7 @@ const RULES = [
   ['maintenance', /mechanical failure|written off|back in service|\bcheck\b|forced grounding|reserve dispatched|\bcover (complete|made permanent)|no cover for/i],
   ['events',      /objective complete|board mandate|\bcomet\b|this era|this event|randomi[sz]ed world|— ended$/i],
   ['rivals',      /\bentered\b|backed off|contesting|new entrant|consolidation|collapses|in trouble|ceases operations|competes for your freight|fare war|competitor|codeshare|^\W*acquired\b|delisted|\brival/i],
-  ['fleet',       /deliver|\border\b|launch customer|\blease|wi-?fi|wingtips|conversion|\breplaces?\b|waiting to replace|take over from|nothing to replace|out of range|not on this aircraft|replacement cleared/i],
+  ['fleet',       /deliver|\borders?\b|launch customer|\blease|wi-?fi|wingtips|conversion|\breplaces?\b|waiting to replace|take over from|nothing to replace|out of range|not on this aircraft|replacement cleared/i],
   ['finance',     /cash|weeks negative|\bloan\b|dividend|buyback|share offering|on the exchange|hedge|refinery|collateral|fuel farm|consortium seat/i],
   ['operations',  /lounge|jet base|\bbase\b|upgraded|ground station|complete —|catering|contract|partner|frustrated|renewed for|\bgates?\b|auction|alliance slots|flights cut|strike|\bcrew\b|\bstaff\b|seasonal route|started$|loyalty|elite requalification|devalu|status match|meltdown/i],
 ];

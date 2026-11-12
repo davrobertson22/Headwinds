@@ -102,8 +102,9 @@ export function publicPayload(d) {
   const quantity = Number.isFinite(p.quantity)
     ? Math.max(1, Math.min(maxQty, Math.round(p.quantity)))
     : null;
+  // A bulk cancel takes up to 500 orders off the book (the guard's batch).
   const cancelled = Number.isFinite(p.cancelled) && p.cancelled > 0
-    ? Math.min(100, Math.round(p.cancelled))
+    ? Math.min(500, Math.round(p.cancelled))
     : null;
   const byType = typeCounts(p.byType);
   const origin      = airportish(p.origin);
@@ -223,7 +224,7 @@ export function isPublicDecision(d) {
 //                                  tails (multiplayer starter deliveries skip
 //                                  the book and land straight in the fleet)
 //   SELL / RETIRE (single + bulk)  tails that left the active fleet, by type
-//   CANCEL_ORDER                   the frames on the order that is now gone
+//   CANCEL_ORDER                   the frames on the order(s) now gone, by type
 // A decision that moved no frames is not a move (`moved: false`) and is
 // journalled as a no-op, whatever else its state change was.
 const FLEET_MOVES = new Set([
@@ -257,11 +258,25 @@ export function withFleetFacts(type, journalled, before, after) {
   }
 
   if (type === 'CANCEL_ORDER') {
-    const order = (before?.pendingOrders ?? []).find((o) => o?.id === journalled.orderId);
-    const gone = order && !(after?.pendingOrders ?? []).some((o) => o?.id === order.id);
-    return gone
-      ? { journalled: { ...journalled, typeId: order.typeId, cancelled: order.quantity ?? 1, executed: true }, moved: true }
-      : { journalled, moved: false };
+    // One order (orderId) or a bulk cancel (orderIds). Count only what left
+    // the book: firm launch orders in a bulk cancel stay on it.
+    const asked = new Set(Array.isArray(journalled.orderIds) ? journalled.orderIds : [journalled.orderId]);
+    const still = new Set((after?.pendingOrders ?? []).map((o) => o?.id));
+    const gone = (before?.pendingOrders ?? []).filter((o) => o && asked.has(o.id) && !still.has(o.id));
+    if (gone.length === 0) return { journalled, moved: false };
+    const byType = {};
+    for (const o of gone) byType[o.typeId] = (byType[o.typeId] ?? 0) + (o.quantity ?? 1);
+    const types = Object.keys(byType);
+    const cancelled = Object.values(byType).reduce((a, b) => a + b, 0);
+    return {
+      journalled: {
+        ...journalled,
+        ...(types.length === 1 ? { typeId: types[0] } : { byType }),
+        cancelled,
+        executed: true,
+      },
+      moved: true,
+    };
   }
 
   // Disposals: tails that were active before and are not now.

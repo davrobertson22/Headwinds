@@ -276,8 +276,9 @@ function composeGroup(g) {
     for (const m of members) {
       const p = m.payload;
       if (m.type === 'CANCEL_ORDER') {
-        const t = p.typeId ?? 'unknown';
-        net[t] = (net[t] ?? 0) - (p.cancelled ?? 1);
+        // A bulk cancel across types carries byType; one type, typeId.
+        const counts = p.byType ?? { [p.typeId ?? 'unknown']: p.cancelled ?? 1 };
+        for (const [t, n] of Object.entries(counts)) net[t] = (net[t] ?? 0) - n;
         continue;
       }
       const counts = p.byType ?? { [p.typeId ?? 'unknown']: p.quantity ?? 1 };

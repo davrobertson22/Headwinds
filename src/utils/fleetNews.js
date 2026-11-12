@@ -77,7 +77,9 @@ export function describeFleetMove(m, typeName) {
     case 'SELL_AIRCRAFT_BULK':   return `Sold ${one()}`;
     case 'RETIRE_AIRCRAFT':
     case 'RETIRE_AIRCRAFT_BULK': return `Retired ${one()}`;
-    case 'CANCEL_ORDER':         return `Cancelled an order for ${frames(p.cancelled ?? 1, p.typeId, typeName)}`;
+    case 'CANCEL_ORDER':         return p.byType
+      ? `Cancelled orders for ${framesList(p.byType, typeName)}`
+      : `Cancelled an order for ${frames(p.cancelled ?? 1, p.typeId, typeName)}`;
     default:                     return null;
   }
 }

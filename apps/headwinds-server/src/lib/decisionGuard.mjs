@@ -153,6 +153,19 @@ function guardSetOrderCabin(payload, state) {
   return { orderIds: ids, config };
 }
 
+// Cancel one order or several (bulk cancel). Ids only: the refund is the
+// reducer's, worked out from the server's own order book.
+function guardCancelOrder(payload) {
+  if (Array.isArray(payload.orderIds)) {
+    if (payload.orderIds.length > 500) throw new GuardError('Too many orders in one batch.');
+    const ids = [...new Set(payload.orderIds.filter(isShortId))];
+    if (ids.length === 0) throw new GuardError('No orders selected.');
+    return { orderIds: ids };
+  }
+  if (!isShortId(payload.orderId)) throw new GuardError('Invalid order.');
+  return { orderId: payload.orderId };
+}
+
 function guardOrderAircraft(payload) {
   // Bound the order size (the reducer also clamps to 100) — reject absurd values early.
   if (payload.quantity != null) {
@@ -920,6 +933,7 @@ export function guardDecision(type, payload, state) {
     case 'CONFIGURE_AIRCRAFT': return guardConfigureAircraft(payload, state);
     case 'CONFIGURE_AIRCRAFT_BULK': return guardConfigureAircraftBulk(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
+    case 'CANCEL_ORDER':          return guardCancelOrder(payload);
     case 'SET_ORDER_REPLACEMENT': return guardSetOrderReplacement(payload);
     case 'SET_ORDER_CABIN':       return guardSetOrderCabin(payload, state);
     case 'SET_TYPE_REPLACEMENT':  return guardSetTypeReplacement(payload);
